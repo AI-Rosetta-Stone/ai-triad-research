@@ -26,6 +26,8 @@ const SEVERITY_ADD_RE = /(['"])error\1|:\s*2\b/;
 const PSD1_ERROR_RE = /\bError\b/;
 const RULE_KEY_RE = /['"]([\w./-]+)['"]\s*:/;
 const CONTINUE_ON_ERROR_RE = /^\s*continue-on-error:\s*true\s*$/;
+const TEST_FILE_RE = /\.test\.|__tests__\//;
+const COMMENT_LINE_RE = /^\s*(\/\/|\/\*|\*|#)/;
 
 export function extractTier(body) {
   if (!body) return null;
@@ -105,12 +107,14 @@ export function checkR2c(lintDiffs, config) {
 
     const removedErrorKeys = new Set();
     for (const line of d.removedLines) {
+      if (COMMENT_LINE_RE.test(line)) continue;
       if (!severityRe.test(line)) continue;
       const km = RULE_KEY_RE.exec(line);
       removedErrorKeys.add(km ? km[1] : `__line__:${line.trim()}`);
     }
 
     for (const line of d.addedLines) {
+      if (COMMENT_LINE_RE.test(line)) continue;
       if (!severityRe.test(line)) continue;
       const km = RULE_KEY_RE.exec(line);
       const key = km ? km[1] : `__line__:${line.trim()}`;
@@ -124,7 +128,7 @@ export function checkR2c(lintDiffs, config) {
 /** @param {string[]} paths @param {string|null} schemaChange @param {string|null} tier
  *  @param {{schemaDirPrefixes: string[]}} config */
 export function checkR3(paths, schemaChange, tier, config) {
-  const hits = paths.filter((p) => config.schemaDirPrefixes.some((pre) => p.startsWith(pre)));
+  const hits = paths.filter((p) => config.schemaDirPrefixes.some((pre) => p.startsWith(pre)) && !TEST_FILE_RE.test(p));
   if (hits.length === 0) return null;
   if (!schemaChange) return { kind: 'missing_line', path: hits[0] };
   if (schemaChange === 'breaking' && tier !== 'T2') return { kind: 'breaking_no_t2', path: hits[0] };

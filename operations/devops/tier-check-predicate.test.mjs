@@ -95,6 +95,26 @@ test('R2c: a new rule added at warn stays T0 (no fire)', () => {
   assert.equal(checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines: [] }], CONFIG), null);
 });
 
+test('R2c: #2790 real fixture — a comment line mentioning "error" is NOT flagged', () => {
+  const addedLines = [
+    '      // Flashing-console prevention (t/3914, t/3922): child_process calls need windowsHide: true.',
+    "      // Warn-first; promotion to 'error' is a new blocking gate and needs a Second Opinion.",
+    "      'local/require-windows-hide': 'warn',",
+  ];
+  assert.equal(checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines: [] }], CONFIG), null);
+});
+
+test('R2c: the #2903 const fixture still fires after the comment-skip change', () => {
+  const addedLines = [
+    "const COMPLEXITY_BUDGET = ['error', { baseline: 'eslint-rules/lib-complexity-baseline.json', threshold: 15 }];",
+    "      'local/complexity-budget': COMPLEXITY_BUDGET,",
+  ];
+  const removedLines = ["      'complexity': ['warn', { max: 15 }],"];
+  const hits = checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines }], CONFIG);
+  assert.ok(hits);
+  assert.equal(hits.length, 1);
+});
+
 // ── R3 ───────────────────────────────────────────────────────────────────
 test('R3: additive with no tier requirement; missing line; breaking without T2 fails; breaking with T2 passes', () => {
   assert.equal(checkR3(['lib/schema/foo.json'], 'additive', 'T1', CONFIG), null);
@@ -102,6 +122,13 @@ test('R3: additive with no tier requirement; missing line; breaking without T2 f
   assert.deepEqual(checkR3(['lib/schema/foo.json'], 'breaking', 'T1', CONFIG), { kind: 'breaking_no_t2', path: 'lib/schema/foo.json' });
   assert.equal(checkR3(['lib/schema/foo.json'], 'breaking', 'T2', CONFIG), null);
   assert.equal(checkR3(['lib/debate/foo.ts'], null, null, CONFIG), null);
+});
+
+test('R3: a test file in a schema dir is NOT flagged (real #3075/#3018/#2946/#2933 pattern); a real schema file still is', () => {
+  assert.equal(checkR3(['lib/schema/povTagProposals.test.ts'], null, 'T1', CONFIG), null);
+  assert.equal(checkR3(['lib/schema/pov-tags-cli.closure.test.ts'], null, 'T1', CONFIG), null);
+  assert.equal(checkR3(['lib/schema/__tests__/foo.ts'], null, 'T1', CONFIG), null);
+  assert.deepEqual(checkR3(['lib/schema/povTagProposals.ts'], null, 'T1', CONFIG), { kind: 'missing_line', path: 'lib/schema/povTagProposals.ts' });
 });
 
 // ── R4 ───────────────────────────────────────────────────────────────────
