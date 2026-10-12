@@ -31,6 +31,12 @@ $script:AIApiLastModel = ''
 # (t/1647).
 $script:AIApiCorrelationId = ''
 $script:AIApiLastCorrelationId = ''
+# t/4164 (mirrors lib/ai-client/providers/claude.ts, t/3942): current Claude models (Opus 4.7+,
+# Sonnet 5+, Fable, Haiku 5.5) return 400 "`temperature` is deprecated for this model" for ANY
+# temperature. Per-process, per-ApiModelId memo: the first rejection is WARNed once and recorded
+# here (Invoke-AIApiRequest); New-AIClaudeRequestBody then omits temperature for that model.
+# Deliberately NOT an ai-models.json field: that is a config-schema change (T2).
+$script:ClaudeSamplingRejected = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 
 function Set-AIApiCorrelationId {
     <#
@@ -820,8 +826,9 @@ function New-AIGeminiRequestBody {
 function New-AIClaudeRequestBody {
     <#
     .SYNOPSIS
-        Pure: the Anthropic Messages body. Claude has no JSON mode here: a ResponseSchema is
-        appended to the prompt as an instruction instead.
+        The Anthropic Messages body. Claude has no JSON mode here: a ResponseSchema is
+        appended to the prompt as an instruction instead. Temperature is left out for a model
+        in $script:ClaudeSamplingRejected (t/4164); that memo read is its only module state.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -840,7 +847,9 @@ function New-AIClaudeRequestBody {
             role    = 'user'
             content = $ClaudePrompt
         })
-        temperature = $Temperature
+    }
+    if (-not $script:ClaudeSamplingRejected.Contains([string]$ApiModelId)) {
+        $ClaudeBody['temperature'] = $Temperature
     }
     if ($SystemInstruction) {
         $ClaudeBody['system'] = $SystemInstruction
@@ -1058,6 +1067,69 @@ function Invoke-AIRestWithRetry {
         }
     }
     [pscustomobject]@{ Response = $Response; LastError = $LastError; Attempt = $Attempt }
+}
+
+# t/4164: the 400 body that marks a Claude model's temperature rejection ("`temperature` is
+# deprecated for this model"; "temperature ... not supported"). Narrower than the TS check (any 400
+# body naming temperature), so an unrelated 400 that merely mentions it still fails as a 400.
+$script:ClaudeSamplingRejectionPattern = '(?i)temperature[\s\S]{0,80}?(deprecated|unsupported|not supported)'
+
+function Test-AIClaudeSamplingRejection {
+    <#
+    .SYNOPSIS
+        True when a failed call is a Claude temperature rejection the t/4164 re-send handles: the
+        backend's RequestShape is 'claude', the model is not memoized yet (so the body carried
+        temperature), the status is 400 and the error body matches $script:ClaudeSamplingRejectionPattern.
+        Reads only ErrorDetails.Message (the PS7 HttpClient shape), never the response stream, so
+        Write-AIApiFailure can still read a WebRequest-shape body afterwards.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Backend, [string]$ApiModelId, $LastError)
+    if (-not $LastError -or -not $script:AIBackendProfiles.ContainsKey($Backend)) { return $false }
+    if ($script:AIBackendProfiles[$Backend].RequestShape -ne 'claude') { return $false }
+    if ($script:ClaudeSamplingRejected.Contains($ApiModelId)) { return $false }
+    if ((Get-AIErrorHttpStatus -Exception $LastError.Exception) -ne 400) { return $false }
+    if (-not ($LastError.PSObject.Properties['ErrorDetails'] -and $LastError.ErrorDetails)) { return $false }
+    return ([string]$LastError.ErrorDetails.Message -match $script:ClaudeSamplingRejectionPattern)
+}
+
+function Invoke-AIApiRequest {
+    <#
+    .SYNOPSIS
+        Builds Invoke-AIApi's request (New-AIApiRequest @RequestArgs) and sends it through
+        Invoke-AIRestWithRetry; returns that call's { Response; LastError; Attempt }.
+    .DESCRIPTION
+        t/4164 (mirrors claude.ts, t/3942): when a Claude model rejects temperature with a 400
+        (Test-AIClaudeSamplingRejection), the model is added to $script:ClaudeSamplingRejected, one
+        WARN names it, and the request is rebuilt (New-AIClaudeRequestBody now omits temperature) and
+        re-sent ONCE through a fresh Invoke-AIRestWithRetry, so the re-send does not count against
+        MaxRetries. Later calls to that model omit temperature from the start. The re-send can happen
+        at most once per call: the model is memoized before it, so a second 400 fails normally.
+
+        CallLogger: Invoke-AIApi still logs ONE entry per call. When the re-send happened, the entry
+        carries the re-send's outcome (its status and its own zero-based Attempt index); the rejected
+        first request is not logged separately and is not counted as a retry.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][hashtable]$RequestArgs, [int]$TimeoutSec, [int]$MaxRetries, [int[]]$RetryDelays)
+    $Send = @{ Backend = $RequestArgs.Backend; TimeoutSec = $TimeoutSec; MaxRetries = $MaxRetries; RetryDelays = $RetryDelays }
+    $Request = New-AIApiRequest @RequestArgs
+    $Call = Invoke-AIRestWithRetry @Send -Uri $Request.Uri -Headers $Request.Headers -Body $Request.Body
+    $ApiModelId = [string]$RequestArgs.ApiModelId
+    if (-not (Test-AIClaudeSamplingRejection -Backend $RequestArgs.Backend -ApiModelId $ApiModelId -LastError $Call.LastError)) {
+        return $Call
+    }
+
+    [void]$script:ClaudeSamplingRejected.Add($ApiModelId)
+    $SafeBody = Protect-SensitiveText -Text ([string]$Call.LastError.ErrorDetails.Message) -Secret $RequestArgs.ResolvedKey
+    if ($SafeBody.Length -gt 200) { $SafeBody = $SafeBody.Substring(0, 200) }
+    $Dropped = ([double]$RequestArgs.Temperature).ToString([cultureinfo]::InvariantCulture)
+    Write-Warning "Claude model `"$ApiModelId`" rejected temperature=$Dropped; retrying without it. Later calls to this model omit temperature for the rest of the process. API: $SafeBody"
+
+    $Request = New-AIApiRequest @RequestArgs
+    return Invoke-AIRestWithRetry @Send -Uri $Request.Uri -Headers $Request.Headers -Body $Request.Body
 }
 
 function Invoke-AICallLogHook {
@@ -1616,13 +1688,16 @@ function Invoke-AIApi {
     # -- Build backend-specific request ---------------------------------------
     # t/4135 B1: the per-backend facts live in $script:AIBackendProfiles; New-AIApiRequest builds
     # the URI, headers and JSON body from the backend's row (an unknown backend gets '' / @{} / '').
-    $Request = New-AIApiRequest -Backend $Backend -ApiModelId $ApiModelId -ResolvedKey $ResolvedKey `
-        -Prompt $Prompt -SystemInstruction $SystemInstruction -Temperature $Temperature -MaxTokens $MaxTokens `
-        -JsonMode:$JsonMode -ResponseSchema $ResponseSchema
+    $RequestArgs = @{
+        Backend = $Backend; ApiModelId = $ApiModelId; ResolvedKey = $ResolvedKey; Prompt = $Prompt
+        SystemInstruction = $SystemInstruction; Temperature = $Temperature; MaxTokens = $MaxTokens
+        JsonMode = [bool]$JsonMode; ResponseSchema = $ResponseSchema
+    }
 
     # -- Call API with retry logic (t/4135 B2: Invoke-AIRestWithRetry) ---------
-    $Call = Invoke-AIRestWithRetry -Backend $Backend -Uri $Request.Uri -Headers $Request.Headers -Body $Request.Body `
-        -TimeoutSec $TimeoutSec -MaxRetries $MaxRetries -RetryDelays $RetryDelays
+    # t/4164: Invoke-AIApiRequest builds the request and, for a Claude model that rejects temperature,
+    # re-sends it once without temperature (memoized per model; not counted against MaxRetries).
+    $Call = Invoke-AIApiRequest -RequestArgs $RequestArgs -TimeoutSec $TimeoutSec -MaxRetries $MaxRetries -RetryDelays $RetryDelays
     $Response  = $Call.Response
     $LastError = $Call.LastError
 
