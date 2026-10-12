@@ -134,6 +134,7 @@ jobs:
       bicep-env: ${{ steps.filter.outputs.bicep-env }}
       bicep-resources: ${{ steps.filter.outputs.bicep-resources }}
       schema-drift: ${{ steps.filter.outputs.schema-drift }}
+      verify-config: ${{ steps.filter.outputs.verify-config }}
     steps:
       # push events: paths-filter diffs with local git, so it needs a checkout (PR events use the API).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -303,6 +304,36 @@ jobs:
               - 'lib/schema/**'
               - 'lib/debate/schemas.ts'
               - 'operations/devops/run-schema-drift.ts'
+              - '.github/workflows/ci.yml'
+            # 'verify-config' gates the verify-config job (t/4150, t/4109 root #14). CI never ran
+            # `npm run verify:config` before this (TL grep of ci.yml, origin/main, 10-12). Route
+            # enumeration from reading scripts/Verify-Config.ps1 in full (t/4150#3): every file
+            # whose change can flip the script's $Results (FAIL-capable), plus the WARN-only
+            # lanes' own source files (can never flip the exit code, but are still genuine config
+            # changes worth the warn cycle's visibility).
+            verify-config:
+              - 'ai-models.json'
+              - 'outlets.json'
+              - 'scripts/Verify-Config.ps1'
+              - 'operations/devops/DataRepoHooksVerdict.ps1'
+              - 'tests/Test-AIModelsConfig.Tests.ps1'
+              - 'tests/ModelLiteralLint.Tests.ps1'
+              - 'tests/OutletsKeySetGate.Tests.ps1'
+              - 'tests/OutletKeySetVerdict.Tests.ps1'
+              - 'tests/AIBackendProfiles.Completeness.Tests.ps1'
+              - 'taxonomy-editor/src/server/__tests__/keysValidation.test.ts'
+              - 'taxonomy-editor/src/main/__tests__/modelConfigCache.test.ts'
+              - 'lib/debate/__tests__/configInvariant.test.ts'
+              - 'lib/electron-shared/modelDiscovery.test.ts'
+              - 'taxonomy-editor/src/renderer/hooks/useTaxonomyStore/slices/__tests__/registryCompleteness.test.ts'
+              - 'lib/ai-config/modelLiteralLint.test.ts'
+              - 'lib/ai-config/modelLiteralLint.conformance.test.ts'
+              - 'lib/oped/__tests__/outletsKeySetGate.test.ts'
+              # WARN-only lanes (never flip $Results, included for warn-cycle visibility):
+              - 'lib/ai-client/cache-pricing-cli.ts'
+              - 'lib/ai-client/registry.ts'
+              - 'scripts/CalibrationEpochCheck.ps1'
+              - 'research/comp-linguist/docs/metric-provenance-register.md'
               - '.github/workflows/ci.yml'
 
   test-powershell:
@@ -955,6 +986,54 @@ jobs:
 
       - name: Renderer type-check
         run: bash taxonomy-editor/scripts/check-renderer-tsc.sh
+
+  # ── verify-config: npm run verify:config never ran in CI before this (t/4150, t/4109 root #14) ──
+  # Route enumeration from reading scripts/Verify-Config.ps1 in full (t/4150#3): the `verify-config`
+  # paths filter above covers every FAIL-capable file plus the WARN-only lanes' own sources.
+  # WARN-first per t/4109: continue-on-error: true, and this does NOT join ci-gate's needs yet —
+  # joining is the later T2 blocking-promotion step. Judge the warn phase by annotations/step
+  # outcome, never by the checkmark (continue-on-error always reports success regardless), same
+  # discipline as t/3897's renderer-tsc/missing-scripts measurement.
+  verify-config:
+    needs: [changes]
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.verify-config == 'true')
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install Node dependencies (vitest delegation half) (retry on transient nuget/network failures — t/2975)
+        run: |
+          for i in 1 2 3; do
+            pnpm install --frozen-lockfile --filter taxonomy-editor && break
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
+
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -Force -Scope CurrentUser
+
+      - name: Run verify:config
+        shell: pwsh
+        run: ./scripts/Verify-Config.ps1
 
   # ── contrast-check: static token-contrast ratchet gate (t/2264) ──
   # Catches text reversed out over a tokenized fill that is light in some themes —
