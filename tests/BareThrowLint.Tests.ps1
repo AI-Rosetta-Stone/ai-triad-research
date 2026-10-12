@@ -276,6 +276,17 @@ BeforeAll {
 
     if ($env:BARETHROWLINT_REGEN_BASELINE -eq '1') {
         $prev = if (Test-Path -LiteralPath $script:BaselinePath) { script:Read-BareThrowBaseline -Path $script:BaselinePath } else { @{} }
+        # Lesson #247 (t/4146): a regenerate step must never write an empty scan over the source
+        # of truth. Refuse when the scan saw no files, or saw no offenders while the baseline has some.
+        if ($script:TreeScan.FileCount -eq 0 -or ($script:ObservedCounts.Count -eq 0 -and $prev.Count -gt 0)) {
+            # New-ActionableError is AITriad-private and this file does not import the module, so
+            # the rendered labels are written out directly.
+            throw [System.InvalidOperationException]::new(
+                "Goal: Regenerate the bare-throw baseline`n" +
+                "Error: The scan found $($script:TreeScan.FileCount) file(s) and $($script:ObservedCounts.Count) offending file(s); the baseline has $($prev.Count). NOT written, because an empty scan would wipe it`n" +
+                "Location: tests/BareThrowLint.Tests.ps1 (BARETHROWLINT_REGEN_BASELINE)`n" +
+                "Resolve: Check the scan root ($script:RepoRoot/scripts/AITriad). If every bare throw really was removed, delete the baseline entries by hand and commit that deliberately.")
+        }
         script:Write-BareThrowBaseline -Path $script:BaselinePath -Counts $script:ObservedCounts -Previous $prev
         Write-Warning "bare-throw-lint: REGENERATED $script:BaselinePath from the current tree (BARETHROWLINT_REGEN_BASELINE=1). Review the diff before committing."
     }
