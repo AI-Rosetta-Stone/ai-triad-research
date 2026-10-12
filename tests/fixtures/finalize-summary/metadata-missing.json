@@ -2,7 +2,7 @@
   "scenario": "metadata-missing",
   "transcript": [
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
-    "[Yellow]   │  ⚠ Summary written but metadata update failed: Cannot index into a null array.",
+    "[Yellow]   │  ⚠ Summary written but metadata update failed: <MISSING-METADATA-REASON>",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
   "error": null,

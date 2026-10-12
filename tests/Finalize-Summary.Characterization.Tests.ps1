@@ -636,6 +636,13 @@ Describe 'Finalize-Summary characterization (t/4136)' -Tag 'summarization' {
 
     It 'matches the golden transcript: <Name>' -ForEach $script:Scenarios {
         $actual = script:Invoke-FinalizeScenario $_
+        # metadata-missing: Get-Content on the missing file is non-terminating on Windows (the update then
+        # fails with "Cannot index into a null array") but terminating on Linux CI ("Cannot find path …").
+        # Both mean the same pinned outcome (summary written, metadata stale, Success=$true), so only the
+        # platform-specific reason text is normalized; everything else in the transcript is exact.
+        $actual = [regex]::Replace($actual,
+            "metadata update failed: (Cannot index into a null array\.|Cannot find path '[^']*' because it does not exist\.)",
+            'metadata update failed: <MISSING-METADATA-REASON>')
         script:Compare-Golden "$($_.Name).json" ($actual + "`n")
     }
 
@@ -670,7 +677,7 @@ Describe 'Finalize-Summary characterization (t/4136)' -Tag 'summarization' {
         @{ Name = 'null-factual-claims';         Text = 'Schema: Missing required field: factual_claims' }
         @{ Name = 'summary-write-fails';         Text = 'Failed to write summary: disk full writing summaries/doc-1.json' }
         @{ Name = 'metadata-write-fails';        Text = 'Summary written but metadata update failed: disk full' }
-        @{ Name = 'metadata-missing';            Text = 'Summary written but metadata update failed: Cannot index into a null array' }
+        @{ Name = 'metadata-missing';            Text = 'Summary written but metadata update failed: <MISSING-METADATA-REASON>' }
     ) {
         # Match against the unescaped content (the golden stores file text as JSON-escaped lines).
         $g = [System.IO.File]::ReadAllText((Join-Path $script:GoldenDir "$Name.json")) | ConvertFrom-Json
