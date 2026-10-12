@@ -46,7 +46,7 @@
       "  \"model_info\": {",
       "    \"model\": \"gemini-3.5-flash-lite\",",
       "    \"temperature\": 0.2,",
-      "    \"max_tokens\": 32768,",
+      "    \"max_tokens\": 65536,",
       "    \"extraction_mode\": \"fire\",",
       "    \"taxonomy_filter\": \"rag_per_chunk\",",
       "    \"taxonomy_nodes\": 3,",

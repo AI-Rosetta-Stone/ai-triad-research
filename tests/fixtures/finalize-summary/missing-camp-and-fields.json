@@ -1,7 +1,6 @@
 {
   "scenario": "missing-camp-and-fields",
   "transcript": [
-    "[warning] pov_summaries.safetyist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
     "[Red]   │  ✗ Schema: Missing camp in pov_summaries: skeptic",
     "[Red]   │  ✗ Schema: Missing required field: factual_claims"
   ],

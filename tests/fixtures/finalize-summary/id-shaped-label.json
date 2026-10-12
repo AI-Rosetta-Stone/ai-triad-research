@@ -1,13 +1,9 @@
 {
   "scenario": "id-shaped-label",
   "transcript": [
-    "[warning] pov_summaries.accelerationist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
-    "[warning] pov_summaries.safetyist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
-    "[warning] pov_summaries.skeptic.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
     "[warning] Finalize-Summary: suggested_label 'skp-intentions-003' is node-ID-shaped, not free text -- replaced with a text fallback (t/3915, model=gemini-3.5-flash-lite)",
     "[warning] Finalize-Summary: suggested_label 'sit-12' is node-ID-shaped, not free text -- replaced with a text fallback (t/3915, model=gemini-3.5-flash-lite)",
     "[Yellow]   │  ⚠ ID-shaped suggested_label replaced: 2",
-    "[Red]   │  ✗ Schema: Missing required field: factual_claims",
     "[Gray]   │  points: 0 (0 unmapped)  factual: 0  new_concepts: 3",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -86,9 +82,6 @@
       "      \"concept\": \"Stays as is.\",",
       "      \"reason\": \"novel\"",
       "    }",
-      "  ],",
-      "  \"warnings\": [",
-      "    \"Schema: Missing required field: factual_claims\"",
       "  ]",
       "}",
       ""

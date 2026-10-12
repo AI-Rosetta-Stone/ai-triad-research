@@ -185,6 +185,9 @@ $SnapshotText
     # ── Stage 4: AI extraction ────────────────────────────────────────────────
     $SummaryObject = $null
     $FireStats = $null
+    # The extraction call's output budget (single-shot and FIRE's initial call), returned as MaxTokens
+    # so Finalize-Summary records the value actually used (t/4079).
+    $ExtractionMaxTokens = 32768
     $AiBackend = ''
     $DensityCheck = $null
 
@@ -192,7 +195,7 @@ $SnapshotText
         Write-Verbose "Pipeline: using FIRE iterative extraction"
         $FireResult = Invoke-IterativeExtraction `
             -Prompt $FullPrompt -SystemInstruction $SysInstruction `
-            -Model $Model -ApiKey $ApiKey -Temperature $Temperature
+            -Model $Model -ApiKey $ApiKey -Temperature $Temperature -MaxTokens $ExtractionMaxTokens
 
         $SummaryObject = $FireResult.Summary
         $AiBackend = $FireResult.Backend
@@ -219,7 +222,7 @@ $SnapshotText
                 -Model       $Model `
                 -ApiKey      $ApiKey `
                 -Temperature $Temperature `
-                -MaxTokens   32768 `
+                -MaxTokens   $ExtractionMaxTokens `
                 -JsonMode `
                 -TimeoutSec  600
             $__SsSw.Stop()
@@ -281,7 +284,7 @@ $SnapshotText
         if ($Sniff2.ShouldFire) {
             Write-Verbose "Pipeline AutoFire Stage 2: $($Sniff2.Reason) — re-running with FIRE"
             $FireResult = Invoke-IterativeExtraction `
-                -Prompt $FullPrompt -Model $Model -ApiKey $ApiKey -Temperature $Temperature
+                -Prompt $FullPrompt -Model $Model -ApiKey $ApiKey -Temperature $Temperature -MaxTokens $ExtractionMaxTokens
             if ($FireResult.Summary) {
                 $SummaryObject = $FireResult.Summary
                 $AiBackend = $FireResult.Backend
@@ -387,6 +390,7 @@ $SnapshotText
         UnmappedCount  = $UnmappedCount
         ElapsedSeconds = [Math]::Round($Elapsed.TotalSeconds, 1)
         FireStats      = $FireStats
+        MaxTokens      = $ExtractionMaxTokens
         TaxonomyJson   = $TaxonomyJson
         UsedFire       = [bool]$IterativeExtraction
     }

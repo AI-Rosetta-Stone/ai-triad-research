@@ -141,7 +141,7 @@ function Invoke-DocumentSummary {
     return Finalize-Summary -SummaryObject $PipelineResult.Summary -ThisDocId $ThisDocId `
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed `
-        -TaxonomyJson $PipelineResult.TaxonomyJson `
+        -TaxonomyJson $PipelineResult.TaxonomyJson -MaxTokens $PipelineResult['MaxTokens'] `
         -FireStats $PipelineResult.FireStats -EnablePolarityGate $EnablePolarityGate
 }
 
@@ -234,6 +234,7 @@ function Invoke-ChunkedSummary {
     $FailedChunks = 0
     $ChunkRAGMetrics = [System.Collections.Generic.List[object]]::new()
     $ChunkExtractionStats = @{ TotalPoints = 0; NullNodes = 0; FactualClaims = 0; UnmappedConcepts = 0; PromptChars = 0 }
+    $ChunkMaxTokens = 65536   # every chunk's extraction call; recorded as model_info.max_tokens (t/4079)
 
     for ($i = 0; $i -lt $ChunkCount; $i++) {
         $ChunkNum = $i + 1
@@ -294,7 +295,7 @@ $ChunkText
                 -Model      $Model `
                 -ApiKey     $ApiKey `
                 -Temperature $Temperature `
-                -MaxTokens  65536 `
+                -MaxTokens  $ChunkMaxTokens `
                 -JsonMode `
                 -TimeoutSec 600 `
                 -MaxRetries 3 `
@@ -442,7 +443,7 @@ $ChunkText
     return Finalize-Summary -SummaryObject $SummaryObject -ThisDocId $ThisDocId `
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed -ChunkCount $ChunkCount `
-        -TaxonomyJson $TaxonomyJson -EnablePolarityGate $EnablePolarityGate
+        -TaxonomyJson $TaxonomyJson -MaxTokens $ChunkMaxTokens -EnablePolarityGate $EnablePolarityGate
 }
 
 # ============================================================================
@@ -717,6 +718,9 @@ function Finalize-Summary {
         [int]$ChunkCount = 0,
         [string]$TaxonomyJson = '',
         [object]$FireStats = $null,
+        # The extraction call's MaxTokens, recorded as model_info.max_tokens (t/4079). Both callers pass
+        # it; when it is not passed it is unknown here, so it is recorded as null, not guessed.
+        [object]$MaxTokens = $null,
         # Explicit since t/4136: it used to resolve from the caller's scope. Default matches
         # Invoke-DocumentSummary's (gate ON, t/2912); both callers pass it.
         [bool]$EnablePolarityGate = $true
@@ -769,7 +773,7 @@ function Finalize-Summary {
 
     # -- Write summaries/<doc-id>.json ----------------------------------------
     $ModelInfo = New-SummaryModelInfo -Model $Model -Temperature $Temperature -TaxonomyJson $TaxonomyJson `
-        -ChunkCount $ChunkCount -FireStats $FireStats
+        -ChunkCount $ChunkCount -FireStats $FireStats -MaxTokens $MaxTokens
 
     # -- Build context-rot metrics from stages collected during processing ----
     $ContextRotStages = @($script:ContextRotStages)
