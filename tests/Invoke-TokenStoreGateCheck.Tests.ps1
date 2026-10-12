@@ -3,20 +3,23 @@
 # — gate and proof cannot diverge).
 #
 # Fixture shapes are the REAL az containerapp auth show --query 'login.tokenStore' -o json
-# output from the t/4132 incident and its fix:
-#   - BadShape:   what was deployed from inception until PR #3163 (enabled:true, no backing)
-#   - GoodShape:  what PR #3163 deployed (enabled:false)
-#   - BackedShape: hypothetical valid enabled:true WITH sasUrlSettingName
+# output from the t/4132 incident and its fix, plus hypothetical backed shapes:
+#   - BadShape:       what was deployed from inception until PR #3163 (enabled:true, no backing)
+#   - GoodShape:      what PR #3163 deployed (enabled:false)
+#   - BackedSasShape: correctly configured via sasUrlSettingName
+#   - BackedUriShape: correctly configured via blobContainerUri (MI-backed, @2024-10-02-preview)
 
 BeforeAll {
     . "$PSScriptRoot/../operations/devops/Invoke-TokenStoreGateCheck.ps1"
 
     # Real t/4132 incident shape (enabled:true, no sasUrlSettingName — azureBlobStorage is empty object)
-    $script:BadShape   = '{"enabled":true,"tokenRefreshExtensionHours":72,"azureBlobStorage":{}}'
+    $script:BadShape        = '{"enabled":true,"tokenRefreshExtensionHours":72,"azureBlobStorage":{}}'
     # Fixed shape (PR #3163 — enabled:false)
-    $script:GoodShape  = '{"enabled":false,"tokenRefreshExtensionHours":72,"azureBlobStorage":{}}'
-    # Correctly enabled with blob backing (hypothetical — not deployed, but the safe path)
-    $script:BackedShape = '{"enabled":true,"tokenRefreshExtensionHours":72,"azureBlobStorage":{"sasUrlSettingName":"tokenstore-sas-url"}}'
+    $script:GoodShape       = '{"enabled":false,"tokenRefreshExtensionHours":72,"azureBlobStorage":{}}'
+    # Correctly enabled with sasUrlSettingName backing
+    $script:BackedSasShape  = '{"enabled":true,"tokenRefreshExtensionHours":72,"azureBlobStorage":{"sasUrlSettingName":"tokenstore-sas-url"}}'
+    # Correctly enabled with blobContainerUri backing (managed-identity path, @2024-10-02-preview)
+    $script:BackedUriShape  = '{"enabled":true,"tokenRefreshExtensionHours":72,"azureBlobStorage":{"blobContainerUri":"https://storage.blob.core.windows.net/tokens"}}'
 }
 
 Describe 'Invoke-TokenStoreCheck — tokenStore safety predicate (t/4133)' {
@@ -38,8 +41,15 @@ Describe 'Invoke-TokenStoreCheck — tokenStore safety predicate (t/4133)' {
         $r.Reason  | Should -Match 'prod'
     }
 
-    It 'PASS: tokenStore.enabled=true WITH blob backing (correctly configured)' {
-        $ts = $script:BackedShape | ConvertFrom-Json
+    It 'PASS: tokenStore.enabled=true WITH sasUrlSettingName backing' {
+        $ts = $script:BackedSasShape | ConvertFrom-Json
+        $r  = Invoke-TokenStoreCheck -AppLabel 'staging' -TokenStore $ts
+        $r.Safe    | Should -BeTrue
+        $r.Skipped | Should -BeFalse
+    }
+
+    It 'PASS: tokenStore.enabled=true WITH blobContainerUri backing (MI path, C4)' {
+        $ts = $script:BackedUriShape | ConvertFrom-Json
         $r  = Invoke-TokenStoreCheck -AppLabel 'staging' -TokenStore $ts
         $r.Safe    | Should -BeTrue
         $r.Skipped | Should -BeFalse
