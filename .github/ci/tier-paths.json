@@ -8,6 +8,7 @@
     ".github/workflows/joint-gv-guard.yml",
     ".github/workflows/required-contexts-drift.yml",
     ".github/workflows/tier-check.yml",
+    "operations/devops/tier-check-predicate.mjs",
     "deploy/azure/main.bicep",
     "deploy/azure/deploy.ps1",
     ".github/workflows/deploy-azure.yml"

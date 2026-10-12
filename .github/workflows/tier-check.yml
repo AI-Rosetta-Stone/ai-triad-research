@@ -98,6 +98,15 @@ jobs:
             const baseConfigText = showFromBase('.github/ci/tier-paths.json');
             const basePredicateText = showFromBase('operations/devops/tier-check-predicate.mjs');
 
+            // THIS WORKFLOW RUN'S OWN trusted copy (checked out at head, the same copy the
+            // Self-health step already ran) -- used for the version check and, when the base
+            // predicate is unusable, as the fallback for a plain R1 path match. Never use a
+            // possibly-skewed base module to validate or exempt itself (t/4103, Lead review on
+            // PR #3172: EXPECTED_API coming from head meant a PR that bumps TIER_CHECK_API in
+            // its own head got "skipped" and was never judged -- closed by putting the
+            // predicate file itself on R1 AND still applying R1 as a plain path match here).
+            const headModule = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/tier-check-predicate.mjs`).href);
+
             async function postSkippedVerdict(reason) {
               core.info(`tier-check: verdict skipped (skew/bootstrap) -- ${reason}`);
               await postVerdictComment([
@@ -106,32 +115,46 @@ jobs:
               ].join('\n'));
             }
 
-            if (baseConfigText === null || basePredicateText === null) {
-              // Bootstrap case: base has no tier-check yet (this is the PR that adds it, or any
-              // PR against a base that predates the check). There is nothing on base to enforce
-              // yet, and every later PR is judged by whatever rules land on main once this one
-              // merges.
+            async function r1FallbackCheck(config, reason) {
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+              const { paths: fallbackPaths } = headModule.factsFromListFiles(files);
+              const tier = headModule.extractTier(pr.body);
+              const result = headModule.evaluateR1Only(fallbackPaths, config, tier);
+              if (!result.pass) {
+                await postVerdictComment([
+                  MARKER,
+                  `**tier-check (advisory)** — declared tier: \`${tier ?? '(none)'}\``,
+                  '',
+                  ...result.comments.map((c) => `- ${c}`),
+                  '',
+                  '_This check is advisory and never blocks a merge. See t/4103._',
+                ].join('\n'));
+                return;
+              }
+              await postSkippedVerdict(reason);
+            }
+
+            if (baseConfigText === null) {
+              // True bootstrap: base has no config at all, so not even R1 can be checked.
               await postSkippedVerdict("not yet installed on the base branch's tip. Once this PR merges, later PRs are judged by main's rules.");
               return;
             }
 
-            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-base-'));
-            const configPath = path.join(tmpDir, 'tier-paths.json');
-            const predicatePath = path.join(tmpDir, 'tier-check-predicate.mjs');
-            fs.writeFileSync(configPath, baseConfigText);
-            fs.writeFileSync(predicatePath, basePredicateText);
+            const config = JSON.parse(baseConfigText);
 
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            if (basePredicateText === null) {
+              await r1FallbackCheck(config, "predicate not yet installed on the base branch's tip (config present, predicate code missing)");
+              return;
+            }
+
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-base-'));
+            const predicatePath = path.join(tmpDir, 'tier-check-predicate.mjs');
+            fs.writeFileSync(predicatePath, basePredicateText);
             const baseModule = await import(pathToFileURL(predicatePath).href);
 
-            // Version check uses THIS WORKFLOW RUN'S OWN copy of TIER_CHECK_API/checkApiVersion
-            // (checked out at head, same trusted copy the Self-health step already ran) -- never
-            // the base module being checked, since a stale/skewed base module might not even
-            // export checkApiVersion itself.
-            const { TIER_CHECK_API: EXPECTED_API, checkApiVersion } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/tier-check-predicate.mjs`).href);
-            const apiCheck = checkApiVersion(baseModule.TIER_CHECK_API, EXPECTED_API);
+            const apiCheck = headModule.checkApiVersion(baseModule.TIER_CHECK_API, headModule.TIER_CHECK_API);
             if (!apiCheck.compatible) {
-              await postSkippedVerdict(apiCheck.reason);
+              await r1FallbackCheck(config, apiCheck.reason);
               return;
             }
 

@@ -118,6 +118,25 @@ export function checkR1(paths, config) {
   return null;
 }
 
+/**
+ * R1 applied alone, as a plain path match against the base-tip CONFIG (JSON, no code to
+ * trust) -- the fallback used when the base predicate is skewed or missing entirely (t/4103,
+ * Lead review on PR #3172). Closes the self-exemption-by-skew path: `EXPECTED_API` comes from
+ * the PR's own HEAD copy, so a PR that bumps `TIER_CHECK_API` in its own head (deliberately or
+ * by accident) would otherwise get "verdict skipped (skew)" and never be judged at all, since
+ * nothing else catches it once `tier-check-predicate.mjs` itself is on R1. This function is
+ * always called with the WORKFLOW RUN'S OWN (head's) trusted `checkR1`, never a possibly-skewed
+ * base copy, exactly like `checkApiVersion`.
+ * @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config @param {string|null} tier
+ */
+export function evaluateR1Only(paths, config, tier) {
+  const hit = checkR1(paths, config);
+  if (hit && tier !== 'T2') {
+    return { pass: false, comments: [`R1: touches ${hit}, must declare Tier: T2`] };
+  }
+  return { pass: true, comments: [] };
+}
+
 // Small dependency-free glob matcher: supports a single trailing '*' segment, which is all
 // R1's glob entries need (e.g. 'operations/devops/Move-PiCredential*.ps1').
 function matchGlob(path, glob) {
