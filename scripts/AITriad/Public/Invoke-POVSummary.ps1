@@ -203,7 +203,7 @@ function Invoke-POVSummary {
 
         $nodeCount = Get-POVSummaryTaxonomyNodeCount -TaxonomyJson $pipelineResult.TaxonomyJson
         $modelInfo = Get-POVSummaryModelInfo -Model $Model -Temperature $Temperature -UsedFire $usedFire -FireStats $fireStats `
-            -FullTaxonomy:$FullTaxonomy -TaxonomyNodeCount $nodeCount
+            -FullTaxonomy:$FullTaxonomy -TaxonomyNodeCount $nodeCount -MaxTokens (Get-SummaryField $pipelineResult 'MaxTokens')
         Write-POVSummaryFile -Path $paths.SummaryFile -DocId $DocId -TaxonomyVersion $taxonomyVersion -ModelInfo $modelInfo `
             -SummaryObject $summaryObject -ContextRotObj $contextRot.Obj
 

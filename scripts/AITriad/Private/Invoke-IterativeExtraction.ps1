@@ -126,16 +126,17 @@ function Invoke-IterativeExtraction {
         }
         if ($null -eq $Summary) {
             Write-Verbose "  Phase 1 FAILED — JSON parse error: $ParseErr"
+            # The full stats shape (t/4172): no claim was parsed, so every claim count is 0.
+            $FailedStats = New-FireStats -ConfidenceThreshold $ConfidenceThreshold -TotalApiCalls 1 `
+                -ElapsedSeconds $Stopwatch.Elapsed.TotalSeconds -TerminationReason 'parse_failed' `
+                -MaxIterPerClaim $MaxIterPerClaim -MaxIterPerDoc $MaxIterPerDoc -WallClockSeconds $WallClockSeconds -MaxApiCalls $MaxApiCalls
+            $FailedStats['phase1_only'] = $true
+            $FailedStats['parse_failed'] = $true
             return @{
                 Summary    = $null
                 RawText    = $InitialResult.Text
                 Backend    = $InitialResult.Backend
-                FireStats  = @{
-                    mode = 'fire'; phase1_only = $true; parse_failed = $true
-                    confidence_threshold = $ConfidenceThreshold
-                    total_iterations = 0; total_api_calls = 1
-                    elapsed_seconds = [Math]::Round($Stopwatch.Elapsed.TotalSeconds, 1)
-                }
+                FireStats  = $FailedStats
             }
         }
     }
@@ -148,13 +149,9 @@ function Invoke-IterativeExtraction {
             Summary   = $Summary
             RawText   = $InitialResult.Text
             Backend   = $InitialResult.Backend
-            FireStats = @{
-                mode = 'fire'; total_iterations = 0; total_api_calls = 1
-                confidence_threshold = $ConfidenceThreshold
-                claims_confident = 0; claims_iterated = 0; claims_total = 0
-                elapsed_seconds = [Math]::Round($Stopwatch.Elapsed.TotalSeconds, 1)
-                termination_reason = 'no_claims'
-            }
+            FireStats = New-FireStats -ConfidenceThreshold $ConfidenceThreshold -TotalApiCalls 1 `
+                -ElapsedSeconds $Stopwatch.Elapsed.TotalSeconds -TerminationReason 'no_claims' `
+                -MaxIterPerClaim $MaxIterPerClaim -MaxIterPerDoc $MaxIterPerDoc -WallClockSeconds $WallClockSeconds -MaxApiCalls $MaxApiCalls
         }
     }
 
@@ -471,23 +468,47 @@ Return JSON: {"claim_label": "$ClaimLabel", "verified": true/false, "refined_cla
         Summary   = $Summary
         RawText   = $InitialResult.Text
         Backend   = $InitialResult.Backend
-        FireStats = @{
-            mode                = 'fire'
-            confidence_threshold = $ConfidenceThreshold
-            total_iterations    = $TotalIter
-            total_api_calls     = $TotalApiCalls
-            claims_total        = $Claims.Count
-            claims_confident    = $ClaimsConfident
-            claims_iterated     = $ClaimsIterated
-            claims_drifted      = $DriftCount
-            elapsed_seconds     = [Math]::Round($Stopwatch.Elapsed.TotalSeconds, 1)
-            termination_reason  = $TerminationReason
-            guardrails          = [ordered]@{
-                max_iter_per_claim = $MaxIterPerClaim
-                max_iter_per_doc   = $MaxIterPerDoc
-                wall_clock_seconds = $WallClockSeconds
-                max_api_calls      = $MaxApiCalls
-            }
+        FireStats = New-FireStats -ConfidenceThreshold $ConfidenceThreshold -TotalIterations $TotalIter `
+            -TotalApiCalls $TotalApiCalls -ClaimsTotal $Claims.Count -ClaimsConfident $ClaimsConfident `
+            -ClaimsIterated $ClaimsIterated -ClaimsDrifted $DriftCount -ElapsedSeconds $Stopwatch.Elapsed.TotalSeconds `
+            -TerminationReason $TerminationReason `
+            -MaxIterPerClaim $MaxIterPerClaim -MaxIterPerDoc $MaxIterPerDoc -WallClockSeconds $WallClockSeconds -MaxApiCalls $MaxApiCalls
+    }
+}
+
+function New-FireStats {
+    <#
+    .SYNOPSIS
+        Invoke-IterativeExtraction's FireStats hashtable, in the one shape every return path shares.
+    .DESCRIPTION
+        New-SummaryModelInfo and Get-POVSummaryModelInfo read claims_total, claims_confident,
+        claims_iterated and termination_reason, which throws under StrictMode on a hashtable without
+        the key. The parse-failure path used to omit them, and the no-claims path omitted
+        claims_drifted and guardrails (t/4172). The claim counts default to 0: a path that parsed no
+        claims processed none.
+    #>
+    param(
+        [double]$ConfidenceThreshold, [int]$TotalIterations = 0, [int]$TotalApiCalls = 0,
+        [int]$ClaimsTotal = 0, [int]$ClaimsConfident = 0, [int]$ClaimsIterated = 0, [int]$ClaimsDrifted = 0,
+        [double]$ElapsedSeconds = 0, [string]$TerminationReason,
+        [int]$MaxIterPerClaim, [int]$MaxIterPerDoc, [int]$WallClockSeconds, [int]$MaxApiCalls
+    )
+    @{
+        mode                 = 'fire'
+        confidence_threshold = $ConfidenceThreshold
+        total_iterations     = $TotalIterations
+        total_api_calls      = $TotalApiCalls
+        claims_total         = $ClaimsTotal
+        claims_confident     = $ClaimsConfident
+        claims_iterated      = $ClaimsIterated
+        claims_drifted       = $ClaimsDrifted
+        elapsed_seconds      = [Math]::Round($ElapsedSeconds, 1)
+        termination_reason   = $TerminationReason
+        guardrails           = [ordered]@{
+            max_iter_per_claim = $MaxIterPerClaim
+            max_iter_per_doc   = $MaxIterPerDoc
+            wall_clock_seconds = $WallClockSeconds
+            max_api_calls      = $MaxApiCalls
         }
     }
 }
