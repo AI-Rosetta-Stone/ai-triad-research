@@ -2376,6 +2376,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-08-15 — Technical Lead (PR #1113, t/2687, p/447#6): **14th instance — 3rd TL occurrence same session.** `worktree-delete-branch-guard` feedback rule fired (detection confirmed), but TL proceeded with `--delete-branch` anyway — advisory injection did not change behavior. Same outcome. Signal: detection is working; enforcement is not.
 - 2026-08-15 — DevOps 2 (p/340#5): **15th instance — Facet 1.** `gh pr merge --delete-branch` from a worktree: `fatal: 'main' is already used by worktree` — gh tried to checkout main locally; primary worktree held it. Fix: omit `--delete-branch`, remove worktree separately. Noted that `/land-from-worktree` already handles this correctly.
 - 2026-10-12 — DevOps Worker (p/749#5): **16th instance — Facet 4 (`gh pr close`).** `gh pr close 3188 --delete-branch` failed local branch deletion "fatal: 'main' is already used by worktree at …" — the PR's branch was checked out in an active worktree. PR closed and remote branch deleted fine; only local `git branch -D` was refused. Resolved: switched the worktree to a different branch first, then `git branch -D` + `git push origin --delete` manually.
+- 2026-10-12 — DevOps Worker (p/749#7): **17th instance — Facet 4 (`gh pr close`).** `gh pr close 3204 --delete-branch` errored on local branch deletion — branch checked out in `.worktrees/t4150-verify-config-arm2`. Resolved: `git worktree remove` first, then `git branch -D` + `git push origin --delete` manually.
 
 **Root Cause:** `--delete-branch` cleans up the merged head branch locally too, and gh switches the working copy to the base branch (`git checkout main`) to do so. Git's one-branch-per-worktree rule blocks checking out `main` while the primary worktree has it → `fatal`. The remote merge + branch delete already happened via the API; only the local checkout/cleanup fails. Bookkeeping-≠-artifact family — the exit code describes post-success cleanup, not the merge.
 
@@ -4798,18 +4799,20 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Instances:**
 - 2026-10-08 — Shared Lib (p/5#47): `MSYS_NO_PATHCONV=1 python /c/Users/.../script.py` errored with "can't open file `C:\c\Users\...`". Fix: ran Python without the prefix; the script itself sets `MSYS_NO_PATHCONV=1` for its internal `git show` calls.
 - 2026-10-12 — DevOps Lead (p/26#153): `git show origin/main:<path> > /tmp/x` in Git Bash failed with "ambiguous argument 'origin\main;…'" — MSYS mangled the colon revspec, and `/tmp` mapped to `C:\tmp`. Resolved by prefixing with `MSYS_NO_PATHCONV=1` and writing to the scratchpad instead. (Also covered by root AGENTS.md Windows Bash rule.)
+- 2026-10-12 — DevOps Lead (p/26#163): `gh api /orgs/…` in Git Bash failed with "invalid API endpoint: C:/…/orgs/…" — MSYS rewrote the leading slash into a Windows path. Resolved by dropping the leading slash: `gh api orgs/…`.
 
-**Root Cause:** `MSYS_NO_PATHCONV=1` is a process-level environment variable that suppresses all MSYS path-conversion for the duration of the command. When placed before `python`, it prevents conversion of the script path that MSYS normally translates for Windows. The intent was to prevent mangling of a `git ref:path` argument used inside the script — but that argument is only in the script's subprocess, not in the outer `python` invocation. The colon in `origin/main:<path>` is separately mangled by MSYS into a backslash or semicolon without the prefix.
+**Root Cause:** `MSYS_NO_PATHCONV=1` is a process-level environment variable that suppresses all MSYS path-conversion for the duration of the command. When placed before `python`, it prevents conversion of the script path that MSYS normally translates for Windows. The intent was to prevent mangling of a `git ref:path` argument used inside the script — but that argument is only in the script's subprocess, not in the outer `python` invocation. The colon in `origin/main:<path>` is separately mangled by MSYS into a backslash or semicolon without the prefix. MSYS also rewrites leading-slash paths (`/orgs/…`) as Windows absolute paths (`C:/…/orgs/…`) in any command run from Git Bash.
 
 **Prevention:**
 1. **Use `MSYS_NO_PATHCONV=1` only on the specific `git` command that takes a `ref:path` argument** (e.g. `MSYS_NO_PATHCONV=1 git show origin/main:some/path`). Do not prefix non-`git` commands with it.
 2. **If a script calls `git show <ref>:<path>` internally,** set `MSYS_NO_PATHCONV=1` inside the script at the point of the `git` call, not on the outer `python` invocation.
 3. **A "can't open file" error on a path that looks doubled** (`C:\c\Users\…`) is a diagnostic signal that MSYS path conversion was suppressed for the interpreter argument itself.
 4. **Avoid `/tmp` in Bash on Windows** — MSYS maps it to `C:\tmp`, not a true temp dir. Use the session scratchpad instead.
+5. **For `gh api`, omit the leading slash** — use `gh api orgs/…` not `gh api /orgs/…`. MSYS rewrites the leading slash as a Windows absolute path. Alternatively, use the PowerShell tool where MSYS path conversion does not apply.
 
-**Status:** Active — 2 instances (Shared Lib p/5#47; DevOps Lead p/26#153).
+**Status:** Active — 3 instances (Shared Lib p/5#47; DevOps Lead p/26#153, p/26#163).
 
-**Applies To:** All agents running Python (or other interpreters) from Bash on Windows with MSYS.
+**Applies To:** All agents running Python (or other interpreters) from Bash on Windows with MSYS; all agents using `gh api` with leading-slash paths in Git Bash.
 
 ---
 
@@ -4819,16 +4822,18 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-08 — Shared Lib (p/5#49): `gh … --jq 'test("…";"s")'` errored "unsupported regular expression flag: s". Fix: replaced with `contains()` checks.
+- 2026-10-12 — Tech Lead (p/335#139): `gh … -q 'test("Approved \(PI")'` — `\(` inside a jq string starts string interpolation, leaving the string unterminated. Fix: switched to `startswith("Approved")`.
 
-**Root Cause:** `gh` bundles its own jq interpreter (gojq) which does not implement all PCRE/POSIX regex flags. The `s` dotall flag is commonly used to match multiline strings in standard jq but is absent from gojq.
+**Root Cause:** `gh` bundles its own jq interpreter (gojq) which does not implement all PCRE/POSIX regex flags. The `s` dotall flag is commonly used to match multiline strings in standard jq but is absent from gojq. Separately, `\(` inside a jq string literal is the string interpolation syntax (`\(expr)`), not a literal backslash-paren — using it in a regex pattern produces an unterminated string error.
 
 **Prevention:**
 1. **In `gh --jq` expressions, only use regex flags `i`, `x`, and `g`.** Treat `s`, `m`, and other flags as unavailable.
 2. **For multiline or substring matching, prefer `contains()`, `startswith()`, `endswith()`, or `ltrimstr()`/`rtrimstr()`** over regex when the pattern does not require it.
 3. **If a regex is necessary, test it in `gojq` locally** before embedding in a `gh --jq` pipeline: `echo '["test"]' | gojq '.[0] | test("pat")'`.
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
+5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 1 instance (Shared Lib p/5#49).
+**Status:** Active — 2 instances (Shared Lib p/5#49; Tech Lead p/335#139).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -5022,6 +5027,71 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#155).
 
 **Applies To:** All agents probing or testing ES modules from PRs or branches.
+
+---
+
+## #239 [Security] Backticks in `gh … --body "…"` Execute as Command Substitution in Bash — Near-Miss: Backtick-Quoted `gh pr merge` in a PR Comment Body Was Executed
+
+**Pattern:** An agent inlines a markdown body containing backtick-quoted code into `gh pr comment --body "…"` (or any `gh` command that takes a `--body "…"` string) from Bash. Bash interprets backtick pairs inside double quotes as command substitution and executes the enclosed text. A body like `` "…run `gh pr merge 5 --squash`…" `` causes Bash to actually run `gh pr merge 5 --squash` at evaluation time. The substitution output replaces the backtick expression in the string — but the command runs regardless.
+
+**Instances:**
+- 2026-10-12 — DevOps Lead (p/26#157): `gh pr comment 3189 --body "…\`gh pr merge 5 --squash\`…"` in Bash. The backtick caused a live merge attempt on PR #5. It failed only because of a stray backslash, and PR #5 was already closed — a near-miss. Resolved by writing the body to a file and using `--body-file`. (Root AGENTS.md Shell Quoting Rule applies.)
+
+**Root Cause:** Bash's double-quote rules allow command substitution (`\`…\`` or `$(…)`) inside double-quoted strings. A markdown code span `` `command` `` is syntactically identical to a Bash command substitution. When the body contains code examples, shell commands, or any backtick-delimited text, Bash executes them at parameter expansion time — before `gh` ever sees the string.
+
+**Prevention:**
+1. **Never use `--body "…"` in Bash when the body contains backticks.** This is the root AGENTS.md Shell Quoting Rule — use Write plus `--body-file` instead.
+2. **Always write multi-line or markdown bodies to a file first:** `Write body.txt "…"`, then `gh pr comment <n> --body-file body.txt`. The file path is never subject to shell expansion.
+3. **Single-quoted strings (`'…'`) suppress substitution in Bash**, but multi-line single-quoted strings are fragile with here-docs and heredoc injection risks — the file approach is safer.
+4. **The failure mode is silent when the substituted command succeeds** — the body gets an empty string where the code span was, and the real action (e.g. a merge) happens without any error signal.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#157). Near-miss: near-merge of PR #5.
+
+**Applies To:** All agents using `gh pr comment`, `gh pr create`, `gh pr edit`, or any `gh` subcommand with `--body "…"` from Bash when the body may contain backticks.
+
+---
+
+## #240 [Test] Repo-Wide Rewrite Must Exclude Its Own Files and Re-Run Every Touched Suite After Applying
+
+**Pattern:** A mass find-and-replace script (e.g. renaming a GitHub owner across the codebase) is run against the full repo including its own test fixtures. The inputs in the test file are overwritten with already-renamed strings, so the tests pass trivially — they now assert that the renamed string maps to itself. A second facet: test mocks keyed on the old API path (e.g. `*/users/*/packages/*`) stop firing once the code moves to the new path (`/orgs/`), and requests fall through to the real API with no interception. Both failures produce green tests while leaving the rename unverified.
+
+**Instances:**
+- 2026-10-12 — DevOps Lead (p/26#159, t/4096 PR #3195): `Rename-GitHubOwner.ps1` ran over the full repo, overwriting its own test fixtures. Mocks keyed on old API path stopped firing after the code moved to `/orgs/`. Resolved: script excludes its own files; glob rule moves mocks with the code; 10 affected suites re-run post-apply (92/92 green).
+
+**Root Cause:**
+- **Facet 1 (self-overwrite):** a rewrite script that does not exclude its own source tree turns its test inputs into tautologies — the "before" value becomes the "after" value, so every assertion trivially passes without exercising the transform.
+- **Facet 2 (stale mock path):** test mocks that intercept by URL pattern are tied to the old path. When the code path changes, the mock never matches, and the real external API is called instead — no test failure, but no interception either.
+
+**Prevention:**
+1. **A repo-wide rewrite script must explicitly exclude its own source files** from the rewrite scope (test fixtures, the script itself, expected-value strings). Add an `-Exclude` list or a glob pattern before running.
+2. **Re-run every test suite the rewrite touched**, not only the rewrite script's own tests — after applying, not before. The touched suites tell you whether any mock or fixture was silently broken.
+3. **When moving a code path (URL, function name, module path), search for test mocks keyed on that path** and update them in the same commit. A mock that matches on the old path is silent after the rename.
+4. **A test suite that passes identically before and after a rename is a warning sign**, not a green light — confirm that assertions reference the new value, not the old.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#159, t/4096 PR #3195). Caught before landing.
+
+**Applies To:** All agents writing or running repo-wide rename/rewrite scripts; all agents updating code paths that test mocks intercept by pattern.
+
+---
+
+## #241 [Build] GitHub GraphQL Does Not Follow Repo Transfer Redirects — Empty Result Is Unreadable, Not Clean
+
+**Pattern:** After a GitHub repository is transferred to a new organization (e.g. `jpsnover/ai-triad-research` → `AI-Rosetta-Stone/ai-triad-research`), `gh issue list` / `gh pr list -R jpsnover/ai-triad-research` return 0 results with no error. The GitHub REST API follows transfer redirects (301); the GraphQL API does not. A caller that reads 0 results from the old name concludes "nothing open" — silently wrong. Automated health checks, alert bridges, and reminder verifiers that were not updated to the new org name all read false-clean for the duration.
+
+**Instances:**
+- 2026-10-12 — DevOps Lead (p/26#161, t/4096#37): after transfer to `AI-Rosetta-Stone`, four hourly alert bridges using `-R jpsnover/ai-triad-research` returned 0 with no error. Found when r/23 reported "no open heartbeat issue." Resolved by updating all callers to the new org/repo name and re-verifying.
+
+**Root Cause:** GitHub GraphQL resolves repository by (owner, name) at query time — it does not follow HTTP redirects. A transferred repo still exists at the old URL for REST (redirect), but the GraphQL resolver returns an empty/null result without an error code. The caller cannot distinguish "genuinely zero results" from "repo not found here."
+
+**Prevention:**
+1. **After any repo rename or transfer, treat an empty GraphQL result on the old name as unreadable, not clean.** Zero results with no error is ambiguous — it may mean "not found" rather than "nothing open."
+2. **Update all callers (alert bridges, health checks, reminders, CI scripts) to the new org/repo name immediately** — before re-arming any automation that relies on them.
+3. **Verify by querying the new name** and confirming it returns the expected baseline (e.g. the open heartbeat issue exists). A clean result on the old name does not confirm the query worked.
+4. **REST-based `gh` calls (`gh api repos/…`)** follow redirects and may still work on the old name temporarily — but this is unreliable after a transfer and should not be relied on.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#161, t/4096#37). Silent: zero results with no error.
+
+**Applies To:** All agents running `gh issue list`, `gh pr list`, or any GraphQL-backed `gh` query against a repo that has been renamed or transferred.
 
 ---
 
