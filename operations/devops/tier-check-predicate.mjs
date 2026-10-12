@@ -19,11 +19,47 @@
  *  - `.githooks/*` local pre-commit gates: not currently on R1; the t/4103 replay showed these
  *    change rarely, so they're left as a named blank rather than added speculatively.
  *  - the workflow file itself (`tier-check.yml`) still runs as the PR's own copy under the
- *    `pull_request` trigger: loading the config and predicate from base (below) stops a PR from
- *    narrowing R1 or weakening a rule in the same change, but the workflow YAML's own logic is
- *    not re-pinned to base. Only promotion to a required check plus branch protection fully
- *    closes this, which is why `tier-check.yml` itself stays on R1.
+ *    `pull_request` trigger: loading the config and predicate from base's live tip (below) stops
+ *    a PR from narrowing R1 or weakening a rule in the same change, but the workflow YAML's own
+ *    logic is not re-pinned to base. Only promotion to a required check plus branch protection
+ *    fully closes this, which is why `tier-check.yml` itself stays on R1.
+ *  - a predicate commit mid-transition on base's tip (e.g. one that bumps TIER_CHECK_API without
+ *    also updating every workflow caller) reads as skew and is skipped, not caught -- it is
+ *    reported neutrally rather than silently evaluated with a half-landed contract, but closing
+ *    the gap for real needs the version bump and the workflow update to land in the same PR.
  */
+
+/**
+ * Contract version for everything the workflow imports from this module when it loads the
+ * module from the base branch's live tip (not from the PR's own copy). Bump this whenever an
+ * exported name, its signature, or its return shape changes in a way the workflow depends on.
+ *
+ * Why this exists (t/4103#14, PR #3155 postmortem round 2): the workflow previously loaded this
+ * predicate from `pr.base.sha`, the commit the PR's base pointed to when the PR was opened/last
+ * synced -- NOT the live tip of the base branch. A PR opened before #3171 landed had a `base.sha`
+ * that predated `factsFromListFiles`, so loading from that stale SHA crashed with
+ * `factsFromListFiles is not a function` even though main itself was fine. The fix is twofold:
+ * load from the base branch's current tip instead of the pinned `base.sha`, AND check this
+ * version number before trusting the loaded module's exports, since the live tip can still be
+ * mid-transition (a predicate commit that hasn't finished landing) or, for the very PR that
+ * first adds TIER_CHECK_API, simply absent. A mismatch or a missing predicate is a known,
+ * EXPECTED state (skew or bootstrap) -- it must read as a neutral "skipped", never as a crash.
+ */
+export const TIER_CHECK_API = 1;
+
+/**
+ * @param {number|undefined} actualVersion the base module's own TIER_CHECK_API, if any
+ * @param {number} expectedVersion this workflow run's own TIER_CHECK_API (from its own copy)
+ */
+export function checkApiVersion(actualVersion, expectedVersion) {
+  if (typeof actualVersion !== 'number') {
+    return { compatible: false, reason: 'base predicate has no TIER_CHECK_API export (pre-versioning, or not yet installed on base)' };
+  }
+  if (actualVersion !== expectedVersion) {
+    return { compatible: false, reason: `base predicate API version ${actualVersion} does not match this workflow's expected ${expectedVersion}` };
+  }
+  return { compatible: true, reason: null };
+}
 
 const TIER_LINE_RE = /^Tier:\s*T([012])\b/;
 const SCHEMA_CHANGE_RE = /^Schema-change:\s*(additive|breaking)\b/m;

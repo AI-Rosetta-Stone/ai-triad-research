@@ -13,6 +13,8 @@ import {
   checkR5,
   evaluateTierCheck,
   factsFromListFiles,
+  checkApiVersion,
+  TIER_CHECK_API,
 } from './tier-check-predicate.mjs';
 
 const CONFIG = {
@@ -79,6 +81,26 @@ test('factsFromListFiles: real REST payload maps via filename, not path (f.path 
 test('factsFromListFiles: entries missing filename are skipped, not crashed on', () => {
   const { paths } = factsFromListFiles([{ filename: 'a.ts' }, {}, { filename: 'b.ts' }]);
   assert.deepEqual(paths, ['a.ts', 'b.ts']);
+});
+
+// ── checkApiVersion (t/4103#14, PR #3155 postmortem round 2: version skew) ────────────────
+// A PR opened before #3171 landed has a `base.sha` that predates `factsFromListFiles` -- the
+// fix is to load from base's live tip AND gate on this version check, so a mismatch reads as
+// a neutral skip, never a crash.
+test('checkApiVersion: matching version is compatible', () => {
+  assert.deepEqual(checkApiVersion(TIER_CHECK_API, TIER_CHECK_API), { compatible: true, reason: null });
+});
+
+test('checkApiVersion: missing TIER_CHECK_API (pre-versioning base, or bootstrap) is incompatible', () => {
+  const result = checkApiVersion(undefined, TIER_CHECK_API);
+  assert.equal(result.compatible, false);
+  assert.match(result.reason, /no TIER_CHECK_API/);
+});
+
+test('checkApiVersion: a real but mismatched version number is incompatible', () => {
+  const result = checkApiVersion(TIER_CHECK_API - 1, TIER_CHECK_API);
+  assert.equal(result.compatible, false);
+  assert.match(result.reason, /does not match/);
 });
 
 // ── R1 ───────────────────────────────────────────────────────────────────
