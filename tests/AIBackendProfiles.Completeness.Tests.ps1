@@ -13,7 +13,8 @@
     has is dead configuration that hides drift. So (TL condition):
       1. every backend in ai-models.json (backends[].id and every models[].backend) has a profile row;
       2. every profile row is a registered backend;
-      3. every row is well formed (known RequestShape and AuthStyle, a UriTemplate, a DisplayName);
+      3. every row is well formed (known RequestShape, ResponseShape and AuthStyle, a UriTemplate, a
+         DisplayName and a ParseDisplayName);
       4. each row's EnvHint (the pinned missing-key warning text) names that backend's key variables from
          $script:AIApiKeyEnvVarMap. Gemini's also names AI_API_KEY, its gemini-only fallback (t/4102), and
          the one keyless backend (ollama) has no key variables and AuthStyle 'none'.
@@ -65,6 +66,8 @@ Describe 'AIBackendProfiles completeness (t/4135)' -Tag 'config' {
     It 'every profile row is well formed (<_>)' -ForEach $ProfileNames {
         $row = $script:Profiles[$_]
         $row.RequestShape | Should -BeIn @('gemini', 'claude', 'chat', 'openai-responses')
+        $row.ResponseShape | Should -BeIn @('gemini', 'claude', 'chat', 'openai-responses')   # t/4135 B2
+        $row.ParseDisplayName | Should -Not -BeNullOrEmpty
         $row.AuthStyle | Should -BeIn @('x-goog-api-key', 'x-api-key+anthropic-version', 'bearer', 'api-key', 'none')
         $row.UriTemplate | Should -Not -BeNullOrEmpty
         $row.DisplayName | Should -Not -BeNullOrEmpty
