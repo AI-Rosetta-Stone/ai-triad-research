@@ -939,7 +939,16 @@ jobs:
                 } catch { return false; }
               })
               .sort();
-            const matrix = ["taxonomy-editor", "poviewer", "summary-viewer", "workflow-app"].slice().sort();
+            // Read the REAL test-electron job matrix out of the checked-out ci.yml itself --
+            // a hardcoded second copy here would never catch drift between the two, since both
+            // are then hand-maintained independently (the exact class this job exists to close).
+            const ciYml = fs.readFileSync(".github/workflows/ci.yml", "utf8");
+            const m = ciYml.match(/^\s*app:\s*\[([^\]]+)\]/m);
+            if (!m) {
+              console.log("::error::test-electron-matrix-membership: could not find the test-electron inline app: [...] matrix array in ci.yml (t/3897)");
+              process.exit(1);
+            }
+            const matrix = m[1].split(",").map((s) => s.trim()).filter(Boolean).sort();
             const missing = dirs.filter((d) => !matrix.includes(d));
             const extra = matrix.filter((d) => !dirs.includes(d));
             let bad = false;
