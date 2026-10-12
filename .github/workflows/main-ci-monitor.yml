@@ -12,6 +12,7 @@
 
 name: main-ci-monitor
 
+# Schedule re-registered 2026-10-12 after the AI-Rosetta-Stone org move: crons stopped firing silently (t/4173).
 on:
   # PRIMARY trigger (t/3931): classify main's head as soon as `CI` on main concludes, so a red surfaces
   # within minutes. The cron alone was observed firing only every 1.5–7.4h (GitHub schedule throttling).

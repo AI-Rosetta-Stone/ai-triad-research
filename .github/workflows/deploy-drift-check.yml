@@ -17,6 +17,7 @@
 
 name: deploy-drift-check
 
+# Schedule re-registered 2026-10-12 after the AI-Rosetta-Stone org move: crons stopped firing silently (t/4173).
 on:
   schedule:
     - cron: '17 */3 * * *'   # every 3h at :17 (offset off the hour to dodge cron congestion)
