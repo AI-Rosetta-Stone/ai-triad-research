@@ -21,6 +21,8 @@ vi.mock('../embeddings.js', () => ({
   classifyNli: vi.fn(),
   setDebateTemperature: vi.fn(),
   getEmbeddingInfo: vi.fn(),
+  // t/4088: Model/Backend/KeySource context — not under test here, so a fixed stub suffices.
+  resolveAiCallLogContext: vi.fn(() => ({ model: 'gemini-2.0-flash', backend: 'gemini', keySource: 'store' })),
 }));
 
 vi.mock('../../../../lib/ai-client/index.js', () => ({

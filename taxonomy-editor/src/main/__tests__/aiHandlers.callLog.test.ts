@@ -14,6 +14,8 @@ import path from 'path';
 import { ipcMain } from 'electron';
 
 const mockGenerateText = vi.hoisted(() => vi.fn());
+// t/4088: Model/Backend/KeySource context, computed once per call and reused for success/failure.
+const mockResolveAiCallLogContext = vi.hoisted(() => vi.fn(() => ({ model: 'gemini-2.0-flash', backend: 'gemini', keySource: 'store' })));
 
 vi.mock('../embeddings.js', () => ({
   generateText: mockGenerateText,
@@ -25,6 +27,7 @@ vi.mock('../embeddings.js', () => ({
   classifyNli: vi.fn(),
   setDebateTemperature: vi.fn(),
   getEmbeddingInfo: vi.fn(),
+  resolveAiCallLogContext: mockResolveAiCallLogContext,
 }));
 
 vi.mock('../../../../lib/ai-client/index.js', () => ({
@@ -120,5 +123,31 @@ describe('generate-text — AI call log wiring (t/3370)', () => {
     await handler({ sender }, { prompt: 'prompt-text', requestId: 'req-log-3' });
 
     expect(readLogLines()).toHaveLength(0);
+  });
+});
+
+describe('generate-text — Model/Backend/KeySource on every log entry (t/4088)', () => {
+  it('success: the resolved context reaches the log entry', async () => {
+    process.env.AI_CALL_LOG_ENABLED = '1';
+    mockResolveAiCallLogContext.mockReturnValue({ model: 'claude-opus-5', backend: 'claude', keySource: 'store' });
+    mockGenerateText.mockResolvedValue({ text: 'ok' });
+    const handler = getHandler('generate-text');
+    const { sender } = makeSender();
+    await handler({ sender }, { prompt: 'prompt-text', model: 'claude-opus-5', requestId: 'req-log-4' });
+
+    const lines = readLogLines() as Array<{ Model: string; Backend: string; KeySource: string }>;
+    expect(lines[0]).toMatchObject({ Model: 'claude-opus-5', Backend: 'claude', KeySource: 'store' });
+  });
+
+  it('failure: the SAME resolved context (computed before the call) reaches the log entry', async () => {
+    process.env.AI_CALL_LOG_ENABLED = '1';
+    mockResolveAiCallLogContext.mockReturnValue({ model: 'groq-qwen-qwen3.6-27b', backend: 'groq', keySource: 'none' });
+    mockGenerateText.mockRejectedValue(new Error('boom'));
+    const handler = getHandler('generate-text');
+    const { sender } = makeSender();
+    await expect(handler({ sender }, { prompt: 'prompt-text', model: 'groq-qwen-qwen3.6-27b', requestId: 'req-log-5' })).rejects.toThrow();
+
+    const lines = readLogLines() as Array<{ Model: string; Backend: string; KeySource: string }>;
+    expect(lines[0]).toMatchObject({ Model: 'groq-qwen-qwen3.6-27b', Backend: 'groq', KeySource: 'none' });
   });
 });

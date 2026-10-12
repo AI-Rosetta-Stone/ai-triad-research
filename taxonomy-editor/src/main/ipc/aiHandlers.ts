@@ -10,7 +10,7 @@ import { ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { PROJECT_ROOT, getDataRootPath } from '../fileIO.js';
-import { computeEmbeddings, computeQueryEmbedding, generateText, generateTextWithSearch, generateChatStream, updateNodeEmbeddings, classifyNli, setDebateTemperature, getEmbeddingInfo } from '../embeddings.js';
+import { computeEmbeddings, computeQueryEmbedding, generateText, generateTextWithSearch, generateChatStream, updateNodeEmbeddings, classifyNli, setDebateTemperature, getEmbeddingInfo, resolveAiCallLogContext } from '../embeddings.js';
 import type { ChatMessage, NodeEmbeddingInput, NliPair } from '../embeddings.js';
 import { refreshAIModels } from '../modelDiscovery.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
@@ -239,12 +239,15 @@ export function registerAiHandlers(): void {
     if (requestId && controller) activeGenerations.set(requestId, controller);
     const clampedMaxTokens = clampMaxTokens(maxTokens);
     let retryCount = 0;
+    // t/4088: computed once and reused for every log entry below — the desktop path has no
+    // fallback chain (t/4048), so the requested model is always the model actually called.
+    const { model: logModel, backend, keySource } = resolveAiCallLogContext(model);
     try {
       const { text, stopReason, diagnostics, servedModel } = await generateText(prompt, model, (progress) => {
         retryCount = progress.attempt;
         event.sender.send('generate-text-progress', progress);
       }, { timeoutMs, temperature, signal: controller?.signal, maxTokens: clampedMaxTokens });
-      writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: '200' });
+      writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: '200', model: logModel, backend, keySource });
       return { text, stopReason, diagnostics, servedModel };
     } catch (err) {
       if ((err as Error).name === 'AbortError' || controller?.signal.aborted) {
@@ -255,7 +258,7 @@ export function registerAiHandlers(): void {
           message: 'ai.cancelled',
           data: { requestId, elapsed_ms: Date.now() - t0 },
         });
-        writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: deriveCallLogStatus(err) });
+        writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: deriveCallLogStatus(err), model: logModel, backend, keySource });
         throw err;
       }
       if ((err as Error).name === 'TimeoutError') {
@@ -265,7 +268,7 @@ export function registerAiHandlers(): void {
           message: `generate-text timed out after ${elapsedMs}ms`,
           error: { name: 'TimeoutError', message: String((err as Error).message ?? err) },
         });
-        writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: deriveCallLogStatus(err) });
+        writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: deriveCallLogStatus(err), model: logModel, backend, keySource });
         throw buildTimeoutError(err, elapsedMs);
       }
       const problem = err instanceof ActionableError ? err.problem : (err instanceof Error ? err.message : String(err));
@@ -277,7 +280,7 @@ export function registerAiHandlers(): void {
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
       console.error('[IPC] generate-text failed:', problem);
-      writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: deriveCallLogStatus(err) });
+      writeAICallLogEntry({ scenario: 'Debate', promptId: '', promptStart: prompt, retryCount, status: deriveCallLogStatus(err), model: logModel, backend, keySource });
       throw new ActionableError({
         goal: 'Generate text via AI backend',
         problem: `AI generation failed: ${problem}`,
