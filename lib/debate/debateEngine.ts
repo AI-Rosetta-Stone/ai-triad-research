@@ -946,11 +946,11 @@ export class DebateEngine {
 
   private _computeModelFingerprint(): { model_pool?: string; model_api_id?: string } {
     const isMultiProvider = Boolean(this.config.speakerModels);
-    return computeModelFingerprint(
-      this.adapter.registry,
+    return computeModelFingerprint(this.adapter.registry,
       isMultiProvider ? this.config.modelTier : undefined,
       isMultiProvider ? this.config.eligibleBackends : undefined,
       this.config.model,
+      this.config.stageModels ? (Object.fromEntries(Object.entries(this.config.stageModels).filter((e): e is [string, string] => e[1] != null)) as Record<string, string>) : undefined,
     );
   }
 

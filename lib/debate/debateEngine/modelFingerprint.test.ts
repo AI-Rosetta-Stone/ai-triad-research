@@ -201,3 +201,49 @@ describe('computeModelFingerprint — registry absent', () => {
     expect(computeModelFingerprint(undefined, undefined, undefined, 'claude-sonnet-5')).toEqual({});
   });
 });
+
+describe('computeModelFingerprint — stage-model suffix (t/4127)', () => {
+  it('no overrides: single-model fingerprint is byte-identical to today', () => {
+    const withoutOverrides = computeModelFingerprint(makeRegistry(), undefined, undefined, 'gemini-2.5-flash');
+    const withUndefinedOverrides = computeModelFingerprint(makeRegistry(), undefined, undefined, 'gemini-2.5-flash', undefined);
+    expect(withoutOverrides.model_api_id).toBe('gemini-2.5-flash:gemini-2.5-flash-exp');
+    expect(withUndefinedOverrides.model_api_id).toBe('gemini-2.5-flash:gemini-2.5-flash-exp');
+  });
+
+  it('no overrides: multi-provider fingerprint is byte-identical to today', () => {
+    const withoutOverrides = computeModelFingerprint(makeRegistry(), 'basic', ['claude', 'gemini'], 'claude-sonnet-5');
+    const withUndefinedOverrides = computeModelFingerprint(makeRegistry(), 'basic', ['claude', 'gemini'], 'claude-sonnet-5', undefined);
+    const expected = 'basic|claude=claude-sonnet-5:claude-sonnet-5-20251101,gemini=gemini-2.5-flash:gemini-2.5-flash-exp';
+    expect(withoutOverrides.model_pool).toBe(expected);
+    expect(withUndefinedOverrides.model_pool).toBe(expected);
+  });
+
+  it('one stage override: single-model gets suffix, producing a different key', () => {
+    const base = computeModelFingerprint(makeRegistry(), undefined, undefined, 'claude-sonnet-5');
+    const withOverride = computeModelFingerprint(makeRegistry(), undefined, undefined, 'claude-sonnet-5', { brief: 'gemini-2.5-flash' });
+    expect(withOverride.model_api_id).toBe('claude-sonnet-5:claude-sonnet-5-20251101;st=brief=gemini-2.5-flash:gemini-2.5-flash-exp');
+    expect(withOverride.model_api_id).not.toBe(base.model_api_id);
+  });
+
+  it('one stage override: multi-provider gets suffix', () => {
+    const withOverride = computeModelFingerprint(makeRegistry(), 'basic', ['claude', 'gemini'], 'claude-sonnet-5', { cite: 'llama-3' });
+    expect(withOverride.model_pool).toBe(
+      'basic|claude=claude-sonnet-5:claude-sonnet-5-20251101,gemini=gemini-2.5-flash:gemini-2.5-flash-exp;st=cite=llama-3:llama-3-70b-8192',
+    );
+  });
+
+  it('same overrides in different object-key order → same suffix (sorted by stage name)', () => {
+    const a = computeModelFingerprint(makeRegistry(), undefined, undefined, 'claude-sonnet-5', { cite: 'llama-3', brief: 'gemini-2.5-flash' });
+    const b = computeModelFingerprint(makeRegistry(), undefined, undefined, 'claude-sonnet-5', { brief: 'gemini-2.5-flash', cite: 'llama-3' });
+    expect(a.model_api_id).toBe(b.model_api_id);
+    expect(a.model_api_id).toContain(';st=brief=gemini-2.5-flash:gemini-2.5-flash-exp,cite=llama-3:llama-3-70b-8192');
+  });
+
+  it('override equal to debate model still appends the suffix', () => {
+    // Over-splitting is safe; wrong pooling is not (t/4098 design rule).
+    const base = computeModelFingerprint(makeRegistry(), undefined, undefined, 'claude-sonnet-5');
+    const withSameModel = computeModelFingerprint(makeRegistry(), undefined, undefined, 'claude-sonnet-5', { brief: 'claude-sonnet-5' });
+    expect(withSameModel.model_api_id).toContain(';st=brief=claude-sonnet-5:claude-sonnet-5-20251101');
+    expect(withSameModel.model_api_id).not.toBe(base.model_api_id);
+  });
+});
