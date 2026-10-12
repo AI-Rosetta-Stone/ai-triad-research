@@ -114,6 +114,18 @@ Describe 'AI call log: Model, Backend, KeySource (t/4088)' -Tag 'security' {
             $enrich = InModuleScope AIEnrich { @($script:AIApiKeyEnvVarMap.Values | ForEach-Object { $_ }) }
             (@($writer | Sort-Object -Unique) -join ',') | Should -Be (@($enrich | Sort-Object -Unique) -join ',')
         }
+
+        It 'the contract README''s env:VAR list is exactly AIEnrich''s key-variable map (PowerShell side of the parity, e/290#4)' {
+            # lib pins the README to the TS map (BACKEND_KEY_ENV_VARS); this pins it to the PowerShell map, so all
+            # three agree: a new backend key variable must be added to the contract, or one of the two fails.
+            $readme = Get-Content -Raw (Join-Path $PSScriptRoot 'fixtures' 'ai-call-log' 'README.md')
+            $row = @($readme -split "`n" | Where-Object { $_ -match '^\|\s*`env:<VAR>`\s*\|' })
+            $row.Count | Should -Be 1 -Because 'the README has exactly one env:<VAR> vocabulary row'
+            $listed = @([regex]::Matches($row[0], '`([A-Z][A-Z0-9_]*_API_KEY)`') | ForEach-Object { $_.Groups[1].Value })
+            $enrich = InModuleScope AIEnrich { @($script:AIApiKeyEnvVarMap.Values | ForEach-Object { $_ }) }
+            $listed.Count | Should -BeGreaterThan 5
+            (@($listed | Sort-Object -Unique) -join ',') | Should -Be (@($enrich | Sort-Object -Unique) -join ',')
+        }
     }
 
     Context 'Invoke-AIApi passes the context of the call actually made' {
