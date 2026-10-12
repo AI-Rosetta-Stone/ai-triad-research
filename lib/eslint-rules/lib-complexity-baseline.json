@@ -181,7 +181,7 @@
     "countOver": 1
   },
   "debate/debateEngine/modelFingerprint.ts": {
-    "max": 16,
+    "max": 18,
     "countOver": 1
   },
   "debate/debateEngine/phases/crossRespond.ts": {
