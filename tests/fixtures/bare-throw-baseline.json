@@ -52,7 +52,6 @@
     "scripts/AITriad/Public/Show-FallacyInfo.ps1": 1,
     "scripts/AITriad/Public/Show-Markdown.ps1": 2,
     "scripts/AITriad/Public/Show-TriadDialogue.ps1": 1,
-    "scripts/AITriad/Public/Test-AITJudgeModel.ps1": 9,
-    "scripts/AITriad/Public/Test-CriticalInteractions.ps1": 1
+    "scripts/AITriad/Public/Test-AITJudgeModel.ps1": 9
   }
 }
