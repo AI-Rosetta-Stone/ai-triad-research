@@ -5116,3 +5116,125 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (p/20#80, p/169#189, p/169#190). Diagnosis corrected twice.
 
 **Applies To:** All agents encountering MSYS-mangled filenames in a tracked git repo; especially relevant in the `ai-triad-data` repo.
+
+---
+
+## #242 [Build] `tseslint.parser.parse` Is Not a Function — Meta-Package Exports `parseForESLint`, Not `parse`
+
+**Pattern:** An agent calls `tseslint.parser.parse(src, opts)` to parse TypeScript source for static analysis, expecting a behaviour identical to `@typescript-eslint/parser`'s `parse` export. The call throws `TypeError: tseslint.parser.parse is not a function`. The meta-package `typescript-eslint` re-exports the parser under `tseslint.parser`, but only exposes `parseForESLint` — not the standalone `parse` function that the underlying `@typescript-eslint/parser` package exports directly.
+
+**Instances:**
+- 2026-10-12 — Shared Lib (p/5#51, t/4153): called `tseslint.parser.parse(src, { ecmaFeatures: { jsx: true }, sourceType: 'module' })` inside a vitest analysis helper. Threw `TypeError: tseslint.parser.parse is not a function`. Resolved by switching to `tseslint.parser.parseForESLint(src, opts).ast`.
+
+**Root Cause:** `typescript-eslint` (the meta-package) wraps `@typescript-eslint/parser` but does not re-export the legacy `parse(src, opts)` entrypoint. It only exposes `parseForESLint(src, opts)`, which returns `{ ast, services, scopeManager, visitorKeys }`. Callers that want just the AST must unwrap `.ast`. The API surface differs between direct use of `@typescript-eslint/parser` and use through the meta-package.
+
+**Prevention:**
+1. **Use `tseslint.parser.parseForESLint(src, opts).ast`**, not `tseslint.parser.parse(src, opts)`, when parsing through the `typescript-eslint` meta-package.
+2. **When porting code from `@typescript-eslint/parser` to `typescript-eslint`**, audit every call site: the standalone package's `parse` export has no equivalent under `tseslint.parser`. Use `parseForESLint(...).ast` as the replacement.
+3. **`TypeError: X is not a function` on a meta-package export** is a signal to check whether the meta-package re-exports the same surface as the underlying package — often it does not.
+
+**Status:** Active — 1 instance (Shared Lib p/5#51, t/4153).
+
+**Applies To:** All agents using `typescript-eslint` meta-package for TypeScript AST parsing or static analysis.
+
+---
+
+## #243 [Runtime] Orca MCP Bulk Tool Schema Assumptions — `bulk_update_tickets` Does Not Accept Status; `bulk_relate` Takes a Different Shape
+
+**Pattern:** An agent calls `bulk_update_tickets` with a `status` field to transition multiple tickets in one call, or calls `bulk_relate` with a `relations` array. Both calls are rejected. `bulk_update_tickets` does not support status transitions — those go through `transition_ticket` individually. `bulk_relate` takes `action`, `reference_id`, and `ticket_ids`, not a `relations` array.
+
+**Instances:**
+- 2026-10-12 — Rosetta Stone (p/6#85): called `bulk_update_tickets` with `{ status: "Done" }` for a set of tickets; call was rejected. Also called `bulk_relate` with `{ relations: [...] }`; rejected. Resolved by using `transition_ticket` per ticket for status, and the correct `{ action, reference_id, ticket_ids }` shape for `bulk_relate`.
+
+**Root Cause:** The bulk MCP tools accept a subset of the per-ticket API surface. Status transitions are a state-machine operation and are intentionally excluded from bulk update. `bulk_relate` has a different schema from what a direct analogy to the single-ticket `add_relation` call would suggest.
+
+**Prevention:**
+1. **Use `transition_ticket` (not `bulk_update_tickets`) for status changes.** `bulk_update_tickets` handles field updates only (title, priority, assignee, etc.).
+2. **`bulk_relate` shape:** `{ action: "add"|"remove", reference_id: "<ticket>", ticket_ids: ["<t1>", …] }` — not a `relations` array.
+3. **Before calling any bulk MCP tool**, verify its schema with `ToolSearch select:<tool_name>` if you haven't used it recently. Bulk tools frequently have narrower schemas than their per-item equivalents.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#85).
+
+**Applies To:** All agents using Orca MCP bulk tools (`bulk_update_tickets`, `bulk_relate`).
+
+---
+
+## #244 [Build] `.githooks/` Scripts and Root `package.json` Scripts Fail When Run from a Subdirectory CWD
+
+**Pattern:** An agent runs `.githooks/read-workflow-mode.sh` or `npm run gen:code-referenced-models` from a subdirectory (e.g. `lib/debate/`). The shell script fails to find its sibling scripts or the git root; the npm script is not found because `lib/debate/package.json` does not define it. Both are defined at the repo root and resolve paths relative to the shell's working directory.
+
+**Instances:**
+- 2026-10-12 — DebateTool (p/70#57, t/4166): ran `sh .githooks/read-workflow-mode.sh` from `lib/debate/` cwd — script failed because `.githooks/` relative to `lib/debate/` does not exist. Also ran `npm run gen:code-referenced-models` from `lib/debate/` — not found in that package's scripts. Resolved by running from the repo root.
+
+**Root Cause:** `.githooks/read-workflow-mode.sh` uses relative path lookups that assume the cwd is the repo root. Root-level `npm run` scripts live in the root `package.json` and are invisible to sub-package npm. Neither tool has a guard or fallback for being called from a subdirectory.
+
+**Prevention:**
+1. **Always run `.githooks/` scripts from the repo root.** Use an absolute path: `sh "$(git rev-parse --show-toplevel)/.githooks/read-workflow-mode.sh"`, or `cd` to the root first in the same command.
+2. **Root-level npm scripts (gen:\*, verify, models:drift, etc.) must be run from the repo root,** not from a sub-package directory. `npm run <script>` resolves against the nearest `package.json` — a sub-package's `package.json` will not have them.
+3. **`script not found` from npm in a worktree subdirectory** is a reliable signal that you are in the wrong cwd — check `pwd` and navigate to the repo root.
+
+**Status:** Active — 1 instance (DebateTool p/70#57, t/4166).
+
+**Applies To:** All agents running `.githooks/` scripts or root-level npm scripts from within a subdirectory or sub-package cwd.
+
+---
+
+## #245 [Runtime] jq String Operations Error on Null Input — Guard with `// ""` Before Any String Op
+
+**Pattern:** An agent pipes a JSON field into a jq string operation (`gsub`, `ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase`, etc.). The field is null in some records. jq errors: `null (null) and string ("…") cannot be iterated over` or similar. The pipeline aborts or silently drops rows.
+
+**Instances:**
+- 2026-10-12 — Tech Lead (p/335#141): `.body[0:150] | gsub("…"; "…")` — `.body` was null for some records; `gsub` errored on null. Resolved by guarding: `(.body // "")[0:150] | gsub(…)`.
+
+**Root Cause:** jq string functions expect a string on the left-hand side. A null input is not coerced to an empty string — it propagates the type error. JSON fields that are optional or not always populated can be null even when the schema implies string.
+
+**Prevention:**
+1. **Guard every string field before a string op:** `(.field // "")` replaces null with empty string. E.g. `(.body // "")[0:150] | gsub(…)`.
+2. **Use `select(.field != null)` or `select(.field)` to filter records before string ops** when null rows should be dropped rather than defaulted.
+3. **`ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase` all have the same null-intolerance.** Apply the `// ""` guard consistently whenever the input field is optional.
+4. **A jq pipeline that works on a sample may silently fail on production data** where optional fields are null — always test against a full data slice or add a null guard defensively.
+
+**Status:** Active — 1 instance (Tech Lead p/335#141).
+
+**Applies To:** All agents writing jq expressions against JSON fields that may be null or absent.
+
+---
+
+## #246 [Build] Design Doc File Paths Are Intent, Not Ground Truth — Verify With `find` Before Importing; Worktree Relative Paths Resolve Within the Worktree
+
+**Pattern:** An agent uses a file path from a design document as the canonical location for a source file, imports or reads from that path, and receives a "module not found" or "file not found" error. The design doc recorded the intended path, not the as-implemented one. A second facet: a relative path like `../../taxonomy-editor` entered from inside a worktree resolves to the worktree copy of `taxonomy-editor`, not the main repo's copy. This is expected behavior, but when the design-doc path was also wrong, the combination produced a silent absent-file error with no indication which assumption failed.
+
+**Instances:**
+- 2026-10-12 — DebateTool (p/70#59, t/4166): design doc stated `modelConfig.ts` was at `hooks/useDebateStore/shared/modelConfig.ts`; actual location was `stores/shared/modelConfig.ts`. Relative path `../../taxonomy-editor` from the worktree resolved to the worktree's copy (correct behavior, but file was absent there because the design-doc path was wrong). Resolved by running `find . -name modelConfig.ts` to get the canonical path.
+
+**Root Cause:** Design documents capture intent at authoring time and are not automatically updated when code is refactored or reorganized. File paths in design docs can drift from reality. The first failure (wrong path) and the second (worktree vs main repo resolution) compounded silently because neither produced an explicit "wrong path" error — just "file not found."
+
+**Prevention:**
+1. **Verify every file path from a design document with `find . -name <file>` or `ls <path>` before importing or reading.** Design doc paths are architectural intent, not guaranteed locations.
+2. **Relative paths (`../../foo`) inside a worktree resolve within that worktree's tree**, not the main repo's. This is expected — but when the file is also misnamed, the combination is silent. Confirm with an explicit `ls` after constructing the path.
+3. **When a design doc is more than a few days old**, treat all file paths as approximate — always verify against the live tree. File reorganization is common during active development.
+
+**Status:** Active — 1 instance (DebateTool p/70#59, t/4166).
+
+**Applies To:** All agents using file paths from design documents; all agents working with relative paths inside worktrees.
+
+---
+
+## #247 [Data] Regenerate Tool With Relative Path Resolved Against Process Directory Scans Zero Files and Silently Overwrites Source of Truth
+
+**Pattern:** A cmdlet or script that regenerates a baseline or index file accepts a relative path argument (e.g. `Update-ComplexityBaseline -Path scripts`). The path is resolved against the process's working directory rather than the PowerShell module's location (`$PSScriptRoot`) or the caller's location. The working directory does not contain the expected subtree, so the scan finds zero files. The tool writes an empty result over the existing baseline — no error, no warning, no guard against empty output.
+
+**Instances:**
+- 2026-10-13 — PowerShell (p/20#94, t/4146, PR #3235): `Update-ComplexityBaseline -Path scripts` resolved `scripts` against the process directory (not the module's location), found 0 files, and silently wrote an empty baseline over every entry. Fix: resolve relative paths with `Resolve-Path` / `$PSScriptRoot`, and refuse to write an empty scan result (`assert $results.Count -gt 0`).
+
+**Root Cause:** PowerShell cmdlets that accept path parameters do not inherit the caller's `$PWD` by default — they use the process working directory, which may differ from the shell's perceived cwd. A regenerate tool that writes unconditionally on zero results provides no safety net for a misconfigured path.
+
+**Prevention:**
+1. **Resolve relative paths with `Resolve-Path` (throws on missing) or `Join-Path $PSScriptRoot …`** inside PowerShell cmdlets — never assume the process directory matches the caller's intent.
+2. **A regenerate/update tool must refuse to write an empty result.** Assert `$results.Count -gt 0` (or equivalent) before overwriting any existing file. Empty output almost always means the scan target was not found, not that everything was deleted.
+3. **The failure mode is silent success:** no error, no warning, but the source of truth is now empty. Add a `WARN` log when the scan count is unexpectedly low (e.g. fewer results than the previous run), even if the tool continues.
+4. **This class applies to any "regen" or "update index" operation** — not just PowerShell. Any script that reads a tree and writes a summary file should guard against zero-item output before overwriting.
+
+**Status:** Active — 1 instance (PowerShell p/20#94, t/4146, PR #3235).
+
+**Applies To:** All agents writing or running cmdlets/scripts that regenerate baselines, indexes, or summary files from a directory scan.
