@@ -1,0 +1,34 @@
+{
+  "scenario": "missing-camp-and-fields",
+  "transcript": [
+    "[warning] pov_summaries.safetyist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
+    "[Red]   │  ✗ Schema: Missing camp in pov_summaries: skeptic",
+    "[Red]   │  ✗ Schema: Missing required field: factual_claims"
+  ],
+  "error": "The property 'skeptic' cannot be found on this object. Verify that the property exists.",
+  "result": [],
+  "calls": [],
+  "writes": [],
+  "summary": null,
+  "metadata": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"title\": \"Doc Title\",",
+      "  \"pov_tags\": [",
+      "    \"accelerationist\",",
+      "    \"safetyist\"",
+      "  ],",
+      "  \"source_type\": \"blog\",",
+      "  \"summary_status\": \"pending\",",
+      "  \"summary_version\": \"2.3.0\",",
+      "  \"claims_by_pov\": {",
+      "    \"accelerationist\": 9",
+      "  },",
+      "  \"total_claims\": 99,",
+      "  \"custom_field\": \"kept as is\"",
+      "}"
+    ]
+  }
+}
