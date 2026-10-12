@@ -11,9 +11,9 @@ function Restore-TaxEditorKnownGood {
         post-deploy health check and auto-rollback on failure.
         Supports -WhatIf/-Confirm.
     .PARAMETER Package
-        GitHub package in owner/name format. Default: jpsnover/taxonomy-editor.
+        GitHub package in owner/name format. Default: ai-rosetta-stone/taxonomy-editor.
     .PARAMETER Registry
-        Container registry + image path. Default: ghcr.io/jpsnover/taxonomy-editor.
+        Container registry + image path. Default: ghcr.io/ai-rosetta-stone/taxonomy-editor.
     .PARAMETER ResourceGroup
         Azure resource group name. Default: ai-triad.
     .PARAMETER AppName
@@ -44,10 +44,10 @@ function Restore-TaxEditorKnownGood {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter()]
-        [string]$Package = 'jpsnover/taxonomy-editor',
+        [string]$Package = 'ai-rosetta-stone/taxonomy-editor',
 
         [Parameter()]
-        [string]$Registry = 'ghcr.io/jpsnover/taxonomy-editor',
+        [string]$Registry = 'ghcr.io/ai-rosetta-stone/taxonomy-editor',
 
         [Parameter()]
         [string]$ResourceGroup = 'ai-triad',

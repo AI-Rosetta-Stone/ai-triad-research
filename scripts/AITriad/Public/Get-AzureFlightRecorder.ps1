@@ -115,7 +115,7 @@ function Get-AzureFlightRecorder {
         [switch]$Open,
 
         [Parameter()]
-        [string]$DataRepo = 'jpsnover/ai-triad-data',
+        [string]$DataRepo = 'AI-Rosetta-Stone/ai-triad-data',
 
         [Parameter()]
         [string]$SessionCookie,

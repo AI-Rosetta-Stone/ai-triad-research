@@ -43,7 +43,7 @@ jobs:
       - name: Checkout data repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           fetch-depth: 1
 
@@ -102,7 +102,7 @@ jobs:
         if: steps.compliance.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.AI_TRIAD_DATA_ALARM_TOKEN }}
-          DATA_REPO: jpsnover/ai-triad-data
+          DATA_REPO: AI-Rosetta-Stone/ai-triad-data
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           NUM=$(gh issue list --repo "$DATA_REPO" --label data-compliance --state open \
@@ -136,7 +136,7 @@ jobs:
         if: failure() && steps.compliance.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.AI_TRIAD_DATA_ALARM_TOKEN }}
-          DATA_REPO: jpsnover/ai-triad-data
+          DATA_REPO: AI-Rosetta-Stone/ai-triad-data
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           BODY="Scheduled full-corpus SituationBDI check FAILED — the corpus has situation(s) without BDI decomposition.

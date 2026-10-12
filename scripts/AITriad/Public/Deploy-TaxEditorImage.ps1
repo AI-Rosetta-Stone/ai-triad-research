@@ -14,7 +14,7 @@ function Deploy-TaxEditorImage {
     .PARAMETER Digest
         Exact image digest to deploy (e.g., 'sha256:abc123...').
     .PARAMETER Registry
-        Container registry + image path. Default: ghcr.io/jpsnover/taxonomy-editor.
+        Container registry + image path. Default: ghcr.io/ai-rosetta-stone/taxonomy-editor.
     .PARAMETER ResourceGroup
         Azure resource group name. Default: ai-triad.
     .PARAMETER AppName
@@ -54,7 +54,7 @@ function Deploy-TaxEditorImage {
         [string]$Digest,
 
         [Parameter()]
-        [string]$Registry = 'ghcr.io/jpsnover/taxonomy-editor',
+        [string]$Registry = 'ghcr.io/ai-rosetta-stone/taxonomy-editor',
 
         [Parameter()]
         [string]$ResourceGroup = 'ai-triad',

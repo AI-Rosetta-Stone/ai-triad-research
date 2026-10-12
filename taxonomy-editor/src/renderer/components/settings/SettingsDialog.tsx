@@ -720,7 +720,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             <div className="settings-dialog-provision-link-wrap">
               <a
                 href="#"
-                onClick={(e) => { e.preventDefault(); void api.openExternal('https://github.com/jpsnover/ai-triad-research/blob/main/docs/security/api-key-protection.md'); }}
+                onClick={(e) => { e.preventDefault(); void api.openExternal('https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/security/api-key-protection.md'); }}
                 className="settings-dialog-provision-link"
               >
                 How is my API key protected?

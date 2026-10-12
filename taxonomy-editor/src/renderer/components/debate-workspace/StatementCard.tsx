@@ -43,7 +43,7 @@ import { api } from '@bridge';
 const DEBATE_REMARK_PLUGINS = [remarkGfm, remarkColorizePov, remarkLinkifyRefs];
 
 /** Taxonomy Vocabulary System spec — linked from the TERMS meta-view header (t/2471). */
-const VOCAB_SPEC_URL = 'https://github.com/jpsnover/ai-triad-research/blob/main/docs/taxonomy-vocabulary-system-spec.md';
+const VOCAB_SPEC_URL = 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/taxonomy-vocabulary-system-spec.md';
 
 /** Human-readable labels for the fact-check verdict taxonomy (t/1701 / t/1716). */
 const FACT_VERDICT_LABEL: Record<FactVerdict, string> = {

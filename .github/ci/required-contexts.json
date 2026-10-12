@@ -2,7 +2,7 @@
   "_comment": [
     "t/3646 — SSOT MIRROR of main's required status checks. This file is a DESCRIPTION, not",
     "the source of truth. GitHub branch protection is AUTHORITATIVE:",
-    "  gh api repos/jpsnover/ai-triad-research/branches/main/protection/required_status_checks",
+    "  gh api repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/required_status_checks",
     "Hand-editing this file changes NOTHING real — it only changes what workflow-lint enforces.",
     "operations/devops/Test-RequiredContextsListDrift.ps1 validates this list against the live",
     "API; that drift-guard MUST be green on main BEFORE the workflow-lint required-context rule",

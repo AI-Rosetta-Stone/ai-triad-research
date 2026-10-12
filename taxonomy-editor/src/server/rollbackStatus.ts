@@ -25,7 +25,7 @@ export interface RollbackStatus {
   previousRevision: string | null;
 }
 
-const GHCR_PACKAGE = process.env.GHCR_PACKAGE || 'jpsnover/taxonomy-editor';
+const GHCR_PACKAGE = process.env.GHCR_PACKAGE || 'ai-rosetta-stone/taxonomy-editor';
 const KNOWN_GOOD_TTL_MS = 10 * 60 * 1000;
 let _knownGoodCache: { tag: string | null; expires: number } | null = null;
 

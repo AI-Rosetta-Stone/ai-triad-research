@@ -19,7 +19,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Repo = 'jpsnover/ai-triad-data',
+    [string] $Repo = 'AI-Rosetta-Stone/ai-triad-data',
     [string] $Workflow = 'data-compliance-watchdog.yml',
     [double] $WatchdogStaleHours = 12
 )

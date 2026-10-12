@@ -201,7 +201,7 @@ function fetchLiveProtection() {
     'gh',
     [
       'api',
-      'repos/jpsnover/ai-triad-research/branches/main/protection',
+      'repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection',
       '--jq',
       '{enforceAdmins: .enforce_admins.enabled, contexts: .required_status_checks.contexts}',
     ],

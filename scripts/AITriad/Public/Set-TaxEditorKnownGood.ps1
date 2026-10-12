@@ -15,7 +15,7 @@ function Set-TaxEditorKnownGood {
     .PARAMETER AppName
         Container App name. Default: taxonomy-editor.
     .PARAMETER Package
-        GitHub package in owner/name format. Default: jpsnover/taxonomy-editor.
+        GitHub package in owner/name format. Default: ai-rosetta-stone/taxonomy-editor.
     .EXAMPLE
         Set-TaxEditorKnownGood
     .EXAMPLE
@@ -44,7 +44,7 @@ function Set-TaxEditorKnownGood {
         [string]$AppName = 'taxonomy-editor',
 
         [Parameter()]
-        [string]$Package = 'jpsnover/taxonomy-editor'
+        [string]$Package = 'ai-rosetta-stone/taxonomy-editor'
     )
 
     Set-StrictMode -Version Latest

@@ -40,7 +40,7 @@ const USER_AGENT = 'ai-triad-taxonomy-editor';
 const EXPIRY_SAFETY_MARGIN_MS = 5 * 60 * 1000;
 
 export interface SyncCredentials {
-  /** "owner/repo" e.g. "jpsnover/ai-triad-data" */
+  /** "owner/repo" e.g. "AI-Rosetta-Stone/ai-triad-data" */
   repo: string;
   /** Bearer token for `https://x-access-token:<token>@github.com/...` git pushes */
   token: string;

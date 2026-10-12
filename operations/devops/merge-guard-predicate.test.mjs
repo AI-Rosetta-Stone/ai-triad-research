@@ -227,7 +227,7 @@ const REPO_SCOPED_MERGES = [
   'gh --repo x/y pr merge 1901 --squash',
   'gh --repo=x/y pr merge 1901 --squash',
   'gh pr -R x/y merge 1901 --squash',
-  'gh.exe -R jpsnover/ai-triad-research pr merge 1901 --squash',
+  'gh.exe -R AI-Rosetta-Stone/ai-triad-research pr merge 1901 --squash',
 ];
 
 test('t/3695 BLOCK arm: bare repo-scoped merge (-R / --repo / --repo= / either side of pr) is caught', () => {
@@ -473,8 +473,8 @@ test('isAutoMergeCommand: true only for a `gh pr merge` carrying --auto', () => 
 
 test('parsePrRef: numeric id, pull URL, else null (→ current branch)', () => {
   assert.equal(parsePrRef('gh pr merge 1947 --auto'), '1947');
-  assert.equal(parsePrRef('gh pr merge https://github.com/jpsnover/ai-triad-research/pull/1947 --auto'),
-    'https://github.com/jpsnover/ai-triad-research/pull/1947');
+  assert.equal(parsePrRef('gh pr merge https://github.com/AI-Rosetta-Stone/ai-triad-research/pull/1947 --auto'),
+    'https://github.com/AI-Rosetta-Stone/ai-triad-research/pull/1947');
   assert.equal(parsePrRef('gh pr merge --auto --squash'), null); // no ref → gh uses current branch
   // a --match-head-commit value is never mistaken for the ref (leading-position only)
   assert.equal(parsePrRef('gh pr merge --match-head-commit deadbeef --squash 1947'), null);
@@ -675,7 +675,7 @@ test('t/3695 sink piped only into other sinks (tee a | tee b) is still data → 
 });
 
 test('t/3695 parseMergeClause: prRef (number / pull URL / none) and repo (-R / --repo / --repo= / none)', () => {
-  assert.deepEqual(parseMergeClause('gh pr merge 22 -R jpsnover/ai-triad-data --squash'), { prRef: '22', repo: 'jpsnover/ai-triad-data' });
+  assert.deepEqual(parseMergeClause('gh pr merge 22 -R AI-Rosetta-Stone/ai-triad-data --squash'), { prRef: '22', repo: 'AI-Rosetta-Stone/ai-triad-data' });
   assert.deepEqual(parseMergeClause('gh --repo=x/y pr merge 7 --squash'), { prRef: '7', repo: 'x/y' });
   assert.deepEqual(parseMergeClause('gh pr merge https://github.com/x/y/pull/9 --squash'), { prRef: 'https://github.com/x/y/pull/9', repo: null });
   assert.deepEqual(parseMergeClause('gh pr merge --squash'), { prRef: null, repo: null });

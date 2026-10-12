@@ -13,7 +13,7 @@ function Get-TaxEditorImage {
     .PARAMETER Last
         Number of image versions to return (1-100). Default: 10.
     .PARAMETER Package
-        GitHub package in owner/name format. Default: jpsnover/taxonomy-editor.
+        GitHub package in owner/name format. Default: ai-rosetta-stone/taxonomy-editor.
     .EXAMPLE
         Get-TaxEditorImage
     .EXAMPLE
@@ -40,7 +40,7 @@ function Get-TaxEditorImage {
         [int]$Last = 10,
 
         [Parameter()]
-        [string]$Package = 'jpsnover/taxonomy-editor'
+        [string]$Package = 'ai-rosetta-stone/taxonomy-editor'
     )
 
     Set-StrictMode -Version Latest
@@ -50,7 +50,7 @@ function Get-TaxEditorImage {
     $PkgName = $Parts[1]
 
     $Versions = Invoke-GitHubApi `
-        -Endpoint "/users/$Owner/packages/container/$PkgName/versions?per_page=$Last&state=active" `
+        -Endpoint "/orgs/$Owner/packages/container/$PkgName/versions?per_page=$Last&state=active" `
         -CallerName 'Get-TaxEditorImage'
 
     foreach ($V in $Versions) {

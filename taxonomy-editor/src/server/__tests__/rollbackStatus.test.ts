@@ -40,7 +40,7 @@ describe('rollbackStatus (t/871)', () => {
     expect(s.deploySha).toBe('abc1234');
     expect(s.deployTag).toBe('0.8.1');
     expect(s.activeRevision).toBe('taxonomy-editor--deploy-abc1234-5678');
-    expect(s.imageTag).toBe('ghcr.io/jpsnover/taxonomy-editor:0.8.1');
+    expect(s.imageTag).toBe('ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1');
     expect(s.knownGoodTag).toBe('0.8.0'); // highest semver below 0.8.1
   });
 
@@ -57,11 +57,11 @@ describe('rollbackStatus (t/871)', () => {
   });
 
   it('prefers an explicit DEPLOY_IMAGE over the constructed tag', async () => {
-    process.env.DEPLOY_IMAGE = 'ghcr.io/jpsnover/taxonomy-editor@sha256:deadbeef';
+    process.env.DEPLOY_IMAGE = 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:deadbeef';
     process.env.DEPLOY_TAG = '0.8.1';
     mockGhcr(['0.8.1', '0.8.0']);
     const s = await getRollbackStatus();
-    expect(s.imageTag).toBe('ghcr.io/jpsnover/taxonomy-editor@sha256:deadbeef');
+    expect(s.imageTag).toBe('ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:deadbeef');
   });
 
   it('fetchKnownGoodTag picks the highest semver strictly below the current tag', async () => {

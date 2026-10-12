@@ -14,7 +14,7 @@ This is the single source of truth for the deployment's identity facts. The DevO
 | ACA Environment | `cae-aitriad` (Consumption plan) |
 | App URL | https://taxonomy-editor.yellowbush-aeda037d.eastus.azurecontainerapps.io |
 | Env domain suffix | `yellowbush-aeda037d.eastus.azurecontainerapps.io` |
-| Container Image | `ghcr.io/jpsnover/taxonomy-editor:latest` — **GHCR, not Azure Container Registry** |
+| Container Image | `ghcr.io/ai-rosetta-stone/taxonomy-editor:latest` — **GHCR, not Azure Container Registry** |
 | Storage Account / File Share | `staitriadkvwl3nywge4iw` / `taxonomy-data` |
 | Scale | 0–1 replicas, 1.0 CPU / 2 GiB RAM (scale-to-zero) |
 | Auth | GitHub + Google OAuth via Azure Easy Auth |
@@ -48,6 +48,6 @@ The Azure `AGENTS.md` "Current Deployment" block had drifted on four facts; corr
 | App name | `ai-triad-taxonomy-editor` | `taxonomy-editor` |
 | Region | East US 2 | East US |
 | ACA Environment | `ai-triad-prod` | `cae-aitriad` |
-| Registry | Azure Container Registry (Basic) | GHCR (`ghcr.io/jpsnover/taxonomy-editor`) |
+| Registry | Azure Container Registry (Basic) | GHCR (`ghcr.io/ai-rosetta-stone/taxonomy-editor`) |
 
 The DevOps `AGENTS.md` "Live Deployment" block was already correct and matched Azure.

@@ -13,7 +13,7 @@
 1. **Verify what happened:**
    ```bash
    # Check recent force-pushes on the data repo
-   gh api repos/jpsnover/ai-triad-data/events --jq '.[] | select(.type=="PushEvent") | {ref: .payload.ref, forced: .payload.forced, pusher: .actor.login, created: .created_at}' | head -5
+   gh api repos/AI-Rosetta-Stone/ai-triad-data/events --jq '.[] | select(.type=="PushEvent") | {ref: .payload.ref, forced: .payload.forced, pusher: .actor.login, created: .created_at}' | head -5
    ```
 
 2. **Check cache recovery:**
@@ -24,11 +24,11 @@
 
 3. **Check active session branches:**
    ```bash
-   gh api repos/jpsnover/ai-triad-data/git/refs/heads/api-session --jq '.[].ref' 2>/dev/null
+   gh api repos/AI-Rosetta-Stone/ai-triad-data/git/refs/heads/api-session --jq '.[].ref' 2>/dev/null
    ```
    If any exist, verify their base SHA is still in main's history:
    ```bash
-   gh api repos/jpsnover/ai-triad-data/compare/main...api-session/{userId} --jq '.status'
+   gh api repos/AI-Rosetta-Stone/ai-triad-data/compare/main...api-session/{userId} --jq '.status'
    ```
    - `ahead` or `behind` → branch is valid
    - `diverged` → branch needs rebase

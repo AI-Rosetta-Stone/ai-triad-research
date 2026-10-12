@@ -49,7 +49,7 @@ test('isDependabot', () => {
 // Lead finding (t/4103, PR #3155 run 37804716313): the REST `pulls.listFiles` payload names
 // this field `filename`, not `path` -- `files.map((f) => f.path)` silently produced `undefined`
 // for every entry. This fixture is a trimmed REAL response from
-// `gh api repos/jpsnover/ai-triad-research/pulls/3155/files`.
+// `gh api repos/AI-Rosetta-Stone/ai-triad-research/pulls/3155/files`.
 const REAL_LISTFILES_PAYLOAD = [
   {
     filename: '.github/ci/tier-paths.json',

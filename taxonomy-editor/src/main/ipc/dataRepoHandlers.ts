@@ -38,7 +38,7 @@ export function registerDataRepoHandlers(): void {
     if (!resolved.startsWith(home + path.sep) && resolved !== home) {
       return { success: false, message: `Target path must be within ${home}` };
     }
-    const repoUrl = 'https://github.com/jpsnover/ai-triad-data.git';
+    const repoUrl = 'https://github.com/AI-Rosetta-Stone/ai-triad-data.git';
     return new Promise<{ success: boolean; message: string }>((resolve) => {
       const parentDir = path.dirname(resolved);
       if (!fs.existsSync(parentDir)) {

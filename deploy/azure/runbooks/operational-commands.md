@@ -7,13 +7,13 @@ Remote Diagnostics Cmdlets section in `operations/devops/AGENTS.md`.
 
 **Live deployment identifiers** (source of truth: `operations/devops/AGENTS.md` "Live Deployment"):
 Resource Group `ai-triad`, Container App `taxonomy-editor`, image
-`ghcr.io/jpsnover/taxonomy-editor:latest`, region East US.
+`ghcr.io/ai-rosetta-stone/taxonomy-editor:latest`, region East US.
 
 ## Container App
 
 ```bash
 # Redeploy latest image
-az containerapp update --name taxonomy-editor -g ai-triad --image ghcr.io/jpsnover/taxonomy-editor:latest
+az containerapp update --name taxonomy-editor -g ai-triad --image ghcr.io/ai-rosetta-stone/taxonomy-editor:latest
 
 # Check container status
 az containerapp show --name taxonomy-editor -g ai-triad --query "properties.runningStatus"

@@ -36,9 +36,9 @@ jobs:
       - name: Checkout data repo (ai-triad-data — write token for the commit)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
-          token: ${{ secrets.DATA_REPO_TOKEN }}  # Scope: contents:write on jpsnover/ai-triad-data (checkout + git push)
+          token: ${{ secrets.DATA_REPO_TOKEN }}  # Scope: contents:write on AI-Rosetta-Stone/ai-triad-data (checkout + git push)
 
       # This repo is a pnpm WORKSPACE (root pnpm-lock.yaml); lib/debate has no standalone
       # package-lock.json, so `npm ci` there fails (EUSAGE). Install the workspace with pnpm and

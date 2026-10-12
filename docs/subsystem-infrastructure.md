@@ -64,7 +64,7 @@ FROM node:22-bookworm-slim
 ### Stage 2: Runtime
 
 ```dockerfile
-FROM ghcr.io/jpsnover/ai-triad-base:latest
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:latest
 # Base includes: Python 3.11, Node 22, ffmpeg, pandoc
 # Copy built artifacts (dist/server, dist/renderer)
 # VOLUME /data

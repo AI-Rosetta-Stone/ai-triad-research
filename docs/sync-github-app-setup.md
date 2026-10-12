@@ -82,7 +82,7 @@ az keyvault secret set \
 The threat model assumes the App *cannot* push directly to `main`.
 Enforce this at the repo level:
 
-<https://github.com/jpsnover/ai-triad-data/settings/branches>
+<https://github.com/AI-Rosetta-Stone/ai-triad-data/settings/branches>
 
 - Branch name pattern: `main`
 - Require a pull request before merging → at least 1 approving review
@@ -97,7 +97,7 @@ From the root of this repo (`ai-triad-research`):
 
 ```bash
 # Public variables (values visible to workflows and logs)
-gh variable set SYNC_GITHUB_REPO --body "jpsnover/ai-triad-data"
+gh variable set SYNC_GITHUB_REPO --body "AI-Rosetta-Stone/ai-triad-data"
 gh variable set SYNC_GITHUB_APP_ID --body "<app_id from step 2>"
 gh variable set SYNC_GITHUB_APP_INSTALLATION_ID --body "<installation_id from step 3>"
 gh variable set SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME --body "github-app-private-key"
@@ -128,7 +128,7 @@ After the deploy finishes, smoke test the full loop:
 2. Click the pill → drawer opens. The edit appears as a modified file
    with a unified diff.
 3. Click **Create pull request**. A new PR opens at
-   `https://github.com/jpsnover/ai-triad-data/pulls`, with the session
+   `https://github.com/AI-Rosetta-Stone/ai-triad-data/pulls`, with the session
    branch name `web-session/<your-principal>`.
 4. Merge the PR. Within ~10 seconds (one poll cycle of `useSyncStatus`),
    the UI shows an **Upstream updated** pill — that's the webhook +

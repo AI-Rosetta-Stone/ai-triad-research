@@ -344,7 +344,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           fetch-depth: 1
 
@@ -650,7 +650,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           fetch-depth: 1
 
@@ -855,7 +855,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           fetch-depth: 1
 
@@ -1298,7 +1298,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           fetch-depth: 1
 
@@ -1345,7 +1345,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         continue-on-error: true
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           fetch-depth: 1
 
@@ -1460,7 +1460,7 @@ jobs:
       - name: Extract base image tag from Dockerfile
         id: base_tag
         run: |
-          TAG=$(grep -oP 'FROM ghcr\.io/jpsnover/ai-triad-base:\K\S+' taxonomy-editor/Dockerfile | head -1)
+          TAG=$(grep -oP 'FROM ghcr\.io/ai-rosetta-stone/ai-triad-base:\K\S+' taxonomy-editor/Dockerfile | head -1)
           echo "tag=${TAG%% *}" >> $GITHUB_OUTPUT
           echo "Base image tag: $TAG"
 
@@ -1468,14 +1468,14 @@ jobs:
         env:
           BASE_TAG: ${{ steps.base_tag.outputs.tag }}
         run: |
-          if docker pull "ghcr.io/jpsnover/ai-triad-base:$BASE_TAG" 2>/dev/null; then
+          if docker pull "ghcr.io/ai-rosetta-stone/ai-triad-base:$BASE_TAG" 2>/dev/null; then
             echo "Pulled base image from GHCR"
           else
             echo "Base image not in GHCR — building locally"
             docker buildx build --load \
               -f deploy/azure/Dockerfile.base \
               --build-arg PRELOAD_MODEL=false \
-              -t "ghcr.io/jpsnover/ai-triad-base:$BASE_TAG" .
+              -t "ghcr.io/ai-rosetta-stone/ai-triad-base:$BASE_TAG" .
           fi
 
       - name: Build app container image
@@ -1644,7 +1644,7 @@ jobs:
       - name: Checkout data repo (composition-drift gate, t/2430)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           token: ${{ secrets.DATA_REPO_TOKEN || secrets.GITHUB_TOKEN }}
       - name: Composition-drift gate — selftest + blocking (t/2430)

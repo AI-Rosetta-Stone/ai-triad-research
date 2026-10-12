@@ -2,7 +2,7 @@
 
 **Owner:** DevOps. **Last updated:** 2026-10-01
 
-`main` branch protection has `enforce_admins: true` (t/3736). This binds **admins** — i.e. every agent acting with the PI's credentials — to the required status checks. **Do not trust any enumerated list of those contexts — query it** (`gh api repos/jpsnover/ai-triad-research/branches/main/protection/required_status_checks --jq .contexts`); as of 2026-10-01 it is `ci-gate, CodeQL, joint-gv-guard, consult-hold-guard`, but that set changes. Before this, an admin could merge a PR whose required checks were red; that is how `fe98948e` reached `main` over a red `ci-gate`.
+`main` branch protection has `enforce_admins: true` (t/3736). This binds **admins** — i.e. every agent acting with the PI's credentials — to the required status checks. **Do not trust any enumerated list of those contexts — query it** (`gh api repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/required_status_checks --jq .contexts`); as of 2026-10-01 it is `ci-gate, CodeQL, joint-gv-guard, consult-hold-guard`, but that set changes. Before this, an admin could merge a PR whose required checks were red; that is how `fe98948e` reached `main` over a red `ci-gate`.
 
 This doc is the **point-of-use record** (Gate Co-Location) for the setting's emergency override.
 
@@ -24,18 +24,18 @@ This doc is the **point-of-use record** (Gate Co-Location) for the setting's eme
 1. **Agent** escalates to the PI on the incident anchor ticket — states the red `main` / broken-CI condition and why a merge must bypass checks. **Self-report** the action (see below).
 2. **PI** disables enforcement:
    ```bash
-   gh api -X DELETE repos/jpsnover/ai-triad-research/branches/main/protection/enforce_admins
+   gh api -X DELETE repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/enforce_admins
    ```
 3. The fix lands.
 4. **PI** re-enables enforcement:
    ```bash
-   gh api -X POST repos/jpsnover/ai-triad-research/branches/main/protection/enforce_admins
+   gh api -X POST repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/enforce_admins
    ```
 5. **PI** records the window (off-at / on-at) and the reason in the anchor ticket. **This re-enable + record is mandatory** — an override left off silently re-opens the bypass for the whole fleet.
 
 Verify current state at any time:
 ```bash
-gh api repos/jpsnover/ai-triad-research/branches/main/protection --jq '.enforce_admins.enabled'
+gh api repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection --jq '.enforce_admins.enabled'
 ```
 
 ### Why "self-report", explicitly labelled

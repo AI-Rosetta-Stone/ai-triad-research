@@ -76,7 +76,7 @@ export function registerDataRoutes(r: Router, ctx: ServerCtx): void {
       // when targetPath is root-owned (e.g. /data in Azure containers).
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'data-clone-'));
       await new Promise<void>((resolve, reject) => {
-        execFile('git', ['clone', 'https://github.com/jpsnover/ai-triad-data.git', tmpDir], { timeout: getConfig().server.gitCloneTimeoutMs, windowsHide: true }, (err) => {
+        execFile('git', ['clone', 'https://github.com/AI-Rosetta-Stone/ai-triad-data.git', tmpDir], { timeout: getConfig().server.gitCloneTimeoutMs, windowsHide: true }, (err) => {
           if (err) reject(err); else resolve();
         });
       });

@@ -24,7 +24,7 @@ function Deploy-TaxEditorInfra {
     .EXAMPLE
         Deploy-TaxEditorInfra -Commit 'abc1234' -WhatIf
     .EXAMPLE
-        Deploy-TaxEditorInfra -Commit 'abc1234' -Parameters @{ containerImage = 'ghcr.io/jpsnover/taxonomy-editor:0.8.0' }
+        Deploy-TaxEditorInfra -Commit 'abc1234' -Parameters @{ containerImage = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.0' }
     .LINK
         Show-AITriadHelp
     .LINK

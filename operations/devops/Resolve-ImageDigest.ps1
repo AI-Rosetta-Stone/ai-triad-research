@@ -24,7 +24,7 @@
     The commit SHA to deploy — the SAME value passed to the build (Invoke-ContainerBuild.ps1 -Sha).
     Full SHA recommended; a >=7-char prefix is tolerated but must be unambiguous.
 .PARAMETER Package
-    GHCR package in owner/name form. Default: jpsnover/taxonomy-editor.
+    GHCR package in owner/name form. Default: ai-rosetta-stone/taxonomy-editor.
 .PARAMETER Registry
     Container registry host. Default: ghcr.io.
 .PARAMETER Last
@@ -37,7 +37,7 @@
 [CmdletBinding()]
 param(
     [Parameter()][string]$Sha,
-    [string]$Package  = 'jpsnover/taxonomy-editor',
+    [string]$Package  = 'ai-rosetta-stone/taxonomy-editor',
     [string]$Registry = 'ghcr.io',
     [ValidateRange(1, 100)][int]$Last = 100,
     [switch]$GitHubOutput
@@ -64,7 +64,7 @@ function Resolve-ImageDigestFromImages {
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$Sha,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Images,
-        [string]$Package  = 'jpsnover/taxonomy-editor',
+        [string]$Package  = 'ai-rosetta-stone/taxonomy-editor',
         [string]$Registry = 'ghcr.io'
     )
     $ImageName = "$Registry/$Package"

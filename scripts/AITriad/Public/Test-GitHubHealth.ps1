@@ -10,7 +10,7 @@ function Test-GitHubHealth {
         status, and API rate limits. Uses GITHUB_TOKEN env var for authenticated
         checks (higher rate limits, workflow status) when available.
     .PARAMETER Repo
-        GitHub repo in owner/name format. Default: jpsnover/ai-triad-research.
+        GitHub repo in owner/name format. Default: AI-Rosetta-Stone/ai-triad-research.
     .PARAMETER TimeoutSec
         HTTP request timeout in seconds. Default: 10.
     .PARAMETER Branch
@@ -25,7 +25,7 @@ function Test-GitHubHealth {
     .EXAMPLE
         Test-GitHubHealth
     .EXAMPLE
-        Test-GitHubHealth -Repo 'jpsnover/ai-triad-research'
+        Test-GitHubHealth -Repo 'AI-Rosetta-Stone/ai-triad-research'
     .LINK
         Show-AITriadHelp
     .LINK
@@ -34,7 +34,7 @@ function Test-GitHubHealth {
     [CmdletBinding()]
     param(
         [Parameter(Position = 0)]
-        [string]$Repo = 'jpsnover/ai-triad-research',
+        [string]$Repo = 'AI-Rosetta-Stone/ai-triad-research',
 
         [Parameter()]
         [ValidateRange(1, 120)]

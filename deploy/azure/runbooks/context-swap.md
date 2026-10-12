@@ -33,7 +33,7 @@ Any change to `required_status_checks.contexts` on the `main` branch — adding 
 **First, read the CURRENT contexts** — the swap is relative to live state, not to this doc (which drifts):
 
 ```bash
-gh api repos/jpsnover/ai-triad-research/branches/main/protection/required_status_checks --jq '.contexts'
+gh api repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/required_status_checks --jq '.contexts'
 ```
 
 **Then PATCH the full desired set.** The `contexts` array is **replace-semantics** within this
@@ -41,7 +41,7 @@ sub-resource, so list every context you want to keep, plus/minus your change:
 
 ```bash
 # Example: ADD "<new-context>" to the set you just read. Edit the list to match the CURRENT contexts.
-gh api -X PATCH repos/jpsnover/ai-triad-research/branches/main/protection/required_status_checks \
+gh api -X PATCH repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/required_status_checks \
   --input - <<'EOF'
 {
   "strict": false,
@@ -53,7 +53,7 @@ EOF
 Verify the change took effect:
 
 ```bash
-gh api repos/jpsnover/ai-triad-research/branches/main/protection/required_status_checks --jq '.contexts'
+gh api repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/required_status_checks --jq '.contexts'
 ```
 
 ### Step 2 — Re-trigger every open PR (mandatory)
@@ -82,7 +82,7 @@ Optional parameters:
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
-| `-Repo` | `jpsnover/ai-triad-research` | Target repo |
+| `-Repo` | `AI-Rosetta-Stone/ai-triad-research` | Target repo |
 | `-RequiredContexts` | fetched from live protection | Override which contexts to verify |
 | `-TimeoutMinutes` | `8` | Extend for slow CI |
 | `-WhatIf` | off | Dry-run |

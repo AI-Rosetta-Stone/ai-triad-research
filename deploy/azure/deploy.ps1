@@ -16,7 +16,7 @@
 .PARAMETER Location
     Azure region. Default: eastus.
 .PARAMETER ContainerImage
-    Container image reference. Default: ghcr.io/jpsnover/taxonomy-editor:latest
+    Container image reference. Default: ghcr.io/ai-rosetta-stone/taxonomy-editor:latest
 .PARAMETER SeedData
     Clone ai-triad-data into the Azure Files share on first deploy.
 .PARAMETER SkipLogin
@@ -25,7 +25,7 @@
     Turn on the Phase-2 GitHub sync feature. Requires a GitHub App (or PAT)
     plus the data directory being a real git clone.
 .PARAMETER GitHubRepo
-    Target repo in owner/repo form (e.g. "jpsnover/ai-triad-data").
+    Target repo in owner/repo form (e.g. "AI-Rosetta-Stone/ai-triad-data").
 .PARAMETER GitHubAppId
     GitHub App numeric ID.
 .PARAMETER GitHubAppInstallationId
@@ -44,7 +44,7 @@
 .EXAMPLE
     ./deploy.ps1 -ResourceGroup ai-triad `
         -EnableGitSync `
-        -GitHubRepo 'jpsnover/ai-triad-data' `
+        -GitHubRepo 'AI-Rosetta-Stone/ai-triad-data' `
         -GitHubAppId '123456' `
         -GitHubAppInstallationId '7890123' `
         -GitHubAppPrivateKeySecretName 'github-app-private-key'
@@ -78,7 +78,7 @@ param(
     # accepts image_tag or defaults to :latest. THIS script is the MANUAL path — its :latest
     # default is the hand-run/bootstrap escape hatch. For a reproducible manual deploy pass
     # -ContainerImage the digest (resolve via: Get-TaxEditorImage | ? { $_.Tags -contains "sha-<commit>" }).
-    [string]$ContainerImage = 'ghcr.io/jpsnover/taxonomy-editor:latest',
+    [string]$ContainerImage = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:latest',
 
     [switch]$SeedData,
 
@@ -233,7 +233,7 @@ if ($SeedData) {
     # Clone data repo to temp, prune unneeded files, then upload to Azure Files
     $tempDir = Join-Path ([IO.Path]::GetTempPath()) "aitriad-data-$(Get-Random)"
     try {
-        git clone --depth 1 https://github.com/jpsnover/ai-triad-data.git $tempDir
+        git clone --depth 1 https://github.com/AI-Rosetta-Stone/ai-triad-data.git $tempDir
 
         # Remove large files not needed by the web app (~900 MB savings)
         # Raw PDFs/DOCX — only used by poviewer for on-demand PDF analysis

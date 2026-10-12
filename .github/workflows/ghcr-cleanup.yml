@@ -16,8 +16,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  OWNER: jpsnover
-
+  OWNER: ai-rosetta-stone
 jobs:
   cleanup:
     runs-on: ubuntu-latest

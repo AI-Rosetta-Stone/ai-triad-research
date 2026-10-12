@@ -81,7 +81,7 @@ describe('ApiKeyDialog', () => {
 
     await user.click(screen.getByText('how is my API key protected?'));
     expect(mockApi.openExternal).toHaveBeenCalledWith(
-      'https://github.com/jpsnover/ai-triad-research/blob/main/docs/security/api-key-protection.md',
+      'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/security/api-key-protection.md',
     );
   });
 });

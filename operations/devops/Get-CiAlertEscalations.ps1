@@ -19,7 +19,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Repo = 'jpsnover/ai-triad-research',
+    [string] $Repo = 'AI-Rosetta-Stone/ai-triad-research',
     [double] $HeartbeatStaleHours = 12
 )
 

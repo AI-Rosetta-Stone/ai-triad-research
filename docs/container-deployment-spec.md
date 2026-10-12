@@ -31,7 +31,7 @@ PS> Show-TaxonomyEditor
    ```
    and exits.
 
-2. The cmdlet checks for the `ghcr.io/jpsnover/taxonomy-editor` image. If missing:
+2. The cmdlet checks for the `ghcr.io/ai-rosetta-stone/taxonomy-editor` image. If missing:
    ```
    Pulling AI Triad Taxonomy Editor image (this is a one-time download)...
    [=========>                    ] 340 MB / 1.2 GB
@@ -390,7 +390,7 @@ COPY --from=builder /build/dist /app/dist
 The data directory (`ai-triad-data`) is bind-mounted from the host:
 
 ```
-docker run -v /path/to/ai-triad-data:/data ghcr.io/jpsnover/taxonomy-editor
+docker run -v /path/to/ai-triad-data:/data ghcr.io/ai-rosetta-stone/taxonomy-editor
 ```
 
 This means:
@@ -629,7 +629,7 @@ function Show-TaxonomyEditor {
     }
 
     # 5. Pull image if needed
-    if ($Pull -or -not (Test-DockerImageExists 'ghcr.io/jpsnover/taxonomy-editor')) {
+    if ($Pull -or -not (Test-DockerImageExists 'ghcr.io/ai-rosetta-stone/taxonomy-editor')) {
         Pull-TaxonomyEditorImage
     }
 
@@ -644,7 +644,7 @@ function Show-TaxonomyEditor {
         '-p', "${Port}:7862",
         '-v', "${DataPath}:/data",
         $envArgs,
-        'ghcr.io/jpsnover/taxonomy-editor:latest'
+        'ghcr.io/ai-rosetta-stone/taxonomy-editor:latest'
     )
     if ($Detach) { $runArgs = @('run', '-d') + $runArgs[1..($runArgs.Length)] }
 
@@ -670,7 +670,7 @@ function Show-TaxonomyEditor {
 Private functions in `Private/`:
 
 - `Assert-DockerAvailable` — checks `Get-Command docker`, prints install URL if missing
-- `Test-DockerImageExists` — `docker images -q ghcr.io/jpsnover/taxonomy-editor`
+- `Test-DockerImageExists` — `docker images -q ghcr.io/ai-rosetta-stone/taxonomy-editor`
 - `Pull-TaxonomyEditorImage` — `docker pull` with progress
 - `Test-TaxonomyContainerRunning` — `docker ps --filter`
 - `Stop-TaxonomyContainer` — `docker stop`
@@ -730,7 +730,7 @@ jobs:
       - uses: docker/build-push-action@v5
         with:
           push: true
-          tags: ghcr.io/jpsnover/taxonomy-editor:${{ github.ref_name }},ghcr.io/jpsnover/taxonomy-editor:latest
+          tags: ghcr.io/ai-rosetta-stone/taxonomy-editor:${{ github.ref_name }},ghcr.io/ai-rosetta-stone/taxonomy-editor:latest
 ```
 
 ### 3.4 Image Versioning

@@ -117,7 +117,7 @@ if ($null -ne $referencesProperty -and $null -ne $referencesProperty.Value) {
 
 if (-not (Test-Path -LiteralPath (Join-Path $dataRoot '.git') -PathType Container)) {
     Write-Host "Setting up sparse debate data inside the repository: $dataRoot"
-    & git clone --depth 1 --filter=blob:none --sparse https://github.com/jpsnover/ai-triad-data.git $dataRoot
+    & git clone --depth 1 --filter=blob:none --sparse https://github.com/AI-Rosetta-Stone/ai-triad-data.git $dataRoot
     if ($LASTEXITCODE -ne 0) {
         Stop-WithActionableError `
             -Goal 'Set up the debate data' `

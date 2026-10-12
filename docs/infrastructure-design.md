@@ -126,7 +126,7 @@ RUN npm run build:container
 # Output: dist/server/ (Express app) + dist/renderer/ (Vite bundle)
 
 # Stage 2: Runtime
-FROM ghcr.io/jpsnover/ai-triad-base:latest
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:latest
 # Base image: Python 3.11, Node 22, pandoc, ffmpeg, ghostscript
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
@@ -158,7 +158,7 @@ Building the base image separately (via `base-image.yml`) means application buil
 | `STORAGE_MODE` | Data backend (`github-api` or `filesystem`) | `github-api` in container, `filesystem` in Electron |
 | `ALLOWED_ORIGINS` | CORS origins | Deployment FQDN |
 | `DEPLOY_SHA` | Git commit for traceability | Set at deploy time |
-| `GITHUB_REPO` | Data repo (owner/name) | `jpsnover/ai-triad-data` |
+| `GITHUB_REPO` | Data repo (owner/name) | `AI-Rosetta-Stone/ai-triad-data` |
 | `GITHUB_APP_ID` | GitHub App for API auth | — |
 | `GITHUB_APP_INSTALLATION_ID` | GitHub App installation | — |
 | `GITHUB_APP_PRIVATE_KEY_SECRET_NAME` | Key Vault secret name for PEM | — |
@@ -177,7 +177,7 @@ Building the base image separately (via `base-image.yml`) means application buil
 │  │ Container Apps Environment                            │  │
 │  │  ┌────────────────────────────────────────────────┐  │  │
 │  │  │ Container App (production)                     │  │  │
-│  │  │  ├─ Image: ghcr.io/jpsnover/taxonomy-editor   │  │  │
+│  │  │  ├─ Image: ghcr.io/ai-rosetta-stone/taxonomy-editor   │  │  │
 │  │  │  ├─ Port: 7862                                 │  │  │
 │  │  │  ├─ Managed Identity → Key Vault access        │  │  │
 │  │  │  ├─ Data: GitHub REST API → /tmp cache         │  │  │
@@ -196,12 +196,12 @@ Building the base image separately (via `base-image.yml`) means application buil
 │  │  └─ GHCR password         │  └──────────────────────┘  │
 │  └───────────────────────────┘                             │
 │                                                             │
-│  GitHub REST API (jpsnover/ai-triad-data)                   │
+│  GitHub REST API (AI-Rosetta-Stone/ai-triad-data)                   │
 │  └─ Contents/Trees/Blobs APIs via GitHub App auth           │
 └────────────────────────────────────────────────────────────┘
 ```
 
-**Data architecture (GitHub API-first):** The container has no persistent volume. Data is read from and written to `jpsnover/ai-triad-data` via the GitHub REST API, authenticated with a GitHub App (PEM in Key Vault). A local SSD cache (`/tmp/taxonomy-cache/`) accelerates reads. On GitHub outage, the app serves from a baked taxonomy snapshot in the container image (read-only mode). Startup time: 3-5 seconds.
+**Data architecture (GitHub API-first):** The container has no persistent volume. Data is read from and written to `AI-Rosetta-Stone/ai-triad-data` via the GitHub REST API, authenticated with a GitHub App (PEM in Key Vault). A local SSD cache (`/tmp/taxonomy-cache/`) accelerates reads. On GitHub outage, the app serves from a baked taxonomy snapshot in the container image (read-only mode). Startup time: 3-5 seconds.
 
 ### 5.2 BYOK (Bring Your Own Key) Model
 
@@ -252,7 +252,7 @@ The container reads and writes `ai-triad-data` directly via the GitHub REST API.
 #### Data Flow
 
 ```
-GitHub (jpsnover/ai-triad-data, main branch)
+GitHub (AI-Rosetta-Stone/ai-triad-data, main branch)
     │
     ▼
 GitHubAPIBackend ── GitHub Contents/Trees/Blobs APIs
@@ -510,7 +510,7 @@ The CI pipeline validates version consistency:
 | **Base image staleness** | MEDIUM | Manual rebuild via `base-image.yml`; consider automated CVE scanning |
 | **Cold start latency** | LOW | ~10-15s delay from scale-to-zero. App data loads in 3-5s. Acceptable for research use. |
 | **Single-region** | LOW | Outage = complete downtime. Acceptable for research team. |
-| **GHCR package visibility** | LOW | Anonymous pulls — `ghcr.io/jpsnover/taxonomy-editor` must stay public (visibility flip = outage). See `deploy/azure/runbooks/production-release.md` Registry Auth section. |
+| **GHCR package visibility** | LOW | Anonymous pulls — `ghcr.io/ai-rosetta-stone/taxonomy-editor` must stay public (visibility flip = outage). See `deploy/azure/runbooks/production-release.md` Registry Auth section. |
 
 ## 11. Glossary
 
