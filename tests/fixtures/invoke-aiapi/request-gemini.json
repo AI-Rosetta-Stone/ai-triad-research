@@ -1,0 +1,442 @@
+{
+  "backend": "gemini",
+  "cases": {
+    "json": {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Summarize: café — naïve 東京. Line two."
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 777,
+          "responseMimeType": "application/json",
+          "temperature": 0.3
+        },
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+          }
+        ]
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "x-goog-api-key"
+      ],
+      "headers": {
+        "x-goog-api-key": "<REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://generativelanguage.googleapis.com/v1beta/models/{apiModelId}:generateContent"
+    },
+    "json+schema": {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Summarize: café — naïve 東京. Line two."
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 777,
+          "responseMimeType": "application/json",
+          "responseSchema": {
+            "properties": {
+              "answer": {
+                "description": "The answer",
+                "type": "STRING"
+              },
+              "confidence": {
+                "type": "NUMBER"
+              },
+              "detail": {
+                "properties": {
+                  "note": {
+                    "nullable": true,
+                    "type": "STRING"
+                  }
+                },
+                "required": [
+                  "note"
+                ],
+                "type": "OBJECT"
+              },
+              "tags": {
+                "items": {
+                  "enum": [
+                    "a",
+                    "b"
+                  ],
+                  "type": "STRING"
+                },
+                "type": "ARRAY"
+              }
+            },
+            "required": [
+              "answer",
+              "confidence"
+            ],
+            "type": "OBJECT"
+          },
+          "temperature": 0.3
+        },
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+          }
+        ]
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "x-goog-api-key"
+      ],
+      "headers": {
+        "x-goog-api-key": "<REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://generativelanguage.googleapis.com/v1beta/models/{apiModelId}:generateContent"
+    },
+    "json+schema+system": {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Summarize: café — naïve 東京. Line two."
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 777,
+          "responseMimeType": "application/json",
+          "responseSchema": {
+            "properties": {
+              "answer": {
+                "description": "The answer",
+                "type": "STRING"
+              },
+              "confidence": {
+                "type": "NUMBER"
+              },
+              "detail": {
+                "properties": {
+                  "note": {
+                    "nullable": true,
+                    "type": "STRING"
+                  }
+                },
+                "required": [
+                  "note"
+                ],
+                "type": "OBJECT"
+              },
+              "tags": {
+                "items": {
+                  "enum": [
+                    "a",
+                    "b"
+                  ],
+                  "type": "STRING"
+                },
+                "type": "ARRAY"
+              }
+            },
+            "required": [
+              "answer",
+              "confidence"
+            ],
+            "type": "OBJECT"
+          },
+          "temperature": 0.3
+        },
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+          }
+        ],
+        "systemInstruction": {
+          "parts": [
+            {
+              "text": "You are a careful policy analyst."
+            }
+          ]
+        }
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "x-goog-api-key"
+      ],
+      "headers": {
+        "x-goog-api-key": "<REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://generativelanguage.googleapis.com/v1beta/models/{apiModelId}:generateContent"
+    },
+    "json+system": {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Summarize: café — naïve 東京. Line two."
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 777,
+          "responseMimeType": "application/json",
+          "temperature": 0.3
+        },
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+          }
+        ],
+        "systemInstruction": {
+          "parts": [
+            {
+              "text": "You are a careful policy analyst."
+            }
+          ]
+        }
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "x-goog-api-key"
+      ],
+      "headers": {
+        "x-goog-api-key": "<REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://generativelanguage.googleapis.com/v1beta/models/{apiModelId}:generateContent"
+    },
+    "plain": {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Summarize: café — naïve 東京. Line two."
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 777,
+          "temperature": 0.3
+        },
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+          }
+        ]
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "x-goog-api-key"
+      ],
+      "headers": {
+        "x-goog-api-key": "<REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://generativelanguage.googleapis.com/v1beta/models/{apiModelId}:generateContent"
+    },
+    "plain+system": {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Summarize: café — naïve 東京. Line two."
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 777,
+          "temperature": 0.3
+        },
+        "safetySettings": [
+          {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+          },
+          {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+          }
+        ],
+        "systemInstruction": {
+          "parts": [
+            {
+              "text": "You are a careful policy analyst."
+            }
+          ]
+        }
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "x-goog-api-key"
+      ],
+      "headers": {
+        "x-goog-api-key": "<REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://generativelanguage.googleapis.com/v1beta/models/{apiModelId}:generateContent"
+    }
+  }
+}
