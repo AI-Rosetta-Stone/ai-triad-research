@@ -142,29 +142,30 @@ function Get-HierarchyBucketClusterSet {
     , $Clusters
 }
 
-# Phase 1.2: intra-cluster edge counts by type, and cohesion = supportive edges / possible pairs.
-# cohesion_score is an edge-density measure, NOT a 0-1 ratio: it counts SUPPORTS, ASSUMES and
-# SUPPORTED_BY edges in both directions over ordered pairs, so two nodes joined by several
-# supportive edges score above 1.0 (the "rich" golden has 1.5). The hierarchy-proposal prompt's
-# interpretation table reads it as 0-1; aligning the two is a deliberate decision tracked in t/4073.
-# Don't "fix" the formula here without that decision, since it changes every prompt.
+# Phase 1.2: intra-cluster edge counts by type, and cohesion_score.
+# cohesion_score is a 0-1 ratio (t/4073): the share of the cluster's unordered node pairs that are
+# joined by at least one supportive edge (SUPPORTS, ASSUMES or SUPPORTED_BY, either direction).
+# Several edges between the same two nodes count once, so the score can't exceed 1.0, which is what
+# the hierarchy-proposal prompt's threshold (cohesion_score >= 0.50) assumes. It used to count
+# every supportive edge over ordered pairs, an edge density that reached 1.5.
 function Get-HierarchyClusterEdgeStat {
     param([string[]]$ClusterIds, $IdSet, $AllEdges)
     $IntraEdges = @{}
+    $SupportedPairs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($E in $AllEdges) {
         if ($IdSet.Contains($E.source) -and $IdSet.Contains($E.target)) {
             $Type = $E.type
             if (-not $IntraEdges.ContainsKey($Type)) { $IntraEdges[$Type] = 0 }
             $IntraEdges[$Type]++
+            if ($Type -in 'SUPPORTS', 'ASSUMES', 'SUPPORTED_BY' -and $E.source -ne $E.target) {
+                $Pair = @([string]$E.source, [string]$E.target) | Sort-Object -CaseSensitive
+                [void]$SupportedPairs.Add($Pair -join '|')
+            }
         }
     }
-    $SupportiveCount = 0
-    foreach ($Type in 'SUPPORTS', 'ASSUMES', 'SUPPORTED_BY') {
-        if ($IntraEdges[$Type]) { $SupportiveCount += $IntraEdges[$Type] }
-    }
-    $PossiblePairs = $ClusterIds.Count * ($ClusterIds.Count - 1)
+    $PossiblePairs = $ClusterIds.Count * ($ClusterIds.Count - 1) / 2
     $Cohesion = 0.0
-    if ($PossiblePairs -gt 0) { $Cohesion = [Math]::Round($SupportiveCount / $PossiblePairs, 2) }
+    if ($PossiblePairs -gt 0) { $Cohesion = [Math]::Round($SupportedPairs.Count / $PossiblePairs, 2) }
     [PSCustomObject]@{ IntraEdges = $IntraEdges; Cohesion = $Cohesion }
 }
 
