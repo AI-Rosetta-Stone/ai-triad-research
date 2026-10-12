@@ -2375,6 +2375,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-08-15 — Technical Lead (PR #1111, p/447#2): **13th instance — Facet 2, same session, 2nd occurrence.** `gh pr merge --delete-branch` on t/2686 branch — same outcome: merge and remote branch delete succeeded; local branch-delete failed because `.worktrees/t2686` was still checked out. Resolved identically — cleanup deferred to worktree owner.
 - 2026-08-15 — Technical Lead (PR #1113, t/2687, p/447#6): **14th instance — 3rd TL occurrence same session.** `worktree-delete-branch-guard` feedback rule fired (detection confirmed), but TL proceeded with `--delete-branch` anyway — advisory injection did not change behavior. Same outcome. Signal: detection is working; enforcement is not.
 - 2026-08-15 — DevOps 2 (p/340#5): **15th instance — Facet 1.** `gh pr merge --delete-branch` from a worktree: `fatal: 'main' is already used by worktree` — gh tried to checkout main locally; primary worktree held it. Fix: omit `--delete-branch`, remove worktree separately. Noted that `/land-from-worktree` already handles this correctly.
+- 2026-10-12 — DevOps Worker (p/749#5): **16th instance — Facet 4 (`gh pr close`).** `gh pr close 3188 --delete-branch` failed local branch deletion "fatal: 'main' is already used by worktree at …" — the PR's branch was checked out in an active worktree. PR closed and remote branch deleted fine; only local `git branch -D` was refused. Resolved: switched the worktree to a different branch first, then `git branch -D` + `git push origin --delete` manually.
 
 **Root Cause:** `--delete-branch` cleans up the merged head branch locally too, and gh switches the working copy to the base branch (`git checkout main`) to do so. Git's one-branch-per-worktree rule blocks checking out `main` while the primary worktree has it → `fatal`. The remote merge + branch delete already happened via the API; only the local checkout/cleanup fails. Bookkeeping-≠-artifact family — the exit code describes post-success cleanup, not the merge.
 
@@ -4796,15 +4797,17 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-08 — Shared Lib (p/5#47): `MSYS_NO_PATHCONV=1 python /c/Users/.../script.py` errored with "can't open file `C:\c\Users\...`". Fix: ran Python without the prefix; the script itself sets `MSYS_NO_PATHCONV=1` for its internal `git show` calls.
+- 2026-10-12 — DevOps Lead (p/26#153): `git show origin/main:<path> > /tmp/x` in Git Bash failed with "ambiguous argument 'origin\main;…'" — MSYS mangled the colon revspec, and `/tmp` mapped to `C:\tmp`. Resolved by prefixing with `MSYS_NO_PATHCONV=1` and writing to the scratchpad instead. (Also covered by root AGENTS.md Windows Bash rule.)
 
-**Root Cause:** `MSYS_NO_PATHCONV=1` is a process-level environment variable that suppresses all MSYS path-conversion for the duration of the command. When placed before `python`, it prevents conversion of the script path that MSYS normally translates for Windows. The intent was to prevent mangling of a `git ref:path` argument used inside the script — but that argument is only in the script's subprocess, not in the outer `python` invocation.
+**Root Cause:** `MSYS_NO_PATHCONV=1` is a process-level environment variable that suppresses all MSYS path-conversion for the duration of the command. When placed before `python`, it prevents conversion of the script path that MSYS normally translates for Windows. The intent was to prevent mangling of a `git ref:path` argument used inside the script — but that argument is only in the script's subprocess, not in the outer `python` invocation. The colon in `origin/main:<path>` is separately mangled by MSYS into a backslash or semicolon without the prefix.
 
 **Prevention:**
 1. **Use `MSYS_NO_PATHCONV=1` only on the specific `git` command that takes a `ref:path` argument** (e.g. `MSYS_NO_PATHCONV=1 git show origin/main:some/path`). Do not prefix non-`git` commands with it.
 2. **If a script calls `git show <ref>:<path>` internally,** set `MSYS_NO_PATHCONV=1` inside the script at the point of the `git` call, not on the outer `python` invocation.
 3. **A "can't open file" error on a path that looks doubled** (`C:\c\Users\…`) is a diagnostic signal that MSYS path conversion was suppressed for the interpreter argument itself.
+4. **Avoid `/tmp` in Bash on Windows** — MSYS maps it to `C:\tmp`, not a true temp dir. Use the session scratchpad instead.
 
-**Status:** Active — 1 instance (Shared Lib p/5#47).
+**Status:** Active — 2 instances (Shared Lib p/5#47; DevOps Lead p/26#153).
 
 **Applies To:** All agents running Python (or other interpreters) from Bash on Windows with MSYS.
 
@@ -4958,6 +4961,67 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#151, t/4103#13). Silent: run conclusion shows success.
 
 **Applies To:** All agents reading CI run or job conclusions on workflows that use `continue-on-error: true`.
+
+---
+
+## #236 [Build] `gh pr list --json commits` Exceeds GitHub Node Limit at Scale — Fetch Commits Per PR, Not in Bulk
+
+**Pattern:** `gh pr list --limit 100 --json commits` fails with "requesting up to 1,000,000 possible nodes, exceeds 500,000". GitHub's GraphQL API caps total nodes per query at 500,000. Fetching nested arrays (commits, files, reviews) for many PRs in a single list query multiplies the node count: 100 PRs × up to 10,000 commits/PR = up to 1,000,000 nodes. The error is deterministic above a threshold and gives no partial result.
+
+**Instances:**
+- 2026-10-12 — Rosetta Stone (p/6#83): `gh pr list --limit 100 --json commits` errored with "requesting up to 1,000,000 possible nodes, exceeds 500,000". Resolved by listing PR numbers first, then running `gh pr view <N> --json commits` for each PR individually.
+
+**Root Cause:** `gh pr list --json` with nested array fields (commits, files, reviews, etc.) constructs a single GraphQL query that pre-allocates node budget for the maximum size of each nested array across all listed PRs. The product of `--limit` × max-array-size exceeds GitHub's 500,000-node cap for any non-trivial limit.
+
+**Prevention:**
+1. **Never combine `gh pr list --limit N --json <nested-array-field>` for N > a few PRs.** Nested arrays (commits, files, reviews, comments) blow up the node budget multiplicatively.
+2. **Two-pass pattern for bulk nested data:** first `gh pr list --json number -q '.[].number'` to get PR numbers, then `gh pr view <N> --json <field>` for each PR individually.
+3. **Flat scalar fields are safe in bulk** (`gh pr list --json number,title,state,headRefName,…`). Reserve per-PR `view` calls for nested arrays.
+4. **The error is deterministic and gives no partial result** — there is no way to request a subset of commits per PR in the list endpoint; the per-PR `view` call is the only path.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#83). Deterministic above threshold.
+
+**Applies To:** All agents fetching commit, file, review or comment data across multiple PRs with `gh pr list`.
+
+---
+
+## #237 [Build] `gh` Not on PATH in Bash/MSYS on Windows — Use PowerShell Tool for All `gh` Commands
+
+**Pattern:** `gh` is not on the PATH in the Bash/MSYS shell on Windows agents. Running `gh` via the Bash tool exits 127 (`gh: command not found`). The same command runs correctly via the PowerShell tool, where `gh` is on the PATH. This is a Windows-specific tool-selection issue, not a `gh` installation problem.
+
+**Instances:**
+- 2026-10-12 — Conflict (p/540#4): `gh` command not found via Bash tool. Resolved by re-running the same commands via the PowerShell tool.
+
+**Root Cause:** On Windows, `gh` is installed and configured in the PowerShell (pwsh) environment but is not added to the MSYS/Git Bash PATH. The Bash tool runs in the MSYS2 layer with a different PATH than the native Windows PowerShell session.
+
+**Prevention:**
+1. **On Windows agents, always run `gh` commands via the PowerShell tool**, not the Bash tool.
+2. **Bash tool on Windows is appropriate for POSIX scripts** (awk, sed, file utilities). For GitHub CLI operations, use PowerShell.
+3. **If `gh` fails with exit 127 in Bash:** switch to the PowerShell tool — do not attempt to diagnose `gh` installation.
+
+**Status:** Active — 1 instance (Conflict p/540#4). Silent: exit 127 reads as missing tool, not wrong shell.
+
+**Applies To:** All agents on Windows using the Bash tool for GitHub CLI operations.
+
+---
+
+## #238 [Build] Copying a Single Module to Scratchpad Breaks Relative Imports — Probe PR Modules in a Detached Worktree
+
+**Pattern:** An agent copies one file from a PR (e.g. `merge-guard-predicate.mjs`) to the scratchpad to probe or test it in isolation. On import, Node.js throws `ERR_MODULE_NOT_FOUND` for a sibling module (`gate-telemetry.mjs`) that the copied file imports via a relative path. The sibling does not exist in the scratchpad — only the single copied file does. The probe fails entirely.
+
+**Instances:**
+- 2026-10-12 — DevOps Lead (p/26#155): copied `merge-guard-predicate.mjs` to scratchpad; `import` failed `ERR_MODULE_NOT_FOUND gate-telemetry.mjs`. Resolved by `git worktree add --detach <sha>` and probing the module in place.
+
+**Root Cause:** ES modules resolve sibling imports relative to the file's location on disk. A lone copy in the scratchpad has no siblings — all relative imports fail at runtime. The file works only when loaded from a directory that contains its full dependency graph.
+
+**Prevention:**
+1. **To probe or test a PR module, check out the PR head in a detached worktree:** `git worktree add --detach <path> <sha>`. The full module graph is present and relative imports resolve correctly.
+2. **Do not copy individual files to the scratchpad for import/require testing.** Copying is safe for static analysis (reading, grepping) but not for execution.
+3. **`ERR_MODULE_NOT_FOUND` on a sibling module** (not a package) is a diagnostic signal that the file was loaded outside its source tree.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#155).
+
+**Applies To:** All agents probing or testing ES modules from PRs or branches.
 
 ---
 
