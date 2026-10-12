@@ -11,7 +11,9 @@ function Get-WordTokens {
         [string[]]@('a','an','the','in','of','and','or','for','to','is','that','with','as','by','on','at','from','its','this','it'),
         [System.StringComparer]::OrdinalIgnoreCase
     )
-    $Tokens = ($Text.ToLower() -replace '[^a-z0-9\s]', '' -split '\s+') | Where-Object { $_ -and -not $StopWords.Contains($_) }
+    # @(): zero tokens must emit nothing, not an explicit $null that a caller's @() turns into one
+    # empty-string token (which would Jaccard-match any other empty label at 1.0) (t/4144).
+    $Tokens = @(($Text.ToLower() -replace '[^a-z0-9\s]', '' -split '\s+') | Where-Object { $_ -and -not $StopWords.Contains($_) })
     return [string[]]$Tokens
 }
 
@@ -80,7 +82,7 @@ function Resolve-UnmappedConcepts {
                 Id       = $Node.id
                 Label    = $Node.label
                 Category = $NodeCat
-                Tokens   = Get-WordTokens $Node.label
+                Tokens   = @(Get-WordTokens $Node.label)
             })
         }
     }
@@ -158,8 +160,10 @@ function Resolve-UnmappedConcepts {
         }
         else {
             # Jaccard fallback
-            $ConceptTokens = Get-WordTokens $ConceptLabel
-            $DescTokens = if ($Props['suggested_description']) { Get-WordTokens $Concept.suggested_description } else { @() }
+            # @(): an if/else whose branch yields @() (or a Get-WordTokens result of zero tokens) collapses to
+            # $null, and .Count on $null throws under StrictMode (t/4144).
+            $ConceptTokens = @(Get-WordTokens $ConceptLabel)
+            $DescTokens = @(if ($Props['suggested_description']) { Get-WordTokens $Concept.suggested_description })
 
             foreach ($Node in $AllNodes) {
                 $LabelScore = Get-JaccardSimilarity $ConceptTokens $Node.Tokens

@@ -48,10 +48,11 @@
       - metadata.json: node_references_by_pov and primary_pov_distribution are plain @{} hashtables, so
         their key order varies per process (pinned bug, plan section 6). Only the lines INSIDE those two
         blocks are sorted before comparison; every other byte is compared as written.
-      - e2e summary: context_rot.stages[].flags is built as [ordered]@{} + <plain @{}> in
-        New-ContextRotStage, so a multi-key flags block also comes out in per-process order. Only the
-        lines inside each "flags" block are sorted; every other byte is compared as written. (The direct
-        scenarios use at most one flag per stage, so their summary text is compared unnormalized.)
+      - e2e summary: context_rot.stages[].flags used to be built as [ordered]@{} + <plain @{}> in
+        New-ContextRotStage, so a multi-key flags block came out in per-process order. Since t/4144 the
+        flags are copied in ordinal key order, so this sort is now a no-op kept as a harmless guard. Only
+        the lines inside each "flags" block are sorted; every other byte is compared as written. (The
+        direct scenarios use at most one flag per stage, so their summary text is compared unnormalized.)
       - The returned hashtable is a plain @{}; its keys are sorted in the transcript golden.
       - $TestDrive paths are masked as <ROOT>.
 
@@ -443,9 +444,9 @@ saturation makes progress claims hard to verify independently.
             $ids = if ($script:S['NodeIds']) { $script:S.NodeIds } else { $script:DefaultNodeIds }
             $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
             foreach ($i in $ids) { [void]$set.Add($i) }
-            # Emitted (enumerated) exactly as the real function's `return $IdSet` is, so the caller sees an
-            # object[] and the case-insensitive comparer is lost (pinned in hallucinated-node-id).
-            $set
+            # Returned intact, exactly as the real function's `return , $IdSet` is (t/4144), so the caller keeps
+            # the case-insensitive comparer (hallucinated-node-id: ACC-Beliefs-001 is accepted).
+            , $set
         }
         Mock Invoke-RetrievalConfidencePass -ModuleName AITriad {
             $script:Calls.Add([ordered]@{ call = 'Invoke-RetrievalConfidencePass'; threshold = $Threshold; points = @($KeyPoints | ForEach-Object { [string]$_.point }) })
@@ -794,7 +795,11 @@ Describe 'Finalize-Summary end to end via Invoke-DocumentSummary, Invoke-AIApi m
         $t | Should -Match 'node-ID-shaped'
         $t | Should -Match 'dropped 1 null unmapped_concepts'
         $s = [System.IO.File]::ReadAllText((Join-Path $script:GoldenDir 'e2e-single-call.summary.json'))
-        $s | Should -Match '"taxonomy_filter": "full"' -Because 'RAG fails without embeddings.json, so the compact taxonomy is used and labelled full'
+        $s | Should -Match '"taxonomy_filter": "compact"' -Because 'RAG fails without embeddings.json, so the compact taxonomy is used and labelled compact (t/4144)'
+        $s | Should -Match '"taxonomy_nodes": 6' -Because 'the compact taxonomy lists all 6 fixture nodes (t/4144; was 0)'
+        $t | Should -Not -Match 'Unmapped concept resolution failed' -Because 'the Jaccard path no longer throws (t/4144)'
+        $m = [System.IO.File]::ReadAllText((Join-Path $script:GoldenDir 'e2e-single-call.metadata.json'))
+        $m | Should -Not -Match '"worst_stage": "extraction"' -Because 'worst_stage comes only from retention stages (t/4144)'
         $s | Should -Match '"extraction_confidence": 0.8' -Because 'the single-shot confidence backfill ran'
         $m = [System.IO.File]::ReadAllText((Join-Path $script:GoldenDir 'e2e-single-call.metadata.json'))
         $m | Should -Not -Match 'claims_by_pov'

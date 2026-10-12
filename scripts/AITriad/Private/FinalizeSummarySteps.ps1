@@ -344,20 +344,31 @@ function New-SummaryModelInfo {
     .SYNOPSIS
         The summary's model_info block, as an ordered dictionary with the pinned key order.
     .DESCRIPTION
-        Detects RAG vs full taxonomy from the context format to estimate the node count. Pinned
+        Detects RAG, compact or full taxonomy from the context format to estimate the node count.
+        The compact taxonomy (Build-CompactTaxonomy, the RAG-failure fallback) is labelled 'compact'
+        with its real node count; it used to fall through to 'full' with 0 nodes (t/4144). Pinned
         pre-existing bugs (t/4079 fixes them): max_tokens is always 32768, and
         fire_confidence_threshold is always 0.7.
     #>
     param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats)
+    $Multiline = [System.Text.RegularExpressions.RegexOptions]::Multiline
     $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
+    $IsCompact = $TaxonomyJson -match '^\s*=== COMPACT TAXONOMY'
     if ($IsRagFiltered) {
-        $EstNodeCount = ([regex]::Matches($TaxonomyJson, '^\s{2}\w', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count
+        $EstNodeCount = ([regex]::Matches($TaxonomyJson, '^\s{2}\w', $Multiline)).Count
+    }
+    elseif ($IsCompact) {
+        # One "  <id> [<category>] <label>" line per node.
+        $EstNodeCount = ([regex]::Matches($TaxonomyJson, '^  \S', $Multiline)).Count
     }
     else {
         $EstNodeCount = ([regex]::Matches($TaxonomyJson, '"id"\s*:')).Count
     }
 
-    if ($ChunkCount -gt 0) { $TaxFilter = 'rag_per_chunk' } elseif ($IsRagFiltered) { $TaxFilter = 'rag' } else { $TaxFilter = 'full' }
+    if ($ChunkCount -gt 0) { $TaxFilter = 'rag_per_chunk' }
+    elseif ($IsRagFiltered) { $TaxFilter = 'rag' }
+    elseif ($IsCompact) { $TaxFilter = 'compact' }
+    else { $TaxFilter = 'full' }
 
     $UsedFire = $null -ne $FireStats
     if ($UsedFire) { $ExtractionMode = 'fire' } else { $ExtractionMode = 'single_shot' }
@@ -504,11 +515,15 @@ function Update-SummaryMetadata {
         $MetaUpdated['total_facts']       = $TotalPoints
         $MetaUpdated['unmapped_concepts'] = $UnmappedCount
         if ($ContextRot) {
-            $WorstStage = $ContextRotStages | Sort-Object { $_.ratio } | Select-Object -First 1
+            # Worst stage among RETENTION stages only (same in/out units), as cumulative_retention counts them.
+            # A mixed-unit stage (extraction: prompt_chars -> items) is a density, not a retention, so its tiny
+            # ratio must not be reported as the worst loss (t/4144).
+            $WorstStage = @($ContextRotStages | Where-Object { $_.in_units -eq $_.out_units }) |
+                Sort-Object { $_.ratio } | Select-Object -First 1
             $MetaUpdated['context_rot'] = [ordered]@{
                 cumulative_retention = $ContextRot.cumulative_retention
-                worst_stage          = $WorstStage.stage
-                worst_ratio          = $WorstStage.ratio
+                worst_stage          = if ($WorstStage) { $WorstStage.stage } else { $null }
+                worst_ratio          = if ($WorstStage) { $WorstStage.ratio } else { $null }
             }
         }
 

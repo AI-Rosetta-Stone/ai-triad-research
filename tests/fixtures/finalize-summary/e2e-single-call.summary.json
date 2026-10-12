@@ -7,8 +7,8 @@
     "temperature": 0.2,
     "max_tokens": 32768,
     "extraction_mode": "single_shot",
-    "taxonomy_filter": "full",
-    "taxonomy_nodes": 0
+    "taxonomy_filter": "compact",
+    "taxonomy_nodes": 6
   },
   "context_rot": {
     "schema_version": 1,
@@ -32,6 +32,20 @@
           "total_points": 6,
           "unmapped_concepts": 3,
           "used_fire": 0
+        }
+      },
+      {
+        "stage": "unmapped_resolution",
+        "in_units": "concepts",
+        "in_count": 3.0,
+        "out_units": "still_unmapped",
+        "out_count": 3.0,
+        "ratio": 1.0,
+        "flags": {
+          "near_miss_count": 0,
+          "resolved_count": 0,
+          "threshold": 0.5,
+          "used_embeddings": 0
         }
       }
     ],

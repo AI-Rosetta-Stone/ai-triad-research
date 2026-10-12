@@ -13,7 +13,6 @@
     "[Yellow]   │  ⚠ Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001",
     "[Gray]    →  Polarity gate (two-stage): judge_flipped=0 judge_kept=0 self_healed=0 over 3 gated key_point(s), 0 deberta rep-pair(s)",
     "[Gray]   │  points: 6 (2 unmapped)  factual: 3  new_concepts: 3",
-    "[Yellow]   │  ⚠ Unmapped concept resolution failed: The property 'Count' cannot be found on this object. Verify that the property exists.",
     "[Green]   └─ ✓ Done: summaries/e2e-doc.json"
   ],
   "result": [
