@@ -366,7 +366,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
 
         It '-ResponseSchema alone implies -JsonMode (same request as -JsonMode -ResponseSchema)' {
             script:Set-RestSequence @((script:New-OkEnvelope 'groq'))
-            $base = @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; TimeoutSec = 9; FallbackModels = @(); ResponseSchema = $script:GoldenSchema }
+            $base = @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; TimeoutSec = 9; FallbackModels = @(); ResponseSchema = $script:GoldenSchema }
             script:Invoke-CharacterizedCall $base | Out-Null
             $withSwitch = $base.Clone(); $withSwitch['JsonMode'] = $true
             script:Invoke-CharacterizedCall $withSwitch | Out-Null
@@ -474,7 +474,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             script:Get-ModuleValue { $script:AIApiLoggedThisSession = $false; $script:AIApiLastModel = $null; $script:AIApiCorrelationId = ''; $script:AIApiLastCorrelationId = '' }
             try {
                 script:Set-RestSequence @((script:New-OkEnvelope 'groq'))
-                $g = @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() }
+                $g = @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @() }
                 $c = @{ Prompt = 'p'; Model = 'claude-haiku-4-5'; ApiKey = $script:TestKey; FallbackModels = @() }
                 script:Invoke-CharacterizedCall $g | Out-Null
                 script:Invoke-CharacterizedCall $g | Out-Null
@@ -486,8 +486,8 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             finally { Set-AIApiCorrelationId '' }
             $lines = @($script:HostLines | ForEach-Object { "$($_.Color)|$($_.Text)" })
             $lines -join "`n" | Should -BeExactly (@(
-                'DarkCyan|[AI] Backend: groq | Model: groq-llama-3.3-70b-versatile | Key source: explicit parameter'
-                "Yellow|[AI] Model changed: groq-llama-3.3-70b-versatile $($script:Arrow) claude-haiku-4-5 | Backend: claude | Key source: explicit parameter"
+                'DarkCyan|[AI] Backend: groq | Model: groq-openai-gpt-oss-120b | Key source: explicit parameter'
+                "Yellow|[AI] Model changed: groq-openai-gpt-oss-120b $($script:Arrow) claude-haiku-4-5 | Backend: claude | Key source: explicit parameter"
                 'DarkCyan|[AI] doc-x | Backend: claude | Model: claude-haiku-4-5 | Key source: explicit parameter'
             ) -join "`n")
         }
@@ -499,7 +499,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $s = @{ type = 'string' }
             for ($i = 0; $i -lt 10; $i++) { $s = @{ type = 'object'; properties = @{ n = $s } } }
             script:Set-RestSequence @((script:New-OkEnvelope 'groq'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); ResponseSchema = $s }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); ResponseSchema = $s }
             $out.Warnings -join "`n" | Should -BeExactly 'Resulting JSON is truncated as serialization has exceeded the set depth of 10.'
             $out.Result.Text | Should -BeExactly 'hello'
             $body = $script:Utf8.GetString($script:RestCalls[0].Body) | ConvertFrom-Json -AsHashtable
@@ -533,7 +533,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             @{ Code = 404; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
         ) {
             script:Set-RestSequence @((script:New-HttpError $Code "fake failure $Code"))
-            $p = @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = $MaxRetries }
+            $p = @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = $MaxRetries }
             if ($Delays) { $p['RetryDelays'] = [int[]]$Delays }
             $out = script:Invoke-CharacterizedCall $p
 
@@ -549,7 +549,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             # Fixed by t/4078 §1 (was pinned: not retried, failure line "(HTTP )"). A timeout gets ONE retry,
             # not MaxRetries, and the failure line names the timeout.
             script:Set-RestSequence @([System.TimeoutException]::new('The operation has timed out.'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); TimeoutSec = 33 }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); TimeoutSec = 33 }
             $out.Result | Should -BeNullOrEmpty
             $script:RestCalls.Count | Should -Be 2
             ($script:Sleeps -join ',') | Should -BeExactly '15'
@@ -563,7 +563,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             script:Set-RestSequence @((script:New-HttpError 503), (script:New-HttpError 429), (script:New-OkEnvelope 'groq' -Text 'third time'))
             $logged = [System.Collections.Generic.List[object]]::new()
             $logger = { $logged.Add(@($args)) }.GetNewClosure()
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = $logger }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = $logger }
             $out.Result.Text | Should -BeExactly 'third time'
             $script:RestCalls.Count | Should -Be 3
             ($script:Sleeps -join ',') | Should -BeExactly '15,120'
@@ -578,7 +578,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
 
         It 'every attempt re-sends the same URI, headers, timeout and body bytes' {
             script:Set-RestSequence @((script:New-HttpError 503), (script:New-OkEnvelope 'groq'))
-            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() } | Out-Null
+            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @() } | Out-Null
             $a = script:ConvertTo-CanonicalJson (script:ConvertTo-RequestRecord $script:RestCalls[0] 'x')
             $b = script:ConvertTo-CanonicalJson (script:ConvertTo-RequestRecord $script:RestCalls[1] 'x')
             $a | Should -BeExactly $b
@@ -590,7 +590,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $logged = [System.Collections.Generic.List[object]]::new()
             $logger = { $logged.Add(@($args)) }.GetNewClosure()
             $err = $null
-            try { Invoke-AIApi -Prompt 'p' -Model 'groq-llama-3.3-70b-versatile' -ApiKey $script:TestKey -FallbackModels @() -MaxRetries $N -CallLogger $logger -WarningAction SilentlyContinue }
+            try { Invoke-AIApi -Prompt 'p' -Model 'groq-openai-gpt-oss-120b' -ApiKey $script:TestKey -FallbackModels @() -MaxRetries $N -CallLogger $logger -WarningAction SilentlyContinue }
             catch { $err = $_ }
             $err.FullyQualifiedErrorId | Should -BeLike 'ParameterArgumentValidationError*'
             $err.Exception.Message | Should -BeLike "*parameter 'MaxRetries'*"
@@ -622,7 +622,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
 
         It 'logs the ErrorDetails.Message body (scrubbed) after the hint' {
             script:Set-RestSequence @((script:New-HttpError 400 'bad request' '{"error":{"message":"model not found"}}'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @() }
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 "groq: API call failed (HTTP 400) $($script:D) bad request"
                 'groq: Response body: {"error":{"message":"model not found"}}'
@@ -633,7 +633,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $resp = [T4135FakeWebResponse]::new(502, 'upstream exploded')
             script:Set-RestSequence @([T4135WebException]::new('bad gateway', $resp))
             # MaxRetries 1: a 502 is retried since t/4078, and this test is about the body, not the retries.
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = 1 }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = 1 }
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 "groq: API call failed (HTTP 502) $($script:D) bad gateway"
                 "groq: Server error $($script:D) the API may be temporarily unavailable."
@@ -648,7 +648,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
                 [System.Management.Automation.ErrorCategory]::InvalidOperation, $null)
             $er.ErrorDetails = [System.Management.Automation.ErrorDetails]::new('details body')
             script:Set-RestSequence @($er)
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @() }
             $out.Warnings | Should -Contain 'groq: Response body: details body'
             $out.Warnings | Should -Not -Contain 'groq: Response body: stream body'
             $resp.Reads | Should -Be 0
@@ -656,11 +656,11 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
 
         It 'a whitespace-only error body is not logged; a long body is capped at 1000 chars' {
             script:Set-RestSequence @((script:New-HttpError 400 'm' '   '))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @() }
             @($out.Warnings | Where-Object { $_ -like '*Response body*' }).Count | Should -Be 0
 
             script:Set-RestSequence @((script:New-HttpError 400 'm' ('y' * 1500)))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @() }
             $line = @($out.Warnings | Where-Object { $_ -like '*Response body*' })[0]
             $line | Should -BeExactly ('groq: Response body: ' + ('y' * 1000) + [char]0x2026 + '[truncated]')
         }
@@ -668,7 +668,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         It 'TL condition 2: a key echoed by the exception message and the error body is redacted, no 4-char fragment survives' {
             $key = 'Qz7Xk9Vw2Jm4Pq8Rt6Yb'   # not a known key shape, so only the literal -Secret pass can redact it
             script:Set-RestSequence @((script:New-HttpError 401 "Unauthorized: key $key rejected" "{`"error`":`"invalid key $key`",`"echo`":`"$key`"}"))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $key; FallbackModels = @() }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $key; FallbackModels = @() }
             $all = $out.Warnings -join "`n"
             $all | Should -BeExactly (@(
                 "groq: API call failed (HTTP 401) $($script:D) Unauthorized: key [REDACTED] rejected"
@@ -687,7 +687,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $msg = script:Get-ModuleValue {
                 param($k)
                 Set-StrictMode -Version Latest
-                try { Invoke-AIApi -Prompt 'p' -Model 'groq-llama-3.3-70b-versatile' -ApiKey $k -FallbackModels @() -WarningAction SilentlyContinue; 'no throw' }
+                try { Invoke-AIApi -Prompt 'p' -Model 'groq-openai-gpt-oss-120b' -ApiKey $k -FallbackModels @() -WarningAction SilentlyContinue; 'no throw' }
                 catch { $_.Exception.Message }
             } @($script:TestKey)
             $msg | Should -BeExactly "The property 'Exception' cannot be found on this object. Verify that the property exists."
@@ -696,7 +696,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         It 'a $null response with no error (no StrictMode) warns "(HTTP ?)" and still cascades' {
             $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             $script:Responder = { param($Call) if ($Call.Uri -like '*anthropic*') { script:New-OkEnvelope 'claude' -Text 'from fallback' } else { $null } }
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
             $out.Result.Text | Should -BeExactly 'from fallback'
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 "groq: API call failed (HTTP ?) $($script:D) "
@@ -732,7 +732,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 500 'groq down'))
             script:Set-HostReplies 'api.anthropic.com' @((script:New-HttpError 500 'claude down'))
             script:Set-HostReplies 'generativelanguage' @((script:New-OkEnvelope 'gemini' -Text 'gemini answered'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; MaxRetries = 1
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; MaxRetries = 1
                 FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-openai-gpt-oss-20b') }
             $out.Result.Text | Should -BeExactly 'gemini answered'
             $out.Result.Model | Should -BeExactly 'gemini-2.5-flash'
@@ -751,7 +751,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         }
 
         It 'uses $script:FallbackChains when -FallbackModels is omitted, and -FallbackModels @() disables it' {
-            $primary = 'groq-llama-3.3-70b-versatile'
+            $primary = 'groq-openai-gpt-oss-120b'
             $saved = script:Get-ModuleValue { param($m) if ($script:FallbackChains.ContainsKey($m)) { , @($script:FallbackChains[$m]) } else { $null } } @($primary)
             try {
                 script:Get-ModuleValue { param($m) $script:FallbackChains[$m] = @('claude-haiku-4-5') } @($primary)
@@ -777,7 +777,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $bogus = 'no-such-model-t4135'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 400 'nope'))
             script:Set-HostReplies 'api.anthropic.com' @((script:New-OkEnvelope 'claude'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @($bogus, 'claude-haiku-4-5') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @($bogus, 'claude-haiku-4-5') }
             $out.Result.Backend | Should -BeExactly 'claude'
             @($out.Warnings | Where-Object { $_ -like "*$bogus*" }).Count | Should -Be 0
         }
@@ -786,7 +786,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:GROQ_API_KEY = 'groq-test-value'; $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError $Code 'auth'))
             script:Set-HostReplies 'api.anthropic.com' @((script:New-OkEnvelope 'claude'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-openai-gpt-oss-20b', 'claude-haiku-4-5') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; FallbackModels = @('groq-openai-gpt-oss-20b', 'claude-haiku-4-5') }
             $out.Result.Backend | Should -BeExactly 'claude'
             @($script:RestCalls | Where-Object { $_.Uri -like '*groq*' }).Count | Should -Be 1
             @($out.Warnings | Where-Object { $_ -like 'Cascade:*' }) -join "`n" | Should -BeExactly 'Cascade: falling back to claude-haiku-4-5 (claude)'
@@ -796,7 +796,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:GROQ_API_KEY = 'groq-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 500 'x'), (script:New-OkEnvelope 'groq' -Text 'second groq'))
             # MaxRetries 1: since t/4078 a 500 is retried, which would let the PRIMARY take the second reply.
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-openai-gpt-oss-20b'); MaxRetries = 1 }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; FallbackModels = @('groq-openai-gpt-oss-20b'); MaxRetries = 1 }
             $out.Result.Text | Should -BeExactly 'second groq'
             $out.Result.Model | Should -BeExactly 'groq-openai-gpt-oss-20b'
         }
@@ -805,7 +805,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:GEMINI_API_KEY = 'gemini-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 400 'x'))
             script:Set-HostReplies 'generativelanguage' @((script:New-OkEnvelope 'gemini'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash') }
             $out.Result.Backend | Should -BeExactly 'gemini'
             @($script:RestCalls | Where-Object { $_.Uri -like '*anthropic*' }).Count | Should -Be 0
             @($out.Warnings | Where-Object { $_ -like 'Cascade:*' }) -join "`n" | Should -BeExactly 'Cascade: falling back to gemini-2.5-flash (gemini)'
@@ -815,7 +815,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 400 'x'))
             script:Set-HostReplies 'api.anthropic.com' @((script:New-HttpError 400 'y'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
             $out.Result | Should -BeNullOrEmpty
             $script:RestCalls.Count | Should -Be 2
         }
@@ -831,7 +831,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
                 if ($Model -eq 'gemini-2.5-flash') { $sentinelResult } else { $null }
             }
             $logger = { }
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'the prompt'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'the prompt'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey
                 SystemInstruction = 'sys'; JsonMode = $true; ResponseSchema = $script:GoldenSchema; Temperature = 0.7; MaxTokens = 333
                 TimeoutSec = 55; MaxRetries = 4; RetryDelays = @(1, 1); CallLogger = $logger
                 FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-openai-gpt-oss-20b') }
@@ -867,14 +867,14 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
                 $copy = @{}; foreach ($k in $PesterBoundParameters.Keys) { $copy[$k] = $PesterBoundParameters[$k] }
                 $inner.Add($copy); $null
             }
-            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') } | Out-Null
+            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') } | Out-Null
             $inner.Count | Should -Be 1
             $names = [string[]]@($inner[0].Keys); [Array]::Sort($names, [StringComparer]::Ordinal)
             $names -join ',' | Should -BeExactly 'ApiKey,CallLogger,FallbackModels,MaxRetries,MaxTokens,Model,Prompt,RetryDelays,SkipTokenCheck,Temperature,TimeoutSec'
             $inner[0].CallLogger | Should -BeNullOrEmpty
             # t/4078 §2 (was pinned: the primary's default): with no -TimeoutSec the link gets ITS OWN default.
             $inner[0].TimeoutSec | Should -Be (script:Get-ModuleValue { Get-AIDefaultTimeoutSec -Model 'claude-haiku-4-5' })
-            $inner[0].TimeoutSec | Should -Not -Be (script:Get-ModuleValue { Get-AIDefaultTimeoutSec -Model 'groq-llama-3.3-70b-versatile' })
+            $inner[0].TimeoutSec | Should -Not -Be (script:Get-ModuleValue { Get-AIDefaultTimeoutSec -Model 'groq-openai-gpt-oss-120b' })
         }
 
         It 'end to end, the fallback request uses its own model''s default timeout and the cascade retry settings (t/4078)' {
@@ -911,7 +911,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             script:Set-HostReplies 'api.groq.com' @([pscustomobject]@{ error = 'bad' })
             script:Set-HostReplies 'api.anthropic.com' @((script:New-OkEnvelope 'claude'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5') }
             $out.Result | Should -BeNullOrEmpty
             $script:RestCalls.Count | Should -Be 1
         }
@@ -1081,7 +1081,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         ) {
             $item = switch ($Reply) { 'ok' { script:New-OkEnvelope 'groq' } 'timeout' { [System.TimeoutException]::new('t') } default { script:New-HttpError $Reply } }
             script:Set-RestSequence @(, $item)
-            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = $MaxRetries; CallLogger = $script:Logger } | Out-Null
+            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = $MaxRetries; CallLogger = $script:Logger } | Out-Null
             $script:Logged.Count | Should -Be 1
             $a = $script:Logged[0]
             $a.Count | Should -Be 3
@@ -1089,7 +1089,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $a[1] | Should -BeOfType [string]
             $a[1] | Should -BeExactly $Status
             ($a[2].PSObject.Properties.Name -join ',') | Should -BeExactly 'Model,Backend,KeySource'
-            $a[2].Model | Should -BeExactly 'groq-llama-3.3-70b-versatile'
+            $a[2].Model | Should -BeExactly 'groq-openai-gpt-oss-120b'
             $a[2].Backend | Should -BeExactly 'groq'
             $a[2].KeySource | Should -BeExactly 'explicit'
         }
@@ -1097,7 +1097,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         It 'context KeySource: env:GROQ_API_KEY for an env key; none for keyless Ollama' {
             $env:GROQ_API_KEY = 'groq-test-value'
             script:Set-RestSequence @((script:New-OkEnvelope 'groq'))
-            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @(); CallLogger = $script:Logger } | Out-Null
+            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; FallbackModels = @(); CallLogger = $script:Logger } | Out-Null
             script:Set-RestSequence @((script:New-OkEnvelope 'ollama'))
             script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'ollama-gemma4-e4b-it-q4-k-m'; FallbackModels = @(); CallLogger = $script:Logger } | Out-Null
             $script:Logged[0][2].KeySource | Should -BeExactly 'env:GROQ_API_KEY'
@@ -1107,7 +1107,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
 
         It 'a logger that throws is non-fatal: one warning, and the result is still returned' {
             script:Set-RestSequence @((script:New-OkEnvelope 'groq' -Text 'still here'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = { throw 'logger exploded' } }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = { throw 'logger exploded' } }
             $out.Result.Text | Should -BeExactly 'still here'
             $out.Warnings -join "`n" | Should -BeExactly 'Invoke-AIApi: call-logger threw (logger exploded); continuing (audit log is non-fatal).'
         }
@@ -1116,7 +1116,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $seen = [System.Collections.Generic.List[object]]::new()
             $two = { param($Attempt, $Status) $seen.Add("$Attempt/$Status") }.GetNewClosure()
             script:Set-RestSequence @((script:New-OkEnvelope 'groq'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = $two }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @(); CallLogger = $two }
             $out.Warnings | Should -BeNullOrEmpty
             $seen -join ';' | Should -BeExactly '0/200'
         }
@@ -1125,10 +1125,10 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             $script:Responder = { param($Call) if ($Call.Uri -like '*anthropic*') { script:New-OkEnvelope 'claude' } else { throw (script:New-HttpError 500 'x') } }
             # MaxRetries 1: since t/4078 a 500 is retried; one primary attempt keeps the logged attempt at 0.
-            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5'); CallLogger = $script:Logger; MaxRetries = 1 } | Out-Null
+            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-openai-gpt-oss-120b'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5'); CallLogger = $script:Logger; MaxRetries = 1 } | Out-Null
             $rows = @($script:Logged | ForEach-Object { "$($_[0])|$($_[1])|$($_[2].Model)|$($_[2].Backend)|$($_[2].KeySource)" })
             $rows -join "`n" | Should -BeExactly (@(
-                '0|500|groq-llama-3.3-70b-versatile|groq|explicit'
+                '0|500|groq-openai-gpt-oss-120b|groq|explicit'
                 '0|200|claude-haiku-4-5|claude|env:ANTHROPIC_API_KEY'
             ) -join "`n")
         }

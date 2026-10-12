@@ -61,7 +61,7 @@ Describe 'Invoke-AIApi truncation detection (gap 1.1)' -Tag 'enrichment' {
 
         Mock Invoke-RestMethod { $mockResponse } -ModuleName AIEnrich
 
-        $result = Invoke-AIApi -Prompt 'test' -Model 'groq-llama-3.3-70b-versatile' -ApiKey 'fake-key' 3>$null
+        $result = Invoke-AIApi -Prompt 'test' -Model 'groq-openai-gpt-oss-120b' -ApiKey 'fake-key' 3>$null
         $result.Truncated | Should -BeTrue
     }
 
@@ -76,7 +76,7 @@ Describe 'Invoke-AIApi truncation detection (gap 1.1)' -Tag 'enrichment' {
 
         Mock Invoke-RestMethod { $mockResponse } -ModuleName AIEnrich
 
-        $result = Invoke-AIApi -Prompt 'test' -Model 'groq-llama-3.3-70b-versatile' -ApiKey 'fake-key' 3>$null
+        $result = Invoke-AIApi -Prompt 'test' -Model 'groq-openai-gpt-oss-120b' -ApiKey 'fake-key' 3>$null
         $result.Truncated | Should -BeFalse
     }
 
@@ -150,7 +150,7 @@ Describe 'Invoke-AIApi token usage tracking (gap 1.2)' -Tag 'enrichment' {
 
         Mock Invoke-RestMethod { $mockResponse } -ModuleName AIEnrich
 
-        $result = Invoke-AIApi -Prompt 'test' -Model 'groq-llama-3.3-70b-versatile' -ApiKey 'fake-key' 3>$null
+        $result = Invoke-AIApi -Prompt 'test' -Model 'groq-openai-gpt-oss-120b' -ApiKey 'fake-key' 3>$null
         $result.Usage | Should -Not -BeNullOrEmpty
         $result.Usage.InputTokens  | Should -Be 30
         $result.Usage.OutputTokens | Should -Be 25

@@ -77,7 +77,7 @@ Describe 'Get-AIDefaultTimeoutSec — frontier 2x tier (requires ai-models.json 
         $result | Should -Be 240
     }
 
-    It 'Returns 120 for groq advanced-tier (2x base)' {
+    It 'Returns 240 for groq advanced-tier (2x base)' {
         # groq advanced = groq-openai-gpt-oss-120b; basic = groq-openai-gpt-oss-20b (t/4159)
         $result = Invoke-DefaultTimeout 'groq-openai-gpt-oss-120b'
         $result | Should -Be 240

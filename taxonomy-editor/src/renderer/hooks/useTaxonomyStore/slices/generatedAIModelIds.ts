@@ -45,7 +45,6 @@ export type AIModel =
   | 'groq-openai-gpt-oss-120b'
   | 'groq-allam-2-7b'
   | 'groq-canopylabs-orpheus-arabic-saudi'
-  | 'groq-llama-3.3-70b-versatile'
   | 'openai-gpt-4-0613'
   | 'openai-gpt-4'
   | 'openai-gpt-3.5-turbo'
