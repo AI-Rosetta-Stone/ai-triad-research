@@ -46,22 +46,7 @@ function Get-EntityExtractionCandidates {
     )
 
     if (-not $Path) { $Path = Join-Path (Get-TaxonomyDir) 'entity_extraction_log.json' }
-    if (-not (Test-Path -LiteralPath $Path)) {
-        throw (New-ActionableError -PassThru `
-            -Goal 'List advisory existing-entity candidates' `
-            -Problem "entity_extraction_log.json not found at $Path" `
-            -Location 'Get-EntityExtractionCandidates' `
-            -NextSteps @('Run Invoke-EntityExtraction first, or pass -Path to the log'))
-    }
-    try {
-        $log = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
-    } catch {
-        throw (New-ActionableError -PassThru `
-            -Goal 'List advisory existing-entity candidates' `
-            -Problem "entity_extraction_log.json could not be parsed: $($_.Exception.Message)" `
-            -Location 'Get-EntityExtractionCandidates' `
-            -NextSteps @("Restore $Path from git and re-run"))
-    }
+    $log = Read-EntityCandidateLog -Path $Path
 
     $schema = if ($log.PSObject.Properties['_schema_version']) { [string]$log._schema_version } else { '' }
     $nodes = if ($log.PSObject.Properties['nodes']) { @($log.nodes) } else { @() }
