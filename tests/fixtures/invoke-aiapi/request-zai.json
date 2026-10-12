@@ -1,0 +1,319 @@
+{
+  "backend": "zai",
+  "cases": {
+    "json": {
+      "body": {
+        "max_tokens": 777,
+        "messages": [
+          {
+            "content": "Summarize: café — naïve 東京. Line two.",
+            "role": "user"
+          }
+        ],
+        "model": "{apiModelId}",
+        "response_format": {
+          "type": "json_object"
+        },
+        "temperature": 0.3
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.z.ai/api/paas/v4/chat/completions"
+    },
+    "json+schema": {
+      "body": {
+        "max_tokens": 777,
+        "messages": [
+          {
+            "content": "Summarize: café — naïve 東京. Line two.",
+            "role": "user"
+          }
+        ],
+        "model": "{apiModelId}",
+        "response_format": {
+          "json_schema": {
+            "name": "response",
+            "schema": {
+              "additionalProperties": false,
+              "properties": {
+                "answer": {
+                  "description": "The answer",
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "detail": {
+                  "properties": {
+                    "note": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "note"
+                  ],
+                  "type": "object"
+                },
+                "tags": {
+                  "items": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "answer",
+                "confidence"
+              ],
+              "type": "object"
+            },
+            "strict": true
+          },
+          "type": "json_schema"
+        },
+        "temperature": 0.3
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.z.ai/api/paas/v4/chat/completions"
+    },
+    "json+schema+system": {
+      "body": {
+        "max_tokens": 777,
+        "messages": [
+          {
+            "content": "You are a careful policy analyst.",
+            "role": "system"
+          },
+          {
+            "content": "Summarize: café — naïve 東京. Line two.",
+            "role": "user"
+          }
+        ],
+        "model": "{apiModelId}",
+        "response_format": {
+          "json_schema": {
+            "name": "response",
+            "schema": {
+              "additionalProperties": false,
+              "properties": {
+                "answer": {
+                  "description": "The answer",
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "detail": {
+                  "properties": {
+                    "note": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "note"
+                  ],
+                  "type": "object"
+                },
+                "tags": {
+                  "items": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "answer",
+                "confidence"
+              ],
+              "type": "object"
+            },
+            "strict": true
+          },
+          "type": "json_schema"
+        },
+        "temperature": 0.3
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.z.ai/api/paas/v4/chat/completions"
+    },
+    "json+system": {
+      "body": {
+        "max_tokens": 777,
+        "messages": [
+          {
+            "content": "You are a careful policy analyst.",
+            "role": "system"
+          },
+          {
+            "content": "Summarize: café — naïve 東京. Line two.",
+            "role": "user"
+          }
+        ],
+        "model": "{apiModelId}",
+        "response_format": {
+          "type": "json_object"
+        },
+        "temperature": 0.3
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.z.ai/api/paas/v4/chat/completions"
+    },
+    "plain": {
+      "body": {
+        "max_tokens": 777,
+        "messages": [
+          {
+            "content": "Summarize: café — naïve 東京. Line two.",
+            "role": "user"
+          }
+        ],
+        "model": "{apiModelId}",
+        "temperature": 0.3
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.z.ai/api/paas/v4/chat/completions"
+    },
+    "plain+system": {
+      "body": {
+        "max_tokens": 777,
+        "messages": [
+          {
+            "content": "You are a careful policy analyst.",
+            "role": "system"
+          },
+          {
+            "content": "Summarize: café — naïve 東京. Line two.",
+            "role": "user"
+          }
+        ],
+        "model": "{apiModelId}",
+        "temperature": 0.3
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.z.ai/api/paas/v4/chat/completions"
+    }
+  }
+}

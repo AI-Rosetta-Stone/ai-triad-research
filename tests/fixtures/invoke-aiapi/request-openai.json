@@ -1,0 +1,282 @@
+{
+  "backend": "openai",
+  "cases": {
+    "json": {
+      "body": {
+        "input": "Summarize: café — naïve 東京. Line two.",
+        "max_output_tokens": 777,
+        "model": "{apiModelId}",
+        "text": {
+          "format": {
+            "type": "json_object"
+          }
+        }
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.openai.com/v1/responses"
+    },
+    "json+schema": {
+      "body": {
+        "input": "Summarize: café — naïve 東京. Line two.",
+        "max_output_tokens": 777,
+        "model": "{apiModelId}",
+        "text": {
+          "format": {
+            "json_schema": {
+              "name": "response",
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "answer": {
+                    "description": "The answer",
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "detail": {
+                    "properties": {
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "note"
+                    ],
+                    "type": "object"
+                  },
+                  "tags": {
+                    "items": {
+                      "enum": [
+                        "a",
+                        "b"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "answer",
+                  "confidence"
+                ],
+                "type": "object"
+              },
+              "strict": true
+            },
+            "type": "json_schema"
+          }
+        }
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.openai.com/v1/responses"
+    },
+    "json+schema+system": {
+      "body": {
+        "input": "Summarize: café — naïve 東京. Line two.",
+        "instructions": "You are a careful policy analyst.",
+        "max_output_tokens": 777,
+        "model": "{apiModelId}",
+        "text": {
+          "format": {
+            "json_schema": {
+              "name": "response",
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "answer": {
+                    "description": "The answer",
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "detail": {
+                    "properties": {
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "note"
+                    ],
+                    "type": "object"
+                  },
+                  "tags": {
+                    "items": {
+                      "enum": [
+                        "a",
+                        "b"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "answer",
+                  "confidence"
+                ],
+                "type": "object"
+              },
+              "strict": true
+            },
+            "type": "json_schema"
+          }
+        }
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.openai.com/v1/responses"
+    },
+    "json+system": {
+      "body": {
+        "input": "Summarize: café — naïve 東京. Line two.",
+        "instructions": "You are a careful policy analyst.",
+        "max_output_tokens": 777,
+        "model": "{apiModelId}",
+        "text": {
+          "format": {
+            "type": "json_object"
+          }
+        }
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.openai.com/v1/responses"
+    },
+    "plain": {
+      "body": {
+        "input": "Summarize: café — naïve 東京. Line two.",
+        "max_output_tokens": 777,
+        "model": "{apiModelId}"
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.openai.com/v1/responses"
+    },
+    "plain+system": {
+      "body": {
+        "input": "Summarize: café — naïve 東京. Line two.",
+        "instructions": "You are a careful policy analyst.",
+        "max_output_tokens": 777,
+        "model": "{apiModelId}"
+      },
+      "bodyType": "System.Byte[]",
+      "contentType": "application/json; charset=utf-8",
+      "errorAction": "Stop",
+      "headerNames": [
+        "Authorization"
+      ],
+      "headers": {
+        "Authorization": "Bearer <REDACTED>"
+      },
+      "method": "Post",
+      "parameterNames": [
+        "Body",
+        "ContentType",
+        "ErrorAction",
+        "Headers",
+        "Method",
+        "TimeoutSec",
+        "Uri"
+      ],
+      "timeoutSec": 77,
+      "uri": "https://api.openai.com/v1/responses"
+    }
+  }
+}
