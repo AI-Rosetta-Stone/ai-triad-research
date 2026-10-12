@@ -63,6 +63,12 @@ export interface RefreshResult {
   proposal?: Proposal;
   pinnedCandidates?: PinnedCandidate[];
   catalogSources?: Record<string, CatalogSource>;
+  /**
+   * Replace mode only: registered ids a written refresh would drop this run (t/4159): absent from their vendor's
+   * authoritative catalog, or an older unpinned model curated away in its family. Unreferenced ones drop without a
+   * proposal, so this is the only signal for them; read by the models:drift check (lib/electron-shared/modelsDrift.ts).
+   */
+  removedModels?: string[];
   dryRun?: boolean;
   signoff?: SignoffRecord;
 }
@@ -351,7 +357,7 @@ export async function discoverClaudeModels(apiKey: string): Promise<ModelEntry[]
  * /v1/models listing. `probe` = the hand-picked candidate fallback: never authoritative, so the refresh treats a
  * probe-sourced backend as additive only and never lets it drive a drop.
  */
-export async function discoverClaudeCatalog(apiKey: string): Promise<{ models: ModelEntry[]; source: 'catalog' | 'probe' }> {
+export async function discoverClaudeCatalog(apiKey: string, allowProbe = true): Promise<{ models: ModelEntry[]; source: 'catalog' | 'probe' }> {
   try {
     const resp = await fetch('https://api.anthropic.com/v1/models', {
       headers: {
@@ -382,6 +388,15 @@ export async function discoverClaudeCatalog(apiKey: string): Promise<{ models: M
     console.warn('[ModelDiscovery] Claude /v1/models failed; falling back to probe:', err);
   }
 
+  // The probe sends real /v1/messages requests (spend). A catalog-only run must never reach it (t/4159).
+  if (!allowProbe) {
+    throw new ActionableError({
+      goal: 'Read the Claude model catalog',
+      problem: 'Claude /v1/models catalog unavailable; this is a catalog-only run, so the paid candidate probe was not used',
+      location: 'lib/electron-shared/modelDiscovery.ts discoverClaudeCatalog',
+      nextSteps: ['Retry later', 'Check ANTHROPIC_API_KEY is valid for the Models API'],
+    });
+  }
   return { models: await probeClaudeCandidates(apiKey), source: 'probe' };
 }
 
@@ -497,6 +512,7 @@ async function discoverBackend(
   backendId: string,
   config: AIModelsConfig,
   deps: ModelDiscoveryDeps,
+  catalogOnly = false,
 ): Promise<{ models: ModelEntry[]; result: BackendResult; source: CatalogSource }> {
   const existing = () => config.models.filter(m => m.backend === backendId);
   if (backendId === 'ollama') {
@@ -528,7 +544,7 @@ async function discoverBackend(
 
   const discoverers: Record<string, (key: string) => Promise<{ models: ModelEntry[]; source: 'catalog' | 'probe' }>> = {
     gemini: async (k) => ({ models: await discoverGeminiModels(k), source: 'catalog' }),
-    claude: discoverClaudeCatalog,
+    claude: (k) => discoverClaudeCatalog(k, !catalogOnly),
     groq: async (k) => ({ models: await discoverGroqModels(k), source: 'catalog' }),
     deepseek: async (k) => ({ models: await discoverDeepSeekModels(k), source: 'catalog' }),
   };
@@ -651,6 +667,11 @@ export interface RefreshOptions {
   dryRun?: boolean;
   /** Apply exactly this proposal. Refused as `proposal-changed` if the recomputed one differs (t/3553). */
   accept?: RefreshAccept;
+  /**
+   * Read vendor catalogs only (t/4159): never fall back to Claude's candidate probe, which sends paid
+   * /v1/messages requests. A backend whose catalog can't be read is reported as not discovered instead.
+   */
+  catalogOnly?: boolean;
 }
 
 /** Why a refresh did not write (t/3553). `invalid` is the t/2039 guard; the rest are the drop policy's. */
@@ -751,7 +772,7 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
       result[backendId] = { ok: false, count: 0, error: 'skipped this run' };
       continue;
     }
-    const discovery = await discoverBackend(backendId, config, deps);
+    const discovery = await discoverBackend(backendId, config, deps, opts.catalogOnly);
     discovered.push({ backend: backendId, models: discovery.models, source: discovery.source });
     result[backendId] = discovery.result;
   }
@@ -804,6 +825,7 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
   const merged = mergeDiscoveredModels(replaced, discovered.filter(d => d.source === 'probe').flatMap(d => d.models), new Set(), true);
   const mergedIds = new Set(merged.map(m => m.id));
   const removed = config.models.filter(m => !mergedIds.has(m.id));
+  result.removedModels = removed.map(m => m.id);
   config.models = merged;
 
   // ── 3. Proposal: every selection-surface change, never applied on its own (TL t/3553#1, CL #2) ───────
