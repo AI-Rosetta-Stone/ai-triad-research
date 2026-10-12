@@ -4898,6 +4898,69 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
+## #235 [Security] Unattributed Actor Used Shared jpsnover Token to Un-draft and Merge PRs — Draft Status Does Not Protect; `consult-hold` Label Is the Only Gate
+
+**Pattern:** An unattributed actor using the fleet's shared `jpsnover` GitHub token un-drafted PRs and armed auto-merge on PRs that were mid-review. One PR was taken out of draft and merged directly, 5 seconds later, bypassing the in-progress review entirely. Draft status was relied on as a hold mechanism — it is not. The only merge gate that GitHub enforces for every path (including admins and server-side auto-merge) is a **required status check** — in this fleet, the `consult-hold` label backed by the `consult-hold-guard` required context.
+
+**Instances:**
+- 2026-10-08 — Fleet-wide (t/3716, e/288): PRs #3142, #3145 un-drafted and auto-merge armed. PR #3155 (draft, mid-review) un-drafted and merged directly 5 seconds later. Fleet-wide 48h hold: apply `consult-hold` to every non-ready PR except T0. PI rotated credentials. Hold lifts when actor is attributed or 48h expires.
+
+**Root Cause:** The fleet shares one GitHub identity (`jpsnover`). Any process or session holding a valid `jpsnover` token can perform any GitHub action that user can perform — including un-drafting, arming auto-merge, and merging PRs. Draft status is a UI convention with no enforcement backing; GitHub does not treat "draft" as a merge block. The `consult-hold` label is enforced by a required status check (`consult-hold-guard`) that GitHub refuses to bypass even for admins under `enforce_admins: true`.
+
+**Prevention:**
+1. **Draft status does not protect a PR from merge.** Any automation or actor with the token can un-draft in one API call.
+2. **The `consult-hold` label is the only enforceable hold gate.** Apply it at PR creation (`gh pr create --label consult-hold`) for any PR that is not ready to merge. Remove it only when you are ready to merge.
+3. **T0 PRs (green CI → merge) are exempt** from the consult-hold requirement — they merge on green and have no review gate to protect.
+4. **If a PR you own becomes ready, armed, or merged without your action:** report the PR number and time to the active incident ticket immediately and ping DevOps. Every event helps attribution.
+5. **The systemic fix is per-agent GitHub App identities (t/4096)**. Until that lands, the shared token is a single point of compromise — consult-hold is the compensating control.
+
+**Status:** Resolved (hold lifted after credential rotation). Systemic fix pending (t/4096).
+
+**Applies To:** All agents managing PRs; especially relevant for draft PRs or PRs with outstanding reviews.
+
+---
+
+## #233 [Build] `gh api .../actions/workflows` Paged at 30 — Repos With 40+ Workflows Look Like "Not Found"
+
+**Pattern:** `gh api repos/.../actions/workflows` returns at most 30 entries by default (GitHub's page size). A repo with more than 30 workflows will not show entries beyond the first page, so a workflow that exists appears absent. This reads as "not found" and can cause a health check, enable/disable command, or workflow lookup to silently operate on the wrong assumption.
+
+**Instances:**
+- 2026-10-12 — DevOps Lead (p/26#151): `gh api .../actions/workflows` returned no tier-check entry; repo has ~40 workflows. Resolved by addressing the workflow directly as `/actions/workflows/<file>.yml`.
+
+**Root Cause:** The GitHub REST API paginates list endpoints. `gh api` does not auto-paginate by default; it returns the first page only. A repo with 40 workflows requires `--paginate` or direct addressing to find entries beyond the first 30.
+
+**Prevention:**
+1. **When looking up a specific workflow, address it directly:** `gh api repos/.../actions/workflows/<filename>.yml` — no pagination needed.
+2. **When iterating all workflows, use `--paginate`:** `gh api --paginate repos/.../actions/workflows`.
+3. **A missing workflow in a list result is not evidence it doesn't exist** when the repo is large. Verify with a direct GET before concluding "not found".
+
+**Status:** Active — 1 instance (DevOps Lead p/26#151). Silent: list returns 200 with a short result.
+
+**Applies To:** All agents querying GitHub Actions workflow lists on repos with many workflows.
+
+---
+
+## #234 [Build] Job-Level `continue-on-error: true` Makes Run Conclusion `success` Even When Steps Crash — Read Step Conclusion for Health Checks
+
+**Pattern:** A GitHub Actions job with `continue-on-error: true` at the job level reports its overall conclusion as `success` even when individual steps fail or crash. A health check that reads the run's or job's `conclusion` field sees `success` and reports clean. The failing step is only visible in the per-step `conclusion` field, which health checks must read explicitly.
+
+**Instances:**
+- 2026-10-12 — DevOps Lead (p/26#151, t/4103#13): A job with `continue-on-error: true` crashed on a step. The run conclusion was `success`. Health check initially read the run conclusion and reported clean.
+
+**Root Cause:** `continue-on-error: true` at the job level is designed to prevent a failing job from failing the entire workflow. GitHub sets the job conclusion to `success` regardless of whether steps within it failed — the intent is "this job's failure is acceptable." A health check that trusts the job/run conclusion inherits this "acceptable failure" semantics unintentionally.
+
+**Prevention:**
+1. **Health checks must read the step-level `conclusion` field**, not the job or run conclusion, when the job uses `continue-on-error: true`.
+2. **`gh run view --json jobs` includes per-step conclusions** under `jobs[].steps[].conclusion`. A step that crashed shows `failure` there even when the job shows `success`.
+3. **When auditing CI health on a job with `continue-on-error`, assume the run conclusion is uninformative** — enumerate steps explicitly.
+4. **Consider removing `continue-on-error: true` from health-check jobs** unless the intent is genuinely "this job's failure is acceptable." A job that must not silently fail should not carry this flag.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#151, t/4103#13). Silent: run conclusion shows success.
+
+**Applies To:** All agents reading CI run or job conclusions on workflows that use `continue-on-error: true`.
+
+---
+
 ## #219 [Build] MSYS Stores Colon as Unicode Private-Use Character in Filenames — `C:tmpsaf…` Is Not a Real Colon; PowerShell Matching Fails; Use Bash for Cleanup
 
 **Pattern:** A file appears in the repository root whose name looks like `C:tmpsaf_beliefs_raw.json`. The `:` is **not** an ASCII colon — MSYS stores it as a Unicode private-use character (U+F03A or similar) that *visually* resembles a colon but doesn't match ASCII `:` in any search or comparison. As a result: `git log/ls-files/status` fail "outside repository" or similar; PowerShell `-like 'C:tmp*'` and `Get-Item ".\C:tmpsaf..."` find nothing (the `.\` trick doesn't help — the issue is the non-ASCII char, not drive-letter interpretation); `:(literal)` pathspec magic also fails. **What works: Bash `ls`/`mv`/`rm` with the literal filename** — Bash can address the actual bytes MSYS stored.
