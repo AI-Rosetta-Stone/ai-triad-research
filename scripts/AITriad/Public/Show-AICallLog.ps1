@@ -79,7 +79,7 @@ function Show-AICallLog {
     # WebUtility (not System.Web/HttpUtility) so no assembly load is needed on any platform.
     function Format-Cell ([object]$Value) { [System.Net.WebUtility]::HtmlEncode([string]$Value) }
 
-    $cols = 'ID', 'Datetime', 'Scenario', 'PromptID', 'PromptStart', 'RetryCount', 'Status'
+    $cols = 'ID', 'Datetime', 'Scenario', 'PromptID', 'PromptStart', 'RetryCount', 'Status', 'Model', 'Backend', 'KeySource'
 
     $rowsHtml = [System.Text.StringBuilder]::new()
     foreach ($e in $entries) {
@@ -94,6 +94,9 @@ function Show-AICallLog {
         [void]$rowsHtml.Append("<td>$(Format-Cell $e.PromptStart)</td>")
         [void]$rowsHtml.Append("<td data-num=""$([int]$e.RetryCount)"">$(Format-Cell $e.RetryCount)</td>")
         [void]$rowsHtml.Append("<td>$(Format-Cell $e.Status)</td>")
+        [void]$rowsHtml.Append("<td>$(Format-Cell $e.Model)</td>")
+        [void]$rowsHtml.Append("<td>$(Format-Cell $e.Backend)</td>")
+        [void]$rowsHtml.Append("<td>$(Format-Cell $e.KeySource)</td>")
         [void]$rowsHtml.Append('</tr>')
     }
 

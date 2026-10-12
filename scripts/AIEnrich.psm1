@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 #Requires -Version 5.1
@@ -404,6 +404,47 @@ function Get-AIApiKeySource {
     return $script:LastApiKeySource
 }
 
+function ConvertTo-AICallLogKeySource {
+    <#
+    .SYNOPSIS
+        Map a Resolve-AIApiKey source label to the AI call log's closed KeySource vocabulary (t/4088).
+    .DESCRIPTION
+        The vocabulary is defined once, in tests/fixtures/ai-call-log/README.md: explicit,
+        env:<VAR> (a known backend key variable), fallback:AI_API_KEY, store, keyvault, none.
+        Anything unmappable returns '' with a WARN (TL t/4088#3). The result names WHERE the key came
+        from; the key is compared, never returned or logged.
+
+        An 'explicit parameter' key whose value is the backend's own named variable is reported as
+        env:<VAR>. That is how the cascade passes a fallback link its env-resolved key, so without
+        this every fallback link would be logged as 'explicit'.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowEmptyString()][string]$SourceLabel,
+        [AllowEmptyString()][string]$Backend,
+        [AllowEmptyString()][string]$Key
+    )
+    $OwnVars = if ($script:AIApiKeyEnvVarMap.ContainsKey($Backend)) { @($script:AIApiKeyEnvVarMap[$Backend]) } else { @() }
+    $KnownVars = @($script:AIApiKeyEnvVarMap.Values | ForEach-Object { $_ })
+
+    if ($SourceLabel -like '(keyless*') { return 'none' }
+    if ($SourceLabel -eq '$env:AI_API_KEY (fallback)') { return 'fallback:AI_API_KEY' }
+    if ($SourceLabel -match '^\$env:([A-Z][A-Z0-9_]*)$' -and $Matches[1] -in $KnownVars) { return "env:$($Matches[1])" }
+    if ($SourceLabel -eq 'explicit parameter') {
+        foreach ($Var in $OwnVars) {
+            $Value = [System.Environment]::GetEnvironmentVariable($Var)
+            if (-not [string]::IsNullOrEmpty($Value) -and $Value -ceq $Key) { return "env:$Var" }
+        }
+        if ($Backend -eq 'gemini' -and -not [string]::IsNullOrEmpty($env:AI_API_KEY) -and $env:AI_API_KEY -ceq $Key) {
+            return 'fallback:AI_API_KEY'
+        }
+        return 'explicit'
+    }
+    Write-Warning "AI call log: key source '$SourceLabel' for backend '$Backend' is not in the KeySource vocabulary; logging '' (t/4088)."
+    return ''
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Measure-PromptTokens — pre-flight token estimation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -657,11 +698,14 @@ function Invoke-AIApi {
     # gate as before; the $EnvHint switch stays exhaustive so no future backend
     # produces the blank-token warning (AC#1).
     $ResolvedKey = ''
+    $KeySourceLabel = ''
     if ($Backend -eq 'ollama') {
         $script:LastApiKeySource = '(keyless — local Ollama)'
+        $KeySourceLabel = $script:LastApiKeySource
     }
     else {
         $ResolvedKey = Resolve-AIApiKey -ExplicitKey $ApiKey -Backend $Backend
+        $KeySourceLabel = $script:LastApiKeySource   # captured now, so nothing later in the call can overwrite it (t/4088)
         if ([string]::IsNullOrWhiteSpace($ResolvedKey)) {
             $EnvHint = switch ($Backend) {
                 'gemini' { 'GEMINI_API_KEY or AI_API_KEY' }   # the AI_API_KEY fallback is gemini-only (t/4102)
@@ -1154,7 +1198,17 @@ function Invoke-AIApi {
         elseif ($LastError -and $LastError.Exception.Response) { $LogStatus = $LastError.Exception.Response.StatusCode.value__ }
         elseif ($LastError) { $LogStatus = 'error' }
         else { $LogStatus = '?' }
-        try { & $CallLogger $Attempt ([string]$LogStatus) }
+        # t/4088: the model and backend ACTUALLY called (a cascade link logs its own) and where its key came
+        # from. Backend is the registry value resolved above, never a prefix guess. A two-argument logger
+        # still works; it just ignores the third argument.
+        try {
+            $LogContext = [pscustomobject]@{
+                Model     = $Model
+                Backend   = $Backend
+                KeySource = ConvertTo-AICallLogKeySource -SourceLabel $KeySourceLabel -Backend $Backend -Key $ResolvedKey
+            }
+            & $CallLogger $Attempt ([string]$LogStatus) $LogContext
+        }
         catch { Write-Warning "Invoke-AIApi: call-logger threw ($($_.Exception.Message)); continuing (audit log is non-fatal)." }
     }
 
