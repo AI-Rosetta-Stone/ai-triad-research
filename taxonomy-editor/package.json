@@ -44,7 +44,7 @@
     "smoke:invariance:capture": "cross-env SMOKE_CAPTURE=1 node smoke/run-smoke.mjs",
     "smoke:invariance:capture:node24": "cross-env SMOKE_CAPTURE=1 node smoke/invariance-capture.mjs",
     "smoke:invariance:assert:node24": "node smoke/invariance-capture.mjs",
-    "lint": "eslint src/",
+    "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src",
     "lint:fix": "eslint src/ --fix",
     "depgraph": "node scripts/depgraph.mjs --stats",
     "depgraph:query": "node scripts/depgraph.mjs --query",
