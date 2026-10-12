@@ -204,3 +204,317 @@ function Get-CrossCampAgreementWarnings {
     }
     return , $Warnings
 }
+
+# -- t/4136 PR B2: enrichment passes, model_info, the summary document, its write and metadata.json --
+# Same contract as above: module-level, every input a parameter. Each enrichment pass is called as a
+# bare statement, so anything the underlying pass emits still reaches Finalize-Summary's output.
+
+function Invoke-SummaryRetrievalConfidencePass {
+    <#
+    .SYNOPSIS
+        Retrieval confidence pass (t/2288) over every key_point. Skipped without cached embeddings.
+        Runs after hallucinated-ID nulling so only valid assignments get scored.
+    #>
+    param([object]$SummaryObject)
+    if (-not ($script:CachedEmbeddings -and $script:CachedEmbeddings.Count -gt 0)) { return }
+    $AllKpsForConf = Get-SummaryCampKeyPoints -SummaryObject $SummaryObject
+    if ($AllKpsForConf.Count -gt 0) {
+        Invoke-RetrievalConfidencePass -KeyPoints $AllKpsForConf `
+            -Threshold $script:RetrievalConfidenceThreshold
+    }
+}
+
+function Invoke-SummaryPolarityGate {
+    <#
+    .SYNOPSIS
+        Polarity/contradiction gate (t/2739 P1) over every key_point, plus its two-stage telemetry.
+    .DESCRIPTION
+        Runs after the confidence pass (retrieval_low_confidence populated). Asks the shared
+        directional engine whether each aligned, high-topical-band key_point OPPOSES its ASSIGNED
+        node's proposition; flips to strongly_opposed + stance_polarity_flag on 'opposes'
+        (opposition-only; unresolved keeps). The residual that similarity + the prompt (t/2738)
+        cannot catch.
+
+        DIRECTIONAL POLARITY GATE — DISABLED BY DEFAULT (t/2896)
+        WHY OFF: the gate's safety invariant ("false-demote structurally ~0") is FALSIFIED.
+        deberta-v3-small false-flips genuine aligned agreements to strongly_opposed at NLI margins
+        3.4–7.5 — an order of magnitude above the ~1.4 real-contradiction ceiling, so no τ_contra
+        separates them (provably not tunable). Root cause is a model reasoning gap: it can't infer
+        agency→loss (AI-gains-agency ⊨ humans-lose-oversight), which is the DOMINANT
+        safetyist/skeptic claim shape — so the gate corrupts precisely where it fires most (CL
+        diagnosis t/2896#1; TL [Decision] e/117#3).
+        STATUS (t/2912): the gate is ACTIVE BY DEFAULT. The durable two-stage LLM-judge fix (t/2900)
+        resolved the agency→loss false-demote — deberta proposes 'opposes' candidates, the
+        gemini-3.1-pro-preview judge disposes (unanimous-opposes-to-flip @ temp 0.3; fail-safe
+        unresolved/error → KEEP) — promoted after both-arms GV + a clean observe cycle (121 deberta
+        FPs the judge rejected, 0 bad flips). Kill switch: -EnablePolarityGate:$false.
+    #>
+    param([object]$SummaryObject, [bool]$EnablePolarityGate)
+    $PolarityKps = Get-SummaryCampKeyPoints -SummaryObject $SummaryObject -WithPov
+    if ($PolarityKps.Count -le 0) { return }
+    $PolarityCounts = Invoke-PolarityGatePass -KeyPoints $PolarityKps `
+        -SkipDirectionalGate:(-not $EnablePolarityGate)
+    if (-not ($EnablePolarityGate -and $PolarityCounts.gated -gt 0)) { return }
+    # t/2900/t/2912 two-stage telemetry — emitted EVERY run so the judge's flip /
+    # false-positive-kept / self-heal rates are observable in prod (TL GV condition t/2912#3).
+    # judge_kept = deberta false-positives the judge rejected (the payoff); judge_flipped =
+    # confirmed demotes; self_healed = prior false-flips auto-reverted.
+    $polLine = "Polarity gate (two-stage): judge_flipped={0} judge_kept={1} self_healed={2} over {3} gated key_point(s), {4} deberta rep-pair(s)" -f `
+        $PolarityCounts.judge_flipped, $PolarityCounts.judge_kept, $PolarityCounts.self_healed, $PolarityCounts.gated, $PolarityCounts.reps
+    if ($PolarityCounts.judge_flipped -gt 0) { Write-Warn $polLine } else { Write-Info $polLine }
+    # Silent-degradation detector: every claim-rep pair unresolved ⇒ the directional engine likely
+    # failed for the whole run (fail-safe kept all mappings). Surface by default so a dead engine
+    # does not pass unnoticed (TL GV t/2739#6).
+    if ($PolarityCounts.reps -gt 0 -and $PolarityCounts.unresolved -eq $PolarityCounts.reps) {
+        Write-Warn ("Polarity gate: all {0} claim-rep pair(s) over {1} gated key_point(s) unresolved — directional engine may be down (no inversion detection this run)" -f `
+            $PolarityCounts.reps, $PolarityCounts.gated)
+    }
+}
+
+function Invoke-SummaryMechanism5Pass {
+    <#
+    .SYNOPSIS
+        Mechanism #5 per-key_point re-retrieval pass (t/2357). Skipped without cached embeddings.
+    .DESCRIPTION
+        Runs after the confidence pass so retrieval_low_confidence is populated. Flags key_points
+        whose assigned node is retrieval_low_confidence OR absent from the attribution_text top-3,
+        and surfaces per-key_point top-3 candidates for the t/2289 override path. Flag→surface ships
+        unconditionally (zero regression risk). Auto-correct is a separate fast-follow.
+    #>
+    param([object]$SummaryObject)
+    if (-not ($script:CachedEmbeddings -and $script:CachedEmbeddings.Count -gt 0)) { return }
+    $AllKpsForM5 = Get-SummaryCampKeyPoints -SummaryObject $SummaryObject -WithPov
+    if ($AllKpsForM5.Count -gt 0) {
+        Invoke-Mechanism5RetrievalPass -KeyPointItems $AllKpsForM5
+    }
+}
+
+function Invoke-SummaryExcludesVetoPass {
+    <#
+    .SYNOPSIS
+        Excludes-veto pass (t/2286). Skipped without loaded taxonomy data. Runs after the confidence
+        pass so retrieval_low_confidence is already present.
+    #>
+    param([object]$SummaryObject)
+    if (-not ($script:TaxonomyData -and $script:TaxonomyData.Count -gt 0)) { return }
+    $AllKpsForVeto = Get-SummaryCampKeyPoints -SummaryObject $SummaryObject
+    if ($AllKpsForVeto.Count -le 0) { return }
+    $VetoStats = Invoke-ExcludesVetoPass -KeyPoints $AllKpsForVeto
+    if ($VetoStats.VetoCount -gt 0 -or $VetoStats.AmbiguousCount -gt 0) {
+        Write-Host "  │  excludes-veto: $($VetoStats.VetoCount) vetoed, $($VetoStats.AmbiguousCount) ambiguous" -ForegroundColor DarkYellow
+    }
+}
+
+function Resolve-SummaryUnmappedConcepts {
+    <#
+    .SYNOPSIS
+        Cross-POV fuzzy match on unmapped concepts. Returns @{ Concepts; Count }: the remaining
+        concepts and their count, or the inputs unchanged when nothing resolved or resolution threw.
+    .DESCRIPTION
+        Resolved concepts are printed and removed from $SummaryObject.unmapped_concepts. A failure is
+        printed with Write-Host, not Write-Warning (pinned; t/4079 changes it).
+    #>
+    param([object]$SummaryObject, [object]$UnmappedConcs, [int]$UnmappedCount)
+    $State = @{ Concepts = $UnmappedConcs; Count = $UnmappedCount }
+    if ($UnmappedCount -le 0) { return $State }
+    try {
+        $Resolution = Resolve-UnmappedConcepts -UnmappedConcepts @($SummaryObject.unmapped_concepts)
+        if (@($Resolution.Resolved).Count -gt 0) {
+            foreach ($R in @($Resolution.Resolved)) {
+                Write-Host "  │  ✔ Resolved: '$($R.ConceptLabel)' → $($R.MatchedNodeId) (score $($R.Score))" -ForegroundColor Green
+            }
+            $Remaining = @($Resolution.Remaining)
+            $State.Concepts = $Remaining
+            if ($SummaryObject.PSObject.Properties['unmapped_concepts']) {
+                $SummaryObject.unmapped_concepts = $Remaining
+            } else {
+                $SummaryObject | Add-Member -NotePropertyName 'unmapped_concepts' -NotePropertyValue $Remaining -Force
+            }
+            $State.Count = $Remaining.Count
+        }
+    }
+    catch {
+        Write-Host "  │  ⚠ Unmapped concept resolution failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    return $State
+}
+
+function New-SummaryModelInfo {
+    <#
+    .SYNOPSIS
+        The summary's model_info block, as an ordered dictionary with the pinned key order.
+    .DESCRIPTION
+        Detects RAG vs full taxonomy from the context format to estimate the node count. Pinned
+        pre-existing bugs (t/4079 fixes them): max_tokens is always 32768, and
+        fire_confidence_threshold is always 0.7.
+    #>
+    param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats)
+    $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
+    if ($IsRagFiltered) {
+        $EstNodeCount = ([regex]::Matches($TaxonomyJson, '^\s{2}\w', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count
+    }
+    else {
+        $EstNodeCount = ([regex]::Matches($TaxonomyJson, '"id"\s*:')).Count
+    }
+
+    if ($ChunkCount -gt 0) { $TaxFilter = 'rag_per_chunk' } elseif ($IsRagFiltered) { $TaxFilter = 'rag' } else { $TaxFilter = 'full' }
+
+    $UsedFire = $null -ne $FireStats
+    if ($UsedFire) { $ExtractionMode = 'fire' } else { $ExtractionMode = 'single_shot' }
+    $ModelInfo = [ordered]@{
+        model             = $Model
+        temperature       = $Temperature
+        max_tokens        = 32768
+        extraction_mode   = $ExtractionMode
+        taxonomy_filter   = $TaxFilter
+        taxonomy_nodes    = $EstNodeCount
+    }
+
+    if ($UsedFire) {
+        $ModelInfo['fire_confidence_threshold'] = 0.7
+        $ModelInfo['fire_stats'] = [ordered]@{
+            api_calls          = $FireStats.total_api_calls
+            iterations         = $FireStats.total_iterations
+            claims_total       = $FireStats.claims_total
+            claims_confident   = $FireStats.claims_confident
+            claims_iterated    = $FireStats.claims_iterated
+            elapsed_seconds    = $FireStats.elapsed_seconds
+            termination_reason = $FireStats.termination_reason
+        }
+    }
+
+    if ($ChunkCount -gt 0) {
+        $ModelInfo['chunked']     = $true
+        $ModelInfo['chunk_count'] = $ChunkCount
+    }
+    return $ModelInfo
+}
+
+function New-SummaryDocument {
+    <#
+    .SYNOPSIS
+        The ordered summary object written to summaries/<doc-id>.json. A warnings key (schema errors,
+        hallucinated node IDs, cross-camp warnings, in that order) is added only when there are any.
+    #>
+    param(
+        [string]$DocId, [string]$TaxonomyVersion, [string]$Now, [object]$ModelInfo, [object]$ContextRot,
+        [object]$SummaryObject, [object]$FactualClaims, [object]$UnmappedConcepts,
+        [object]$SchemaErrors, [object]$InvalidNodeIds, [object]$CrossCampWarnings
+    )
+    if ($SummaryObject.PSObject.Properties['pov_summaries']) { $PovSummariesVal = $SummaryObject.pov_summaries } else { $PovSummariesVal = [ordered]@{} }
+    $FinalSummary = [ordered]@{
+        doc_id            = $DocId
+        taxonomy_version  = $TaxonomyVersion
+        generated_at      = $Now
+        model_info        = $ModelInfo
+        context_rot       = $ContextRot
+        pov_summaries     = $PovSummariesVal
+        factual_claims    = @($FactualClaims)
+        unmapped_concepts = @($UnmappedConcepts)
+    }
+    $AllWarnings = [System.Collections.Generic.List[string]]::new()
+    foreach ($e in $SchemaErrors)       { $AllWarnings.Add("Schema: $e") }
+    foreach ($n in $InvalidNodeIds)     { $AllWarnings.Add("Hallucinated node ID: $n") }
+    foreach ($w in $CrossCampWarnings)  { $AllWarnings.Add($w) }
+    if ($AllWarnings.Count -gt 0) {
+        $FinalSummary['warnings'] = @($AllWarnings)
+    }
+    return $FinalSummary
+}
+
+function Write-SummaryDocument {
+    <#
+    .SYNOPSIS
+        Writes the summary document to <SummariesDir>/<DocId>.json via Write-Utf8NoBom.
+    .OUTPUTS
+        Nothing on success. On a write failure, prints the failure line and returns Finalize-Summary's
+        Success=$false result, which the caller returns as is: no metadata write follows.
+    #>
+    param([string]$SummariesDir, [string]$DocId, [object]$Document)
+    # Join-Path stays outside the try: a bad SummariesDir throws to the caller, as it always has.
+    $SummaryPath = Join-Path $SummariesDir "${DocId}.json"
+    try {
+        Write-Utf8NoBom -Path $SummaryPath -Value ($Document | ConvertTo-Json -Depth 20)
+    }
+    catch {
+        Write-Host "  └─ ✗ Failed to write summary: $($_.Exception.Message)" -ForegroundColor Red
+        return @{ Success = $false; DocId = $DocId; Error = "Failed to write summary file: $($_.Exception.Message)" }
+    }
+}
+
+function Get-ClaimNodePov([object]$NodeId) {
+    # The POV camp a linked taxonomy node ID belongs to, by prefix; $null for a null or other ID.
+    if ($null -eq $NodeId) { return $null }
+    $PovByPrefix = [ordered]@{ 'acc-*' = 'accelerationist'; 'saf-*' = 'safetyist'; 'skp-*' = 'skeptic'; 'sit-*' = 'situations' }
+    foreach ($Prefix in $PovByPrefix.Keys) {
+        if ($NodeId -like $Prefix) { return $PovByPrefix[$Prefix] }
+    }
+    return $null
+}
+
+function Get-SummaryClaimPovCounts {
+    <#
+    .SYNOPSIS
+        Source statistics from the factual claims' linked_taxonomy_nodes: @{ NodeRefs; Primary }.
+        NodeRefs counts every linked node per POV; Primary counts each claim's first POV-prefixed
+        node. Both are plain @{} hashtables (pinned: their key order is unspecified, t/4079).
+    #>
+    param([object]$FactualClaims)
+    $nodeRefsByPov = @{ accelerationist = 0; safetyist = 0; skeptic = 0; situations = 0 }
+    $primaryPovDist = @{ accelerationist = 0; safetyist = 0; skeptic = 0; situations = 0 }
+    foreach ($claim in @($FactualClaims)) {
+        if (-not $claim.PSObject.Properties['linked_taxonomy_nodes']) { continue }
+        $PrimaryAssigned = $false
+        foreach ($nodeId in @($claim.linked_taxonomy_nodes)) {
+            $Pov = Get-ClaimNodePov $nodeId
+            if (-not $Pov) { continue }
+            $nodeRefsByPov[$Pov]++
+            if (-not $PrimaryAssigned) { $primaryPovDist[$Pov]++; $PrimaryAssigned = $true }
+        }
+    }
+    return @{ NodeRefs = $nodeRefsByPov; Primary = $primaryPovDist }
+}
+
+function Update-SummaryMetadata {
+    <#
+    .SYNOPSIS
+        Records the summary in the source's metadata.json (status, version, statistics, context_rot).
+    .DESCRIPTION
+        Any failure (missing file, bad JSON, a failed write) is printed with Write-Host, not
+        Write-Warning (pinned; t/4079 changes it), and swallowed: the summary is already written.
+    #>
+    param(
+        [hashtable]$Doc, [string]$TaxonomyVersion, [string]$Now, [object]$FactualClaims,
+        [int]$FactualCount, [int]$TotalPoints, [int]$UnmappedCount,
+        [object]$ContextRot, [object]$ContextRotStages
+    )
+    try {
+        $MetaRaw     = Get-Content $Doc.MetaFile -Raw
+        $MetaUpdated = $MetaRaw | ConvertFrom-Json -AsHashtable
+        $MetaUpdated['summary_version'] = $TaxonomyVersion
+        $MetaUpdated['summary_status']  = 'current'
+        $MetaUpdated['summary_updated'] = $Now
+
+        # Summary statistics for Source objects
+        $PovCounts = Get-SummaryClaimPovCounts -FactualClaims $FactualClaims
+        $MetaUpdated['total_claims']              = $FactualCount
+        $MetaUpdated['node_references_by_pov']    = $PovCounts.NodeRefs
+        $MetaUpdated['primary_pov_distribution']  = $PovCounts.Primary
+        $MetaUpdated.Remove('claims_by_pov')
+        $MetaUpdated['total_facts']       = $TotalPoints
+        $MetaUpdated['unmapped_concepts'] = $UnmappedCount
+        if ($ContextRot) {
+            $WorstStage = $ContextRotStages | Sort-Object { $_.ratio } | Select-Object -First 1
+            $MetaUpdated['context_rot'] = [ordered]@{
+                cumulative_retention = $ContextRot.cumulative_retention
+                worst_stage          = $WorstStage.stage
+                worst_ratio          = $WorstStage.ratio
+            }
+        }
+
+        Write-Utf8NoBom -Path $Doc.MetaFile -Value ($MetaUpdated | ConvertTo-Json -Depth 10)
+    }
+    catch {
+        Write-Host "  │  ⚠ Summary written but metadata update failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
