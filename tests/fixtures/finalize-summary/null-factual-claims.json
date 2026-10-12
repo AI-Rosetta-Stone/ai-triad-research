@@ -1,0 +1,104 @@
+{
+  "scenario": "null-factual-claims",
+  "transcript": [
+    "[warning] pov_summaries.accelerationist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
+    "[warning] pov_summaries.safetyist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
+    "[warning] pov_summaries.skeptic.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
+    "[Red]   │  ✗ Schema: Missing required field: factual_claims",
+    "[Gray]   │  points: 0 (0 unmapped)  factual: 0  new_concepts: 0",
+    "[Green]   └─ ✓ Done: summaries/doc-1.json"
+  ],
+  "error": null,
+  "result": [
+    {
+      "ChunkCount": 0,
+      "DocId": "doc-1",
+      "ElapsedSecs": 42,
+      "FactualCount": 0,
+      "NullNodes": 0,
+      "Success": true,
+      "TotalPoints": 0,
+      "UnmappedCount": 0
+    }
+  ],
+  "calls": [
+    {
+      "call": "Get-TaxonomyNodeIdSet"
+    }
+  ],
+  "writes": [
+    "summaries/doc-1.json",
+    "sources/doc-1/metadata.json"
+  ],
+  "summary": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"doc_id\": \"doc-1\",",
+      "  \"taxonomy_version\": \"2.4.0\",",
+      "  \"generated_at\": \"2026-01-02T03:04:05Z\",",
+      "  \"model_info\": {",
+      "    \"model\": \"gemini-3.5-flash-lite\",",
+      "    \"temperature\": 0.2,",
+      "    \"max_tokens\": 32768,",
+      "    \"extraction_mode\": \"single_shot\",",
+      "    \"taxonomy_filter\": \"rag\",",
+      "    \"taxonomy_nodes\": 3",
+      "  },",
+      "  \"context_rot\": null,",
+      "  \"pov_summaries\": {",
+      "    \"accelerationist\": {",
+      "      \"key_points\": []",
+      "    },",
+      "    \"safetyist\": {",
+      "      \"key_points\": []",
+      "    },",
+      "    \"skeptic\": {",
+      "      \"key_points\": []",
+      "    }",
+      "  },",
+      "  \"factual_claims\": [],",
+      "  \"unmapped_concepts\": [],",
+      "  \"warnings\": [",
+      "    \"Schema: Missing required field: factual_claims\"",
+      "  ]",
+      "}",
+      ""
+    ]
+  },
+  "metadata": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"title\": \"Doc Title\",",
+      "  \"pov_tags\": [",
+      "    \"accelerationist\",",
+      "    \"safetyist\"",
+      "  ],",
+      "  \"source_type\": \"blog\",",
+      "  \"summary_status\": \"current\",",
+      "  \"summary_version\": \"2.4.0\",",
+      "  \"total_claims\": 0,",
+      "  \"custom_field\": \"kept as is\",",
+      "  \"summary_updated\": \"2026-01-02T03:04:05Z\",",
+      "  \"node_references_by_pov\": {",
+      "    \"accelerationist\": 0,",
+      "    \"safetyist\": 0,",
+      "    \"situations\": 0,",
+      "    \"skeptic\": 0",
+      "  },",
+      "  \"primary_pov_distribution\": {",
+      "    \"accelerationist\": 0,",
+      "    \"safetyist\": 0,",
+      "    \"situations\": 0,",
+      "    \"skeptic\": 0",
+      "  },",
+      "  \"total_facts\": 0,",
+      "  \"unmapped_concepts\": 0",
+      "}",
+      ""
+    ]
+  }
+}

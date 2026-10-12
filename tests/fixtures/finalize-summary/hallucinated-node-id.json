@@ -1,0 +1,159 @@
+{
+  "scenario": "hallucinated-node-id",
+  "transcript": [
+    "[Red]   │  ✗ Schema: Missing required field: factual_claims",
+    "[Yellow]   │  ⚠ Hallucinated node IDs moved to unmapped: accelerationist/ACC-Beliefs-001, safetyist/saf-beliefs-999, skeptic/skp-desires-404",
+    "[Gray]   │  points: 3 (3 unmapped)  factual: 0  new_concepts: 3",
+    "[Green]   └─ ✓ Done: summaries/doc-1.json"
+  ],
+  "error": null,
+  "result": [
+    {
+      "ChunkCount": 0,
+      "DocId": "doc-1",
+      "ElapsedSecs": 42,
+      "FactualCount": 0,
+      "NullNodes": 3,
+      "Success": true,
+      "TotalPoints": 3,
+      "UnmappedCount": 3
+    }
+  ],
+  "calls": [
+    {
+      "call": "Get-TaxonomyNodeIdSet"
+    },
+    {
+      "call": "Invoke-PolarityGatePass",
+      "skipDirectionalGate": false,
+      "items": [
+        "accelerationist: Case differs from the live id. [neutral]",
+        "safetyist: Regulators should require incident reporting within seventy two hours of discovery. [aligned]",
+        "skeptic:  [opposed]"
+      ]
+    },
+    {
+      "call": "Resolve-UnmappedConcepts",
+      "labels": [
+        "Case differs from the live id....",
+        "Regulators should require incident reporting within seventy two...",
+        "Unresolved concept"
+      ]
+    }
+  ],
+  "writes": [
+    "summaries/doc-1.json",
+    "sources/doc-1/metadata.json"
+  ],
+  "summary": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"doc_id\": \"doc-1\",",
+      "  \"taxonomy_version\": \"2.4.0\",",
+      "  \"generated_at\": \"2026-01-02T03:04:05Z\",",
+      "  \"model_info\": {",
+      "    \"model\": \"gemini-3.5-flash-lite\",",
+      "    \"temperature\": 0.2,",
+      "    \"max_tokens\": 32768,",
+      "    \"extraction_mode\": \"single_shot\",",
+      "    \"taxonomy_filter\": \"rag\",",
+      "    \"taxonomy_nodes\": 3",
+      "  },",
+      "  \"context_rot\": null,",
+      "  \"pov_summaries\": {",
+      "    \"accelerationist\": {",
+      "      \"key_points\": [",
+      "        {",
+      "          \"taxonomy_node_id\": null,",
+      "          \"category\": \"Beliefs\",",
+      "          \"point\": \"Case differs from the live id.\",",
+      "          \"stance\": \"neutral\"",
+      "        }",
+      "      ]",
+      "    },",
+      "    \"safetyist\": {",
+      "      \"key_points\": [",
+      "        {",
+      "          \"taxonomy_node_id\": null,",
+      "          \"category\": \"Beliefs\",",
+      "          \"point\": \"Regulators should require incident reporting within seventy two hours of discovery.\",",
+      "          \"stance\": \"aligned\"",
+      "        }",
+      "      ]",
+      "    },",
+      "    \"skeptic\": {",
+      "      \"key_points\": [",
+      "        {",
+      "          \"taxonomy_node_id\": null,",
+      "          \"category\": \"Desires\",",
+      "          \"point\": null,",
+      "          \"stance\": \"opposed\"",
+      "        }",
+      "      ]",
+      "    }",
+      "  },",
+      "  \"factual_claims\": [],",
+      "  \"unmapped_concepts\": [",
+      "    {",
+      "      \"suggested_label\": \"Case differs from the live id....\",",
+      "      \"concept\": \"Case differs from the live id.\",",
+      "      \"reason\": \"Hallucinated node ID 'ACC-Beliefs-001' not found in taxonomy — moved from accelerationist key_points\"",
+      "    },",
+      "    {",
+      "      \"suggested_label\": \"Regulators should require incident reporting within seventy two...\",",
+      "      \"concept\": \"Regulators should require incident reporting within seventy two hours of discovery.\",",
+      "      \"reason\": \"Hallucinated node ID 'saf-beliefs-999' not found in taxonomy — moved from safetyist key_points\"",
+      "    },",
+      "    {",
+      "      \"suggested_label\": \"Unresolved concept\",",
+      "      \"concept\": null,",
+      "      \"reason\": \"Hallucinated node ID 'skp-desires-404' not found in taxonomy — moved from skeptic key_points\"",
+      "    }",
+      "  ],",
+      "  \"warnings\": [",
+      "    \"Schema: Missing required field: factual_claims\",",
+      "    \"Hallucinated node ID: accelerationist/ACC-Beliefs-001\",",
+      "    \"Hallucinated node ID: safetyist/saf-beliefs-999\",",
+      "    \"Hallucinated node ID: skeptic/skp-desires-404\"",
+      "  ]",
+      "}",
+      ""
+    ]
+  },
+  "metadata": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"title\": \"Doc Title\",",
+      "  \"pov_tags\": [",
+      "    \"accelerationist\",",
+      "    \"safetyist\"",
+      "  ],",
+      "  \"source_type\": \"blog\",",
+      "  \"summary_status\": \"current\",",
+      "  \"summary_version\": \"2.4.0\",",
+      "  \"total_claims\": 0,",
+      "  \"custom_field\": \"kept as is\",",
+      "  \"summary_updated\": \"2026-01-02T03:04:05Z\",",
+      "  \"node_references_by_pov\": {",
+      "    \"accelerationist\": 0,",
+      "    \"safetyist\": 0,",
+      "    \"situations\": 0,",
+      "    \"skeptic\": 0",
+      "  },",
+      "  \"primary_pov_distribution\": {",
+      "    \"accelerationist\": 0,",
+      "    \"safetyist\": 0,",
+      "    \"situations\": 0,",
+      "    \"skeptic\": 0",
+      "  },",
+      "  \"total_facts\": 3,",
+      "  \"unmapped_concepts\": 3",
+      "}",
+      ""
+    ]
+  }
+}

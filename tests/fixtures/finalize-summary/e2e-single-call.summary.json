@@ -1,0 +1,154 @@
+{
+  "doc_id": "e2e-doc",
+  "taxonomy_version": "2.4.0",
+  "generated_at": "2026-01-02T03:04:05Z",
+  "model_info": {
+    "model": "gemini-3.5-flash-lite",
+    "temperature": 0.2,
+    "max_tokens": 32768,
+    "extraction_mode": "single_shot",
+    "taxonomy_filter": "full",
+    "taxonomy_nodes": 0
+  },
+  "context_rot": {
+    "schema_version": 1,
+    "pipeline": "summary",
+    "doc_id": "e2e-doc",
+    "measured_at": "2026-01-02T03:04:05.0000000Z",
+    "stages": [
+      {
+        "stage": "extraction",
+        "in_units": "prompt_chars",
+        "in_count": 1255.0,
+        "out_units": "items",
+        "out_count": 12.0,
+        "ratio": 0.0096,
+        "flags": {
+          "dedup_claims_removed": 0,
+          "dedup_points_removed": 0,
+          "density_floor_hit": 0,
+          "factual_claims": 3,
+          "null_node_rate": 0.1667,
+          "total_points": 6,
+          "unmapped_concepts": 3,
+          "used_fire": 0
+        }
+      }
+    ],
+    "cumulative_retention": 1.0
+  },
+  "pov_summaries": {
+    "accelerationist": {
+      "key_points": [
+        {
+          "taxonomy_node_id": "acc-beliefs-001",
+          "category": "Beliefs",
+          "point": "Frontier labs argue that scaling compute keeps producing capability gains.",
+          "stance": "aligned",
+          "extraction_confidence": 0.82
+        },
+        {
+          "taxonomy_node_id": "acc-desires-002",
+          "category": "Desires",
+          "point": "Developers want fewer licensing hurdles for open model releases.",
+          "stance": "strongly_aligned",
+          "extraction_confidence": 0.74
+        }
+      ]
+    },
+    "safetyist": {
+      "key_points": [
+        {
+          "taxonomy_node_id": "saf-beliefs-003",
+          "category": "Beliefs",
+          "point": "Independent third party audits of frontier systems remain rare.",
+          "stance": "opposed",
+          "verbatim": "independent audits remain rare",
+          "extraction_confidence": 0.9
+        },
+        {
+          "taxonomy_node_id": null,
+          "category": "Intentions",
+          "point": "Regulators should require incident reporting within seventy two hours.",
+          "stance": "aligned",
+          "extraction_confidence": 0.6
+        }
+      ]
+    },
+    "skeptic": {
+      "key_points": [
+        {
+          "taxonomy_node_id": "acc-beliefs-001",
+          "category": "Beliefs",
+          "point": "Even critics concede that benchmark scores have risen alongside scale.",
+          "stance": "aligned",
+          "extraction_confidence": 0.7
+        },
+        {
+          "taxonomy_node_id": null,
+          "category": "Desires",
+          "point": "Benchmark saturation makes progress claims hard to verify independently.",
+          "stance": "neutral",
+          "extraction_confidence": 0.55
+        }
+      ]
+    }
+  },
+  "factual_claims": [
+    {
+      "claim": "Training compute for frontier models doubled roughly every six months.",
+      "doc_position": "supports",
+      "linked_taxonomy_nodes": [
+        "acc-beliefs-001",
+        "saf-beliefs-003"
+      ],
+      "extraction_confidence": 0.9
+    },
+    {
+      "claim": "Only a handful of laboratories publish third party audit results.",
+      "doc_position": "supports",
+      "linked_taxonomy_nodes": [
+        "saf-beliefs-003",
+        null,
+        "sit-004"
+      ],
+      "evidence_criteria": {
+        "specificity": "precise",
+        "has_warrant": true,
+        "internally_consistent": true
+      },
+      "extraction_confidence": 0.7999999999999999
+    },
+    {
+      "claim": "Public leaderboards get revised several times each year.",
+      "doc_position": "neutral",
+      "linked_taxonomy_nodes": "skp-beliefs-001",
+      "extraction_confidence": 0.5
+    }
+  ],
+  "unmapped_concepts": [
+    {
+      "suggested_label": "Treat public leaderboards as marketing rather than evidence...",
+      "concept": "Treat public leaderboards as marketing rather than evidence of capability.",
+      "suggested_pov": "skeptic",
+      "suggested_category": "Intentions",
+      "reason": "No node covers leaderboard skepticism"
+    },
+    {
+      "suggested_label": "Incident Disclosure Clocks",
+      "concept": "Mandatory short deadline reporting of serious incidents.",
+      "suggested_pov": "safetyist",
+      "suggested_category": "Intentions",
+      "reason": "Novel reporting mechanism"
+    },
+    {
+      "suggested_label": "Regulators should require incident reporting within seventy two...",
+      "concept": "Regulators should require incident reporting within seventy two hours.",
+      "reason": "Hallucinated node ID 'saf-beliefs-999' not found in taxonomy — moved from safetyist key_points"
+    }
+  ],
+  "warnings": [
+    "Hallucinated node ID: safetyist/saf-beliefs-999",
+    "Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001"
+  ]
+}

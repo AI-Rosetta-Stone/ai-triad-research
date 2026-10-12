@@ -1,0 +1,41 @@
+{
+  "scenario": "missing-pov-summaries",
+  "transcript": [
+    "[warning] Finalize-Summary: suggested_label 'sit-9' is node-ID-shaped, not free text -- replaced with a text fallback (t/3915, model=gemini-3.5-flash-lite)",
+    "[Yellow]   │  ⚠ ID-shaped suggested_label replaced: 1",
+    "[Red]   │  ✗ Schema: Missing required field: pov_summaries",
+    "[Red]   │  ✗ Schema: Missing required field: factual_claims"
+  ],
+  "error": null,
+  "result": [
+    {
+      "DocId": "doc-1",
+      "Error": "Schema validation failed: Missing required field: pov_summaries; Missing required field: factual_claims",
+      "Success": false
+    }
+  ],
+  "calls": [],
+  "writes": [],
+  "summary": null,
+  "metadata": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"title\": \"Doc Title\",",
+      "  \"pov_tags\": [",
+      "    \"accelerationist\",",
+      "    \"safetyist\"",
+      "  ],",
+      "  \"source_type\": \"blog\",",
+      "  \"summary_status\": \"pending\",",
+      "  \"summary_version\": \"2.3.0\",",
+      "  \"claims_by_pov\": {",
+      "    \"accelerationist\": 9",
+      "  },",
+      "  \"total_claims\": 99,",
+      "  \"custom_field\": \"kept as is\"",
+      "}"
+    ]
+  }
+}
