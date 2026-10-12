@@ -270,8 +270,8 @@
       "  \"unmapped_concepts\": 2,",
       "  \"context_rot\": {",
       "    \"cumulative_retention\": 0.25,",
-      "    \"worst_stage\": \"extraction\",",
-      "    \"worst_ratio\": 0.0006",
+      "    \"worst_stage\": \"rag_filtering\",",
+      "    \"worst_ratio\": 0.25",
       "  }",
       "}",
       ""

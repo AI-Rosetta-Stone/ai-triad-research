@@ -16,6 +16,10 @@ function Get-TaxonomyNodeIdSet {
         Loads node IDs from the four taxonomy JSON files (accelerationist, safetyist,
         skeptic, situations) plus policy IDs from policy_actions.json. Caches the
         result and refreshes if files are newer than the cached version.
+
+        The set is returned with the comma operator so it reaches the caller as the
+        HashSet itself. A bare `return $IdSet` unrolls it into object[] (or a single
+        string), losing the OrdinalIgnoreCase comparer (t/4144).
     #>
     $TaxDir = Get-TaxonomyDir
     if (-not $TaxDir -or -not (Test-Path $TaxDir)) {
@@ -34,7 +38,7 @@ function Get-TaxonomyNodeIdSet {
     }
 
     if ($null -ne $script:TaxonomyNodeIdSet -and $LatestMtime -le $script:TaxonomyNodeIdSetTimestamp) {
-        return $script:TaxonomyNodeIdSet
+        return , $script:TaxonomyNodeIdSet
     }
 
     $IdSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -71,7 +75,7 @@ function Get-TaxonomyNodeIdSet {
     $script:TaxonomyNodeIdSet = $IdSet
     $script:TaxonomyNodeIdSetTimestamp = $LatestMtime
     Write-Verbose "Test-TaxonomyNodeId: loaded $($IdSet.Count) node IDs"
-    return $IdSet
+    return , $IdSet
 }
 
 function Test-TaxonomyNodeId {
@@ -86,7 +90,9 @@ function Test-TaxonomyNodeId {
     if ([string]::IsNullOrWhiteSpace($NodeId)) { return $false }
 
     $IdSet = Get-TaxonomyNodeIdSet
-    if ($null -eq $IdSet) { return $true }
+    # An empty set used to unroll to $null (validation skipped); keep that meaning now that the set
+    # arrives intact (t/4144).
+    if ($null -eq $IdSet -or $IdSet.Count -eq 0) { return $true }
 
     return $IdSet.Contains($NodeId)
 }

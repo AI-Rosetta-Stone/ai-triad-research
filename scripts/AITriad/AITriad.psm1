@@ -51,7 +51,7 @@ class AITModelInfo {
     [double] $Temperature
     [int]    $MaxTokens
     [string] $ExtractionMode      # fire | single_shot | auto_fire
-    [string] $TaxonomyFilter      # rag | full | rag_per_chunk
+    [string] $TaxonomyFilter      # rag | compact | full | rag_per_chunk
     [int]    $TaxonomyNodes
     [double] $FireConfidenceThreshold
     [bool]   $Chunked

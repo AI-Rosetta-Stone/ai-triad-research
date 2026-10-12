@@ -30,7 +30,7 @@
   "unmapped_concepts": 3,
   "context_rot": {
     "cumulative_retention": 1.0,
-    "worst_stage": "extraction",
-    "worst_ratio": "<PROMPT_RATIO>"
+    "worst_stage": null,
+    "worst_ratio": null
   }
 }

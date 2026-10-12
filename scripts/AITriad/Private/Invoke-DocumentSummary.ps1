@@ -107,7 +107,8 @@ function Invoke-DocumentSummary {
     # -- Decide: single-call or chunked pipeline ------------------------------
     if ($EstimatedTokens -gt $ChunkThresholdTokens) {
         Write-Host "  │  ✨ Large document — using chunked pipeline" -ForegroundColor Cyan
-        return Invoke-ChunkedSummary @PSBoundParameters
+        $ChunkedParams = Get-ChunkedSummaryParameters -BoundParameters $PSBoundParameters
+        return Invoke-ChunkedSummary @ChunkedParams
     }
 
     # ========================================================================
@@ -147,6 +148,31 @@ function Invoke-DocumentSummary {
 # ============================================================================
 # CHUNKED PIPELINE (large documents)
 # ============================================================================
+
+function Get-ChunkedSummaryParameters {
+    <#
+    .SYNOPSIS
+        Invoke-DocumentSummary's bound parameters, minus the ones the chunked path cannot honour.
+    .DESCRIPTION
+        -IterativeExtraction and -AutoFire select FIRE, which runs only on the single-call path
+        (Invoke-SummaryPipeline -> Invoke-IterativeExtraction over the whole snapshot). The chunked
+        path makes one plain extraction call per chunk and has no FIRE stage, so it does not declare
+        them, and splatting them threw "A parameter cannot be found" (t/4144). They are dropped here,
+        with a WARN naming each switch that was set, because the caller asked for FIRE and is not
+        getting it.
+    #>
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$BoundParameters)
+    $Params = @{}
+    foreach ($Key in $BoundParameters.Keys) { $Params[$Key] = $BoundParameters[$Key] }
+    foreach ($Name in 'IterativeExtraction', 'AutoFire') {
+        if (-not $Params.ContainsKey($Name)) { continue }
+        if ($Params[$Name]) {
+            Write-Warning "Invoke-DocumentSummary: -$Name ignored for $($Params['Doc'].DocId) — the chunked pipeline (large document) has no FIRE stage; running single-shot extraction per chunk."
+        }
+        $Params.Remove($Name)
+    }
+    $Params
+}
 
 function Invoke-ChunkedSummary {
     [CmdletBinding()]

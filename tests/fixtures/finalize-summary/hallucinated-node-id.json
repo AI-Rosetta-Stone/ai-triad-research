@@ -2,8 +2,8 @@
   "scenario": "hallucinated-node-id",
   "transcript": [
     "[Red]   │  ✗ Schema: Missing required field: factual_claims",
-    "[Yellow]   │  ⚠ Hallucinated node IDs moved to unmapped: accelerationist/ACC-Beliefs-001, safetyist/saf-beliefs-999, skeptic/skp-desires-404",
-    "[Gray]   │  points: 3 (3 unmapped)  factual: 0  new_concepts: 3",
+    "[Yellow]   │  ⚠ Hallucinated node IDs moved to unmapped: safetyist/saf-beliefs-999, skeptic/skp-desires-404",
+    "[Gray]   │  points: 3 (2 unmapped)  factual: 0  new_concepts: 2",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
   "error": null,
@@ -13,10 +13,10 @@
       "DocId": "doc-1",
       "ElapsedSecs": 42,
       "FactualCount": 0,
-      "NullNodes": 3,
+      "NullNodes": 2,
       "Success": true,
       "TotalPoints": 3,
-      "UnmappedCount": 3
+      "UnmappedCount": 2
     }
   ],
   "calls": [
@@ -35,7 +35,6 @@
     {
       "call": "Resolve-UnmappedConcepts",
       "labels": [
-        "Case differs from the live id....",
         "Regulators should require incident reporting within seventy two...",
         "Unresolved concept"
       ]
@@ -66,7 +65,7 @@
       "    \"accelerationist\": {",
       "      \"key_points\": [",
       "        {",
-      "          \"taxonomy_node_id\": null,",
+      "          \"taxonomy_node_id\": \"ACC-Beliefs-001\",",
       "          \"category\": \"Beliefs\",",
       "          \"point\": \"Case differs from the live id.\",",
       "          \"stance\": \"neutral\"",
@@ -97,11 +96,6 @@
       "  \"factual_claims\": [],",
       "  \"unmapped_concepts\": [",
       "    {",
-      "      \"suggested_label\": \"Case differs from the live id....\",",
-      "      \"concept\": \"Case differs from the live id.\",",
-      "      \"reason\": \"Hallucinated node ID 'ACC-Beliefs-001' not found in taxonomy — moved from accelerationist key_points\"",
-      "    },",
-      "    {",
       "      \"suggested_label\": \"Regulators should require incident reporting within seventy two...\",",
       "      \"concept\": \"Regulators should require incident reporting within seventy two hours of discovery.\",",
       "      \"reason\": \"Hallucinated node ID 'saf-beliefs-999' not found in taxonomy — moved from safetyist key_points\"",
@@ -114,7 +108,6 @@
       "  ],",
       "  \"warnings\": [",
       "    \"Schema: Missing required field: factual_claims\",",
-      "    \"Hallucinated node ID: accelerationist/ACC-Beliefs-001\",",
       "    \"Hallucinated node ID: safetyist/saf-beliefs-999\",",
       "    \"Hallucinated node ID: skeptic/skp-desires-404\"",
       "  ]",
@@ -151,7 +144,7 @@
       "    \"skeptic\": 0",
       "  },",
       "  \"total_facts\": 3,",
-      "  \"unmapped_concepts\": 3",
+      "  \"unmapped_concepts\": 2",
       "}",
       ""
     ]

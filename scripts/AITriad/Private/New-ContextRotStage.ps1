@@ -16,6 +16,12 @@ function New-ContextRotStage {
         [hashtable]$Flags = @{}
     )
     $Ratio = if ($InCount -gt 0) { [Math]::Round($OutCount / $InCount, 4) } else { 0 }
+    # Flags arrive as a plain @{}, whose key order is randomized per process. Copy them in ordinal key
+    # order so the serialized stage is byte-identical across runs (t/4144).
+    $FlagKeys = [string[]]@($Flags.Keys)
+    [Array]::Sort($FlagKeys, [System.StringComparer]::Ordinal)
+    $OrderedFlags = [ordered]@{}
+    foreach ($k in $FlagKeys) { $OrderedFlags[$k] = $Flags[$k] }
     [ordered]@{
         stage    = $Stage
         in_units = $InUnits
@@ -23,7 +29,7 @@ function New-ContextRotStage {
         out_units = $OutUnits
         out_count = $OutCount
         ratio    = $Ratio
-        flags    = [ordered]@{} + $Flags
+        flags    = $OrderedFlags
     }
 }
 
