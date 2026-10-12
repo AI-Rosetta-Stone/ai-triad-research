@@ -2,7 +2,7 @@
   "scenario": "metadata-missing",
   "transcript": [
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
-    "[Yellow]   │  ⚠ Summary written but metadata update failed: <MISSING-METADATA-REASON>",
+    "[warning] Finalize-Summary: summary written but metadata.json not updated — the file is missing: '<ROOT>/sources/doc-1/metadata.json'",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
   "error": null,

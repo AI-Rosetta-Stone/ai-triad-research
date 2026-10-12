@@ -45,9 +45,10 @@
        Import-Module, so a refactor helper that is not loaded by the module fails here.
 
     Determinism / normalization (Sage #220):
-      - metadata.json: node_references_by_pov and primary_pov_distribution are plain @{} hashtables, so
-        their key order varies per process (pinned bug, plan section 6). Only the lines INSIDE those two
-        blocks are sorted before comparison; every other byte is compared as written.
+      - metadata.json is compared exactly as written. node_references_by_pov and primary_pov_distribution
+        used to be plain @{} hashtables whose key order varied per process, so the lines inside those two
+        blocks were sorted before comparison. Since t/4079 they are ordered dictionaries in ordinal key
+        order, so that sort is gone: a regression to per-process order now fails the golden.
       - e2e summary: context_rot.stages[].flags used to be built as [ordered]@{} + <plain @{}> in
         New-ContextRotStage, so a multi-key flags block came out in per-process order. Since t/4144 the
         flags are copied in ordinal key order, so this sort is now a no-op kept as a harmless guard. Only
@@ -194,16 +195,17 @@ $script:FullContext = '{"nodes":[{"id":"acc-beliefs-001"},{"id":"saf-beliefs-003
 # Keys: Summary, TaxonomyJson, ChunkCount, FireStats, NodeIds ('none' = validation skipped),
 # Embeddings / TaxonomyData (gate the passes), Gate ($true | $false | 'unset'), Polarity (counts the
 # mocked gate returns; 'unset' omits -EnablePolarityGate), Flip (stances the mocked gate flips), Veto, Resolution ('none'|'resolve'|'throw'),
-# ContextRot, FailWrite (relative path), NoMetadata.
+# ContextRot, FailWrite (relative path), NoMetadata, MaxTokens (passed to Finalize-Summary; default 32768, the
+# single-call extraction budget; the chunked scenarios pass the chunked path's 65536, t/4079).
 $script:Scenarios = @(
     @{ Name = 'rich-rag'; Summary = $script:RichSummary; TaxonomyJson = $script:RagContext; Embeddings = $true; TaxonomyData = $true
        Gate = $true; Polarity = @{ gated = 2; reps = 3; unresolved = 1; judge_flipped = 0; judge_kept = 1; self_healed = 0 }
        Veto = @{ VetoCount = 0; AmbiguousCount = 1 }; ContextRot = $true }
     @{ Name = 'full-taxonomy-no-passes'; Summary = $script:SmallSummary; TaxonomyJson = $script:FullContext; Gate = $true }
     @{ Name = 'chunked'; Summary = $script:SmallSummary; TaxonomyJson = $script:RagContext; ChunkCount = 3; TaxonomyData = $true
-       Gate = $true; Veto = @{ VetoCount = 0; AmbiguousCount = 0 } }
+       Gate = $true; Veto = @{ VetoCount = 0; AmbiguousCount = 0 }; MaxTokens = 65536 }
     @{ Name = 'fire'; Summary = $script:SmallSummary; TaxonomyJson = $script:FullContext; FireStats = $true; Gate = $true }
-    @{ Name = 'fire-chunked-rag'; Summary = $script:SmallSummary; TaxonomyJson = $script:RagContext; FireStats = $true; ChunkCount = 2; Gate = $true }
+    @{ Name = 'fire-chunked-rag'; Summary = $script:SmallSummary; TaxonomyJson = $script:RagContext; FireStats = $true; ChunkCount = 2; Gate = $true; MaxTokens = 65536 }
     @{ Name = 'single-element-force-array'; Summary = $script:ScalarSummary; TaxonomyJson = $script:RagContext; Embeddings = $true; Gate = $true }
     @{ Name = 'null-key-points'; Summary = $script:NullKeyPointsSummary; TaxonomyJson = $script:RagContext; Gate = 'unset' }
     @{ Name = 'null-unmapped-entries'; Summary = $script:NullUnmappedSummary; TaxonomyJson = $script:RagContext; Gate = $true }
@@ -234,7 +236,8 @@ $script:Scenarios = @(
 BeforeAll {
     # Run-phase constants (top-level script variables exist only at discovery in Pester 5).
     $script:DefaultNodeIds = @('acc-beliefs-001', 'acc-desires-002', 'saf-beliefs-003', 'skp-beliefs-001', 'sit-004')
-    $script:FireStats = [ordered]@{ total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; elapsed_seconds = 41.5; termination_reason = 'converged' }
+    # confidence_threshold: what Invoke-IterativeExtraction reports at its default (t/4079).
+    $script:FireStats = [ordered]@{ confidence_threshold = 0.7; total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; elapsed_seconds = 41.5; termination_reason = 'converged' }
 
     # e2e canned model output. Aligned key points carry no verbatim/canonical/attribution reps, so the
     # REAL polarity gate selects them (gated > 0) but has no pair to send to the Python directional engine.
@@ -362,19 +365,13 @@ saturation makes progress claims hard to verify independently.
                 $m.Groups[1].Value + ($lines -join ",`n") + $m.Groups[3].Value
             })
     }
-    function script:Normalize-Metadata([string]$Text) {
-        foreach ($k in 'node_references_by_pov', 'primary_pov_distribution') { $Text = script:Sort-JsonBlock $Text $k }
-        $Text
-    }
-
     # A written file as the golden sees it: text plus the byte-level facts ReadAllText would hide.
-    function script:Read-Written([string]$Path, [switch]$Metadata) {
+    function script:Read-Written([string]$Path) {
         if (-not (Test-Path -LiteralPath $Path)) { return $null }
         $bytes = [System.IO.File]::ReadAllBytes($Path)
         $text = $script:Utf8.GetString($bytes)
         $bom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
         if ($bom) { $text = $text.Substring(1) }
-        if ($Metadata) { $text = script:Normalize-Metadata $text }
         # One golden entry per line (split on LF, so a trailing "" records the final newline): exact
         # content, but reviewable as a line diff.
         [ordered]@{ bom = $bom; crlf = $text.Contains("`r"); lines = @($text -split "`n") }
@@ -408,12 +405,12 @@ saturation makes progress claims hard to verify independently.
                 $nn = if ($h -and $h.NoNewLine) { ' <nonewline>' } else { '' }
                 if ($h) { $lines.Add("[$($h.Color)]$nn $($h.Message)") } else { $lines.Add("[info] $($r.MessageData)") }
             }
-            elseif ($r -is [System.Management.Automation.WarningRecord]) { $lines.Add("[warning] $($r.Message)") }
+            # Warnings are masked too: the t/4079 metadata WARNs name the metadata.json path.
+            elseif ($r -is [System.Management.Automation.WarningRecord]) { $lines.Add("[warning] $(script:Format-Masked $r.Message)") }
             elseif ($r -is [System.Management.Automation.ErrorRecord]) {
-                # A missing-file PathNotFound from Get-Content (the metadata-missing scenario) reaches the
-                # merged record stream differently on Linux and Windows, so it is left out of the transcript.
-                # The failure it causes is still pinned by the "metadata update failed" line that follows it.
-                if ($r.FullyQualifiedErrorId -like 'PathNotFound*') { continue }
+                # No filter here any more: a missing metadata.json used to surface as a raw, platform-dependent
+                # Get-Content PathNotFound error, which was left out. Since t/4079 it is checked for explicitly
+                # and reported as a WARN, so any error record is real and pinned.
                 $lines.Add("[error] $(script:Format-Masked $r.Exception.Message)")
             }
             else { $output.Add($r) }
@@ -529,6 +526,7 @@ saturation makes progress claims hard to verify independently.
             TaxonomyJson    = $S.TaxonomyJson
         }
         if ($S['ChunkCount']) { $p.ChunkCount = $S.ChunkCount }
+        $p.MaxTokens = if ($S['MaxTokens']) { $S.MaxTokens } else { 32768 }
         if ($S['FireStats']) { $p.FireStats = [pscustomobject]$script:FireStats }
         if ($S['Gate'] -isnot [string]) { $p.EnablePolarityGate = [bool]$S['Gate'] }   # 'unset' omits it: the default applies
 
@@ -548,7 +546,7 @@ saturation makes progress claims hard to verify independently.
             calls      = $script:Calls.ToArray()
             writes     = $script:Writes.ToArray()
             summary    = script:Read-Written (Join-Path $root 'summaries' 'doc-1.json')
-            metadata   = script:Read-Written $metaFile -Metadata
+            metadata   = script:Read-Written $metaFile
         }
         ((script:ConvertTo-Canonical $t) | ConvertTo-Json -Depth 30) -replace "`r`n", "`n"
     }
@@ -590,7 +588,7 @@ saturation makes progress claims hard to verify independently.
         $text = $script:Utf8.GetString($bytes)
         $text.Contains("`r") | Should -BeFalse -Because 'the sink writes LF only'
         $text = script:Hide-PromptLengthValues $text
-        if ($Metadata) { script:Normalize-Metadata $text } else { script:Sort-JsonBlock $text 'flags' }
+        if ($Metadata) { $text } else { script:Sort-JsonBlock $text 'flags' }
     }
 
     # The extraction stage's prompt length is PLATFORM-dependent: the assembled prompt carries the
@@ -636,14 +634,9 @@ AfterAll {
 Describe 'Finalize-Summary characterization (t/4136)' -Tag 'summarization' {
 
     It 'matches the golden transcript: <Name>' -ForEach $script:Scenarios {
+        # metadata-missing used to need its platform-specific Get-Content failure text normalized here. Since
+        # t/4079 a missing metadata.json is checked for explicitly, so the transcript is the same everywhere.
         $actual = script:Invoke-FinalizeScenario $_
-        # metadata-missing: Get-Content on the missing file is non-terminating on Windows (the update then
-        # fails with "Cannot index into a null array") but terminating on Linux CI ("Cannot find path …").
-        # Both mean the same pinned outcome (summary written, metadata stale, Success=$true), so only the
-        # platform-specific reason text is normalized; everything else in the transcript is exact.
-        $actual = [regex]::Replace($actual,
-            "metadata update failed: (Cannot index into a null array\.|Cannot find path '[^']*' because it does not exist\.)",
-            'metadata update failed: <MISSING-METADATA-REASON>')
         script:Compare-Golden "$($_.Name).json" ($actual + "`n")
     }
 
@@ -672,13 +665,13 @@ Describe 'Finalize-Summary characterization (t/4136)' -Tag 'summarization' {
         @{ Name = 'polarity-gate-omitted-defaults-on'; Text = '"skipDirectionalGate": false' }
         @{ Name = 'veto-counts';                 Text = 'excludes-veto: 2 vetoed, 0 ambiguous' }
         @{ Name = 'unmapped-resolved';           Text = "Resolved: 'Compute Governance Treaties'" }
-        @{ Name = 'unmapped-resolution-throws';  Text = 'Unmapped concept resolution failed: resolver offline' }
+        @{ Name = 'unmapped-resolution-throws';  Text = '\[warning\] Finalize-Summary: unmapped concept resolution failed — keeping all 2 unmapped concept\(s\) unresolved: resolver offline' }
         @{ Name = 'missing-pov-summaries';       Text = 'Schema validation failed: Missing required field: pov_summaries' }
         @{ Name = 'missing-camp-and-fields';     Text = 'Schema: Missing camp in pov_summaries: skeptic' }
         @{ Name = 'null-factual-claims';         Text = 'Schema: Missing required field: factual_claims' }
         @{ Name = 'summary-write-fails';         Text = 'Failed to write summary: disk full writing summaries/doc-1.json' }
-        @{ Name = 'metadata-write-fails';        Text = 'Summary written but metadata update failed: disk full' }
-        @{ Name = 'metadata-missing';            Text = 'Summary written but metadata update failed: <MISSING-METADATA-REASON>' }
+        @{ Name = 'metadata-write-fails';        Text = "\[warning\] Finalize-Summary: summary written but metadata update failed, leaving '<ROOT>/sources/doc-1/metadata\.json' stale: disk full" }
+        @{ Name = 'metadata-missing';            Text = "\[warning\] Finalize-Summary: summary written but metadata\.json not updated — the file is missing: '<ROOT>/sources/doc-1/metadata\.json'" }
     ) {
         # Match against the unescaped content (the golden stores file text as JSON-escaped lines).
         $g = [System.IO.File]::ReadAllText((Join-Path $script:GoldenDir "$Name.json")) | ConvertFrom-Json
@@ -714,15 +707,24 @@ Describe 'Finalize-Summary characterization (t/4136)' -Tag 'summarization' {
         $g.result[0].Success | Should -BeTrue
     }
 
-    It 'failure semantics: schema failure writes nothing; summary-write failure skips the metadata write' {
+    It 'failure semantics: schema failure writes nothing; summary-write failure skips the metadata write' -ForEach @(
+        $script:Scenarios | Where-Object { $_.Name -eq 'summary-write-fails' }
+    ) {
         $g = [System.IO.File]::ReadAllText((Join-Path $script:GoldenDir 'missing-pov-summaries.json')) | ConvertFrom-Json
         @($g.writes).Count | Should -Be 0
         $g.result[0].Success | Should -BeFalse
         $g.summary | Should -BeNullOrEmpty
-        $g = [System.IO.File]::ReadAllText((Join-Path $script:GoldenDir 'summary-write-fails.json')) | ConvertFrom-Json
+        # Runs the code (t/4079 item 7; t/4136#11): the write sink throws on the summary path, and the metadata
+        # write must never be attempted. If Finalize-Summary carried on to Update-SummaryMetadata after a failed
+        # summary write, the sink would record the metadata path and the file would no longer say "pending".
+        $_.Name | Should -Be 'summary-write-fails'
+        $g = (script:Invoke-FinalizeScenario $_) | ConvertFrom-Json
+        @($script:Writes) | Should -Be @('summaries/doc-1.json') -Because 'the sink saw the summary write fail and no metadata write after it'
         @($g.writes) | Should -Be @('summaries/doc-1.json')
         $g.result[0].Success | Should -BeFalse
+        $g.result[0].Error | Should -Be 'Failed to write summary file: disk full writing summaries/doc-1.json'
         (@($g.metadata.lines) -join "`n") | Should -Match '"summary_status": "pending"' -Because 'metadata.json is left untouched'
+        (@($g.metadata.lines) -join "`n") | Should -Not -Match 'summary_updated'
     }
 
     It 'the golden itself is deterministic within the process: <Name>' -ForEach @($script:Scenarios | Where-Object { $_.Name -in 'rich-rag', 'fire-chunked-rag' }) {
@@ -777,7 +779,7 @@ Describe 'Finalize-Summary end to end via Invoke-DocumentSummary, Invoke-AIApi m
         script:Compare-Golden 'e2e-single-call.summary.json' $actual
     }
 
-    It 'rewrites metadata.json byte-for-byte as the golden (two plain-hashtable blocks sorted)' {
+    It 'rewrites metadata.json byte-for-byte as the golden (no normalization since t/4079)' {
         $actual = script:Read-E2EBytes $script:E2E.Doc.MetaFile -Metadata
         script:Compare-Golden 'e2e-single-call.metadata.json' $actual
     }
@@ -809,12 +811,12 @@ Describe 'Finalize-Summary end to end via Invoke-DocumentSummary, Invoke-AIApi m
     It 'a second run on the same fixture is byte-identical (re-summarize churn check)' {
         $first = [ordered]@{
             s = [System.IO.File]::ReadAllText((Join-Path $script:E2ERoot 'summaries' 'e2e-doc.json'))
-            m = script:Normalize-Metadata ([System.IO.File]::ReadAllText($script:E2E.Doc.MetaFile))
+            m = [System.IO.File]::ReadAllText($script:E2E.Doc.MetaFile)
         }
         $again = script:Invoke-E2E 'e2e-doc'
         script:Sort-JsonBlock ([System.IO.File]::ReadAllText((Join-Path $script:E2ERoot 'summaries' 'e2e-doc.json'))) 'flags' |
             Should -BeExactly (script:Sort-JsonBlock $first.s 'flags')
-        script:Normalize-Metadata ([System.IO.File]::ReadAllText($again.Doc.MetaFile)) | Should -BeExactly $first.m
+        [System.IO.File]::ReadAllText($again.Doc.MetaFile) | Should -BeExactly $first.m
         $again.Transcript | Should -BeExactly $script:E2E.Transcript
     }
 }

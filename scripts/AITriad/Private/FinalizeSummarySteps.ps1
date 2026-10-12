@@ -17,11 +17,12 @@ function Test-SummaryField($Obj, [string]$Name) {
 }
 
 function Get-SummaryField($Obj, [string]$Name) {
-    # The member's value. `return` enumerates it, so an empty array comes back as $null and a
-    # one-element array as its element. Pinned behaviour (t/4079); callers rely on the falsy $null.
-    if ($Obj -is [System.Collections.IDictionary]) { return $Obj[$Name] }
+    # The member's value, or $null when the member is absent. The unary comma stops `return` from
+    # enumerating it: an empty array comes back as an empty array ("present but empty"), not as $null,
+    # and a one-element array stays an array (t/4079). A JSON null still comes back as $null.
+    if ($Obj -is [System.Collections.IDictionary]) { return , $Obj[$Name] }
     $P = $Obj.PSObject.Properties[$Name]
-    if ($P) { return $P.Value }
+    if ($P) { return , $P.Value }
     return $null
 }
 
@@ -62,9 +63,28 @@ function Repair-SummaryCampKeyPoints {
         }
         # Force-array: ConvertFrom-Json unwraps single-element arrays to scalars.
         $KP = @($KP)
+        Repair-SummaryKeyPointFields -Camp $Camp -KeyPoints $KP
         if ($CampData -is [System.Collections.IDictionary]) { $CampData['key_points'] = $KP }
         elseif ($CampData.PSObject.Properties['key_points']) { $CampData.key_points = $KP }
         else { $CampData | Add-Member -NotePropertyName 'key_points' -NotePropertyValue $KP -Force }
+    }
+}
+
+function Repair-SummaryKeyPointFields {
+    # t/4079: every later step reads $kp.stance, $kp.taxonomy_node_id and $kp.point directly, which
+    # throws under StrictMode when the model left one out. A key point missing any of them gets the
+    # field added as $null, with a WARN naming the field and the camp. Downstream, a null stance
+    # resolves to 'neutral', a null node ID counts as unmapped, and a null point gets the fallback label.
+    param([string]$Camp, [object[]]$KeyPoints)
+    for ($i = 0; $i -lt $KeyPoints.Count; $i++) {
+        $kp = $KeyPoints[$i]
+        if ($null -eq $kp) { continue }
+        foreach ($Field in 'stance', 'taxonomy_node_id', 'point') {
+            if (Test-SummaryField $kp $Field) { continue }
+            Write-Warning "Finalize-Summary: pov_summaries.$Camp.key_points[$i] has no '$Field' field — defaulting it to null (t/4079)"
+            if ($kp -is [System.Collections.IDictionary]) { $kp[$Field] = $null }
+            else { $kp | Add-Member -NotePropertyName $Field -NotePropertyValue $null -Force }
+        }
     }
 }
 
@@ -312,7 +332,7 @@ function Resolve-SummaryUnmappedConcepts {
         concepts and their count, or the inputs unchanged when nothing resolved or resolution threw.
     .DESCRIPTION
         Resolved concepts are printed and removed from $SummaryObject.unmapped_concepts. A failure is
-        printed with Write-Host, not Write-Warning (pinned; t/4079 changes it).
+        a fallback (every concept stays unmapped), so it is a WARN naming that condition (t/4079).
     #>
     param([object]$SummaryObject, [object]$UnmappedConcs, [int]$UnmappedCount)
     $State = @{ Concepts = $UnmappedConcs; Count = $UnmappedCount }
@@ -334,7 +354,7 @@ function Resolve-SummaryUnmappedConcepts {
         }
     }
     catch {
-        Write-Host "  │  ⚠ Unmapped concept resolution failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Warning "Finalize-Summary: unmapped concept resolution failed — keeping all $UnmappedCount unmapped concept(s) unresolved: $($_.Exception.Message)"
     }
     return $State
 }
@@ -346,11 +366,14 @@ function New-SummaryModelInfo {
     .DESCRIPTION
         Detects RAG, compact or full taxonomy from the context format to estimate the node count.
         The compact taxonomy (Build-CompactTaxonomy, the RAG-failure fallback) is labelled 'compact'
-        with its real node count; it used to fall through to 'full' with 0 nodes (t/4144). Pinned
-        pre-existing bugs (t/4079 fixes them): max_tokens is always 32768, and
-        fire_confidence_threshold is always 0.7.
+        with its real node count; it used to fall through to 'full' with 0 nodes (t/4144).
+        max_tokens is the extraction call's MaxTokens as the caller passed it, and
+        fire_confidence_threshold is the threshold Invoke-IterativeExtraction reports in its FireStats
+        (confidence_threshold). Both used to be hard-coded (32768 and 0.7, t/4079). Either one is
+        recorded as null when the caller does not know it, rather than as a made-up number.
     #>
-    param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats)
+    param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats,
+          [object]$MaxTokens = $null)
     $Multiline = [System.Text.RegularExpressions.RegexOptions]::Multiline
     $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
     $IsCompact = $TaxonomyJson -match '^\s*=== COMPACT TAXONOMY'
@@ -375,14 +398,15 @@ function New-SummaryModelInfo {
     $ModelInfo = [ordered]@{
         model             = $Model
         temperature       = $Temperature
-        max_tokens        = 32768
+        max_tokens        = $MaxTokens
         extraction_mode   = $ExtractionMode
         taxonomy_filter   = $TaxFilter
         taxonomy_nodes    = $EstNodeCount
     }
 
     if ($UsedFire) {
-        $ModelInfo['fire_confidence_threshold'] = 0.7
+        # $null when the FireStats predate t/4079 or come from a caller that does not report it.
+        $ModelInfo['fire_confidence_threshold'] = Get-SummaryField $FireStats 'confidence_threshold'
         $ModelInfo['fire_stats'] = [ordered]@{
             api_calls          = $FireStats.total_api_calls
             iterations         = $FireStats.total_iterations
@@ -468,11 +492,17 @@ function Get-SummaryClaimPovCounts {
     .SYNOPSIS
         Source statistics from the factual claims' linked_taxonomy_nodes: @{ NodeRefs; Primary }.
         NodeRefs counts every linked node per POV; Primary counts each claim's first POV-prefixed
-        node. Both are plain @{} hashtables (pinned: their key order is unspecified, t/4079).
+        node. Both are ordered dictionaries with their keys in ordinal order, so metadata.json is
+        byte-identical across processes (a plain @{} serialized in per-process hash order, t/4079).
     #>
     param([object]$FactualClaims)
-    $nodeRefsByPov = @{ accelerationist = 0; safetyist = 0; skeptic = 0; situations = 0 }
-    $primaryPovDist = @{ accelerationist = 0; safetyist = 0; skeptic = 0; situations = 0 }
+    $nodeRefsByPov = [ordered]@{}
+    $primaryPovDist = [ordered]@{}
+    # Ordinal order, written out: situations sorts before skeptic.
+    foreach ($Pov in 'accelerationist', 'safetyist', 'situations', 'skeptic') {
+        $nodeRefsByPov[$Pov] = 0
+        $primaryPovDist[$Pov] = 0
+    }
     foreach ($claim in @($FactualClaims)) {
         if (-not $claim.PSObject.Properties['linked_taxonomy_nodes']) { continue }
         $PrimaryAssigned = $false
@@ -491,14 +521,20 @@ function Update-SummaryMetadata {
     .SYNOPSIS
         Records the summary in the source's metadata.json (status, version, statistics, context_rot).
     .DESCRIPTION
-        Any failure (missing file, bad JSON, a failed write) is printed with Write-Host, not
-        Write-Warning (pinned; t/4079 changes it), and swallowed: the summary is already written.
+        The summary is already written when this runs, so a failure here is swallowed: Finalize-Summary
+        still returns Success=$true. That leaves metadata.json stale, so every failure is a WARN naming
+        the condition (t/4079): a missing metadata.json is checked for explicitly, and any other
+        failure (bad JSON, a failed write) is caught.
     #>
     param(
         [hashtable]$Doc, [string]$TaxonomyVersion, [string]$Now, [object]$FactualClaims,
         [int]$FactualCount, [int]$TotalPoints, [int]$UnmappedCount,
         [object]$ContextRot, [object]$ContextRotStages
     )
+    if (-not $Doc.MetaFile -or -not (Test-Path -LiteralPath $Doc.MetaFile -PathType Leaf)) {
+        Write-Warning "Finalize-Summary: summary written but metadata.json not updated — the file is missing: '$($Doc.MetaFile)'"
+        return
+    }
     try {
         $MetaRaw     = Get-Content $Doc.MetaFile -Raw
         $MetaUpdated = $MetaRaw | ConvertFrom-Json -AsHashtable
@@ -530,6 +566,6 @@ function Update-SummaryMetadata {
         Write-Utf8NoBom -Path $Doc.MetaFile -Value ($MetaUpdated | ConvertTo-Json -Depth 10)
     }
     catch {
-        Write-Host "  │  ⚠ Summary written but metadata update failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Warning "Finalize-Summary: summary written but metadata update failed, leaving '$($Doc.MetaFile)' stale: $($_.Exception.Message)"
     }
 }

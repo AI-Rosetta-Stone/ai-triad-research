@@ -1,7 +1,6 @@
 {
   "scenario": "node-validation-skipped",
   "transcript": [
-    "[Red]   │  ✗ Schema: Missing required field: factual_claims",
     "[Gray]   │  points: 3 (0 unmapped)  factual: 0  new_concepts: 0",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -86,10 +85,7 @@
       "    }",
       "  },",
       "  \"factual_claims\": [],",
-      "  \"unmapped_concepts\": [],",
-      "  \"warnings\": [",
-      "    \"Schema: Missing required field: factual_claims\"",
-      "  ]",
+      "  \"unmapped_concepts\": []",
       "}",
       ""
     ]

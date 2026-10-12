@@ -39,7 +39,10 @@ function Invoke-IterativeExtraction {
     .PARAMETER MaxApiCalls
         Maximum total API calls per invocation. Default: 25.
     .PARAMETER ConfidenceThreshold
-        Minimum confidence to accept a claim without iteration. Default: 0.7.
+        Minimum confidence to accept a claim without iteration. Default: 0.7. Reported back as
+        FireStats.confidence_threshold, which Finalize-Summary records (t/4079).
+    .PARAMETER MaxTokens
+        Output budget for the initial extraction call. Default: 32768.
     #>
     [CmdletBinding()]
     param(
@@ -64,7 +67,9 @@ function Invoke-IterativeExtraction {
 
         [int]$MaxApiCalls = 25,
 
-        [double]$ConfidenceThreshold = 0.7
+        [double]$ConfidenceThreshold = 0.7,
+
+        [int]$MaxTokens = 32768
     )
 
     Set-StrictMode -Version Latest
@@ -75,7 +80,7 @@ function Invoke-IterativeExtraction {
 
     # ── Phase 1: Initial extraction (same as single-shot) ─────────────────────
     Write-Verbose "FIRE Phase 1: Initial extraction"
-    Write-Verbose "  Model: $Model | Temperature: $Temperature | MaxTokens: 32768"
+    Write-Verbose "  Model: $Model | Temperature: $Temperature | MaxTokens: $MaxTokens"
     Write-Verbose "  Guardrails: max $MaxIterPerClaim iter/claim, $MaxIterPerDoc iter/doc, ${WallClockSeconds}s wall-clock, $MaxApiCalls API calls"
     Write-Verbose "  Confidence threshold: $ConfidenceThreshold"
     $TotalApiCalls++
@@ -87,7 +92,7 @@ function Invoke-IterativeExtraction {
         -Model       $Model `
         -ApiKey      $ApiKey `
         -Temperature $Temperature `
-        -MaxTokens   32768 `
+        -MaxTokens   $MaxTokens `
         -JsonMode `
         -TimeoutSec  600
 
@@ -127,6 +132,7 @@ function Invoke-IterativeExtraction {
                 Backend    = $InitialResult.Backend
                 FireStats  = @{
                     mode = 'fire'; phase1_only = $true; parse_failed = $true
+                    confidence_threshold = $ConfidenceThreshold
                     total_iterations = 0; total_api_calls = 1
                     elapsed_seconds = [Math]::Round($Stopwatch.Elapsed.TotalSeconds, 1)
                 }
@@ -144,6 +150,7 @@ function Invoke-IterativeExtraction {
             Backend   = $InitialResult.Backend
             FireStats = @{
                 mode = 'fire'; total_iterations = 0; total_api_calls = 1
+                confidence_threshold = $ConfidenceThreshold
                 claims_confident = 0; claims_iterated = 0; claims_total = 0
                 elapsed_seconds = [Math]::Round($Stopwatch.Elapsed.TotalSeconds, 1)
                 termination_reason = 'no_claims'
@@ -466,6 +473,7 @@ Return JSON: {"claim_label": "$ClaimLabel", "verified": true/false, "refined_cla
         Backend   = $InitialResult.Backend
         FireStats = @{
             mode                = 'fire'
+            confidence_threshold = $ConfidenceThreshold
             total_iterations    = $TotalIter
             total_api_calls     = $TotalApiCalls
             claims_total        = $Claims.Count

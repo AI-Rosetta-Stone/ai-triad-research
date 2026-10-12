@@ -3,7 +3,7 @@
   "transcript": [
     "[Yellow]   │  ⚠ Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001",
     "[Gray]   │  points: 5 (1 unmapped)  factual: 5  new_concepts: 2",
-    "[Yellow]   │  ⚠ Unmapped concept resolution failed: resolver offline",
+    "[warning] Finalize-Summary: unmapped concept resolution failed — keeping all 2 unmapped concept(s) unresolved: resolver offline",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
   "error": null,

@@ -1,11 +1,7 @@
 {
   "scenario": "null-unmapped-entries",
   "transcript": [
-    "[warning] pov_summaries.accelerationist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
-    "[warning] pov_summaries.safetyist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
-    "[warning] pov_summaries.skeptic.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
     "[warning] Finalize-Summary: dropped 2 null unmapped_concepts entry/entries (t/3907, model=gemini-3.5-flash-lite)",
-    "[Red]   │  ✗ Schema: Missing required field: factual_claims",
     "[Gray]   │  points: 0 (0 unmapped)  factual: 0  new_concepts: 1",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
@@ -72,9 +68,6 @@
       "      \"concept\": \"Survives the filter.\",",
       "      \"reason\": \"novel\"",
       "    }",
-      "  ],",
-      "  \"warnings\": [",
-      "    \"Schema: Missing required field: factual_claims\"",
       "  ]",
       "}",
       ""

@@ -68,9 +68,7 @@ Describe 'Finalize-Summary null/absent camp key_points (t/3434)' -Tag 'summariza
         }
     }
 
-    # NOTE: a camp with a genuine empty array `[]` is INDISTINGUISHABLE from null here — Get-Field
-    # returns @(), which PowerShell unwraps to $null on function return, so `[]` also takes the
-    # normalize+warn path. That is harmless (normalizing [] → @() is a no-op) and matches the prior
-    # code, which likewise flagged []-camps. A "no-warning" case therefore requires a genuinely
-    # POPULATED camp, which pulls in the polarity-gate path — out of scope for this focused fix.
+    # NOTE: since t/4079 a camp with an empty array `[]` is "present but empty" (Get-SummaryField no
+    # longer unrolls @() to $null), so it does NOT take the warn path; that arm is pinned in
+    # Finalize-Summary.PinnedBugs.Tests.ps1 (item 5).
 }

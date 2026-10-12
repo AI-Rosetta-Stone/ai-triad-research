@@ -1,8 +1,6 @@
 {
   "scenario": "single-element-force-array",
   "transcript": [
-    "[warning] pov_summaries.safetyist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
-    "[warning] pov_summaries.skeptic.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
     "[Gray]   │  points: 1 (0 unmapped)  factual: 1  new_concepts: 1",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],

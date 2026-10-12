@@ -2,7 +2,7 @@
   "scenario": "metadata-write-fails",
   "transcript": [
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
-    "[Yellow]   │  ⚠ Summary written but metadata update failed: disk full writing sources/doc-1/metadata.json",
+    "[warning] Finalize-Summary: summary written but metadata update failed, leaving '<ROOT>/sources/doc-1/metadata.json' stale: disk full writing sources/doc-1/metadata.json",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],
   "error": null,

@@ -1,7 +1,6 @@
 {
   "scenario": "cross-camp-agreement",
   "transcript": [
-    "[Red]   │  ✗ Schema: Missing required field: factual_claims",
     "[Yellow]   │  ⚠ Cross-camp agreement: accelerationist + safetyist both 'opposed' on saf-beliefs-003",
     "[Yellow]   │  ⚠ Cross-camp agreement: accelerationist + skeptic both 'opposed' on saf-beliefs-003",
     "[Gray]   │  points: 5 (0 unmapped)  factual: 0  new_concepts: 0",
@@ -104,7 +103,6 @@
       "  \"factual_claims\": [],",
       "  \"unmapped_concepts\": [],",
       "  \"warnings\": [",
-      "    \"Schema: Missing required field: factual_claims\",",
       "    \"Cross-camp agreement: accelerationist + safetyist both 'opposed' on saf-beliefs-003\",",
       "    \"Cross-camp agreement: accelerationist + skeptic both 'opposed' on saf-beliefs-003\"",
       "  ]",
