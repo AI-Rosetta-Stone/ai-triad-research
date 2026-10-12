@@ -463,17 +463,38 @@ jobs:
 
           $BaseUrl = if ([string]::IsNullOrWhiteSpace($RevFqdn)) { "${{ steps.deploy.outputs.appUrl }}" } else { "https://$RevFqdn" }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "base_url=$BaseUrl"
-          # Unified check (t/1495): server-up (/health) and data-loaded (/healthz)
-          # in one probe per attempt, instead of two sequential phases with
-          # separate budgets. 42 attempts x 10s = 7 min, matching the prior
-          # combined worst-case budget (5 min server-start + 2 min data-load).
-          # -TimeoutSec 15 preserves the original curl --max-time 15 protection
-          # against Envoy 504 gateway hangs turning this into a multi-hour wait.
-          $Result = Test-TaxEditorHealth -BaseUrl $BaseUrl -TimeoutSec 15 -MaxAttempts 42 -RetryIntervalSec 10
 
-          if ($Result.Healthy) {
+          # Unified check (t/1495): server-up (/health) and data-loaded (/healthz) in one probe per round.
+          # t/4158: a bounded loop that also reads the revision's own state and log, so a revision that can
+          # never start (ActivationFailed, or the GitHub App token-mint 404 of the 2026-10-12 attempt 2) fails
+          # on the first round that shows it, with the cause named, instead of holding the job for 20+ min.
+          # The 7-minute wall clock matches the prior combined budget (5 min server start + 2 min data load).
+          # -TimeoutSec 15 keeps the protection against Envoy 504 gateway hangs.
+          . ./operations/devops/Get-RevisionActivationVerdict.ps1
+          $Rev      = '${{ steps.new_revision.outputs.revision }}'
+          $Deadline = (Get-Date).AddMinutes(7)
+          $Verdict  = $null
+          $Result   = $null
+          $Round    = 0
+          while ((Get-Date) -lt $Deadline) {
+            $Round++
+            $State = az containerapp revision show -n '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $Rev --query '{r:properties.runningState,h:properties.healthState}' -o json 2>$null | ConvertFrom-Json
+            $LogTail = (az containerapp logs show -n '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --revision $Rev --tail 60 --format text 2>$null) -join "`n"
+            $Result  = Test-TaxEditorHealth -BaseUrl $BaseUrl -TimeoutSec 15 -MaxAttempts 1
+            $Verdict = Get-RevisionActivationVerdict -RunningState $State.r -HealthState $State.h -LogTail $LogTail -ProbeHealthy $Result.Healthy
+            Write-Host "round ${Round}: state=$($State.r)/$($State.h) verdict=$($Verdict.Verdict)"
+            if ($Verdict.Verdict -ne 'waiting') { break }
+            Start-Sleep -Seconds 15
+          }
+
+          if ($Verdict.Verdict -eq 'healthy') {
             Add-Content -Path $env:GITHUB_OUTPUT -Value "healthy=true"
             Write-Host "Health check passed — server up and taxonomy data loaded"
+          } elseif ($Verdict.Verdict -eq 'failed') {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "healthy=false"
+            Write-Host "::error::Revision $Rev cannot start ($($Verdict.Cause)): $($Verdict.Message)"
           } else {
             Add-Content -Path $env:GITHUB_OUTPUT -Value "healthy=false"
             $ServerCheck = $Result.Checks | Where-Object { $_.Endpoint -eq '/health' }
