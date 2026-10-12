@@ -75,7 +75,8 @@ function Test-CriticalInteractions {
             $Err = New-ActionableError -Goal "Run CUI test $CuiId" `
                 -Problem "CUI ID '$CuiId' not found in catalog (or excluded by filters)" `
                 -Location 'Test-CriticalInteractions' `
-                -NextSteps @('Check the CUI ID with Get-CriticalInteraction', 'Remove conflicting -Domain or -Priority filters')
+                -NextSteps @('Check the CUI ID with Get-CriticalInteraction', 'Remove conflicting -Domain or -Priority filters') `
+                -AsErrorRecord   # without a mode switch New-ActionableError returns nothing and this threw $null (t/4155)
             throw $Err
         }
     }
