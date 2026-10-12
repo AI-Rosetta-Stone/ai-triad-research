@@ -2,7 +2,7 @@
   "scenario": "explicit-output-file",
   "host": [
     "[Cyan] \n▶  Validating environment",
-    "[Green]    ✓  Model       : groq-llama-3.1-8b-instant",
+    "[Green]    ✓  Model       : groq-openai-gpt-oss-20b",
     "[Green]    ✓  Temperature : 0.3",
     "[Cyan] \n▶  Preparing health data",
     "[Green]    ✓  Using pre-computed health data (42 summaries)",
@@ -13,7 +13,7 @@
     "[Green]    ✓  High-variance nodes : 1",
     "[Green]    ✓  Standardized terms  : 2",
     "[Green]    ✓  Prompt assembled: 4528 chars (~1132 tokens est.)",
-    "[Cyan] \n▶  Calling AI API (groq-llama-3.1-8b-instant)",
+    "[Cyan] \n▶  Calling AI API (groq-openai-gpt-oss-20b)",
     "[Gray]    →  Sending request...",
     "[Green]    ✓  Response received from mock-backend in 0s",
     "[Cyan] \n▶  Parsing AI response",
@@ -24,7 +24,7 @@
     "[Green]    ✓  Proposal written to: <ROOT>/out/custom/my-proposal.json",
     "[Cyan] \n════════════════════════════════════════════════════════════════════════",
     "[White]   TAXONOMY PROPOSALS",
-    "[Gray]   Model: groq-llama-3.1-8b-instant  |  Taxonomy v9.9.9  |  0 proposal(s)",
+    "[Gray]   Model: groq-openai-gpt-oss-20b  |  Taxonomy v9.9.9  |  0 proposal(s)",
     "[Cyan] ════════════════════════════════════════════════════════════════════════",
     "[Cyan] \n════════════════════════════════════════════════════════════════════════",
     "[Green]   Output: <ROOT>/out/custom/my-proposal.json",
@@ -52,7 +52,7 @@
     },
     {
       "call": "ai",
-      "model": "groq-llama-3.1-8b-instant",
+      "model": "groq-openai-gpt-oss-20b",
       "apiKey": "",
       "temperature": 0.3,
       "maxTokens": 65536,
@@ -71,7 +71,7 @@
     "dictionary/standardized/b-term.json": "sha256:e98eac6991b8000c4be1f6c98d6edcdabdad7a944fca2c0a518c8491a24b596e (123 chars)",
     "out/": "(dir)",
     "out/custom/": "(dir)",
-    "out/custom/my-proposal.json": "{\n  \"generated_at\": \"2026-01-02T03:04:05Z\",\n  \"model\": \"groq-llama-3.1-8b-instant\",\n  \"taxonomy_version\": \"9.9.9\",\n  \"summary_count\": 42,\n  \"proposals\": []\n}\n",
+    "out/custom/my-proposal.json": "{\n  \"generated_at\": \"2026-01-02T03:04:05Z\",\n  \"model\": \"groq-openai-gpt-oss-20b\",\n  \"taxonomy_version\": \"9.9.9\",\n  \"summary_count\": 42,\n  \"proposals\": []\n}\n",
     "taxonomy/": "(dir)",
     "taxonomy/proposals/": "(dir)"
   }

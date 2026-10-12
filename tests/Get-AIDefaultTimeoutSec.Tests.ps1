@@ -30,7 +30,7 @@ Describe 'Get-AIDefaultTimeoutSec — base timeouts' -Tag 'enrichment' {
     }
 
     It 'Returns 120 for groq backend' {
-        Invoke-DefaultTimeout 'groq-llama-3.1-8b-instant' | Should -Be 120
+        Invoke-DefaultTimeout 'groq-openai-gpt-oss-20b' | Should -Be 120
     }
 
     It 'Returns 180 for openai backend' {
@@ -78,8 +78,8 @@ Describe 'Get-AIDefaultTimeoutSec — frontier 2x tier (requires ai-models.json 
     }
 
     It 'Returns 120 for groq advanced-tier (2x base)' {
-        # groq advanced = groq-llama-3.3-70b-versatile; basic = groq-llama-3.1-8b-instant
-        $result = Invoke-DefaultTimeout 'groq-llama-3.3-70b-versatile'
+        # groq advanced = groq-openai-gpt-oss-120b; basic = groq-openai-gpt-oss-20b (t/4159)
+        $result = Invoke-DefaultTimeout 'groq-openai-gpt-oss-120b'
         $result | Should -Be 240
     }
 

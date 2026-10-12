@@ -63,7 +63,7 @@ $script:Scenarios = @(
 
     # No API key: warns and applies cached enrichments only. Unknown model prefix resolves as gemini.
     @{ Name = 'no-key'; Tax = 'basic'; Cache = 'partial'; NoKey = $true
-       Params = @{ Model = 'groq-llama-3.1-8b-instant'; SkipUrlValidation = $true } }
+       Params = @{ Model = 'groq-openai-gpt-oss-20b'; SkipUrlValidation = $true } }
 
     # The separate URL-validation pass over cache entries that have no url_status yet.
     @{ Name = 'url-phase'; Tax = 'urlphase'; Cache = 'nostatus'

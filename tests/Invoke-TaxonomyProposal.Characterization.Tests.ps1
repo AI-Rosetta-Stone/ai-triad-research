@@ -98,10 +98,10 @@ $script:Scenarios = @(
        Params = @{ Model = 'gemini-2.5-flash'; WhatIf = $true }
        Response = '{"proposals":[{"action":"NEW","suggested_id":"acc-beliefs-902","label":"WhatIf New","pov":"accelerationist","category":"Beliefs","target_node_id":null,"rationale":"r"}]}' }
     @{ Name = 'explicit-output-file'; Health = 'rich'; PassHealth = $true; Dictionary = 'std-only'; OutputFile = 'out/custom/my-proposal.json'; Existing = 'empty-dir'
-       Params = @{ Model = 'groq-llama-3.1-8b-instant' }
+       Params = @{ Model = 'groq-openai-gpt-oss-20b' }
        Response = '{"proposals":[]}' }
     @{ Name = 'err-no-key-claude'; Health = 'rich'; PassHealth = $true; NoKey = $true; Params = @{ Model = 'claude-haiku-4-5' } }
-    @{ Name = 'err-no-key-groq'; Health = 'rich'; PassHealth = $true; NoKey = $true; Params = @{ Model = 'groq-llama-3.1-8b-instant' } }
+    @{ Name = 'err-no-key-groq'; Health = 'rich'; PassHealth = $true; NoKey = $true; Params = @{ Model = 'groq-openai-gpt-oss-20b' } }
     @{ Name = 'err-no-key-unknown-prefix'; Health = 'rich'; PassHealth = $true; NoKey = $true; Params = @{ Model = 'xai-grok-4-6' } }
     @{ Name = 'err-repo-root-missing'; Health = 'rich'; PassHealth = $true; MissingRepoRoot = $true; Params = @{ Model = 'gemini-2.5-flash' } }
     @{ Name = 'parse-repair'; Health = 'rich'; PassHealth = $true

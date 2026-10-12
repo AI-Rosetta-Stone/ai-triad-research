@@ -41,7 +41,7 @@ BeforeDiscovery {
         @{ Name = 'nli-throws'; Data = 'rich'; Nli = 'throw'; Params = @{ NoAI = $true } }
         @{ Name = 'nli-bad-json'; Data = 'rich'; Nli = 'badjson'; Params = @{ NoAI = $true } }
         @{ Name = 'ai-no-key-claude'; Data = 'rich'; NoKey = $true; Params = @{ Model = 'claude-haiku-4-5'; TopN = 2 } }
-        @{ Name = 'ai-empty-groq'; Data = 'rich'; Ai = 'empty'; Params = @{ Model = 'groq-llama-3.1-8b-instant'; TopN = 2; ApiKey = 'explicit-key' } }
+        @{ Name = 'ai-empty-groq'; Data = 'rich'; Ai = 'empty'; Params = @{ Model = 'groq-openai-gpt-oss-20b'; TopN = 2; ApiKey = 'explicit-key' } }
         @{ Name = 'ai-throws-unknown-prefix'; Data = 'rich'; Ai = 'throw'; Params = @{ Model = 'xai-grok-4-6'; TopN = 2 } }
         @{ Name = 'ai-openai-prefix'; Data = 'rich'; Ai = 'nofence'; Params = @{ Model = 'openai-gpt-4o'; TopN = 2 } }
         @{ Name = 'default-model-tier'; Data = 'rich'; Ai = 'nofence'; Params = @{ TopN = 1 } }

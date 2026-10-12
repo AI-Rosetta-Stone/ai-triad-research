@@ -246,7 +246,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
 
         It 'without -TimeoutSec, each link uses its own model''s default timeout' {
             $env:GROQ_API_KEY = 'groq-test-value'; $env:GEMINI_API_KEY = 'gemini-test-value'
-            $primary = 'claude-haiku-4-5'; $fb1 = 'groq-llama-3.1-8b-instant'; $fb2 = 'gemini-2.5-flash'
+            $primary = 'claude-haiku-4-5'; $fb1 = 'groq-openai-gpt-oss-20b'; $fb2 = 'gemini-2.5-flash'
             $defaults = script:Get-ModuleValue { param($a, $b, $c) @((Get-AIDefaultTimeoutSec -Model $a), (Get-AIDefaultTimeoutSec -Model $b), (Get-AIDefaultTimeoutSec -Model $c)) } @($primary, $fb1, $fb2)
             script:Set-Replies @{ 'api.anthropic.com' = @((script:New-HttpError 400)); 'api.groq.com' = @((script:New-HttpError 400)); 'generativelanguage' = @((script:New-GeminiOk)) }
             $out = script:Invoke-Call @{ Prompt = 'p'; Model = $primary; ApiKey = $script:Key; FallbackModels = @($fb1, $fb2) }
@@ -257,7 +257,7 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
         It 'an explicit -TimeoutSec applies to every link' {
             $env:GROQ_API_KEY = 'groq-test-value'
             script:Set-Replies @{ 'api.anthropic.com' = @((script:New-HttpError 400)); 'api.groq.com' = @((script:New-ChatOk)) }
-            script:Invoke-Call @{ Prompt = 'p'; Model = 'claude-haiku-4-5'; ApiKey = $script:Key; TimeoutSec = 77; FallbackModels = @('groq-llama-3.1-8b-instant') } | Out-Null
+            script:Invoke-Call @{ Prompt = 'p'; Model = 'claude-haiku-4-5'; ApiKey = $script:Key; TimeoutSec = 77; FallbackModels = @('groq-openai-gpt-oss-20b') } | Out-Null
             @($script:Calls | ForEach-Object { $_.TimeoutSec }) -join ',' | Should -BeExactly '77,77'
         }
 

@@ -95,7 +95,7 @@ $script:Scenarios = @(
        Responses = @{ 'accelerationist/Beliefs' = $script:RichAccBeliefs; 'safetyist/Beliefs' = $script:RichSafBeliefs
                       'situations/(none — situations)' = $script:RichSituations } }
     @{ Name = 'sizes'; Tax = 'sizes'; Embeddings = 'sizes'
-       Params = @{ Model = 'groq-llama-3.1-8b-instant'; Temperature = 0.7; MinSimilarity = 0.5; ApiKey = 'explicit-key' } }
+       Params = @{ Model = 'groq-openai-gpt-oss-20b'; Temperature = 0.7; MinSimilarity = 0.5; ApiKey = 'explicit-key' } }
     @{ Name = 'dryrun'; Tax = 'small'; Embeddings = 'small'; Params = @{ Model = 'gemini-2.5-flash'; DryRun = $true } }
     @{ Name = 'whatif'; Tax = 'small'; Embeddings = 'small'; OutputDir = 'out/custom'
        Params = @{ Model = 'gemini-2.5-flash'; WhatIf = $true } }
