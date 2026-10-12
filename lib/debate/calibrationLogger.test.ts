@@ -694,17 +694,18 @@ describe('appendCalibrationLog stamps runtime provenance (t/1672)', () => {
     }
   });
 
-  it('changes only the two provenance fields — all metric values are unchanged (AC #2)', () => {
+  it('changes only the three provenance fields — all metric values are unchanged (AC #2)', () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'calib-prov-'));
     try {
       const dp = extractCalibrationData(makeMinimalSession(), 'local');
       appendCalibrationLog(dp, dataRoot);
 
       const entry = readLastEntry(dataRoot, 'local');
-      // Strip the two runtime-stamped fields from both sides; everything else — every
-      // metric value — must be byte-identical to the pure extractor output.
-      const { config_revision: _ec, working_tree_state: _ew, ...entryRest } = entry;
-      const { config_revision: _dc, working_tree_state: _dw, ...dpRest } = dp as any;
+      // Strip the three runtime-stamped provenance fields from both sides (t/4166 adds
+      // behaviour_revision); everything else — every metric value — must be byte-identical
+      // to the pure extractor output.
+      const { config_revision: _ec, working_tree_state: _ew, behaviour_revision: _eb, ...entryRest } = entry;
+      const { config_revision: _dc, working_tree_state: _dw, behaviour_revision: _db, ...dpRest } = dp as any;
       expect(entryRest).toEqual(dpRest);
     } finally {
       fs.rmSync(dataRoot, { recursive: true, force: true });

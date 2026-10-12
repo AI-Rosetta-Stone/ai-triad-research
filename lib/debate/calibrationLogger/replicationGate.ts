@@ -34,9 +34,21 @@ export const REPLICATION_GATE_MIN_N = 10;
  * Endorsed by CL (t/1668#2) — do NOT widen with temperature/situation_cap; if a
  * run varies those without a config_revision bump, that is a provenance-binding
  * gap to fix in t/1672, not by widening this key.
+ *
+ * 5th segment: behaviour_revision (t/4166) — first 12 hex of SHA-256 over declared
+ * behaviour-bearing source files (see behaviourRevisionFiles.ts), generated at build time.
+ * Absent on legacy rows, which pool under the empty-string segment exactly as they did
+ * before this key widened. Rows with different behaviour_revision values are different
+ * instruments and must not pool.
  */
 export function fixedConfigKey(dp: CalibrationDataPoint): string {
-  return [dp.config_revision, dp.prompt_version, dp.model, dp.model_pool ?? dp.model_api_id ?? ''].join('|');
+  return [
+    dp.config_revision,
+    dp.prompt_version,
+    dp.model,
+    dp.model_pool ?? dp.model_api_id ?? '',
+    dp.behaviour_revision ?? '',
+  ].join('|');
 }
 
 /** A metric's value for one run; null/undefined means "not measured for this run". */

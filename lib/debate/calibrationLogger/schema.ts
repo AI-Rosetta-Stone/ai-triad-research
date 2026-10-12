@@ -56,6 +56,20 @@ export interface CalibrationDataPoint {
   /** Git working-tree state when the run executed; 'unknown' when git is unavailable (e.g. server/Azure) */
   working_tree_state: 'clean' | 'dirty' | 'unknown';
   /**
+   * Hash of declared behaviour-bearing source files, generated at build time (t/4166).
+   * First 12 hex chars of SHA-256 over normalized (comments+whitespace stripped) content
+   * of all files in behaviourRevisionFiles.ts, sorted by path. Changes when behaviour
+   * changes; immune to comment or whitespace edits. Absent on legacy rows — those pool
+   * under the empty-string segment of fixedConfigKey.
+   *
+   * Provenance field, not a config knob — widening fixedConfigKey with this is correct
+   * (different behaviour hash = different instrument). Does NOT violate t/1668#2's bar
+   * against temperature/situation_cap (those are run-varying params; this is instrument
+   * identity). T1 additive-optional: no consumer may branch on this field until the
+   * exemption lapses (the moment a consumer reads it for logic, not logging/display).
+   */
+  behaviour_revision?: string;
+  /**
    * Model that produced this entry's neutral-evaluator metrics (t/1846). Crux metrics are
    * evaluator-model-relative (t/1835: MAD 0.625 across evaluator families), so the optimizer
    * only compares rows sharing this id. ABSENT on legacy rows, whose evaluator was the

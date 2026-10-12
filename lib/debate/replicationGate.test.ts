@@ -65,9 +65,9 @@ function makeEntry(opts: {
 const metric: MetricSelector = (d) => d.crux_addressed_ratio;
 
 describe('fixedConfigKey', () => {
-  it('appends empty 4th segment when neither model_pool nor model_api_id is set (legacy rows)', () => {
+  it('appends empty 4th and 5th segments when neither model_pool/model_api_id nor behaviour_revision is set (legacy rows)', () => {
     expect(fixedConfigKey(makeEntry({ config_revision: 'r1', prompt_version: 'p2', model: 'm3' })))
-      .toBe('r1|p2|m3|');
+      .toBe('r1|p2|m3||');
   });
 
   it('distinguishes configs that differ in any one component', () => {
@@ -81,13 +81,13 @@ describe('fixedConfigKey', () => {
   it('appends model_pool as 4th segment for multi-provider runs (t/4040)', () => {
     const entry = makeEntry({ model_pool: 'basic|claude=claude-sonnet-5:claude-sonnet-5-20251101,gemini=gemini-2.5-flash:gemini-2.5-flash-exp' });
     expect(fixedConfigKey(entry))
-      .toBe('cfgA|2026-07-22.1|modelX|basic|claude=claude-sonnet-5:claude-sonnet-5-20251101,gemini=gemini-2.5-flash:gemini-2.5-flash-exp');
+      .toBe('cfgA|2026-07-22.1|modelX|basic|claude=claude-sonnet-5:claude-sonnet-5-20251101,gemini=gemini-2.5-flash:gemini-2.5-flash-exp|');
   });
 
   it('appends model_api_id as 4th segment for single-model runs when no model_pool (t/4040)', () => {
     const entry = makeEntry({ model_api_id: 'gemini-2.5-flash:gemini-2.5-flash-exp' });
     expect(fixedConfigKey(entry))
-      .toBe('cfgA|2026-07-22.1|modelX|gemini-2.5-flash:gemini-2.5-flash-exp');
+      .toBe('cfgA|2026-07-22.1|modelX|gemini-2.5-flash:gemini-2.5-flash-exp|');
   });
 
   it('prefers model_pool over model_api_id when both are set (t/4040)', () => {
@@ -174,7 +174,7 @@ describe('computeDistribution', () => {
 
 describe('replicationSet', () => {
   it('includes only clean-tree runs matching the key', () => {
-    const key = 'cfgA|2026-07-22.1|modelX|';
+    const key = fixedConfigKey(makeEntry({ working_tree_state: 'clean' }));
     const entries = [
       makeEntry({ working_tree_state: 'clean' }),                       // in
       makeEntry({ working_tree_state: 'dirty' }),                       // out — dirty
@@ -186,7 +186,7 @@ describe('replicationSet', () => {
   });
 
   it('excludes clean runs that have speaker_model_failovers (t/4040)', () => {
-    const key = 'cfgA|2026-07-22.1|modelX|';
+    const key = fixedConfigKey(makeEntry({ working_tree_state: 'clean' }));
     const entries = [
       makeEntry({ working_tree_state: 'clean' }),                                              // in
       makeEntry({ working_tree_state: 'clean', speaker_model_failovers: { acc: 'other' } }),  // out — failover
@@ -197,20 +197,20 @@ describe('replicationSet', () => {
   });
 
   it('includes fingerprinted rows with failover_tracking: tracked (t/4040)', () => {
-    const key = 'cfgA|2026-07-22.1|modelX|modelX:apiId-v1';
     const entry = makeEntry({ model_api_id: 'modelX:apiId-v1', failover_tracking: 'tracked' });
+    const key = fixedConfigKey(entry);
     expect(replicationSet([entry], key).length).toBe(1);
   });
 
   it('excludes fingerprinted rows with failover_tracking: unavailable (t/4040)', () => {
-    const key = 'cfgA|2026-07-22.1|modelX|modelX:apiId-v1';
     const entry = makeEntry({ model_api_id: 'modelX:apiId-v1', failover_tracking: 'unavailable' });
+    const key = fixedConfigKey(entry);
     expect(replicationSet([entry], key).length).toBe(0);
   });
 
   it('WARNs and excludes fingerprinted rows with absent failover_tracking (t/4040)', () => {
-    const key = 'cfgA|2026-07-22.1|modelX|modelX:apiId-v1';
     const entry = makeEntry({ model_api_id: 'modelX:apiId-v1' }); // no failover_tracking
+    const key = fixedConfigKey(entry);
     expect(replicationSet([entry], key).length).toBe(0);
     expect(mockRecord).toHaveBeenCalledWith(
       expect.objectContaining({ level: 'warn', component: 'replication-gate' }),
@@ -218,8 +218,8 @@ describe('replicationSet', () => {
   });
 
   it('includes legacy rows (no fingerprint) even with absent failover_tracking (t/4040)', () => {
-    const key = 'cfgA|2026-07-22.1|modelX|'; // empty 4th segment = legacy
     const entry = makeEntry({}); // no model_pool, no model_api_id, no failover_tracking
+    const key = fixedConfigKey(entry); // empty 4th and 5th segments = legacy
     expect(replicationSet([entry], key).length).toBe(1);
   });
 
@@ -227,14 +227,14 @@ describe('replicationSet', () => {
     // The renderer path stamps 'unavailable' when it has no failover visibility.
     // Without this check, an unfingerprinted unavailable row skips the isFingerprinted
     // branch and returns true — counted in the legacy group. Must be excluded.
-    const key = 'cfgA|2026-07-22.1|modelX|'; // empty 4th segment (no fingerprint)
     const entry = makeEntry({ failover_tracking: 'unavailable' });
+    const key = fixedConfigKey(entry); // empty 4th and 5th segments (no fingerprint)
     expect(replicationSet([entry], key).length).toBe(0);
   });
 });
 
 describe('evaluateReplicationGate', () => {
-  const key = 'cfgA|2026-07-22.1|modelX|';
+  const key = fixedConfigKey(makeEntry({}));
 
   it('forbids firing below the threshold', () => {
     const entries = Array.from({ length: REPLICATION_GATE_MIN_N - 1 }, () => makeEntry({ metric: 0.5 }));
@@ -296,8 +296,8 @@ describe('replicationGateByConfig', () => {
     ];
     const gates = replicationGateByConfig(entries, metric);
     expect(gates.map(g => g.fixed_config_key)).toEqual([
-      'B|2026-07-22.1|modelX|',
-      'A|2026-07-22.1|modelX|',
+      fixedConfigKey(makeEntry({ config_revision: 'B' })),
+      fixedConfigKey(makeEntry({ config_revision: 'A' })),
     ]);
     expect(gates[0].replication_count).toBe(12);
     expect(gates[0].fire_permitted).toBe(true);

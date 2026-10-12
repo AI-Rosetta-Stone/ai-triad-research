@@ -190,6 +190,10 @@ jobs:
               - 'evals/**'
               - 'ai-usages.json'
               - 'ai-models.json'
+              # behaviourRevision.test.ts monitors this cross-package file (t/4166).
+              # Without this entry a Rosetta Stone edit skips test-debate, the staleness
+              # test never fires, and a stale generated constant lands on main undetected.
+              - 'taxonomy-editor/src/renderer/hooks/useDebateStore/shared/modelConfig.ts'
               - '.github/workflows/ci.yml'
             schema:
               - 'taxonomy/schemas/**'
