@@ -99,12 +99,21 @@ jobs:
             const baseConfigText = showFromBase('.github/ci/tier-paths.json');
             const basePredicateText = showFromBase('operations/devops/tier-check-predicate.mjs');
 
-            // The HEAD copy of the predicate. NOT trusted: under `pull_request` it is the PR's own
-            // code. Used ONLY to read the expected TIER_CHECK_API for the skew decision. A PR that
-            // fakes that only forces the skew path, which then runs the self-contained
-            // inlineR1Fallback below (no head code), so an R1 path still gets flagged
-            // (t/4103, e/291: the #3172 fallback had called headModule.evaluateR1Only).
-            const headModule = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/tier-check-predicate.mjs`).href);
+            // The HEAD copy of the predicate is NOT trusted: under `pull_request` it is the PR's own
+            // code. It is NEVER imported (e/291 SO C1): an import runs the head's top-level code in
+            // this step's realm, where it could patch Array.prototype.some, RegExp.prototype.test or
+            // github.paginate before the fallback runs. Its expected TIER_CHECK_API is read from the
+            // file's TEXT with a fixed regex; anything unparseable reads as null and forces the skew
+            // path, which then runs the self-contained inlineR1Fallback below, so an R1 path is
+            // still flagged (t/4103: the #3172 fallback had called headModule.evaluateR1Only).
+            let headApi = null;
+            try {
+              const headText = fs.readFileSync(path.join(process.env.GITHUB_WORKSPACE, 'operations', 'devops', 'tier-check-predicate.mjs'), 'utf8');
+              const apiMatch = /^export const TIER_CHECK_API\s*=\s*(\d+)\s*;/m.exec(headText);
+              headApi = apiMatch ? Number(apiMatch[1]) : null;
+            } catch {
+              headApi = null;
+            }
 
             async function postSkippedVerdict(reason) {
               core.info(`tier-check: verdict skipped (skew/bootstrap) -- ${reason}`);
@@ -115,7 +124,8 @@ jobs:
             }
 
             // BEGIN r1-inline
-            // R1 fallback, SELF-CONTAINED: no imported code from head or base (t/4103, e/291).
+            // R1 fallback, SELF-CONTAINED: the block itself imports nothing, and the step never
+            // imports the head predicate (its API is read as text above) (t/4103, e/291 C1).
             // Under `pull_request` the head predicate module IS the PR, so calling its
             // evaluateR1Only let a PR that bumps TIER_CHECK_API (forcing this skew path) also
             // stub the matcher and get "skipped" while touching an R1 path. Only the base-tip
@@ -123,7 +133,12 @@ jobs:
             // file itself, which only promotion to a required, base-pinned check closes.
             // tier-check-workflow.test.mjs extracts and runs this exact block.
             function inlineR1Fallback(files, body, config) {
-              const paths = (files || []).map((f) => f && f.filename).filter((p) => typeof p === 'string');
+              // A rename away from an R1 path is still an R1 change (e/291 SO C2): judge the old name too.
+              const paths = [];
+              for (const f of files || []) {
+                if (f && typeof f.filename === 'string') paths.push(f.filename);
+                if (f && typeof f.previous_filename === 'string') paths.push(f.previous_filename);
+              }
               const firstLine = String(body || '').trim().split('\n')[0].trim();
               const m = /^Tier:\s*T([012])\b/.exec(firstLine);
               const tier = m ? 'T' + m[1] : null;
@@ -174,7 +189,8 @@ jobs:
             fs.writeFileSync(predicatePath, basePredicateText);
             const baseModule = await import(pathToFileURL(predicatePath).href);
 
-            const apiCheck = headModule.checkApiVersion(baseModule.TIER_CHECK_API, headModule.TIER_CHECK_API);
+            // checkApiVersion comes from the BASE module (trusted); the head contributes only a number.
+            const apiCheck = baseModule.checkApiVersion(baseModule.TIER_CHECK_API, headApi);
             if (!apiCheck.compatible) {
               await r1FallbackCheck(config, apiCheck.reason);
               return;

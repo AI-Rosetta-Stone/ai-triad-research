@@ -75,3 +75,65 @@ test('reads the REST listFiles field `filename`, ignoring malformed entries', ()
   const r = loadInline()([{ path: '.github/ci/tier-paths.json' }, null, { filename: 'README.md' }], 'Tier: T0', config);
   assert.equal(r.pass, true, 'an entry with only `path` (the GraphQL shape) must not count');
 });
+
+// ── e/291 SO C1: the head predicate is never imported anywhere in the step ──────────────────
+function scriptCodeLines() {
+  return workflow.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+}
+
+test('C1: the whole step imports only the BASE copy (a temp file), never the head predicate', () => {
+  const code = scriptCodeLines();
+  const imports = code.match(/import\([^)]*\)/g) ?? [];
+  assert.deepEqual(imports, ['import(pathToFileURL(predicatePath)'], `unexpected imports: ${imports.join(' | ')}`);
+  assert.ok(!code.includes('headModule'), 'no headModule binding may exist');
+  assert.match(code, /readFileSync\(path\.join\(process\.env\.GITHUB_WORKSPACE, 'operations', 'devops', 'tier-check-predicate\.mjs'\), 'utf8'\)/,
+    'the head predicate is read as TEXT');
+  assert.match(code, /baseModule\.checkApiVersion\(baseModule\.TIER_CHECK_API, headApi\)/, 'the version check runs base code');
+});
+
+test('C1: the head API is parsed from text; anything malformed reads as null (forces the skew path)', () => {
+  const src = /\/(\^export const TIER_CHECK_API[^\n]*?)\/m\.exec/.exec(workflow);
+  assert.ok(src, 'the fixed regex must be present in the workflow');
+  const re = new RegExp(src[1], 'm');
+  const parse = (t) => { const m = re.exec(t); return m ? Number(m[1]) : null; };
+  assert.equal(parse('// x\nexport const TIER_CHECK_API = 3;\n'), 3);
+  assert.equal(parse('export const TIER_CHECK_API = globalThis.x;'), null, 'a computed value must not parse');
+  assert.equal(parse('export let TIER_CHECK_API = 3;'), null);
+  assert.equal(parse('  export const TIER_CHECK_API = 3;'), null, 'must be a top-level declaration at line start');
+  assert.equal(parse(''), null);
+});
+
+// ── e/291 SO C2: a rename away from an R1 path is still an R1 change ──────────────────────
+test('C2: a rename AWAY from an R1 path, declared T1, fails (inline fallback)', () => {
+  const renamed = [{ filename: 'docs/old-tier-paths.json', previous_filename: '.github/ci/tier-paths.json', status: 'renamed' }];
+  const r = loadInline()(renamed, 'Tier: T1', config);
+  assert.equal(r.pass, false);
+  assert.deepEqual(r.comments, ['R1: touches .github/ci/tier-paths.json, must declare Tier: T2']);
+});
+
+test('C2: factsFromListFiles (main path) also judges the previous name of a rename', async () => {
+  const { factsFromListFiles, checkR1 } = await import('./tier-check-predicate.mjs');
+  const { paths } = factsFromListFiles([{ filename: 'docs/x.yml', previous_filename: '.github/workflows/tier-check.yml', patch: '@@' }]);
+  assert.deepEqual(paths, ['docs/x.yml', '.github/workflows/tier-check.yml']);
+  assert.equal(checkR1(paths, config), '.github/workflows/tier-check.yml');
+});
+
+// ── e/291 SO C3: inline fallback and checkR1 agree on every entry and near-miss ──────────
+test('C3: inlineR1Fallback agrees with the predicate checkR1 on every r1 entry, glob sample and near-miss', async () => {
+  const { checkR1 } = await import('./tier-check-predicate.mjs');
+  const inline = loadInline();
+  const candidates = new Set();
+  for (const p of config.r1Paths) {
+    for (const v of [p, `${p}.bak`, `x/${p}`, p.toUpperCase(), p.slice(1), `${p}/`]) candidates.add(v);
+  }
+  for (const g of config.r1Globs ?? []) {
+    for (const fill of ['', 'X', 'a/b', '.ps1']) candidates.add(g.split('*').join(fill));
+    candidates.add(`x/${g.split('*').join('Y')}`);
+  }
+  assert.ok(candidates.size > 30, 'the parity set must be substantial');
+  for (const p of candidates) {
+    const fromPredicate = checkR1([p], config) !== null;
+    const fromInline = !inline(files(p), 'Tier: T1', config).pass;
+    assert.equal(fromInline, fromPredicate, `parity broken for "${p}": inline=${fromInline} predicate=${fromPredicate}`);
+  }
+});

@@ -103,6 +103,9 @@ export function factsFromListFiles(files) {
     if (typeof f?.filename !== 'string') continue;
     paths.push(f.filename);
     if (typeof f.patch === 'string') patchesByPath.set(f.filename, f.patch);
+    // A rename away from an R1 path is still an R1 change (e/291 SO C2). The old path is judged
+    // too; it has no patch of its own.
+    if (typeof f.previous_filename === 'string') paths.push(f.previous_filename);
   }
   return { paths, patchesByPath };
 }
@@ -129,8 +132,11 @@ export function checkR1(paths, config) {
  * NOT USED BY THE WORKFLOW'S SKEW FALLBACK (t/4103, e/291). The workflow once called this from
  * the HEAD module, which under `pull_request` is the PR's own code. So a PR could bump
  * TIER_CHECK_API and stub this function to get "skipped" while touching an R1 path. The
- * workflow now runs a self-contained `inlineR1Fallback` (tier-check.yml, BEGIN/END r1-inline)
- * that imports nothing. This export remains for unit tests and offline replay only.
+ * workflow now runs a self-contained `inlineR1Fallback` (tier-check.yml, BEGIN/END r1-inline),
+ * and the step never imports the HEAD predicate at all: its TIER_CHECK_API is read from the
+ * file's text (e/291 SO C1), because importing it would run the PR's top-level code in the same
+ * realm as the fallback. The only module the step imports is the BASE copy, written to a temp
+ * file. This export remains for unit tests and offline replay only.
  * REMAINING BLANK: a PR that edits tier-check.yml itself. Only promotion to a required,
  * base-pinned check closes that.
  * @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config @param {string|null} tier
