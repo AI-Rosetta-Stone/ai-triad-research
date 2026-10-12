@@ -27,7 +27,7 @@ export const MODELS_BY_BACKEND: Record<AIBackend, AIModelEntry[]> = {
   ],
   groq: [
     { value: 'groq-llama-4-scout', label: 'Llama 4 Scout' },
-    { value: 'groq-llama-3.3-70b', label: 'Llama 3.3 70B' },
+    { value: 'groq-openai-gpt-oss-120b', label: 'GPT-OSS 120B' },
   ],
   openai: [
     { value: 'openai-gpt-5.5', label: 'GPT-5.5' },
