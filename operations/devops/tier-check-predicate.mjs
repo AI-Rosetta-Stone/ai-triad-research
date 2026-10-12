@@ -18,6 +18,11 @@
  *    repo, invisible to this check.
  *  - `.githooks/*` local pre-commit gates: not currently on R1; the t/4103 replay showed these
  *    change rarely, so they're left as a named blank rather than added speculatively.
+ *  - the workflow file itself (`tier-check.yml`) still runs as the PR's own copy under the
+ *    `pull_request` trigger: loading the config and predicate from base (below) stops a PR from
+ *    narrowing R1 or weakening a rule in the same change, but the workflow YAML's own logic is
+ *    not re-pinned to base. Only promotion to a required check plus branch protection fully
+ *    closes this, which is why `tier-check.yml` itself stays on R1.
  */
 
 const TIER_LINE_RE = /^Tier:\s*T([012])\b/;
@@ -44,6 +49,26 @@ export function extractSchemaChange(body) {
 
 export function isDependabot(headRefName) {
   return (headRefName ?? '').startsWith('dependabot/');
+}
+
+/**
+ * Maps the REST `pulls.listFiles` payload into predicate facts. The REST field is `filename`,
+ * NOT `path` -- the GraphQL `files.nodes[].path` field used by the offline replay script does
+ * not exist on this payload, and reading it silently returns `undefined` for every entry
+ * (t/4103 PR #3155 crash, same class as #3141/t/4123: logic built against an assumed shape
+ * instead of the recorded one). Always go through this function in the workflow; never read
+ * `f.path` directly off a `pulls.listFiles` entry.
+ * @param {Array<{filename: string, patch?: string}>} files
+ */
+export function factsFromListFiles(files) {
+  const paths = [];
+  const patchesByPath = new Map();
+  for (const f of files ?? []) {
+    if (typeof f?.filename !== 'string') continue;
+    paths.push(f.filename);
+    if (typeof f.patch === 'string') patchesByPath.set(f.filename, f.patch);
+  }
+  return { paths, patchesByPath };
 }
 
 /** @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config */

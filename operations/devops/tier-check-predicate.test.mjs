@@ -12,6 +12,7 @@ import {
   checkR4,
   checkR5,
   evaluateTierCheck,
+  factsFromListFiles,
 } from './tier-check-predicate.mjs';
 
 const CONFIG = {
@@ -39,6 +40,45 @@ test('extractSchemaChange: additive and breaking, missing is null', () => {
 test('isDependabot', () => {
   assert.equal(isDependabot('dependabot/npm_and_yarn/foo-1.2.3'), true);
   assert.equal(isDependabot('feat/t4103-tier-check'), false);
+});
+
+// ── factsFromListFiles (real recorded REST payload, PR #3155 crash) ──────
+// Lead finding (t/4103, PR #3155 run 37804716313): the REST `pulls.listFiles` payload names
+// this field `filename`, not `path` -- `files.map((f) => f.path)` silently produced `undefined`
+// for every entry. This fixture is a trimmed REAL response from
+// `gh api repos/jpsnover/ai-triad-research/pulls/3155/files`.
+const REAL_LISTFILES_PAYLOAD = [
+  {
+    filename: '.github/ci/tier-paths.json',
+    status: 'added',
+    additions: 33,
+    deletions: 0,
+    changes: 33,
+    patch: '@@ -0,0 +1,33 @@\n+{\n+  "_comment": "t/4103 — tier-declaration check path floor (R1) and lint-severity globs (R2c).",\n+  "r1Paths": [\n+    ".github/ci/required-contexts.json"\n+  ]\n+}',
+  },
+  {
+    filename: '.github/workflows/tier-check.yml',
+    status: 'added',
+    additions: 132,
+    deletions: 0,
+    changes: 132,
+    patch: '@@ -0,0 +1,132 @@\n+name: tier-check\n+\n+on:\n+  pull_request:\n+    types: [opened, edited, synchronize, ready_for_review]',
+  },
+];
+
+test('factsFromListFiles: real REST payload maps via filename, not path (f.path is undefined on this shape)', () => {
+  const { paths, patchesByPath } = factsFromListFiles(REAL_LISTFILES_PAYLOAD);
+  assert.deepEqual(paths, ['.github/ci/tier-paths.json', '.github/workflows/tier-check.yml']);
+  assert.match(patchesByPath.get('.github/ci/tier-paths.json'), /_comment/);
+
+  // The bug this replaces: GraphQL's `files.nodes[].path` does not exist on this REST shape.
+  const brokenPaths = REAL_LISTFILES_PAYLOAD.map((f) => f.path);
+  assert.deepEqual(brokenPaths, [undefined, undefined]);
+});
+
+test('factsFromListFiles: entries missing filename are skipped, not crashed on', () => {
+  const { paths } = factsFromListFiles([{ filename: 'a.ts' }, {}, { filename: 'b.ts' }]);
+  assert.deepEqual(paths, ['a.ts', 'b.ts']);
 });
 
 // ── R1 ───────────────────────────────────────────────────────────────────
