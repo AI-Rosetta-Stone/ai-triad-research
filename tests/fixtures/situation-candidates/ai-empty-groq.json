@@ -192,7 +192,7 @@
     },
     {
       "call": "ai",
-      "model": "groq-llama-3.1-8b-instant",
+      "model": "groq-openai-gpt-oss-20b",
       "apiKey": "explicit-key",
       "temperature": 0.2,
       "maxTokens": 8192,

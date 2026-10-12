@@ -733,7 +733,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             script:Set-HostReplies 'api.anthropic.com' @((script:New-HttpError 500 'claude down'))
             script:Set-HostReplies 'generativelanguage' @((script:New-OkEnvelope 'gemini' -Text 'gemini answered'))
             $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; MaxRetries = 1
-                FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-llama-3.1-8b-instant') }
+                FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-openai-gpt-oss-20b') }
             $out.Result.Text | Should -BeExactly 'gemini answered'
             $out.Result.Model | Should -BeExactly 'gemini-2.5-flash'
             $out.Result.Backend | Should -BeExactly 'gemini'
@@ -786,7 +786,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:GROQ_API_KEY = 'groq-test-value'; $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError $Code 'auth'))
             script:Set-HostReplies 'api.anthropic.com' @((script:New-OkEnvelope 'claude'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-llama-3.1-8b-instant', 'claude-haiku-4-5') }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-openai-gpt-oss-20b', 'claude-haiku-4-5') }
             $out.Result.Backend | Should -BeExactly 'claude'
             @($script:RestCalls | Where-Object { $_.Uri -like '*groq*' }).Count | Should -Be 1
             @($out.Warnings | Where-Object { $_ -like 'Cascade:*' }) -join "`n" | Should -BeExactly 'Cascade: falling back to claude-haiku-4-5 (claude)'
@@ -796,9 +796,9 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $env:GROQ_API_KEY = 'groq-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 500 'x'), (script:New-OkEnvelope 'groq' -Text 'second groq'))
             # MaxRetries 1: since t/4078 a 500 is retried, which would let the PRIMARY take the second reply.
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-llama-3.1-8b-instant'); MaxRetries = 1 }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-openai-gpt-oss-20b'); MaxRetries = 1 }
             $out.Result.Text | Should -BeExactly 'second groq'
-            $out.Result.Model | Should -BeExactly 'groq-llama-3.1-8b-instant'
+            $out.Result.Model | Should -BeExactly 'groq-openai-gpt-oss-20b'
         }
 
         It 'skips a fallback whose backend has no key, silently' {
@@ -834,7 +834,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $out = script:Invoke-CharacterizedCall @{ Prompt = 'the prompt'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey
                 SystemInstruction = 'sys'; JsonMode = $true; ResponseSchema = $script:GoldenSchema; Temperature = 0.7; MaxTokens = 333
                 TimeoutSec = 55; MaxRetries = 4; RetryDelays = @(1, 1); CallLogger = $logger
-                FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-llama-3.1-8b-instant') }
+                FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-openai-gpt-oss-20b') }
             [object]::ReferenceEquals($out.Result, $sentinelResult) | Should -BeTrue
             $inner.Count | Should -Be 2 -Because 'a $null result moves on; the first non-null result is returned'
             $p = $inner[0]
@@ -879,7 +879,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
 
         It 'end to end, the fallback request uses its own model''s default timeout and the cascade retry settings (t/4078)' {
             # Fixed by t/4078 §2 (was pinned: the fallback reused the primary's resolved TimeoutSec).
-            $primary = 'claude-haiku-4-5'; $fallback = 'groq-llama-3.1-8b-instant'
+            $primary = 'claude-haiku-4-5'; $fallback = 'groq-openai-gpt-oss-20b'
             $primaryDefault = script:Get-ModuleValue { param($m) Get-AIDefaultTimeoutSec -Model $m } @($primary)
             $fallbackDefault = script:Get-ModuleValue { param($m) Get-AIDefaultTimeoutSec -Model $m } @($fallback)
             $primaryDefault | Should -Not -Be $fallbackDefault -Because 'the pin needs two different defaults'

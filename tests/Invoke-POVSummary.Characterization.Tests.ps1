@@ -127,7 +127,7 @@ $script:Scenarios = @(
     @{ Name = 'current-no-version'; Status = 'current-no-version' }
     @{ Name = 'err-no-key-claude'; Params = @{ Model = 'claude-haiku-4-5' }; NoKey = $true }
     @{ Name = 'err-no-key-openai'; Params = @{ Model = 'openai-gpt-4o-mini' }; NoKey = $true }
-    @{ Name = 'err-no-key-groq'; Params = @{ Model = 'groq-llama-3.1-8b-instant' }; NoKey = $true }
+    @{ Name = 'err-no-key-groq'; Params = @{ Model = 'groq-openai-gpt-oss-20b' }; NoKey = $true }
     @{ Name = 'err-version-missing'; Missing = @('version') }
     @{ Name = 'err-pipeline-failed'; Pipeline = @{ Success = $false; Error = 'CHESS pre-classification timed out' } }
     @{ Name = 'err-summary-write-failed'; FailWrite = 'summaries/doc-1.json'
@@ -137,7 +137,7 @@ $script:Scenarios = @(
     @{ Name = 'rich-rag'; DocId = 'altman-2024-agi-path'; ContextRot = 'Mixed'; SeedConflicts = $true
        Pipeline = @{ Summary = $script:RichSummary; FactualCount = 7; UnmappedCount = 4; TaxonomyJson = $script:RagContext } }
     @{ Name = 'fire-full-taxonomy'; LargeSnapshot = $true; ContextRot = 'NoSameUnit'; IndexThrows = $true
-       Params = @{ Model = 'groq-llama-3.1-8b-instant'; Temperature = 0.3; FullTaxonomy = $true; IterativeExtraction = $true; AutoFire = $true; CrossEncoderRerank = $true; RagMaxTotal = 50; Force = $true }
+       Params = @{ Model = 'groq-openai-gpt-oss-20b'; Temperature = 0.3; FullTaxonomy = $true; IterativeExtraction = $true; AutoFire = $true; CrossEncoderRerank = $true; RagMaxTotal = 50; Force = $true }
        Status = 'current'
        Pipeline = @{ Summary = $script:BareSummary; FactualCount = 0; UnmappedCount = 0; TaxonomyJson = $script:FullContext; UsedFire = $true
                      FireStats = [ordered]@{ total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; elapsed_seconds = 41.5; termination_reason = 'converged' } } }
