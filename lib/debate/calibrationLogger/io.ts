@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { CalibrationDataPoint } from './schema.js';
+import { BEHAVIOUR_REVISION } from './behaviourRevision.generated.js';
 import { getGlobalRecorder } from '../../flight-recorder/index.js';
 
 // ── File I/O ────────────────────────────────────────────────
@@ -40,7 +41,7 @@ import { getGlobalRecorder } from '../../flight-recorder/index.js';
  * legitimate recovery, not silent loss (contrast t/1626). No throw, no
  * ActionableError; this path must never fail a debate write.
  */
-function captureRunProvenance(): { config_revision: string; working_tree_state: 'clean' | 'dirty' | 'unknown' } {
+function captureRunProvenance(): { config_revision: string; working_tree_state: 'clean' | 'dirty' | 'unknown'; behaviour_revision: string } {
   // Resolve relative to this file — use import.meta.url for ESM compatibility (mirrors captureSnapshot).
   // This module lives in lib/debate/calibrationLogger/, so calibration-config.json (in lib/debate/)
   // is one directory up.
@@ -64,7 +65,9 @@ function captureRunProvenance(): { config_revision: string; working_tree_state: 
     working_tree_state = out.trim().length === 0 ? 'clean' : 'dirty';
   } catch { /* git unavailable (e.g. server/Azure) — leave 'unknown' */ }
 
-  return { config_revision, working_tree_state };
+  // behaviour_revision is a build-time constant (imported at module load) — no I/O at log time.
+  // Works identically in server/Azure builds where source files are absent (t/4166).
+  return { config_revision, working_tree_state, behaviour_revision: BEHAVIOUR_REVISION };
 }
 
 /**
