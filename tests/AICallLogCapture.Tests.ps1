@@ -85,10 +85,24 @@ Describe 'AI Call Log capture — Invoke-AIApi IoC logger (t/3242)' -Tag 'unit' 
             throw [Microsoft.PowerShell.Commands.HttpResponseException]::new('Server Error', $r)
         }
         $logger = { param($rc, $st) $global:AclCap.Add([pscustomobject]@{ RetryCount = $rc; Status = $st }) }
-        Invoke-AIApi -Prompt 'hi' -Model 'gemini-3.5-flash-lite' -ApiKey 'fake' -FallbackModels @() `
+        # -MaxRetries 1: since t/4078 a 500 is retried, so one attempt is what makes this 500 terminal.
+        Invoke-AIApi -Prompt 'hi' -Model 'gemini-3.5-flash-lite' -ApiKey 'fake' -FallbackModels @() -MaxRetries 1 `
             -CallLogger $logger -WarningAction SilentlyContinue | Out-Null
         $global:AclCap.Count         | Should -Be 1
         $global:AclCap[0].RetryCount | Should -Be 0
+        $global:AclCap[0].Status     | Should -Be '500'
+    }
+
+    It 'a retried 500 is logged once, with its RetryCount (t/4078)' {
+        Mock Invoke-RestMethod -ModuleName AIEnrich -MockWith {
+            $r = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]500)
+            throw [Microsoft.PowerShell.Commands.HttpResponseException]::new('Server Error', $r)
+        }
+        $logger = { param($rc, $st) $global:AclCap.Add([pscustomobject]@{ RetryCount = $rc; Status = $st }) }
+        Invoke-AIApi -Prompt 'hi' -Model 'gemini-3.5-flash-lite' -ApiKey 'fake' -FallbackModels @() -MaxRetries 3 `
+            -CallLogger $logger -WarningAction SilentlyContinue | Out-Null
+        $global:AclCap.Count         | Should -Be 1
+        $global:AclCap[0].RetryCount | Should -Be 2
         $global:AclCap[0].Status     | Should -Be '500'
     }
 
@@ -109,7 +123,8 @@ Describe 'AI Call Log capture — Invoke-AIApi IoC logger (t/3242)' -Tag 'unit' 
             $global:AclGeminiOk
         }
         $logger = { param($rc, $st) $global:AclCap.Add([pscustomobject]@{ RetryCount = $rc; Status = $st }) }
-        Invoke-AIApi -Prompt 'hi' -Model 'gemini-3.5-flash-lite' -ApiKey 'fake' `
+        # -MaxRetries 1: since t/4078 a 500 is retried; one primary attempt makes the fallback serve call 2.
+        Invoke-AIApi -Prompt 'hi' -Model 'gemini-3.5-flash-lite' -ApiKey 'fake' -MaxRetries 1 `
             -FallbackModels @('gemini-3.7-flash') -CallLogger $logger -WarningAction SilentlyContinue | Out-Null
         $global:AclCap.Count     | Should -Be 2
         $global:AclCap[0].Status | Should -Be '500'   # primary

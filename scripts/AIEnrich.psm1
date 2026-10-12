@@ -634,6 +634,29 @@ $script:AIBackendProfiles = @{
                     UriTemplate = 'https://api.deepseek.com/v1/chat/completions'; EnvHint = 'DEEPSEEK_API_KEY' }
 }
 
+function New-AIEnrichActionableError {
+    <#
+    .SYNOPSIS
+        AIEnrich's own actionable-error builder (t/4078). Returns an ErrorRecord to throw.
+    .DESCRIPTION
+        AITriad's New-ActionableError lives in AITriad/Private and is NOT visible from this separately
+        imported module, so calling it here threw CommandNotFoundException instead of the real error
+        (the same class as t/3123 Protect-SensitiveText, fixed the same way: a copy in THIS module).
+        The message is rendered exactly as New-ActionableError renders it (Goal: / Error: / Location: /
+        Resolve: with numbered steps), and the ErrorRecord mirrors its -AsErrorRecord shape: error id
+        'ActionableError' and TargetObject {ErrorType; Goal; Problem; Location; NextSteps}.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.ErrorRecord])]
+    param([Parameter(Mandatory)][string]$Goal, [Parameter(Mandatory)][string]$Problem,
+          [Parameter(Mandatory)][string]$Location, [Parameter(Mandatory)][string[]]$NextSteps)
+    $StepList = @(for ($i = 0; $i -lt $NextSteps.Count; $i++) { "   $($i + 1). $($NextSteps[$i])" }) -join "`n"
+    $Message = "`n  Goal:     $Goal`n  Error:    $Problem`n  Location: $Location`n  Resolve:`n$StepList"
+    $Target = [ordered]@{ ErrorType = $null; Goal = $Goal; Problem = $Problem; Location = $Location; NextSteps = @($NextSteps) }
+    [System.Management.Automation.ErrorRecord]::new([System.Exception]::new($Message), 'ActionableError',
+        [System.Management.Automation.ErrorCategory]::NotSpecified, $Target)
+}
+
 function Get-AIBackendEnvHint {
     <#
     .SYNOPSIS
@@ -661,9 +684,9 @@ function Get-AIRequestUri {
     if ($Uri.Contains('{azure-endpoint}')) {
         $AzureEndpoint = $env:AZURE_OPENAI_ENDPOINT
         if ([string]::IsNullOrWhiteSpace($AzureEndpoint)) {
-            # PINNED BUG (t/4078): New-ActionableError is not visible from this module, so this
-            # surfaces as a CommandNotFoundException. Pinned by the characterization tests.
-            throw (New-ActionableError `
+            # t/4078: AIEnrich's own builder; AITriad's New-ActionableError is not visible from this
+            # module (the t/3123 Protect-SensitiveText class) and surfaced as CommandNotFoundException.
+            throw (New-AIEnrichActionableError `
                 -Goal 'Call Azure OpenAI API' `
                 -Problem 'AZURE_OPENAI_ENDPOINT environment variable is not set' `
                 -Location 'Invoke-AIApi (azure)' `
@@ -908,16 +931,87 @@ function Write-AIApiConfigLog {
     $script:AIApiLastCorrelationId = $script:AIApiCorrelationId
 }
 
+# t/4078 retry policy (TL sign-off t/4078#3). HTTP codes retried on the RetryDelays schedule, up to
+# MaxRetries attempts. Other 4xx (400/401/403/404) are never retried: a retry cannot fix a bad request,
+# model id or key.
+$script:AIRetryableHttpStatus = @(429, 500, 502, 503, 504, 529)
+# A failure with no HTTP response (a timeout or a connection failure) is retried at most this many times
+# per call, whatever MaxRetries is: each attempt can burn the whole TimeoutSec, and a provider that did
+# finish the request bills it again (t/4078#3 billing note).
+$script:AINoResponseMaxRetries = 1
+
+function Get-AIErrorHttpStatus {
+    <#
+    .SYNOPSIS
+        The HTTP status code carried by an exception's Response (HttpResponseMessage, or the old
+        WebRequest shape), or $null when it has none. Safe under Set-StrictMode (t/4078).
+    #>
+    [CmdletBinding()]
+    param($Exception)
+    if ($null -eq $Exception -or -not $Exception.PSObject.Properties['Response']) { return $null }
+    $Resp = $Exception.Response
+    if ($null -eq $Resp -or -not $Resp.PSObject.Properties['StatusCode']) { return $null }
+    return $Resp.StatusCode.value__
+}
+
+function Get-AIRestFailureClass {
+    <#
+    .SYNOPSIS
+        Classifies an Invoke-RestMethod failure (t/4078) as [pscustomobject]{ Kind; StatusCode; Reason }.
+    .DESCRIPTION
+        Kind is 'http' (the error carries an HTTP response), 'timeout' (no response; a TimeoutException or
+        a cancellation anywhere in the exception chain: PS7 surfaces -TimeoutSec expiry as a
+        TaskCanceledException wrapping a TimeoutException, FQID ConnectionTimeoutReached), 'connection'
+        (no response; an HttpRequestException, SocketException or WebException, e.g. refused or DNS),
+        'other' (anything else) or 'none' (no error record). Reason is the text the retry WARN names:
+        'HTTP 502', 'timeout', 'connection failure', or ''.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param($ErrorRecord)
+    if (-not $ErrorRecord) { return [pscustomobject]@{ Kind = 'none'; StatusCode = $null; Reason = '' } }
+    $Status = Get-AIErrorHttpStatus -Exception $ErrorRecord.Exception
+    if ($null -ne $Status) { return [pscustomobject]@{ Kind = 'http'; StatusCode = [int]$Status; Reason = "HTTP $Status" } }
+    $Kind = 'other'
+    for ($e = $ErrorRecord.Exception; $null -ne $e; $e = $e.InnerException) {
+        if ($e -is [System.TimeoutException] -or $e -is [System.OperationCanceledException]) { $Kind = 'timeout'; break }
+        if ($e -is [System.Net.Http.HttpRequestException] -or $e -is [System.Net.Sockets.SocketException] -or $e -is [System.Net.WebException]) { $Kind = 'connection' }
+    }
+    $Reason = switch ($Kind) { 'timeout' { 'timeout' } 'connection' { 'connection failure' } default { '' } }
+    [pscustomobject]@{ Kind = $Kind; StatusCode = $null; Reason = $Reason }
+}
+
+function Test-AIRestFailureRetryable {
+    <#
+    .SYNOPSIS
+        True when a classified failure may be retried (t/4078): an HTTP code in
+        $script:AIRetryableHttpStatus, or a timeout/connection failure while fewer than
+        $script:AINoResponseMaxRetries no-response retries have been made. The caller still
+        stops at the last attempt.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Failure, [int]$NoResponseRetries)
+    switch ($Failure.Kind) {
+        'http'       { return ($Failure.StatusCode -in $script:AIRetryableHttpStatus) }
+        'timeout'    { return ($NoResponseRetries -lt $script:AINoResponseMaxRetries) }
+        'connection' { return ($NoResponseRetries -lt $script:AINoResponseMaxRetries) }
+    }
+    return $false
+}
+
 function Invoke-AIRestWithRetry {
     <#
     .SYNOPSIS
-        Invoke-AIApi's retry loop (t/4135 B2): POSTs the same UTF-8 body bytes up to MaxRetries
-        times and returns [pscustomobject]{ Response; LastError; Attempt }.
+        Invoke-AIApi's retry loop (t/4135 B2; policy t/4078): POSTs the same UTF-8 body bytes up to
+        MaxRetries times and returns [pscustomobject]{ Response; LastError; Attempt }.
     .DESCRIPTION
-        Only HTTP 429, 503 and 529 are retried, and never after the last attempt. The delay is
-        RetryDelays[Attempt], clamped to the last entry; a 429 waits at least 120s. Each retry
-        WARNs and calls Start-Sleep. Any other failure stops the loop at once. Attempt is the
-        zero-based index of the last attempt made (0 when MaxRetries is 0 and none is made).
+        HTTP 429, 500, 502, 503, 504 and 529 are retried; a timeout or connection failure (no HTTP
+        response) is retried at most once per call; anything else (400/401/403/404, ...) stops the loop
+        at once. Nothing is retried after the last attempt. The delay is RetryDelays[Attempt], clamped
+        to the last entry; a 429 waits at least 120s. Each retry WARNs with its reason ('HTTP 502',
+        'timeout', 'connection failure') and calls Start-Sleep. Attempt is the zero-based index of the
+        last attempt made. The whole loop finishes before Invoke-AIApi's cascade moves to another link.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -926,6 +1020,7 @@ function Invoke-AIRestWithRetry {
     $ContentType = 'application/json; charset=utf-8'
     $Response  = $null
     $LastError = $null
+    $NoResponseRetries = 0
 
     for ($Attempt = 0; $Attempt -lt $MaxRetries; $Attempt++) {
         try {
@@ -949,18 +1044,17 @@ function Invoke-AIRestWithRetry {
             $LastError = $null
             break
         } catch {
-            $LastError  = $_
-            $StatusCode = $_.Exception.Response.StatusCode.value__
+            $LastError = $_
+            $Failure   = Get-AIRestFailureClass -ErrorRecord $_
+            $Retryable = Test-AIRestFailureRetryable -Failure $Failure -NoResponseRetries $NoResponseRetries
+            if (-not $Retryable -or $Attempt -ge ($MaxRetries - 1)) { break }
+            if ($Failure.Kind -ne 'http') { $NoResponseRetries++ }
 
-            if ($StatusCode -in @(429, 503, 529) -and $Attempt -lt ($MaxRetries - 1)) {
-                if ($Attempt -lt $RetryDelays.Count) { $Delay = $RetryDelays[$Attempt] } else { $Delay = $RetryDelays[-1] }
-                # Server-side rate limiting (429) needs a longer wait than transient errors
-                if ($StatusCode -eq 429) { $Delay = [Math]::Max($Delay, 120) }
-                Write-Warning "$($Backend): HTTP $StatusCode — retrying in ${Delay}s (attempt $($Attempt + 1)/$MaxRetries)"
-                Start-Sleep -Seconds $Delay
-            } else {
-                break
-            }
+            if ($Attempt -lt $RetryDelays.Count) { $Delay = $RetryDelays[$Attempt] } else { $Delay = $RetryDelays[-1] }
+            # Server-side rate limiting (429) needs a longer wait than transient errors
+            if ($Failure.StatusCode -eq 429) { $Delay = [Math]::Max($Delay, 120) }
+            Write-Warning "$($Backend): $($Failure.Reason) — retrying in ${Delay}s (attempt $($Attempt + 1)/$MaxRetries)"
+            Start-Sleep -Seconds $Delay
         }
     }
     [pscustomobject]@{ Response = $Response; LastError = $LastError; Attempt = $Attempt }
@@ -1007,8 +1101,25 @@ function Get-AIApiFailureStatusCode {
     #>
     [CmdletBinding()]
     param($LastError)
-    if ($LastError) { return $LastError.Exception.Response.StatusCode.value__ }
+    if ($LastError) { return Get-AIErrorHttpStatus -Exception $LastError.Exception }
     return '?'
+}
+
+function Get-AIApiFailureLabel {
+    <#
+    .SYNOPSIS
+        The parenthesised status in Invoke-AIApi's failure line (t/4078): "timeout after <N>s" for a
+        timeout, "connection failure" for a failure with no HTTP response, else "HTTP <code>" (which
+        stays "HTTP " / "HTTP ?" for an unclassified error / no error record, as before).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param($LastError, $StatusCode, [int]$TimeoutSec)
+    switch ((Get-AIRestFailureClass -ErrorRecord $LastError).Kind) {
+        'timeout'    { return "timeout after ${TimeoutSec}s" }
+        'connection' { return 'connection failure' }
+    }
+    return "HTTP $StatusCode"
 }
 
 function Write-AIApiFailure {
@@ -1023,7 +1134,7 @@ function Write-AIApiFailure {
         for any caller still on that path. A blank body is not logged; reading it never throws.
     #>
     [CmdletBinding()]
-    param([string]$Backend, $LastError, $StatusCode, [string]$ResolvedKey)
+    param([string]$Backend, $LastError, $StatusCode, [string]$ResolvedKey, [int]$TimeoutSec)
     $Hint = switch ($StatusCode) {
         401     { 'Check your API key — it may be invalid or expired.' }
         403     { 'Access denied — verify your API key has the required permissions.' }
@@ -1032,7 +1143,8 @@ function Write-AIApiFailure {
         default { '' }
     }
     $SafeMsg = Protect-SensitiveText -Text $LastError.Exception.Message -Secret $ResolvedKey
-    Write-Warning "$($Backend): API call failed (HTTP $StatusCode) — $SafeMsg"
+    $StatusLabel = Get-AIApiFailureLabel -LastError $LastError -StatusCode $StatusCode -TimeoutSec $TimeoutSec
+    Write-Warning "$($Backend): API call failed ($StatusLabel) — $SafeMsg"
     if ($Hint) { Write-Warning "$($Backend): $Hint" }
     try {
         $ErrBody = $null
@@ -1061,9 +1173,13 @@ function Invoke-AIModelCascade {
         Links are FallbackModels, else the primary's $script:FallbackChains entry; an empty
         FallbackModels (@()) disables the cascade. A link is skipped when it is not a registered
         model, when the primary failed 401/403 and the link is on the same backend, or when no
-        key resolves for it. Each link is a recursive Invoke-AIApi with MaxRetries 2,
-        RetryDelays 5/15, no further fallback, no token check, the CallLogger forwarded and the
-        PRIMARY's TimeoutSec (pinned as-is by the t/4078 characterization).
+        key resolves for it. Each link is a recursive Invoke-AIApi (New-AICascadeLinkParams) with
+        MaxRetries 2, RetryDelays 5/15, no further fallback, no token check and the CallLogger
+        forwarded. A link exhausts its own retries before the next link is tried.
+
+        t/4078 §2: TimeoutSec is the caller's EXPLICIT -TimeoutSec (Invoke-AIApi passes 0 when the
+        caller gave none); 0 means each link uses its own model's Get-AIDefaultTimeoutSec, never
+        the primary's resolved default.
 
         t/4102: a link whose only key is the gemini-only $env:AI_API_KEY is "not configured"
         here, not an error: it is skipped with a WARN (SO e/284#2 cond. 1). Every other refusal,
@@ -1093,27 +1209,49 @@ function Invoke-AIModelCascade {
         if ([string]::IsNullOrWhiteSpace($FbKey)) { continue }
 
         Write-Warning "Cascade: falling back to $FbModel ($($FbInfo.Backend))"
-        $FbParams = @{
-            Prompt         = $Prompt
-            Model          = $FbModel
-            ApiKey         = $FbKey
-            Temperature    = $Temperature
-            MaxTokens      = $MaxTokens
-            TimeoutSec     = $TimeoutSec
-            MaxRetries     = 2
-            RetryDelays    = @(5, 15)
-            FallbackModels = @()
-            SkipTokenCheck = $true
-            CallLogger     = $CallLogger   # t/3242 cond.1: forward the logger through the cascade
-        }
-        if ($SystemInstruction) { $FbParams['SystemInstruction'] = $SystemInstruction }
-        if ($JsonMode)          { $FbParams['JsonMode'] = $true }
-        if ($ResponseSchema)    { $FbParams['ResponseSchema'] = $ResponseSchema }
+        $FbParams = New-AICascadeLinkParams -FbModel $FbModel -FbKey $FbKey -Prompt $Prompt `
+            -SystemInstruction $SystemInstruction -Temperature $Temperature -MaxTokens $MaxTokens `
+            -TimeoutSec $TimeoutSec -JsonMode:$JsonMode -ResponseSchema $ResponseSchema -CallLogger $CallLogger
 
         $FbResult = Invoke-AIApi @FbParams
         if ($null -ne $FbResult) { return $FbResult }
     }
     return $null
+}
+
+function New-AICascadeLinkParams {
+    <#
+    .SYNOPSIS
+        The splat for one cascade link's recursive Invoke-AIApi call (t/4135 B2; split out by t/4078).
+    .DESCRIPTION
+        MaxRetries 2, RetryDelays 5/15, FallbackModels @() (no further cascade), SkipTokenCheck and the
+        CallLogger forwarded (t/3242 cond.1). SystemInstruction, JsonMode and ResponseSchema are passed
+        only when set. TimeoutSec is the caller's explicit value when > 0, else the LINK model's own
+        Get-AIDefaultTimeoutSec (t/4078 §2), so a slow fallback is not cut off at a fast primary's default.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$FbModel, [string]$FbKey, [string]$Prompt, [string]$SystemInstruction,
+          [double]$Temperature, [int]$MaxTokens, [int]$TimeoutSec, [switch]$JsonMode,
+          [hashtable]$ResponseSchema, [scriptblock]$CallLogger)
+    $LinkTimeoutSec = if ($TimeoutSec -gt 0) { $TimeoutSec } else { Get-AIDefaultTimeoutSec -Model $FbModel }
+    $FbParams = @{
+        Prompt         = $Prompt
+        Model          = $FbModel
+        ApiKey         = $FbKey
+        Temperature    = $Temperature
+        MaxTokens      = $MaxTokens
+        TimeoutSec     = $LinkTimeoutSec
+        MaxRetries     = 2
+        RetryDelays    = @(5, 15)
+        FallbackModels = @()
+        SkipTokenCheck = $true
+        CallLogger     = $CallLogger   # t/3242 cond.1: forward the logger through the cascade
+    }
+    if ($SystemInstruction) { $FbParams['SystemInstruction'] = $SystemInstruction }
+    if ($JsonMode)          { $FbParams['JsonMode'] = $true }
+    if ($ResponseSchema)    { $FbParams['ResponseSchema'] = $ResponseSchema }
+    return $FbParams
 }
 
 function Write-AIEnvelopeShapeWarning {
@@ -1251,24 +1389,79 @@ function ConvertFrom-AIOpenAIResponsesEnvelope {
     @{ Text = $Text; Truncated = $Truncated; Usage = $Usage }
 }
 
+function Get-AIEnvelopeStopReason {
+    <#
+    .SYNOPSIS
+        The stop/finish reason a response envelope carries, as "<field>=<value>" text for a WARN, or ''
+        when it has none (t/4078 §3): gemini candidates[0].finishReason, claude stop_reason, chat
+        choices[0].finish_reason, openai-responses status (+ incomplete_details.reason). Never throws:
+        a malformed or non-object body (an HTML page) simply has no reason.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$ResponseShape, $Response)
+    try {
+        switch ($ResponseShape) {
+            'gemini' { $v = $Response.candidates[0].finishReason; if ($v) { return "finishReason=$v" } }
+            'claude' { $v = $Response.stop_reason; if ($v) { return "stop_reason=$v" } }
+            'chat'   { $v = $Response.choices[0].finish_reason; if ($v) { return "finish_reason=$v" } }
+            'openai-responses' {
+                $v = $Response.status
+                $Detail = $Response.incomplete_details.reason
+                if ($v -and $Detail) { return "status=$v, incomplete_details.reason=$Detail" }
+                if ($v) { return "status=$v" }
+            }
+        }
+    } catch { Write-Verbose "Get-AIEnvelopeStopReason: no readable stop reason ($($_.Exception.Message))" }
+    return ''
+}
+
+function Write-AIEmptyTextWarning {
+    <#
+    .SYNOPSIS
+        The WARN for a 200 response that yielded no text (t/4078 §3): the backend's display name, the
+        backend id and model, and the envelope's stop/finish reason when it has one, so "the provider
+        stopped" (max_tokens, safety, tool_use) is told apart from "the parser missed the shape".
+    #>
+    [CmdletBinding()]
+    param([string]$Backend, [string]$Model, [hashtable]$BackendProfile, $Response)
+    $Name   = if ($BackendProfile) { $BackendProfile.DisplayName } else { $Backend }
+    $Shape  = if ($BackendProfile) { $BackendProfile.ResponseShape } else { '' }
+    $Reason = Get-AIEnvelopeStopReason -ResponseShape $Shape -Response $Response
+    if (-not $Reason) { $Reason = 'no stop reason in the response' }
+    Write-Warning "$($Name): response had no text (backend $Backend, model $Model, $Reason). Returning `$null so a fallback can be tried."
+}
+
 function ConvertFrom-AIResponseEnvelope {
     <#
     .SYNOPSIS
         Dispatches a backend's response to its envelope parser by the profile's ResponseShape
         (t/4135 B2). Returns { Text; Truncated; Usage }, or $null when the parser rejected the
-        response. A backend with no profile row yields Text $null, Truncated $false, Usage $null.
+        response or the response had no text.
+    .DESCRIPTION
+        t/4078 §3: a parsed response whose Text is null, empty or whitespace (a well-formed envelope
+        with no text part, or a malformed / HTML body the claude and openai parsers read as no text)
+        WARNs via Write-AIEmptyTextWarning and returns $null, like any failed call, so a cascade link
+        that gets it moves on to the next link. A backend with no profile row has no parser, so it
+        takes the same path.
     #>
     [CmdletBinding()]
-    param([string]$Backend, $Response)
-    if (-not $script:AIBackendProfiles.ContainsKey($Backend)) { return @{ Text = $null; Truncated = $false; Usage = $null } }
-    $BackendProfile = $script:AIBackendProfiles[$Backend]
-    switch ($BackendProfile.ResponseShape) {
-        'gemini'           { return ConvertFrom-AIGeminiEnvelope -Response $Response }
-        'claude'           { return ConvertFrom-AIClaudeEnvelope -Response $Response }
-        'chat'             { return ConvertFrom-AIChatEnvelope -Response $Response -DisplayName $BackendProfile.ParseDisplayName }
-        'openai-responses' { return ConvertFrom-AIOpenAIResponsesEnvelope -Response $Response }
+    param([string]$Backend, [string]$Model, $Response)
+    $BackendProfile = if ($script:AIBackendProfiles.ContainsKey($Backend)) { $script:AIBackendProfiles[$Backend] } else { $null }
+    $Shape = if ($BackendProfile) { $BackendProfile.ResponseShape } else { '' }
+    $Parsed = switch ($Shape) {
+        'gemini'           { ConvertFrom-AIGeminiEnvelope -Response $Response }
+        'claude'           { ConvertFrom-AIClaudeEnvelope -Response $Response }
+        'chat'             { ConvertFrom-AIChatEnvelope -Response $Response -DisplayName $BackendProfile.ParseDisplayName }
+        'openai-responses' { ConvertFrom-AIOpenAIResponsesEnvelope -Response $Response }
+        default            { @{ Text = $null; Truncated = $false; Usage = $null } }
     }
-    return @{ Text = $null; Truncated = $false; Usage = $null }
+    if ($null -eq $Parsed) { return $null }
+    if ([string]::IsNullOrWhiteSpace([string]$Parsed.Text)) {
+        Write-AIEmptyTextWarning -Backend $Backend -Model $Model -BackendProfile $BackendProfile -Response $Response
+        return $null
+    }
+    return $Parsed
 }
 
 <#
@@ -1279,7 +1472,8 @@ function ConvertFrom-AIResponseEnvelope {
     prompt and model name, looks up the backend (Gemini, Claude, or Groq) from
     the model registry (ai-models.json), builds the backend-specific HTTP
     request, executes it with automatic retry on transient errors (HTTP 429,
-    503, 529), and returns a uniform result object.
+    500, 502, 503, 504, 529 on the RetryDelays schedule; a timeout or connection
+    failure at most once; never another 4xx), and returns a uniform result object.
 
     The result object has six properties:
       Text        — the generated text content
@@ -1289,7 +1483,8 @@ function ConvertFrom-AIResponseEnvelope {
       Usage       — token counts (InputTokens, OutputTokens, TotalTokens) or $null
       RawResponse — the full deserialized API response
 
-    Returns $null on failure (with warnings explaining the issue).
+    Returns $null on failure (with warnings explaining the issue), including a
+    200 response with no text (t/4078).
 .PARAMETER Prompt
     The prompt text to send to the AI model.
 .PARAMETER Model
@@ -1308,9 +1503,11 @@ function ConvertFrom-AIResponseEnvelope {
     When provided, implies -JsonMode. Gemini and Groq enforce the schema
     via constrained decoding; Claude injects the schema into the prompt.
 .PARAMETER TimeoutSec
-    HTTP request timeout in seconds.  Defaults to 120.
+    HTTP request timeout in seconds.  Defaults to the model's Get-AIDefaultTimeoutSec.
+    When given, it also applies to every fallback link; when omitted, each link
+    uses its own model's default.
 .PARAMETER MaxRetries
-    Number of retry attempts on transient failures.  Defaults to 5.
+    Maximum number of attempts (1-10, so 1 means no retry).  Defaults to 5.
 .PARAMETER RetryDelays
     Array of delay durations (seconds) between retries.  Defaults to @(15, 45, 90, 120).
 .PARAMETER FallbackModels
@@ -1351,6 +1548,8 @@ function Invoke-AIApi {
         [switch]$JsonMode,
         [hashtable]$ResponseSchema,
         [int]   $TimeoutSec  = 0,
+        # t/4078: at least one attempt. 0 used to send no request at all and fail with "(HTTP ?) — ".
+        [ValidateRange(1, 10)]
         [int]   $MaxRetries  = 5,
         [int[]] $RetryDelays = @(15, 45, 90, 120),
         [string[]]$FallbackModels,
@@ -1371,6 +1570,9 @@ function Invoke-AIApi {
     $Backend    = $ModelInfo.Backend
     $ApiModelId = $ModelInfo.ApiModelId
 
+    # t/4078 §2: the cascade gets only the caller's EXPLICIT -TimeoutSec ($null -> 0 when it was not
+    # passed), so each fallback link resolves its own model's default instead of inheriting this one's.
+    $ExplicitTimeoutSec = [int]$PSBoundParameters['TimeoutSec']
     if ($TimeoutSec -le 0) { $TimeoutSec = Get-AIDefaultTimeoutSec -Model $Model }
 
     # -- Resolve API key ------------------------------------------------------
@@ -1431,19 +1633,20 @@ function Invoke-AIApi {
 
     if ($null -ne $LastError -or $null -eq $Response) {
         $StatusCode = Get-AIApiFailureStatusCode -LastError $LastError
-        Write-AIApiFailure -Backend $Backend -LastError $LastError -StatusCode $StatusCode -ResolvedKey $ResolvedKey
+        Write-AIApiFailure -Backend $Backend -LastError $LastError -StatusCode $StatusCode -ResolvedKey $ResolvedKey -TimeoutSec $TimeoutSec
 
         # -- Model cascade: try fallback models ----------------------------------
         $FbResult = Invoke-AIModelCascade -FallbackModels $FallbackModels -Model $Model -Backend $Backend `
             -StatusCode $StatusCode -Prompt $Prompt -SystemInstruction $SystemInstruction -Temperature $Temperature `
-            -MaxTokens $MaxTokens -TimeoutSec $TimeoutSec -JsonMode:$JsonMode -ResponseSchema $ResponseSchema `
+            -MaxTokens $MaxTokens -TimeoutSec $ExplicitTimeoutSec -JsonMode:$JsonMode -ResponseSchema $ResponseSchema `
             -CallLogger $CallLogger
         return $FbResult
     }
 
     # -- Extract text from backend-specific response envelope -----------------
-    # t/4135 B2: dispatched by the profile's ResponseShape; $null means the parser WARNed.
-    $Parsed = ConvertFrom-AIResponseEnvelope -Backend $Backend -Response $Response
+    # t/4135 B2: dispatched by the profile's ResponseShape; $null means the parser WARNed, or (t/4078 §3)
+    # the response had no text.
+    $Parsed = ConvertFrom-AIResponseEnvelope -Backend $Backend -Model $Model -Response $Response
     if ($null -eq $Parsed) { return $null }
     $Truncated = $Parsed.Truncated
 
