@@ -367,6 +367,31 @@ test('t/3695 FIXTURE: a backtick subshell is also caught', () => {
   assert.equal(v.block, true);
 });
 
+// ── t/3695#30 round 3 (Lead review, real incident 2026-10-12 11:21Z): backtick substitution
+// inside a DOUBLE-QUOTED --body argument actually ran `gh pr merge 5 --squash` for real (it
+// failed harmlessly on a stray flag). Round 2's tokenizer still read this as `not-a-merge` --
+// a live regression for a class that had just occurred, caught before merge. ──
+test('t/3695 FIXTURE: a backtick inside a DOUBLE-QUOTED --body argument IS judged (bash substitutes there)', () => {
+  const c = 'gh pr comment 1 --body "see `gh pr merge 5 --squash`"';
+  const v = mergeGuardVerdict(c);
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: a backtick inside a SINGLE-QUOTED --body argument stays literal (no substitution)', () => {
+  const c = "gh pr comment 1 --body 'see `gh pr merge 5 --squash`'";
+  const v = mergeGuardVerdict(c);
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'not-a-merge');
+});
+
+test('t/3695 regression: a guarded merge inside a double-quoted backtick span is also recognized', () => {
+  const c = 'gh pr comment 1 --body "see `gh pr merge 5 --squash --match-head-commit abc`"';
+  const v = mergeGuardVerdict(c);
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'guarded');
+});
+
 test('t/3695 REGRESSION GUARD: a subshell used as a FLAG VALUE (not a separate clause) stays one guarded clause', () => {
   // The exact shape the root AGENTS.md remedy text recommends: --match-head-commit's value is
   // itself a command substitution. Must NOT be cut into a bare merge + a stray $(gh pr view …).

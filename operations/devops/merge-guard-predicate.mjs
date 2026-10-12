@@ -145,7 +145,57 @@ export function stripHeredocBodies(command) {
 // top-level command (`gh pr merge N --match-head-commit $(gh pr view N …)` is ONE clause whose
 // `--match-head-commit` value happens to be a substitution; splitting there would cut the flag's
 // value off from it and false-positive-block an already-guarded merge).
-const SUBSHELL_CHAR_RE = /[()`{}]/;
+// Backticks are handled SEPARATELY (extractBacktickSpans, below), not as a dropped word-boundary
+// char like `(`/`{` -- bash substitutes a backtick span even INSIDE double quotes (t/3695#30
+// round 3, Lead review: a real backtick in a double-quoted `--body` argument actually ran `gh pr
+// merge 5 --squash` on 2026-10-12, which the round-2 tokenizer still read as `not-a-merge` -- a
+// live regression for a class that had just occurred). Single-quoted backticks stay literal (bash
+// does not substitute inside single quotes), so extraction must be quote-aware.
+const SUBSHELL_CHAR_RE = /[(){}]/;
+
+/**
+ * Quote-aware backtick extraction (t/3695#30 round 3). Returns `withoutBackticks` (same length as
+ * `command`, each backtick span replaced by spaces so downstream position math stays valid) and
+ * `spans` (the raw text between each pair of backticks, recursively re-scanned by mergeClauses for
+ * an embedded `gh pr merge` -- this is what lets a merge inside a --body argument surface as its
+ * own judged clause even though the OUTER command is `gh pr comment`, not `gh pr merge`).
+ * Single-quoted regions are copied through literally; backticks found there are NOT extracted.
+ */
+function extractBacktickSpans(command) {
+  const s = command;
+  const n = s.length;
+  let out = '';
+  const spans = [];
+  let i = 0;
+  let inSingle = false;
+  let inDouble = false;
+  while (i < n) {
+    const c = s[i];
+    if (inSingle) {
+      out += c;
+      if (c === "'") inSingle = false;
+      i++;
+      continue;
+    }
+    if (c === '\\' && i + 1 < n) { out += c + s[i + 1]; i += 2; continue; }
+    if (!inDouble && c === "'") { inSingle = true; out += c; i++; continue; }
+    if (c === '"') { inDouble = !inDouble; out += c; i++; continue; }
+    if (c === '`') {
+      let j = i + 1;
+      let content = '';
+      while (j < n && s[j] !== '`') {
+        if (s[j] === '\\' && j + 1 < n) { content += s[j] + s[j + 1]; j += 2; } else { content += s[j]; j++; }
+      }
+      spans.push(content);
+      out += ' '.repeat(Math.min(j + 1, n) - i);
+      i = j + 1;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return { withoutBackticks: out, spans };
+}
 
 function tokenizeShellWords(command) {
   const s = command;
@@ -265,7 +315,11 @@ function findMergeCommandStart(words) {
 
 export function mergeClauses(command) {
   const cmd = stripHeredocBodies(command);
-  const tokens = tokenizeShellWords(cmd);
+  // t/3695#30 round 3: backtick spans are pulled out and re-scanned on their OWN, independent of
+  // what command they're embedded in (a merge inside a `gh pr comment --body "…`gh pr merge
+  // 5`…"` argument is a real invocation even though the OUTER command is `comment`, not `merge`).
+  const { withoutBackticks, spans } = extractBacktickSpans(cmd);
+  const tokens = tokenizeShellWords(withoutBackticks);
   const groups = splitIntoClauseWordGroups(tokens);
   const out = [];
   for (const words of groups) {
@@ -273,6 +327,7 @@ export function mergeClauses(command) {
     if (ghIndex === null) continue;
     out.push(cmd.slice(words[ghIndex].start, words[words.length - 1].end));
   }
+  for (const span of spans) out.push(...mergeClauses(span));
   return out;
 }
 
