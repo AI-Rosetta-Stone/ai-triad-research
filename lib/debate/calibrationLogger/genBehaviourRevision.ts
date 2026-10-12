@@ -41,18 +41,23 @@ export function computeBehaviourRevision(files: string[]): string {
   return createHash('sha256').update(normalized).digest('hex').slice(0, 12);
 }
 
-const files = getBehaviourFiles();
-const revision = computeBehaviourRevision(files);
+// Guard: only run the generator when invoked as a script, not when imported by tests.
+// Without this, `import { computeBehaviourRevision } from './genBehaviourRevision.js'`
+// in the staleness test would regenerate the constant, making the test always pass.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const files = getBehaviourFiles();
+  const revision = computeBehaviourRevision(files);
 
-const banner = [
-  '// AUTO-GENERATED — do not edit by hand.',
-  '// Run `npm run gen:behaviour-revision` to regenerate.',
-  '// Source: lib/debate/calibrationLogger/genBehaviourRevision.ts',
-  '',
-  `// Files hashed: ${files.length} (see behaviourRevisionFiles.ts)`,
-  `export const BEHAVIOUR_REVISION = '${revision}';`,
-  '',
-].join('\n');
+  const banner = [
+    '// AUTO-GENERATED — do not edit by hand.',
+    '// Run `npm run gen:behaviour-revision` to regenerate.',
+    '// Source: lib/debate/calibrationLogger/genBehaviourRevision.ts',
+    '',
+    `// Files hashed: ${files.length} (see behaviourRevisionFiles.ts)`,
+    `export const BEHAVIOUR_REVISION = '${revision}';`,
+    '',
+  ].join('\n');
 
-writeFileSync(outPath, banner, 'utf-8');
-console.log(`behaviour_revision: ${revision} → ${outPath}`);
+  writeFileSync(outPath, banner, 'utf-8');
+  console.log(`behaviour_revision: ${revision} → ${outPath}`);
+}
