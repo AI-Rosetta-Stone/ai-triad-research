@@ -116,7 +116,7 @@ describe('refuse and propose; accept the exact proposal (CL p/742#3 sign-off)', 
 
   it('accepting that exact proposal writes it, records who/why/hash/old→new, and flags a calibration epoch', async () => {
     const dry = await refreshAIModels(deps, { dryRun: true });
-    const r = await refreshAIModels(deps, { accept: { proposal: dry.proposal!, approvedBy: 'CL', reason: 'gemini-3.1-pro retired by vendor' } });
+    const r = await refreshAIModels(deps, { accept: { principal: 'host:test', proposal: dry.proposal!, approvedBy: 'CL', reason: 'gemini-3.1-pro retired by vendor' } });
     expect(r.written).toBe(true);
     expect(saved().defaults.gemini).toBe('gemini-3.6-pro');
     expect(saved().fallbackChains['gemini-3.6-pro']).toEqual(['gemini-3.5-flash-lite']);
@@ -143,7 +143,7 @@ describe('TL 2: an accept whose recomputed proposal differs is refused as propos
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'];
     const dry = await refreshAIModels(deps, { dryRun: true });
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.7-pro', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'];
-    const r = await refreshAIModels(deps, { accept: { proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
+    const r = await refreshAIModels(deps, { accept: { principal: 'host:test', proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
     expect(r.written).toBe(false);
     expect(r.refusal?.reason).toBe('proposal-changed');
     const refusal = r.refusal as Extract<RefreshResult['refusal'], { reason: 'proposal-changed' }>;
@@ -156,7 +156,7 @@ describe('TL 2: an accept whose recomputed proposal differs is refused as propos
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'];
     const dry = await refreshAIModels(deps, { dryRun: true });
     const tampered = { ...dry.proposal!, changes: dry.proposal!.changes.map((c) => c.slot === 'defaults.gemini' ? { ...c, to: 'gemini-2.5-pro' } : c) };
-    const r = await refreshAIModels(deps, { accept: { proposal: tampered, approvedBy: 'x', reason: 'y' } });
+    const r = await refreshAIModels(deps, { accept: { principal: 'host:test', proposal: tampered, approvedBy: 'x', reason: 'y' } });
     expect(r.refusal?.reason).toBe('proposal-changed');
     expect(writes).toBe(0);
   });
@@ -167,7 +167,7 @@ describe('SO e/263#4: pinned candidates are never compared, so they can\'t fail 
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'];
     const dry = await refreshAIModels(deps, { dryRun: true });
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.5-flash-lite', 'gemini-3.9-flash-lite', 'gemini-2.5-pro'];
-    const r = await refreshAIModels(deps, { accept: { proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
+    const r = await refreshAIModels(deps, { accept: { principal: 'host:test', proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
     expect(r.written).toBe(true);
     expect(r.pinnedCandidates?.map((c) => c.newerInFamily)).toContain('gemini-3.9-flash-lite');
     expect(r.proposal!.changes.some((c) => JSON.stringify(c).includes('3.9'))).toBe(false);
@@ -209,7 +209,7 @@ describe('TL 3: an accepted proposal still goes through validate-before-write', 
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'];
     const dry = await refreshAIModels(deps, { dryRun: true });
     expect(dry.refusal?.reason).toBe('proposal-required');
-    const r = await refreshAIModels(deps, { accept: { proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
+    const r = await refreshAIModels(deps, { accept: { principal: 'host:test', proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
     expect(r.written).toBe(false);
     expect(r.refusal).toMatchObject({ reason: 'invalid', chainless: ['gemini default "gemini-3.6-pro" has no fallbackChain'] });
     expect(writes).toBe(0);
@@ -294,7 +294,7 @@ describe('e/271#12: models named in code are pinned (1, 9) and their vendor abse
     const dry = await refreshAIModels(codeDeps, { dryRun: true });
     expect(dry.refusal?.reason).toBe('proposal-required');
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
-    const r = await refreshAIModels(codeDeps, { accept: { proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
+    const r = await refreshAIModels(codeDeps, { accept: { principal: 'host:test', proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
     expect(r.refusal?.reason).toBe('code-referenced-absent');
     expect(writes).toBe(0);
   });
@@ -336,7 +336,7 @@ describe('e/271#12: models named in code are pinned (1, 9) and their vendor abse
   it('TL #2984 review: a successful accept says verify:config must pass before the commit', async () => {
     geminiCatalog = ['gemini-3.6-pro', 'gemini-3.5-flash-lite', 'gemini-2.5-pro'];
     const dry = await refreshAIModels(deps, { dryRun: true });
-    const r = await refreshAIModels(deps, { accept: { proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
+    const r = await refreshAIModels(deps, { accept: { principal: 'host:test', proposal: dry.proposal!, approvedBy: 'CL', reason: 'r' } });
     expect(r.written).toBe(true);
     expect(r.configWarning).toContain('`npm run verify:config` must pass before you commit it');
   });
