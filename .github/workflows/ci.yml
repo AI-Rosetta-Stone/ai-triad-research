@@ -1000,9 +1000,24 @@ jobs:
       always() && !cancelled() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.verify-config == 'true')
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      # Verify-Config.ps1's Pester gates import the module, which loads the taxonomy. Without the
+      # data repo, the import warns "no valid JSON files loaded" into ModelLiteralLint's emitter
+      # stdout and 3 of its tests fail on a polluted JSON array (t/4150#4). Same checkout as the
+      # test-powershell shards.
+      - name: Checkout data repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        continue-on-error: true
+        with:
+          repository: jpsnover/ai-triad-data
+          path: ai-triad-data
+          fetch-depth: 1
+
+      - name: Symlink data repo to expected location
+        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
+        continue-on-error: true
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
@@ -1031,8 +1046,13 @@ jobs:
         shell: pwsh
         run: Install-Module Pester -Force -Scope CurrentUser
 
+      # WARN-FIRST (t/4150): continue-on-error sits on the STEP, as on every other warn gate in
+      # this file. A red run shows as a failure-level annotation and step outcome=failure while
+      # the job stays green. Judge the warn phase by annotations and outcome, never by the
+      # checkmark (TL t/3897#2). Promotion to blocking (dropping this, joining ci-gate) is T2.
       - name: Run verify:config
         shell: pwsh
+        continue-on-error: true
         run: ./scripts/Verify-Config.ps1
 
   # ── contrast-check: static token-contrast ratchet gate (t/2264) ──
