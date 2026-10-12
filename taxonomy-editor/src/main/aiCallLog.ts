@@ -109,6 +109,18 @@ function nextAdvisoryId(logPath: string): number {
   }
 }
 
+/** Validated KeySource for the record — '' (with a WARN) when the caller's value isn't in the
+ *  closed vocabulary (t/4088#3). Split out of writeAICallLogEntry to keep its complexity under
+ *  the file's budget (local/complexity-budget). */
+function normalizeKeySource(keySource: string): string {
+  if (isValidKeySource(keySource)) return keySource;
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'ai-call-log', level: 'warn',
+    message: "AI call-log (main): KeySource is not in the closed vocabulary (tests/fixtures/ai-call-log/README.md); writing '' instead (t/4088)",
+  });
+  return '';
+}
+
 /**
  * Append one 10-field JSONL record to the AI call log — a no-op when the flag is off.
  * Fail-safe: IO errors are WARN-recorded and swallowed (audit log must never break the call it audits).
@@ -126,14 +138,7 @@ export function writeAICallLogEntry(entry: AICallLogEntry, pathOverride?: string
       ? entry.promptStart.slice(0, PROMPT_START_MAX)
       : entry.promptStart;
 
-    let keySource = entry.keySource ?? '';
-    if (!isValidKeySource(keySource)) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'ai-call-log', level: 'warn',
-        message: "AI call-log (main): KeySource is not in the closed vocabulary (tests/fixtures/ai-call-log/README.md); writing '' instead (t/4088)",
-      });
-      keySource = '';
-    }
+    const keySource = normalizeKeySource(entry.keySource ?? '');
 
     const record = {
       ID: nextAdvisoryId(logPath),
