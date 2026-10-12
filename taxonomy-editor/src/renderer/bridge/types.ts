@@ -14,6 +14,17 @@
 import type { StopReason, ProviderCallDiagnostics } from '@lib/ai-client/types';
 import type { PovTagProposalsFile, ProposalDecision, ProposalStatus, ApplyProposalDecisionResult } from '@lib/schema/povTagProposals';
 import type { RecountPolicyMembersResult } from '@lib/policy/registryRecount';
+import type { RefreshResult, RefreshAccept } from '@lib/electron-shared/modelDiscovery';
+
+/**
+ * What the renderer may send to a model refresh (t/4031). No argument is a plain refresh, exactly as before.
+ * `accept` carries only what a person supplies: the exact proposal they were shown, their name and their reason.
+ * Who is authenticated is never the renderer's to say; the host sets that (TL t/4031#2, adjustment 3).
+ */
+export interface RefreshModelsRequest {
+  dryRun?: boolean;
+  accept?: Pick<RefreshAccept, 'proposal' | 'approvedBy' | 'reason'>;
+}
 
 export interface GroundingSegment {
   startIndex: number;
@@ -423,7 +434,8 @@ export interface AppAPI {
 
   // --- AI models & keys ---
   loadAIModels: () => Promise<unknown>;
-  refreshAIModels: () => Promise<unknown>;
+  /** t/4031: `opts` asks for a dry run or accepts a proposal; omit it for a plain refresh. */
+  refreshAIModels: (opts?: RefreshModelsRequest) => Promise<RefreshResult>;
   validateApiKey: (key: string, backend: string) => Promise<{ valid: boolean; error?: string }>;
   verifyStoredKeys: (backend: string) => Promise<{ results: { index: number; masked: string; valid: boolean; error?: string }[] }>;
   setApiKey: (key: string, backend?: string) => Promise<void>;

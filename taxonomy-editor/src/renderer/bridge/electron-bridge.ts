@@ -178,7 +178,8 @@ export const api: AppAPI = {
 
   // AI models & keys
   loadAIModels: () => window.electronAPI.loadAIModels(),
-  refreshAIModels: () => window.electronAPI.refreshAIModels(),
+  // t/4031: forward opts only when given, so a plain refresh sends the same IPC call as before.
+  refreshAIModels: (opts) => (opts ? window.electronAPI.refreshAIModels(opts) : window.electronAPI.refreshAIModels()),
   validateApiKey: (key, backend) => window.electronAPI.validateApiKey?.(key, backend) ?? Promise.resolve({ valid: false, error: 'Key validation not available in this version' }),
   verifyStoredKeys: (backend) => window.electronAPI.verifyStoredKeys?.(backend) ?? Promise.resolve({ results: [] }),
   setApiKey: (key, backend) => window.electronAPI.setApiKey(key, backend),

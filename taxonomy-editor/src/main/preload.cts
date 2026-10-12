@@ -20,6 +20,7 @@ import type { PovTagProposalsFile, ApplyProposalDecisionResult } from '../../../
 import type { InquiryRequest, InquiryResult } from '../../../lib/inquiry/index.js';
 import type { NodeDeleteLogEntry } from './nodeDeleteLog.js';
 import type { RecountPolicyMembersResult } from '../../../lib/policy/registryRecount.js';
+import type { RefreshResult } from '../../../lib/electron-shared/modelDiscovery.js';
 
 // t/3532: mirrors bridge/types.ts's FetchRelevantNodesPayload/FetchClaimAttributionPayload/
 // ClaimAttributionResponse structurally (those are defined directly in bridge/types.ts, not
@@ -232,8 +233,9 @@ function buildElectronApi() {
   loadAIModels: (): Promise<unknown> =>
     ipcRenderer.invoke('load-ai-models'),
 
-  refreshAIModels: (): Promise<unknown> =>
-    ipcRenderer.invoke('refresh-ai-models'),
+  // t/4031: opts pass through untouched (the handler validates them, t/4161); a plain refresh sends no argument.
+  refreshAIModels: (opts?: unknown): Promise<RefreshResult> =>
+    ipcRenderer.invoke('refresh-ai-models', ...(opts === undefined ? [] : [opts])),
 
   validateApiKey: (key: string, backend: string): Promise<{ valid: boolean; error?: string }> =>
     ipcRenderer.invoke('validate-api-key', key, backend),
