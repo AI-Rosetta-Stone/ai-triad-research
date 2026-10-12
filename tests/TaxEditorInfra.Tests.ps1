@@ -80,7 +80,7 @@ Describe 'Test-TaxEditorInfra' -Tag 'health' {
         } -ModuleName AITriad
 
         $BicepPath = Join-Path $PSScriptRoot '..' 'deploy' 'azure' 'main.bicep'
-        $result = Test-TaxEditorInfra -TemplatePath $BicepPath -Parameters @{ containerImage = 'ghcr.io/jpsnover/taxonomy-editor:0.8.0' }
+        $result = Test-TaxEditorInfra -TemplatePath $BicepPath -Parameters @{ containerImage = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.0' }
         $result.Action | Should -Be 'InfraWhatIf'
         Should -Invoke 'az' -ModuleName AITriad -ParameterFilter {
             $args -contains '--parameters'

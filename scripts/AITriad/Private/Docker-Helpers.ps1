@@ -76,7 +76,7 @@ function Pull-TaxonomyEditorImage {
         Pulls the latest Taxonomy Editor Docker image.
     #>
     [CmdletBinding()]
-    param([string]$ImageName = 'ghcr.io/jpsnover/taxonomy-editor:latest')
+    param([string]$ImageName = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:latest')
 
     Write-Step "Pulling Taxonomy Editor image ($ImageName)"
     Write-Info 'This is a one-time download (~1.4 GB). Subsequent starts are instant.'
@@ -89,7 +89,7 @@ function Pull-TaxonomyEditorImage {
             -NextSteps @(
                 'Check your internet connection'
                 'Verify Docker is working: docker pull hello-world'
-                'Verify GHCR is accessible: docker pull ghcr.io/jpsnover/taxonomy-editor:latest'
+                'Verify GHCR is accessible: docker pull ghcr.io/ai-rosetta-stone/taxonomy-editor:latest'
                 'If behind a proxy, configure Docker proxy settings'
             ))
     }

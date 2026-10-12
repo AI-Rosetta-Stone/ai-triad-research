@@ -122,6 +122,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - User content storage migrated to Azure Blob Storage
 - Server modules relocated into security/storage/ai/community sub-role directories
 
-[Unreleased]: https://github.com/jpsnover/ai-triad-research/compare/v0.13.6...HEAD
-[0.13.6]: https://github.com/jpsnover/ai-triad-research/compare/v0.13.5...v0.13.6
-[0.13.5]: https://github.com/jpsnover/ai-triad-research/releases/tag/v0.13.5
+[Unreleased]: https://github.com/AI-Rosetta-Stone/ai-triad-research/compare/v0.13.6...HEAD
+[0.13.6]: https://github.com/AI-Rosetta-Stone/ai-triad-research/compare/v0.13.5...v0.13.6
+[0.13.5]: https://github.com/AI-Rosetta-Stone/ai-triad-research/releases/tag/v0.13.5

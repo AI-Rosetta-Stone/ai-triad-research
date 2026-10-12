@@ -46,7 +46,7 @@ function Install-AITriadData {
 
         [string]$DataPath = '',
 
-        [string]$RepoUrl = 'https://github.com/jpsnover/ai-triad-data.git'
+        [string]$RepoUrl = 'https://github.com/AI-Rosetta-Stone/ai-triad-data.git'
     )
 
     Set-StrictMode -Version Latest

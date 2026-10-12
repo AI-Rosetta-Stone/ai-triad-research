@@ -18,7 +18,7 @@ vi.mock('../../store/preferencesStore', () => ({
 
 import { TheoryLink, DocLink, buildDocUrl, humanizeDocName, type TheoryLinkProps } from './TheoryLink';
 
-const BASE = 'https://github.com/jpsnover/ai-triad-research/blob/main';
+const BASE = 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main';
 const URL = `${BASE}/docs/debate-system-overview.md`;
 
 describe('buildDocUrl', () => {

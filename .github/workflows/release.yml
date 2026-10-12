@@ -64,7 +64,7 @@ jobs:
       - name: Checkout data repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
           # Shallow clone to save time — tests only need taxonomy files
           fetch-depth: 1

@@ -15,7 +15,7 @@ declare const __APP_VERSION__: string;
 declare const __BUILD_DATE__: string;
 declare const __CHANGELOG_MD__: string;
 
-const REPO_URL = 'https://github.com/jpsnover/ai-triad-research';
+const REPO_URL = 'https://github.com/AI-Rosetta-Stone/ai-triad-research';
 
 const DOCS = [
   { title: 'Architecture Overview', path: 'docs/architecture-overview.md',

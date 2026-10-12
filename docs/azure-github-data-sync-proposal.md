@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-16
 **Status:** Decided — Option C with explicit-sync UX
-**Scope:** Turn the Azure-hosted Taxonomy Editor's data store into a working copy of `github.com/jpsnover/ai-triad-data`, so that edits made through the web app become GitHub pull requests against the data repo instead of silent writes to Azure Storage. The user controls when a batch of edits is pushed (via "Create pull request") and when the local clone is refreshed (via "Resync with GitHub"); saves never touch the network on the hot path.
+**Scope:** Turn the Azure-hosted Taxonomy Editor's data store into a working copy of `github.com/AI-Rosetta-Stone/ai-triad-data`, so that edits made through the web app become GitHub pull requests against the data repo instead of silent writes to Azure Storage. The user controls when a batch of edits is pushed (via "Create pull request") and when the local clone is refreshed (via "Resync with GitHub"); saves never touch the network on the hot path.
 
 ---
 
@@ -109,7 +109,7 @@ Option A remains a fallback if Git-on-SMB turns out to be unusably slow in Conta
 
 - Register a **GitHub App** ("AI Triad Web Editor") scoped to `ai-triad-data` only, with permissions: `contents: write`, `pull_requests: write`, `metadata: read`.
 - Install the app on `ai-triad-data`. Store its private key in the same Azure Key Vault that already holds per-user API keys (`keyStore.ts:70-89`); add a `github-app-private-key` secret.
-- The server mints a short-lived installation token per request. `git push` uses `https://x-access-token:<token>@github.com/jpsnover/ai-triad-data.git` as the remote URL.
+- The server mints a short-lived installation token per request. `git push` uses `https://x-access-token:<token>@github.com/AI-Rosetta-Stone/ai-triad-data.git` as the remote URL.
 - Commit **author** = the web user (name + `<userid>+web@users.noreply.github.com` email, derived from Easy Auth headers in `server.ts:600`). Commit **committer** = the GitHub App bot identity. This keeps attribution visible in GitHub's UI without requiring each web user to have push access themselves.
 
 ### 4.2 Branch and PR strategy

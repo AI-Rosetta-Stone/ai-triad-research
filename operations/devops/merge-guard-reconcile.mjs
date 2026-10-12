@@ -11,7 +11,7 @@
 // core is unit-tested in merge-guard-predicate.test.mjs under the CI floor (t/3871).
 //
 //   node operations/devops/merge-guard-reconcile.mjs --since 2026-10-07T00:00:00Z \
-//     [--until <iso>] [--repos jpsnover/ai-triad-research,jpsnover/ai-triad-data] [--file <jsonl>]
+//     [--until <iso>] [--repos AI-Rosetta-Stone/ai-triad-research,AI-Rosetta-Stone/ai-triad-data] [--file <jsonl>]
 
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -122,7 +122,7 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('merge-guard
     process.exit(2);
   }
   const until = arg('--until', null);
-  const repos = arg('--repos', 'jpsnover/ai-triad-research,jpsnover/ai-triad-data').split(',');
+  const repos = arg('--repos', 'AI-Rosetta-Stone/ai-triad-research,AI-Rosetta-Stone/ai-triad-data').split(',');
   const file = arg('--file', fileURLToPath(new URL('./.gate-telemetry/merge-guard.jsonl', import.meta.url)));
   // t/3716 sweeper incidents the caller has already attributed by hand -- a judgment call, not
   // mechanically derivable from events alone (t/3695#30). Format: o/r#N,o/r#N or bare N (default repo).

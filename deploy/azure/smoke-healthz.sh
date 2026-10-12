@@ -7,7 +7,7 @@
 #
 # Usage:  IMAGE=<ref> GITHUB_TOKEN=<tok> deploy/azure/smoke-healthz.sh
 #   IMAGE         required — the image ref (tag or @sha256 digest) to smoke.
-#   GITHUB_TOKEN  required — public read is enough (jpsnover/ai-triad-data is
+#   GITHUB_TOKEN  required — public read is enough (AI-Rosetta-Stone/ai-triad-data is
 #                 public); the readiness gate needs the github-api fetch to
 #                 succeed, which is exactly the path the t/2047 regression broke.
 #
@@ -67,7 +67,7 @@ echo "Ready window: ${READY_TIMEOUT}s (poll every ${POLL_INTERVAL}s) against ${H
 docker run -d --name "$NAME" -p "${PORT}:${PORT}" \
   -e NODE_ENV=production \
   -e STORAGE_MODE=github-api \
-  -e GITHUB_REPO="${GITHUB_REPO:-jpsnover/ai-triad-data}" \
+  -e GITHUB_REPO="${GITHUB_REPO:-AI-Rosetta-Stone/ai-triad-data}" \
   -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
   -e AI_TRIAD_DATA_ROOT=/tmp/taxonomy-cache \
   -e AUTH_DISABLED=1 \

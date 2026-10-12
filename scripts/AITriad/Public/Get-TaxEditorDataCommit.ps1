@@ -6,13 +6,13 @@ function Get-TaxEditorDataCommit {
     .SYNOPSIS
         Lists recent commits in the taxonomy data repository.
     .DESCRIPTION
-        Queries the GitHub API for recent commits in jpsnover/ai-triad-data.
+        Queries the GitHub API for recent commits in AI-Rosetta-Stone/ai-triad-data.
         Returns typed DataCommit objects with SHA, message, author, and date.
         Requires GITHUB_TOKEN environment variable.
     .PARAMETER Last
         Number of commits to return (1-100). Default: 20.
     .PARAMETER Repo
-        GitHub repo in owner/name format. Default: jpsnover/ai-triad-data.
+        GitHub repo in owner/name format. Default: AI-Rosetta-Stone/ai-triad-data.
     .EXAMPLE
         Get-TaxEditorDataCommit -Last 5
     .EXAMPLE
@@ -39,7 +39,7 @@ function Get-TaxEditorDataCommit {
         [int]$Last = 20,
 
         [Parameter()]
-        [string]$Repo = 'jpsnover/ai-triad-data'
+        [string]$Repo = 'AI-Rosetta-Stone/ai-triad-data'
     )
 
     Set-StrictMode -Version Latest

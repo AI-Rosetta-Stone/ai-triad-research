@@ -13,7 +13,7 @@ The project has a blue-green deployment mechanism that implicitly handles rollba
 
 1. **Azure Container Apps** — web application serving
 2. **Electron desktop app** — local application
-3. **Taxonomy data** — structured JSON in `jpsnover/ai-triad-data` via GitHub API
+3. **Taxonomy data** — structured JSON in `AI-Rosetta-Stone/ai-triad-data` via GitHub API
 4. **User content** — chats, debates, API keys in Azure Blob Storage
 5. **Infrastructure** — Bicep-managed Azure resources
 
@@ -122,9 +122,9 @@ A manually designated "Known Good" image serves as the guaranteed rollback targe
 **GHCR tag model:**
 
 ```
-ghcr.io/jpsnover/taxonomy-editor:latest        ← most recent build
-ghcr.io/jpsnover/taxonomy-editor:0.8.1         ← semantic version from git tag
-ghcr.io/jpsnover/taxonomy-editor:known-good    ← operator-designated golden image (exactly one)
+ghcr.io/ai-rosetta-stone/taxonomy-editor:latest        ← most recent build
+ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1         ← semantic version from git tag
+ghcr.io/ai-rosetta-stone/taxonomy-editor:known-good    ← operator-designated golden image (exactly one)
 ```
 
 **Blue-Green lifecycle with Known Good:**
@@ -156,7 +156,7 @@ Invoke-TaxEditorSmokeTest
 
 #### Taxonomy Data (GitHub-backed)
 
-Taxonomy data lives in `jpsnover/ai-triad-data` and is accessed via GitHub API. Full git history is preserved.
+Taxonomy data lives in `AI-Rosetta-Stone/ai-triad-data` and is accessed via GitHub API. Full git history is preserved.
 
 ```powershell
 Import-Module ./scripts/AITriad/AITriad.psm1

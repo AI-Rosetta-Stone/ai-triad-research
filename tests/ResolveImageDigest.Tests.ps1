@@ -27,7 +27,7 @@ Describe 'Resolve-ImageDigestFromImages — success arms' {
         $r = Resolve-ImageDigestFromImages -Sha $script:FullSha -Images $images
         $r.Digest   | Should -Be $script:DigestA
         $r.Tag      | Should -Be "sha-$script:FullSha"
-        $r.ImageRef | Should -Be "ghcr.io/jpsnover/taxonomy-editor@$script:DigestA"
+        $r.ImageRef | Should -Be "ghcr.io/ai-rosetta-stone/taxonomy-editor@$script:DigestA"
     }
 
     It 'resolves a short-SHA prefix to the full-SHA-tagged image' {

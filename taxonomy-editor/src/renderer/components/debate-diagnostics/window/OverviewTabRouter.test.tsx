@@ -274,7 +274,7 @@ describe('OverviewTabRouter', () => {
     expect(link).toBeInTheDocument();
     fireEvent.click(link);
     expect(api.openExternal).toHaveBeenCalledWith(
-      'https://github.com/jpsnover/ai-triad-research/blob/main/docs/topic-scope-theory-of-success.md',
+      'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/topic-scope-theory-of-success.md',
     );
   });
 });

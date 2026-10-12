@@ -4,7 +4,7 @@
 
 Replace the Azure Files SMB + git clone data layer with direct GitHub API access. Eliminates all SMB-related issues (empty directories, lock files, slow copy, git corruption) and reduces startup from 30-60s to 3-5s.
 
-**Source of truth:** `jpsnover/ai-triad-data` on GitHub (main branch)
+**Source of truth:** `AI-Rosetta-Stone/ai-triad-data` on GitHub (main branch)
 **Auth:** Existing GitHub App (ID: 3646042, Installation: 130612260) via Azure Key Vault PEM
 
 ---
@@ -345,7 +345,7 @@ This creates a single commit per save-batch regardless of how many files changed
   "session_branch": "api-session/jeff",
   "unsynced_count": 3,
   "pr_number": 42,
-  "pr_url": "https://github.com/jpsnover/ai-triad-data/pull/42",
+  "pr_url": "https://github.com/AI-Rosetta-Stone/ai-triad-data/pull/42",
   "main_sha": "abc1234",
   "branch_sha": "def5678",
   "main_updated_available": true,
@@ -965,7 +965,7 @@ Add a build step to `container.yml` that fetches the current taxonomy from GitHu
   run: |
     mkdir -p taxonomy-snapshot/taxonomy/Origin
     for f in accelerationist.json safetyist.json skeptic.json cross-cutting.json edges.json policy_actions.json embeddings.json; do
-      gh api "/repos/jpsnover/ai-triad-data/contents/taxonomy/Origin/$f" \
+      gh api "/repos/AI-Rosetta-Stone/ai-triad-data/contents/taxonomy/Origin/$f" \
         --jq '.content' | base64 -d > "taxonomy-snapshot/taxonomy/Origin/$f"
     done
     # Validate at least one file was fetched

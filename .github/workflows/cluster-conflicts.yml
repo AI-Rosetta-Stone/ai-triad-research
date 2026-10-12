@@ -43,9 +43,9 @@ jobs:
       - name: Checkout data repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          repository: jpsnover/ai-triad-data
+          repository: AI-Rosetta-Stone/ai-triad-data
           path: ai-triad-data
-          token: ${{ secrets.DATA_REPO_TOKEN || secrets.GITHUB_TOKEN }}  # Scope: contents:write on jpsnover/ai-triad-data (checkout + git push)
+          token: ${{ secrets.DATA_REPO_TOKEN || secrets.GITHUB_TOKEN }}  # Scope: contents:write on AI-Rosetta-Stone/ai-triad-data (checkout + git push)
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v6

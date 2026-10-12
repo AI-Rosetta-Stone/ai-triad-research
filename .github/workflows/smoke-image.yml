@@ -43,6 +43,6 @@ jobs:
       - name: Smoke /healthz
         env:
           IMAGE: ${{ inputs.image }}
-          # Public read of jpsnover/ai-triad-data — the default token suffices.
+          # Public read of AI-Rosetta-Stone/ai-triad-data — the default token suffices.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash deploy/azure/smoke-healthz.sh

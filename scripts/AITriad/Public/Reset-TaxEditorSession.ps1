@@ -13,7 +13,7 @@ function Reset-TaxEditorSession {
     .PARAMETER UserId
         The user ID whose session branch to reset.
     .PARAMETER Repo
-        GitHub repo in owner/name format. Default: jpsnover/ai-triad-data.
+        GitHub repo in owner/name format. Default: AI-Rosetta-Stone/ai-triad-data.
     .EXAMPLE
         Reset-TaxEditorSession -UserId 'jpsnover'
     .EXAMPLE
@@ -39,7 +39,7 @@ function Reset-TaxEditorSession {
         [string]$UserId,
 
         [Parameter()]
-        [string]$Repo = 'jpsnover/ai-triad-data'
+        [string]$Repo = 'AI-Rosetta-Stone/ai-triad-data'
     )
 
     Set-StrictMode -Version Latest

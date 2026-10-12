@@ -12,11 +12,11 @@
 .EXAMPLE
     .\Set-FreeTierKeys.ps1
 .EXAMPLE
-    .\Set-FreeTierKeys.ps1 -Repo jpsnover/ai-triad-research
+    .\Set-FreeTierKeys.ps1 -Repo AI-Rosetta-Stone/ai-triad-research
 #>
 [CmdletBinding()]
 param(
-    [string]$Repo = 'jpsnover/ai-triad-research'
+    [string]$Repo = 'AI-Rosetta-Stone/ai-triad-research'
 )
 
 Set-StrictMode -Version Latest

@@ -22,7 +22,7 @@ function Get-TaxonomySnapshot {
         `<OutputPath>/conflicts/*.json` — plus `snapshot-meta.json` at
         the root.
     .PARAMETER Repo
-        Source repo in `owner/repo` form. Default: 'jpsnover/ai-triad-data'.
+        Source repo in `owner/repo` form. Default: 'AI-Rosetta-Stone/ai-triad-data'.
     .PARAMETER Branch
         Source branch. Default: 'main'.
     .PARAMETER TimeoutSec
@@ -53,7 +53,7 @@ function Get-TaxonomySnapshot {
         [string]$OutputPath,
 
         [Parameter()]
-        [string]$Repo = 'jpsnover/ai-triad-data',
+        [string]$Repo = 'AI-Rosetta-Stone/ai-triad-data',
 
         [Parameter()]
         [string]$Branch = 'main',

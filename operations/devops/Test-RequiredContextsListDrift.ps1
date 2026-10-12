@@ -17,14 +17,14 @@
 
     Exit codes: 0 = in sync; 1 = DRIFT (details printed); 2 = could-not-verify (gh/SSOT unavailable).
 .PARAMETER Repo
-    owner/name. Default jpsnover/ai-triad-research.
+    owner/name. Default AI-Rosetta-Stone/ai-triad-research.
 .PARAMETER SsotPath
     Path to the SSOT JSON. Default: <repo-root>/.github/ci/required-contexts.json.
 #>
 
 [CmdletBinding()]
 param(
-    [string]$Repo = 'jpsnover/ai-triad-research',
+    [string]$Repo = 'AI-Rosetta-Stone/ai-triad-research',
     [string]$SsotPath
 )
 

@@ -19,7 +19,7 @@ function Remove-StaleContainerImages {
         list of deleted version IDs, and any per-version failure messages.
     .PARAMETER Owner
         GitHub owner (user or org) that owns the package. Defaults to the
-        GHCR_OWNER env var, then GITHUB_REPOSITORY_OWNER, then 'jpsnover'.
+        GHCR_OWNER env var, then GITHUB_REPOSITORY_OWNER, then 'ai-rosetta-stone'.
     .PARAMETER Package
         Container package name (e.g. 'taxonomy-editor').
     .PARAMETER OlderThanDays
@@ -73,7 +73,7 @@ function Remove-StaleContainerImages {
     if (-not $Owner) {
         $Owner = if ($env:GHCR_OWNER) { $env:GHCR_OWNER }
                  elseif ($env:GITHUB_REPOSITORY_OWNER) { $env:GITHUB_REPOSITORY_OWNER }
-                 else { 'jpsnover' }
+                 else { 'ai-rosetta-stone' }
     }
 
     $Cutoff = (Get-Date).ToUniversalTime().AddDays(-$OlderThanDays)
@@ -82,7 +82,7 @@ function Remove-StaleContainerImages {
     # ── Paginate versions ────────────────────────────────────────────────
     $AllVersions = [System.Collections.Generic.List[object]]::new()
     for ($Page = 1; $Page -le $MaxPages; $Page++) {
-        $Endpoint = "/users/$Owner/packages/container/$Package/versions?per_page=100&page=$Page"
+        $Endpoint = "/orgs/$Owner/packages/container/$Package/versions?per_page=100&page=$Page"
         $Batch = $null
         try {
             $Batch = Invoke-GitHubApi -Endpoint $Endpoint -Method 'GET' -CallerName 'Remove-StaleContainerImages'
@@ -155,7 +155,7 @@ function Remove-StaleContainerImages {
         if ($PSCmdlet.ShouldProcess($Target, "Delete untagged $Package")) {
             try {
                 $null = Invoke-GitHubApi `
-                    -Endpoint "/users/$Owner/packages/container/$Package/versions/$($v.id)" `
+                    -Endpoint "/orgs/$Owner/packages/container/$Package/versions/$($v.id)" `
                     -Method DELETE `
                     -CallerName 'Remove-StaleContainerImages'
                 $DeletedIds.Add([long]$v.id)

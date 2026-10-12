@@ -3330,7 +3330,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 **Root Cause:** The pre-implementation state check ("has this already landed?") is skipped. For Trigger A, context loss is the proximate cause; for Trigger B, the urgency of a direct delegation bypasses the check. In both cases, the gap is the same: the agent starts implementing from the task description rather than the current main state.
 
 **Prevention:**
-1. **Before opening a PR, search open AND merged PRs for the ticket key:** `gh pr list --state all --search "t/XXXX" -R jpsnover/ai-triad-research`. If a merged PR exists, read its diff before writing any code.
+1. **Before opening a PR, search open AND merged PRs for the ticket key:** `gh pr list --state all --search "t/XXXX" -R AI-Rosetta-Stone/ai-triad-research`. If a merged PR exists, read its diff before writing any code.
 2. **For delegated pings, run `git log --oneline origin/main -- <files>` before acting** — if the delegated change is already in the log, reply "already landed" rather than re-implementing.
 3. After a context boundary (session restart, long gap, context compression), re-read the ticket's latest comments before starting implementation — the ticket anchor is where completed work is recorded.
 4. If a merged PR is found for the ticket, close any draft/stale work and redirect to a follow-up ticket rather than overwriting the landed implementation.

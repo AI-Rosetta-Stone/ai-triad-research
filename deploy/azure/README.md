@@ -9,14 +9,14 @@ Internet ──HTTPS──> Azure Container Apps (1-5 replicas)
                         ├── Node.js server (port 7862)
                         ├── PowerShell 7 (terminal + AI commands)
                         ├── Python (embeddings)
-                        └── GitHub REST API (jpsnover/ai-triad-data)
+                        └── GitHub REST API (AI-Rosetta-Stone/ai-triad-data)
                               ├── Read: Contents/Trees/Blobs APIs
                               ├── Write: session branches + PRs
                               ├── Auth: GitHub App via Key Vault PEM
                               └── Cache: /tmp/taxonomy-cache (local SSD)
 ```
 
-Data is read from and written to `jpsnover/ai-triad-data` via the GitHub REST API. No persistent volume, no Azure Files, no local git clone. A baked taxonomy snapshot in the container image provides fallback during GitHub outages (read-only mode).
+Data is read from and written to `AI-Rosetta-Stone/ai-triad-data` via the GitHub REST API. No persistent volume, no Azure Files, no local git clone. A baked taxonomy snapshot in the container image provides fallback during GitHub outages (read-only mode).
 
 ## BYOK (Bring Your Own Key)
 
@@ -29,7 +29,7 @@ stored in Azure Key Vault via managed identity.
 - [Azure CLI](https://aka.ms/install-azure-cli) (`az`)
 - An Azure subscription
 - The container image built and pushed to `ghcr.io` (happens automatically on tag push via GitHub Actions)
-- A GitHub App with Contents read/write access to `jpsnover/ai-triad-data`
+- A GitHub App with Contents read/write access to `AI-Rosetta-Stone/ai-triad-data`
 
 ## Quick Start
 

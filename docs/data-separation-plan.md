@@ -28,7 +28,7 @@ The `ai-triad-research` repo contains both **code** (PowerShell module, Electron
 ## Target Architecture
 
 ```
-github.com/jpsnover/ai-triad-research       ← CODE repo (~15 MB)
+github.com/AI-Rosetta-Stone/ai-triad-research       ← CODE repo (~15 MB)
 ├── scripts/AITriad/                          (PowerShell module)
 ├── taxonomy-editor/                          (Electron app)
 ├── taxonomy/schemas/                         (JSON schemas — part of code)
@@ -37,7 +37,7 @@ github.com/jpsnover/ai-triad-research       ← CODE repo (~15 MB)
 ├── .aitriad.json                             (NEW: data repo path config)
 └── docs/
 
-github.com/jpsnover/ai-triad-data            ← DATA repo (~410 MB)
+github.com/AI-Rosetta-Stone/ai-triad-data            ← DATA repo (~410 MB)
 ├── taxonomy/Origin/                          (taxonomy JSONs, edges, embeddings)
 ├── sources/                                  (ingested documents)
 ├── summaries/                                (POV summaries)
@@ -124,7 +124,7 @@ const CONFLICTS_DIR = path.join(DATA_ROOT, config.conflicts_dir);
 
 ### Phase 2: Create Data Repository
 
-1. Create `github.com/jpsnover/ai-triad-data`
+1. Create `github.com/AI-Rosetta-Stone/ai-triad-data`
 2. Move data directories:
    ```bash
    # In ai-triad-data/
@@ -183,12 +183,12 @@ Update README with setup instructions:
 
 ```bash
 # Clone both repos side by side
-git clone https://github.com/jpsnover/ai-triad-research.git
-git clone https://github.com/jpsnover/ai-triad-data.git
+git clone https://github.com/AI-Rosetta-Stone/ai-triad-research.git
+git clone https://github.com/AI-Rosetta-Stone/ai-triad-data.git
 
 # Or clone data into the code repo (monorepo-like)
 cd ai-triad-research
-git clone https://github.com/jpsnover/ai-triad-data.git data
+git clone https://github.com/AI-Rosetta-Stone/ai-triad-data.git data
 # Then set .aitriad.json: { "data_root": "data" }
 ```
 
@@ -250,7 +250,7 @@ GitHub Actions workflows need to checkout both repos:
 ```yaml
 - uses: actions/checkout@v4
   with:
-    repository: jpsnover/ai-triad-data
+    repository: AI-Rosetta-Stone/ai-triad-data
     path: ai-triad-data
 ```
 

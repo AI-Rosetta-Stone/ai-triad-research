@@ -8,7 +8,7 @@
 // Users enter their own Gemini/Claude/Groq API keys through the app UI.
 // Keys stored in Azure Key Vault via managed identity.
 //
-// Data access: GitHub API-first — reads/writes go to jpsnover/ai-triad-data
+// Data access: GitHub API-first — reads/writes go to AI-Rosetta-Stone/ai-triad-data
 // via GitHub Contents/Trees APIs. No Azure Files, no local git clone.
 //
 // Resources created:
@@ -36,8 +36,8 @@ param location string = resourceGroup().location
 // IMAGE_DEPLOYED_AT env on the revision (deploy-azure.yml) — a recycle without a deploy keeps the
 // SAME IMAGE_DEPLOYED_AT, so the reconcile check's purpose is OUT-OF-BAND revision creation, not
 // recycle-swap (condition 6), which digest-pinning already makes unreachable.
-@description('Container image. The automated deploy path passes a resolved @sha256 digest (t/3679 deploy-by-digest). Default :latest is a manual/first-deploy escape hatch only. ghcr.io/jpsnover/taxonomy-editor:latest')
-param containerImage string = 'ghcr.io/jpsnover/taxonomy-editor:latest'
+@description('Container image. The automated deploy path passes a resolved @sha256 digest (t/3679 deploy-by-digest). Default :latest is a manual/first-deploy escape hatch only. ghcr.io/ai-rosetta-stone/taxonomy-editor:latest')
+param containerImage string = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:latest'
 
 @description('Unique suffix for globally unique resource names')
 param uniqueSuffix string = uniqueString(resourceGroup().id)
@@ -128,7 +128,7 @@ param adminUsers string = 'jpsnover,jsnover13-at-gmail-com'
 @description('Enable GitHub data-sync feature. "1" = on, empty = off.')
 param gitSyncEnabled string = ''
 
-@description('GitHub repo in owner/repo form (e.g. "jpsnover/ai-triad-data") that the server pushes to.')
+@description('GitHub repo in owner/repo form (e.g. "AI-Rosetta-Stone/ai-triad-data") that the server pushes to.')
 param githubRepo string = ''
 
 @description('GitHub App numeric ID. Leave empty to fall back to GITHUB_TOKEN (PAT).')

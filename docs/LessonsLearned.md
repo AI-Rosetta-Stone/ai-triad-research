@@ -3753,7 +3753,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 **Root Cause:** Context window exhaustion or session restart causes an agent to lose awareness of prior work completed in the same ticket. The agent resumes from the ticket description, not from the merged state. Without an explicit "check existing PRs" step, the agent begins fresh implementation.
 
 **Prevention:**
-1. **Before opening a PR, search open AND merged PRs for the ticket key:** `gh pr list --state all --search "t/XXXX" -R jpsnover/ai-triad-research`. If a merged PR exists, read its diff before writing any code.
+1. **Before opening a PR, search open AND merged PRs for the ticket key:** `gh pr list --state all --search "t/XXXX" -R AI-Rosetta-Stone/ai-triad-research`. If a merged PR exists, read its diff before writing any code.
 2. After a context boundary (session restart, long gap, context compression), re-read the ticket's latest comments before starting implementation — the ticket anchor is where completed work is recorded.
 3. If a merged PR is found for the ticket, close any draft/stale work and redirect to a follow-up ticket rather than overwriting the landed implementation.
 

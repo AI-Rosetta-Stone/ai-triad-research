@@ -22,7 +22,7 @@ Each layer catches a different class of failure. Tests catch logic errors. Branc
 **GitHub branch protection is authoritative, and this document is only a description — descriptions drift, and this one did (t/3803).** So this section deliberately does **not** transcribe the current settings: a count, a context list, or an `enforce_admins` value copied into prose here is exactly what went four facts stale and *inverted*, and a dated snapshot only resets the clock on the same failure. Read the live settings and interpret each field against the design intent below. (The strongest evidence for this: a reader with full API access and a standing rule to check authoritative sources still mis-stated the context count from a restated fact — e/227#25.)
 
 ```
-gh api repos/jpsnover/ai-triad-research/branches/main/protection
+gh api repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection
 ```
 
 The authoritative mirror of the *required-context set* is `.github/ci/required-contexts.json`, and `operations/devops/Test-RequiredContextsListDrift.ps1` validates that mirror against the live API on a daily heartbeat. Trust the API and that mirror over any list written in prose.

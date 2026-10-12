@@ -33,7 +33,7 @@ function Sync-FreeTierKeys {
         Default: GHASecret.
     .PARAMETER Repo
         GitHub repo slug used when Target=GHASecret.
-        Default: jpsnover/ai-triad-research.
+        Default: AI-Rosetta-Stone/ai-triad-research.
     .PARAMETER SecretName
         GitHub secret name to set when Target=GHASecret.
         Default: FREE_TIER_GEMINI_KEY.
@@ -63,7 +63,7 @@ function Sync-FreeTierKeys {
         [ValidateSet('GHASecret', 'LocalEnv', 'None')]
         [string]$Target = 'GHASecret',
 
-        [string]$Repo = 'jpsnover/ai-triad-research',
+        [string]$Repo = 'AI-Rosetta-Stone/ai-triad-research',
 
         [string]$SecretName = 'FREE_TIER_GEMINI_KEY',
 

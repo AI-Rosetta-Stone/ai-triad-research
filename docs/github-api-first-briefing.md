@@ -237,7 +237,7 @@ Current implementation uses local git commands. API-mode equivalents:
 
 - **Hosting:** Azure Container Apps (scale 0-1 instances)
 - **Auth:** GitHub + Google OAuth via Azure Easy Auth, server-side allowlist
-- **Container image:** `ghcr.io/jpsnover/taxonomy-editor:latest`
+- **Container image:** `ghcr.io/ai-rosetta-stone/taxonomy-editor:latest`
 - **Secrets:** Azure Key Vault (GitHub App PEM, user BYOK API keys)
 - **CI/CD:** GitHub Actions (build, test, deploy)
 - **Process manager:** `tini` as PID 1 (zombie reaping for pty-broker.py subprocesses) — stays even after entrypoint.sh is deleted

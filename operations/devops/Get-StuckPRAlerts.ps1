@@ -31,7 +31,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Repo = 'jpsnover/ai-triad-research'
+    [string] $Repo = 'AI-Rosetta-Stone/ai-triad-research'
 )
 
 Set-StrictMode -Version Latest

@@ -188,7 +188,7 @@ This would have immediately shown us that the copy was taking >50s and being kil
 **2. Environment snapshot on every container start:**
 ```
 [entrypoint] 00:00:00 === Container Start ===
-[entrypoint] 00:00:00 Image: ghcr.io/jpsnover/taxonomy-editor:latest
+[entrypoint] 00:00:00 Image: ghcr.io/ai-rosetta-stone/taxonomy-editor:latest
 [entrypoint] 00:00:00 Revision: taxonomy-editor--deploy-abc1234
 [entrypoint] 00:00:00 /data-persistent: mounted=yes, files=14, dirs=14
 [entrypoint] 00:00:00 /data: exists=yes, writable=yes

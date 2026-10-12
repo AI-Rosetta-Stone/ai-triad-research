@@ -21,7 +21,7 @@ Describe 'Get-TaxEditorRevision' -Tag 'health' {
                     createdTime   = '2026-06-22T10:00:00Z'
                     template      = @{
                         containers = @(
-                            @{ image = 'ghcr.io/jpsnover/taxonomy-editor:0.8.1' }
+                            @{ image = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1' }
                         )
                     }
                 }
@@ -34,7 +34,7 @@ Describe 'Get-TaxEditorRevision' -Tag 'health' {
                     createdTime   = '2026-06-21T08:00:00Z'
                     template      = @{
                         containers = @(
-                            @{ image = 'ghcr.io/jpsnover/taxonomy-editor:0.8.0' }
+                            @{ image = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.0' }
                         )
                     }
                 }
@@ -80,7 +80,7 @@ Describe 'Switch-TaxEditorRevision' -Tag 'health' {
                 Active        = $true
                 TrafficWeight = 100
                 RunningState  = 'Running'
-                ImageTag      = 'ghcr.io/jpsnover/taxonomy-editor:0.8.1'
+                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1'
                 CreatedAt     = '2026-06-22T10:00:00Z'
             }
             [PSCustomObject]@{
@@ -89,7 +89,7 @@ Describe 'Switch-TaxEditorRevision' -Tag 'health' {
                 Active        = $false
                 TrafficWeight = 0
                 RunningState  = 'Stopped'
-                ImageTag      = 'ghcr.io/jpsnover/taxonomy-editor:0.8.0'
+                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.0'
                 CreatedAt     = '2026-06-21T08:00:00Z'
             }
         )
@@ -117,7 +117,7 @@ Describe 'Switch-TaxEditorRevision' -Tag 'health' {
                 Active        = $true
                 TrafficWeight = 100
                 RunningState  = 'Running'
-                ImageTag      = 'ghcr.io/jpsnover/taxonomy-editor:0.8.1'
+                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1'
                 CreatedAt     = '2026-06-22T10:00:00Z'
             }
         )

@@ -25,7 +25,7 @@
     that reliably re-triggers all PR workflows without modifying workflow files or
     pushing empty commits.
 .PARAMETER Repo
-    GitHub repository slug (owner/name). Default: jpsnover/ai-triad-research.
+    GitHub repository slug (owner/name). Default: AI-Rosetta-Stone/ai-triad-research.
 .PARAMETER RequiredContexts
     Status context names to verify. If omitted, fetched live from branch protection.
 .PARAMETER TimeoutMinutes
@@ -44,7 +44,7 @@
 
 [CmdletBinding()]
 param(
-    [string]   $Repo             = 'jpsnover/ai-triad-research',
+    [string]   $Repo             = 'AI-Rosetta-Stone/ai-triad-research',
     [string[]] $RequiredContexts,
     [int]      $TimeoutMinutes   = 8,
     [switch]   $WhatIf
