@@ -118,7 +118,7 @@ LONG DESCRIPTION
     -------   -------------------------      ----------------
     Gemini    gemini-3.5-flash-lite-preview  GEMINI_API_KEY
     Claude    claude-sonnet-4-5              ANTHROPIC_API_KEY
-    Groq      groq-llama-3.3-70b             GROQ_API_KEY
+    Groq      groq-openai-gpt-oss-120b       GROQ_API_KEY
 
     The default model is set via $env:AI_MODEL or defaults to
     gemini-3.5-flash-lite-preview.  All AI-calling cmdlets accept a -Model

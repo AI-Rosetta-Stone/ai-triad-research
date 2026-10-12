@@ -41,7 +41,7 @@ function Find-PolicyAction {
     .EXAMPLE
         Find-PolicyAction -Id acc-desires-001, saf-desires-001
     .EXAMPLE
-        Find-PolicyAction -Force -Model 'groq-llama-3.3-70b-versatile'
+        Find-PolicyAction -Force -Model 'groq-openai-gpt-oss-120b'
     .LINK
         Show-AITriadHelp
     .LINK

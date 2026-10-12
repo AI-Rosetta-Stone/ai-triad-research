@@ -137,8 +137,7 @@ if ($script:ModelRegistry.Count -eq 0) {
         'claude-opus-4'         = @{ Backend = 'claude';  ApiModelId = 'claude-opus-4-20250514' }
         'claude-sonnet-4-5'     = @{ Backend = 'claude';  ApiModelId = 'claude-sonnet-4-5-20250514' }
         'claude-haiku-3.5'      = @{ Backend = 'claude';  ApiModelId = 'claude-3-5-haiku-20241022' }
-        'groq-llama-3.3-70b'    = @{ Backend = 'groq';    ApiModelId = 'llama-3.3-70b-versatile' }
-        'groq-llama-4-scout'    = @{ Backend = 'groq';    ApiModelId = 'meta-llama/llama-4-scout-17b-16e-instruct' }
+        'groq-openai-gpt-oss-120b' = @{ Backend = 'groq'; ApiModelId = 'openai/gpt-oss-120b' }   # t/4165: llama-3.3-70b and llama-4-scout are retired
     }
 }
 
@@ -1489,7 +1488,7 @@ function ConvertFrom-AIResponseEnvelope {
     The prompt text to send to the AI model.
 .PARAMETER Model
     Model identifier from ai-models.json (e.g., 'gemini-2.5-flash',
-    'claude-sonnet-4-5', 'groq-llama-3.3-70b').  Defaults to 'gemini-2.5-flash'.
+    'claude-sonnet-4-5', 'groq-openai-gpt-oss-120b').  Defaults to 'gemini-2.5-flash'.
 .PARAMETER ApiKey
     Optional explicit API key.  If empty, resolved via Resolve-AIApiKey.
 .PARAMETER Temperature
@@ -1527,11 +1526,11 @@ function ConvertFrom-AIResponseEnvelope {
 
     Requests JSON output from Claude and parses it.
 .EXAMPLE
-    Invoke-AIApi -Prompt 'Hello' -Model 'groq-llama-3.3-70b' -Temperature 0.7
+    Invoke-AIApi -Prompt 'Hello' -Model 'groq-openai-gpt-oss-120b' -Temperature 0.7
 
     Calls the Groq backend with higher creativity.
 .EXAMPLE
-    Invoke-AIApi -Prompt $P -Model 'gemini-2.5-flash' -FallbackModels @('groq-llama-3.3-70b-versatile')
+    Invoke-AIApi -Prompt $P -Model 'gemini-2.5-flash' -FallbackModels @('groq-openai-gpt-oss-120b')
 
     Falls back to Groq if Gemini fails.
 #>

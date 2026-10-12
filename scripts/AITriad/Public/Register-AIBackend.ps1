@@ -93,7 +93,7 @@ function Register-AIBackend {
         @{ id = 'claude-opus-4-8';                label = 'Claude Opus 4.8';                 backend = 'claude' }
         @{ id = 'claude-sonnet-4-5';              label = 'Claude Sonnet 4.5';               backend = 'claude' }
         @{ id = 'claude-haiku-4-5';               label = 'Claude Haiku 4.5';                backend = 'claude' }
-        @{ id = 'groq-llama-3.3-70b-versatile';   label = 'Groq Llama 3.3 70B Versatile';    backend = 'groq' }
+        @{ id = 'groq-openai-gpt-oss-120b';       label = 'Groq GPT-OSS 120B';               backend = 'groq' }
         @{ id = 'openai-gpt-5.5';                 label = 'OpenAI GPT-5.5';                  backend = 'openai' }
         @{ id = 'openai-gpt-5.5-pro';             label = 'OpenAI GPT-5.5 Pro';              backend = 'openai' }
         @{ id = 'ollama-gemma4-e4b-it-q4-k-m';    label = 'Ollama Gemma 4 E4B';              backend = 'ollama' }
