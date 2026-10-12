@@ -22,7 +22,10 @@
       4. Response-envelope parsing per backend.
       5. The CallLogger hook, including its third {Model, Backend, KeySource} argument (t/4088).
       6. Pre-existing bugs, each marked "# PINNED BUG (t/4078): <what>". They assert what the code does
-         today, not what it should do; a fix updates the pin deliberately.
+         today, not what it should do; a fix updates the pin deliberately. t/4078 fixed the retry set
+         (500/502/504, one timeout retry), the cascade timeout, empty-text success, the Azure actionable
+         error and MaxRetries 0; those pins now assert the fixed behaviour ("Fixed by t/4078"). The pins
+         that remain are out of t/4078's scope. New t/4078 tests live in Invoke-AIApi.RetryPolicy.Tests.ps1.
 
     NO LIVE CALL CAN HAPPEN: Invoke-RestMethod is mocked in AIEnrich for every test, and every AI key
     variable is cleared before each test (and restored after the file).
@@ -428,11 +431,9 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $logged.Count | Should -Be 0 -Because 'the CallLogger only fires once a request was attempted'
         }
 
-        It 'PINNED BUG: Azure with no AZURE_OPENAI_ENDPOINT throws CommandNotFoundException for New-ActionableError' {
-            # PINNED BUG (t/4078): the azure arm throws (New-ActionableError ...), but New-ActionableError lives in
-            # AITriad/Private and is not visible from AIEnrich's module scope (the t/3123 Protect-SensitiveText
-            # class), so the caller gets "New-ActionableError is not recognized" instead of the actionable
-            # Goal/Problem/Location/Next Steps error. No request is sent.
+        It 'Azure with no AZURE_OPENAI_ENDPOINT throws the actionable Goal/Error/Location/Resolve error (t/4078)' {
+            # Fixed by t/4078 (was pinned: New-ActionableError is AITriad-private, so this threw
+            # CommandNotFoundException). AIEnrich now builds the error itself. No request is sent.
             $env:AZURE_OPENAI_ENDPOINT = $null
             $azureModel = script:Get-ModuleValue { @($script:ModelRegistry.Keys | Where-Object { $script:ModelRegistry[$_].Backend -eq 'azure' } | Sort-Object)[0] }
             $azureModel | Should -Not -BeNullOrEmpty
@@ -440,8 +441,19 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             try { Invoke-AIApi -Prompt 'p' -Model $azureModel -ApiKey $script:TestKey -FallbackModels @() -WarningAction SilentlyContinue }
             catch { $err = $_ }
             $err | Should -Not -BeNullOrEmpty
-            $err.Exception | Should -BeOfType [System.Management.Automation.CommandNotFoundException]
-            $err.Exception.Message | Should -BeLike "*'New-ActionableError' is not recognized*"
+            $err.Exception | Should -Not -BeOfType [System.Management.Automation.CommandNotFoundException]
+            $err.FullyQualifiedErrorId | Should -BeLike 'ActionableError*'
+            ($err.Exception.Message -replace "`r`n", "`n") | Should -BeExactly (@(
+                ''
+                '  Goal:     Call Azure OpenAI API'
+                '  Error:    AZURE_OPENAI_ENDPOINT environment variable is not set'
+                '  Location: Invoke-AIApi (azure)'
+                '  Resolve:'
+                '   1. Set $env:AZURE_OPENAI_ENDPOINT to your Azure OpenAI resource URL'
+                '   2. Example: https://my-resource.openai.azure.com'
+            ) -join "`n")
+            $err.TargetObject.Goal | Should -BeExactly 'Call Azure OpenAI API'
+            @($err.TargetObject.NextSteps).Count | Should -Be 2
             $script:RestCalls.Count | Should -Be 0
         }
 
@@ -509,13 +521,16 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             @{ Code = 503; MaxRetries = 2; Delays = @(5, 15); Calls = 2; Sleeps = @(5) }                         # the cascade's settings
             @{ Code = 529; MaxRetries = 3; Delays = @(1, 2); Calls = 3; Sleeps = @(1, 2) }
             @{ Code = 529; MaxRetries = 6; Delays = @(1, 2); Calls = 6; Sleeps = @(1, 2, 2, 2, 2) }
-            # PINNED BUG (t/4078): 500, 502 and 504 are server errors but are never retried.
-            @{ Code = 500; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
-            @{ Code = 502; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
-            @{ Code = 504; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
+            # t/4078 §1 (was pinned: never retried): 500, 502 and 504 are retried on the same schedule and MaxRetries.
+            @{ Code = 500; MaxRetries = 5; Delays = $null;  Calls = 5; Sleeps = @(15, 45, 90, 120) }
+            @{ Code = 502; MaxRetries = 5; Delays = $null;  Calls = 5; Sleeps = @(15, 45, 90, 120) }
+            @{ Code = 504; MaxRetries = 5; Delays = $null;  Calls = 5; Sleeps = @(15, 45, 90, 120) }
+            @{ Code = 502; MaxRetries = 2; Delays = @(5, 15); Calls = 2; Sleeps = @(5) }                         # the cascade's settings
+            # Other 4xx are never retried.
             @{ Code = 401; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
             @{ Code = 403; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
             @{ Code = 400; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
+            @{ Code = 404; MaxRetries = 5; Delays = $null;  Calls = 1; Sleeps = @() }
         ) {
             script:Set-RestSequence @((script:New-HttpError $Code "fake failure $Code"))
             $p = @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = $MaxRetries }
@@ -530,15 +545,18 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $out.Warnings | Should -Contain "groq: API call failed (HTTP $Code) $($script:D) fake failure $Code"
         }
 
-        It 'PINNED BUG: a timeout (exception with no .Response) is not retried' {
-            # PINNED BUG (t/4078): a timeout has no .Response, so its status code is $null, it is not in
-            # 429/503/529, and the loop breaks on the first attempt. The failure line reads "(HTTP )".
+        It 'a timeout (exception with no .Response) is retried once, then fails "(timeout after Ns)" (t/4078)' {
+            # Fixed by t/4078 §1 (was pinned: not retried, failure line "(HTTP )"). A timeout gets ONE retry,
+            # not MaxRetries, and the failure line names the timeout.
             script:Set-RestSequence @([System.TimeoutException]::new('The operation has timed out.'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() }
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); TimeoutSec = 33 }
             $out.Result | Should -BeNullOrEmpty
-            $script:RestCalls.Count | Should -Be 1
-            $script:Sleeps.Count | Should -Be 0
-            $out.Warnings -join "`n" | Should -BeExactly "groq: API call failed (HTTP ) $($script:D) The operation has timed out."
+            $script:RestCalls.Count | Should -Be 2
+            ($script:Sleeps -join ',') | Should -BeExactly '15'
+            $out.Warnings -join "`n" | Should -BeExactly (@(
+                "groq: timeout $($script:D) retrying in 15s (attempt 1/5)"
+                "groq: API call failed (timeout after 33s) $($script:D) The operation has timed out."
+            ) -join "`n")
         }
 
         It 'recovers after transient errors: 503 then 429 then success' {
@@ -567,18 +585,17 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             [Convert]::ToBase64String($script:RestCalls[0].Body) | Should -BeExactly ([Convert]::ToBase64String($script:RestCalls[1].Body))
         }
 
-        It 'PINNED BUG: MaxRetries 0 sends no request and fails with "(HTTP ?)" and an empty message' {
-            # PINNED BUG (t/4078): with MaxRetries 0 the loop never runs, $Response and $LastError are both $null,
-            # and the failure line is "API call failed (HTTP ?) — " with nothing after the dash.
+        It 'MaxRetries outside 1..10 is rejected at the parameter, before any request or log (t/4078)' -ForEach @(@{ N = 0 }, @{ N = -1 }, @{ N = 11 }) {
+            # Fixed by t/4078 (was pinned: MaxRetries 0 sent no request and failed "(HTTP ?) — " with no message).
             $logged = [System.Collections.Generic.List[object]]::new()
             $logger = { $logged.Add(@($args)) }.GetNewClosure()
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = 0; CallLogger = $logger }
-            $out.Result | Should -BeNullOrEmpty
+            $err = $null
+            try { Invoke-AIApi -Prompt 'p' -Model 'groq-llama-3.3-70b-versatile' -ApiKey $script:TestKey -FallbackModels @() -MaxRetries $N -CallLogger $logger -WarningAction SilentlyContinue }
+            catch { $err = $_ }
+            $err.FullyQualifiedErrorId | Should -BeLike 'ParameterArgumentValidationError*'
+            $err.Exception.Message | Should -BeLike "*parameter 'MaxRetries'*"
             $script:RestCalls.Count | Should -Be 0
-            $out.Warnings -join "`n" | Should -BeExactly "groq: API call failed (HTTP ?) $($script:D) "
-            $logged.Count | Should -Be 1
-            $logged[0][0] | Should -Be 0
-            $logged[0][1] | Should -BeExactly '?'
+            $logged.Count | Should -Be 0
         }
     }
 
@@ -615,7 +632,8 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         It 'falls back to the WebRequest-style GetResponseStream() body when there is no ErrorDetails' {
             $resp = [T4135FakeWebResponse]::new(502, 'upstream exploded')
             script:Set-RestSequence @([T4135WebException]::new('bad gateway', $resp))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @() }
+            # MaxRetries 1: a 502 is retried since t/4078, and this test is about the body, not the retries.
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @(); MaxRetries = 1 }
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 "groq: API call failed (HTTP 502) $($script:D) bad gateway"
                 "groq: Server error $($script:D) the API may be temporarily unavailable."
@@ -714,16 +732,18 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 500 'groq down'))
             script:Set-HostReplies 'api.anthropic.com' @((script:New-HttpError 500 'claude down'))
             script:Set-HostReplies 'generativelanguage' @((script:New-OkEnvelope 'gemini' -Text 'gemini answered'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; MaxRetries = 1
                 FallbackModels = @('claude-haiku-4-5', 'gemini-2.5-flash', 'groq-llama-3.1-8b-instant') }
             $out.Result.Text | Should -BeExactly 'gemini answered'
             $out.Result.Model | Should -BeExactly 'gemini-2.5-flash'
             $out.Result.Backend | Should -BeExactly 'gemini'
-            @($script:RestCalls | ForEach-Object { ([uri]$_.Uri).Host }) -join ',' | Should -BeExactly 'api.groq.com,api.anthropic.com,generativelanguage.googleapis.com'
+            # t/4078: the claude link's 500 is retried (its MaxRetries 2) BEFORE the cascade moves to gemini.
+            @($script:RestCalls | ForEach-Object { ([uri]$_.Uri).Host }) -join ',' | Should -BeExactly 'api.groq.com,api.anthropic.com,api.anthropic.com,generativelanguage.googleapis.com'
             $out.Warnings -join "`n" | Should -BeExactly (@(
                 "groq: API call failed (HTTP 500) $($script:D) groq down"
                 "groq: Server error $($script:D) the API may be temporarily unavailable."
                 'Cascade: falling back to claude-haiku-4-5 (claude)'
+                "claude: HTTP 500 $($script:D) retrying in 5s (attempt 1/2)"
                 "claude: API call failed (HTTP 500) $($script:D) claude down"
                 "claude: Server error $($script:D) the API may be temporarily unavailable."
                 'Cascade: falling back to gemini-2.5-flash (gemini)'
@@ -775,7 +795,8 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         It 'on HTTP 500 a same-backend fallback IS tried' {
             $env:GROQ_API_KEY = 'groq-test-value'
             script:Set-HostReplies 'api.groq.com' @((script:New-HttpError 500 'x'), (script:New-OkEnvelope 'groq' -Text 'second groq'))
-            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-llama-3.1-8b-instant') }
+            # MaxRetries 1: since t/4078 a 500 is retried, which would let the PRIMARY take the second reply.
+            $out = script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; FallbackModels = @('groq-llama-3.1-8b-instant'); MaxRetries = 1 }
             $out.Result.Text | Should -BeExactly 'second groq'
             $out.Result.Model | Should -BeExactly 'groq-llama-3.1-8b-instant'
         }
@@ -827,7 +848,7 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             [object]::ReferenceEquals($p.ResponseSchema, $script:GoldenSchema) | Should -BeTrue
             $p.Temperature | Should -Be 0.7
             $p.MaxTokens | Should -Be 333
-            # PINNED BUG (t/4078): the fallback inherits the PRIMARY's TimeoutSec, not its own model default.
+            # t/4078 §2: an EXPLICIT caller -TimeoutSec still applies to every link.
             $p.TimeoutSec | Should -Be 55
             $p.MaxRetries | Should -Be 2
             (@($p.RetryDelays) -join ',') | Should -BeExactly '5,15'
@@ -851,12 +872,13 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $names = [string[]]@($inner[0].Keys); [Array]::Sort($names, [StringComparer]::Ordinal)
             $names -join ',' | Should -BeExactly 'ApiKey,CallLogger,FallbackModels,MaxRetries,MaxTokens,Model,Prompt,RetryDelays,SkipTokenCheck,Temperature,TimeoutSec'
             $inner[0].CallLogger | Should -BeNullOrEmpty
-            $inner[0].TimeoutSec | Should -Be (script:Get-ModuleValue { Get-AIDefaultTimeoutSec -Model 'groq-llama-3.3-70b-versatile' })
+            # t/4078 §2 (was pinned: the primary's default): with no -TimeoutSec the link gets ITS OWN default.
+            $inner[0].TimeoutSec | Should -Be (script:Get-ModuleValue { Get-AIDefaultTimeoutSec -Model 'claude-haiku-4-5' })
+            $inner[0].TimeoutSec | Should -Not -Be (script:Get-ModuleValue { Get-AIDefaultTimeoutSec -Model 'groq-llama-3.3-70b-versatile' })
         }
 
-        It 'PINNED BUG: end to end, the fallback request uses the primary''s default timeout and the cascade retry settings' {
-            # PINNED BUG (t/4078): the fallback reuses the primary's resolved TimeoutSec instead of
-            # Get-AIDefaultTimeoutSec for the fallback model.
+        It 'end to end, the fallback request uses its own model''s default timeout and the cascade retry settings (t/4078)' {
+            # Fixed by t/4078 §2 (was pinned: the fallback reused the primary's resolved TimeoutSec).
             $primary = 'claude-haiku-4-5'; $fallback = 'groq-llama-3.1-8b-instant'
             $primaryDefault = script:Get-ModuleValue { param($m) Get-AIDefaultTimeoutSec -Model $m } @($primary)
             $fallbackDefault = script:Get-ModuleValue { param($m) Get-AIDefaultTimeoutSec -Model $m } @($fallback)
@@ -868,7 +890,9 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $out.Result | Should -BeNullOrEmpty
             $groqCalls = @($script:RestCalls | Where-Object { $_.Uri -like '*groq*' })
             $groqCalls.Count | Should -Be 2 -Because 'the cascade link uses MaxRetries 2'
-            $groqCalls[0].TimeoutSec | Should -Be $primaryDefault
+            $groqCalls[0].TimeoutSec | Should -Be $fallbackDefault
+            $groqCalls[1].TimeoutSec | Should -Be $fallbackDefault
+            @($script:RestCalls | Where-Object { $_.Uri -like '*anthropic*' })[0].TimeoutSec | Should -Be $primaryDefault
             ($script:Sleeps -join ',') | Should -BeExactly '5' -Because 'the cascade link uses RetryDelays 5,15'
             $out.Warnings | Should -Contain "groq: HTTP 503 $($script:D) retrying in 5s (attempt 1/2)"
         }
@@ -947,12 +971,11 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $bad = [pscustomobject][ordered]@{ error = 'bad'; id = 'x1' }
             $out = script:Invoke-Envelope $ModelId $bad
             if ($Backend -in 'claude', 'openai') {
-                # PINNED BUG (t/4078): the claude and openai parsers pipe a missing property through Where-Object,
-                # which never throws, so a malformed body is a SUCCESS with Text $null and no warning.
-                $out.Result | Should -Not -BeNullOrEmpty
-                $out.Result.Text | Should -BeNullOrEmpty
-                $out.Result.Truncated | Should -BeFalse
-                $out.Warnings | Should -BeNullOrEmpty
+                # t/4078 §3 (was pinned: a SUCCESS with Text $null and no warning, because these parsers pipe a
+                # missing property through Where-Object, which never throws). Now: no text -> WARN + $null.
+                $name = script:Get-ModuleValue { param($b) $script:AIBackendProfiles[$b].DisplayName } @($Backend)
+                $out.Result | Should -BeNullOrEmpty
+                $out.Warnings -join "`n" | Should -BeExactly "$($name): response had no text (backend $Backend, model $ModelId, no stop reason in the response). Returning `$null so a fallback can be tried."
             }
             else {
                 $expect = if ($script:Expected.ContainsKey($Backend)) { $script:Expected[$Backend] } else { 'choices[].message.content' }
@@ -964,10 +987,10 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         It '<Backend>: a string body (e.g. an HTML error page)' -ForEach $script:BackendCases {
             $out = script:Invoke-Envelope $ModelId '<html>oops</html>'
             if ($Backend -in 'claude', 'openai') {
-                # PINNED BUG (t/4078): as above, a non-JSON body is a success with Text $null.
-                $out.Result.Text | Should -BeNullOrEmpty
-                $out.Result.RawResponse | Should -BeExactly '<html>oops</html>'
-                $out.Warnings | Should -BeNullOrEmpty
+                # t/4078 §3 (was pinned: as above, a non-JSON body was a success with Text $null).
+                $name = script:Get-ModuleValue { param($b) $script:AIBackendProfiles[$b].DisplayName } @($Backend)
+                $out.Result | Should -BeNullOrEmpty
+                $out.Warnings -join "`n" | Should -BeExactly "$($name): response had no text (backend $Backend, model $ModelId, no stop reason in the response). Returning `$null so a fallback can be tried."
             }
             else {
                 $expect = if ($script:Expected.ContainsKey($Backend)) { $script:Expected[$Backend] } else { 'choices[].message.content' }
@@ -976,18 +999,19 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             }
         }
 
-        It 'PINNED BUG: <Backend> returns success with Text $null and no warning when the text field is missing' -ForEach $script:BackendCases {
-            # PINNED BUG (t/4078): a well-formed envelope with no text is reported as success, Text $null, no WARN.
+        It '<Backend> WARNs "response had no text" with the stop reason and returns $null when the text field is missing (t/4078)' -ForEach $script:BackendCases {
+            # Fixed by t/4078 §3 (was pinned: a well-formed envelope with no text was a success, Text $null, no WARN).
             $env = switch ($Backend) {
                 'gemini' { [pscustomobject]@{ candidates = @([pscustomobject]@{ content = [pscustomobject]@{ parts = @([pscustomobject]@{ functionCall = 'f' }) }; finishReason = 'STOP' }) } }
                 'claude' { [pscustomobject]@{ content = @([pscustomobject]@{ type = 'tool_use'; id = 't1' }); stop_reason = 'tool_use' } }
                 'openai' { [pscustomobject]@{ output = @([pscustomobject]@{ type = 'reasoning' }); status = 'completed' } }
                 default  { [pscustomobject]@{ choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = $null }; finish_reason = 'stop' }) } }
             }
+            $reason = switch ($Backend) { 'gemini' { 'finishReason=STOP' } 'claude' { 'stop_reason=tool_use' } 'openai' { 'status=completed' } default { 'finish_reason=stop' } }
+            $name = script:Get-ModuleValue { param($b) $script:AIBackendProfiles[$b].DisplayName } @($Backend)
             $out = script:Invoke-Envelope $ModelId $env
-            $out.Result | Should -Not -BeNullOrEmpty
-            $out.Result.Text | Should -BeNullOrEmpty
-            $out.Warnings | Should -BeNullOrEmpty
+            $out.Result | Should -BeNullOrEmpty
+            $out.Warnings -join "`n" | Should -BeExactly "$($name): response had no text (backend $Backend, model $ModelId, $reason). Returning `$null so a fallback can be tried."
         }
 
         It 'Gemini: a blocking finishReason (<Reason>) returns $null with a warning' -ForEach @(@{ Reason = 'SAFETY' }, @{ Reason = 'RECITATION' }, @{ Reason = 'OTHER' }) {
@@ -1049,8 +1073,11 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             @{ Name = 'HTTP 400';           Reply = 400;        MaxRetries = 5; Attempt = 0; Status = '400' }
             @{ Name = '429 exhausted';      Reply = 429;        MaxRetries = 3; Attempt = 2; Status = '429' }
             @{ Name = '503 exhausted';      Reply = 503;        MaxRetries = 2; Attempt = 1; Status = '503' }
-            @{ Name = 'timeout';            Reply = 'timeout';  MaxRetries = 5; Attempt = 0; Status = 'error' }
-            @{ Name = 'no attempt';         Reply = 'ok';       MaxRetries = 0; Attempt = 0; Status = '?' }
+            # t/4078: a timeout is retried once, so the logged attempt is 1 (was 0). The old 'no attempt'
+            # row (MaxRetries 0, status '?') is gone: MaxRetries 0 is now rejected at the parameter.
+            @{ Name = 'timeout';            Reply = 'timeout';  MaxRetries = 5; Attempt = 1; Status = 'error' }
+            @{ Name = 'timeout, 1 attempt'; Reply = 'timeout';  MaxRetries = 1; Attempt = 0; Status = 'error' }
+            @{ Name = '502 exhausted';      Reply = 502;        MaxRetries = 3; Attempt = 2; Status = '502' }
         ) {
             $item = switch ($Reply) { 'ok' { script:New-OkEnvelope 'groq' } 'timeout' { [System.TimeoutException]::new('t') } default { script:New-HttpError $Reply } }
             script:Set-RestSequence @(, $item)
@@ -1097,7 +1124,8 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
         It 'is forwarded through the cascade: one entry per link, each with its own model, backend and key source' {
             $env:ANTHROPIC_API_KEY = 'anthropic-test-value'
             $script:Responder = { param($Call) if ($Call.Uri -like '*anthropic*') { script:New-OkEnvelope 'claude' } else { throw (script:New-HttpError 500 'x') } }
-            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5'); CallLogger = $script:Logger } | Out-Null
+            # MaxRetries 1: since t/4078 a 500 is retried; one primary attempt keeps the logged attempt at 0.
+            script:Invoke-CharacterizedCall @{ Prompt = 'p'; Model = 'groq-llama-3.3-70b-versatile'; ApiKey = $script:TestKey; FallbackModels = @('claude-haiku-4-5'); CallLogger = $script:Logger; MaxRetries = 1 } | Out-Null
             $rows = @($script:Logged | ForEach-Object { "$($_[0])|$($_[1])|$($_[2].Model)|$($_[2].Backend)|$($_[2].KeySource)" })
             $rows -join "`n" | Should -BeExactly (@(
                 '0|500|groq-llama-3.3-70b-versatile|groq|explicit'

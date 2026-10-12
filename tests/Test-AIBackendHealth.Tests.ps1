@@ -95,6 +95,35 @@ Describe 'Test-AIBackendHealth' -Tag 'enrichment' {
         }
     }
 
+    Context 'Probe call shape (t/4078)' {
+        It 'sends ONE attempt with no cascade (MaxRetries 1, FallbackModels @()), which Invoke-AIApi accepts' {
+            # -MaxRetries 0 sent no request at all and is now rejected by Invoke-AIApi's ValidateRange(1, 10).
+            $script:ProbeArgs = $null
+            Mock Invoke-AIApi -ModuleName AITriad {
+                $script:ProbeArgs = @{ MaxRetries = $MaxRetries; FallbackModels = $FallbackModels; Bound = @($PesterBoundParameters.Keys) }
+                [PSCustomObject]@{ Text = 'pong' }
+            }
+            Test-AIBackendHealth -Backend gemini | Out-Null
+            $script:ProbeArgs.MaxRetries | Should -Be 1
+            $script:ProbeArgs.Bound | Should -Contain 'FallbackModels'
+            @($script:ProbeArgs.FallbackModels).Count | Should -Be 0
+            # The real Invoke-AIApi lives in AIEnrich (imported by AITriad into its own scope).
+            $real = & (Get-Module AITriad) { @(Get-Command Invoke-AIApi -All | Where-Object { $_.ModuleName -eq 'AIEnrich' })[0] }
+            $range = $real.Parameters['MaxRetries'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+            $range | Should -Not -BeNullOrEmpty
+            [int]$script:ProbeArgs.MaxRetries | Should -BeGreaterOrEqual ([int]$range.MinRange)
+        }
+
+        It 'a 200 with no text (the t/4078 "response had no text" WARN) still reports the backend ok' {
+            Mock Invoke-AIApi -ModuleName AITriad {
+                Write-Warning 'Google Gemini: response had no text (backend gemini, model m, finishReason=MAX_TOKENS). Returning $null so a fallback can be tried.'
+                $null
+            }
+            (Test-AIBackendHealth -Backend gemini).Status | Should -Be 'ok'
+        }
+    }
+
     Context 'Parameter validation' {
         It 'Rejects an unknown backend name' {
             { Test-AIBackendHealth -Backend 'nonexistent-backend' } | Should -Throw

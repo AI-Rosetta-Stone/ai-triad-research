@@ -67,15 +67,24 @@ function Invoke-AIBackendProbe {
         -Model           $ModelId `
         -MaxTokens       5 `
         -TimeoutSec      $TimeoutSec `
-        -MaxRetries      0 `
+        -MaxRetries      1 `
+        -FallbackModels  @() `
         -Temperature     0.0 `
         -SkipTokenCheck `
         -WarningVariable WarnVar
     $Sw.Stop()
+    # t/4078: one attempt and no cascade. -MaxRetries 0 (now rejected by Invoke-AIApi's ValidateRange)
+    # sent no request at all, so the probe only ever reported what the fallback chain did.
 
     $Row['LatencyMs'] = [int]$Sw.ElapsedMilliseconds
 
     if ($null -ne $AIResult -and $AIResult.PSObject.Properties['Text']) {
+        $Row['Status'] = 'ok'
+        return [PSCustomObject]$Row
+    }
+    # t/4078 §3: a 200 with no text is now $null plus a "response had no text" WARN. For a probe the
+    # backend still answered (a 5-token budget can be spent before any text), so it is reachable: 'ok'.
+    if (@($WarnVar | Where-Object { "$_" -match 'response had no text' }).Count -gt 0) {
         $Row['Status'] = 'ok'
         return [PSCustomObject]$Row
     }
