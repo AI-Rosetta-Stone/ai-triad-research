@@ -12,8 +12,7 @@
     "build:main": "tsc -p tsconfig.main.json",
     "test": "vitest run",
     "licenses": "node scripts/generate-notices.cjs --output THIRD-PARTY-NOTICES.txt",
-    "build": "tsc -p tsconfig.main.json && vite build && npm run licenses",
-    "lint": "eslint src/"
+    "build": "tsc -p tsconfig.main.json && vite build && npm run licenses"
   },
   "dependencies": {
     "@google/genai": "^2.27.0",
