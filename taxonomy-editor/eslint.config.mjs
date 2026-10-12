@@ -168,7 +168,7 @@ export default tseslint.config(
     files: ['src/server/**/*.ts'],
     ignores: TEST_GLOBS,
     rules: {
-      'local/no-bare-throw': ['warn', { baseline: '../lib/eslint-rules/bare-throw-baseline.json' }],
+      'local/no-bare-throw': ['warn', { baseline: 'lib/eslint-rules/bare-throw-baseline.json' }],
     },
   },
   // ── Block B: LOC budget for test source (syntactic parse; tests are outside the
