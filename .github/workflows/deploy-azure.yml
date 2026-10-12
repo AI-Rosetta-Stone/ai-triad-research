@@ -203,6 +203,18 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Validate auth config — tokenStore safety (warn-only — t/4133)
+        # t/4133: tokenStore.enabled=true with no blob backing causes HTTP 500 for all signed-in
+        # users on replica recycle or platform roll (t/4132 incident). Checks live Azure state
+        # (not just the template) so ad-hoc CLI drift is also caught. Warn-only until
+        # gate-promotion flip PR; blocking upgrade is T2 (gate flip, separate PR).
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          ./operations/devops/Invoke-TokenStoreGateCheck.ps1 `
+            -ContainerAppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup    '${{ env.RESOURCE_GROUP }}'
+
       - name: Capture current active revisions (traffic-pin + rollback targets)
         id: current_revision
         shell: pwsh
