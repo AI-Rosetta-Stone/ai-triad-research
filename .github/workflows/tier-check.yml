@@ -72,16 +72,24 @@ jobs:
             }
 
             async function run() {
-            // Config and predicate load from the BASE commit, not the PR's own merge ref, so a
-            // PR cannot narrow R1 or weaken a rule in the same change that should be caught by
-            // it (t/4103, Lead review). `pull_request` checks out the PR's merge ref by default,
-            // so both are re-fetched explicitly from base.sha into a temp dir.
+            // Config and predicate load from the BASE BRANCH'S LIVE TIP, not the PR's own merge
+            // ref (so a PR cannot narrow R1 or weaken a rule in the same change that should be
+            // caught by it) and not the PR's pinned `base.sha` either (t/4103#14, PR #3155
+            // postmortem round 2: a PR opened before a predicate change landed on main has a
+            // stale `base.sha` that predates exports the workflow now depends on -- loading from
+            // the live tip instead fixes the staleness while keeping the anti-self-narrowing
+            // guarantee, since the PR's own commits are never on base's tip regardless).
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-            const baseSha = pr.base.sha, headSha = pr.head.sha;
+            const headSha = pr.head.sha;
+            execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+            // R2a/R2b/R2c diff against the PR's actual base commit (unchanged semantics), not
+            // the live tip, since the diff must reflect only this PR's own changes.
+            const baseSha = pr.base.sha;
 
             function showFromBase(repoPath) {
               try {
-                return execSync(`git show ${baseSha}:${repoPath}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', maxBuffer: 1024 * 1024 * 16 });
+                return execSync(`git show ${baseTipSha}:${repoPath}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', maxBuffer: 1024 * 1024 * 16 });
               } catch {
                 return null;
               }
@@ -90,27 +98,67 @@ jobs:
             const baseConfigText = showFromBase('.github/ci/tier-paths.json');
             const basePredicateText = showFromBase('operations/devops/tier-check-predicate.mjs');
 
-            if (baseConfigText === null || basePredicateText === null) {
-              // Bootstrap case: base has no tier-check yet (this is the PR that adds it, or any
-              // PR against a base that predates the check). Pass with a note rather than failing
-              // -- there is nothing on base to enforce yet, and every later PR is judged by
-              // whatever rules land on main once this one merges.
-              core.info('tier-check: no config/predicate on base -- not yet installed, passing with a note.');
+            // THIS WORKFLOW RUN'S OWN trusted copy (checked out at head, the same copy the
+            // Self-health step already ran) -- used for the version check and, when the base
+            // predicate is unusable, as the fallback for a plain R1 path match. Never use a
+            // possibly-skewed base module to validate or exempt itself (t/4103, Lead review on
+            // PR #3172: EXPECTED_API coming from head meant a PR that bumps TIER_CHECK_API in
+            // its own head got "skipped" and was never judged -- closed by putting the
+            // predicate file itself on R1 AND still applying R1 as a plain path match here).
+            const headModule = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/tier-check-predicate.mjs`).href);
+
+            async function postSkippedVerdict(reason) {
+              core.info(`tier-check: verdict skipped (skew/bootstrap) -- ${reason}`);
               await postVerdictComment([
                 MARKER,
-                "_tier-check: not yet installed on the base branch -- no verdict to give. Once this PR merges, later PRs are judged by main's rules._",
+                `_tier-check: verdict skipped (skew/bootstrap) -- ${reason}_`,
               ].join('\n'));
+            }
+
+            async function r1FallbackCheck(config, reason) {
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+              const { paths: fallbackPaths } = headModule.factsFromListFiles(files);
+              const tier = headModule.extractTier(pr.body);
+              const result = headModule.evaluateR1Only(fallbackPaths, config, tier);
+              if (!result.pass) {
+                await postVerdictComment([
+                  MARKER,
+                  `**tier-check (advisory)** — declared tier: \`${tier ?? '(none)'}\``,
+                  '',
+                  ...result.comments.map((c) => `- ${c}`),
+                  '',
+                  '_This check is advisory and never blocks a merge. See t/4103._',
+                ].join('\n'));
+                return;
+              }
+              await postSkippedVerdict(reason);
+            }
+
+            if (baseConfigText === null) {
+              // True bootstrap: base has no config at all, so not even R1 can be checked.
+              await postSkippedVerdict("not yet installed on the base branch's tip. Once this PR merges, later PRs are judged by main's rules.");
+              return;
+            }
+
+            const config = JSON.parse(baseConfigText);
+
+            if (basePredicateText === null) {
+              await r1FallbackCheck(config, "predicate not yet installed on the base branch's tip (config present, predicate code missing)");
               return;
             }
 
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-base-'));
-            const configPath = path.join(tmpDir, 'tier-paths.json');
             const predicatePath = path.join(tmpDir, 'tier-check-predicate.mjs');
-            fs.writeFileSync(configPath, baseConfigText);
             fs.writeFileSync(predicatePath, basePredicateText);
+            const baseModule = await import(pathToFileURL(predicatePath).href);
 
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            const { evaluateTierCheck, factsFromListFiles } = await import(pathToFileURL(predicatePath).href);
+            const apiCheck = headModule.checkApiVersion(baseModule.TIER_CHECK_API, headModule.TIER_CHECK_API);
+            if (!apiCheck.compatible) {
+              await r1FallbackCheck(config, apiCheck.reason);
+              return;
+            }
+
+            const { evaluateTierCheck, factsFromListFiles } = baseModule;
 
             const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
             const { paths } = factsFromListFiles(files);

@@ -13,10 +13,13 @@ import {
   checkR5,
   evaluateTierCheck,
   factsFromListFiles,
+  checkApiVersion,
+  TIER_CHECK_API,
+  evaluateR1Only,
 } from './tier-check-predicate.mjs';
 
 const CONFIG = {
-  r1Paths: ['.github/ci/required-contexts.json', '.github/workflows/tier-check.yml'],
+  r1Paths: ['.github/ci/required-contexts.json', '.github/workflows/tier-check.yml', 'operations/devops/tier-check-predicate.mjs'],
   r1Globs: ['operations/devops/Move-PiCredential*.ps1'],
   r2cGlobs: ['**/eslint.config.mjs', '**/PSScriptAnalyzerSettings.psd1'],
   schemaDirPrefixes: ['lib/schema/', 'taxonomy/schemas/'],
@@ -79,6 +82,55 @@ test('factsFromListFiles: real REST payload maps via filename, not path (f.path 
 test('factsFromListFiles: entries missing filename are skipped, not crashed on', () => {
   const { paths } = factsFromListFiles([{ filename: 'a.ts' }, {}, { filename: 'b.ts' }]);
   assert.deepEqual(paths, ['a.ts', 'b.ts']);
+});
+
+// ── checkApiVersion (t/4103#14, PR #3155 postmortem round 2: version skew) ────────────────
+// A PR opened before #3171 landed has a `base.sha` that predates `factsFromListFiles` -- the
+// fix is to load from base's live tip AND gate on this version check, so a mismatch reads as
+// a neutral skip, never a crash.
+test('checkApiVersion: matching version is compatible', () => {
+  assert.deepEqual(checkApiVersion(TIER_CHECK_API, TIER_CHECK_API), { compatible: true, reason: null });
+});
+
+test('checkApiVersion: missing TIER_CHECK_API (pre-versioning base, or bootstrap) is incompatible', () => {
+  const result = checkApiVersion(undefined, TIER_CHECK_API);
+  assert.equal(result.compatible, false);
+  assert.match(result.reason, /no TIER_CHECK_API/);
+});
+
+test('checkApiVersion: a real but mismatched version number is incompatible', () => {
+  const result = checkApiVersion(TIER_CHECK_API - 1, TIER_CHECK_API);
+  assert.equal(result.compatible, false);
+  assert.match(result.reason, /does not match/);
+});
+
+// ── evaluateR1Only (t/4103, PR #3172 review: close the self-exemption-by-skew path) ───────
+// EXPECTED_API comes from the PR's own HEAD copy, so a PR that bumps TIER_CHECK_API in its own
+// head would otherwise get "verdict skipped (skew)" and never be judged at all. Fixed by
+// putting the predicate file itself on R1, and applying R1 alone (plain path match, no code
+// trust needed) as the fallback whenever the base predicate is skewed or missing.
+test('evaluateR1Only: a skewed PR touching an R1 path without declaring T2 fails R1', () => {
+  const result = evaluateR1Only(['.github/workflows/tier-check.yml'], CONFIG, 'T1');
+  assert.equal(result.pass, false);
+  assert.match(result.comments[0], /R1: touches .*tier-check\.yml.*must declare Tier: T2/);
+});
+
+test('evaluateR1Only: a skewed PR with no R1 path stays a neutral pass (caller reports it as a skip)', () => {
+  const result = evaluateR1Only(['lib/debate/aiAdapter.ts'], CONFIG, 'T1');
+  assert.deepEqual(result, { pass: true, comments: [] });
+});
+
+test('evaluateR1Only: a head that bumps TIER_CHECK_API while touching the predicate is flagged by R1', () => {
+  // Simulates the exact scenario the review closed: a PR edits tier-check-predicate.mjs
+  // (which is now on R1) without declaring T2 -- caught even though it would otherwise skew.
+  const result = evaluateR1Only(['operations/devops/tier-check-predicate.mjs'], CONFIG, 'T0');
+  assert.equal(result.pass, false);
+  assert.match(result.comments[0], /touches operations\/devops\/tier-check-predicate\.mjs/);
+});
+
+test('evaluateR1Only: the same R1 hit declaring T2 passes', () => {
+  const result = evaluateR1Only(['operations/devops/tier-check-predicate.mjs'], CONFIG, 'T2');
+  assert.deepEqual(result, { pass: true, comments: [] });
 });
 
 // ── R1 ───────────────────────────────────────────────────────────────────
