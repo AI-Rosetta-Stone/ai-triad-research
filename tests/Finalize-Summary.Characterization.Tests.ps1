@@ -408,7 +408,13 @@ saturation makes progress claims hard to verify independently.
                 if ($h) { $lines.Add("[$($h.Color)]$nn $($h.Message)") } else { $lines.Add("[info] $($r.MessageData)") }
             }
             elseif ($r -is [System.Management.Automation.WarningRecord]) { $lines.Add("[warning] $($r.Message)") }
-            elseif ($r -is [System.Management.Automation.ErrorRecord]) { $lines.Add("[error] $(script:Format-Masked $r.Exception.Message)") }
+            elseif ($r -is [System.Management.Automation.ErrorRecord]) {
+                # A missing-file PathNotFound from Get-Content (the metadata-missing scenario) reaches the
+                # merged record stream differently on Linux and Windows, so it is left out of the transcript.
+                # The failure it causes is still pinned by the "metadata update failed" line that follows it.
+                if ($r.FullyQualifiedErrorId -like 'PathNotFound*') { continue }
+                $lines.Add("[error] $(script:Format-Masked $r.Exception.Message)")
+            }
             else { $output.Add($r) }
         }
         @{ Lines = $lines.ToArray(); Output = $output.ToArray() }
@@ -582,7 +588,22 @@ saturation makes progress claims hard to verify independently.
         ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeFalse -Because 'Write-Utf8NoBom writes no BOM'
         $text = $script:Utf8.GetString($bytes)
         $text.Contains("`r") | Should -BeFalse -Because 'the sink writes LF only'
+        $text = script:Hide-PromptLengthValues $text
         if ($Metadata) { script:Normalize-Metadata $text } else { script:Sort-JsonBlock $text 'flags' }
+    }
+
+    # The extraction stage's prompt length is PLATFORM-dependent: the assembled prompt carries the
+    # platform's line endings (measured on the same fixture: 1255 chars on Windows, 1239 on Linux CI,
+    # i.e. one extra CR per line on Windows). The .prompt files themselves are LF on both, so the CRs come
+    # from text assembled at runtime. So only the values derived from that length are masked: the
+    # prompt_chars stage's in_count and ratio, and metadata.json's worst_ratio when the worst stage is
+    # that extraction stage. They are computed by New-ContextRotMetrics, not by Finalize-Summary;
+    # Finalize-Summary only places them, and every key and every other value is still compared exactly.
+    function script:Hide-PromptLengthValues([string]$Text) {
+        $Text = [regex]::Replace($Text,
+            '("in_units": "prompt_chars",\s*"in_count": )[0-9.]+(,\s*"out_units": "[^"]*",\s*"out_count": [0-9.]+,\s*"ratio": )[0-9.]+',
+            '${1}"<PROMPT_CHARS>"${2}"<PROMPT_RATIO>"')
+        [regex]::Replace($Text, '("worst_stage": "extraction",\s*"worst_ratio": )[0-9.]+', '${1}"<PROMPT_RATIO>"')
     }
 
     # Stub installer for -Parallel runspaces, where Pester mocks do not reach. Runs in each runspace's

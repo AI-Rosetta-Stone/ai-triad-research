@@ -2,7 +2,6 @@
   "scenario": "metadata-missing",
   "transcript": [
     "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
-    "[error] Cannot find path '<ROOT>/sources/doc-1/metadata.json' because it does not exist.",
     "[Yellow]   │  ⚠ Summary written but metadata update failed: Cannot index into a null array.",
     "[Green]   └─ ✓ Done: summaries/doc-1.json"
   ],

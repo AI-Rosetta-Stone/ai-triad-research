@@ -19,10 +19,10 @@
       {
         "stage": "extraction",
         "in_units": "prompt_chars",
-        "in_count": 1255.0,
+        "in_count": "<PROMPT_CHARS>",
         "out_units": "items",
         "out_count": 12.0,
-        "ratio": 0.0096,
+        "ratio": "<PROMPT_RATIO>",
         "flags": {
           "dedup_claims_removed": 0,
           "dedup_points_removed": 0,

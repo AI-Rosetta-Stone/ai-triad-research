@@ -31,6 +31,6 @@
   "context_rot": {
     "cumulative_retention": 1.0,
     "worst_stage": "extraction",
-    "worst_ratio": 0.0096
+    "worst_ratio": "<PROMPT_RATIO>"
   }
 }
