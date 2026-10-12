@@ -5,7 +5,8 @@ import type { Organization, OrganizationEdge } from '@lib/organizations/types';
 import type { EntityDetail, EntitySummary, EntityListQuery } from '@lib/entities/types';
 import type { ContainerMentions } from '@lib/entities/mentionTypes';
 import type { EdgesFile } from '@lib/debate/taxonomyTypes';
-import type { UserPreferences, BriefExportRequest, BriefExportJobView, BriefExportRecord, FetchRelevantNodesPayload, RelevantTaxonomyResult, FetchClaimAttributionPayload, ClaimAttributionResponse, GenerateTextIpcPayload, StartInquiryRequest, InquiryStatusResponse, InquiryResult, InquiryResultSummary, NodeDeleteLogEntry } from '../bridge/types';
+import type { UserPreferences, BriefExportRequest, BriefExportJobView, BriefExportRecord, FetchRelevantNodesPayload, RelevantTaxonomyResult, FetchClaimAttributionPayload, ClaimAttributionResponse, GenerateTextIpcPayload, StartInquiryRequest, InquiryStatusResponse, InquiryResult, InquiryResultSummary, NodeDeleteLogEntry, RefreshModelsRequest } from '../bridge/types';
+import type { RefreshResult } from '@lib/electron-shared/modelDiscovery';
 import type { BriefArtifactName } from '../../../../lib/brief/types';
 import type { StopReason } from '@lib/ai-client/types';
 import type { OpEdSet, OpEdSetSummary } from '@lib/oped/types';
@@ -130,7 +131,7 @@ export interface ElectronAPI {
 
   // AI models & keys
   loadAIModels: () => Promise<unknown>;
-  refreshAIModels: () => Promise<unknown>;
+  refreshAIModels: (opts?: RefreshModelsRequest) => Promise<RefreshResult>;
   // Unconditionally implemented in preload.cts; required-ness verified t/3532.
   validateApiKey: (key: string, backend: string) => Promise<{ valid: boolean; error?: string }>;
   verifyStoredKeys: (backend: string) => Promise<{ results: { index: number; masked: string; valid: boolean; error?: string }[] }>;

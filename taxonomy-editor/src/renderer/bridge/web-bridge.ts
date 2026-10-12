@@ -14,6 +14,7 @@ import { ActionableError } from '@lib/debate/errors';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { ALL_API_KEY_BACKENDS } from '@lib/ai-client/types';
 import type { OpEdSet, OpEdSetSummary } from '../../../../lib/oped/types';
+import type { RefreshResult } from '@lib/electron-shared/modelDiscovery';
 import { encryptKeysForSharing, decryptKeysFromSharing } from '../utils/keyShareCrypto';
 import { resilientFetch, categorizeEndpoint, registerConnectionPoolProvider, type EndpointCategory } from './resilience';
 import { nextStepsForStatus } from './httpErrorSteps';
@@ -797,7 +798,8 @@ const rawApi: AppAPI = {
 
   // AI models & keys
   loadAIModels: () => get('/api/models'),
-  refreshAIModels: () => post('/api/models/refresh'),
+  // t/4031: opts travel as the POST body; a plain refresh still sends none. Not retried (a mutation).
+  refreshAIModels: (opts) => post<RefreshResult>('/api/models/refresh', opts),
   validateApiKey: (key, backend) => post('/api/keys/validate', { key, backend }),
   verifyStoredKeys: (backend) => post('/api/keys/verify-stored', { backend }),
   setApiKey: async (key, backend) => {
