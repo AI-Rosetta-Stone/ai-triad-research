@@ -36,6 +36,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'AlertReaderGuardVerdict.ps1')
 
 function script:Get-PrsByLabel([string]$Label) {
     $json = gh pr list -R $Repo --state open --label $Label --limit 50 --json number,title,url,headRefName,labels,body
@@ -50,6 +51,15 @@ function script:Get-TicketHintFromBranch([string]$Ref) {
 }
 
 try {
+    # t/4156: a renamed/unresolvable repo must read as blind, never as a clean zero.
+    $fullName = gh api "repos/$Repo" -q .full_name 2>$null
+    if ($LASTEXITCODE -ne 0) { $fullName = $null }
+    $floorJson = gh pr list -R $Repo --label stuck-pr-alert-owner --state all --limit 1 --json number 2>$null
+    $floorCount = if ($LASTEXITCODE -eq 0) { @($floorJson | ConvertFrom-Json).Count } else { 0 }
+    $guard = Get-AlertReaderGuardVerdict -Repo $Repo -ResolvedFullName $fullName `
+        -FloorLabel 'stuck-pr-alert-owner' -FloorLabelAllStatesCount $floorCount
+    if ($guard.IsBlind) { throw $guard.Reason }
+
     $ownerAlerts = @(Get-PrsByLabel 'stuck-pr-alert-owner' | ForEach-Object {
         [pscustomobject]@{
             number     = $_.number

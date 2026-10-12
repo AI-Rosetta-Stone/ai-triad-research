@@ -27,8 +27,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'DataComplianceWatchdogVerdict.ps1')
+. (Join-Path $PSScriptRoot 'AlertReaderGuardVerdict.ps1')
 
 try {
+    # t/4156: a renamed/unresolvable repo must read as blind, never as a clean zero.
+    $fullName = gh api "repos/$Repo" -q .full_name 2>$null
+    if ($LASTEXITCODE -ne 0) { $fullName = $null }
+    $floorJson = gh issue list -R $Repo --label data-compliance --state all --limit 1 --json number 2>$null
+    $floorCount = if ($LASTEXITCODE -eq 0) { @($floorJson | ConvertFrom-Json).Count } else { 0 }
+    $guard = Get-AlertReaderGuardVerdict -Repo $Repo -ResolvedFullName $fullName `
+        -FloorLabel 'data-compliance' -FloorLabelAllStatesCount $floorCount
+    if ($guard.IsBlind) { throw $guard.Reason }
+
     $staleJson = gh issue list -R $Repo --state open --label bridge-stale --limit 100 --json number,title,url,labels
     if ($LASTEXITCODE -ne 0) { throw "gh issue list (bridge-stale) exited $LASTEXITCODE" }
     $stale = @($staleJson | ConvertFrom-Json | ForEach-Object {

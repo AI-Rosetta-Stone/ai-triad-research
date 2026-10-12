@@ -26,8 +26,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'CiAlertEscalationVerdict.ps1')
+. (Join-Path $PSScriptRoot 'AlertReaderGuardVerdict.ps1')
 
 try {
+    # t/4156: a renamed/unresolvable repo must read as blind, never as a clean zero.
+    $fullName = gh api "repos/$Repo" -q .full_name 2>$null
+    if ($LASTEXITCODE -ne 0) { $fullName = $null }
+    $floorJson = gh issue list -R $Repo --label main-ci-monitor-heartbeat --state all --limit 1 --json number 2>$null
+    $floorCount = if ($LASTEXITCODE -eq 0) { @($floorJson | ConvertFrom-Json).Count } else { 0 }
+    $guard = Get-AlertReaderGuardVerdict -Repo $Repo -ResolvedFullName $fullName `
+        -FloorLabel 'main-ci-monitor-heartbeat' -FloorLabelAllStatesCount $floorCount
+    if ($guard.IsBlind) { throw $guard.Reason }
+
     $escalatedJson = gh issue list -R $Repo --state open --label alert-escalated --limit 50 --json number,title,url,labels
     if ($LASTEXITCODE -ne 0) { throw "gh issue list (alert-escalated) exited $LASTEXITCODE" }
     $escalated = @($escalatedJson | ConvertFrom-Json | ForEach-Object {
