@@ -43,6 +43,8 @@ Describe 'Rename-GitHubOwner: owner references change' {
     It 'moves the GHCR packages API from the user endpoints to the org endpoint' {
         Convert-Line '-Endpoint "/users/$Owner/packages/container/$Package/versions"' |
             Should -Be '-Endpoint "/orgs/$Owner/packages/container/$Package/versions"'
+        Convert-Line "if (`$Uri -like '*/users/*/packages/*') {" |
+            Should -Be "if (`$Uri -like '*/orgs/*/packages/*') {"
         Convert-Line 'TAGS=$(gh api user/packages/container/ai-triad-base/versions --jq x)' |
             Should -Be 'TAGS=$(gh api orgs/ai-rosetta-stone/packages/container/ai-triad-base/versions --jq x)'
     }
@@ -116,6 +118,16 @@ Describe 'Rename-GitHubOwner: file handling' {
         $report = @(Invoke-OwnerRename -RepoRoot $script:Repo -RepoOwner 'AI-Rosetta-Stone' -OldOwner 'jpsnover' -WhatIf)
         Get-Content -LiteralPath $p -Raw | Should -Be 'repository: jpsnover/ai-triad-data'
         @($report | Where-Object Changed).Count | Should -Be 1
+    }
+
+    It 'never rewrites its own script or tests' {
+        New-Item -ItemType Directory -Path (Join-Path $script:Repo 'tests') | Out-Null
+        $p = Join-Path $script:Repo 'tests/Rename-GitHubOwner.Tests.ps1'
+        Set-Content -LiteralPath $p -Value "Convert-Line 'jpsnover/ai-triad-data'" -NoNewline
+        git -C $script:Repo add tests/Rename-GitHubOwner.Tests.ps1
+        $report = @(Invoke-OwnerRename -RepoRoot $script:Repo -RepoOwner 'AI-Rosetta-Stone' -OldOwner 'jpsnover' -Confirm:$false)
+        Get-Content -LiteralPath $p -Raw | Should -Be "Convert-Line 'jpsnover/ai-triad-data'"
+        $report.Count | Should -Be 0
     }
 
     It 'refuses a path that is not a git checkout' {

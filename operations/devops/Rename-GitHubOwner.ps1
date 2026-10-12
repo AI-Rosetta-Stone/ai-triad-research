@@ -63,6 +63,8 @@ function Get-OwnerRenameRules {
         [pscustomobject]@{ Name = 'image-ref'; Pattern = "$before$old/(?=(?:$imgs)$after)";  Replacement = "$image/" }
         [pscustomobject]@{ Name = 'image-name-from-owner'; Pattern = '\$\{\{\s*github\.repository_owner\s*\}\}/(?=(?:' + $imgs + ')' + $after + ')'; Replacement = "$image/" }
         [pscustomobject]@{ Name = 'packages-api-users';    Pattern = '/users/\$Owner/packages/'; Replacement = '/orgs/$Owner/packages/' }
+        # Test mocks match the same endpoint by glob; they must move with the code or the mock stops firing.
+        [pscustomobject]@{ Name = 'packages-api-users-glob'; Pattern = '/users/\*/packages/'; Replacement = '/orgs/*/packages/' }
         [pscustomobject]@{ Name = 'packages-api-authuser'; Pattern = '(?<![A-Za-z0-9_/-])user/packages/container/'; Replacement = "orgs/$image/packages/container/" }
         # Owner held in a variable or default rather than an owner/name path.
         [pscustomobject]@{ Name = 'owner-env';     Pattern = "(?m)^(\s*OWNER:\s*)$old\s*$"; Replacement = "`${1}$image" }
@@ -117,8 +119,10 @@ function Invoke-OwnerRename {
     }
     $rules = Get-OwnerRenameRules -OldOwner $OldOwner -RepoOwner $RepoOwner
     $files = @(git -C $RepoRoot grep -l -I -F -- $OldOwner) + @(git -C $RepoRoot grep -l -I -F -- 'github.repository_owner') +
-             @(git -C $RepoRoot grep -l -I -E -- '(/users/\$Owner/packages/|user/packages/container/)') |
-             Where-Object { $_ } | Sort-Object -Unique
+             @(git -C $RepoRoot grep -l -I -E -- '(/users/(\$Owner|\*)/packages/|user/packages/container/)') |
+             Where-Object { $_ -and $_ -notmatch '(^|/)Rename-GitHubOwner(\.Tests)?\.ps1$' } | Sort-Object -Unique
+    # The script and its tests are excluded: their old-owner strings are rules and fixtures, and
+    # rewriting them turns every test input into an already-renamed string.
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     foreach ($rel in $files) {
         $path  = Join-Path $RepoRoot $rel
