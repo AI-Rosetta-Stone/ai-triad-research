@@ -45,6 +45,17 @@
   ],
   "models": [
     {
+      "id": "t4150-arm2-broken-registry-probe",
+      "minTimeoutMs": 0,
+      "apiModelId": "t4150-arm2-broken-registry-probe",
+      "label": "t/4150 arm-2 throwaway — unregistered backend probe (never merged)",
+      "backend": "not-a-real-backend",
+      "picker": {
+        "label": "t4150 arm2 probe",
+        "order": 9999
+      }
+    },
+    {
       "id": "azure-gpt-4o",
       "minTimeoutMs": 0,
       "apiModelId": "gpt-4o",
