@@ -65,10 +65,12 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 - **Batch sequential same-feature work** into one PR, unless the diff is over ~400 lines or mixes concerns. Merge promptly on green, or record why not.
 - **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash`) for T0 and T1 PRs. Arming means "done", so disarm before pushing more.
   - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
-- **Holds:** the `consult-hold` label is the gate; draft alone is not. A PR implementing consult conditions lists them verbatim and stays unarmed until every one is ticked.
+- **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
+  - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
+  - or with the "SO did not review" note plus the human approval.
 - **Co-landing PRs** carry `joint-gv` and are merged manually after their joint review.
 - **Never run `gh pr review --approve`.** Every agent is jpsnover, and GitHub refuses self-approval. Record approval as a PR comment starting `Approved (<role>):`. Owner: TL. This rule lapses when the t/4096 Reviewer App switch-over lands (Sage #225).
-- **Where this section differs from Change Tiers below, Change Tiers wins.** The hold ceremony is being simplified in t/4093. Ref §4.
+- **Where this section differs from Change Tiers below, Change Tiers wins.** Ref §4.
 
 ### Claim Before Implement
 
