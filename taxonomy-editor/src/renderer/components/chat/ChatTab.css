@@ -65,3 +65,15 @@
 .community-chat-transcript-scroll {
   max-height: none;
 }
+
+/* t/4138 — the opened community chat (ChatWindow's read-only detail view) has no scroll
+   bar: .chat-window-root is a fixed-height flex column with no overflow handling of its
+   own, and .community-chat-detail (the sole child when a community chat is open) had none
+   either, so content taller than the window just overflowed invisibly. Make this wrapper
+   the scroll container. */
+.community-chat-detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
