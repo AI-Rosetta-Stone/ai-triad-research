@@ -335,6 +335,62 @@ test('t/3695 single-quoted content is also never command position (sanity: singl
   assert.equal(mergeGuardVerdict(`echo $'gh pr merge 1901 --auto'`).reason, 'not-a-merge');
 });
 
+// ── t/3695#30 round 2 (Lead review on PR #3189): 4 probed fixtures -- 3 missed merges, 1 FP ──
+test('t/3695 FIXTURE: a path-qualified gh (/usr/bin/gh) is still caught via basename matching', () => {
+  const v = mergeGuardVerdict('/usr/bin/gh pr merge 5 --squash');
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: the PowerShell call operator with a quoted Windows gh.exe path is still caught', () => {
+  const v = mergeGuardVerdict(String.raw`& "C:\tools\gh.exe" pr merge 5 --squash`);
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+  // Guarded form of the same path must also still be recognized as guarded, not just blocked.
+  assert.equal(mergeGuardVerdict(String.raw`& "C:\tools\gh.exe" pr merge 5 --squash --match-head-commit abc`).reason, 'guarded');
+});
+
+test('t/3695 FIXTURE: command substitution — x=$(gh pr merge 5 --squash) is still caught', () => {
+  const v = mergeGuardVerdict('x=$(gh pr merge 5 --squash)');
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: a parenthesized subshell — ( gh pr merge 5 --squash ) is still caught', () => {
+  const v = mergeGuardVerdict('( gh pr merge 5 --squash )');
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: a backtick subshell is also caught', () => {
+  const v = mergeGuardVerdict('`gh pr merge 5 --squash`');
+  assert.equal(v.block, true);
+});
+
+test('t/3695 REGRESSION GUARD: a subshell used as a FLAG VALUE (not a separate clause) stays one guarded clause', () => {
+  // The exact shape the root AGENTS.md remedy text recommends: --match-head-commit's value is
+  // itself a command substitution. Must NOT be cut into a bare merge + a stray $(gh pr view …).
+  const v = mergeGuardVerdict('gh pr merge 1901 --match-head-commit $(gh pr view 1901 --json headRefOid -q .headRefOid)');
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'guarded');
+});
+
+test('t/3695 FIXTURE (false positive): a BARE `cat <<EOF` heredoc (no redirect at all) is data, not a merge', () => {
+  const v = mergeGuardVerdict('cat <<EOF\ngh pr merge 5 --squash\nEOF');
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'not-a-merge');
+});
+
+test('t/3695 FIXTURE: printf/echo heredoc consumers are also data sinks', () => {
+  assert.equal(mergeGuardVerdict('printf <<EOF\ngh pr merge 5 --squash\nEOF').reason, 'not-a-merge');
+  assert.equal(mergeGuardVerdict('echo <<EOF\ngh pr merge 5 --squash\nEOF').reason, 'not-a-merge');
+});
+
+test('t/3695 sanity: bash/sh/pwsh interpreters are UNCHANGED by the heredoc-sink widening — still judged', () => {
+  const v = mergeGuardVerdict('bash <<EOF\ngh pr merge 5 --squash\nEOF');
+  assert.equal(v.block, true);
+});
+
 // --- CLI shim: prove the RUNTIME the feedback rule invokes (test==runtime, TL GV t/3270#4) ---
 
 test('CLI shim: BLOCKs (emits "fire") on a manual merge missing the flag', () => {

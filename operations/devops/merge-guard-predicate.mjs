@@ -80,8 +80,12 @@ const PIPE_RE = /(?<!\|)\|(?!\|)/;
 const HEREDOC_DATA_SINKS = [
   /^\s*git\s+commit\b.*(?:\s-F\s*-|\s--file(?:=|\s+)-)(?:\s|$)/, // git commit -F - / --file=-
   /^\s*gh(?:\.exe)?\s.*(?:\s--body-file(?:=|\s+)-|\s-F\s*-)(?:\s|$)/, // gh … --body-file - / -F -
-  /^\s*cat\s+(?:[^|]*\s)?>>?\s*\S/, // cat > file <<EOF  /  cat <<EOF > file
-  /^\s*tee\s+\S/, // tee file <<EOF
+  // t/3695#30 (Lead review on PR #3189): a BARE `cat <<EOF` (no redirect at all) just PRINTS the
+  // heredoc to stdout -- it displays the body, it does not execute it, so it's a data sink too,
+  // not only the `cat > file` / `cat >> file` form already covered above by the first branch here.
+  /^\s*cat(?:\s|$)/, // cat  /  cat > file <<EOF  /  cat <<EOF > file
+  /^\s*tee(?:\s|$)/, // tee  /  tee file <<EOF
+  /^\s*(?:printf|echo)(?:\s|$)/, // printf/echo <<EOF -- same "prints, does not execute" reasoning
 ];
 // `git commit -m "$(cat <<'EOF'` / `gh pr create --body "$(cat <<'EOF'`: the heredoc's consumer is a
 // bare `cat` inside a command substitution that is the message/body ARGUMENT of a data sink. Tested
@@ -131,6 +135,18 @@ export function stripHeredocBodies(command) {
 // Quote/escape handling is boundary-only (find where a word starts/ends), not full POSIX
 // semantics — sufficient for this guard's one question (is `gh`/`pr`/`merge` a bare top-level
 // word here?), not a general shell interpreter.
+// t/3695#30 round 2 (Lead review on PR #3189): `$(`, `(`, `` ` `` and `{` open a NEW command
+// position (a subshell/substitution/brace group), and their closers (`)`, `` ` ``, `}`) end it --
+// `x=$(gh pr merge 5)` and `( gh pr merge 5 )` were both missed, because the old word-splitting
+// only broke on whitespace/`;`/`&`/`|`, so `gh` stayed glued to a `$(`/`(` prefix on the SAME word
+// (e.g. `x=$(gh` as one word). Each of these characters is now a WORD-BOUNDARY (so `gh` always
+// surfaces as its own word) but is DROPPED rather than pushed as a clause-splitting operator --
+// unlike `;`/`&&`/`||`/`|`, a subshell is a VALUE inside the surrounding clause, not a new
+// top-level command (`gh pr merge N --match-head-commit $(gh pr view N …)` is ONE clause whose
+// `--match-head-commit` value happens to be a substitution; splitting there would cut the flag's
+// value off from it and false-positive-block an already-guarded merge).
+const SUBSHELL_CHAR_RE = /[()`{}]/;
+
 function tokenizeShellWords(command) {
   const s = command;
   const n = s.length;
@@ -145,11 +161,15 @@ function tokenizeShellWords(command) {
     if (s[i] === '|' && s[i + 1] === '|') { tokens.push({ type: 'op', text: '||' }); i += 2; continue; }
     if (s[i] === '|') { tokens.push({ type: 'op', text: '|' }); i++; continue; }
     if (s[i] === '&') { i++; continue; } // bare & (background) is not a clause separator here
+    if (s[i] === '$' && s[i + 1] === '(') { i += 2; continue; } // dropped, see note above
+    if (SUBSHELL_CHAR_RE.test(s[i])) { i++; continue; } // dropped, see note above
     const start = i;
     let value = '';
     while (i < n) {
       const c = s[i];
       if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === ';' || c === '&' || c === '|') break;
+      if (SUBSHELL_CHAR_RE.test(c)) break; // let the outer loop drop it (see note above)
+      if (c === '$' && s[i + 1] === '(') break; // ditto, for the 2-char `$(` form
       if (c === '\\') { i++; if (i < n) { value += s[i]; i++; } continue; }
       if (c === "'") {
         i++;
@@ -159,8 +179,14 @@ function tokenizeShellWords(command) {
       }
       if (c === '"') {
         i++;
+        // POSIX double-quote escaping: backslash is special ONLY before $ ` " \ or a newline --
+        // any OTHER character after a backslash keeps BOTH the backslash and the character
+        // literally. (Fix, t/3695#30 round 2: the earlier "backslash always escapes the next
+        // char" version silently ate every backslash, so a quoted Windows path like
+        // `"C:\Users\gh.exe"` lost its separators and could never basename-match `gh.exe`.)
         while (i < n && s[i] !== '"') {
-          if (s[i] === '\\' && i + 1 < n) { value += s[i + 1]; i += 2; } else { value += s[i]; i++; }
+          if (s[i] === '\\' && i + 1 < n && '$`"\\\n'.includes(s[i + 1])) { value += s[i + 1]; i += 2; }
+          else { value += s[i]; i++; }
         }
         i++;
         continue;
@@ -194,6 +220,18 @@ function splitIntoClauseWordGroups(tokens) {
 
 const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
+// t/3695#30 round 2: match the command word's BASENAME, not an exact `gh`/`gh.exe` equality --
+// `/usr/bin/gh pr merge 5` and `C:\tools\gh.exe pr merge 5` were both missed. Case-insensitive
+// only for the `.exe` suffix comparison (Windows filenames), not the path itself.
+function commandBasename(word) {
+  const base = word.split(/[\\/]/).pop();
+  return base;
+}
+function isGhWord(word) {
+  const base = commandBasename(word).toLowerCase();
+  return base === 'gh' || base === 'gh.exe';
+}
+
 function skipRepoFlag(words, i) {
   while (i < words.length) {
     const w = words[i].text;
@@ -216,7 +254,7 @@ function findMergeCommandStart(words) {
     while (i < words.length && ASSIGNMENT_RE.test(words[i].text)) i++;
   }
   if (i >= words.length) return null;
-  if (words[i].text !== 'gh' && words[i].text !== 'gh.exe') return null;
+  if (!isGhWord(words[i].text)) return null;
   const ghIndex = i;
   i = skipRepoFlag(words, i + 1);
   if (i >= words.length || words[i].text !== 'pr') return null;
