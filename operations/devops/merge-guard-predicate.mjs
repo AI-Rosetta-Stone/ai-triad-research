@@ -26,16 +26,20 @@ import { appendGateTelemetry, gateTelemetryDir } from './gate-telemetry.mjs'; //
  * error, defeating the gate. So the ONLY thing this predicate decides is a pure string question:
  * does a manual merge carry the flag? GitHub does the rest.
  *
- * `--auto` IS EXEMPT (TL ruling t/3270#2): every recurrence was a self/manual merge; `--auto` is
- * stale-head-safe by construction (GitHub re-targets on a new push and waits for the later commit's
- * required checks), and it CANNOT carry `--match-head-commit` (it queues pre-green). Its only
- * residual risk — auto-merging a *gated* PR — is owned by the SEPARATE draft-discipline (gated PRs
- * stay draft → `--auto` can't complete on a draft), not this gate; a command-string predicate can't
- * see gatedness without PR-state I/O, which would reintroduce the fail-open problem this avoids.
+ * `--auto` is NO LONGER unconditionally exempt (t/3695#30, superseding the t/3270#2 ruling below,
+ * folding in t/4109 root rule #7). The original exemption reasoned that `--auto` "CANNOT carry
+ * `--match-head-commit`" — false: `gh` accepts the combination (verified live, t/3695#30), and
+ * t/4131 showed `--auto` on an already-green PR merges INSTANTLY with no arm event at all, which is
+ * exactly this gate's stranding vector reached a different way. `--auto` now needs the pin too,
+ * exactly like a manual merge; only `--disable-auto`, `--help` and `-h` stay exempt (they merge
+ * nothing). The gated-PR auto-merging hazard this exemption used to carve out is still the SEPARATE
+ * draft-discipline's job, unaffected by this change.
  *
- * Returns { block:boolean, reason:string }. The feedback-rule run-gate inlines the SAME logic (see
- * INLINE_FOR_RULE below) and emits 'fire' to stdout iff block (the worktree-path-guard convention).
- * This module is the source of truth the both-arms test proves; the rule's inline copy must match.
+ * Returns { block:boolean, reason:string }. The live `pre-self-merge-verify` feedback rule invokes
+ * THIS FILE directly (`execFileSync('node', [<absolute path to this file>, command])`), not a
+ * hand-copied inline script — confirmed via `get_feedback_rule` (t/3695#30) — so editing this
+ * module's exported functions changes the rule's live behavior with no second copy to keep in sync.
+ * The one remaining risk is staleness of the CHECKOUT the rule reads from (see the file-top note).
  */
 // t/3695#19: `gh` accepts its repo selector on either side of `pr` — `gh -R o/r pr merge`,
 // `gh --repo o/r pr merge`, `gh --repo=o/r pr merge`, `gh pr -R o/r merge`. The old
@@ -54,9 +58,9 @@ export const GH_PR_MERGE_RE = new RegExp(
 // t/3695#26-27: the verdict is per CLAUSE, not per shell line. Judging the whole line let any
 // exempting flag anywhere on it (`--auto`, `--disable-auto`, a `--match-head-commit` belonging to a
 // DIFFERENT merge) wave through every other `gh pr merge` on that line. A clause runs from a
-// `gh … pr … merge` match to the next shell separator (; && || | & newline), or end of line. A lone
-// `&` inside a redirect (`2>&1`, `&>`) is not a separator.
-const CLAUSE_END_RE = /;|&&|\|\||\||(?<![>&])&(?![>&])|\r?\n/;
+// `gh … pr … merge` match to the next shell separator (; && || | & newline), or end of line
+// (t/3695#30: clause boundaries now come from the tokenizer's own operator splitting, not a
+// separate regex re-scan of the matched substring).
 
 // Heredoc bodies fed to a DATA SINK (commit message, PR body, file write) are data, not commands.
 // Observed while landing this change (t/3695#28): a commit message and a PR body that MENTIONED
@@ -76,8 +80,12 @@ const PIPE_RE = /(?<!\|)\|(?!\|)/;
 const HEREDOC_DATA_SINKS = [
   /^\s*git\s+commit\b.*(?:\s-F\s*-|\s--file(?:=|\s+)-)(?:\s|$)/, // git commit -F - / --file=-
   /^\s*gh(?:\.exe)?\s.*(?:\s--body-file(?:=|\s+)-|\s-F\s*-)(?:\s|$)/, // gh … --body-file - / -F -
-  /^\s*cat\s+(?:[^|]*\s)?>>?\s*\S/, // cat > file <<EOF  /  cat <<EOF > file
-  /^\s*tee\s+\S/, // tee file <<EOF
+  // t/3695#30 (Lead review on PR #3189): a BARE `cat <<EOF` (no redirect at all) just PRINTS the
+  // heredoc to stdout -- it displays the body, it does not execute it, so it's a data sink too,
+  // not only the `cat > file` / `cat >> file` form already covered above by the first branch here.
+  /^\s*cat(?:\s|$)/, // cat  /  cat > file <<EOF  /  cat <<EOF > file
+  /^\s*tee(?:\s|$)/, // tee  /  tee file <<EOF
+  /^\s*(?:printf|echo)(?:\s|$)/, // printf/echo <<EOF -- same "prints, does not execute" reasoning
 ];
 // `git commit -m "$(cat <<'EOF'` / `gh pr create --body "$(cat <<'EOF'`: the heredoc's consumer is a
 // bare `cat` inside a command substitution that is the message/body ARGUMENT of a data sink. Tested
@@ -115,30 +123,233 @@ export function stripHeredocBodies(command) {
   return out.join('\n');
 }
 
+// t/3695#30 (cycle 3): a bare-text regex search matches `gh pr merge` wherever the SUBSTRING
+// appears — including inside a quoted grep/sed pattern, a `--body "…"` argument, or a comment
+// string. Five such false positives were recorded live (10-07/10-12) before this fix. A real
+// shell-word tokenizer closes the class structurally: a double-quoted argument like
+// `"gh pr merge 1 --auto"` becomes ONE word (quotes stripped, spaces preserved inside), never
+// three separate words `gh`, `pr`, `merge` — so it can never match in COMMAND POSITION, which is
+// the only place this guard judges. `--help`/`-h` are judged separately in mergeClauseVerdict
+// ("help merges nothing").
+//
+// Quote/escape handling is boundary-only (find where a word starts/ends), not full POSIX
+// semantics — sufficient for this guard's one question (is `gh`/`pr`/`merge` a bare top-level
+// word here?), not a general shell interpreter.
+// t/3695#30 round 2 (Lead review on PR #3189): `$(`, `(`, `` ` `` and `{` open a NEW command
+// position (a subshell/substitution/brace group), and their closers (`)`, `` ` ``, `}`) end it --
+// `x=$(gh pr merge 5)` and `( gh pr merge 5 )` were both missed, because the old word-splitting
+// only broke on whitespace/`;`/`&`/`|`, so `gh` stayed glued to a `$(`/`(` prefix on the SAME word
+// (e.g. `x=$(gh` as one word). Each of these characters is now a WORD-BOUNDARY (so `gh` always
+// surfaces as its own word) but is DROPPED rather than pushed as a clause-splitting operator --
+// unlike `;`/`&&`/`||`/`|`, a subshell is a VALUE inside the surrounding clause, not a new
+// top-level command (`gh pr merge N --match-head-commit $(gh pr view N …)` is ONE clause whose
+// `--match-head-commit` value happens to be a substitution; splitting there would cut the flag's
+// value off from it and false-positive-block an already-guarded merge).
+// Backticks are handled SEPARATELY (extractBacktickSpans, below), not as a dropped word-boundary
+// char like `(`/`{` -- bash substitutes a backtick span even INSIDE double quotes (t/3695#30
+// round 3, Lead review: a real backtick in a double-quoted `--body` argument actually ran `gh pr
+// merge 5 --squash` on 2026-10-12, which the round-2 tokenizer still read as `not-a-merge` -- a
+// live regression for a class that had just occurred). Single-quoted backticks stay literal (bash
+// does not substitute inside single quotes), so extraction must be quote-aware.
+const SUBSHELL_CHAR_RE = /[(){}]/;
+
+/**
+ * Quote-aware backtick extraction (t/3695#30 round 3). Returns `withoutBackticks` (same length as
+ * `command`, each backtick span replaced by spaces so downstream position math stays valid) and
+ * `spans` (the raw text between each pair of backticks, recursively re-scanned by mergeClauses for
+ * an embedded `gh pr merge` -- this is what lets a merge inside a --body argument surface as its
+ * own judged clause even though the OUTER command is `gh pr comment`, not `gh pr merge`).
+ * Single-quoted regions are copied through literally; backticks found there are NOT extracted.
+ */
+function extractBacktickSpans(command) {
+  const s = command;
+  const n = s.length;
+  let out = '';
+  const spans = [];
+  let i = 0;
+  let inSingle = false;
+  let inDouble = false;
+  while (i < n) {
+    const c = s[i];
+    if (inSingle) {
+      out += c;
+      if (c === "'") inSingle = false;
+      i++;
+      continue;
+    }
+    if (c === '\\' && i + 1 < n) { out += c + s[i + 1]; i += 2; continue; }
+    if (!inDouble && c === "'") { inSingle = true; out += c; i++; continue; }
+    if (c === '"') { inDouble = !inDouble; out += c; i++; continue; }
+    if (c === '`') {
+      let j = i + 1;
+      let content = '';
+      while (j < n && s[j] !== '`') {
+        if (s[j] === '\\' && j + 1 < n) { content += s[j] + s[j + 1]; j += 2; } else { content += s[j]; j++; }
+      }
+      spans.push(content);
+      out += ' '.repeat(Math.min(j + 1, n) - i);
+      i = j + 1;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return { withoutBackticks: out, spans };
+}
+
+function tokenizeShellWords(command) {
+  const s = command;
+  const n = s.length;
+  const tokens = [];
+  let i = 0;
+  while (i < n) {
+    while (i < n && (s[i] === ' ' || s[i] === '\t' || s[i] === '\r')) i++;
+    if (i >= n) break;
+    if (s[i] === '\n') { tokens.push({ type: 'op', text: '\n' }); i++; continue; }
+    if (s[i] === ';') { tokens.push({ type: 'op', text: ';' }); i++; continue; }
+    if (s[i] === '&' && s[i + 1] === '&') { tokens.push({ type: 'op', text: '&&' }); i += 2; continue; }
+    if (s[i] === '|' && s[i + 1] === '|') { tokens.push({ type: 'op', text: '||' }); i += 2; continue; }
+    if (s[i] === '|') { tokens.push({ type: 'op', text: '|' }); i++; continue; }
+    if (s[i] === '&') { i++; continue; } // bare & (background) is not a clause separator here
+    if (s[i] === '$' && s[i + 1] === '(') { i += 2; continue; } // dropped, see note above
+    if (SUBSHELL_CHAR_RE.test(s[i])) { i++; continue; } // dropped, see note above
+    const start = i;
+    let value = '';
+    while (i < n) {
+      const c = s[i];
+      if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === ';' || c === '&' || c === '|') break;
+      if (SUBSHELL_CHAR_RE.test(c)) break; // let the outer loop drop it (see note above)
+      if (c === '$' && s[i + 1] === '(') break; // ditto, for the 2-char `$(` form
+      if (c === '\\') { i++; if (i < n) { value += s[i]; i++; } continue; }
+      if (c === "'") {
+        i++;
+        while (i < n && s[i] !== "'") { value += s[i]; i++; }
+        i++;
+        continue;
+      }
+      if (c === '"') {
+        i++;
+        // POSIX double-quote escaping: backslash is special ONLY before $ ` " \ or a newline --
+        // any OTHER character after a backslash keeps BOTH the backslash and the character
+        // literally. (Fix, t/3695#30 round 2: the earlier "backslash always escapes the next
+        // char" version silently ate every backslash, so a quoted Windows path like
+        // `"C:\Users\gh.exe"` lost its separators and could never basename-match `gh.exe`.)
+        while (i < n && s[i] !== '"') {
+          if (s[i] === '\\' && i + 1 < n && '$`"\\\n'.includes(s[i + 1])) { value += s[i + 1]; i += 2; }
+          else { value += s[i]; i++; }
+        }
+        i++;
+        continue;
+      }
+      if (c === '$' && s[i + 1] === "'") {
+        i += 2;
+        while (i < n && s[i] !== "'") {
+          if (s[i] === '\\' && i + 1 < n) { value += s[i + 1]; i += 2; } else { value += s[i]; i++; }
+        }
+        i++;
+        continue;
+      }
+      value += c;
+      i++;
+    }
+    tokens.push({ type: 'word', text: value, start, end: i });
+  }
+  return tokens;
+}
+
+function splitIntoClauseWordGroups(tokens) {
+  const groups = [];
+  let current = [];
+  for (const t of tokens) {
+    if (t.type === 'op') { if (current.length) groups.push(current); current = []; }
+    else current.push(t);
+  }
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+// t/3695#30 round 2: match the command word's BASENAME, not an exact `gh`/`gh.exe` equality --
+// `/usr/bin/gh pr merge 5` and `C:\tools\gh.exe pr merge 5` were both missed. Case-insensitive
+// only for the `.exe` suffix comparison (Windows filenames), not the path itself.
+function commandBasename(word) {
+  const base = word.split(/[\\/]/).pop();
+  return base;
+}
+function isGhWord(word) {
+  const base = commandBasename(word).toLowerCase();
+  return base === 'gh' || base === 'gh.exe';
+}
+
+function skipRepoFlag(words, i) {
+  while (i < words.length) {
+    const w = words[i].text;
+    if (w === '-R' || w === '--repo') { i += 2; continue; }
+    if (/^--repo=/.test(w)) { i += 1; continue; }
+    break;
+  }
+  return i;
+}
+
+// Finds `gh`/`gh.exe` in COMMAND POSITION within one clause's words (after skipping leading
+// `NAME=value` assignments and an optional `env` prefix with its own assignments), followed by
+// `pr` then `merge` (with -R/--repo tolerated on either side, same tolerance as before). Returns
+// the index of the `gh` word, or null if this clause is not a `gh pr merge` invocation.
+function findMergeCommandStart(words) {
+  let i = 0;
+  while (i < words.length && ASSIGNMENT_RE.test(words[i].text)) i++;
+  if (i < words.length && words[i].text === 'env') {
+    i++;
+    while (i < words.length && ASSIGNMENT_RE.test(words[i].text)) i++;
+  }
+  if (i >= words.length) return null;
+  if (!isGhWord(words[i].text)) return null;
+  const ghIndex = i;
+  i = skipRepoFlag(words, i + 1);
+  if (i >= words.length || words[i].text !== 'pr') return null;
+  i = skipRepoFlag(words, i + 1);
+  if (i >= words.length || words[i].text !== 'merge') return null;
+  return ghIndex;
+}
+
 export function mergeClauses(command) {
   const cmd = stripHeredocBodies(command);
-  const re = new RegExp(GH_PR_MERGE_RE.source, 'g');
+  // t/3695#30 round 3: backtick spans are pulled out and re-scanned on their OWN, independent of
+  // what command they're embedded in (a merge inside a `gh pr comment --body "…`gh pr merge
+  // 5`…"` argument is a real invocation even though the OUTER command is `comment`, not `merge`).
+  const { withoutBackticks, spans } = extractBacktickSpans(cmd);
+  const tokens = tokenizeShellWords(withoutBackticks);
+  const groups = splitIntoClauseWordGroups(tokens);
   const out = [];
-  let m;
-  while ((m = re.exec(cmd)) !== null) {
-    const rest = cmd.slice(m.index);
-    const end = rest.slice(m[0].length).search(CLAUSE_END_RE);
-    out.push(end < 0 ? rest : rest.slice(0, m[0].length + end));
+  for (const words of groups) {
+    const ghIndex = findMergeCommandStart(words);
+    if (ghIndex === null) continue;
+    out.push(cmd.slice(words[ghIndex].start, words[words.length - 1].end));
   }
+  for (const span of spans) out.push(...mergeClauses(span));
   return out;
 }
 
 // Pure verdict for ONE merge clause.
 export function mergeClauseVerdict(clause) {
   const c = clause || '';
-  // `--auto` exempt (see header) — matches boolean `--auto` and defensively `--auto=true`.
-  if (/(?:^|\s)--auto(?:[=\s]|$)/.test(c)) return { block: false, reason: 'auto-exempt' };
+  // `--help`/`-h` merges nothing (t/3695#30, a live false positive on 10-12) — checked first,
+  // since help always wins regardless of what else is on the line.
+  if (/(?:^|\s)(?:--help|-h)(?:\s|$)/.test(c)) return { block: false, reason: 'help' };
   // `--disable-auto` only DISARMS auto-merge — it never merges (t/3695#26: 9 of the first advisory
   // window's 11 blocks were disarms; a blocking guard would have refused a safety action).
   if (/(?:^|\s)--disable-auto(?:\s|$)/.test(c)) return { block: false, reason: 'disable-auto' };
   // Guarded iff the head-match flag carries a value — BOTH `--match-head-commit SHA` and
   // `--match-head-commit=SHA` forms (a bare flag with no value would false-pass, so require \S).
   if (/--match-head-commit(?:=|\s+)\S/.test(c)) return { block: false, reason: 'guarded' };
+  // t/3695#30 (t/4109 root rule #7): `--auto` is NO LONGER exempt on its own. It merges directly,
+  // with no arm event at all, the moment an already-green PR's auto-merge is enabled (t/4131) --
+  // exactly the stranding vector this guard exists to close, just reached a different way. `gh`
+  // accepts `--match-head-commit` together with `--auto` (verified live, t/3695#30 precondition:
+  // the pin reaches `enablePullRequestAutoMerge.expectedHeadOid` and a stale SHA is refused), so
+  // there is no reason left to exempt it.
+  if (/(?:^|\s)--auto(?:[=\s]|$)/.test(c)) return { block: true, reason: 'auto-missing-match-head-commit' };
   // Manual merge, no head guard → BLOCK (the stranding vector).
   return { block: true, reason: 'missing-match-head-commit' };
 }
