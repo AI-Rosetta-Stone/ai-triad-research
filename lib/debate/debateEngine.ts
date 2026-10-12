@@ -946,19 +946,11 @@ export class DebateEngine {
 
   private _computeModelFingerprint(): { model_pool?: string; model_api_id?: string } {
     const isMultiProvider = Boolean(this.config.speakerModels);
-    // Pass only explicitly set stage overrides (t/4127). Filter undefined values that
-    // TypeScript permits on optional record fields to avoid spurious key presence.
-    const explicitStageModels = this.config.stageModels
-      ? (Object.fromEntries(
-          Object.entries(this.config.stageModels).filter((entry): entry is [string, string] => entry[1] !== undefined),
-        ) as Record<string, string>)
-      : undefined;
-    return computeModelFingerprint(
-      this.adapter.registry,
+    return computeModelFingerprint(this.adapter.registry,
       isMultiProvider ? this.config.modelTier : undefined,
       isMultiProvider ? this.config.eligibleBackends : undefined,
       this.config.model,
-      explicitStageModels && Object.keys(explicitStageModels).length > 0 ? explicitStageModels : undefined,
+      this.config.stageModels ? (Object.fromEntries(Object.entries(this.config.stageModels).filter((e): e is [string, string] => e[1] != null)) as Record<string, string>) : undefined,
     );
   }
 
