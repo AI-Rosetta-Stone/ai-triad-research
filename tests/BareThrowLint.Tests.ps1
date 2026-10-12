@@ -81,6 +81,11 @@ BeforeAll {
             Variable = 'Message'
             Reason   = 'the -Throw arm of New-ActionableError itself: $Message IS the rendered Goal/Error/Location/Resolve block, i.e. the convention''s own sink'
         }
+        [pscustomobject]@{
+            File     = 'scripts/AITriad/Public/Test-CriticalInteractions.ps1'
+            Variable = 'Err'
+            Reason   = 'holds New-ActionableError -AsErrorRecord (fixed in t/4155; before that it threw $null)'
+        }
     )
 
     # ── Pure classifier ─────────────────────────────────────────────────────────
