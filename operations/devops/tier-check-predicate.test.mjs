@@ -12,6 +12,7 @@ import {
   checkR4,
   checkR5,
   evaluateTierCheck,
+  factsFromListFiles,
 } from './tier-check-predicate.mjs';
 
 const CONFIG = {
@@ -39,6 +40,45 @@ test('extractSchemaChange: additive and breaking, missing is null', () => {
 test('isDependabot', () => {
   assert.equal(isDependabot('dependabot/npm_and_yarn/foo-1.2.3'), true);
   assert.equal(isDependabot('feat/t4103-tier-check'), false);
+});
+
+// ── factsFromListFiles (real recorded REST payload, PR #3155 crash) ──────
+// Lead finding (t/4103, PR #3155 run 37804716313): the REST `pulls.listFiles` payload names
+// this field `filename`, not `path` -- `files.map((f) => f.path)` silently produced `undefined`
+// for every entry. This fixture is a trimmed REAL response from
+// `gh api repos/jpsnover/ai-triad-research/pulls/3155/files`.
+const REAL_LISTFILES_PAYLOAD = [
+  {
+    filename: '.github/ci/tier-paths.json',
+    status: 'added',
+    additions: 33,
+    deletions: 0,
+    changes: 33,
+    patch: '@@ -0,0 +1,33 @@\n+{\n+  "_comment": "t/4103 — tier-declaration check path floor (R1) and lint-severity globs (R2c).",\n+  "r1Paths": [\n+    ".github/ci/required-contexts.json"\n+  ]\n+}',
+  },
+  {
+    filename: '.github/workflows/tier-check.yml',
+    status: 'added',
+    additions: 132,
+    deletions: 0,
+    changes: 132,
+    patch: '@@ -0,0 +1,132 @@\n+name: tier-check\n+\n+on:\n+  pull_request:\n+    types: [opened, edited, synchronize, ready_for_review]',
+  },
+];
+
+test('factsFromListFiles: real REST payload maps via filename, not path (f.path is undefined on this shape)', () => {
+  const { paths, patchesByPath } = factsFromListFiles(REAL_LISTFILES_PAYLOAD);
+  assert.deepEqual(paths, ['.github/ci/tier-paths.json', '.github/workflows/tier-check.yml']);
+  assert.match(patchesByPath.get('.github/ci/tier-paths.json'), /_comment/);
+
+  // The bug this replaces: GraphQL's `files.nodes[].path` does not exist on this REST shape.
+  const brokenPaths = REAL_LISTFILES_PAYLOAD.map((f) => f.path);
+  assert.deepEqual(brokenPaths, [undefined, undefined]);
+});
+
+test('factsFromListFiles: entries missing filename are skipped, not crashed on', () => {
+  const { paths } = factsFromListFiles([{ filename: 'a.ts' }, {}, { filename: 'b.ts' }]);
+  assert.deepEqual(paths, ['a.ts', 'b.ts']);
 });
 
 // ── R1 ───────────────────────────────────────────────────────────────────
@@ -95,6 +135,26 @@ test('R2c: a new rule added at warn stays T0 (no fire)', () => {
   assert.equal(checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines: [] }], CONFIG), null);
 });
 
+test('R2c: #2790 real fixture — a comment line mentioning "error" is NOT flagged', () => {
+  const addedLines = [
+    '      // Flashing-console prevention (t/3914, t/3922): child_process calls need windowsHide: true.',
+    "      // Warn-first; promotion to 'error' is a new blocking gate and needs a Second Opinion.",
+    "      'local/require-windows-hide': 'warn',",
+  ];
+  assert.equal(checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines: [] }], CONFIG), null);
+});
+
+test('R2c: the #2903 const fixture still fires after the comment-skip change', () => {
+  const addedLines = [
+    "const COMPLEXITY_BUDGET = ['error', { baseline: 'eslint-rules/lib-complexity-baseline.json', threshold: 15 }];",
+    "      'local/complexity-budget': COMPLEXITY_BUDGET,",
+  ];
+  const removedLines = ["      'complexity': ['warn', { max: 15 }],"];
+  const hits = checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines }], CONFIG);
+  assert.ok(hits);
+  assert.equal(hits.length, 1);
+});
+
 // ── R3 ───────────────────────────────────────────────────────────────────
 test('R3: additive with no tier requirement; missing line; breaking without T2 fails; breaking with T2 passes', () => {
   assert.equal(checkR3(['lib/schema/foo.json'], 'additive', 'T1', CONFIG), null);
@@ -102,6 +162,13 @@ test('R3: additive with no tier requirement; missing line; breaking without T2 f
   assert.deepEqual(checkR3(['lib/schema/foo.json'], 'breaking', 'T1', CONFIG), { kind: 'breaking_no_t2', path: 'lib/schema/foo.json' });
   assert.equal(checkR3(['lib/schema/foo.json'], 'breaking', 'T2', CONFIG), null);
   assert.equal(checkR3(['lib/debate/foo.ts'], null, null, CONFIG), null);
+});
+
+test('R3: a test file in a schema dir is NOT flagged (real #3075/#3018/#2946/#2933 pattern); a real schema file still is', () => {
+  assert.equal(checkR3(['lib/schema/povTagProposals.test.ts'], null, 'T1', CONFIG), null);
+  assert.equal(checkR3(['lib/schema/pov-tags-cli.closure.test.ts'], null, 'T1', CONFIG), null);
+  assert.equal(checkR3(['lib/schema/__tests__/foo.ts'], null, 'T1', CONFIG), null);
+  assert.deepEqual(checkR3(['lib/schema/povTagProposals.ts'], null, 'T1', CONFIG), { kind: 'missing_line', path: 'lib/schema/povTagProposals.ts' });
 });
 
 // ── R4 ───────────────────────────────────────────────────────────────────

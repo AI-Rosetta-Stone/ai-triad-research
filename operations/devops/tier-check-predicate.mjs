@@ -18,6 +18,11 @@
  *    repo, invisible to this check.
  *  - `.githooks/*` local pre-commit gates: not currently on R1; the t/4103 replay showed these
  *    change rarely, so they're left as a named blank rather than added speculatively.
+ *  - the workflow file itself (`tier-check.yml`) still runs as the PR's own copy under the
+ *    `pull_request` trigger: loading the config and predicate from base (below) stops a PR from
+ *    narrowing R1 or weakening a rule in the same change, but the workflow YAML's own logic is
+ *    not re-pinned to base. Only promotion to a required check plus branch protection fully
+ *    closes this, which is why `tier-check.yml` itself stays on R1.
  */
 
 const TIER_LINE_RE = /^Tier:\s*T([012])\b/;
@@ -26,6 +31,8 @@ const SEVERITY_ADD_RE = /(['"])error\1|:\s*2\b/;
 const PSD1_ERROR_RE = /\bError\b/;
 const RULE_KEY_RE = /['"]([\w./-]+)['"]\s*:/;
 const CONTINUE_ON_ERROR_RE = /^\s*continue-on-error:\s*true\s*$/;
+const TEST_FILE_RE = /\.test\.|__tests__\//;
+const COMMENT_LINE_RE = /^\s*(\/\/|\/\*|\*|#)/;
 
 export function extractTier(body) {
   if (!body) return null;
@@ -42,6 +49,26 @@ export function extractSchemaChange(body) {
 
 export function isDependabot(headRefName) {
   return (headRefName ?? '').startsWith('dependabot/');
+}
+
+/**
+ * Maps the REST `pulls.listFiles` payload into predicate facts. The REST field is `filename`,
+ * NOT `path` -- the GraphQL `files.nodes[].path` field used by the offline replay script does
+ * not exist on this payload, and reading it silently returns `undefined` for every entry
+ * (t/4103 PR #3155 crash, same class as #3141/t/4123: logic built against an assumed shape
+ * instead of the recorded one). Always go through this function in the workflow; never read
+ * `f.path` directly off a `pulls.listFiles` entry.
+ * @param {Array<{filename: string, patch?: string}>} files
+ */
+export function factsFromListFiles(files) {
+  const paths = [];
+  const patchesByPath = new Map();
+  for (const f of files ?? []) {
+    if (typeof f?.filename !== 'string') continue;
+    paths.push(f.filename);
+    if (typeof f.patch === 'string') patchesByPath.set(f.filename, f.patch);
+  }
+  return { paths, patchesByPath };
 }
 
 /** @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config */
@@ -105,12 +132,14 @@ export function checkR2c(lintDiffs, config) {
 
     const removedErrorKeys = new Set();
     for (const line of d.removedLines) {
+      if (COMMENT_LINE_RE.test(line)) continue;
       if (!severityRe.test(line)) continue;
       const km = RULE_KEY_RE.exec(line);
       removedErrorKeys.add(km ? km[1] : `__line__:${line.trim()}`);
     }
 
     for (const line of d.addedLines) {
+      if (COMMENT_LINE_RE.test(line)) continue;
       if (!severityRe.test(line)) continue;
       const km = RULE_KEY_RE.exec(line);
       const key = km ? km[1] : `__line__:${line.trim()}`;
@@ -124,7 +153,7 @@ export function checkR2c(lintDiffs, config) {
 /** @param {string[]} paths @param {string|null} schemaChange @param {string|null} tier
  *  @param {{schemaDirPrefixes: string[]}} config */
 export function checkR3(paths, schemaChange, tier, config) {
-  const hits = paths.filter((p) => config.schemaDirPrefixes.some((pre) => p.startsWith(pre)));
+  const hits = paths.filter((p) => config.schemaDirPrefixes.some((pre) => p.startsWith(pre)) && !TEST_FILE_RE.test(p));
   if (hits.length === 0) return null;
   if (!schemaChange) return { kind: 'missing_line', path: hits[0] };
   if (schemaChange === 'breaking' && tier !== 'T2') return { kind: 'breaking_no_t2', path: hits[0] };
