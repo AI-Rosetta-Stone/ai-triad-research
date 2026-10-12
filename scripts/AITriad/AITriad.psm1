@@ -614,6 +614,9 @@ class AICallLogEntry {
     [string]   $PromptStart  # first 160 chars of the rendered prompt
     [int]      $RetryCount   # 0 first attempt, N for the Nth retry
     [string]   $Status       # HTTP/API status (e.g. 200, 429, 500, timeout)
+    [string]   $Model        # registry id actually called; '' on lines written before t/4088
+    [string]   $Backend      # ai-models.json backend of that model; '' on pre-t/4088 lines
+    [string]   $KeySource    # where the key came from (closed vocabulary), never the key; '' if unknown
 }
 
 # One batch entry for Set-PovNodeTags (t/3969, TL t/3969#2 cond B.1). A [string[]] property —

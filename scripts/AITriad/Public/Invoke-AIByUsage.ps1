@@ -184,9 +184,11 @@ function Invoke-AIByUsage {
         $logScenario    = if ($Scenario) { $Scenario } else { $UsageId }
         $logPromptStart = $userMessage
         $logEntries     = [System.Collections.Generic.List[object]]::new()
+        # t/4088: the third argument carries the model and backend ACTUALLY called (each cascade link
+        # passes its own) and where its key came from.
         $invokeParams['CallLogger'] = {
-            param($RetryCount, $Status)
-            $logEntries.Add([pscustomobject]@{ RetryCount = $RetryCount; Status = $Status })
+            param($RetryCount, $Status, $Context)
+            $logEntries.Add([pscustomobject]@{ RetryCount = $RetryCount; Status = $Status; Context = $Context })
         }.GetNewClosure()
     }
 
@@ -196,8 +198,16 @@ function Invoke-AIByUsage {
         foreach ($e in $logEntries) {
             # Fail-safe: an audit-log write must never break the AI call it audits.
             try {
+                $ctx = $e.Context
+                $ctxModel     = if ($ctx -and $ctx.PSObject.Properties['Model'])     { [string]$ctx.Model }     else { '' }
+                $ctxBackend   = if ($ctx -and $ctx.PSObject.Properties['Backend'])   { [string]$ctx.Backend }   else { '' }
+                $ctxKeySource = if ($ctx -and $ctx.PSObject.Properties['KeySource']) { [string]$ctx.KeySource } else { '' }
+                if (-not $ctx) {
+                    Write-Warning "Invoke-AIByUsage: Invoke-AIApi passed no call context; logging Model/Backend/KeySource as '' (t/4088)."
+                }
                 Write-AICallLogEntry -Scenario $logScenario -PromptID $UsageId `
-                    -PromptStart $logPromptStart -RetryCount $e.RetryCount -Status $e.Status
+                    -PromptStart $logPromptStart -RetryCount $e.RetryCount -Status $e.Status `
+                    -Model $ctxModel -Backend $ctxBackend -KeySource $ctxKeySource
             }
             catch { Write-Warning "Invoke-AIByUsage: AI call-log write failed ($($_.Exception.Message)); continuing." }
         }
