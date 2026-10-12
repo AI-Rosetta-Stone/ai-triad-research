@@ -192,7 +192,7 @@ $script:FullContext = '{"nodes":[{"id":"acc-beliefs-001"},{"id":"saf-beliefs-003
 
 # Keys: Summary, TaxonomyJson, ChunkCount, FireStats, NodeIds ('none' = validation skipped),
 # Embeddings / TaxonomyData (gate the passes), Gate ($true | $false | 'unset'), Polarity (counts the
-# mocked gate returns), Flip (stances the mocked gate flips), Veto, Resolution ('none'|'resolve'|'throw'),
+# mocked gate returns; 'unset' omits -EnablePolarityGate), Flip (stances the mocked gate flips), Veto, Resolution ('none'|'resolve'|'throw'),
 # ContextRot, FailWrite (relative path), NoMetadata.
 $script:Scenarios = @(
     @{ Name = 'rich-rag'; Summary = $script:RichSummary; TaxonomyJson = $script:RagContext; Embeddings = $true; TaxonomyData = $true
@@ -217,7 +217,7 @@ $script:Scenarios = @(
        Polarity = @{ gated = 2; reps = 4; unresolved = 4; judge_flipped = 0; judge_kept = 0; self_healed = 0 } }
     @{ Name = 'polarity-off'; Summary = $script:RichSummary; TaxonomyJson = $script:RagContext; Gate = $false
        Polarity = @{ gated = 2; reps = 4; unresolved = 4; judge_flipped = 1; judge_kept = 0; self_healed = 0 } }
-    @{ Name = 'polarity-gate-unset-throws'; Summary = $script:SmallSummary; TaxonomyJson = $script:RagContext; Gate = 'unset' }
+    @{ Name = 'polarity-gate-omitted-defaults-on'; Summary = $script:SmallSummary; TaxonomyJson = $script:RagContext; Gate = 'unset' }
     @{ Name = 'veto-counts'; Summary = $script:SmallSummary; TaxonomyJson = $script:RagContext; TaxonomyData = $true; Gate = $true
        Veto = @{ VetoCount = 2; AmbiguousCount = 0 } }
     @{ Name = 'unmapped-resolved'; Summary = $script:RichSummary; TaxonomyJson = $script:RagContext; Gate = $true; Resolution = 'resolve' }
@@ -510,10 +510,9 @@ saturation makes progress claims hard to verify independently.
                     (New-ContextRotStage -Stage 'extraction' -InUnits 'prompt_chars' -InCount 20000 -OutUnits 'items' -OutCount 12)
                 )
             } else { @() }
-            # Finalize-Summary reads $EnablePolarityGate from its CALLER's scope (dynamic scoping; plan
-            # section 2). A direct call resolves it from the module script scope set here.
+            # -EnablePolarityGate is an explicit Finalize-Summary parameter (t/4136 B1); it used to resolve from
+            # the caller's scope. No module-scope variable may stand in for it, so make sure none exists.
             Remove-Variable -Name EnablePolarityGate -Scope Script -ErrorAction SilentlyContinue
-            if ($S['Gate'] -isnot [string]) { $script:EnablePolarityGate = [bool]$S['Gate'] }   # 'unset' leaves it undefined
         } $S
 
         $p = @{
@@ -530,6 +529,7 @@ saturation makes progress claims hard to verify independently.
         }
         if ($S['ChunkCount']) { $p.ChunkCount = $S.ChunkCount }
         if ($S['FireStats']) { $p.FireStats = [pscustomobject]$script:FireStats }
+        if ($S['Gate'] -isnot [string]) { $p.EnablePolarityGate = [bool]$S['Gate'] }   # 'unset' omits it: the default applies
 
         $records = [System.Collections.Generic.List[object]]::new()
         $err = $null
@@ -668,7 +668,7 @@ Describe 'Finalize-Summary characterization (t/4136)' -Tag 'summarization' {
         @{ Name = 'polarity-flip';               Text = '\[Yellow\]\s+\u26a0\s+Polarity gate \(two-stage\): judge_flipped=2' }
         @{ Name = 'polarity-all-unresolved';     Text = 'directional engine may be down' }
         @{ Name = 'polarity-off';                Text = '"skipDirectionalGate": true' }
-        @{ Name = 'polarity-gate-unset-throws';  Text = "EnablePolarityGate' cannot be retrieved" }
+        @{ Name = 'polarity-gate-omitted-defaults-on'; Text = '"skipDirectionalGate": false' }
         @{ Name = 'veto-counts';                 Text = 'excludes-veto: 2 vetoed, 0 ambiguous' }
         @{ Name = 'unmapped-resolved';           Text = "Resolved: 'Compute Governance Treaties'" }
         @{ Name = 'unmapped-resolution-throws';  Text = 'Unmapped concept resolution failed: resolver offline' }
