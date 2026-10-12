@@ -85,6 +85,19 @@ function Update-ComplexityBaseline {
         # Measure-CodeComplexity's own default resolution: scripts/AITriad/Public -> scripts/
         $Path = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
     }
+    elseif (Test-Path -LiteralPath $Path -PathType Container) {
+        # t/4146: resolve against the PowerShell location. A relative -Path was otherwise
+        # resolved against the process working directory by the scan, found nothing, and the
+        # empty result overwrote the whole baseline.
+        $Path = (Resolve-Path -LiteralPath $Path).Path
+    }
+    else {
+        throw (New-ActionableError -Goal 'Regenerate the complexity baseline' `
+            -Problem "-Path '$Path' is not a directory" `
+            -Location 'Update-ComplexityBaseline' `
+            -NextSteps @('Pass the scripts/ directory, e.g. -Path ./scripts, or omit -Path to use the module default') `
+            -AsErrorRecord)
+    }
     if (-not $BaselinePath) {
         $BaselinePath = Join-Path $Path 'complexity-baseline.json'
     }
@@ -92,6 +105,15 @@ function Update-ComplexityBaseline {
 
     Write-Verbose "Scanning '$Path' (scan label '$scanLabel') at threshold $Threshold"
     $targets = @(Get-ComplexityScanTargets -Path $Path)
+    if ($targets.Count -eq 0) {
+        # t/4146: an empty scan must never be written over the baseline, because it would
+        # silently drop every entry. A real tree always has functions to measure.
+        throw (New-ActionableError -Goal 'Regenerate the complexity baseline' `
+            -Problem "The scan of '$Path' found no functions, so the baseline was NOT written (writing it would remove every entry)" `
+            -Location 'Update-ComplexityBaseline' `
+            -NextSteps @("Check that -Path points at the scripts/ tree (it resolved to '$Path')", 'Run Measure-CodeComplexity -Path <same path> to confirm it finds functions') `
+            -AsErrorRecord)
+    }
 
     $observedByFile = [ordered]@{}
     foreach ($group in ($targets | Group-Object File)) {
