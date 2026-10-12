@@ -7,7 +7,7 @@ import path from 'path';
 import { execFile, type ExecFileException } from 'child_process';
 import { fileURLToPath } from 'node:url';
 import { Worker as NodeWorker } from 'node:worker_threads';
-import { loadApiKey } from './apiKeyStore.js';
+import { loadApiKey, hasApiKey } from './apiKeyStore.js';
 import { app, net } from 'electron';
 import { PROJECT_ROOT, resolveDataPath } from './fileIO.js';
 import { ActionableError } from '../../../lib/debate/errors.js';
@@ -677,6 +677,33 @@ function resolveModelEntry(friendlyId: string): ModelEntry | undefined {
 // modelConfigCache's mtime-guarded loader, reusing this file's existing config-path resolution.
 function resolveRegistry(): ModelRegistry {
   return getMainRegistry(findModelsConfig());
+}
+
+/**
+ * KeySource for the AI call log (t/4088), given a resolved backend: Electron's `generateText`
+ * only ever loads keys via the encrypted key store (`loadApiKey`/`hasApiKey`) — never an env var
+ * or an explicit-key parameter — so 'store' and 'none' (keyless Ollama) are the only sources that
+ * occur on this path; '' covers the key-not-found case (which `generateText` itself refuses before
+ * any call, so this value only ever reaches the log via a caller's own catch-block entry).
+ */
+export function resolveAiCallLogKeySource(backend: string): string {
+  if (backend === 'ollama') return 'none';
+  return hasApiKey(backend as Parameters<typeof hasApiKey>[0]) ? 'store' : '';
+}
+
+/**
+ * The Model/Backend/KeySource context for an AI call log entry (t/4088), given the caller's
+ * requested model (or none, which defaults the same way `generateText` does). Callers compute
+ * this ONCE before calling `generateText` and reuse it for both the success and failure log
+ * entries, since the desktop path has no fallback chain (t/4048) — the requested model is always
+ * the model actually called.
+ */
+export function resolveAiCallLogContext(model?: string): { model: string; backend: string; keySource: string } {
+  const friendlyModel = model || DEFAULT_MODEL;
+  // registry passed explicitly (AC 3, t/4088): resolveBackend's registry param is optional and
+  // falls through to an id-prefix guess when omitted — this is the registry-first form.
+  const backend = resolveBackend(friendlyModel, resolveRegistry());
+  return { model: friendlyModel, backend, keySource: resolveAiCallLogKeySource(backend) };
 }
 
 /** Return a fixedTemperature override for GenerateOptions when the entry requires one. */

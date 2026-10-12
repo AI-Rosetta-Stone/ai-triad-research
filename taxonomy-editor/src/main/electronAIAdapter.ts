@@ -5,7 +5,7 @@
 // as the shared AIAdapter interface used by lib/oped and lib/debate cores.
 
 import path from 'path';
-import { generateText } from './embeddings.js';
+import { generateText, resolveAiCallLogContext } from './embeddings.js';
 import type { AIAdapter, GenerateOptions } from '../../../lib/debate/aiAdapter.js';
 import { writeAICallLogEntry } from './aiCallLog.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
@@ -20,6 +20,10 @@ export function makeElectronAIAdapter(scenario: string, voiceTimeoutMs?: number)
   return {
     generateText: async (prompt: string, model: string, opts?: GenerateOptions): Promise<string> => {
       let retryCount = 0;
+      // t/4088: computed once and reused for both the success and failure log entries — the
+      // desktop path has no fallback chain (t/4048), so the requested model is always the model
+      // actually called.
+      const { model: logModel, backend, keySource } = resolveAiCallLogContext(model);
       try {
         const { text } = await generateText(
           prompt,
@@ -33,7 +37,7 @@ export function makeElectronAIAdapter(scenario: string, voiceTimeoutMs?: number)
             responseSchema: opts?.responseSchema,
           },
         );
-        writeAICallLogEntry({ scenario, promptId: '', promptStart: prompt, retryCount, status: '200' });
+        writeAICallLogEntry({ scenario, promptId: '', promptStart: prompt, retryCount, status: '200', model: logModel, backend, keySource });
         return text;
       } catch (err) {
         getGlobalRecorder()?.record({
@@ -41,7 +45,7 @@ export function makeElectronAIAdapter(scenario: string, voiceTimeoutMs?: number)
           message: 'electronAIAdapter: generateText failed — rethrowing to debate engine',
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
-        writeAICallLogEntry({ scenario, promptId: '', promptStart: prompt, retryCount, status: 'error' });
+        writeAICallLogEntry({ scenario, promptId: '', promptStart: prompt, retryCount, status: 'error', model: logModel, backend, keySource });
         throw err;
       }
     },
