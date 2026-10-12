@@ -23,7 +23,8 @@ jobs:
       - name: Self-health — predicate unit suite
         # t/3737#4 principle: re-run the unit suite on every PR event, so a regression that
         # breaks detection fails this job loudly instead of letting the check go quietly blind.
-        run: node --test operations/devops/tier-check-predicate.test.mjs
+        # tier-check-workflow.test.mjs runs THIS file's inline R1 fallback (t/4103, e/291).
+        run: node --test operations/devops/tier-check-predicate.test.mjs operations/devops/tier-check-workflow.test.mjs
 
       - name: Evaluate tier declaration
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
@@ -98,13 +99,11 @@ jobs:
             const baseConfigText = showFromBase('.github/ci/tier-paths.json');
             const basePredicateText = showFromBase('operations/devops/tier-check-predicate.mjs');
 
-            // THIS WORKFLOW RUN'S OWN trusted copy (checked out at head, the same copy the
-            // Self-health step already ran) -- used for the version check and, when the base
-            // predicate is unusable, as the fallback for a plain R1 path match. Never use a
-            // possibly-skewed base module to validate or exempt itself (t/4103, Lead review on
-            // PR #3172: EXPECTED_API coming from head meant a PR that bumps TIER_CHECK_API in
-            // its own head got "skipped" and was never judged -- closed by putting the
-            // predicate file itself on R1 AND still applying R1 as a plain path match here).
+            // The HEAD copy of the predicate. NOT trusted: under `pull_request` it is the PR's own
+            // code. Used ONLY to read the expected TIER_CHECK_API for the skew decision. A PR that
+            // fakes that only forces the skew path, which then runs the self-contained
+            // inlineR1Fallback below (no head code), so an R1 path still gets flagged
+            // (t/4103, e/291: the #3172 fallback had called headModule.evaluateR1Only).
             const headModule = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/tier-check-predicate.mjs`).href);
 
             async function postSkippedVerdict(reason) {
@@ -115,11 +114,34 @@ jobs:
               ].join('\n'));
             }
 
+            // BEGIN r1-inline
+            // R1 fallback, SELF-CONTAINED: no imported code from head or base (t/4103, e/291).
+            // Under `pull_request` the head predicate module IS the PR, so calling its
+            // evaluateR1Only let a PR that bumps TIER_CHECK_API (forcing this skew path) also
+            // stub the matcher and get "skipped" while touching an R1 path. Only the base-tip
+            // CONFIG (JSON) is read here. The remaining blank: a PR that edits this workflow
+            // file itself, which only promotion to a required, base-pinned check closes.
+            // tier-check-workflow.test.mjs extracts and runs this exact block.
+            function inlineR1Fallback(files, body, config) {
+              const paths = (files || []).map((f) => f && f.filename).filter((p) => typeof p === 'string');
+              const firstLine = String(body || '').trim().split('\n')[0].trim();
+              const m = /^Tier:\s*T([012])\b/.exec(firstLine);
+              const tier = m ? 'T' + m[1] : null;
+              const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const globMatch = (p, g) => new RegExp('^' + g.split('*').map(esc).join('.*') + '$').test(p);
+              let hit = null;
+              for (const p of paths) {
+                if ((config.r1Paths || []).includes(p) || (config.r1Globs || []).some((g) => globMatch(p, g))) { hit = p; break; }
+              }
+              if (hit && tier !== 'T2') return { pass: false, tier, comments: ['R1: touches ' + hit + ', must declare Tier: T2'] };
+              return { pass: true, tier, comments: [] };
+            }
+            // END r1-inline
+
             async function r1FallbackCheck(config, reason) {
               const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
-              const { paths: fallbackPaths } = headModule.factsFromListFiles(files);
-              const tier = headModule.extractTier(pr.body);
-              const result = headModule.evaluateR1Only(fallbackPaths, config, tier);
+              const result = inlineR1Fallback(files, pr.body, config);
+              const tier = result.tier;
               if (!result.pass) {
                 await postVerdictComment([
                   MARKER,

@@ -124,9 +124,15 @@ export function checkR1(paths, config) {
  * Lead review on PR #3172). Closes the self-exemption-by-skew path: `EXPECTED_API` comes from
  * the PR's own HEAD copy, so a PR that bumps `TIER_CHECK_API` in its own head (deliberately or
  * by accident) would otherwise get "verdict skipped (skew)" and never be judged at all, since
- * nothing else catches it once `tier-check-predicate.mjs` itself is on R1. This function is
- * always called with the WORKFLOW RUN'S OWN (head's) trusted `checkR1`, never a possibly-skewed
- * base copy, exactly like `checkApiVersion`.
+ * nothing else catches it once `tier-check-predicate.mjs` itself is on R1.
+ *
+ * NOT USED BY THE WORKFLOW'S SKEW FALLBACK (t/4103, e/291). The workflow once called this from
+ * the HEAD module, which under `pull_request` is the PR's own code. So a PR could bump
+ * TIER_CHECK_API and stub this function to get "skipped" while touching an R1 path. The
+ * workflow now runs a self-contained `inlineR1Fallback` (tier-check.yml, BEGIN/END r1-inline)
+ * that imports nothing. This export remains for unit tests and offline replay only.
+ * REMAINING BLANK: a PR that edits tier-check.yml itself. Only promotion to a required,
+ * base-pinned check closes that.
  * @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config @param {string|null} tier
  */
 export function evaluateR1Only(paths, config, tier) {
