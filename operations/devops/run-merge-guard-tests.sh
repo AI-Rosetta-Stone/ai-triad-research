@@ -35,7 +35,7 @@ rc=$?
 # MIN to the new count in the same PR. A floor left at an old count silently tolerates losing every
 # test added since. Lowering MIN is a deliberate, reviewed diff (workflow-lint ALLOW_IF_EXPECTED
 # pattern). The env override is for local arm-testing only.
-MIN="${MERGE_GUARD_MIN_TESTS:-69}"
+MIN="${MERGE_GUARD_MIN_TESTS:-84}"
 n="$(grep -E '^# tests [0-9]+' "$tap" | tail -1 | awk '{print $3}')"
 if [ -z "$n" ]; then
   echo "::error::merge-guard predicate suite emitted no TAP test count — failing safe (t/3871)"
