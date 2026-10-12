@@ -327,6 +327,7 @@
 
 .chat-transcript {
   flex: 1;
+  min-height: 0; /* t/4138 — without this a flex child can't shrink below its content height, so overflow-y:auto never triggers */
   overflow-y: auto;
   padding: 12px;
   display: flex;

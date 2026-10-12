@@ -37,10 +37,10 @@ curl -sI -H "Authorization: Bearer $TOKEN" \
   | grep -i docker-content-digest
 ```
 
-### ghcr.io/jpsnover/ai-triad-base:<date-tag> (GHCR)
+### ghcr.io/ai-rosetta-stone/ai-triad-base:<date-tag> (GHCR)
 
 ```bash
-gh api "user/packages/container/ai-triad-base/versions" \
+gh api "orgs/ai-rosetta-stone/packages/container/ai-triad-base/versions" \
   --jq '.[] | select(.metadata.container.tags[] | contains("<date-tag>")) | .name'
 ```
 
@@ -73,7 +73,7 @@ If a digest bump breaks prod, forward-deploy using the last known-good image dig
 ```bash
 az containerapp update \
   --name <app-name> --resource-group <rg> \
-  --image ghcr.io/jpsnover/taxonomy-editor@sha256:<last-good-digest>
+  --image ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:<last-good-digest>
 ```
 
 The last-good digest is recorded in the container.yml build output for each successful push. Check `gh run list --workflow container.yml` for recent successful runs and read the `digest` job output.

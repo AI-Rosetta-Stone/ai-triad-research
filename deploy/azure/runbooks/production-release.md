@@ -44,7 +44,7 @@ If this release touches the **serialize path specifically** — the synthetic-em
 
 3. Verify the image exists in GHCR:
    ```bash
-   gh api user/packages/container/taxonomy-editor/versions --jq '.[0].metadata.container.tags'
+   gh api orgs/ai-rosetta-stone/packages/container/taxonomy-editor/versions --jq '.[0].metadata.container.tags'
    ```
 
 ## Step 3: Deploy to Azure
@@ -130,7 +130,7 @@ If post-deploy issues are found after traffic shift:
 
 The deploy workflow handles this automatically when health checks or acceptance tests fail. Manual rollback is only needed for issues discovered after the workflow completes.
 
-**Rollback-anchor durability (t/3679 + t/3756).** A rollback target is only valid while its image is **tagged** or within the untagged-retention window. `ghcr-cleanup.yml` deletes **untagged** images older than 30 days (keeping the 5 most-recent untagged). Since deploy-by-digest (t/3679) makes `container.yml` push a **permanent `sha-<commit>` tag** for every built image, every deploy-pinnable image now stays **tagged → preserved**, so its digest remains pullable as a rollback target indefinitely — this is the going-forward fix. **Caveat for images built before t/3679 landed:** those were only ever tagged `:latest`, so once `:latest` moved past them they went untagged and prune at ~30 days. To roll back to a pre-t/3679 image, first confirm it still exists (`gh api user/packages/container/taxonomy-editor/versions`) before relying on it; if you need a specific old digest preserved, tag it durably (`docker buildx imagetools create --tag ghcr.io/jpsnover/taxonomy-editor:rollback-<date> <digest-ref>`). To forward-deploy a known-good digest directly, see the recovery path in [digest-pin-upgrade.md](digest-pin-upgrade.md).
+**Rollback-anchor durability (t/3679 + t/3756).** A rollback target is only valid while its image is **tagged** or within the untagged-retention window. `ghcr-cleanup.yml` deletes **untagged** images older than 30 days (keeping the 5 most-recent untagged). Since deploy-by-digest (t/3679) makes `container.yml` push a **permanent `sha-<commit>` tag** for every built image, every deploy-pinnable image now stays **tagged → preserved**, so its digest remains pullable as a rollback target indefinitely — this is the going-forward fix. **Caveat for images built before t/3679 landed:** those were only ever tagged `:latest`, so once `:latest` moved past them they went untagged and prune at ~30 days. To roll back to a pre-t/3679 image, first confirm it still exists (`gh api orgs/ai-rosetta-stone/packages/container/taxonomy-editor/versions`) before relying on it; if you need a specific old digest preserved, tag it durably (`docker buildx imagetools create --tag ghcr.io/ai-rosetta-stone/taxonomy-editor:rollback-<date> <digest-ref>`). To forward-deploy a known-good digest directly, see the recovery path in [digest-pin-upgrade.md](digest-pin-upgrade.md).
 
 ## Deploy Hold
 
@@ -164,13 +164,13 @@ All alerts route to the `ag-aitriad-restart-alert` action group, which emails `A
 
 ### Response Steps
 
-1. **ImagePullBackOff alert:** Check GHCR package visibility (`ghcr.io/jpsnover/taxonomy-editor` must be public). Verify `registries` is empty on the container app (`az containerapp show --name taxonomy-editor -g ai-triad --query 'properties.configuration.registries'`). If a credential was re-added, remove it and create a new revision.
+1. **ImagePullBackOff alert:** Check GHCR package visibility (`ghcr.io/ai-rosetta-stone/taxonomy-editor` must be public). Verify `registries` is empty on the container app (`az containerapp show --name taxonomy-editor -g ai-triad --query 'properties.configuration.registries'`). If a credential was re-added, remove it and create a new revision.
 2. **Restart loop alert:** Check container logs (`az containerapp logs show --name taxonomy-editor -g ai-triad --type console`). May indicate app crash, OOM, or bad deploy. Rollback to previous revision if needed.
 3. **Health check issue:** Run `Invoke-TaxEditorSmokeTest -Detailed` for full diagnosis. Check Azure status page for platform outages.
 
 ## Registry Auth (GHCR)
 
-**`ghcr.io/jpsnover/taxonomy-editor` must remain a public package.** Anonymous pulls are the production auth mode — no registry credentials are configured on the container apps. A visibility flip on the GHCR package = outage.
+**`ghcr.io/ai-rosetta-stone/taxonomy-editor` must remain a public package.** Anonymous pulls are the production auth mode — no registry credentials are configured on the container apps. A visibility flip on the GHCR package = outage.
 
 If the image ever needs to go private, design around **ACR + managed identity**. Do not rotate or re-add a PAT — PATs rot, and the 2026-07-05 outage (expired GHCR PAT → ImagePullBackOff on every replica recycle) is the proof.
 

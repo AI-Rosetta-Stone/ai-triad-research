@@ -1,0 +1,36 @@
+{
+  "title": "Compute, audits and leaderboards",
+  "pov_tags": [
+    "accelerationist",
+    "safetyist"
+  ],
+  "topic_tags": [
+    "compute",
+    "audits"
+  ],
+  "source_type": "blog",
+  "summary_status": "current",
+  "custom_field": "kept as is",
+  "summary_version": "2.4.0",
+  "summary_updated": "2026-01-02T03:04:05Z",
+  "total_claims": 3,
+  "node_references_by_pov": {
+    "accelerationist": 1,
+    "safetyist": 2,
+    "situations": 1,
+    "skeptic": 1
+  },
+  "primary_pov_distribution": {
+    "accelerationist": 1,
+    "safetyist": 1,
+    "situations": 0,
+    "skeptic": 1
+  },
+  "total_facts": 6,
+  "unmapped_concepts": 3,
+  "context_rot": {
+    "cumulative_retention": 1.0,
+    "worst_stage": "extraction",
+    "worst_ratio": "<PROMPT_RATIO>"
+  }
+}

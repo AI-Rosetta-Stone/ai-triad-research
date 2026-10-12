@@ -141,7 +141,7 @@ function Invoke-DocumentSummary {
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed `
         -TaxonomyJson $PipelineResult.TaxonomyJson `
-        -FireStats $PipelineResult.FireStats
+        -FireStats $PipelineResult.FireStats -EnablePolarityGate $EnablePolarityGate
 }
 
 # ============================================================================
@@ -161,7 +161,9 @@ function Invoke-ChunkedSummary {
         [string]$ChunkSystemPromptTemplate = '',
         [Parameter(Mandatory)][string]$OutputSchema,
         [Parameter(Mandatory)][string]$SummariesDir,
-        [Parameter(Mandatory)][string]$Now
+        [Parameter(Mandatory)][string]$Now,
+        # Forwarded from Invoke-DocumentSummary (@PSBoundParameters) and passed to Finalize-Summary.
+        [bool]$EnablePolarityGate = $true
     )
 
     $ThisDocId = $Doc.DocId
@@ -414,7 +416,7 @@ $ChunkText
     return Finalize-Summary -SummaryObject $SummaryObject -ThisDocId $ThisDocId `
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed -ChunkCount $ChunkCount `
-        -TaxonomyJson $TaxonomyJson
+        -TaxonomyJson $TaxonomyJson -EnablePolarityGate $EnablePolarityGate
 }
 
 # ============================================================================
@@ -688,316 +690,42 @@ function Finalize-Summary {
         [TimeSpan]$Elapsed,
         [int]$ChunkCount = 0,
         [string]$TaxonomyJson = '',
-        [object]$FireStats = $null
+        [object]$FireStats = $null,
+        # Explicit since t/4136: it used to resolve from the caller's scope. Default matches
+        # Invoke-DocumentSummary's (gate ON, t/2912); both callers pass it.
+        [bool]$EnablePolarityGate = $true
     )
 
-    # -- Schema validation (Gap 3.4) --------------------------------------------
-    # Use a helper that works on both PSCustomObject and OrderedDictionary
-    # (Merge-ChunkSummaries returns OrderedDictionary, single-call returns PSCustomObject)
-    function Has-Field($Obj, [string]$Name) {
-        if ($Obj -is [System.Collections.IDictionary]) { return $Obj.Contains($Name) }
-        if ($Obj.PSObject.Properties[$Name]) { return $true }
-        return $false
-    }
-    function Get-Field($Obj, [string]$Name) {
-        if ($Obj -is [System.Collections.IDictionary]) { return $Obj[$Name] }
-        $P = $Obj.PSObject.Properties[$Name]
-        if ($P) { return $P.Value }
-        return $null
-    }
-
-    $Camps        = @('accelerationist','safetyist','skeptic')
-    $SchemaErrors = [System.Collections.Generic.List[string]]::new()
-
-    if (-not (Has-Field $SummaryObject 'pov_summaries')) {
-        $SchemaErrors.Add("Missing required field: pov_summaries")
-    } else {
-        $PovSums = Get-Field $SummaryObject 'pov_summaries'
-        foreach ($Camp in $Camps) {
-            $CampData = Get-Field $PovSums $Camp
-            if ($null -eq $CampData) {
-                $SchemaErrors.Add("Missing camp in pov_summaries: $Camp")
-            } else {
-                $KP = Get-Field $CampData 'key_points'
-                if ($null -eq $KP) {
-                    # A camp with null/absent key_points is NOT a fatal schema error — L763 only fails
-                    # when pov_summaries itself is missing, so the old red "✗ Schema:" mislabeled it.
-                    # Normalize to @() like the sibling fields (factual_claims / unmapped_concepts) and
-                    # WARN instead (t/3434). Genuine empty-camp is already handled by the yield check.
-                    Write-Warning "pov_summaries.$Camp.key_points missing/null — defaulting to empty array (model=$Model)"
-                    $KP = @()
-                }
-                # Force-array: ConvertFrom-Json unwraps single-element arrays to scalars.
-                $KP = @($KP)
-                if ($CampData -is [System.Collections.IDictionary]) { $CampData['key_points'] = $KP }
-                elseif ($CampData.PSObject.Properties['key_points']) { $CampData.key_points = $KP }
-                else { $CampData | Add-Member -NotePropertyName 'key_points' -NotePropertyValue $KP -Force }
-            }
-        }
-    }
-    if (-not (Has-Field $SummaryObject 'factual_claims')) {
-        $SchemaErrors.Add("Missing required field: factual_claims")
-    } else {
-        $FC = Get-Field $SummaryObject 'factual_claims'
-        # Force-array: ConvertFrom-Json unwraps single-element arrays to scalars
-        if ($null -ne $FC) {
-            $FC = @($FC)
-            # Write back the forced array so downstream code sees an array
-            if ($SummaryObject -is [System.Collections.IDictionary]) { $SummaryObject['factual_claims'] = $FC }
-            else { $SummaryObject.factual_claims = $FC }
-        } else {
-            $SchemaErrors.Add("Missing required field: factual_claims")
-        }
-    }
-    if (-not (Has-Field $SummaryObject 'unmapped_concepts')) {
-        # Not an error — field may be absent if all concepts were resolved. Default to empty array.
-        if ($SummaryObject -is [System.Collections.IDictionary]) { $SummaryObject['unmapped_concepts'] = @() }
-        else { $SummaryObject | Add-Member -NotePropertyName 'unmapped_concepts' -NotePropertyValue @() -Force }
-    } else {
-        $UC = Get-Field $SummaryObject 'unmapped_concepts'
-        # Force-array via @() directly (never `$UC = if (...) {@($UC)} else {@()}`):
-        # a 0-element array captured by assignment from an if/else expression's
-        # output stream collapses to $null, not an empty array (t/3915) -- the
-        # exact class of bug this line exists to prevent. @() applied directly
-        # to a value is a literal array constructor, never pipeline-enumerated,
-        # so it always yields a real array (single-null-element if $UC was a
-        # bare null; the t/3907 filter immediately below strips that to empty).
-        $UC = @($UC)
-        # t/3907: drop bare-null elements -- a model/merge artifact that otherwise
-        # writes unmapped_concepts: [null, ...], which a later StrictMode reader
-        # throws on when it touches .PSObject.Properties against the null entry.
-        $NullUcCount = @($UC | Where-Object { $null -eq $_ }).Count
-        if ($NullUcCount -gt 0) {
-            Write-Warning "Finalize-Summary: dropped $NullUcCount null unmapped_concepts entry/entries (t/3907, model=$Model)"
-            $UC = @($UC | Where-Object { $null -ne $_ })
-        }
-        # t/3915: suggested_label is a free-text display field (the editor offers it
-        # as a new node's name) -- an ID-shaped value is junk regardless of source.
-        # Caught here so no writer, now or later, can leak a node ID into it.
-        $IdShapedLabelCount = Repair-IdShapedSuggestedLabel -Concepts $UC -Model $Model
-        if ($IdShapedLabelCount -gt 0) {
-            Write-Host "  │  ⚠ ID-shaped suggested_label replaced: $IdShapedLabelCount" -ForegroundColor Yellow
-        }
-        if ($SummaryObject -is [System.Collections.IDictionary]) { $SummaryObject['unmapped_concepts'] = $UC }
-        else { $SummaryObject.unmapped_concepts = $UC }
-    }
-
-    foreach ($Err in $SchemaErrors) {
-        Write-Host "  │  ✗ Schema: $Err" -ForegroundColor Red
-    }
-
-    if ($SchemaErrors.Count -gt 0 -and -not (Has-Field $SummaryObject 'pov_summaries')) {
+    # -- Schema validation and normalization (Gap 3.4) -------------------------
+    # Steps live in FinalizeSummarySteps.ps1 (t/4136). Both callers pass a PSCustomObject; the steps
+    # also accept an IDictionary.
+    $SchemaErrors = Repair-SummarySchema -SummaryObject $SummaryObject -Model $Model
+    if ($SchemaErrors.Count -gt 0 -and -not (Test-SummaryField $SummaryObject 'pov_summaries')) {
         return @{ Success = $false; DocId = $ThisDocId; Error = "Schema validation failed: $($SchemaErrors -join '; ')" }
     }
 
     # -- Validate stance values and gather counts --------------------------------
-    $TotalPoints  = 0
-    $NullNodes    = 0
-
-    foreach ($Camp in $Camps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
-        if ($CampData) {
-            if (Has-Field $CampData 'key_points') {
-                $kpList = Get-Field $CampData 'key_points'
-                if ($kpList) {
-                    foreach ($kp in $kpList) {
-                        if ($kp.stance -notin $script:ValidStances) { $kp.stance = Resolve-Stance $kp.stance }
-                    }
-                    $TotalPoints += @($kpList).Count
-                    $NullNodes   += @($kpList | Where-Object { $null -eq $_.taxonomy_node_id }).Count
-                }
-            }
-        }
-    }
+    $StanceCounts = Update-SummaryStances -SummaryObject $SummaryObject
+    $TotalPoints  = $StanceCounts.TotalPoints
+    $NullNodes    = $StanceCounts.NullNodes
 
     # -- Validate taxonomy_node_id existence (Gap 3.1) ---------------------------
-    $InvalidNodeIds = [System.Collections.Generic.List[string]]::new()
-    $NodeIdSet = Get-TaxonomyNodeIdSet
-    if ($null -ne $NodeIdSet -and $NodeIdSet.Count -gt 0) {
-        foreach ($Camp in $Camps) {
-            $CampData = $SummaryObject.pov_summaries.$Camp
-            if (-not $CampData -or -not (Has-Field $CampData 'key_points')) { continue }
-            $kpList769 = Get-Field $CampData 'key_points'
-            if (-not $kpList769) { continue }
-            foreach ($kp in $kpList769) {
-                if (-not $kp.taxonomy_node_id) { continue }
-                if (-not $NodeIdSet.Contains($kp.taxonomy_node_id)) {
-                    $InvalidNodeIds.Add("$Camp/$($kp.taxonomy_node_id)")
-                    $BadId = $kp.taxonomy_node_id
-                    $kp.taxonomy_node_id = $null
-                    $NullNodes++
-                    if (-not $SummaryObject.PSObject.Properties['unmapped_concepts']) {
-                        $SummaryObject | Add-Member -NotePropertyName 'unmapped_concepts' -NotePropertyValue @() -Force
-                    }
-                    # t/3915: suggested_label is a free-text display field (the editor
-                    # offers it as a new node's name) -- it must never be the dead node
-                    # ID itself. Derive a short label from the point text; the ID stays
-                    # traceable in `reason`.
-                    $FallbackLabel = if ($kp.point) {
-                        $LabelWords = @(($kp.point -split '\s+') | Where-Object { $_ } | Select-Object -First 8)
-                        ($LabelWords -join ' ') + '...'
-                    } else {
-                        'Unresolved concept'
-                    }
-                    # t/3915 (found alongside the label fix): the earlier normalization's
-                    # `$UC = if (...) { @($UC) } else { @() }` assignment can itself collapse
-                    # an empty array to $null (the same return/assignment enumeration quirk
-                    # as t/3907 -- a 0-element array captured by assignment from an if/else
-                    # expression emits nothing, not an empty array). @()-wrapping that $null
-                    # here would turn it into a 1-element [$null] array and prepend a bare
-                    # null entry ahead of the new one. Filter it out before appending.
-                    $ExistingUc = @(@($SummaryObject.unmapped_concepts) | Where-Object { $null -ne $_ })
-                    $SummaryObject.unmapped_concepts = $ExistingUc + @(
-                        [PSCustomObject]@{
-                            suggested_label = $FallbackLabel
-                            concept         = $kp.point
-                            reason          = "Hallucinated node ID '$BadId' not found in taxonomy — moved from $Camp key_points"
-                        }
-                    )
-                }
-            }
-        }
-        if ($InvalidNodeIds.Count -gt 0) {
-            Write-Host "  │  ⚠ Hallucinated node IDs moved to unmapped: $($InvalidNodeIds -join ', ')" -ForegroundColor Yellow
-        }
-    }
+    # Each rerouted key_point is one more unmapped point.
+    $InvalidNodeIds = Move-HallucinatedNodeIdsToUnmapped -SummaryObject $SummaryObject
+    $NullNodes += $InvalidNodeIds.Count
 
     # -- Cross-camp consistency check (Gap 3.3) --------------------------------
-    $NodeStanceMap = @{}
-    $CrossCampWarnings = [System.Collections.Generic.List[string]]::new()
-    foreach ($Camp in $Camps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
-        if (-not $CampData -or -not (Has-Field $CampData 'key_points')) { continue }
-        $kpList800 = Get-Field $CampData 'key_points'
-        if (-not $kpList800) { continue }
-        foreach ($kp in $kpList800) {
-            if (-not $kp.taxonomy_node_id) { continue }
-            $Key = "$($kp.taxonomy_node_id)|$($kp.stance)"
-            if ($NodeStanceMap.ContainsKey($Key)) {
-                $PriorCamp = $NodeStanceMap[$Key]
-                if ($PriorCamp -ne $Camp) {
-                    $CrossCampWarnings.Add("Cross-camp agreement: $PriorCamp + $Camp both '$($kp.stance)' on $($kp.taxonomy_node_id)")
-                }
-            } else {
-                $NodeStanceMap[$Key] = $Camp
-            }
-        }
-    }
+    $CrossCampWarnings = Get-CrossCampAgreementWarnings -SummaryObject $SummaryObject
     foreach ($Warn in $CrossCampWarnings) {
         Write-Host "  │  ⚠ $Warn" -ForegroundColor Yellow
     }
 
-    # -- Retrieval confidence pass (t/2288) ------------------------------------
-    # Runs after hallucinated-ID nulling so only valid assignments get scored.
-    if ($script:CachedEmbeddings -and $script:CachedEmbeddings.Count -gt 0) {
-        $AllKpsForConf = [System.Collections.Generic.List[object]]::new()
-        foreach ($Camp in $Camps) {
-            $CampDataConf = $SummaryObject.pov_summaries.$Camp
-            if (-not $CampDataConf -or -not (Has-Field $CampDataConf 'key_points')) { continue }
-            $kpListConf = Get-Field $CampDataConf 'key_points'
-            if ($kpListConf) {
-                foreach ($kp in @($kpListConf)) { [void]$AllKpsForConf.Add($kp) }
-            }
-        }
-        if ($AllKpsForConf.Count -gt 0) {
-            Invoke-RetrievalConfidencePass -KeyPoints $AllKpsForConf.ToArray() `
-                -Threshold $script:RetrievalConfidenceThreshold
-        }
-    }
-
-    # -- Polarity/contradiction gate (t/2739 P1) -------------------------------
-    # Runs after the confidence pass (retrieval_low_confidence populated). Asks the
-    # shared directional engine whether each aligned, high-topical-band key_point
-    # OPPOSES its ASSIGNED node's proposition; flips to strongly_opposed +
-    # stance_polarity_flag on 'opposes' (opposition-only; unresolved keeps). The
-    # residual that similarity + the prompt (t/2738) cannot catch.
-    $PolarityKps = [System.Collections.Generic.List[object]]::new()
-    foreach ($Camp in $Camps) {
-        $CampDataPol = $SummaryObject.pov_summaries.$Camp
-        if (-not $CampDataPol -or -not (Has-Field $CampDataPol 'key_points')) { continue }
-        $kpListPol = Get-Field $CampDataPol 'key_points'
-        if ($kpListPol) {
-            foreach ($kp in @($kpListPol)) { [void]$PolarityKps.Add(@{ KeyPoint = $kp; POV = $Camp }) }
-        }
-    }
-    if ($PolarityKps.Count -gt 0) {
-        # ── DIRECTIONAL POLARITY GATE — DISABLED BY DEFAULT (t/2896) ──────────────
-        # WHY OFF: the gate's safety invariant ("false-demote structurally ~0") is
-        # FALSIFIED. deberta-v3-small false-flips genuine aligned agreements to
-        # strongly_opposed at NLI margins 3.4–7.5 — an order of magnitude above the
-        # ~1.4 real-contradiction ceiling, so no τ_contra separates them (provably not
-        # tunable). Root cause is a model reasoning gap: it can't infer agency→loss
-        # (AI-gains-agency ⊨ humans-lose-oversight), which is the DOMINANT
-        # safetyist/skeptic claim shape — so the gate corrupts precisely where it
-        # fires most (CL diagnosis t/2896#1; TL [Decision] e/117#3).
-        # STATUS (t/2912): the gate is ACTIVE BY DEFAULT. The durable two-stage
-        # LLM-judge fix (t/2900) resolved the agency→loss false-demote — deberta
-        # proposes 'opposes' candidates, the gemini-3.1-pro-preview judge disposes
-        # (unanimous-opposes-to-flip @ temp 0.3; fail-safe unresolved/error → KEEP) —
-        # promoted after both-arms GV + a clean observe cycle (121 deberta FPs the
-        # judge rejected, 0 bad flips). Kill switch: -EnablePolarityGate:$false.
-        $PolarityCounts = Invoke-PolarityGatePass -KeyPoints $PolarityKps.ToArray() `
-            -SkipDirectionalGate:(-not $EnablePolarityGate)
-        if ($EnablePolarityGate -and $PolarityCounts.gated -gt 0) {
-            # t/2900/t/2912 two-stage telemetry — emitted EVERY run so the judge's
-            # flip / false-positive-kept / self-heal rates are observable in prod
-            # (TL GV condition t/2912#3). judge_kept = deberta false-positives the
-            # judge rejected (the payoff); judge_flipped = confirmed demotes;
-            # self_healed = prior false-flips auto-reverted.
-            $polLine = "Polarity gate (two-stage): judge_flipped={0} judge_kept={1} self_healed={2} over {3} gated key_point(s), {4} deberta rep-pair(s)" -f `
-                $PolarityCounts.judge_flipped, $PolarityCounts.judge_kept, $PolarityCounts.self_healed, $PolarityCounts.gated, $PolarityCounts.reps
-            if ($PolarityCounts.judge_flipped -gt 0) { Write-Warn $polLine } else { Write-Info $polLine }
-            # Silent-degradation detector: every claim-rep pair unresolved ⇒ the
-            # directional engine likely failed for the whole run (fail-safe kept all
-            # mappings). Surface by default so a dead engine does not pass unnoticed
-            # (TL GV t/2739#6).
-            if ($PolarityCounts.reps -gt 0 -and $PolarityCounts.unresolved -eq $PolarityCounts.reps) {
-                Write-Warn ("Polarity gate: all {0} claim-rep pair(s) over {1} gated key_point(s) unresolved — directional engine may be down (no inversion detection this run)" -f `
-                    $PolarityCounts.reps, $PolarityCounts.gated)
-            }
-        }
-    }
-
-    # -- Mechanism #5 per-key_point re-retrieval pass (t/2357) -----------------
-    # Runs after the confidence pass so retrieval_low_confidence is populated.
-    # Flags key_points whose assigned node is retrieval_low_confidence OR absent
-    # from the attribution_text top-3, and surfaces per-key_point top-3 candidates
-    # for the t/2289 override path. Flag→surface ships unconditionally (zero
-    # regression risk). Auto-correct is a separate fast-follow.
-    if ($script:CachedEmbeddings -and $script:CachedEmbeddings.Count -gt 0) {
-        $AllKpsForM5 = [System.Collections.Generic.List[object]]::new()
-        foreach ($Camp in $Camps) {
-            $CampDataM5 = $SummaryObject.pov_summaries.$Camp
-            if (-not $CampDataM5 -or -not (Has-Field $CampDataM5 'key_points')) { continue }
-            $kpListM5 = Get-Field $CampDataM5 'key_points'
-            if ($kpListM5) {
-                foreach ($kp in @($kpListM5)) {
-                    [void]$AllKpsForM5.Add(@{ KeyPoint = $kp; POV = $Camp })
-                }
-            }
-        }
-        if ($AllKpsForM5.Count -gt 0) {
-            Invoke-Mechanism5RetrievalPass -KeyPointItems $AllKpsForM5.ToArray()
-        }
-    }
-
-    # -- Excludes-veto pass (t/2286) ------------------------------------------
-    # Runs after confidence pass so retrieval_low_confidence is already present.
-    if ($script:TaxonomyData -and $script:TaxonomyData.Count -gt 0) {
-        $AllKpsForVeto = [System.Collections.Generic.List[object]]::new()
-        foreach ($Camp in $Camps) {
-            $CampDataVeto = $SummaryObject.pov_summaries.$Camp
-            if (-not $CampDataVeto -or -not (Has-Field $CampDataVeto 'key_points')) { continue }
-            $kpListVeto = Get-Field $CampDataVeto 'key_points'
-            if ($kpListVeto) { foreach ($kp in @($kpListVeto)) { [void]$AllKpsForVeto.Add($kp) } }
-        }
-        if ($AllKpsForVeto.Count -gt 0) {
-            $VetoStats = Invoke-ExcludesVetoPass -KeyPoints $AllKpsForVeto.ToArray()
-            if ($VetoStats.VetoCount -gt 0 -or $VetoStats.AmbiguousCount -gt 0) {
-                Write-Host "  │  excludes-veto: $($VetoStats.VetoCount) vetoed, $($VetoStats.AmbiguousCount) ambiguous" -ForegroundColor DarkYellow
-            }
-        }
-    }
+    # -- Enrichment passes, in the pinned order (t/2288, t/2739, t/2357, t/2286) --
+    # Each lives in FinalizeSummarySteps.ps1 (t/4136 B2) with its own skip guard.
+    Invoke-SummaryRetrievalConfidencePass -SummaryObject $SummaryObject
+    Invoke-SummaryPolarityGate -SummaryObject $SummaryObject -EnablePolarityGate $EnablePolarityGate
+    Invoke-SummaryMechanism5Pass -SummaryObject $SummaryObject
+    Invoke-SummaryExcludesVetoPass -SummaryObject $SummaryObject
 
     $SoProps = $SummaryObject.PSObject.Properties
     if ($SoProps['factual_claims'] -and $null -ne $SummaryObject.factual_claims) { $FactualClaims = $SummaryObject.factual_claims } else { $FactualClaims = @() }
@@ -1009,144 +737,31 @@ function Finalize-Summary {
     Write-Host "  │  points: $TotalPoints ($NullNodes unmapped)  factual: $FactualCount  new_concepts: $UnmappedCount$ChunkLabel" -ForegroundColor Gray
 
     # -- Cross-POV fuzzy match on unmapped concepts ----------------------------
-    if ($UnmappedCount -gt 0) {
-        try {
-            $Resolution = Resolve-UnmappedConcepts -UnmappedConcepts @($SummaryObject.unmapped_concepts)
-            if (@($Resolution.Resolved).Count -gt 0) {
-                foreach ($R in @($Resolution.Resolved)) {
-                    Write-Host "  │  ✔ Resolved: '$($R.ConceptLabel)' → $($R.MatchedNodeId) (score $($R.Score))" -ForegroundColor Green
-                }
-                $UnmappedConcs = @($Resolution.Remaining)
-                if ($SoProps['unmapped_concepts']) {
-                    $SummaryObject.unmapped_concepts = $UnmappedConcs
-                } else {
-                    $SummaryObject | Add-Member -NotePropertyName 'unmapped_concepts' -NotePropertyValue $UnmappedConcs -Force
-                }
-                $UnmappedCount = $UnmappedConcs.Count
-            }
-        }
-        catch {
-            Write-Host "  │  ⚠ Unmapped concept resolution failed: $($_.Exception.Message)" -ForegroundColor Yellow
-        }
-    }
+    $Unmapped      = Resolve-SummaryUnmappedConcepts -SummaryObject $SummaryObject -UnmappedConcs $UnmappedConcs -UnmappedCount $UnmappedCount
+    $UnmappedConcs = $Unmapped.Concepts
+    $UnmappedCount = $Unmapped.Count
 
     # -- Write summaries/<doc-id>.json ----------------------------------------
-    # Detect RAG vs full taxonomy from the context format
-    $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
-    if ($IsRagFiltered) {
-        $EstNodeCount = ([regex]::Matches($TaxonomyJson, '^\s{2}\w', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count
-    }
-    else {
-        $EstNodeCount = ([regex]::Matches($TaxonomyJson, '"id"\s*:')).Count
-    }
+    $ModelInfo = New-SummaryModelInfo -Model $Model -Temperature $Temperature -TaxonomyJson $TaxonomyJson `
+        -ChunkCount $ChunkCount -FireStats $FireStats
 
-    if ($ChunkCount -gt 0) { $TaxFilter = 'rag_per_chunk' } elseif ($IsRagFiltered) { $TaxFilter = 'rag' } else { $TaxFilter = 'full' }
-
-    $UsedFire = $null -ne $FireStats
-    if ($UsedFire) { $ExtractionMode = 'fire' } else { $ExtractionMode = 'single_shot' }
-    $ModelInfo = [ordered]@{
-        model             = $Model
-        temperature       = $Temperature
-        max_tokens        = 32768
-        extraction_mode   = $ExtractionMode
-        taxonomy_filter   = $TaxFilter
-        taxonomy_nodes    = $EstNodeCount
-    }
-
-    if ($UsedFire) {
-        $ModelInfo['fire_confidence_threshold'] = 0.7
-        $ModelInfo['fire_stats'] = [ordered]@{
-            api_calls          = $FireStats.total_api_calls
-            iterations         = $FireStats.total_iterations
-            claims_total       = $FireStats.claims_total
-            claims_confident   = $FireStats.claims_confident
-            claims_iterated    = $FireStats.claims_iterated
-            elapsed_seconds    = $FireStats.elapsed_seconds
-            termination_reason = $FireStats.termination_reason
-        }
-    }
-
-    if ($ChunkCount -gt 0) {
-        $ModelInfo['chunked']     = $true
-        $ModelInfo['chunk_count'] = $ChunkCount
-    }
-
-    if ($SoProps['pov_summaries']) { $PovSummariesVal = $SummaryObject.pov_summaries } else { $PovSummariesVal = [ordered]@{} }
     # -- Build context-rot metrics from stages collected during processing ----
     $ContextRotStages = @($script:ContextRotStages)
     $ContextRotObj = if ($ContextRotStages.Count -gt 0) {
         New-ContextRotMetrics -Pipeline 'summary' -DocId $ThisDocId -Stages $ContextRotStages
     } else { $null }
 
-    $FinalSummary = [ordered]@{
-        doc_id            = $ThisDocId
-        taxonomy_version  = $TaxonomyVersion
-        generated_at      = $Now
-        model_info        = $ModelInfo
-        context_rot       = $ContextRotObj
-        pov_summaries     = $PovSummariesVal
-        factual_claims    = @($FactualClaims)
-        unmapped_concepts = @($UnmappedConcs)
-    }
-    $AllWarnings = [System.Collections.Generic.List[string]]::new()
-    foreach ($e in $SchemaErrors)       { $AllWarnings.Add("Schema: $e") }
-    foreach ($n in $InvalidNodeIds)     { $AllWarnings.Add("Hallucinated node ID: $n") }
-    foreach ($w in $CrossCampWarnings)  { $AllWarnings.Add($w) }
-    if ($AllWarnings.Count -gt 0) {
-        $FinalSummary['warnings'] = @($AllWarnings)
-    }
-
-    $SummaryPath = Join-Path $SummariesDir "${ThisDocId}.json"
-    try {
-        Write-Utf8NoBom -Path $SummaryPath -Value ($FinalSummary | ConvertTo-Json -Depth 20) 
-    }
-    catch {
-        Write-Host "  └─ ✗ Failed to write summary: $($_.Exception.Message)" -ForegroundColor Red
-        return @{ Success = $false; DocId = $ThisDocId; Error = "Failed to write summary file: $($_.Exception.Message)" }
-    }
+    $FinalSummary = New-SummaryDocument -DocId $ThisDocId -TaxonomyVersion $TaxonomyVersion -Now $Now `
+        -ModelInfo $ModelInfo -ContextRot $ContextRotObj -SummaryObject $SummaryObject `
+        -FactualClaims $FactualClaims -UnmappedConcepts $UnmappedConcs `
+        -SchemaErrors $SchemaErrors -InvalidNodeIds $InvalidNodeIds -CrossCampWarnings $CrossCampWarnings
+    $WriteFailure = Write-SummaryDocument -SummariesDir $SummariesDir -DocId $ThisDocId -Document $FinalSummary
+    if ($WriteFailure) { return $WriteFailure }
 
     # -- Update metadata.json -------------------------------------------------
-    try {
-        $MetaRaw     = Get-Content $Doc.MetaFile -Raw
-        $MetaUpdated = $MetaRaw | ConvertFrom-Json -AsHashtable
-        $MetaUpdated['summary_version'] = $TaxonomyVersion
-        $MetaUpdated['summary_status']  = 'current'
-        $MetaUpdated['summary_updated'] = $Now
-
-        # Summary statistics for Source objects
-        $nodeRefsByPov = @{ accelerationist = 0; safetyist = 0; skeptic = 0; situations = 0 }
-        $primaryPovDist = @{ accelerationist = 0; safetyist = 0; skeptic = 0; situations = 0 }
-        foreach ($claim in @($FactualClaims)) {
-            if (-not $claim.PSObject.Properties['linked_taxonomy_nodes']) { continue }
-            $PrimaryAssigned = $false
-            foreach ($nodeId in @($claim.linked_taxonomy_nodes)) {
-                if ($null -eq $nodeId) { continue }
-                if     ($nodeId -like 'acc-*') { $nodeRefsByPov['accelerationist']++; if (-not $PrimaryAssigned) { $primaryPovDist['accelerationist']++; $PrimaryAssigned = $true } }
-                elseif ($nodeId -like 'saf-*') { $nodeRefsByPov['safetyist']++;       if (-not $PrimaryAssigned) { $primaryPovDist['safetyist']++;       $PrimaryAssigned = $true } }
-                elseif ($nodeId -like 'skp-*') { $nodeRefsByPov['skeptic']++;         if (-not $PrimaryAssigned) { $primaryPovDist['skeptic']++;         $PrimaryAssigned = $true } }
-                elseif ($nodeId -like 'sit-*') { $nodeRefsByPov['situations']++;      if (-not $PrimaryAssigned) { $primaryPovDist['situations']++;      $PrimaryAssigned = $true } }
-            }
-        }
-        $MetaUpdated['total_claims']              = $FactualCount
-        $MetaUpdated['node_references_by_pov']    = $nodeRefsByPov
-        $MetaUpdated['primary_pov_distribution']  = $primaryPovDist
-        $MetaUpdated.Remove('claims_by_pov')
-        $MetaUpdated['total_facts']       = $TotalPoints
-        $MetaUpdated['unmapped_concepts'] = $UnmappedCount
-        if ($ContextRotObj) {
-            $WorstStage = $ContextRotStages | Sort-Object { $_.ratio } | Select-Object -First 1
-            $MetaUpdated['context_rot'] = [ordered]@{
-                cumulative_retention = $ContextRotObj.cumulative_retention
-                worst_stage          = $WorstStage.stage
-                worst_ratio          = $WorstStage.ratio
-            }
-        }
-
-        Write-Utf8NoBom -Path $Doc.MetaFile -Value ($MetaUpdated | ConvertTo-Json -Depth 10) 
-    }
-    catch {
-        Write-Host "  │  ⚠ Summary written but metadata update failed: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
+    Update-SummaryMetadata -Doc $Doc -TaxonomyVersion $TaxonomyVersion -Now $Now -FactualClaims $FactualClaims `
+        -FactualCount $FactualCount -TotalPoints $TotalPoints -UnmappedCount $UnmappedCount `
+        -ContextRot $ContextRotObj -ContextRotStages $ContextRotStages
 
     Write-Host "  └─ ✓ Done: summaries/$ThisDocId.json" -ForegroundColor Green
 

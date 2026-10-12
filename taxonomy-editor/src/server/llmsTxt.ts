@@ -23,6 +23,6 @@ Most \`/api/*\` endpoints require authentication in multi-user deployments; \`/h
 
 ## Documentation
 
-- [Source repository](https://github.com/jpsnover/ai-triad-research)
+- [Source repository](https://github.com/AI-Rosetta-Stone/ai-triad-research)
 - [llms.txt convention](https://llmstxt.org)
 `;

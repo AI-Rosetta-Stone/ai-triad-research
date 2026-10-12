@@ -115,7 +115,7 @@ Describe 'Get-AgentAppToken (t/4096)' {
         Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; expires_at = '2026-10-08T13:00:00Z' } }
         Get-AgentAppToken -Role reviewer -AsPlainText | Should -Be 'ghs_TESTONLY'
         Should -Invoke -ModuleName AgentAppToken Invoke-RestMethod -Times 1 -ParameterFilter {
-            $Uri -eq 'https://api.github.com/app/installations/169212097/access_tokens' -and $Method -eq 'Post'
+            $Uri -eq 'https://api.github.com/app/installations/170628507/access_tokens' -and $Method -eq 'Post'
         }
     }
 

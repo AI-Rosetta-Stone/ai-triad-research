@@ -64,8 +64,17 @@ Describe 'Test-CriticalInteractions' -Tag 'health' {
     }
 
     It 'Throws ActionableError for invalid CuiId' {
-        { Test-CriticalInteractions -BaseUrl 'http://localhost:3000' -CuiId 'CUI-FAKE-999' -Detailed 6>$null } |
-            Should -Throw -Because 'Invalid CUI ID should throw'
+        # t/4155: assert the rendered labels, not just "something threw". Before the fix the
+        # error object was never returned, so this threw a bare ScriptHalted with no message.
+        $Thrown = $null
+        try { Test-CriticalInteractions -BaseUrl 'http://localhost:3000' -CuiId 'CUI-FAKE-999' -Detailed 6>$null 2>$null }
+        catch { $Thrown = $_ }
+        $Thrown | Should -Not -BeNullOrEmpty -Because 'Invalid CUI ID should throw'
+        $Message = $Thrown.Exception.Message
+        $Message | Should -Match 'Goal:'
+        $Message | Should -Match "CUI ID 'CUI-FAKE-999' not found"
+        $Message | Should -Match 'Location:'
+        $Message | Should -Match 'Resolve:'
     }
 
     It 'Returns results for all priorities when no filter' {

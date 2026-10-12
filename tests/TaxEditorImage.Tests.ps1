@@ -88,7 +88,7 @@ Describe 'Deploy-TaxEditorImage' -Tag 'health' {
                 Active        = $true
                 TrafficWeight = 100
                 RunningState  = 'Running'
-                ImageTag      = 'ghcr.io/jpsnover/taxonomy-editor:0.8.0'
+                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.0'
                 CreatedAt     = '2026-06-21T08:00:00Z'
             }
         )
@@ -135,7 +135,7 @@ Describe 'Deploy-TaxEditorImage' -Tag 'health' {
 
         $result = Deploy-TaxEditorImage -Tag '0.8.1' -Confirm:$false
         $result.Action | Should -Be 'ImageDeploy'
-        $result.Image | Should -Be 'ghcr.io/jpsnover/taxonomy-editor:0.8.1'
+        $result.Image | Should -Be 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1'
         $result.NewRevision | Should -Be 'taxonomy-editor--deploy-new5678'
         $result.HealthCheck | Should -Be 'Passed'
         Should -Invoke Test-TaxEditorHealth -Times 1 -ModuleName AITriad
@@ -151,7 +151,7 @@ Describe 'Deploy-TaxEditorImage' -Tag 'health' {
         Mock Test-TaxEditorHealth { [PSCustomObject]@{ Healthy = $true; AverageMs = 100 } } -ModuleName AITriad
 
         $result = Deploy-TaxEditorImage -Digest 'sha256:abc123def456' -Confirm:$false
-        $result.Image | Should -Be 'ghcr.io/jpsnover/taxonomy-editor@sha256:abc123def456'
+        $result.Image | Should -Be 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:abc123def456'
         $result.HealthCheck | Should -Be 'Passed'
     }
 

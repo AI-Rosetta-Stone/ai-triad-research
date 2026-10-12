@@ -31,12 +31,10 @@ Describe 'Finalize-Summary: suggested_label must never be node-ID-shaped (t/3915
     It 'derives a free-text suggested_label from the point text when rerouting a hallucinated node ID, preserving the ID in reason' {
         InModuleScope AITriad {
             $script:CachedEmbeddings = @{}; $script:TaxonomyData = @{}; $script:ContextRotStages = @()
-            # Finalize-Summary reads $EnablePolarityGate as a closure/script variable
-            # from its caller (Invoke-DocumentSummary); calling it standalone needs
-            # this set explicitly. Disabled -- the polarity gate (directional-stance
-            # re-judging) is unrelated to this fix and out of scope here, same as the
-            # sibling t/3434 test's documented boundary.
-            $script:EnablePolarityGate = $false
+            # Polarity gate disabled via -EnablePolarityGate $false below (an explicit
+            # parameter since t/4136) -- the directional-stance re-judging is unrelated
+            # to this fix and out of scope here, same as the sibling t/3434 test's
+            # documented boundary.
             # 2+ entries -- a function `return`ing a 1-element IEnumerable auto-
             # unwraps to the bare scalar element (PowerShell pipeline semantics),
             # which would make this mock hand back the string "saf-beliefs-014"
@@ -53,7 +51,7 @@ Describe 'Finalize-Summary: suggested_label must never be node-ID-shaped (t/3915
             $r = Finalize-Summary -SummaryObject $summary -ThisDocId 'doc-hallucinated-id' -TaxonomyVersion 'v1' `
                 -Model 'gemini-3.5-flash-lite' -Temperature 0.2 -Now '2026-09-12T00:00:00Z' `
                 -SummariesDir $TestDrive -Doc @{ MetaFile = (Join-Path $TestDrive 'nope-meta.json') } `
-                -Elapsed ([TimeSpan]::FromSeconds(1)) 3> $wf
+                -Elapsed ([TimeSpan]::FromSeconds(1)) -EnablePolarityGate $false 3> $wf
             $warnText = [string](Get-Content -Raw -LiteralPath $wf -ErrorAction SilentlyContinue)
 
             $r.Success | Should -BeTrue

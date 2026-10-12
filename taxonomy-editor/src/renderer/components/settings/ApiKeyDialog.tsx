@@ -46,7 +46,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
           protected depends on how you&apos;re running the app; see{' '}
           <a
             href="#"
-            onClick={(e) => { e.preventDefault(); void api.openExternal('https://github.com/jpsnover/ai-triad-research/blob/main/docs/security/api-key-protection.md'); }}
+            onClick={(e) => { e.preventDefault(); void api.openExternal('https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/security/api-key-protection.md'); }}
             className="api-key-dialog-protection-link"
           >
             how is my API key protected?

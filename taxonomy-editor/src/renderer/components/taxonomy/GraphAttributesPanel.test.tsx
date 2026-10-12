@@ -14,7 +14,7 @@ const openExternal = vi.fn().mockResolvedValue(undefined);
 vi.mock('@bridge', () => ({ api: { openExternal: (...args: unknown[]) => openExternal(...args) } }));
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => null }));
 
-const BDI_DOC_URL = 'https://github.com/jpsnover/ai-triad-research/blob/main/docs/bdi-scales.md';
+const BDI_DOC_URL = 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/docs/bdi-scales.md';
 
 describe('GraphAttributesPanel — BDI scale doc-links (t/2448)', () => {
   // t/2867: TheoryLink now gates on viewMode; advanced view shows the doc-links these tests assert.

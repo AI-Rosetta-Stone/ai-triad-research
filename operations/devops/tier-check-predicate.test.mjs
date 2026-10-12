@@ -12,10 +12,14 @@ import {
   checkR4,
   checkR5,
   evaluateTierCheck,
+  factsFromListFiles,
+  checkApiVersion,
+  TIER_CHECK_API,
+  evaluateR1Only,
 } from './tier-check-predicate.mjs';
 
 const CONFIG = {
-  r1Paths: ['.github/ci/required-contexts.json', '.github/workflows/tier-check.yml'],
+  r1Paths: ['.github/ci/required-contexts.json', '.github/workflows/tier-check.yml', 'operations/devops/tier-check-predicate.mjs'],
   r1Globs: ['operations/devops/Move-PiCredential*.ps1'],
   r2cGlobs: ['**/eslint.config.mjs', '**/PSScriptAnalyzerSettings.psd1'],
   schemaDirPrefixes: ['lib/schema/', 'taxonomy/schemas/'],
@@ -39,6 +43,94 @@ test('extractSchemaChange: additive and breaking, missing is null', () => {
 test('isDependabot', () => {
   assert.equal(isDependabot('dependabot/npm_and_yarn/foo-1.2.3'), true);
   assert.equal(isDependabot('feat/t4103-tier-check'), false);
+});
+
+// ── factsFromListFiles (real recorded REST payload, PR #3155 crash) ──────
+// Lead finding (t/4103, PR #3155 run 37804716313): the REST `pulls.listFiles` payload names
+// this field `filename`, not `path` -- `files.map((f) => f.path)` silently produced `undefined`
+// for every entry. This fixture is a trimmed REAL response from
+// `gh api repos/AI-Rosetta-Stone/ai-triad-research/pulls/3155/files`.
+const REAL_LISTFILES_PAYLOAD = [
+  {
+    filename: '.github/ci/tier-paths.json',
+    status: 'added',
+    additions: 33,
+    deletions: 0,
+    changes: 33,
+    patch: '@@ -0,0 +1,33 @@\n+{\n+  "_comment": "t/4103 — tier-declaration check path floor (R1) and lint-severity globs (R2c).",\n+  "r1Paths": [\n+    ".github/ci/required-contexts.json"\n+  ]\n+}',
+  },
+  {
+    filename: '.github/workflows/tier-check.yml',
+    status: 'added',
+    additions: 132,
+    deletions: 0,
+    changes: 132,
+    patch: '@@ -0,0 +1,132 @@\n+name: tier-check\n+\n+on:\n+  pull_request:\n+    types: [opened, edited, synchronize, ready_for_review]',
+  },
+];
+
+test('factsFromListFiles: real REST payload maps via filename, not path (f.path is undefined on this shape)', () => {
+  const { paths, patchesByPath } = factsFromListFiles(REAL_LISTFILES_PAYLOAD);
+  assert.deepEqual(paths, ['.github/ci/tier-paths.json', '.github/workflows/tier-check.yml']);
+  assert.match(patchesByPath.get('.github/ci/tier-paths.json'), /_comment/);
+
+  // The bug this replaces: GraphQL's `files.nodes[].path` does not exist on this REST shape.
+  const brokenPaths = REAL_LISTFILES_PAYLOAD.map((f) => f.path);
+  assert.deepEqual(brokenPaths, [undefined, undefined]);
+});
+
+test('factsFromListFiles: entries missing filename are skipped, not crashed on', () => {
+  const { paths } = factsFromListFiles([{ filename: 'a.ts' }, {}, { filename: 'b.ts' }]);
+  assert.deepEqual(paths, ['a.ts', 'b.ts']);
+});
+
+// ── checkApiVersion (t/4103#14, PR #3155 postmortem round 2: version skew) ────────────────
+// A PR opened before #3171 landed has a `base.sha` that predates `factsFromListFiles` -- the
+// fix is to load from base's live tip AND gate on this version check, so a mismatch reads as
+// a neutral skip, never a crash.
+test('checkApiVersion: matching version is compatible', () => {
+  assert.deepEqual(checkApiVersion(TIER_CHECK_API, TIER_CHECK_API), { compatible: true, reason: null });
+});
+
+test('checkApiVersion: missing TIER_CHECK_API (pre-versioning base, or bootstrap) is incompatible', () => {
+  const result = checkApiVersion(undefined, TIER_CHECK_API);
+  assert.equal(result.compatible, false);
+  assert.match(result.reason, /no TIER_CHECK_API/);
+});
+
+test('checkApiVersion: a real but mismatched version number is incompatible', () => {
+  const result = checkApiVersion(TIER_CHECK_API - 1, TIER_CHECK_API);
+  assert.equal(result.compatible, false);
+  assert.match(result.reason, /does not match/);
+});
+
+// ── evaluateR1Only (t/4103, PR #3172 review: close the self-exemption-by-skew path) ───────
+// EXPECTED_API comes from the PR's own HEAD copy, so a PR that bumps TIER_CHECK_API in its own
+// head would otherwise get "verdict skipped (skew)" and never be judged at all. Fixed by
+// putting the predicate file itself on R1, and applying R1 alone (plain path match, no code
+// trust needed) as the fallback whenever the base predicate is skewed or missing.
+test('evaluateR1Only: a skewed PR touching an R1 path without declaring T2 fails R1', () => {
+  const result = evaluateR1Only(['.github/workflows/tier-check.yml'], CONFIG, 'T1');
+  assert.equal(result.pass, false);
+  assert.match(result.comments[0], /R1: touches .*tier-check\.yml.*must declare Tier: T2/);
+});
+
+test('evaluateR1Only: a skewed PR with no R1 path stays a neutral pass (caller reports it as a skip)', () => {
+  const result = evaluateR1Only(['lib/debate/aiAdapter.ts'], CONFIG, 'T1');
+  assert.deepEqual(result, { pass: true, comments: [] });
+});
+
+test('evaluateR1Only: a head that bumps TIER_CHECK_API while touching the predicate is flagged by R1', () => {
+  // Simulates the exact scenario the review closed: a PR edits tier-check-predicate.mjs
+  // (which is now on R1) without declaring T2 -- caught even though it would otherwise skew.
+  const result = evaluateR1Only(['operations/devops/tier-check-predicate.mjs'], CONFIG, 'T0');
+  assert.equal(result.pass, false);
+  assert.match(result.comments[0], /touches operations\/devops\/tier-check-predicate\.mjs/);
+});
+
+test('evaluateR1Only: the same R1 hit declaring T2 passes', () => {
+  const result = evaluateR1Only(['operations/devops/tier-check-predicate.mjs'], CONFIG, 'T2');
+  assert.deepEqual(result, { pass: true, comments: [] });
 });
 
 // ── R1 ───────────────────────────────────────────────────────────────────
@@ -95,6 +187,26 @@ test('R2c: a new rule added at warn stays T0 (no fire)', () => {
   assert.equal(checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines: [] }], CONFIG), null);
 });
 
+test('R2c: #2790 real fixture — a comment line mentioning "error" is NOT flagged', () => {
+  const addedLines = [
+    '      // Flashing-console prevention (t/3914, t/3922): child_process calls need windowsHide: true.',
+    "      // Warn-first; promotion to 'error' is a new blocking gate and needs a Second Opinion.",
+    "      'local/require-windows-hide': 'warn',",
+  ];
+  assert.equal(checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines: [] }], CONFIG), null);
+});
+
+test('R2c: the #2903 const fixture still fires after the comment-skip change', () => {
+  const addedLines = [
+    "const COMPLEXITY_BUDGET = ['error', { baseline: 'eslint-rules/lib-complexity-baseline.json', threshold: 15 }];",
+    "      'local/complexity-budget': COMPLEXITY_BUDGET,",
+  ];
+  const removedLines = ["      'complexity': ['warn', { max: 15 }],"];
+  const hits = checkR2c([{ path: 'lib/eslint.config.mjs', addedLines, removedLines }], CONFIG);
+  assert.ok(hits);
+  assert.equal(hits.length, 1);
+});
+
 // ── R3 ───────────────────────────────────────────────────────────────────
 test('R3: additive with no tier requirement; missing line; breaking without T2 fails; breaking with T2 passes', () => {
   assert.equal(checkR3(['lib/schema/foo.json'], 'additive', 'T1', CONFIG), null);
@@ -102,6 +214,13 @@ test('R3: additive with no tier requirement; missing line; breaking without T2 f
   assert.deepEqual(checkR3(['lib/schema/foo.json'], 'breaking', 'T1', CONFIG), { kind: 'breaking_no_t2', path: 'lib/schema/foo.json' });
   assert.equal(checkR3(['lib/schema/foo.json'], 'breaking', 'T2', CONFIG), null);
   assert.equal(checkR3(['lib/debate/foo.ts'], null, null, CONFIG), null);
+});
+
+test('R3: a test file in a schema dir is NOT flagged (real #3075/#3018/#2946/#2933 pattern); a real schema file still is', () => {
+  assert.equal(checkR3(['lib/schema/povTagProposals.test.ts'], null, 'T1', CONFIG), null);
+  assert.equal(checkR3(['lib/schema/pov-tags-cli.closure.test.ts'], null, 'T1', CONFIG), null);
+  assert.equal(checkR3(['lib/schema/__tests__/foo.ts'], null, 'T1', CONFIG), null);
+  assert.deepEqual(checkR3(['lib/schema/povTagProposals.ts'], null, 'T1', CONFIG), { kind: 'missing_line', path: 'lib/schema/povTagProposals.ts' });
 });
 
 // ── R4 ───────────────────────────────────────────────────────────────────

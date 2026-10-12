@@ -1,5 +1,5 @@
 # Trivy vulnerability ignore file — AI Triad Research container images.
-# Scanned images: ghcr.io/jpsnover/ai-triad-base, ghcr.io/jpsnover/taxonomy-editor
+# Scanned images: ghcr.io/ai-rosetta-stone/ai-triad-base, ghcr.io/ai-rosetta-stone/taxonomy-editor
 #
 # POLICY (t/2006): no silent suppression. Every entry MUST carry: the CVE, the
 # affected package, WHY it is ignored, and a concrete REVISIT trigger. Anything

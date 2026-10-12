@@ -1,0 +1,144 @@
+{
+  "scenario": "single-element-force-array",
+  "transcript": [
+    "[warning] pov_summaries.safetyist.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
+    "[warning] pov_summaries.skeptic.key_points missing/null — defaulting to empty array (model=gemini-3.5-flash-lite)",
+    "[Gray]   │  points: 1 (0 unmapped)  factual: 1  new_concepts: 1",
+    "[Green]   └─ ✓ Done: summaries/doc-1.json"
+  ],
+  "error": null,
+  "result": [
+    {
+      "ChunkCount": 0,
+      "DocId": "doc-1",
+      "ElapsedSecs": 42,
+      "FactualCount": 1,
+      "NullNodes": 0,
+      "Success": true,
+      "TotalPoints": 1,
+      "UnmappedCount": 1
+    }
+  ],
+  "calls": [
+    {
+      "call": "Get-TaxonomyNodeIdSet"
+    },
+    {
+      "call": "Invoke-RetrievalConfidencePass",
+      "threshold": 0.45,
+      "points": [
+        "Lone point."
+      ]
+    },
+    {
+      "call": "Invoke-PolarityGatePass",
+      "skipDirectionalGate": false,
+      "items": [
+        "accelerationist: Lone point. [aligned]"
+      ]
+    },
+    {
+      "call": "Invoke-Mechanism5RetrievalPass",
+      "items": [
+        "accelerationist: Lone point."
+      ]
+    },
+    {
+      "call": "Resolve-UnmappedConcepts",
+      "labels": [
+        "Lone Concept"
+      ]
+    }
+  ],
+  "writes": [
+    "summaries/doc-1.json",
+    "sources/doc-1/metadata.json"
+  ],
+  "summary": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"doc_id\": \"doc-1\",",
+      "  \"taxonomy_version\": \"2.4.0\",",
+      "  \"generated_at\": \"2026-01-02T03:04:05Z\",",
+      "  \"model_info\": {",
+      "    \"model\": \"gemini-3.5-flash-lite\",",
+      "    \"temperature\": 0.2,",
+      "    \"max_tokens\": 32768,",
+      "    \"extraction_mode\": \"single_shot\",",
+      "    \"taxonomy_filter\": \"rag\",",
+      "    \"taxonomy_nodes\": 3",
+      "  },",
+      "  \"context_rot\": null,",
+      "  \"pov_summaries\": {",
+      "    \"accelerationist\": {",
+      "      \"key_points\": [",
+      "        {",
+      "          \"taxonomy_node_id\": \"acc-beliefs-001\",",
+      "          \"category\": \"Beliefs\",",
+      "          \"point\": \"Lone point.\",",
+      "          \"stance\": \"aligned\",",
+      "          \"retrieval_low_confidence\": false",
+      "        }",
+      "      ]",
+      "    },",
+      "    \"safetyist\": {",
+      "      \"key_points\": []",
+      "    },",
+      "    \"skeptic\": {",
+      "      \"key_points\": []",
+      "    }",
+      "  },",
+      "  \"factual_claims\": [",
+      "    {",
+      "      \"claim\": \"Lone claim.\",",
+      "      \"linked_taxonomy_nodes\": \"skp-beliefs-001\"",
+      "    }",
+      "  ],",
+      "  \"unmapped_concepts\": [",
+      "    {",
+      "      \"suggested_label\": \"Lone Concept\",",
+      "      \"concept\": \"Only one.\",",
+      "      \"reason\": \"novel\"",
+      "    }",
+      "  ]",
+      "}",
+      ""
+    ]
+  },
+  "metadata": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"title\": \"Doc Title\",",
+      "  \"pov_tags\": [",
+      "    \"accelerationist\",",
+      "    \"safetyist\"",
+      "  ],",
+      "  \"source_type\": \"blog\",",
+      "  \"summary_status\": \"current\",",
+      "  \"summary_version\": \"2.4.0\",",
+      "  \"total_claims\": 1,",
+      "  \"custom_field\": \"kept as is\",",
+      "  \"summary_updated\": \"2026-01-02T03:04:05Z\",",
+      "  \"node_references_by_pov\": {",
+      "    \"accelerationist\": 0,",
+      "    \"safetyist\": 0,",
+      "    \"situations\": 0,",
+      "    \"skeptic\": 1",
+      "  },",
+      "  \"primary_pov_distribution\": {",
+      "    \"accelerationist\": 0,",
+      "    \"safetyist\": 0,",
+      "    \"situations\": 0,",
+      "    \"skeptic\": 1",
+      "  },",
+      "  \"total_facts\": 1,",
+      "  \"unmapped_concepts\": 1",
+      "}",
+      ""
+    ]
+  }
+}

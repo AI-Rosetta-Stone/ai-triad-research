@@ -27,7 +27,7 @@ param(
     [Parameter(Mandatory)] [string] $StorageAccount,
     [Parameter(Mandatory)] [string] $GitHubToken,
     [string] $ShareName    = 'taxonomy-data',
-    [string] $DataRepo     = 'jpsnover/ai-triad-data',
+    [string] $DataRepo     = 'AI-Rosetta-Stone/ai-triad-data',
     [string] $StorageKey   = ''
 )
 

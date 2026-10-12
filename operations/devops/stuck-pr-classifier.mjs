@@ -57,6 +57,13 @@ export const OWNER_SLA_HOURS = 2;      // blocker episode age at which the ownin
 export const TL_SLA_HOURS = 6;         // blocker episode age at which the TL is pinged (never the PI).
 export const SWEEP_WINDOW_SECONDS = 15;  // ready_for_review -> auto_*_enabled within this = the sweep signature.
 export const SWEEP_BURST_SECONDS = 120;  // 2+ PRs showing the signature within this window = the sweep shape.
+// t/4131 (t/4123 follow-up): ready_for_review -> merged, with NO arm event in between, within
+// this window = an ARM-EQUIVALENT hit. TL design correction (p/331#1963): this isn't specifically
+// a "direct merge" -- it's exactly what `gh pr ready` + `gh pr merge --auto` produces on a PR
+// whose checks are already green (GitHub merges immediately and logs no arm event at all). 60s,
+// wider than SWEEP_WINDOW_SECONDS, because GitHub's immediate-merge path can take a few seconds
+// longer than an arm-event write.
+export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
 
 /**
  * PURE. Classifies one open, non-draft PR's blocker, or null if it has none.
@@ -202,11 +209,17 @@ export const ARM_EVENT_RE = /^auto_(merge|squash|rebase|update)_enabled$/;
  * regardless of the lookback: every event after the arm is, by construction, inside the window
  * that was fetched to find the arm itself. This also removes the `null`/WARN fallback entirely
  * -- there is no "undetermined" state once the walk starts from a known-current snapshot.
+ * Also pairs `ready_for_review` -> `merged` (t/4131, TL design correction p/331#1963): a merge
+ * within MERGE_EQUIVALENT_WINDOW_SECONDS with NO arm event in between is an ARM-EQUIVALENT hit,
+ * fed through the identical held/burst/confirm classification below -- held state is evaluated
+ * at the MERGE event's time, using the same backward replay. Arm-based and merge-equivalent hits
+ * are mutually exclusive by construction: an arm event strictly between ready and merged rules
+ * out the merge-equivalent pairing for that same ready event.
  * @param {Array<{prNumber:number, event:string, actor:string, label?:string, createdAt:string}>} events
  * @param {Map<number,string[]>} liveLabelsByPr - current (scan-time) label names per PR, from
  *   `pulls.get` -- the only impure input this pure function needs; the caller fetches it once
  *   per PR that shows a ready+arm hit.
- * @returns {Array<{prNumber:number, readyAt:string, armedAt:string, deltaSeconds:number, actor:string, heldAtArmTime:boolean, heldLabels:string[]}>}
+ * @returns {Array<{prNumber:number, readyAt:string, armedAt:string, deltaSeconds:number, actor:string, heldAtArmTime:boolean, heldLabels:string[], signatureType:'arm'|'merge-equivalent'}>}
  */
 export function detectSweepSignature(events, liveLabelsByPr) {
   const byPr = new Map();
@@ -238,6 +251,8 @@ export function detectSweepSignature(events, liveLabelsByPr) {
     for (let i = 0; i < sorted.length; i++) {
       if (sorted[i].event !== 'ready_for_review') continue;
       const readyAt = Date.parse(sorted[i].createdAt);
+
+      // Arm pairing: the first ARM_EVENT_RE match after this ready_for_review.
       for (let j = i + 1; j < sorted.length; j++) {
         if (!ARM_EVENT_RE.test(sorted[j].event)) continue;
         const armedAt = Date.parse(sorted[j].createdAt);
@@ -246,10 +261,27 @@ export function detectSweepSignature(events, liveLabelsByPr) {
           const { heldAtArmTime, heldLabels } = heldStateAt(prNumber, sorted, armedAt);
           hits.push({
             prNumber, readyAt: sorted[i].createdAt, armedAt: sorted[j].createdAt, deltaSeconds,
-            actor: sorted[j].actor, heldAtArmTime, heldLabels,
+            actor: sorted[j].actor, heldAtArmTime, heldLabels, signatureType: 'arm',
           });
         }
         break; // only the first arm event after this ready_for_review counts
+      }
+
+      // Merge-equivalent pairing (t/4131): the first 'merged' event after this ready_for_review,
+      // provided no arm event occurs strictly between them.
+      for (let j = i + 1; j < sorted.length; j++) {
+        if (ARM_EVENT_RE.test(sorted[j].event)) break; // an arm event rules out this pairing
+        if (sorted[j].event !== 'merged') continue;
+        const mergedAt = Date.parse(sorted[j].createdAt);
+        const deltaSeconds = (mergedAt - readyAt) / 1000;
+        if (deltaSeconds >= 0 && deltaSeconds <= MERGE_EQUIVALENT_WINDOW_SECONDS) {
+          const { heldAtArmTime, heldLabels } = heldStateAt(prNumber, sorted, mergedAt);
+          hits.push({
+            prNumber, readyAt: sorted[i].createdAt, armedAt: sorted[j].createdAt, deltaSeconds,
+            actor: sorted[j].actor, heldAtArmTime, heldLabels, signatureType: 'merge-equivalent',
+          });
+        }
+        break; // only the first merged event after this ready_for_review counts
       }
     }
   }
@@ -288,11 +320,12 @@ export function classifySweepHits(hits) {
   }
 
   return hits.map((h) => {
+    const verb = h.signatureType === 'merge-equivalent' ? 'merged' : 'armed';
     if (h.heldAtArmTime) {
-      return { prNumber: h.prNumber, escalate: true, reason: `held (${h.heldLabels.join(', ')}) at the moment it was armed — escalating to DevOps+TL` };
+      return { prNumber: h.prNumber, escalate: true, reason: `held (${h.heldLabels.join(', ')}) at the moment it was ${verb} — escalating to DevOps+TL` };
     }
     if (burstPrNumbers.has(h.prNumber)) {
-      return { prNumber: h.prNumber, escalate: true, reason: `sweep burst — ${burstPrNumbers.size} non-held PRs armed within ${SWEEP_BURST_SECONDS}s of each other` };
+      return { prNumber: h.prNumber, escalate: true, reason: `sweep burst — ${burstPrNumbers.size} non-held PRs armed/merged within ${SWEEP_BURST_SECONDS}s of each other` };
     }
     return { prNumber: h.prNumber, escalate: false, reason: 'single-PR signature, not held, no burst — asking the owner to confirm' };
   });

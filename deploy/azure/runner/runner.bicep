@@ -26,7 +26,7 @@ param githubRunnerPat string = ''
 param githubRunnerWebhookSecret string = ''
 
 @description('GitHub repository owner')
-param githubOwner string = 'jpsnover'
+param githubOwner string = 'AI-Rosetta-Stone'
 
 @description('GitHub repository name')
 param githubRepo string = 'ai-triad-research'

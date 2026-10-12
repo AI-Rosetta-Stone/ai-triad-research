@@ -1,0 +1,39 @@
+{
+  "transcript": [
+    "[White] \n  ┌─ e2e-doc",
+    "[Gray]   │  pov: accelerationist, safetyist  |  model: gemini-3.5-flash-lite",
+    "[Gray]   │  snapshot: 600 chars (~150 tokens est.)",
+    "[Gray]   │  Running extraction pipeline...",
+    "[Gray]   │  ~83 words → key_points 3-8/camp (target), total floor 6, unmapped 2-5",
+    "[Green]   │  ✓ Pipeline complete (mock-backend): 0s",
+    "[warning] Finalize-Summary: dropped 1 null unmapped_concepts entry/entries (t/3907, model=gemini-3.5-flash-lite)",
+    "[warning] Finalize-Summary: suggested_label 'skp-intentions-003' is node-ID-shaped, not free text -- replaced with a text fallback (t/3915, model=gemini-3.5-flash-lite)",
+    "[Yellow]   │  ⚠ ID-shaped suggested_label replaced: 1",
+    "[Yellow]   │  ⚠ Hallucinated node IDs moved to unmapped: safetyist/saf-beliefs-999",
+    "[Yellow]   │  ⚠ Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001",
+    "[Gray]    →  Polarity gate (two-stage): judge_flipped=0 judge_kept=0 self_healed=0 over 3 gated key_point(s), 0 deberta rep-pair(s)",
+    "[Gray]   │  points: 6 (2 unmapped)  factual: 3  new_concepts: 3",
+    "[Yellow]   │  ⚠ Unmapped concept resolution failed: The property 'Count' cannot be found on this object. Verify that the property exists.",
+    "[Green]   └─ ✓ Done: summaries/e2e-doc.json"
+  ],
+  "result": [
+    {
+      "ChunkCount": 0,
+      "DocId": "e2e-doc",
+      "ElapsedSecs": 0,
+      "FactualCount": 3,
+      "NullNodes": 2,
+      "Success": true,
+      "TotalPoints": 6,
+      "UnmappedCount": 3
+    }
+  ],
+  "extractionCalls": [
+    {
+      "model": "gemini-3.5-flash-lite",
+      "temperature": 0.2,
+      "maxTokens": 32768,
+      "jsonMode": true
+    }
+  ]
+}

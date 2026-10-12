@@ -13,7 +13,7 @@ function Undo-TaxEditorDataCommit {
     .PARAMETER Sha
         The full or short SHA of the commit to revert.
     .PARAMETER Repo
-        GitHub repo in owner/name format. Default: jpsnover/ai-triad-data.
+        GitHub repo in owner/name format. Default: AI-Rosetta-Stone/ai-triad-data.
     .EXAMPLE
         Undo-TaxEditorDataCommit -Sha 'abc1234'
     .EXAMPLE
@@ -39,7 +39,7 @@ function Undo-TaxEditorDataCommit {
         [string]$Sha,
 
         [Parameter()]
-        [string]$Repo = 'jpsnover/ai-triad-data'
+        [string]$Repo = 'AI-Rosetta-Stone/ai-triad-data'
     )
 
     Set-StrictMode -Version Latest

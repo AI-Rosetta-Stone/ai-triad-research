@@ -10,6 +10,7 @@ import {
   classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits, ARM_EVENT_RE,
   REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, QUEUED_STUCK_MINUTES, IN_PROGRESS_STUCK_MINUTES,
   OWNER_SLA_HOURS, TL_SLA_HOURS, SWEEP_WINDOW_SECONDS, SWEEP_BURST_SECONDS,
+  MERGE_EQUIVALENT_WINDOW_SECONDS,
 } from './stuck-pr-classifier.mjs';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -315,6 +316,89 @@ test('REAL FIXTURE #3141/#3142: #3142 escalates as held; #3141 alone (burst-of-o
   assert.equal(v3142.escalate, true, '#3142 escalates on its own held-at-arm-time reason');
   assert.equal(v3141.escalate, false, '#3141 is not held and not part of a non-held burst -- confirm-only');
 });
+// ── t/4131: ready_for_review -> merged, no arm event, is an ARM-EQUIVALENT hit ─────────────
+// TL design correction (p/331#1963): this is exactly what `gh pr ready` + `gh pr merge --auto`
+// produces on an already-green PR -- GitHub merges immediately with no arm event at all.
+test('REAL FIXTURE #3155 (10-08 sweeper incident): ready->merged in 5s, no arm, not held, not a burst -> confirm-only', () => {
+  const events = [
+    { prNumber: 3155, event: 'ready_for_review', actor: 'jpsnover', createdAt: '2026-10-08T15:55:31Z' },
+    { prNumber: 3155, event: 'merged', actor: 'jpsnover', createdAt: '2026-10-08T15:55:36Z' },
+  ];
+  const hits = detectSweepSignature(events, new Map([[3155, []]]));
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].signatureType, 'merge-equivalent');
+  assert.equal(hits[0].deltaSeconds, 5);
+  assert.equal(hits[0].heldAtArmTime, false);
+  const verdicts = classifySweepHits(hits);
+  assert.equal(verdicts[0].escalate, false, '#3155 was not held and not a burst -- confirm-only, matching the Lead\'s fixture note');
+});
+
+test('REAL FIXTURE #3172 (10-12, legitimate Worker merge): hold removed before ready, then ready->merged in 11s -> confirm-only', () => {
+  // Real sequence: labeled consult-hold 09:42:42 -> unlabeled 09:56:41 -> ready_for_review
+  // 09:56:44 -> merged 09:56:55. Live labels now empty. Proves the detector does NOT escalate
+  // the normal green-PR --auto merge flow just because it matches the timing shape.
+  const events = [
+    { prNumber: 3172, event: 'labeled', label: 'consult-hold', actor: 'jpsnover', createdAt: '2026-10-12T09:42:42Z' },
+    { prNumber: 3172, event: 'unlabeled', label: 'consult-hold', actor: 'jpsnover', createdAt: '2026-10-12T09:56:41Z' },
+    { prNumber: 3172, event: 'ready_for_review', actor: 'jpsnover', createdAt: '2026-10-12T09:56:44Z' },
+    { prNumber: 3172, event: 'merged', actor: 'jpsnover', createdAt: '2026-10-12T09:56:55Z' },
+  ];
+  const hits = detectSweepSignature(events, new Map([[3172, []]]));
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].signatureType, 'merge-equivalent');
+  assert.equal(hits[0].deltaSeconds, 11);
+  assert.equal(hits[0].heldAtArmTime, false);
+  const verdicts = classifySweepHits(hits);
+  assert.equal(verdicts[0].escalate, false);
+});
+
+test('merge-equivalent: held at MERGE time (not scan time) still escalates, via the same backward replay', () => {
+  const events = [
+    { prNumber: 4000, event: 'labeled', label: 'consult-hold', actor: 'x', createdAt: '2026-10-12T09:00:00Z' },
+    { prNumber: 4000, event: 'ready_for_review', actor: 'x', createdAt: '2026-10-12T09:05:00Z' },
+    { prNumber: 4000, event: 'merged', actor: 'x', createdAt: '2026-10-12T09:05:30Z' },
+  ];
+  // Held throughout -- never unlabeled -- so it's held both at merge time and in the live snapshot.
+  const hits = detectSweepSignature(events, new Map([[4000, ['consult-hold']]]));
+  assert.equal(hits[0].heldAtArmTime, true);
+  const verdicts = classifySweepHits(hits);
+  assert.equal(verdicts[0].escalate, true);
+  assert.match(verdicts[0].reason, /held .* at the moment it was merged/);
+});
+
+test('negative arm: an arm event between ready and merged rules out the merge-equivalent pairing (mutually exclusive)', () => {
+  const events = [
+    { prNumber: 5000, event: 'ready_for_review', actor: 'x', createdAt: '2026-10-12T09:00:00Z' },
+    { prNumber: 5000, event: 'auto_squash_enabled', actor: 'x', createdAt: '2026-10-12T09:00:05Z' },
+    { prNumber: 5000, event: 'merged', actor: 'x', createdAt: '2026-10-12T09:00:30Z' },
+  ];
+  const hits = detectSweepSignature(events, new Map([[5000, []]]));
+  // Exactly one hit: the ARM pairing (at 5s). No second, merge-equivalent hit for the same
+  // ready event, since an arm event occurred strictly between ready and merged.
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].signatureType, 'arm');
+});
+
+test('negative arm: ready, then a merge MINUTES later, does not fire the merge-equivalent pairing', () => {
+  const events = [
+    { prNumber: 6000, event: 'ready_for_review', actor: 'x', createdAt: '2026-10-12T09:00:00Z' },
+    { prNumber: 6000, event: 'merged', actor: 'x', createdAt: '2026-10-12T09:05:00Z' }, // 5 minutes later
+  ];
+  const hits = detectSweepSignature(events, new Map([[6000, []]]));
+  assert.equal(hits.length, 0);
+});
+
+test('a merged event with no preceding ready_for_review is not paired (same as the existing arm logic)', () => {
+  const events = [
+    { prNumber: 7000, event: 'merged', actor: 'x', createdAt: '2026-10-12T09:00:00Z' },
+  ];
+  assert.equal(detectSweepSignature(events, new Map([[7000, []]])).length, 0);
+});
+
+test('MERGE_EQUIVALENT_WINDOW_SECONDS is wider than SWEEP_WINDOW_SECONDS (GitHub\'s immediate-merge path can take longer than an arm-event write)', () => {
+  assert.ok(MERGE_EQUIVALENT_WINDOW_SECONDS > SWEEP_WINDOW_SECONDS);
+});
+
 test('sweep burst: 2+ NON-HELD PRs within the burst window -> both escalate', () => {
   const hits = [
     { prNumber: 1, readyAt: '2026-10-08T10:00:00Z', armedAt: '2026-10-08T10:00:05Z', actor: 'x', heldAtArmTime: false, heldLabels: [] },

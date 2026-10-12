@@ -38,11 +38,11 @@ Describe 'New-ContainerAppRevision (t/1500)' -Tag 'taxonomy' {
             Mock Invoke-Az -MockWith { $mockJson }
 
             $r = New-ContainerAppRevision `
-                -ImageRef 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234' `
+                -ImageRef 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234' `
                 -RevisionSuffix 'deploy-abc1234-12345'
 
             $r.RevisionName | Should -Be 'taxonomy-editor--deploy-abc1234'
-            $r.ImageRef     | Should -Be 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234'
+            $r.ImageRef     | Should -Be 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234'
             $r.Suffix       | Should -Be 'deploy-abc1234-12345'
             $r.Timestamp    | Should -Not -BeNullOrEmpty
         }
@@ -59,7 +59,7 @@ Describe 'New-ContainerAppRevision (t/1500)' -Tag 'taxonomy' {
             Mock Invoke-Az -MockWith { $mockJson }
 
             { New-ContainerAppRevision `
-                -ImageRef 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234' `
+                -ImageRef 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234' `
                 -RevisionSuffix 'deploy-abc1234-12345' } |
                 Should -Throw
         }
@@ -75,7 +75,7 @@ Describe 'New-ContainerAppRevision (t/1500)' -Tag 'taxonomy' {
             Mock Invoke-Az -MockWith { $mockJson }
 
             { New-ContainerAppRevision `
-                -ImageRef 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234' `
+                -ImageRef 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234' `
                 -RevisionSuffix 'deploy-abc1234-12345' } |
                 Should -Throw
         }
@@ -99,7 +99,7 @@ Describe 'New-ContainerAppRevision (t/1500)' -Tag 'taxonomy' {
             }
 
             New-ContainerAppRevision `
-                -ImageRef 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234' `
+                -ImageRef 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234' `
                 -RevisionSuffix 'deploy-env-test' `
                 -EnvVars @{ K1 = 'v1'; K2 = 'v2' } | Out-Null
 
@@ -115,7 +115,7 @@ Describe 'New-ContainerAppRevision (t/1500)' -Tag 'taxonomy' {
             Mock Get-Command -ParameterFilter { $Name -eq 'az' } -MockWith { $null }
 
             { New-ContainerAppRevision `
-                -ImageRef 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234' `
+                -ImageRef 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234' `
                 -RevisionSuffix 'deploy-abc1234-12345' } |
                 Should -Throw
         }

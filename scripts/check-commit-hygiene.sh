@@ -59,6 +59,6 @@ done < /tmp/commits.txt
 echo ""
 echo "commit-hygiene: checked $CHECKED commit(s), flagged $FLAGS"
 if [[ $FLAGS -gt 0 ]]; then
-    echo "Reference: https://github.com/jpsnover/ai-triad-data/blob/main/CONTRIBUTING.md"
+    echo "Reference: https://github.com/AI-Rosetta-Stone/ai-triad-data/blob/main/CONTRIBUTING.md"
 fi
 exit 0  # advisory only — never fail CI

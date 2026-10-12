@@ -722,7 +722,7 @@ Failure patterns related to tooling configuration, agent workflows, and operatio
 - 2026-08-11 — ServerAPI (t/2474): PR #849 merged at 18:55; PR #850 opened at 19:01 from a pre-#849 base (session/context loss between passes). TL merged #850's variant over it (265de260, t/2474#4-5).
 
 **Prevention:**
-1. **Before opening any PR, search open AND merged PRs for the ticket key:** `gh pr list --state all --search "t/XXXX" -R jpsnover/ai-triad-research`.
+1. **Before opening any PR, search open AND merged PRs for the ticket key:** `gh pr list --state all --search "t/XXXX" -R AI-Rosetta-Stone/ai-triad-research`.
 2. After a context boundary, re-read the ticket's latest comments before writing code — the ticket is where completed work is recorded.
 3. If a merged PR is found, close stale work and redirect to a follow-up ticket.
 

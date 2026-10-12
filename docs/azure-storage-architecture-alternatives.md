@@ -55,7 +55,7 @@ Key insight: **only 50 MB is needed at startup**. The other 2.95 GB (debates + s
 ### Architecture
 
 ```
-GitHub (jpsnover/ai-triad-data, main branch)
+GitHub (AI-Rosetta-Stone/ai-triad-data, main branch)
   ↕ GitHub Contents API (authenticated via GitHub App)
 Server (Node.js)
   ↕ In-memory cache + local /tmp file cache

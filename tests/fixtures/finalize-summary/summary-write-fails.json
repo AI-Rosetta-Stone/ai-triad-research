@@ -1,0 +1,54 @@
+{
+  "scenario": "summary-write-fails",
+  "transcript": [
+    "[Gray]   │  points: 3 (1 unmapped)  factual: 1  new_concepts: 0",
+    "[Red]   └─ ✗ Failed to write summary: disk full writing summaries/doc-1.json"
+  ],
+  "error": null,
+  "result": [
+    {
+      "DocId": "doc-1",
+      "Error": "Failed to write summary file: disk full writing summaries/doc-1.json",
+      "Success": false
+    }
+  ],
+  "calls": [
+    {
+      "call": "Get-TaxonomyNodeIdSet"
+    },
+    {
+      "call": "Invoke-PolarityGatePass",
+      "skipDirectionalGate": false,
+      "items": [
+        "accelerationist: One. [aligned]",
+        "safetyist: Two. [opposed]",
+        "skeptic: Three. [neutral]"
+      ]
+    }
+  ],
+  "writes": [
+    "summaries/doc-1.json"
+  ],
+  "summary": null,
+  "metadata": {
+    "bom": false,
+    "crlf": false,
+    "lines": [
+      "{",
+      "  \"title\": \"Doc Title\",",
+      "  \"pov_tags\": [",
+      "    \"accelerationist\",",
+      "    \"safetyist\"",
+      "  ],",
+      "  \"source_type\": \"blog\",",
+      "  \"summary_status\": \"pending\",",
+      "  \"summary_version\": \"2.3.0\",",
+      "  \"claims_by_pov\": {",
+      "    \"accelerationist\": 9",
+      "  },",
+      "  \"total_claims\": 99,",
+      "  \"custom_field\": \"kept as is\"",
+      "}"
+    ]
+  }
+}

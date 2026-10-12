@@ -18,7 +18,48 @@
  *    repo, invisible to this check.
  *  - `.githooks/*` local pre-commit gates: not currently on R1; the t/4103 replay showed these
  *    change rarely, so they're left as a named blank rather than added speculatively.
+ *  - the workflow file itself (`tier-check.yml`) still runs as the PR's own copy under the
+ *    `pull_request` trigger: loading the config and predicate from base's live tip (below) stops
+ *    a PR from narrowing R1 or weakening a rule in the same change, but the workflow YAML's own
+ *    logic is not re-pinned to base. Only promotion to a required check plus branch protection
+ *    fully closes this, which is why `tier-check.yml` itself stays on R1.
+ *  - a predicate commit mid-transition on base's tip (e.g. one that bumps TIER_CHECK_API without
+ *    also updating every workflow caller) reads as skew and is skipped, not caught -- it is
+ *    reported neutrally rather than silently evaluated with a half-landed contract, but closing
+ *    the gap for real needs the version bump and the workflow update to land in the same PR.
  */
+
+/**
+ * Contract version for everything the workflow imports from this module when it loads the
+ * module from the base branch's live tip (not from the PR's own copy). Bump this whenever an
+ * exported name, its signature, or its return shape changes in a way the workflow depends on.
+ *
+ * Why this exists (t/4103#14, PR #3155 postmortem round 2): the workflow previously loaded this
+ * predicate from `pr.base.sha`, the commit the PR's base pointed to when the PR was opened/last
+ * synced -- NOT the live tip of the base branch. A PR opened before #3171 landed had a `base.sha`
+ * that predated `factsFromListFiles`, so loading from that stale SHA crashed with
+ * `factsFromListFiles is not a function` even though main itself was fine. The fix is twofold:
+ * load from the base branch's current tip instead of the pinned `base.sha`, AND check this
+ * version number before trusting the loaded module's exports, since the live tip can still be
+ * mid-transition (a predicate commit that hasn't finished landing) or, for the very PR that
+ * first adds TIER_CHECK_API, simply absent. A mismatch or a missing predicate is a known,
+ * EXPECTED state (skew or bootstrap) -- it must read as a neutral "skipped", never as a crash.
+ */
+export const TIER_CHECK_API = 1;
+
+/**
+ * @param {number|undefined} actualVersion the base module's own TIER_CHECK_API, if any
+ * @param {number} expectedVersion this workflow run's own TIER_CHECK_API (from its own copy)
+ */
+export function checkApiVersion(actualVersion, expectedVersion) {
+  if (typeof actualVersion !== 'number') {
+    return { compatible: false, reason: 'base predicate has no TIER_CHECK_API export (pre-versioning, or not yet installed on base)' };
+  }
+  if (actualVersion !== expectedVersion) {
+    return { compatible: false, reason: `base predicate API version ${actualVersion} does not match this workflow's expected ${expectedVersion}` };
+  }
+  return { compatible: true, reason: null };
+}
 
 const TIER_LINE_RE = /^Tier:\s*T([012])\b/;
 const SCHEMA_CHANGE_RE = /^Schema-change:\s*(additive|breaking)\b/m;
@@ -26,6 +67,8 @@ const SEVERITY_ADD_RE = /(['"])error\1|:\s*2\b/;
 const PSD1_ERROR_RE = /\bError\b/;
 const RULE_KEY_RE = /['"]([\w./-]+)['"]\s*:/;
 const CONTINUE_ON_ERROR_RE = /^\s*continue-on-error:\s*true\s*$/;
+const TEST_FILE_RE = /\.test\.|__tests__\//;
+const COMMENT_LINE_RE = /^\s*(\/\/|\/\*|\*|#)/;
 
 export function extractTier(body) {
   if (!body) return null;
@@ -44,6 +87,26 @@ export function isDependabot(headRefName) {
   return (headRefName ?? '').startsWith('dependabot/');
 }
 
+/**
+ * Maps the REST `pulls.listFiles` payload into predicate facts. The REST field is `filename`,
+ * NOT `path` -- the GraphQL `files.nodes[].path` field used by the offline replay script does
+ * not exist on this payload, and reading it silently returns `undefined` for every entry
+ * (t/4103 PR #3155 crash, same class as #3141/t/4123: logic built against an assumed shape
+ * instead of the recorded one). Always go through this function in the workflow; never read
+ * `f.path` directly off a `pulls.listFiles` entry.
+ * @param {Array<{filename: string, patch?: string}>} files
+ */
+export function factsFromListFiles(files) {
+  const paths = [];
+  const patchesByPath = new Map();
+  for (const f of files ?? []) {
+    if (typeof f?.filename !== 'string') continue;
+    paths.push(f.filename);
+    if (typeof f.patch === 'string') patchesByPath.set(f.filename, f.patch);
+  }
+  return { paths, patchesByPath };
+}
+
 /** @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config */
 export function checkR1(paths, config) {
   for (const p of paths) {
@@ -53,6 +116,25 @@ export function checkR1(paths, config) {
     }
   }
   return null;
+}
+
+/**
+ * R1 applied alone, as a plain path match against the base-tip CONFIG (JSON, no code to
+ * trust) -- the fallback used when the base predicate is skewed or missing entirely (t/4103,
+ * Lead review on PR #3172). Closes the self-exemption-by-skew path: `EXPECTED_API` comes from
+ * the PR's own HEAD copy, so a PR that bumps `TIER_CHECK_API` in its own head (deliberately or
+ * by accident) would otherwise get "verdict skipped (skew)" and never be judged at all, since
+ * nothing else catches it once `tier-check-predicate.mjs` itself is on R1. This function is
+ * always called with the WORKFLOW RUN'S OWN (head's) trusted `checkR1`, never a possibly-skewed
+ * base copy, exactly like `checkApiVersion`.
+ * @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config @param {string|null} tier
+ */
+export function evaluateR1Only(paths, config, tier) {
+  const hit = checkR1(paths, config);
+  if (hit && tier !== 'T2') {
+    return { pass: false, comments: [`R1: touches ${hit}, must declare Tier: T2`] };
+  }
+  return { pass: true, comments: [] };
 }
 
 // Small dependency-free glob matcher: supports a single trailing '*' segment, which is all
@@ -105,12 +187,14 @@ export function checkR2c(lintDiffs, config) {
 
     const removedErrorKeys = new Set();
     for (const line of d.removedLines) {
+      if (COMMENT_LINE_RE.test(line)) continue;
       if (!severityRe.test(line)) continue;
       const km = RULE_KEY_RE.exec(line);
       removedErrorKeys.add(km ? km[1] : `__line__:${line.trim()}`);
     }
 
     for (const line of d.addedLines) {
+      if (COMMENT_LINE_RE.test(line)) continue;
       if (!severityRe.test(line)) continue;
       const km = RULE_KEY_RE.exec(line);
       const key = km ? km[1] : `__line__:${line.trim()}`;
@@ -124,7 +208,7 @@ export function checkR2c(lintDiffs, config) {
 /** @param {string[]} paths @param {string|null} schemaChange @param {string|null} tier
  *  @param {{schemaDirPrefixes: string[]}} config */
 export function checkR3(paths, schemaChange, tier, config) {
-  const hits = paths.filter((p) => config.schemaDirPrefixes.some((pre) => p.startsWith(pre)));
+  const hits = paths.filter((p) => config.schemaDirPrefixes.some((pre) => p.startsWith(pre)) && !TEST_FILE_RE.test(p));
   if (hits.length === 0) return null;
   if (!schemaChange) return { kind: 'missing_line', path: hits[0] };
   if (schemaChange === 'breaking' && tier !== 'T2') return { kind: 'breaking_no_t2', path: hits[0] };

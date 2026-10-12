@@ -22,7 +22,7 @@ function Get-GitHubWorkflowRun {
         Jobs (each with Name/Status/Conclusion). Jobs are only fetched
         when at least one job is present in the run.
     .PARAMETER Repo
-        Owner/repo (e.g. 'jpsnover/ai-triad-research').
+        Owner/repo (e.g. 'AI-Rosetta-Stone/ai-triad-research').
     .PARAMETER Workflow
         Workflow file name (e.g. 'ci.yml'). Required when resolving by
         commit SHA; ignored when -RunId is provided.
@@ -31,7 +31,7 @@ function Get-GitHubWorkflowRun {
     .PARAMETER RunId
         Specific workflow run ID. Overrides -CommitSha/-Workflow lookup.
     .EXAMPLE
-        Get-GitHubWorkflowRun -Repo 'jpsnover/ai-triad-research' -Workflow 'ci.yml' -CommitSha $sha
+        Get-GitHubWorkflowRun -Repo 'AI-Rosetta-Stone/ai-triad-research' -Workflow 'ci.yml' -CommitSha $sha
     .EXAMPLE
         (Get-GitHubWorkflowRun -Repo $r -Workflow ci.yml -CommitSha $sha).Jobs |
             Where-Object Name -eq 'test-container'

@@ -153,6 +153,10 @@ function Get-AICallLog {
             PromptStart = if ($rec.PSObject.Properties['PromptStart']) { [string]$rec.PromptStart } else { '' }
             RetryCount  = if ($rec.PSObject.Properties['RetryCount'])  { [int]$rec.RetryCount }  else { 0 }
             Status      = $recStatus
+            # t/4088 fields; lines written before them read as ''.
+            Model       = if ($rec.PSObject.Properties['Model'])       { [string]$rec.Model }       else { '' }
+            Backend     = if ($rec.PSObject.Properties['Backend'])     { [string]$rec.Backend }     else { '' }
+            KeySource   = if ($rec.PSObject.Properties['KeySource'])   { [string]$rec.KeySource }   else { '' }
         }
     }
 }

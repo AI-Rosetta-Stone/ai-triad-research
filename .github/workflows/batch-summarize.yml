@@ -34,9 +34,9 @@ jobs:
       - name: Checkout sources repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
-          repository: jpsnover/ai-triad-sources
+          repository: AI-Rosetta-Stone/ai-triad-sources
           path: ai-triad-sources
-          token: ${{ secrets.DATA_REPO_TOKEN || secrets.GITHUB_TOKEN }}  # Scope: contents:read on jpsnover/ai-triad-sources (read-only checkout)
+          token: ${{ secrets.DATA_REPO_TOKEN || secrets.GITHUB_TOKEN }}  # Scope: contents:read on AI-Rosetta-Stone/ai-triad-sources (read-only checkout)
           fetch-depth: 1
 
       - name: Show taxonomy version

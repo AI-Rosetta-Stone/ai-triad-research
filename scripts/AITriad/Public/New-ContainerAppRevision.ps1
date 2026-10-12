@@ -18,7 +18,7 @@ function New-ContainerAppRevision {
         CRITICAL: The revision name returned by az is verified non-empty. A silent
         empty return would break downstream steps 4/8/10 of the deploy chain.
     .PARAMETER ImageRef
-        Full image reference including tag (e.g. 'ghcr.io/jpsnover/taxonomy-editor:latest').
+        Full image reference including tag (e.g. 'ghcr.io/ai-rosetta-stone/taxonomy-editor:latest').
     .PARAMETER RevisionSuffix
         Suffix appended to the app name to form the revision name
         (e.g. 'deploy-abc1234-12345'). Must be unique.
@@ -31,11 +31,11 @@ function New-ContainerAppRevision {
         Azure resource group. Default: 'ai-triad'.
     .EXAMPLE
         New-ContainerAppRevision `
-            -ImageRef 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234' `
+            -ImageRef 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234' `
             -RevisionSuffix 'deploy-abc1234-12345'
     .EXAMPLE
         New-ContainerAppRevision `
-            -ImageRef 'ghcr.io/jpsnover/taxonomy-editor:sha-abc1234' `
+            -ImageRef 'ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-abc1234' `
             -RevisionSuffix 'deploy-abc1234-12345' `
             -EnvVars @{ FEATURE_FLAG = '1'; BUILD_ID = 'abc1234' }
     .LINK

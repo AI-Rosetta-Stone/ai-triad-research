@@ -75,6 +75,12 @@ The `pre-self-merge-verify` hook **injects an advisory** on a manual `gh pr merg
 
 ## 4. PR-flow practice rules (full text)
 
+> **Superseded on 2026-10-12 (t/4093): the hold ceremony below.** The `consult-hold` label, for T2 only, is now the only required hold. Draft state, hold comments and the verbatim conditions checklist are optional visibility aids.
+>
+> **Why it's safe to drop them:** the label is a required context (`consult-hold-guard`) that blocks every merge path, admins included. The paraphrase risk that the checklist addressed (5 of 9 conditions lost, 2026-09-28) is closed differently: **the consultant clears against their own conditions,** so nothing depends on the author's restatement.
+>
+> **Why it changed:** the stacked devices raised the p90 lead time of held PRs to 6.05h, against 1.08h for the rest (t/4091). The bullets below are kept for their incident history.
+
 - **Batch sequential same-feature work** onto one branch / one PR unless the diff exceeds ~400 lines, mixes concerns, or a peer needs an intermediate step on `main`.
 - **Merge promptly on green** — verify (above) and merge within ~15 min, or record the hold as a PR/ticket comment. An unmerged green PR with no recorded hold is drift.
 - **Arm auto-merge at PR creation for eligible PRs:** `gh pr merge <N> --auto --squash` right after `gh pr create`. **Arming means "I'm done"** — anything pushed afterwards merges as soon as it's green, so disarm (`--disable-auto`) before pushing more work. **Do not arm** `consult-hold` or `joint-gv` PRs (arming a `joint-gv` PR fails its required check), PRs awaiting a mandatory Second Opinion or implementing consult conditions (t/3714), PRs needing a Main (TL) review before merge, drafts, or PRs whose base isn't `main` (epic children and the epic → `main` PR). (e/245)

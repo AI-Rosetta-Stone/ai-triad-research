@@ -15,11 +15,11 @@ cd "$(dirname "$0")/.."
 if [ ! -d "../ai-triad-data" ]; then
   # Prefer gh auth so private-repo access works if applicable
   if command -v gh >/dev/null 2>&1; then
-    gh repo clone jpsnover/ai-triad-data ../ai-triad-data || \
-      git clone https://github.com/jpsnover/ai-triad-data.git ../ai-triad-data || \
+    gh repo clone AI-Rosetta-Stone/ai-triad-data ../ai-triad-data || \
+      git clone https://github.com/AI-Rosetta-Stone/ai-triad-data.git ../ai-triad-data || \
       echo "WARN: could not clone ai-triad-data — set AI_TRIAD_DATA_ROOT manually"
   else
-    git clone https://github.com/jpsnover/ai-triad-data.git ../ai-triad-data || \
+    git clone https://github.com/AI-Rosetta-Stone/ai-triad-data.git ../ai-triad-data || \
       echo "WARN: could not clone ai-triad-data — set AI_TRIAD_DATA_ROOT manually"
   fi
 fi

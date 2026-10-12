@@ -26,7 +26,7 @@ import { usePreferencesStore } from '../../store/preferencesStore';
 import './TheoryLink.css';
 
 /** Canonical GitHub repo for doc links — single source of truth (t/2410, TL-confirmed org). */
-const REPO_BLOB_BASE = 'https://github.com/jpsnover/ai-triad-research/blob/main';
+const REPO_BLOB_BASE = 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main';
 
 /** Build a GitHub blob URL from a repo-relative doc path (+ optional anchor). */
 export function buildDocUrl(docPath: string, anchor?: string): string {

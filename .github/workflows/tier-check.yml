@@ -5,7 +5,7 @@ name: tier-check
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, ready_for_review]
+    types: [opened, edited, synchronize, ready_for_review, labeled, unlabeled]
 
 permissions:
   pull-requests: write
@@ -32,16 +32,136 @@ jobs:
             const { pathToFileURL } = require('url');
             const { execSync } = require('child_process');
             const fs = require('fs');
-            const { evaluateTierCheck } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/tier-check-predicate.mjs`).href);
+            const os = require('os');
+            const path = require('path');
 
             const owner = context.repo.owner, repo = context.repo.repo;
             const prNumber = context.payload.pull_request.number;
-            const config = JSON.parse(fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/ci/tier-paths.json`, 'utf8'));
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const MARKER = '<!-- tier-check:verdict -->';
 
+            async function postVerdictComment(body, { createIfAbsent } = { createIfAbsent: true }) {
+              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const existing = comments.find((c) => c.body?.includes(MARKER));
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else if (createIfAbsent) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+              }
+            }
+
+            try {
+              await run();
+            } catch (err) {
+              // A crash must never read as a verdict, and silence must never read as a pass
+              // (t/4103, Lead review on PR #3155 run 37804716313 -- continue-on-error hid a
+              // TypeError behind a reported "success" for 10 consecutive runs on main).
+              const message = err && err.stack ? err.stack : String(err);
+              core.error(`tier-check CRASHED: ${message}`);
+              await postVerdictComment([
+                MARKER,
+                '**tier-check: CANNOT EVALUATE**',
+                '',
+                'The check crashed while evaluating this PR. No tier verdict was produced -- this',
+                'is not a pass and not a failure, it is an unknown.',
+                '',
+                `Error: \`${String(err && err.message ? err.message : err)}\``,
+                `Run: ${runUrl}`,
+              ].join('\n'));
+              core.setFailed(`CANNOT EVALUATE: ${String(err && err.message ? err.message : err)}`);
+            }
+
+            async function run() {
+            // Config and predicate load from the BASE BRANCH'S LIVE TIP, not the PR's own merge
+            // ref (so a PR cannot narrow R1 or weaken a rule in the same change that should be
+            // caught by it) and not the PR's pinned `base.sha` either (t/4103#14, PR #3155
+            // postmortem round 2: a PR opened before a predicate change landed on main has a
+            // stale `base.sha` that predates exports the workflow now depends on -- loading from
+            // the live tip instead fixes the staleness while keeping the anti-self-narrowing
+            // guarantee, since the PR's own commits are never on base's tip regardless).
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const headSha = pr.head.sha;
+            execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+            // R2a/R2b/R2c diff against the PR's actual base commit (unchanged semantics), not
+            // the live tip, since the diff must reflect only this PR's own changes.
+            const baseSha = pr.base.sha;
+
+            function showFromBase(repoPath) {
+              try {
+                return execSync(`git show ${baseTipSha}:${repoPath}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', maxBuffer: 1024 * 1024 * 16 });
+              } catch {
+                return null;
+              }
+            }
+
+            const baseConfigText = showFromBase('.github/ci/tier-paths.json');
+            const basePredicateText = showFromBase('operations/devops/tier-check-predicate.mjs');
+
+            // THIS WORKFLOW RUN'S OWN trusted copy (checked out at head, the same copy the
+            // Self-health step already ran) -- used for the version check and, when the base
+            // predicate is unusable, as the fallback for a plain R1 path match. Never use a
+            // possibly-skewed base module to validate or exempt itself (t/4103, Lead review on
+            // PR #3172: EXPECTED_API coming from head meant a PR that bumps TIER_CHECK_API in
+            // its own head got "skipped" and was never judged -- closed by putting the
+            // predicate file itself on R1 AND still applying R1 as a plain path match here).
+            const headModule = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/tier-check-predicate.mjs`).href);
+
+            async function postSkippedVerdict(reason) {
+              core.info(`tier-check: verdict skipped (skew/bootstrap) -- ${reason}`);
+              await postVerdictComment([
+                MARKER,
+                `_tier-check: verdict skipped (skew/bootstrap) -- ${reason}_`,
+              ].join('\n'));
+            }
+
+            async function r1FallbackCheck(config, reason) {
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+              const { paths: fallbackPaths } = headModule.factsFromListFiles(files);
+              const tier = headModule.extractTier(pr.body);
+              const result = headModule.evaluateR1Only(fallbackPaths, config, tier);
+              if (!result.pass) {
+                await postVerdictComment([
+                  MARKER,
+                  `**tier-check (advisory)** — declared tier: \`${tier ?? '(none)'}\``,
+                  '',
+                  ...result.comments.map((c) => `- ${c}`),
+                  '',
+                  '_This check is advisory and never blocks a merge. See t/4103._',
+                ].join('\n'));
+                return;
+              }
+              await postSkippedVerdict(reason);
+            }
+
+            if (baseConfigText === null) {
+              // True bootstrap: base has no config at all, so not even R1 can be checked.
+              await postSkippedVerdict("not yet installed on the base branch's tip. Once this PR merges, later PRs are judged by main's rules.");
+              return;
+            }
+
+            const config = JSON.parse(baseConfigText);
+
+            if (basePredicateText === null) {
+              await r1FallbackCheck(config, "predicate not yet installed on the base branch's tip (config present, predicate code missing)");
+              return;
+            }
+
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-check-base-'));
+            const predicatePath = path.join(tmpDir, 'tier-check-predicate.mjs');
+            fs.writeFileSync(predicatePath, basePredicateText);
+            const baseModule = await import(pathToFileURL(predicatePath).href);
+
+            const apiCheck = headModule.checkApiVersion(baseModule.TIER_CHECK_API, headModule.TIER_CHECK_API);
+            if (!apiCheck.compatible) {
+              await r1FallbackCheck(config, apiCheck.reason);
+              return;
+            }
+
+            const { evaluateTierCheck, factsFromListFiles } = baseModule;
+
             const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
-            const paths = files.map((f) => f.path);
-            const baseSha = pr.base.sha, headSha = pr.head.sha;
+            const { paths } = factsFromListFiles(files);
 
             function diffLines(path) {
               let raw;
@@ -104,14 +224,8 @@ jobs:
 
             core.info(`tier-check verdict: pass=${result.pass} tier=${result.tier} comments=${JSON.stringify(result.comments)}`);
 
-            const MARKER = '<!-- tier-check:verdict -->';
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
-            const existing = comments.find((c) => c.body?.includes(MARKER));
-
             if (result.comments.length === 0) {
-              if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: `${MARKER}\ntier-check: clean — no advisory findings.` });
-              }
+              await postVerdictComment(`${MARKER}\ntier-check: clean — no advisory findings.`, { createIfAbsent: false });
               core.info('tier-check: clean, nothing to comment.');
               return;
             }
@@ -125,8 +239,5 @@ jobs:
               '_This check is advisory and never blocks a merge. See t/4103._',
             ].join('\n');
 
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
-            }
+            await postVerdictComment(body);
+            } // end run()

@@ -18,7 +18,7 @@ function Test-TaxEditorInfra {
     .EXAMPLE
         Test-TaxEditorInfra
     .EXAMPLE
-        Test-TaxEditorInfra -Parameters @{ containerImage = 'ghcr.io/jpsnover/taxonomy-editor:0.8.0' }
+        Test-TaxEditorInfra -Parameters @{ containerImage = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.0' }
     .LINK
         Show-AITriadHelp
     .LINK

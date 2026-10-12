@@ -23,7 +23,7 @@
 .PARAMETER Push
     Push the built image to GHCR. Default: $true. Pass -Push:$false for a smoke-only build.
 .PARAMETER Repo
-    GitHub repository slug. Default: jpsnover/ai-triad-research.
+    GitHub repository slug. Default: AI-Rosetta-Stone/ai-triad-research.
 .PARAMETER WaitTimeoutMinutes
     Max minutes to wait for a still-running ci.yml run to reach a terminal state.
     Default: 20. If the run is already terminal, this parameter has no effect.
@@ -38,7 +38,7 @@ param(
 
     [switch]$Push = $true,
 
-    [string]$Repo = 'jpsnover/ai-triad-research',
+    [string]$Repo = 'AI-Rosetta-Stone/ai-triad-research',
 
     [int]$WaitTimeoutMinutes = 20
 )

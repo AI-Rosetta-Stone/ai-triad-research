@@ -47,12 +47,13 @@
 # request (TL ruling e/285#3 on C3) so each token's scope is visible on the wire. A role may only
 # request permissions its App was granted; GitHub refuses anything wider.
 $script:AgentApps = @{
-    author     = @{ AppId = 5236085; InstallationId = 169210396; Slug = 'ai-triad-author-jpsnover'
+    # Installation IDs are the AI-Rosetta-Stone org installations (PI, 2026-10-12, t/4096 org move).
+    author     = @{ AppId = 5236085; InstallationId = 170627508; Slug = 'ai-triad-author-jpsnover'
                     Permissions = @{ contents = 'write'; pull_requests = 'write'; issues = 'write'; workflows = 'write'
                                      actions = 'read'; checks = 'read'; statuses = 'read' } }
-    reviewer   = @{ AppId = 5236159; InstallationId = 169212097; Slug = 'ai-triad-reviewer-jpsnover'
+    reviewer   = @{ AppId = 5236159; InstallationId = 170628507; Slug = 'ai-triad-reviewer-jpsnover'
                     Permissions = @{ contents = 'read'; pull_requests = 'write'; issues = 'write' } }
-    maintainer = @{ AppId = 5236199; InstallationId = 169213604; Slug = 'ai-triad-maintainer-jpsnover'
+    maintainer = @{ AppId = 5236199; InstallationId = 170628840; Slug = 'ai-triad-maintainer-jpsnover'
                     Permissions = @{ contents = 'write'; pull_requests = 'write'; issues = 'write'; workflows = 'write'
                                      actions = 'write'; checks = 'read'; statuses = 'read' } }
 }

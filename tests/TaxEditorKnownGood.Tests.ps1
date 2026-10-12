@@ -19,7 +19,7 @@ Describe 'Set-TaxEditorKnownGood' -Tag 'health' {
                 Active        = $true
                 TrafficWeight = 100
                 RunningState  = 'Running'
-                ImageTag      = 'ghcr.io/jpsnover/taxonomy-editor:0.8.1'
+                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1'
                 CreatedAt     = '2026-06-22T10:00:00Z'
             }
         )
@@ -60,7 +60,7 @@ Describe 'Set-TaxEditorKnownGood' -Tag 'health' {
                 Active        = $true
                 TrafficWeight = 100
                 RunningState  = 'Running'
-                ImageTag      = 'ghcr.io/jpsnover/taxonomy-editor@sha256:abc123'
+                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:abc123'
                 CreatedAt     = '2026-06-22T10:00:00Z'
             }
         )
@@ -83,7 +83,7 @@ Describe 'Set-TaxEditorKnownGood' -Tag 'health' {
     It 'Happy path: tags current production image as known-good' {
         Mock Get-TaxEditorRevision { $MockRevisions } -ModuleName AITriad
         Mock Invoke-RestMethod -ModuleName AITriad -MockWith {
-            if ($Uri -like '*/users/*/packages/*') {
+            if ($Uri -like '*/orgs/*/packages/*') {
                 return $MockImages
             }
             return $null
@@ -102,7 +102,7 @@ Describe 'Set-TaxEditorKnownGood' -Tag 'health' {
             $result = Set-TaxEditorKnownGood -Confirm:$false
             $result.Action | Should -Be 'SetKnownGood'
             $result.Tag | Should -Be '0.8.1'
-            $result.Image | Should -Be 'ghcr.io/jpsnover/taxonomy-editor:0.8.1'
+            $result.Image | Should -Be 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.8.1'
             $result.PreviousKnownGood | Should -Be '0.8.0'
             Should -Invoke Invoke-WebRequest -Times 1 -ModuleName AITriad
         }
@@ -126,7 +126,7 @@ Describe 'Set-TaxEditorKnownGood' -Tag 'health' {
 
         Mock Get-TaxEditorRevision { $MockRevisions } -ModuleName AITriad
         Mock Invoke-RestMethod -ModuleName AITriad -MockWith {
-            if ($Uri -like '*/users/*/packages/*') {
+            if ($Uri -like '*/orgs/*/packages/*') {
                 return $NoPriorKgImages
             }
             return $null
@@ -177,7 +177,7 @@ Describe 'Restore-TaxEditorKnownGood' -Tag 'health' {
 
         $MockDeployResult = [PSCustomObject]@{
             Action           = 'ImageDeploy'
-            Image            = 'ghcr.io/jpsnover/taxonomy-editor:known-good'
+            Image            = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:known-good'
             NewRevision      = 'taxonomy-editor--restore-new789'
             PreviousRevision = 'taxonomy-editor--rev-abc123'
             HealthCheck      = 'Passed'
@@ -269,7 +269,7 @@ Describe 'Restore-TaxEditorKnownGood' -Tag 'health' {
     It 'Returns health check failure from Deploy-TaxEditorImage' {
         $FailedDeploy = [PSCustomObject]@{
             Action           = 'ImageDeploy'
-            Image            = 'ghcr.io/jpsnover/taxonomy-editor:known-good'
+            Image            = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:known-good'
             NewRevision      = 'taxonomy-editor--restore-fail'
             PreviousRevision = 'taxonomy-editor--rev-abc123'
             HealthCheck      = 'Failed'

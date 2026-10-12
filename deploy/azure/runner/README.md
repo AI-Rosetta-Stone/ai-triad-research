@@ -49,7 +49,7 @@ func azure functionapp publish func-runner-<suffix>
 
 ```bash
 WEBHOOK_URL=$(az functionapp show -n func-runner-<suffix> -g ai-triad --query defaultHostName -o tsv)
-gh api repos/jpsnover/ai-triad-research/hooks --method POST \
+gh api repos/AI-Rosetta-Stone/ai-triad-research/hooks --method POST \
   -f "config[url]=https://${WEBHOOK_URL}/api/github-webhook" \
   -f "config[content_type]=json" \
   -f "config[secret]=<your-webhook-secret>" \
@@ -76,7 +76,7 @@ jobs:
 | `RUNNER_CPU` | `2` | vCPU cores per runner |
 | `RUNNER_MEMORY` | `4` | GiB RAM per runner |
 | `RUNNER_LABELS` | `self-hosted,aci` | Runner labels (comma-separated) |
-| `GITHUB_OWNER` | `jpsnover` | Repository owner |
+| `GITHUB_OWNER` | `AI-Rosetta-Stone` | Repository owner |
 | `GITHUB_REPO` | `ai-triad-research` | Repository name |
 
 ## Monitoring

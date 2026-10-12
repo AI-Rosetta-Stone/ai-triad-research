@@ -1,0 +1,32 @@
+[
+  {
+    "name": "ci-alert-escalation-bridge",
+    "ref": "r/23",
+    "max_age_hours": 6,
+    "why": "Hourly cron (t/3912). 6h allows a few coalesced misses before alerting, same buffer class as the other hourly bridges."
+  },
+  {
+    "name": "data-compliance-alert-bridge",
+    "ref": "r/25",
+    "max_age_hours": 12,
+    "why": "Delivers best-effort, not hourly (Orca Support, t/4053#3) -- missed fires coalesce. 12h matches the heartbeat-stale default used elsewhere in this codebase (CiAlertEscalationVerdict.ps1's HeartbeatStaleHours)."
+  },
+  {
+    "name": "data-compliance-watchdog-reader",
+    "ref": "r/30",
+    "max_age_hours": 6,
+    "why": "Hourly cron (t/4053 leg b). This is the exact reminder whose absence (never scheduled for 5 days post-merge) is the failure class t/4139 exists to catch."
+  },
+  {
+    "name": "shared-checkout-drift-check",
+    "ref": "r/11",
+    "max_age_hours": 6,
+    "why": "Hourly cron, 1198+ runs observed -- the fleet's longest-running, highest-volume ops sweep. A gap here means the shared-checkout backstop is silently dead."
+  },
+  {
+    "name": "data-checkout-drift-check",
+    "ref": "r/24",
+    "max_age_hours": 6,
+    "why": "Hourly cron (t/4005). Guards the ai-triad-data / ai-triad-sources shared checkouts the same way r/11 guards this repo's."
+  }
+]

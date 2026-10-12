@@ -31,6 +31,8 @@ export interface AIModelsConfig {
   debateTiers?: Record<string, string | Record<string, string>>;
   fallbackChains?: Record<string, string[]>;
   lastRefreshed: string | null;
+  /** Append-only audit of accepted refresh proposals (t/4160). Written in the same write as the change it approves. */
+  signoffs?: SignoffRecord[];
 }
 
 export interface BackendResult {
@@ -62,7 +64,7 @@ export interface RefreshResult {
   pinnedCandidates?: PinnedCandidate[];
   catalogSources?: Record<string, CatalogSource>;
   dryRun?: boolean;
-  signoff?: { approvedBy: string; reason: string; at: string; proposalHash: string; catalogFingerprint: string; slots: string[]; calibrationEpoch: boolean };
+  signoff?: SignoffRecord;
 }
 
 export interface ModelDiscoveryDeps {
@@ -603,8 +605,39 @@ export function mergeDiscoveredModels(
 export interface RefreshAccept {
   /** The exact `proposal` a dry run (or a refused refresh) returned. */
   proposal: Proposal;
+  /** The display name the person typed. */
   approvedBy: string;
   reason: string;
+  /**
+   * HOST-SET (t/4160): the authenticated identity, filled in by the host from its own session (the server's signed-in
+   * user, the desktop app's identity), never taken from the client. The bridge contract (`RefreshModelsRequest`) picks
+   * only `proposal`, `approvedBy` and `reason`. An accept without it is refused as `no-principal`.
+   */
+  principal: string;
+  /** HOST-SET, desktop only (t/4160): the OS account the app runs as, recorded beside the typed name. */
+  osUser?: string;
+}
+
+/**
+ * The durable record of one accepted proposal (t/4160; TL t/4031#2 adjustment 3). Appended to `ai-models.json`
+ * `signoffs` in the same write as the change, so a change never lands without its record.
+ */
+export interface SignoffRecord {
+  principal: string;
+  approvedBy: string;
+  osUser?: string;
+  reason: string;
+  proposalHash: string;
+  /** The catalog the accept re-derived the proposal against (the one written). */
+  catalogFingerprint: string;
+  /**
+   * The catalog the person reviewed. It can differ from `catalogFingerprint`: an accept is checked by proposal hash
+   * only, so an unrelated catalog change between review and accept doesn't fail it (SO e/263#4; TL t/4160, option b).
+   */
+  reviewedCatalogFingerprint: string;
+  at: string;
+  slots: string[];
+  calibrationEpoch: boolean;
 }
 
 export interface RefreshOptions {
@@ -628,6 +661,7 @@ export type RefreshRefusal =
   | { reason: 'needs-human'; proposal: Proposal; unresolved: string[] }
   | { reason: 'cross-family'; proposal: Proposal; slots: string[] }
   | { reason: 'proposal-changed'; accepted: Proposal; recomputed: Proposal; diff: ReturnType<typeof diffProposals> }
+  | { reason: 'no-principal' }
   | { reason: 'invalid'; dangling: string[]; chainless: string[] };
 
 const refusalText = (r: RefreshRefusal): string => {
@@ -647,6 +681,8 @@ const refusalText = (r: RefreshRefusal): string => {
     }
     case 'proposal-changed':
       return `the catalog moved since the proposal was made (${r.diff.added.length} added, ${r.diff.removed.length} removed, ${r.diff.changed.length} changed slot(s)). Review the new proposal.`;
+    case 'no-principal':
+      return 'an accept must carry the authenticated principal, set by the host (t/4160). Nothing was refreshed.';
     case 'invalid':
       return `the refreshed registry is invalid (${[...(r.dangling.length ? [`dangling refs: ${r.dangling.join(', ')}`] : []), ...r.chainless].join(' | ')}).`;
   }
@@ -672,6 +708,20 @@ function refuse(result: RefreshResult, refusal: RefreshRefusal): RefreshResult {
   return result;
 }
 
+/** An accept is recorded under a host-set identity (t/4160); without one, it is refused before any vendor call. */
+const lacksPrincipal = (opts: RefreshOptions): boolean => opts.accept !== undefined && !opts.accept.principal?.trim();
+
+/** Fallback-Path Logging: a probe-sourced backend's catalog wasn't authoritative, so it can only gain models. */
+function warnProbeSourced(discovered: readonly { backend: string; models: ModelEntry[]; source: CatalogSource }[]): void {
+  for (const d of discovered.filter(x => x.source === 'probe')) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'model-discovery-refresh', level: 'warn',
+      message: `${d.backend}: model list came from the candidate probe, not the vendor catalog — additive only this run (no drops, no proposal).`,
+      data: { backend: d.backend, listed: d.models.length },
+    });
+  }
+}
+
 /**
  * Refresh the model registry from the vendor catalogs. Replace mode (the default) curates each authoritative
  * catalog to the latest model per family, keeps every pinned (referenced) model the vendor still lists, and never
@@ -691,6 +741,8 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
     totalModels: 0,
     written: false,
   };
+
+  if (lacksPrincipal(opts)) return refuse(result, { reason: 'no-principal' });
 
   const discovered: { backend: string; models: ModelEntry[]; source: CatalogSource }[] = [];
   for (const backendId of ALL_BACKENDS) {
@@ -743,14 +795,7 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
     curated.push(...kept);
     pinnedCandidates.push(...pc);
   }
-  for (const d of discovered.filter(x => x.source === 'probe')) {
-    // Fallback-Path Logging: the catalog wasn't authoritative, so this backend can only gain models.
-    getGlobalRecorder()?.record({
-      type: 'system.error', component: 'model-discovery-refresh', level: 'warn',
-      message: `${d.backend}: model list came from the candidate probe, not the vendor catalog — additive only this run (no drops, no proposal).`,
-      data: { backend: d.backend, listed: d.models.length },
-    });
-  }
+  warnProbeSourced(discovered);
   result.pinnedCandidates = pinnedCandidates;
 
   // `existing` and probe-sourced backends are non-probed for the replace merge, so they survive untouched;
@@ -790,6 +835,8 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
       : { reason: 'proposal-required', proposal });
   }
   // ── 4. Accept: only the exact proposal, recomputed now (TL t/3553#5 cond 2; SO e/263#4) ─────────────
+  // Compared by hash only, not catalogFingerprint: identical changes are exactly what today's catalog proposes, and
+  // an unrelated catalog change must not fail an accept (SO e/263#4). Both fingerprints go in the sign-off (TL t/4160).
   const accepted = opts.accept.proposal;
   if (accepted.hash !== proposal.hash || proposalHash(accepted.changes) !== accepted.hash) {
     return refuse(result, { reason: 'proposal-changed', accepted, recomputed: proposal, diff: diffProposals(accepted.changes, changes) });
@@ -797,6 +844,25 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
   if (unresolved.length > 0) return refuse(result, { reason: 'needs-human', proposal, unresolved });
   applyProposal(config, changes);
   return guardAndWrite(deps, config, result, opts, autoPrunes, opts.accept);
+}
+
+/** Build the durable sign-off for an accepted proposal (t/4160). */
+function signoffRecord(accept: RefreshAccept, proposal: Proposal, at: string): SignoffRecord {
+  const slots = proposal.changes.map(c => `${c.slot}: ${JSON.stringify(c.from)} → ${JSON.stringify(c.to)} (family ${c.family ?? 'none'}, ${c.reason ?? 'vendor-absent'})`);
+  // A changed default or debate tier starts a calibration epoch (CL p/742#3).
+  const calibrationEpoch = proposal.changes.some(c => c.slot.startsWith('defaults.') || c.slot.startsWith('debateTiers.'));
+  return {
+    principal: accept.principal,
+    approvedBy: accept.approvedBy,
+    ...(accept.osUser ? { osUser: accept.osUser } : {}),
+    reason: accept.reason,
+    proposalHash: proposal.hash,
+    catalogFingerprint: proposal.catalogFingerprint,
+    reviewedCatalogFingerprint: accept.proposal.catalogFingerprint,
+    at,
+    slots,
+    calibrationEpoch,
+  };
 }
 
 /**
@@ -827,17 +893,18 @@ function guardAndWrite(
 
   // Clean: persist. Bump lastRefreshed only on the write path, so a refused refresh leaves the timestamp alone.
   config.lastRefreshed = new Date().toISOString();
+  const signoff = accept ? signoffRecord(accept, result.proposal!, config.lastRefreshed) : undefined;
+  // The record goes in the SAME write as the change it approves (t/4160): never a change without its record.
+  if (signoff) config.signoffs = [...(config.signoffs ?? []), signoff];
   saveModelConfig(deps.repoRoot, config);
   result.written = true;
   const notes = [...autoPrunes];
-  if (accept) {
-    const slots = result.proposal!.changes.map(c => `${c.slot}: ${JSON.stringify(c.from)} → ${JSON.stringify(c.to)} (family ${c.family ?? 'none'}, ${c.reason ?? 'vendor-absent'})`);
-    // A changed default or debate tier starts a calibration epoch (CL p/742#3).
-    const calibrationEpoch = result.proposal!.changes.some(c => c.slot.startsWith('defaults.') || c.slot.startsWith('debateTiers.'));
-    result.signoff = { approvedBy: accept.approvedBy, reason: accept.reason, at: config.lastRefreshed!, proposalHash: result.proposal!.hash, catalogFingerprint: result.proposal!.catalogFingerprint, slots, calibrationEpoch };
+  if (accept && signoff) {
+    const { slots, calibrationEpoch } = signoff;
+    result.signoff = signoff;
     getGlobalRecorder()?.record({
       type: 'system.info', component: 'model-discovery-refresh', level: 'info',
-      message: `ai-models.json: accepted proposal ${result.proposal!.hash} by ${accept.approvedBy} (${accept.reason})${calibrationEpoch ? ' — starts a calibration epoch' : ''}`,
+      message: `ai-models.json: accepted proposal ${result.proposal!.hash} by ${accept.approvedBy} [${accept.principal}] (${accept.reason})${calibrationEpoch ? ' — starts a calibration epoch' : ''}`,
       data: { ...result.signoff },
     });
     notes.push(`applied accepted proposal ${result.proposal!.hash} (${slots.length} slot(s))`);

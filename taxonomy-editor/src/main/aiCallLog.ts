@@ -8,15 +8,22 @@
 // (Electron debate path via electronAIAdapter → generateText) to the SAME append-only
 // `ai-call-log.jsonl` under the resolved data root so Get-/Show-AICallLog read a UNIFIED log.
 //
-// Identical contract to the server writer (t/3241#6): same 7-field schema, same PIPE_BUF atomic-
-// append guarantee, same fail-safe (IO errors are WARN-recorded and swallowed — audit log must
-// NEVER break the call it audits). The only difference from the server copy is the data-root
-// import: this uses getDataRootPath() from main/fileIO rather than getDataRoot() from server/config.
+// Identical contract to the server writer (t/3241#6): same PIPE_BUF atomic-append guarantee, same
+// fail-safe (IO errors are WARN-recorded and swallowed — audit log must NEVER break the call it
+// audits). The only difference from the server copy is the data-root import: this uses
+// getDataRootPath() from main/fileIO rather than getDataRoot() from server/config.
+//
+// t/4088: Model, Backend and KeySource were added after Status (fields 8-10). Contract artifact:
+// tests/fixtures/ai-call-log/README.md, shared with the PS writer and the TS server writer.
+// KeySource is a CLOSED vocabulary (never the key, or any part of it) — an unmappable value is
+// written as '' with a WARN, never as free text (TL t/4088#3). The known env:<VAR> names are
+// BACKEND_KEY_ENV_VARS's values, so this can't drift from lib/ai-client's own key-routing rules.
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getDataRootPath } from './fileIO.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { BACKEND_KEY_ENV_VARS } from '../../../lib/ai-client/apiKeyFallback.js';
 
 /** Conservative PIPE_BUF floor (Linux = 4096; POSIX minimum = 512). A single write() of a buffer
  *  below this to an O_APPEND fd is atomic, so concurrent PS+TS appends can't interleave a line. */
@@ -27,6 +34,19 @@ const PROMPT_START_MAX = 160;
 
 /** Bytes read from the file tail to derive the next advisory ID (avoids reading the whole log). */
 const TAIL_READ_BYTES = 8192;
+
+/** Every backend's own key variable, flattened — the only names a valid `env:<VAR>` may name. */
+const KNOWN_KEY_VARS: ReadonlySet<string> = new Set(Object.values(BACKEND_KEY_ENV_VARS).flat());
+
+/** True when `value` is in the closed KeySource vocabulary (t/4088): '' (unknown), explicit,
+ *  fallback:AI_API_KEY, store, keyvault, none, or env:<a known backend key variable>. */
+function isValidKeySource(value: string): boolean {
+  if (value === '' || value === 'explicit' || value === 'fallback:AI_API_KEY' || value === 'store' || value === 'keyvault' || value === 'none') {
+    return true;
+  }
+  const m = /^env:([A-Z][A-Z0-9_]*)$/.exec(value);
+  return !!m && KNOWN_KEY_VARS.has(m[1]);
+}
 
 export interface AICallLogEntry {
   /** Caller tag (Debate / Chat / Fact Check / Logical Form). */
@@ -39,6 +59,13 @@ export interface AICallLogEntry {
   retryCount: number;
   /** HTTP/API status (e.g. '200', '429', '500', 'timeout', 'error'). */
   status: string;
+  /** The registry id actually called (t/4088). Defaults to '' (pre-t/4088 callers). */
+  model?: string;
+  /** The `ai-models.json` backend of `model`, from the registry — never guessed from the id (t/4088). */
+  backend?: string;
+  /** Where the key came from — closed vocabulary (t/4088); an unmappable value is written as ''
+   *  with a WARN, never as free text. */
+  keySource?: string;
 }
 
 /**
@@ -82,8 +109,20 @@ function nextAdvisoryId(logPath: string): number {
   }
 }
 
+/** Validated KeySource for the record — '' (with a WARN) when the caller's value isn't in the
+ *  closed vocabulary (t/4088#3). Split out of writeAICallLogEntry to keep its complexity under
+ *  the file's budget (local/complexity-budget). */
+function normalizeKeySource(keySource: string): string {
+  if (isValidKeySource(keySource)) return keySource;
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'ai-call-log', level: 'warn',
+    message: "AI call-log (main): KeySource is not in the closed vocabulary (tests/fixtures/ai-call-log/README.md); writing '' instead (t/4088)",
+  });
+  return '';
+}
+
 /**
- * Append one 7-field JSONL record to the AI call log — a no-op when the flag is off.
+ * Append one 10-field JSONL record to the AI call log — a no-op when the flag is off.
  * Fail-safe: IO errors are WARN-recorded and swallowed (audit log must never break the call it audits).
  */
 export function writeAICallLogEntry(entry: AICallLogEntry, pathOverride?: string): void {
@@ -99,6 +138,8 @@ export function writeAICallLogEntry(entry: AICallLogEntry, pathOverride?: string
       ? entry.promptStart.slice(0, PROMPT_START_MAX)
       : entry.promptStart;
 
+    const keySource = normalizeKeySource(entry.keySource ?? '');
+
     const record = {
       ID: nextAdvisoryId(logPath),
       Datetime: new Date().toISOString(),
@@ -107,6 +148,9 @@ export function writeAICallLogEntry(entry: AICallLogEntry, pathOverride?: string
       PromptStart: promptStart,
       RetryCount: entry.retryCount,
       Status: entry.status,
+      Model: entry.model ?? '',
+      Backend: entry.backend ?? '',
+      KeySource: keySource,
     };
 
     const line = Buffer.from(JSON.stringify(record) + '\n', 'utf8');

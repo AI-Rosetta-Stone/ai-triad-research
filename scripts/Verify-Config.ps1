@@ -83,6 +83,7 @@ $PesterGates = @(
     (Join-Path $RepoRoot 'tests/ModelLiteralLint.Tests.ps1')
     (Join-Path $RepoRoot 'tests/OutletsKeySetGate.Tests.ps1')
     (Join-Path $RepoRoot 'tests/OutletKeySetVerdict.Tests.ps1')
+    (Join-Path $RepoRoot 'tests/AIBackendProfiles.Completeness.Tests.ps1')   # t/4135: profile rows <-> registry backends
 )
 
 # gate name -> $true (pass) / $false (fail); preserves declaration order for the summary

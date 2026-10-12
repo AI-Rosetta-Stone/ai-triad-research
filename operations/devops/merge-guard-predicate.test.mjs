@@ -28,7 +28,7 @@ import {
   parseBaseRefRecords,
   classifyGhError,
 } from './merge-guard-predicate.mjs';
-import { reconcileMergeGuardCoverage, parsePrRefKey } from './merge-guard-reconcile.mjs';
+import { reconcileMergeGuardCoverage, parsePrRefKey, isArmEquivalentMerge } from './merge-guard-reconcile.mjs';
 
 // ── t/3687: classifyGhError — shim fail-policy (fast-fail 4xx; retry 5xx/408/429/network) ──
 test('t/3687 classifyGhError: 4xx auth/perm/not-found → NOT retryable (fast-fail)', () => {
@@ -192,10 +192,24 @@ test('ALLOW arm: --match-head-commit=<SHA> (equals form — must not false-block
   assert.equal(v.reason, 'guarded');
 });
 
-test('ALLOW arm: --auto is EXEMPT (TL ruling t/3270#2)', () => {
+// t/3695#30 (t/4109 root rule #7): --auto is NO LONGER exempt on its own -- it now needs
+// --match-head-commit too, since GitHub merges it instantly with no arm event on an already-green
+// PR (t/4131), reaching the exact stranding vector this guard exists to close.
+test('BLOCK arm: --auto WITHOUT --match-head-commit now blocks (t/3695#30, supersedes t/3270#2)', () => {
   const v = mergeGuardVerdict('gh pr merge 1901 --auto --squash');
-  assert.equal(v.block, false);
-  assert.equal(v.reason, 'auto-exempt');
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'auto-missing-match-head-commit');
+});
+
+test('ALLOW arm: --auto WITH --match-head-commit is guarded (both flag forms, either order)', () => {
+  assert.equal(mergeGuardVerdict('gh pr merge 1901 --auto --squash --match-head-commit 1578b0a0').reason, 'guarded');
+  assert.equal(mergeGuardVerdict('gh pr merge 1901 --match-head-commit=1578b0a0 --auto --squash').reason, 'guarded');
+});
+
+test('ALLOW arm: --disable-auto and --help/-h stay exempt with no pin needed', () => {
+  assert.equal(mergeGuardVerdict('gh pr merge 1901 --disable-auto').block, false);
+  assert.equal(mergeGuardVerdict('gh pr merge --help').block, false);
+  assert.equal(mergeGuardVerdict('gh pr merge -h').block, false);
 });
 
 test('NO-OP: a non-merge command is never blocked', () => {
@@ -213,7 +227,7 @@ const REPO_SCOPED_MERGES = [
   'gh --repo x/y pr merge 1901 --squash',
   'gh --repo=x/y pr merge 1901 --squash',
   'gh pr -R x/y merge 1901 --squash',
-  'gh.exe -R jpsnover/ai-triad-research pr merge 1901 --squash',
+  'gh.exe -R AI-Rosetta-Stone/ai-triad-research pr merge 1901 --squash',
 ];
 
 test('t/3695 BLOCK arm: bare repo-scoped merge (-R / --repo / --repo= / either side of pr) is caught', () => {
@@ -232,8 +246,8 @@ test('t/3695 ALLOW arm: repo-scoped merge WITH --match-head-commit stays silent'
   }
 });
 
-test('t/3695 ALLOW arm: repo-scoped --auto stays exempt', () => {
-  assert.equal(mergeGuardVerdict('gh -R x/y pr merge 1901 --auto --squash').reason, 'auto-exempt');
+test('t/3695 BLOCK arm: repo-scoped --auto without a pin now blocks too', () => {
+  assert.equal(mergeGuardVerdict('gh -R x/y pr merge 1901 --auto --squash').reason, 'auto-missing-match-head-commit');
 });
 
 test('t/3695 NO-OP: repo-scoped NON-merge commands stay silent (no widening false positive)', () => {
@@ -254,8 +268,8 @@ test('robustness: flag ordering — head flag before the PR number', () => {
   assert.equal(v.block, false);
 });
 
-test('robustness: --auto exempt regardless of flag order / trailing position', () => {
-  assert.equal(mergeGuardVerdict('gh pr merge 1901 --squash --auto').block, false);
+test('robustness: --auto WITHOUT a pin blocks regardless of flag order / trailing position', () => {
+  assert.equal(mergeGuardVerdict('gh pr merge 1901 --squash --auto').block, true);
 });
 
 test('edge: a bare --match-head-commit with NO value does NOT count as guarded (still blocks)', () => {
@@ -270,6 +284,138 @@ test('edge: empty / undefined command is a no-op', () => {
   assert.equal(mergeGuardVerdict(undefined).block, false);
 });
 
+// ── t/3695#30 (cycle 3): real tokenizer, judge ONLY in command position ──────────────────────
+// Five RECORDED false positives (10-07 to 10-12) from the old bare-text regex search, which
+// matched `gh pr merge` wherever the substring appeared, including inside a quoted argument to
+// an unrelated command. All five must be ALLOWED (not-a-merge): the tokenizer's quote handling
+// collapses each quoted argument into ONE word, so it can never match in command position.
+test('t/3695 FALSE-POSITIVE FIXTURE 1 (10-07 19:39): grep pattern text containing "gh pr merge" is NOT a merge', () => {
+  const c = String.raw`grep -En "gh pr merge [^\"\\]{0,40}--auto" operations/devops/*.mjs`;
+  assert.equal(mergeGuardVerdict(c).reason, 'not-a-merge');
+});
+
+test('t/3695 FALSE-POSITIVE FIXTURE 2 (10-07 19:42): sed/grep -e pattern text "merge 3031 --auto" is NOT a merge', () => {
+  const c = String.raw`grep -e "merge 3031 --auto" *.jsonl`;
+  assert.equal(mergeGuardVerdict(c).reason, 'not-a-merge');
+});
+
+test('t/3695 FALSE-POSITIVE FIXTURE 3 (10-07 19:43): a regex literal containing the merge command text is NOT a merge', () => {
+  const c = String.raw`grep -En "gh pr merge 3031 --auto)[^\"]*" *.log`;
+  assert.equal(mergeGuardVerdict(c).reason, 'not-a-merge');
+});
+
+test('t/3695 FALSE-POSITIVE FIXTURE 4 (10-12 10:36): a PR comment body MENTIONING a merge command is NOT a merge', () => {
+  const c = String.raw`gh pr comment 3181 --body "Owner: please disarm auto-merge (gh pr merge 3181 --disable-auto) and remove the hold"`;
+  assert.equal(mergeGuardVerdict(c).reason, 'not-a-merge');
+});
+
+test('t/3695 FALSE-POSITIVE FIXTURE 5 (10-12, live): `gh pr merge --help` / `-h` merges nothing', () => {
+  assert.equal(mergeGuardVerdict('gh pr merge --help').block, false);
+  assert.equal(mergeGuardVerdict('gh pr merge --help').reason, 'help');
+  assert.equal(mergeGuardVerdict('gh pr merge -h').reason, 'help');
+});
+
+// A REAL merge is still caught even when the clause ALSO contains quoted text elsewhere on the
+// same line (proves the tokenizer isn't over-correcting into blindness).
+test('t/3695 BLOCK arm survives alongside quoted text: a real merge next to a grep-pattern string', () => {
+  const c = String.raw`grep -n "gh pr merge" README.md; gh pr merge 1901 --squash`;
+  const v = mergeGuardVerdict(c);
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 command-position tolerance: env-prefixed and assignment-prefixed merges are still caught', () => {
+  assert.equal(mergeGuardVerdict('MSYS_NO_PATHCONV=1 gh pr merge 1901 --squash').block, true);
+  assert.equal(mergeGuardVerdict('env FOO=bar gh pr merge 1901 --squash').block, true);
+  assert.equal(mergeGuardVerdict('MSYS_NO_PATHCONV=1 gh pr merge 1901 --squash --match-head-commit abc').block, false);
+});
+
+test('t/3695 single-quoted content is also never command position (sanity: single and $\' quoting)', () => {
+  assert.equal(mergeGuardVerdict(`echo 'gh pr merge 1901 --auto'`).reason, 'not-a-merge');
+  assert.equal(mergeGuardVerdict(`echo $'gh pr merge 1901 --auto'`).reason, 'not-a-merge');
+});
+
+// ── t/3695#30 round 2 (Lead review on PR #3189): 4 probed fixtures -- 3 missed merges, 1 FP ──
+test('t/3695 FIXTURE: a path-qualified gh (/usr/bin/gh) is still caught via basename matching', () => {
+  const v = mergeGuardVerdict('/usr/bin/gh pr merge 5 --squash');
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: the PowerShell call operator with a quoted Windows gh.exe path is still caught', () => {
+  const v = mergeGuardVerdict(String.raw`& "C:\tools\gh.exe" pr merge 5 --squash`);
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+  // Guarded form of the same path must also still be recognized as guarded, not just blocked.
+  assert.equal(mergeGuardVerdict(String.raw`& "C:\tools\gh.exe" pr merge 5 --squash --match-head-commit abc`).reason, 'guarded');
+});
+
+test('t/3695 FIXTURE: command substitution — x=$(gh pr merge 5 --squash) is still caught', () => {
+  const v = mergeGuardVerdict('x=$(gh pr merge 5 --squash)');
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: a parenthesized subshell — ( gh pr merge 5 --squash ) is still caught', () => {
+  const v = mergeGuardVerdict('( gh pr merge 5 --squash )');
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: a backtick subshell is also caught', () => {
+  const v = mergeGuardVerdict('`gh pr merge 5 --squash`');
+  assert.equal(v.block, true);
+});
+
+// ── t/3695#30 round 3 (Lead review, real incident 2026-10-12 11:21Z): backtick substitution
+// inside a DOUBLE-QUOTED --body argument actually ran `gh pr merge 5 --squash` for real (it
+// failed harmlessly on a stray flag). Round 2's tokenizer still read this as `not-a-merge` --
+// a live regression for a class that had just occurred, caught before merge. ──
+test('t/3695 FIXTURE: a backtick inside a DOUBLE-QUOTED --body argument IS judged (bash substitutes there)', () => {
+  const c = 'gh pr comment 1 --body "see `gh pr merge 5 --squash`"';
+  const v = mergeGuardVerdict(c);
+  assert.equal(v.block, true);
+  assert.equal(v.reason, 'missing-match-head-commit');
+});
+
+test('t/3695 FIXTURE: a backtick inside a SINGLE-QUOTED --body argument stays literal (no substitution)', () => {
+  const c = "gh pr comment 1 --body 'see `gh pr merge 5 --squash`'";
+  const v = mergeGuardVerdict(c);
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'not-a-merge');
+});
+
+test('t/3695 regression: a guarded merge inside a double-quoted backtick span is also recognized', () => {
+  const c = 'gh pr comment 1 --body "see `gh pr merge 5 --squash --match-head-commit abc`"';
+  const v = mergeGuardVerdict(c);
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'guarded');
+});
+
+test('t/3695 REGRESSION GUARD: a subshell used as a FLAG VALUE (not a separate clause) stays one guarded clause', () => {
+  // The exact shape the root AGENTS.md remedy text recommends: --match-head-commit's value is
+  // itself a command substitution. Must NOT be cut into a bare merge + a stray $(gh pr view …).
+  const v = mergeGuardVerdict('gh pr merge 1901 --match-head-commit $(gh pr view 1901 --json headRefOid -q .headRefOid)');
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'guarded');
+});
+
+test('t/3695 FIXTURE (false positive): a BARE `cat <<EOF` heredoc (no redirect at all) is data, not a merge', () => {
+  const v = mergeGuardVerdict('cat <<EOF\ngh pr merge 5 --squash\nEOF');
+  assert.equal(v.block, false);
+  assert.equal(v.reason, 'not-a-merge');
+});
+
+test('t/3695 FIXTURE: printf/echo heredoc consumers are also data sinks', () => {
+  assert.equal(mergeGuardVerdict('printf <<EOF\ngh pr merge 5 --squash\nEOF').reason, 'not-a-merge');
+  assert.equal(mergeGuardVerdict('echo <<EOF\ngh pr merge 5 --squash\nEOF').reason, 'not-a-merge');
+});
+
+test('t/3695 sanity: bash/sh/pwsh interpreters are UNCHANGED by the heredoc-sink widening — still judged', () => {
+  const v = mergeGuardVerdict('bash <<EOF\ngh pr merge 5 --squash\nEOF');
+  assert.equal(v.block, true);
+});
+
 // --- CLI shim: prove the RUNTIME the feedback rule invokes (test==runtime, TL GV t/3270#4) ---
 
 test('CLI shim: BLOCKs (emits "fire") on a manual merge missing the flag', () => {
@@ -281,8 +427,9 @@ test('CLI shim: ALLOWs (no output) on a guarded merge — both flag forms', () =
   assert.equal(runShim('gh pr merge 1901 --squash --match-head-commit=1578b0a0'), '');
 });
 
-test('CLI shim: ALLOWs --auto (exempt) and non-merge commands', () => {
-  assert.equal(runShim('gh pr merge 1901 --auto'), '');
+test('CLI shim: BLOCKs --auto without a pin, ALLOWs it with one, ALLOWs non-merge commands', () => {
+  assert.equal(runShim('gh pr merge 1901 --auto'), 'fire');
+  assert.equal(runShim('gh pr merge 1901 --auto --match-head-commit 1578b0a0'), '');
   assert.equal(runShim('gh pr view 1901 --json headRefOid'), '');
 });
 
@@ -326,8 +473,8 @@ test('isAutoMergeCommand: true only for a `gh pr merge` carrying --auto', () => 
 
 test('parsePrRef: numeric id, pull URL, else null (→ current branch)', () => {
   assert.equal(parsePrRef('gh pr merge 1947 --auto'), '1947');
-  assert.equal(parsePrRef('gh pr merge https://github.com/jpsnover/ai-triad-research/pull/1947 --auto'),
-    'https://github.com/jpsnover/ai-triad-research/pull/1947');
+  assert.equal(parsePrRef('gh pr merge https://github.com/AI-Rosetta-Stone/ai-triad-research/pull/1947 --auto'),
+    'https://github.com/AI-Rosetta-Stone/ai-triad-research/pull/1947');
   assert.equal(parsePrRef('gh pr merge --auto --squash'), null); // no ref → gh uses current branch
   // a --match-head-commit value is never mistaken for the ref (leading-position only)
   assert.equal(parsePrRef('gh pr merge --match-head-commit deadbeef --squash 1947'), null);
@@ -528,7 +675,7 @@ test('t/3695 sink piped only into other sinks (tee a | tee b) is still data → 
 });
 
 test('t/3695 parseMergeClause: prRef (number / pull URL / none) and repo (-R / --repo / --repo= / none)', () => {
-  assert.deepEqual(parseMergeClause('gh pr merge 22 -R jpsnover/ai-triad-data --squash'), { prRef: '22', repo: 'jpsnover/ai-triad-data' });
+  assert.deepEqual(parseMergeClause('gh pr merge 22 -R AI-Rosetta-Stone/ai-triad-data --squash'), { prRef: '22', repo: 'AI-Rosetta-Stone/ai-triad-data' });
   assert.deepEqual(parseMergeClause('gh --repo=x/y pr merge 7 --squash'), { prRef: '7', repo: 'x/y' });
   assert.deepEqual(parseMergeClause('gh pr merge https://github.com/x/y/pull/9 --squash'), { prRef: 'https://github.com/x/y/pull/9', repo: null });
   assert.deepEqual(parseMergeClause('gh pr merge --squash'), { prRef: null, repo: null });
@@ -573,17 +720,70 @@ test('t/3695 reconcile COVERED: every manual merge has a judged clause → missi
   });
   assert.equal(r.manual, 2);
   assert.equal(r.covered, 2);
-  assert.deepEqual(r.missing, []);
+  assert.deepEqual(r.missing.all, []);
+  assert.deepEqual(r.missing.uncovered, []);
 });
 
 test('t/3695 reconcile MISSING: a manual merge with no judged clause is reported (the coverage failure arm)', () => {
   const r = reconcileMergeGuardCoverage({
     since: '2026-10-07T00:00:00Z',
-    records: [grec('2026-10-07T01:00:00Z', [cl('disable-auto', '5'), cl('auto-exempt', '6')])],
+    records: [grec('2026-10-07T01:00:00Z', [cl('disable-auto', '5'), cl('guarded', '6')])],
     mergedPrs: [{ repo: R, number: 5, mergedAt: '2026-10-07T01:10:00Z', autoMerge: false }],
   });
   assert.equal(r.covered, 0);
-  assert.deepEqual(r.missing.map((p) => p.number), [5]);
+  assert.deepEqual(r.missing.all.map((p) => p.number), [5]);
+  assert.deepEqual(r.missing.uncovered.map((p) => p.number), [5]);
+});
+
+// ── t/3695#30: missing classified into autoImmediate / outOfBand / uncovered ──
+test('t/3695 reconcile: an armEquivalent missing merge is autoImmediate, not a gap', () => {
+  const r = reconcileMergeGuardCoverage({
+    since: '2026-10-07T00:00:00Z',
+    records: [],
+    mergedPrs: [{ repo: R, number: 9001, mergedAt: '2026-10-07T01:00:05Z', autoMerge: false, armEquivalent: true }],
+  });
+  assert.equal(r.missing.all.length, 1);
+  assert.deepEqual(r.missing.autoImmediate.map((p) => p.number), [9001]);
+  assert.deepEqual(r.missing.uncovered, []);
+});
+
+test('t/3695 reconcile: a known t/3716 sweeper incident is outOfBand even if it looks armEquivalent', () => {
+  const r = reconcileMergeGuardCoverage({
+    since: '2026-10-07T00:00:00Z',
+    records: [],
+    mergedPrs: [{ repo: R, number: 3155, mergedAt: '2026-10-08T15:55:36Z', autoMerge: false, armEquivalent: true }],
+    outOfBandRefs: [{ repo: R, number: 3155 }],
+  });
+  assert.deepEqual(r.missing.outOfBand.map((p) => p.number), [3155]);
+  assert.deepEqual(r.missing.autoImmediate, []);
+  assert.deepEqual(r.missing.uncovered, []);
+});
+
+test('t/3695 reconcile: a missing merge that is neither armEquivalent nor out-of-band is a REAL uncovered gap', () => {
+  const r = reconcileMergeGuardCoverage({
+    since: '2026-10-07T00:00:00Z',
+    records: [],
+    mergedPrs: [{ repo: R, number: 42, mergedAt: '2026-10-07T01:00:05Z', autoMerge: false, armEquivalent: false }],
+  });
+  assert.deepEqual(r.missing.uncovered.map((p) => p.number), [42]);
+  assert.deepEqual(r.missing.autoImmediate, []);
+  assert.deepEqual(r.missing.outOfBand, []);
+});
+
+test('t/3695 reconcile: isArmEquivalentMerge matches t/4131\'s window and excludes when an arm event exists', () => {
+  assert.equal(isArmEquivalentMerge({ readyAt: '2026-10-08T15:55:31Z', mergedAt: '2026-10-08T15:55:36Z', hasArmEventBetween: false }), true);
+  assert.equal(isArmEquivalentMerge({ readyAt: '2026-10-08T15:55:31Z', mergedAt: '2026-10-08T15:57:00Z', hasArmEventBetween: false }), false); // past the 60s window
+  assert.equal(isArmEquivalentMerge({ readyAt: '2026-10-08T15:55:31Z', mergedAt: '2026-10-08T15:55:36Z', hasArmEventBetween: true }), false); // a real arm event, not equivalent
+  assert.equal(isArmEquivalentMerge({ readyAt: null, mergedAt: '2026-10-08T15:55:36Z', hasArmEventBetween: false }), false); // no ready event at all
+});
+
+test('t/3695 reconcile: blocks now also include auto-missing-match-head-commit (t/4109 rule #7)', () => {
+  const r = reconcileMergeGuardCoverage({
+    since: '2026-10-07T00:00:00Z',
+    records: [grec('2026-10-07T01:00:00Z', [cl('auto-missing-match-head-commit', '77')])],
+  });
+  assert.equal(r.judged, 1);
+  assert.equal(r.blocks.length, 1);
 });
 
 test('t/3695 reconcile: unparseable PR refs are their own count, never silently dropped (TL condition 2)', () => {
@@ -607,7 +807,7 @@ test('t/3695 reconcile: a bare number with no -R matching PRs in two repos is am
   });
   assert.equal(r.ambiguous.length, 1);
   assert.equal(r.covered, 0);
-  assert.equal(r.missing.length, 2);
+  assert.equal(r.missing.all.length, 2);
 });
 
 test('t/3695 reconcile: in-window records without per-clause fields count as legacy; out-of-window ignored', () => {

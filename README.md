@@ -13,8 +13,8 @@ This project uses three repositories:
 
 | Repository | Contents |
 |-----------|----------|
-| **[ai-triad-research](https://github.com/jpsnover/ai-triad-research)** (this repo) | PowerShell module, shared TypeScript lib, Electron apps, prompts, schemas |
-| **[ai-triad-data](https://github.com/jpsnover/ai-triad-data)** | Taxonomy, summaries, conflicts, debates |
+| **[ai-triad-research](https://github.com/AI-Rosetta-Stone/ai-triad-research)** (this repo) | PowerShell module, shared TypeScript lib, Electron apps, prompts, schemas |
+| **[ai-triad-data](https://github.com/AI-Rosetta-Stone/ai-triad-data)** | Taxonomy, summaries, conflicts, debates |
 | **ai-triad-sources** | Ingested source documents (~680 documents: PDFs, snapshots) |
 
 ```
@@ -61,8 +61,8 @@ ai-triad-sources/               SOURCES REPO
 ```powershell
 # 1. Clone the repos as siblings (sources repo optional unless ingesting)
 cd ~/source/repos
-git clone https://github.com/jpsnover/ai-triad-research.git
-git clone https://github.com/jpsnover/ai-triad-data.git
+git clone https://github.com/AI-Rosetta-Stone/ai-triad-research.git
+git clone https://github.com/AI-Rosetta-Stone/ai-triad-data.git
 
 # 2. Load the module
 cd ai-triad-research

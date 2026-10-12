@@ -28,7 +28,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/taxonomy-editor
+  IMAGE_NAME: ai-rosetta-stone/taxonomy-editor
   STALE_DAYS: '28'          # 4-week window (t/3520) — reused from the staleness rule
 
 jobs:

@@ -64,7 +64,7 @@ Show-TaxonomyEditor
 ```
 
 This:
-- Starts a Docker container from `ghcr.io/jpsnover/taxonomy-editor:latest`
+- Starts a Docker container from `ghcr.io/ai-rosetta-stone/taxonomy-editor:latest`
 - Mounts your data repo at `/data`
 - Passes API keys from your environment
 - Opens `http://localhost:7862` in your browser

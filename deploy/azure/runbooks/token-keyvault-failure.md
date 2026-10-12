@@ -34,7 +34,7 @@
    ```
 
 5. **Check GitHub App installation:**
-   - Verify App ID 3646042 is still installed on `jpsnover/ai-triad-data`
+   - Verify App ID 3646042 is still installed on `AI-Rosetta-Stone/ai-triad-data`
    - Check https://github.com/settings/installations → find the app → verify repo access
 
 6. **Force token refresh:**

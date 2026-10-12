@@ -582,9 +582,12 @@ jobs:
             // not a second hardcoded one) instead of the two assumed names ('auto_merge_enabled',
             // 'auto_update_enabled') that matched ~0.1% of this repo's real arm events. Also pull
             // 'labeled'/'unlabeled' into the SAME feed so the pure detector can compute held-at-
-            // arm-time itself (D2), instead of a scan-time pulls.get snapshot.
+            // arm-time itself (D2), instead of a scan-time pulls.get snapshot. 'merged' is pulled
+            // in too (t/4131): ready_for_review -> merged with no arm event in between is an
+            // ARM-EQUIVALENT hit -- exactly what `gh pr ready` + `gh pr merge --auto` produces on
+            // an already-green PR (GitHub merges immediately, logging no arm event at all).
             const relevant = rawEvents
-              .filter((e) => e.event === 'ready_for_review' || e.event === 'labeled' || e.event === 'unlabeled' || ARM_EVENT_RE.test(e.event))
+              .filter((e) => e.event === 'ready_for_review' || e.event === 'labeled' || e.event === 'unlabeled' || e.event === 'merged' || ARM_EVENT_RE.test(e.event))
               .filter((e) => new Date(e.created_at).getTime() >= sinceMs)
               .map((e) => ({ prNumber: e.issue?.number, event: e.event, label: e.label?.name, actor: e.actor?.login ?? 'unknown', createdAt: e.created_at }))
               .filter((e) => e.prNumber);
@@ -593,9 +596,11 @@ jobs:
             // function walking BACKWARDS from the live (current) label snapshot, undoing
             // every labeled/unlabeled event after the arm -- exact regardless of whether the
             // PR's original hold label predates the lookback window. Fetch the live snapshot
-            // for every PR that has at least one arm event in the window (a cheap existence
-            // check; the full ready+arm pairing happens inside the pure function itself).
-            const candidatePrNumbers = [...new Set(relevant.filter((e) => ARM_EVENT_RE.test(e.event)).map((e) => e.prNumber))];
+            // for every PR that has at least one arm OR merged event in the window (a cheap
+            // existence check; the full ready+arm/merged pairing happens inside the pure
+            // function itself). GitHub keeps a PR's labels readable via pulls.get after it
+            // merges, so this works unchanged for the merge-equivalent case (t/4131).
+            const candidatePrNumbers = [...new Set(relevant.filter((e) => ARM_EVENT_RE.test(e.event) || e.event === 'merged').map((e) => e.prNumber))];
             const liveLabelsByPr = new Map();
             for (const prNumber of candidatePrNumbers) {
               const { data: p } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber }).catch(() => ({ data: null }));
@@ -611,11 +616,16 @@ jobs:
               const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: v.prNumber, per_page: 100 }).catch(() => ({ data: [] }));
               if (comments.some((c) => c.body.includes(marker))) continue; // idempotent per (PR, armedAt)
 
+              const shape = hit.signatureType === 'merge-equivalent'
+                ? '`ready_for_review` → merged with no arm event in between (t/4131 -- an ARM-EQUIVALENT shape: what `gh pr ready` + `gh pr merge --auto` produces on an already-green PR)'
+                : '`ready_for_review` → auto-merge/update armed';
+              const verbedAt = hit.signatureType === 'merge-equivalent' ? 'merged at' : 'armed at';
+
               if (v.escalate) {
                 const body = [
                   `🔺 **Sweep-signature ESCALATION (t/4096 item 2, t/3716 pattern)**`,
-                  `\`ready_for_review\` → auto-merge/update armed within the sweep window. ${v.reason}.`,
-                  `Ready at ${hit.readyAt}, armed at ${hit.armedAt} by ${hit.actor}.`,
+                  `${shape} within the sweep window. ${v.reason}.`,
+                  `Ready at ${hit.readyAt}, ${verbedAt} ${hit.armedAt} by ${hit.actor}.`,
                   `@${owner} — escalated straight to DevOps + TL per design (held PR or multi-PR burst).`,
                   marker,
                 ].join('\n');
@@ -624,8 +634,8 @@ jobs:
               } else {
                 const body = [
                   `**Sweep-signature check (t/4096 item 2, informational):**`,
-                  `This PR went ready-for-review then had auto-merge/update armed ${hit.deltaSeconds.toFixed(0)}s later, by ${hit.actor}.`,
-                  `This is usually just you moving fast — confirm it was your own action. No escalation; this fires once per arm event.`,
+                  `This PR went ready-for-review then ${hit.signatureType === 'merge-equivalent' ? 'merged' : 'had auto-merge/update armed'} ${hit.deltaSeconds.toFixed(0)}s later, by ${hit.actor}.`,
+                  `This is usually just you moving fast — confirm it was your own action. No escalation; this fires once per ${hit.signatureType === 'merge-equivalent' ? 'merge' : 'arm'} event.`,
                   marker,
                 ].join('\n');
                 await github.rest.issues.createComment({ owner, repo, issue_number: v.prNumber, body });

@@ -527,7 +527,7 @@ function Start-ContainerMode {
         [switch]$Detach
     )
 
-    $ImageName     = 'ghcr.io/jpsnover/taxonomy-editor:latest'
+    $ImageName     = 'ghcr.io/ai-rosetta-stone/taxonomy-editor:latest'
     $ContainerName = Get-ContainerName -Port $Port
 
     # ── Resolve data path ─────────────────────────────────────────────────

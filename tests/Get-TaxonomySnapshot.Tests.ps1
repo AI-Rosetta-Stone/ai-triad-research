@@ -56,7 +56,7 @@ Describe 'Get-TaxonomySnapshot (t/1493)' -Tag 'taxonomy' {
 
             $meta = Get-Content $r.SnapshotMetaPath -Raw | ConvertFrom-Json
             $meta.commit              | Should -Be 'deadbeefcafebabe1234567890abcdef'
-            $meta.repo                | Should -Be 'jpsnover/ai-triad-data'
+            $meta.repo                | Should -Be 'AI-Rosetta-Stone/ai-triad-data'
             $meta.branch              | Should -Be 'main'
             $meta.valid               | Should -Be $true
 

@@ -51,7 +51,7 @@ $funcHost = az functionapp show -n $funcName -g ai-triad --query defaultHostName
 $webhookUrl = "https://$funcHost/api/github-webhook"
 Write-Host "Webhook URL: $webhookUrl"
 
-gh api repos/jpsnover/ai-triad-research/hooks --method POST `
+gh api repos/AI-Rosetta-Stone/ai-triad-research/hooks --method POST `
   -f "config[url]=$webhookUrl" `
   -f "config[content_type]=json" `
   -f "config[secret]=$env:RUNNER_WEBHOOK_SECRET" `
@@ -62,7 +62,7 @@ gh api repos/jpsnover/ai-triad-research/hooks --method POST `
 Verify:
 
 ```powershell
-gh api repos/jpsnover/ai-triad-research/hooks --jq '.[].config.url'
+gh api repos/AI-Rosetta-Stone/ai-triad-research/hooks --jq '.[].config.url'
 ```
 
 ## Step 5: Test with a container build
@@ -124,8 +124,8 @@ az container list -g ai-triad `
 
 ### Delete webhook (if needed)
 ```powershell
-$hookId = gh api repos/jpsnover/ai-triad-research/hooks --jq '.[] | select(.config.url | contains("runner")) | .id'
-gh api repos/jpsnover/ai-triad-research/hooks/$hookId --method DELETE
+$hookId = gh api repos/AI-Rosetta-Stone/ai-triad-research/hooks --jq '.[] | select(.config.url | contains("runner")) | .id'
+gh api repos/AI-Rosetta-Stone/ai-triad-research/hooks/$hookId --method DELETE
 ```
 
 ### Disable runner infrastructure
