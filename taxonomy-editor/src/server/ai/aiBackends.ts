@@ -16,10 +16,10 @@ import { createRequire } from 'module';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 const require = createRequire(import.meta.url);
-import { getApiKey, getApiKeyForListing, getProjectRoot, EMBED_SCRIPT, resolveDataPath, isEmbeddingWorkerOffloadEnabled, type AIBackend } from '../config.js';
+import { getApiKey, getApiKeyForListing, getProjectRoot, EMBED_SCRIPT, resolveDataPath, isEmbeddingWorkerOffloadEnabled, getApiKeySource, type AIBackend } from '../config.js';
 import { listingNotConfiguredHint, assertKeyForBackend, isKeyRoutingRefusal } from '../../../../lib/ai-client/apiKeyFallback.js';
 import { chainLinkKeys, throwNoApiKeyError } from './chainLinkKeys.js';
-import { writeAICallLogEntry, isAICallLogEnabled } from './aiCallLog.js';
+import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource } from './aiCallLog.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { parseJsonRobust } from '../../../../lib/debate/helpers.js';
 import { extractProviderReason, deriveKeyErrorMessage } from './providerErrors.js';
@@ -363,7 +363,14 @@ export async function generateText(
   onRetry?: (p: GenerateTextProgress) => void,
   timeoutMs?: number,
   explicitApiKey?: string | string[],
-  options?: { temperature?: number; signal?: AbortSignal; responseSchema?: Record<string, unknown>; maxTokens?: number },
+  options?: {
+    temperature?: number;
+    signal?: AbortSignal;
+    responseSchema?: Record<string, unknown>;
+    maxTokens?: number;
+    /** t/4088: called once per chain link completion (success or failure) for the AI call log. */
+    onChainLinkComplete?: (link: { model: string; backend: string; keySource: string; retryCount: number; status: string }) => void;
+  },
 ): Promise<GenerateResult> {
   const resolved = model || DEFAULT_MODEL;
   const explicitKeys = normalizeExplicitKeys(explicitApiKey);
@@ -377,6 +384,15 @@ export async function generateText(
     const backend = resolveBackend(currentModel, registry); // registry first (t/4105 cond 3)
     const keys = await chainLinkKeys(modelsToTry, mi, backend, explicitKeys);
     if (!keys) continue;
+
+    // t/4088: per-link retry count and key source for the AI call log.
+    let linkRetryCount = 0;
+    let linkKeySource = '';
+    if (options?.onChainLinkComplete) {
+      linkKeySource = explicitKeys !== undefined
+        ? classifyKeySource(keys[0] ?? '', backend)
+        : await getApiKeySource(backend);
+    }
 
     const apiModel = getApiModelId(currentModel);
     const opts = buildGenerateOptions(options, timeoutMs, currentModel, entryMap);
@@ -394,7 +410,7 @@ export async function generateText(
           (apiKey) => callProvider(fetch, backend, prompt, apiModel, apiKey, opts)),
         SERVER_RETRY_CONFIG,
         `${backend}/${apiModel}`,
-        (msg: string) => reportProviderRetry(msg, backend, apiModel, onRetry),
+        (msg: string) => { linkRetryCount++; reportProviderRetry(msg, backend, apiModel, onRetry); },
         options?.signal,
       );
 
@@ -405,15 +421,20 @@ export async function generateText(
           data: { originalModel: resolved, fallbackModel: currentModel, fallbackIndex: mi },
         });
       }
+      options?.onChainLinkComplete?.({ model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: '200' });
       return { text: result.text, tokenUsage: mapUsage(result.usage), servedModel: currentModel };
     } catch (err) {
       // t/2524: a deliberate cancellation (client disconnect) must NOT advance the
       // fallback chain — otherwise every remaining chain entry emits a spurious
       // warn-level ai.fallback on user cancel. Rethrow AbortError immediately (same
       // name-check as t/2507; DOMException-compatible).
-      if ((err as { name?: unknown } | null)?.name === 'AbortError') throw err;
-      if (isKeyRoutingRefusal(err)) throw err; // cond 6: a refused key is never a reason to fail over
+      if ((err as { name?: unknown } | null)?.name === 'AbortError') {
+        options?.onChainLinkComplete?.({ model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: 'aborted' });
+        throw err;
+      }
+      if (isKeyRoutingRefusal(err)) throw err; // cond 6: a refused key is never a reason to fail over — no log entry (no call made)
       lastError = err;
+      options?.onChainLinkComplete?.({ model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: deriveCallLogStatus(err) });
       if (mi < modelsToTry.length - 1) {
         const nextModel = modelsToTry[mi + 1];
         getGlobalRecorder()?.record({
@@ -547,15 +568,15 @@ export async function generateTextByUsage(
   if (!isAICallLogEnabled()) {
     return generateText(prompt, merged.model, onRetry, merged.timeoutMs, explicitApiKey, { temperature: merged.temperature, signal });
   }
-  let retryCount = 0;
-  const countingOnRetry = (p: GenerateTextProgress): void => { retryCount++; onRetry?.(p); };
-  // .then(onFulfilled, onRejected), not try/catch: the audit write is a settle-time side effect and the
-  // error is re-thrown UNCHANGED. generateText already records its own failures, so this wrapper must not
-  // double-record — the error propagates to the existing recorder (ADR-003: no swallow).
-  return await generateText(prompt, merged.model, countingOnRetry, merged.timeoutMs, explicitApiKey, { temperature: merged.temperature, signal }).then(
-    (result) => { writeAICallLogEntry({ scenario: usageId, promptId: usageId, promptStart: prompt, retryCount, status: '200' }); return result; },
-    (err: unknown) => { writeAICallLogEntry({ scenario: usageId, promptId: usageId, promptStart: prompt, retryCount, status: deriveCallLogStatus(err) }); throw err; },
-  );
+  // t/4088: per-chain-link logging via onChainLinkComplete — model/backend/keySource captured per link.
+  // countingOnRetry replaced: retry count is now tracked inside generateText per link (t/4088).
+  return generateText(prompt, merged.model, onRetry, merged.timeoutMs, explicitApiKey, {
+    temperature: merged.temperature,
+    signal,
+    onChainLinkComplete: ({ model, backend, keySource, retryCount, status }) => {
+      writeAICallLogEntry({ scenario: usageId, promptId: usageId, promptStart: prompt, model, backend, keySource, retryCount, status });
+    },
+  });
 }
 
 /**
@@ -586,12 +607,20 @@ export async function generateTextWithSearchByUsage(
 
   // t/3245: AI Call Log capture. generateTextWithSearch exposes no retry callback → RetryCount 0. Same
   // .then(onFulfilled, onRejected) settle-side-effect pattern as generateTextByUsage (no double-record).
+  // t/4088: derive model/backend/keySource up-front; generateTextWithSearch doesn't expose chain links.
   if (!isAICallLogEnabled()) {
     return generateTextWithSearch(prompt, merged.model, explicitApiKey);
   }
+  const searchModel = merged.model ?? DEFAULT_MODEL;
+  const searchBackend = resolveBackend(searchModel, getModelRegistry());
+  const normalizedSearchKeys = normalizeExplicitKeys(explicitApiKey);
+  const searchKeySource = normalizedSearchKeys !== undefined
+    ? classifyKeySource(normalizedSearchKeys[0] ?? '', searchBackend)
+    : await getApiKeySource(searchBackend);
+  const logCtx = { scenario: usageId, promptId: usageId, promptStart: prompt, model: searchModel, backend: searchBackend, keySource: searchKeySource };
   return await generateTextWithSearch(prompt, merged.model, explicitApiKey).then(
-    (result) => { writeAICallLogEntry({ scenario: usageId, promptId: usageId, promptStart: prompt, retryCount: 0, status: '200' }); return result; },
-    (err: unknown) => { writeAICallLogEntry({ scenario: usageId, promptId: usageId, promptStart: prompt, retryCount: 0, status: deriveCallLogStatus(err) }); throw err; },
+    (result) => { writeAICallLogEntry({ ...logCtx, retryCount: 0, status: '200' }); return result; },
+    (err: unknown) => { writeAICallLogEntry({ ...logCtx, retryCount: 0, status: deriveCallLogStatus(err) }); throw err; },
   );
 }
 

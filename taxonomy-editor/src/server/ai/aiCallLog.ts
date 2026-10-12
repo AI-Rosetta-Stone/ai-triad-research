@@ -27,6 +27,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getDataRoot } from '../config.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { BACKEND_KEY_ENV_VARS, GENERIC_FALLBACK_ENV, GENERIC_FALLBACK_BACKEND } from '../../../../lib/ai-client/apiKeyFallback.js';
 
 /** Conservative PIPE_BUF floor (Linux = 4096; POSIX minimum = 512). A single write() of a buffer
  *  below this to an O_APPEND fd is atomic, so concurrent PS+TS appends can't interleave a line. */
@@ -37,6 +38,49 @@ const PROMPT_START_MAX = 160;
 
 /** Bytes read from the file tail to derive the next advisory ID (avoids reading the whole log). */
 const TAIL_READ_BYTES = 8192;
+
+/**
+ * Classify where an EXPLICIT key came from. Compares the key against known env var values
+ * (so a cascade link that passes an env-resolved key explicitly still logs `env:<VAR>`).
+ * Only for explicit keys; for internally-resolved keys use `getApiKeySource` in config.ts.
+ * If ElectronMain also needs this, extract to lib/ai-client (TL shared-utility rule, t/4088).
+ */
+export function classifyKeySource(
+  key: string,
+  backend: string,
+  env: Readonly<Record<string, string | undefined>> = process.env as Record<string, string | undefined>,
+): string {
+  if (!key) return '';
+  const backendVars = BACKEND_KEY_ENV_VARS[backend] ?? [`${backend.toUpperCase()}_API_KEY`];
+  for (const v of backendVars) {
+    if (env[v] === key) return `env:${v}`;
+  }
+  if (env[GENERIC_FALLBACK_ENV] === key) return `fallback:${GENERIC_FALLBACK_ENV}`;
+  return 'explicit';
+}
+
+/** Valid env var names for KeySource — derived from the canonical map (t/4088, Shared Lib e/290#4). */
+const VALID_KEYSOURCE_ENV_VARS: ReadonlySet<string> = new Set(
+  Object.values(BACKEND_KEY_ENV_VARS).flat(),
+);
+
+function isValidKeySource(value: string): boolean {
+  if (value === '' || value === 'explicit' || value === `fallback:${GENERIC_FALLBACK_ENV}` ||
+      value === 'store' || value === 'keyvault' || value === 'none') return true;
+  if (value.startsWith('env:')) return VALID_KEYSOURCE_ENV_VARS.has(value.slice(4));
+  return false;
+}
+
+/** Validate a KeySource value. Returns it unchanged if valid; writes `''` + WARN if not. */
+function normalizeKeySource(value: string): string {
+  if (isValidKeySource(value)) return value;
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'ai-call-log', level: 'warn',
+    message: `AI call-log: unrecognized KeySource '${value}' — writing '' (closed vocabulary, t/4088)`,
+    data: { value },
+  });
+  return '';
+}
 
 export interface AICallLogEntry {
   /** Caller tag (e.g. a UsageID, or Debate/Chat/Fact Check/Logical Form). Never blank in practice. */
@@ -49,6 +93,12 @@ export interface AICallLogEntry {
   retryCount: number;
   /** HTTP/API status (e.g. '200', '429', '500', 'timeout', 'error'). */
   status: string;
+  /** The registry id of the model actually called (the serving chain link's model). */
+  model: string;
+  /** The backend from the registry for that model. Never a prefix guess. */
+  backend: string;
+  /** Where the key came from. Must be from the closed vocabulary (see tests/fixtures/ai-call-log/README.md). */
+  keySource: string;
 }
 
 /**
@@ -131,6 +181,9 @@ export function writeAICallLogEntry(entry: AICallLogEntry, pathOverride?: string
       PromptStart: promptStart,
       RetryCount: entry.retryCount,
       Status: entry.status,
+      Model: entry.model,
+      Backend: entry.backend,
+      KeySource: normalizeKeySource(entry.keySource),
     };
 
     // Atomic single-line append (t/3245#3 condition 2): one O_APPEND write of a sub-PIPE_BUF buffer so a

@@ -9,13 +9,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { writeAICallLogEntry, isAICallLogEnabled, type AICallLogEntry } from '../ai/aiCallLog.js';
+import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource, type AICallLogEntry } from '../ai/aiCallLog.js';
 
-const SCHEMA_FIELDS = ['ID', 'Datetime', 'Scenario', 'PromptID', 'PromptStart', 'RetryCount', 'Status'];
+const SCHEMA_FIELDS = ['ID', 'Datetime', 'Scenario', 'PromptID', 'PromptStart', 'RetryCount', 'Status', 'Model', 'Backend', 'KeySource'];
 
 const sample: AICallLogEntry = {
   scenario: 'Debate', promptId: 'usage.debate.turn', promptStart: 'Argue the accelerationist case',
   retryCount: 0, status: '200',
+  model: 'gemini-3.7-flash', backend: 'gemini', keySource: 'env:GEMINI_API_KEY',
 };
 
 let tmpDir: string;
@@ -59,7 +60,7 @@ describe('writeAICallLogEntry', () => {
     expect(fs.existsSync(logPath)).toBe(false);
   });
 
-  it('flag on → one JSONL record with the 7 schema fields in order and correct types', () => {
+  it('flag on → one JSONL record with the 10 schema fields in order and correct types', () => {
     process.env.AI_CALL_LOG_ENABLED = '1';
     writeAICallLogEntry(sample, logPath);
     const lines = readLines();
@@ -74,9 +75,14 @@ describe('writeAICallLogEntry', () => {
     expect(typeof rec.PromptStart).toBe('string');
     expect(typeof rec.RetryCount).toBe('number');
     expect(typeof rec.Status).toBe('string');
+    expect(typeof rec.Model).toBe('string');
+    expect(typeof rec.Backend).toBe('string');
+    expect(typeof rec.KeySource).toBe('string');
     expect(rec.Scenario).toBe('Debate');
     expect(rec.PromptID).toBe('usage.debate.turn');
     expect(rec.Status).toBe('200');
+    expect(rec.Model).toBe('gemini-3.7-flash');
+    expect(rec.Backend).toBe('gemini');
   });
 
   it('Datetime is ISO-8601 UTC and round-trip parseable (PS TryParse(RoundtripKind))', () => {
@@ -140,5 +146,132 @@ describe('writeAICallLogEntry', () => {
     fs.writeFileSync(filePath, 'x');
     const badPath = path.join(filePath, 'nested', 'ai-call-log.jsonl');
     expect(() => writeAICallLogEntry(sample, badPath)).not.toThrow();
+  });
+});
+
+describe('t/4088 — Model/Backend/KeySource fields', () => {
+  it('1. no key material in log — sentinel values do not appear in any written line', () => {
+    process.env.AI_CALL_LOG_ENABLED = '1';
+    const sentinels: Record<string, string> = {
+      GEMINI_API_KEY: 'gSENTINEL_gemini_k7x9',
+      ANTHROPIC_API_KEY: 'aSENTINEL_claude_m3z1',
+      GROQ_API_KEY: 'rSENTINEL_groq_p5q8',
+      AI_API_KEY: 'fSENTINEL_fallback_n2w4',
+    };
+    for (const [k, v] of Object.entries(sentinels)) process.env[k] = v;
+
+    writeAICallLogEntry({ ...sample, keySource: 'env:GEMINI_API_KEY' }, logPath);
+    writeAICallLogEntry({ ...sample, keySource: 'explicit', status: 'error' }, logPath);
+    writeAICallLogEntry({ ...sample, model: 'gemini-3.7-flash', backend: 'gemini', keySource: 'fallback:AI_API_KEY', status: '200' }, logPath);
+
+    const raw = fs.readFileSync(logPath, 'utf8');
+    for (const sentinel of Object.values(sentinels)) {
+      expect(raw).not.toContain(sentinel);
+      expect(raw).not.toContain(sentinel.slice(0, 4));
+      expect(raw).not.toContain(sentinel.slice(-4));
+    }
+
+    for (const k of Object.keys(sentinels)) delete process.env[k];
+  });
+
+  it('2. Backend comes from registry — a model whose id prefix suggests another backend logs the registry backend', () => {
+    process.env.AI_CALL_LOG_ENABLED = '1';
+    writeAICallLogEntry({ ...sample, model: 'openai-compatible-on-groq', backend: 'groq', keySource: 'env:GROQ_API_KEY', status: '200' }, logPath);
+    const { Backend } = JSON.parse(readLines()[0]);
+    expect(Backend).toBe('groq'); // registry value, not 'openai' prefix guess
+  });
+
+  it('3. Failover — 2 entries with different Model/Backend/KeySource', () => {
+    process.env.AI_CALL_LOG_ENABLED = '1';
+    writeAICallLogEntry({ ...sample, model: 'claude-opus-5', backend: 'claude', keySource: 'env:ANTHROPIC_API_KEY', status: '429' }, logPath);
+    writeAICallLogEntry({ ...sample, model: 'groq-qwen-qwen3.6-27b', backend: 'groq', keySource: 'env:GROQ_API_KEY', retryCount: 0, status: '200' }, logPath);
+    const lines = readLines();
+    expect(lines).toHaveLength(2);
+    const [link1, link2] = lines.map(l => JSON.parse(l));
+    expect(link1.Model).toBe('claude-opus-5');
+    expect(link1.Backend).toBe('claude');
+    expect(link2.Model).toBe('groq-qwen-qwen3.6-27b');
+    expect(link2.Backend).toBe('groq');
+    expect(link1.KeySource).toBe('env:ANTHROPIC_API_KEY');
+    expect(link2.KeySource).toBe('env:GROQ_API_KEY');
+  });
+
+  it('4. Vocabulary — out-of-vocabulary value (wrong case) is written as empty string', () => {
+    process.env.AI_CALL_LOG_ENABLED = '1';
+    writeAICallLogEntry({ ...sample, keySource: 'Explicit' }, logPath); // wrong case
+    const { KeySource } = JSON.parse(readLines()[0]);
+    expect(KeySource).toBe(''); // 'Explicit' ≠ 'explicit', normalized to ''
+  });
+
+  it('classifyKeySource — explicit key matching a backend env var → env:<VAR>', () => {
+    const orig = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'my-gemini-key-xyz';
+    expect(classifyKeySource('my-gemini-key-xyz', 'gemini')).toBe('env:GEMINI_API_KEY');
+    if (orig === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = orig;
+  });
+
+  it('classifyKeySource — key matching AI_API_KEY for gemini → fallback:AI_API_KEY', () => {
+    const origFallback = process.env.AI_API_KEY;
+    const origGemini = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    process.env.AI_API_KEY = 'my-fallback-key-abc';
+    expect(classifyKeySource('my-fallback-key-abc', 'gemini')).toBe('fallback:AI_API_KEY');
+    if (origFallback === undefined) delete process.env.AI_API_KEY; else process.env.AI_API_KEY = origFallback;
+    if (origGemini === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = origGemini;
+  });
+
+  it('classifyKeySource — unknown key → explicit', () => {
+    expect(classifyKeySource('some-random-key-not-in-env', 'groq')).toBe('explicit');
+  });
+
+  it('classifyKeySource — empty key → empty string', () => {
+    expect(classifyKeySource('', 'gemini')).toBe('');
+  });
+});
+
+describe('t/4088 — conformance.jsonl round-trip', () => {
+  it('all 9 writer lines parse and match the fixture (field order = 10-field contract)', () => {
+    process.env.AI_CALL_LOG_ENABLED = '1';
+    const fixturePath = path.join(__dirname, '..', '..', '..', '..', 'tests', 'fixtures', 'ai-call-log', 'conformance.jsonl');
+    const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter(l => l.length > 0);
+    const writerCases = lines.slice(0, 9).map(l => JSON.parse(l) as Record<string, unknown>);
+    for (const fixture of writerCases) {
+      const entry: AICallLogEntry = {
+        scenario: fixture.Scenario as string,
+        promptId: fixture.PromptID as string,
+        promptStart: fixture.PromptStart as string,
+        retryCount: fixture.RetryCount as number,
+        status: fixture.Status as string,
+        model: fixture.Model as string,
+        backend: fixture.Backend as string,
+        keySource: fixture.KeySource as string,
+      };
+      writeAICallLogEntry(entry, logPath);
+    }
+    const written = readLines();
+    expect(written).toHaveLength(9);
+    for (let i = 0; i < 9; i++) {
+      const rec = JSON.parse(written[i]);
+      const fix = writerCases[i];
+      expect(Object.keys(rec)).toEqual(SCHEMA_FIELDS); // 10-field order
+      expect(rec.Scenario).toBe(fix.Scenario);
+      expect(rec.PromptID).toBe(fix.PromptID);
+      expect(rec.Status).toBe(fix.Status);
+      expect(rec.Model).toBe(fix.Model);
+      expect(rec.Backend).toBe(fix.Backend);
+      expect(rec.KeySource).toBe(fix.KeySource);
+    }
+  });
+
+  it('legacy 7-field line (line 10) — absent new fields read as undefined, coerce to empty string', () => {
+    const fixturePath = path.join(__dirname, '..', '..', '..', '..', 'tests', 'fixtures', 'ai-call-log', 'conformance.jsonl');
+    const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter(l => l.length > 0);
+    const legacy = JSON.parse(lines[9]);
+    expect(legacy.Model).toBeUndefined();
+    expect(legacy.Backend).toBeUndefined();
+    expect(legacy.KeySource).toBeUndefined();
+    expect(legacy.Model ?? '').toBe('');
+    expect(legacy.Backend ?? '').toBe('');
+    expect(legacy.KeySource ?? '').toBe('');
   });
 });
