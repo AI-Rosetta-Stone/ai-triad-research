@@ -33,6 +33,7 @@ import noInlineStyle from './eslint-rules/no-inline-style.js';
 import noRawDataRootRead from './eslint-rules/no-raw-data-root-read.js';
 import complexityBudget from '../lib/eslint-rules/complexity-budget.js';
 import requireWindowsHide from '../lib/eslint-rules/require-windows-hide.js';
+import noBareThrow from '../lib/eslint-rules/no-bare-throw.js';
 
 const localPlugin = {
   rules: {
@@ -44,6 +45,7 @@ const localPlugin = {
     'no-raw-data-root-read': noRawDataRootRead,
     'complexity-budget': complexityBudget,
     'require-windows-hide': requireWindowsHide,
+    'no-bare-throw': noBareThrow,
   },
 };
 
@@ -157,6 +159,16 @@ export default tseslint.config(
     ],
     rules: {
       'local/no-raw-data-root-read': 'error',
+    },
+  },
+  // ── Block A-bare-throw: no bare `throw new Error('…')` in server code (t/4153, root rule #19) ──
+  // One rule and one baseline, shared with lib (lib/eslint-rules/no-bare-throw.js). Warn-first ratchet:
+  // only a NEW bare throw warns, so today's tree adds no warnings. Promotion to 'error' is T2 (t/4092).
+  {
+    files: ['src/server/**/*.ts'],
+    ignores: TEST_GLOBS,
+    rules: {
+      'local/no-bare-throw': ['warn', { baseline: '../lib/eslint-rules/bare-throw-baseline.json' }],
     },
   },
   // ── Block B: LOC budget for test source (syntactic parse; tests are outside the
