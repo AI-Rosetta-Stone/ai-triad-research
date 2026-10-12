@@ -590,6 +590,289 @@ function Get-AIDefaultTimeoutSec {
     return $base
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Backend request profiles (t/4135 B1) — one row per backend in ai-models.json.
+# Everything Invoke-AIApi needs to BUILD a request for a backend lives in its row;
+# tests/AIBackendProfiles.Completeness.Tests.ps1 fails if a registry backend has no
+# row or a row names no registry backend. Row fields:
+#   DisplayName  — human label (matches ai-models.json backends[].label)
+#   RequestShape — body builder: gemini | claude | chat (OpenAI-compatible
+#                  /chat/completions) | openai-responses
+#   UriTemplate  — {model} = ApiModelId; {azure-endpoint} = $env:AZURE_OPENAI_ENDPOINT
+#                  (required); {ollama-host} = $env:OLLAMA_HOST or http://localhost:11434
+#   AuthStyle    — x-goog-api-key | x-api-key+anthropic-version | bearer | api-key | none
+#   ModelInBody  — the body carries "model" (azure addresses it by deployment URI and
+#                  gemini by URI path; only the chat builder branches on it)
+#   EnvHint      — the "Set ..." text of the missing-key warning (pinned by tests)
+# ─────────────────────────────────────────────────────────────────────────────
+$script:AIBackendProfiles = @{
+    'gemini'   = @{ DisplayName = 'Google Gemini'; RequestShape = 'gemini'; AuthStyle = 'x-goog-api-key'; ModelInBody = $false
+                    UriTemplate = 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
+                    EnvHint = 'GEMINI_API_KEY or AI_API_KEY' }   # the AI_API_KEY fallback is gemini-only (t/4102)
+    'claude'   = @{ DisplayName = 'Anthropic Claude'; RequestShape = 'claude'; AuthStyle = 'x-api-key+anthropic-version'; ModelInBody = $true
+                    UriTemplate = 'https://api.anthropic.com/v1/messages'; EnvHint = 'ANTHROPIC_API_KEY / CLAUDE_API_KEY' }
+    'groq'     = @{ DisplayName = 'Groq'; RequestShape = 'chat'; AuthStyle = 'bearer'; ModelInBody = $true
+                    UriTemplate = 'https://api.groq.com/openai/v1/chat/completions'; EnvHint = 'GROQ_API_KEY' }
+    'openai'   = @{ DisplayName = 'OpenAI'; RequestShape = 'openai-responses'; AuthStyle = 'bearer'; ModelInBody = $true
+                    UriTemplate = 'https://api.openai.com/v1/responses'; EnvHint = 'OPENAI_API_KEY' }
+    'azure'    = @{ DisplayName = 'Azure OpenAI'; RequestShape = 'chat'; AuthStyle = 'api-key'; ModelInBody = $false
+                    UriTemplate = '{azure-endpoint}/openai/deployments/{model}/chat/completions?api-version=2024-10-21'
+                    EnvHint = 'AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT' }
+    # t/1409 — local and keyless: no Authorization header.
+    'ollama'   = @{ DisplayName = 'Ollama (Local)'; RequestShape = 'chat'; AuthStyle = 'none'; ModelInBody = $true
+                    UriTemplate = '{ollama-host}/v1/chat/completions'; EnvHint = '(no env var — local, keyless)' }
+    'zai'      = @{ DisplayName = 'Z.AI (GLM)'; RequestShape = 'chat'; AuthStyle = 'bearer'; ModelInBody = $true   # t/1437
+                    UriTemplate = 'https://api.z.ai/api/paas/v4/chat/completions'; EnvHint = 'ZAI_API_KEY' }
+    'moonshot' = @{ DisplayName = 'Moonshot (Kimi)'; RequestShape = 'chat'; AuthStyle = 'bearer'; ModelInBody = $true   # t/1936
+                    UriTemplate = 'https://api.moonshot.ai/v1/chat/completions'; EnvHint = 'MOONSHOT_API_KEY' }
+    'xai'      = @{ DisplayName = 'xAI (Grok)'; RequestShape = 'chat'; AuthStyle = 'bearer'; ModelInBody = $true   # t/2583
+                    UriTemplate = 'https://api.x.ai/v1/chat/completions'; EnvHint = 'XAI_API_KEY' }
+    'deepseek' = @{ DisplayName = 'DeepSeek'; RequestShape = 'chat'; AuthStyle = 'bearer'; ModelInBody = $true   # t/1938
+                    UriTemplate = 'https://api.deepseek.com/v1/chat/completions'; EnvHint = 'DEEPSEEK_API_KEY' }
+}
+
+function Get-AIBackendEnvHint {
+    <#
+    .SYNOPSIS
+        The env-var hint for the missing-key warning: the backend's profile EnvHint, or the
+        unknown-backend text when $script:AIBackendProfiles has no row for it (t/4135).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Backend)
+    if ($script:AIBackendProfiles.ContainsKey($Backend)) { return $script:AIBackendProfiles[$Backend].EnvHint }
+    "(unknown backend '$Backend' — expected gemini/claude/groq/openai/azure/ollama/zai/moonshot/xai/deepseek)"
+}
+
+function Get-AIRequestUri {
+    <#
+    .SYNOPSIS
+        Expands a backend profile's UriTemplate (t/4135): {azure-endpoint} from
+        $env:AZURE_OPENAI_ENDPOINT (throws when unset), {ollama-host} from $env:OLLAMA_HOST,
+        and {model} from the ApiModelId. Trailing slashes on both env values are trimmed.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$BackendProfile, [string]$ApiModelId)
+    $Uri = $BackendProfile.UriTemplate
+    if ($Uri.Contains('{azure-endpoint}')) {
+        $AzureEndpoint = $env:AZURE_OPENAI_ENDPOINT
+        if ([string]::IsNullOrWhiteSpace($AzureEndpoint)) {
+            # PINNED BUG (t/4078): New-ActionableError is not visible from this module, so this
+            # surfaces as a CommandNotFoundException. Pinned by the characterization tests.
+            throw (New-ActionableError `
+                -Goal 'Call Azure OpenAI API' `
+                -Problem 'AZURE_OPENAI_ENDPOINT environment variable is not set' `
+                -Location 'Invoke-AIApi (azure)' `
+                -NextSteps @(
+                    'Set $env:AZURE_OPENAI_ENDPOINT to your Azure OpenAI resource URL',
+                    'Example: https://my-resource.openai.azure.com'
+                ))
+        }
+        $Uri = $Uri.Replace('{azure-endpoint}', $AzureEndpoint.TrimEnd('/'))
+    }
+    if ($Uri.Contains('{ollama-host}')) {
+        $OllamaHost = if ($env:OLLAMA_HOST) { $env:OLLAMA_HOST.TrimEnd('/') } else { 'http://localhost:11434' }
+        $Uri = $Uri.Replace('{ollama-host}', $OllamaHost)
+    }
+    $Uri.Replace('{model}', $ApiModelId)
+}
+
+function Get-AIRequestHeaderTable {
+    <#
+    .SYNOPSIS
+        The request headers for a profile AuthStyle (t/4135). 'none' (and an unknown style)
+        gives an empty table, which Invoke-AIApi sends as no Headers at all.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$AuthStyle, [string]$ResolvedKey)
+    switch ($AuthStyle) {
+        # Gemini's key travels in a header, not the URL: a ?key= query param leaks via proxy
+        # logs and PS5.1 error-record URIs (t/2530 L1).
+        'x-goog-api-key'              { return @{ 'x-goog-api-key' = $ResolvedKey } }
+        'x-api-key+anthropic-version' { return @{ 'x-api-key' = $ResolvedKey; 'anthropic-version' = '2023-06-01' } }
+        'bearer'                      { return @{ 'Authorization' = "Bearer $ResolvedKey" } }
+        'api-key'                     { return @{ 'api-key' = $ResolvedKey } }
+    }
+    return @{}
+}
+
+function Get-AIResponseFormat {
+    <#
+    .SYNOPSIS
+        The OpenAI-style structured-output format (t/4135): json_schema (strict) when a
+        ResponseSchema is given, else json_object. Used by the chat and Responses builders.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([hashtable]$ResponseSchema)
+    if ($ResponseSchema) {
+        return @{
+            type        = 'json_schema'
+            json_schema = @{
+                name   = 'response'
+                schema = $ResponseSchema
+                strict = $true
+            }
+        }
+    }
+    return @{ type = 'json_object' }
+}
+
+function New-AIChatRequestBody {
+    <#
+    .SYNOPSIS
+        Pure: the OpenAI-compatible /chat/completions body (groq, zai, moonshot, xai, deepseek,
+        ollama, azure). -IncludeModel:$false omits "model" (azure). JsonMode adds response_format.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$ApiModelId, [switch]$IncludeModel, [string]$Prompt, [string]$SystemInstruction,
+          [double]$Temperature, [int]$MaxTokens, [switch]$JsonMode, [hashtable]$ResponseSchema)
+    $Messages = [System.Collections.Generic.List[object]]::new()
+    if ($SystemInstruction) {
+        $Messages.Add(@{ role = 'system'; content = $SystemInstruction })
+    }
+    $Messages.Add(@{ role = 'user'; content = $Prompt })
+
+    if ($IncludeModel) {
+        $ChatBody = @{
+            model       = $ApiModelId
+            messages    = @($Messages)
+            temperature = $Temperature
+            max_tokens  = $MaxTokens
+        }
+    } else {
+        $ChatBody = @{
+            messages    = @($Messages)
+            temperature = $Temperature
+            max_tokens  = $MaxTokens
+        }
+    }
+    if ($JsonMode) { $ChatBody['response_format'] = Get-AIResponseFormat -ResponseSchema $ResponseSchema }
+    return $ChatBody
+}
+
+function New-AIGeminiRequestBody {
+    <#
+    .SYNOPSIS
+        Pure: the Gemini generateContent body, with all four safety categories at BLOCK_NONE.
+        JsonMode sets responseMimeType; a ResponseSchema is converted by ConvertTo-GeminiSchema.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$Prompt, [string]$SystemInstruction, [double]$Temperature, [int]$MaxTokens,
+          [switch]$JsonMode, [hashtable]$ResponseSchema)
+    $Categories = @('HARASSMENT', 'HATE_SPEECH', 'SEXUALLY_EXPLICIT', 'DANGEROUS_CONTENT')
+    $SafetyList = $Categories | ForEach-Object {
+        @{ category = "HARM_CATEGORY_$_"; threshold = 'BLOCK_NONE' }
+    }
+
+    $GenConfig = @{
+        temperature     = $Temperature
+        maxOutputTokens = $MaxTokens
+    }
+    if ($JsonMode) {
+        $GenConfig['responseMimeType'] = 'application/json'
+        if ($ResponseSchema) {
+            $GenConfig['responseSchema'] = ConvertTo-GeminiSchema -Schema $ResponseSchema
+        }
+    }
+
+    $GeminiBody = @{
+        contents         = @(@{ parts = @(@{ text = $Prompt }) })
+        generationConfig = $GenConfig
+        safetySettings   = $SafetyList
+    }
+    if ($SystemInstruction) {
+        $GeminiBody['systemInstruction'] = @{ parts = @(@{ text = $SystemInstruction }) }
+    }
+    return $GeminiBody
+}
+
+function New-AIClaudeRequestBody {
+    <#
+    .SYNOPSIS
+        Pure: the Anthropic Messages body. Claude has no JSON mode here: a ResponseSchema is
+        appended to the prompt as an instruction instead.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$ApiModelId, [string]$Prompt, [string]$SystemInstruction, [double]$Temperature,
+          [int]$MaxTokens, [hashtable]$ResponseSchema)
+    $ClaudePrompt = $Prompt
+    if ($ResponseSchema) {
+        $SchemaJson = $ResponseSchema | ConvertTo-Json -Depth 10
+        $ClaudePrompt = $Prompt + "`n`nYou MUST respond with a JSON object conforming to this schema:`n$SchemaJson"
+    }
+
+    $ClaudeBody = @{
+        model      = $ApiModelId
+        max_tokens = $MaxTokens
+        messages   = @(@{
+            role    = 'user'
+            content = $ClaudePrompt
+        })
+        temperature = $Temperature
+    }
+    if ($SystemInstruction) {
+        $ClaudeBody['system'] = $SystemInstruction
+    }
+    return $ClaudeBody
+}
+
+function New-AIOpenAIResponsesRequestBody {
+    <#
+    .SYNOPSIS
+        Pure: the OpenAI Responses API (/v1/responses) body. No temperature is sent; JsonMode
+        puts the response format under text.format.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$ApiModelId, [string]$Prompt, [string]$SystemInstruction, [int]$MaxTokens,
+          [switch]$JsonMode, [hashtable]$ResponseSchema)
+    $OpenAIBody = @{
+        model             = $ApiModelId
+        max_output_tokens = $MaxTokens
+    }
+    if ($SystemInstruction) {
+        $OpenAIBody['instructions'] = $SystemInstruction
+    }
+    $OpenAIBody['input'] = $Prompt
+    if ($JsonMode) { $OpenAIBody['text'] = @{ format = Get-AIResponseFormat -ResponseSchema $ResponseSchema } }
+    return $OpenAIBody
+}
+
+function New-AIApiRequest {
+    <#
+    .SYNOPSIS
+        Builds Invoke-AIApi's request {Uri; Headers; Body} from the backend's row in
+        $script:AIBackendProfiles (t/4135). Body is the builder's table as ConvertTo-Json
+        -Depth 10. A backend with no row gets Uri '', Headers @{} and Body ''.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$Backend, [string]$ApiModelId, [string]$ResolvedKey, [string]$Prompt,
+          [string]$SystemInstruction, [double]$Temperature, [int]$MaxTokens,
+          [switch]$JsonMode, [hashtable]$ResponseSchema)
+    $Request = @{ Uri = ''; Headers = @{}; Body = '' }
+    if (-not $script:AIBackendProfiles.ContainsKey($Backend)) { return $Request }
+    $BackendProfile = $script:AIBackendProfiles[$Backend]
+
+    $Request.Uri     = Get-AIRequestUri -BackendProfile $BackendProfile -ApiModelId $ApiModelId
+    $Request.Headers = Get-AIRequestHeaderTable -AuthStyle $BackendProfile.AuthStyle -ResolvedKey $ResolvedKey
+    $Common = @{ Prompt = $Prompt; SystemInstruction = $SystemInstruction; MaxTokens = $MaxTokens; ResponseSchema = $ResponseSchema }
+    $BodyObject = switch ($BackendProfile.RequestShape) {
+        'gemini'           { New-AIGeminiRequestBody @Common -Temperature $Temperature -JsonMode:$JsonMode }
+        'claude'           { New-AIClaudeRequestBody @Common -Temperature $Temperature -ApiModelId $ApiModelId }
+        'openai-responses' { New-AIOpenAIResponsesRequestBody @Common -ApiModelId $ApiModelId -JsonMode:$JsonMode }
+        'chat'             { New-AIChatRequestBody @Common -Temperature $Temperature -ApiModelId $ApiModelId -JsonMode:$JsonMode -IncludeModel:([bool]$BackendProfile.ModelInBody) }
+    }
+    $Request.Body = $BodyObject | ConvertTo-Json -Depth 10
+    return $Request
+}
+
 <#
 .SYNOPSIS
     Calls an AI backend with a prompt and returns the generated text.
@@ -695,7 +978,8 @@ function Invoke-AIApi {
     # -- Resolve API key ------------------------------------------------------
     # t/1409: Ollama runs models locally and has no auth surface — skip both the
     # key resolution and the missing-key gate. The key-required backends still
-    # gate as before; the $EnvHint switch stays exhaustive so no future backend
+    # gate as before; every backend's EnvHint comes from its $script:AIBackendProfiles
+    # row, which the completeness test keeps exhaustive, so no future backend
     # produces the blank-token warning (AC#1).
     $ResolvedKey = ''
     $KeySourceLabel = ''
@@ -707,19 +991,7 @@ function Invoke-AIApi {
         $ResolvedKey = Resolve-AIApiKey -ExplicitKey $ApiKey -Backend $Backend
         $KeySourceLabel = $script:LastApiKeySource   # captured now, so nothing later in the call can overwrite it (t/4088)
         if ([string]::IsNullOrWhiteSpace($ResolvedKey)) {
-            $EnvHint = switch ($Backend) {
-                'gemini' { 'GEMINI_API_KEY or AI_API_KEY' }   # the AI_API_KEY fallback is gemini-only (t/4102)
-                'claude' { 'ANTHROPIC_API_KEY / CLAUDE_API_KEY' }
-                'groq'   { 'GROQ_API_KEY' }
-                'openai' { 'OPENAI_API_KEY' }
-                'azure'  { 'AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT' }
-                'ollama' { '(no env var — local, keyless)' }
-                'zai'    { 'ZAI_API_KEY' }
-                'moonshot' { 'MOONSHOT_API_KEY' }
-                'xai'    { 'XAI_API_KEY' }
-                'deepseek' { 'DEEPSEEK_API_KEY' }
-                default  { "(unknown backend '$Backend' — expected gemini/claude/groq/openai/azure/ollama/zai/moonshot/xai/deepseek)" }
-            }
+            $EnvHint = Get-AIBackendEnvHint -Backend $Backend
             Write-Warning "No API key found for $Backend backend. Set $EnvHint."
             return $null
         }
@@ -762,392 +1034,15 @@ function Invoke-AIApi {
     if ($ResponseSchema) { $JsonMode = [switch]::Present }
 
     # -- Build backend-specific request ---------------------------------------
-    $Uri         = ''
-    $Headers     = @{}
-    $Body        = ''
+    # t/4135 B1: the per-backend facts live in $script:AIBackendProfiles; New-AIApiRequest builds
+    # the URI, headers and JSON body from the backend's row (an unknown backend gets '' / @{} / '').
+    $Request = New-AIApiRequest -Backend $Backend -ApiModelId $ApiModelId -ResolvedKey $ResolvedKey `
+        -Prompt $Prompt -SystemInstruction $SystemInstruction -Temperature $Temperature -MaxTokens $MaxTokens `
+        -JsonMode:$JsonMode -ResponseSchema $ResponseSchema
+    $Uri         = $Request.Uri
+    $Headers     = $Request.Headers
+    $Body        = $Request.Body
     $ContentType = 'application/json; charset=utf-8'
-
-    switch ($Backend) {
-        'gemini' {
-            # Key travels in the x-goog-api-key header, not the URL — a ?key= query
-            # param leaks via proxy logs and PS5.1 error-record URIs (t/2530 L1).
-            $Uri = "https://generativelanguage.googleapis.com/v1beta/models/${ApiModelId}:generateContent"
-            $Headers['x-goog-api-key'] = $ResolvedKey
-
-            $Categories = @('HARASSMENT', 'HATE_SPEECH', 'SEXUALLY_EXPLICIT', 'DANGEROUS_CONTENT')
-            $SafetyList = $Categories | ForEach-Object {
-                @{ category = "HARM_CATEGORY_$_"; threshold = 'BLOCK_NONE' }
-            }
-
-            $GenConfig = @{
-                temperature     = $Temperature
-                maxOutputTokens = $MaxTokens
-            }
-            if ($JsonMode) {
-                $GenConfig['responseMimeType'] = 'application/json'
-                if ($ResponseSchema) {
-                    $GenConfig['responseSchema'] = ConvertTo-GeminiSchema -Schema $ResponseSchema
-                }
-            }
-
-            $GeminiBody = @{
-                contents         = @(@{ parts = @(@{ text = $Prompt }) })
-                generationConfig = $GenConfig
-                safetySettings   = $SafetyList
-            }
-            if ($SystemInstruction) {
-                $GeminiBody['systemInstruction'] = @{ parts = @(@{ text = $SystemInstruction }) }
-            }
-            $Body = $GeminiBody | ConvertTo-Json -Depth 10
-        }
-
-        'claude' {
-            $Uri = 'https://api.anthropic.com/v1/messages'
-            $Headers = @{
-                'x-api-key'         = $ResolvedKey
-                'anthropic-version' = '2023-06-01'
-            }
-
-            $ClaudePrompt = $Prompt
-            if ($ResponseSchema) {
-                $SchemaJson = $ResponseSchema | ConvertTo-Json -Depth 10
-                $ClaudePrompt = $Prompt + "`n`nYou MUST respond with a JSON object conforming to this schema:`n$SchemaJson"
-            }
-
-            $ClaudeBody = @{
-                model      = $ApiModelId
-                max_tokens = $MaxTokens
-                messages   = @(@{
-                    role    = 'user'
-                    content = $ClaudePrompt
-                })
-                temperature = $Temperature
-            }
-            if ($SystemInstruction) {
-                $ClaudeBody['system'] = $SystemInstruction
-            }
-            $Body = $ClaudeBody | ConvertTo-Json -Depth 10
-        }
-
-        'groq' {
-            $Uri = 'https://api.groq.com/openai/v1/chat/completions'
-            $Headers = @{
-                'Authorization' = "Bearer $ResolvedKey"
-            }
-
-            $GroqMessages = [System.Collections.Generic.List[object]]::new()
-            if ($SystemInstruction) {
-                $GroqMessages.Add(@{ role = 'system'; content = $SystemInstruction })
-            }
-            $GroqMessages.Add(@{ role = 'user'; content = $Prompt })
-
-            $GroqBody = @{
-                model       = $ApiModelId
-                messages    = @($GroqMessages)
-                temperature = $Temperature
-                max_tokens  = $MaxTokens
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $GroqBody['response_format'] = @{
-                        type        = 'json_schema'
-                        json_schema = @{
-                            name   = 'response'
-                            schema = $ResponseSchema
-                            strict = $true
-                        }
-                    }
-                } else {
-                    $GroqBody['response_format'] = @{ type = 'json_object' }
-                }
-            }
-
-            $Body = $GroqBody | ConvertTo-Json -Depth 10
-        }
-
-        # t/1437 — z.ai / GLM-5.3 exposes an OpenAI-compatible /chat/completions endpoint
-        # at https://api.z.ai/api/paas/v4/. Request shape matches Groq exactly; the only
-        # differences are the URL and that we point at $ApiModelId directly. 1M-token
-        # context ($script:ContextWindows.zai) so the pre-flight token check tolerates
-        # very large prompts sanely.
-        'zai' {
-            $Uri = 'https://api.z.ai/api/paas/v4/chat/completions'
-            $Headers = @{
-                'Authorization' = "Bearer $ResolvedKey"
-            }
-
-            $ZaiMessages = [System.Collections.Generic.List[object]]::new()
-            if ($SystemInstruction) {
-                $ZaiMessages.Add(@{ role = 'system'; content = $SystemInstruction })
-            }
-            $ZaiMessages.Add(@{ role = 'user'; content = $Prompt })
-
-            $ZaiBody = @{
-                model       = $ApiModelId
-                messages    = @($ZaiMessages)
-                temperature = $Temperature
-                max_tokens  = $MaxTokens
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $ZaiBody['response_format'] = @{
-                        type        = 'json_schema'
-                        json_schema = @{
-                            name   = 'response'
-                            schema = $ResponseSchema
-                            strict = $true
-                        }
-                    }
-                } else {
-                    $ZaiBody['response_format'] = @{ type = 'json_object' }
-                }
-            }
-
-            $Body = $ZaiBody | ConvertTo-Json -Depth 10
-        }
-
-        # t/1936 — Moonshot (Kimi) exposes an OpenAI-compatible /chat/completions
-        # endpoint at https://api.moonshot.ai/v1. Request shape matches Groq/z.ai
-        # exactly (Bearer auth, system+user messages); the model id (kimi-k3) flows
-        # from ai-models.json via $ApiModelId. 1M-token context
-        # ($script:ContextWindows.moonshot) so the pre-flight token check tolerates
-        # very large prompts sanely.
-        'moonshot' {
-            $Uri = 'https://api.moonshot.ai/v1/chat/completions'
-            $Headers = @{
-                'Authorization' = "Bearer $ResolvedKey"
-            }
-
-            $MoonshotMessages = [System.Collections.Generic.List[object]]::new()
-            if ($SystemInstruction) {
-                $MoonshotMessages.Add(@{ role = 'system'; content = $SystemInstruction })
-            }
-            $MoonshotMessages.Add(@{ role = 'user'; content = $Prompt })
-
-            $MoonshotBody = @{
-                model       = $ApiModelId
-                messages    = @($MoonshotMessages)
-                temperature = $Temperature
-                max_tokens  = $MaxTokens
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $MoonshotBody['response_format'] = @{
-                        type        = 'json_schema'
-                        json_schema = @{
-                            name   = 'response'
-                            schema = $ResponseSchema
-                            strict = $true
-                        }
-                    }
-                } else {
-                    $MoonshotBody['response_format'] = @{ type = 'json_object' }
-                }
-            }
-
-            $Body = $MoonshotBody | ConvertTo-Json -Depth 10
-        }
-
-        # t/2583 — xAI (Grok) exposes an OpenAI-compatible /chat/completions
-        # endpoint at https://api.x.ai/v1. Request shape matches Groq/z.ai/Moonshot
-        # exactly (Bearer auth, system+user messages); the model id (grok-4.6) flows
-        # from ai-models.json via $ApiModelId. 500K-token context
-        # ($script:ContextWindows.xai) so the pre-flight token check tolerates
-        # very large prompts sanely.
-        'xai' {
-            $Uri = 'https://api.x.ai/v1/chat/completions'
-            $Headers = @{
-                'Authorization' = "Bearer $ResolvedKey"
-            }
-
-            $XaiMessages = [System.Collections.Generic.List[object]]::new()
-            if ($SystemInstruction) {
-                $XaiMessages.Add(@{ role = 'system'; content = $SystemInstruction })
-            }
-            $XaiMessages.Add(@{ role = 'user'; content = $Prompt })
-
-            $XaiBody = @{
-                model       = $ApiModelId
-                messages    = @($XaiMessages)
-                temperature = $Temperature
-                max_tokens  = $MaxTokens
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $XaiBody['response_format'] = @{
-                        type        = 'json_schema'
-                        json_schema = @{
-                            name   = 'response'
-                            schema = $ResponseSchema
-                            strict = $true
-                        }
-                    }
-                } else {
-                    $XaiBody['response_format'] = @{ type = 'json_object' }
-                }
-            }
-
-            $Body = $XaiBody | ConvertTo-Json -Depth 10
-        }
-
-        # t/1938 — DeepSeek exposes an OpenAI-compatible /v1/chat/completions endpoint
-        # at https://api.deepseek.com/. Bearer auth ($env:DEEPSEEK_API_KEY); request
-        # shape matches Groq/z.ai exactly. 64K-token context ($script:ContextWindows.deepseek).
-        'deepseek' {
-            $Uri = 'https://api.deepseek.com/v1/chat/completions'
-            $Headers = @{
-                'Authorization' = "Bearer $ResolvedKey"
-            }
-
-            $DeepSeekMessages = [System.Collections.Generic.List[object]]::new()
-            if ($SystemInstruction) {
-                $DeepSeekMessages.Add(@{ role = 'system'; content = $SystemInstruction })
-            }
-            $DeepSeekMessages.Add(@{ role = 'user'; content = $Prompt })
-
-            $DeepSeekBody = @{
-                model       = $ApiModelId
-                messages    = @($DeepSeekMessages)
-                temperature = $Temperature
-                max_tokens  = $MaxTokens
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $DeepSeekBody['response_format'] = @{
-                        type        = 'json_schema'
-                        json_schema = @{
-                            name   = 'response'
-                            schema = $ResponseSchema
-                            strict = $true
-                        }
-                    }
-                } else {
-                    $DeepSeekBody['response_format'] = @{ type = 'json_object' }
-                }
-            }
-
-            $Body = $DeepSeekBody | ConvertTo-Json -Depth 10
-        }
-
-        # t/1409 — Ollama exposes an OpenAI-compatible /v1/chat/completions endpoint
-        # on http://localhost:11434 with no auth. Request shape matches Groq exactly.
-        'ollama' {
-            $OllamaHost = if ($env:OLLAMA_HOST) { $env:OLLAMA_HOST.TrimEnd('/') } else { 'http://localhost:11434' }
-            $Uri = "$OllamaHost/v1/chat/completions"
-            # No Authorization header — Ollama is local, keyless.
-            $OllamaMessages = [System.Collections.Generic.List[object]]::new()
-            if ($SystemInstruction) {
-                $OllamaMessages.Add(@{ role = 'system'; content = $SystemInstruction })
-            }
-            $OllamaMessages.Add(@{ role = 'user'; content = $Prompt })
-
-            $OllamaBody = @{
-                model       = $ApiModelId
-                messages    = @($OllamaMessages)
-                temperature = $Temperature
-                max_tokens  = $MaxTokens
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $OllamaBody['response_format'] = @{
-                        type        = 'json_schema'
-                        json_schema = @{
-                            name   = 'response'
-                            schema = $ResponseSchema
-                            strict = $true
-                        }
-                    }
-                } else {
-                    $OllamaBody['response_format'] = @{ type = 'json_object' }
-                }
-            }
-
-            $Body = $OllamaBody | ConvertTo-Json -Depth 10
-        }
-
-        'azure' {
-            $AzureEndpoint = $env:AZURE_OPENAI_ENDPOINT
-            if ([string]::IsNullOrWhiteSpace($AzureEndpoint)) {
-                throw (New-ActionableError `
-                    -Goal 'Call Azure OpenAI API' `
-                    -Problem 'AZURE_OPENAI_ENDPOINT environment variable is not set' `
-                    -Location 'Invoke-AIApi (azure)' `
-                    -NextSteps @(
-                        'Set $env:AZURE_OPENAI_ENDPOINT to your Azure OpenAI resource URL',
-                        'Example: https://my-resource.openai.azure.com'
-                    ))
-            }
-            $AzureEndpoint = $AzureEndpoint.TrimEnd('/')
-            $Uri = "$AzureEndpoint/openai/deployments/$ApiModelId/chat/completions?api-version=2024-10-21"
-            $Headers = @{
-                'api-key' = $ResolvedKey
-            }
-
-            $AzureMessages = [System.Collections.Generic.List[object]]::new()
-            if ($SystemInstruction) {
-                $AzureMessages.Add(@{ role = 'system'; content = $SystemInstruction })
-            }
-            $AzureMessages.Add(@{ role = 'user'; content = $Prompt })
-
-            $AzureBody = @{
-                messages    = @($AzureMessages)
-                temperature = $Temperature
-                max_tokens  = $MaxTokens
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $AzureBody['response_format'] = @{
-                        type        = 'json_schema'
-                        json_schema = @{
-                            name   = 'response'
-                            schema = $ResponseSchema
-                            strict = $true
-                        }
-                    }
-                } else {
-                    $AzureBody['response_format'] = @{ type = 'json_object' }
-                }
-            }
-
-            $Body = $AzureBody | ConvertTo-Json -Depth 10
-        }
-
-        'openai' {
-            $Uri = 'https://api.openai.com/v1/responses'
-            $Headers = @{
-                'Authorization' = "Bearer $ResolvedKey"
-            }
-
-            $OpenAIBody = @{
-                model             = $ApiModelId
-                max_output_tokens = $MaxTokens
-            }
-            if ($SystemInstruction) {
-                $OpenAIBody['instructions'] = $SystemInstruction
-                $OpenAIBody['input'] = $Prompt
-            } else {
-                $OpenAIBody['input'] = $Prompt
-            }
-            if ($JsonMode) {
-                if ($ResponseSchema) {
-                    $OpenAIBody['text'] = @{
-                        format = @{
-                            type        = 'json_schema'
-                            json_schema = @{
-                                name   = 'response'
-                                schema = $ResponseSchema
-                                strict = $true
-                            }
-                        }
-                    }
-                } else {
-                    $OpenAIBody['text'] = @{ format = @{ type = 'json_object' } }
-                }
-            }
-
-            $Body = $OpenAIBody | ConvertTo-Json -Depth 10
-        }
-    }
 
     # -- Call API with retry logic --------------------------------------------
     $Response  = $null
