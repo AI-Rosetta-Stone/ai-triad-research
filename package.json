@@ -9,6 +9,7 @@
     "evals": "node evals/run.mjs",
     "gen:code-referenced-models": "tsx lib/ai-config/genCodeReferencedModels.ts",
     "gen:behaviour-revision": "tsx lib/debate/calibrationLogger/genBehaviourRevision.ts",
+    "models:drift": "tsx lib/electron-shared/modelsDrift.ts",
     "verify:config": "pwsh -File scripts/Verify-Config.ps1"
   },
   "devDependencies": {
