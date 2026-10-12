@@ -170,7 +170,7 @@ Describe 'Invoke-AIApi Claude temperature-rejection memo (t/4164)' -Tag 'enrichm
 
     It 'a temperature-deprecated 400 from a non-Claude backend is not re-sent' {
         script:Set-Replies @((script:New-HttpError 400 $script:DeprecatedBody), (script:New-ChatOk 'never'))
-        $out = script:Invoke-Call (script:Base 'groq-llama-3.3-70b-versatile')
+        $out = script:Invoke-Call (script:Base 'groq-openai-gpt-oss-120b')
         $out.Result | Should -BeNullOrEmpty
         $script:Calls.Count | Should -Be 1
         @(script:Get-RejectionWarnings $out.Warnings).Count | Should -Be 0

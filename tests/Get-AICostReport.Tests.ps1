@@ -36,7 +36,7 @@ Describe 'Get-AICostReport' -Tag 'cost' {
 
         $Lines = @(
             '{"ts":"2026-01-01T00:00:00Z","model":"gemini-3.5-flash-lite","backend":"gemini","promptTokens":1000,"completionTokens":500,"cachedTokens":200}'
-            '{"ts":"2026-01-02T00:00:00Z","model":"llama-3.3-70b-versatile","backend":"groq","promptTokens":2000,"completionTokens":1000}'
+            '{"ts":"2026-01-02T00:00:00Z","model":"openai/gpt-oss-120b","backend":"groq","promptTokens":2000,"completionTokens":1000}'
             '{"ts":"2026-01-03T00:00:00Z","model":"totally-unknown-model","backend":"unknownbackend","promptTokens":100,"completionTokens":50}'
             '{not valid json'
             '{"ts":"2026-01-04T00:00:00Z","model":"gemini-3.5-flash-lite","backend":"gemini"}'
@@ -65,8 +65,8 @@ Describe 'Get-AICostReport' -Tag 'cost' {
 
     It 'computes cost via the (backend, apiModelId) map (t/3951 -- bare apiModelId alone has no pricing match)' {
         $r = Get-AICostReport -Path $script:usageFile -PassThru -GroupBy Model
-        $Row = $r.Breakdown | Where-Object { $_.Group -eq 'llama-3.3-70b-versatile' }
-        $Row.EstimatedCost | Should -Be ([Math]::Round((2000 * 0.59 + 1000 * 0.79) / 1000000, 4))
+        $Row = $r.Breakdown | Where-Object { $_.Group -eq 'openai/gpt-oss-120b' }
+        $Row.EstimatedCost | Should -Be ([Math]::Round((2000 * 0.15 + 1000 * 0.60) / 1000000, 4))
     }
 
     It 'marks an entry with no pricing match at all as zero-cost, still counted' {

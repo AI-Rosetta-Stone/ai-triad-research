@@ -28,7 +28,7 @@ BeforeAll {
 
     $script:D = [string][char]0x2014   # em dash, as in Invoke-AIApi's messages
     $script:Key = 'unit-test-key-t4078'
-    $script:Groq = 'groq-llama-3.3-70b-versatile'
+    $script:Groq = 'groq-openai-gpt-oss-120b'
     $script:KeyVars = @('GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'GROQ_API_KEY', 'OPENAI_API_KEY',
         'AZURE_OPENAI_API_KEY', 'ZAI_API_KEY', 'MOONSHOT_API_KEY', 'XAI_API_KEY', 'DEEPSEEK_API_KEY', 'AI_API_KEY',
         'AZURE_OPENAI_ENDPOINT', 'OLLAMA_HOST')
@@ -279,11 +279,11 @@ Describe 'Invoke-AIApi retry policy and empty-text handling (t/4078)' -Tag 'enri
                Envelope = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = 'MAX_TOKENS'; content = [pscustomobject]@{ parts = @([pscustomobject]@{ text = '' }) } }) } }
             @{ Name = 'claude max_tokens, thinking only'; Model = 'claude-haiku-4-5'; HostFrag = 'api.anthropic.com'; Reason = 'stop_reason=max_tokens'
                Envelope = [pscustomobject]@{ content = @([pscustomobject]@{ type = 'thinking'; thinking = 'hmm' }); stop_reason = 'max_tokens' } }
-            @{ Name = 'chat length, empty content'; Model = 'groq-llama-3.3-70b-versatile'; HostFrag = 'api.groq.com'; Reason = 'finish_reason=length'
+            @{ Name = 'chat length, empty content'; Model = 'groq-openai-gpt-oss-120b'; HostFrag = 'api.groq.com'; Reason = 'finish_reason=length'
                Envelope = [pscustomobject]@{ choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = '' }; finish_reason = 'length' }) } }
-            @{ Name = 'chat content_filter'; Model = 'groq-llama-3.3-70b-versatile'; HostFrag = 'api.groq.com'; Reason = 'finish_reason=content_filter'
+            @{ Name = 'chat content_filter'; Model = 'groq-openai-gpt-oss-120b'; HostFrag = 'api.groq.com'; Reason = 'finish_reason=content_filter'
                Envelope = [pscustomobject]@{ choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = $null }; finish_reason = 'content_filter' }) } }
-            @{ Name = 'chat whitespace-only text'; Model = 'groq-llama-3.3-70b-versatile'; HostFrag = 'api.groq.com'; Reason = 'finish_reason=stop'
+            @{ Name = 'chat whitespace-only text'; Model = 'groq-openai-gpt-oss-120b'; HostFrag = 'api.groq.com'; Reason = 'finish_reason=stop'
                Envelope = [pscustomobject]@{ choices = @([pscustomobject]@{ message = [pscustomobject]@{ content = "  `n " }; finish_reason = 'stop' }) } }
             @{ Name = 'openai incomplete'; Model = 'openai-gpt-4o'; HostFrag = 'api.openai.com'; Reason = 'status=incomplete, incomplete_details.reason=max_output_tokens'
                Envelope = [pscustomobject]@{ output = @([pscustomobject]@{ type = 'reasoning' }); status = 'incomplete'; incomplete_details = [pscustomobject]@{ reason = 'max_output_tokens' } } }
