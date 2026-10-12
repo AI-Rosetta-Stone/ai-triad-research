@@ -368,7 +368,8 @@ Op-ed generation applies a conditional readability edit pass (`lib/oped/readabil
 
 | Date | Slot | Old → new | How | Authorization |
 |---|---|---|---|---|
-| — | — | — | — | *(no epoch boundary recorded yet)* |
+| 2026-10-12 | debateTiers.basic.groq | groq-llama-3.1-8b-instant → groq-openai-gpt-oss-20b | manual edit (forced: Groq retired the old model, live 404) | CL sign-off p/3#289; TL t/4159 (p/342#663) |
+| 2026-10-12 | debateTiers.advanced.groq | groq-llama-3.3-70b-versatile → groq-openai-gpt-oss-120b | manual edit (forced: Groq retired the old model) | CL sign-off p/3#289; TL t/4159 (p/342#663) |
 
 **Who writes the row:** nothing writes it automatically. The t/3553 refresh tool records an accepted proposal only as a flight-recorder `signoff` event, which is forensics, not this table (t/4032). So **every change to a `defaults` or `debateTiers` model, whether by accepted proposal or by hand edit, must add its row above in the same PR.**
 
