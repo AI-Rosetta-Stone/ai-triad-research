@@ -321,16 +321,10 @@ $ChunkText
             }
 
             $ChunkResults.Add($ChunkObj)
-            $ChunkPts = 0
-            $ChunkNulls = 0
-            foreach ($c in @('accelerationist','safetyist','skeptic')) {
-                $campObj = $ChunkObj.pov_summaries.$c
-                if ($campObj -and $campObj.PSObject.Properties['key_points'] -and $campObj.key_points) {
-                    $pts = @($campObj.key_points)
-                    $ChunkPts += $pts.Count
-                    $ChunkNulls += @($pts | Where-Object { $null -eq $_.taxonomy_node_id }).Count
-                }
-            }
+            # Guarded (t/4172): a key point with no taxonomy_node_id field threw here, after the chunk was added.
+            $ChunkKpCounts = Get-SummaryKeyPointNodeCount -SummaryObject $ChunkObj -Context "Invoke-ChunkedSummary ($ThisDocId chunk $ChunkNum)"
+            $ChunkPts = $ChunkKpCounts.TotalPoints
+            $ChunkNulls = $ChunkKpCounts.NullNodes
             $ChunkFacts = if ($ChunkObj.PSObject.Properties['factual_claims'] -and $ChunkObj.factual_claims) { @($ChunkObj.factual_claims).Count } else { 0 }
             $ChunkUnmapped = if ($ChunkObj.PSObject.Properties['unmapped_concepts'] -and $ChunkObj.unmapped_concepts) { @($ChunkObj.unmapped_concepts).Count } else { 0 }
             $ChunkExtractionStats.TotalPoints += $ChunkPts

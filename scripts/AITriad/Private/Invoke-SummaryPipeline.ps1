@@ -328,31 +328,12 @@ $SnapshotText
     }
 
     # ── Stage 6: Unmapped concept resolution ──────────────────────────────────
-    $UnmappedRaw = if ($SummaryObject.PSObject.Properties['unmapped_concepts']) { $SummaryObject.unmapped_concepts } else { $null }
-    if ($UnmappedRaw -and @($UnmappedRaw).Count -gt 0) {
-        try {
-            $Resolution = Resolve-UnmappedConcepts -UnmappedConcepts @($UnmappedRaw)
-            if ($Resolution.Resolved.Count -gt 0) {
-                $SummaryObject.unmapped_concepts = @($Resolution.Remaining)
-                Write-Verbose "Pipeline: resolved $($Resolution.Resolved.Count) unmapped concept(s)"
-            }
-        }
-        catch {
-            Write-Verbose "Pipeline: unmapped resolution failed — $($_.Exception.Message)"
-        }
-    }
+    Resolve-PipelineUnmappedConcepts -SummaryObject $SummaryObject -DocId $DocId
 
     # ── Stage 7: Collect stats and return ─────────────────────────────────────
     $Elapsed = (Get-Date) - $PipelineStart
-    $Camps = @('accelerationist', 'safetyist', 'skeptic')
-    $TotalPoints = 0; $NullNodes = 0
-    foreach ($Camp in $Camps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
-        if ($CampData -and $CampData.PSObject.Properties['key_points'] -and $CampData.key_points) {
-            $TotalPoints += @($CampData.key_points).Count
-            $NullNodes += @($CampData.key_points | Where-Object { $null -eq $_.taxonomy_node_id }).Count
-        }
-    }
+    $KpCounts = Get-SummaryKeyPointNodeCount -SummaryObject $SummaryObject -Context "Invoke-SummaryPipeline ($DocId)"
+    $TotalPoints = $KpCounts.TotalPoints; $NullNodes = $KpCounts.NullNodes
     $FactualRaw = if ($SummaryObject.PSObject.Properties['factual_claims']) { $SummaryObject.factual_claims } else { $null }
     if ($FactualRaw) { $FactualCount = @($FactualRaw).Count } else { $FactualCount = 0 }
     $UnmappedRaw2 = if ($SummaryObject.PSObject.Properties['unmapped_concepts']) { $SummaryObject.unmapped_concepts } else { $null }
@@ -394,4 +375,68 @@ $SnapshotText
         TaxonomyJson   = $TaxonomyJson
         UsedFire       = [bool]$IterativeExtraction
     }
+}
+
+function Resolve-PipelineUnmappedConcepts {
+    <#
+    .SYNOPSIS
+        Stage 6 of Invoke-SummaryPipeline: cross-POV fuzzy match on the model's unmapped_concepts.
+        When any concept resolves, $SummaryObject.unmapped_concepts becomes the remaining ones.
+    .DESCRIPTION
+        Null entries are skipped with a WARN that names how many (t/4168). Resolve-UnmappedConcepts
+        takes [object[]] without [AllowNull()], so a single null used to fail the whole step with
+        "Cannot bind argument ... because it is null". When nothing resolves, the summary is left as
+        is, nulls included; Finalize-Summary drops them (t/3907).
+        A failure is a fallback (every concept stays unmapped), so it is a WARN, not Verbose (t/4168).
+    #>
+    param([object]$SummaryObject, [string]$DocId)
+    $UnmappedRaw = Get-SummaryProp $SummaryObject 'unmapped_concepts'
+    if (-not $UnmappedRaw -or @($UnmappedRaw).Count -eq 0) { return }
+    $All = @($UnmappedRaw)
+    $Concepts = @($All.Where({ $null -ne $_ }))
+    $NullCount = $All.Count - $Concepts.Count
+    if ($NullCount -gt 0) {
+        Write-Warning "Invoke-SummaryPipeline: skipped $NullCount null unmapped_concepts entry/entries for '$DocId' before unmapped resolution (t/4168)"
+    }
+    if ($Concepts.Count -eq 0) { return }
+    try {
+        $Resolution = Resolve-UnmappedConcepts -UnmappedConcepts $Concepts
+        $ResolvedCount = @($Resolution.Resolved).Count
+        if ($ResolvedCount -gt 0) {
+            $SummaryObject.unmapped_concepts = @($Resolution.Remaining)
+            Write-Verbose "Pipeline: resolved $ResolvedCount unmapped concept(s)"
+        }
+    }
+    catch {
+        Write-Warning "Invoke-SummaryPipeline: unmapped concept resolution failed for '$DocId' — keeping all $($Concepts.Count) unmapped concept(s) unresolved: $($_.Exception.Message)"
+    }
+}
+
+function Get-SummaryKeyPointNodeCount {
+    <#
+    .SYNOPSIS
+        @{ TotalPoints; NullNodes } over the three camps' key_points (summary as PSCustomObject or dictionary).
+    .DESCRIPTION
+        Used by Invoke-SummaryPipeline's Stage 7 and by each chunk in Invoke-ChunkedSummary. Their
+        inline reads of $_.taxonomy_node_id threw under StrictMode on a key point without that field,
+        before Finalize-Summary's guard (Repair-SummaryKeyPointFields) could run (t/4172). A key point
+        with no taxonomy_node_id field, or a null key point, now counts as unmapped like a null node
+        ID, and the missing fields get one WARN per camp naming the count. A missing camp or
+        key_points list counts as no points, as it did.
+    #>
+    param([object]$SummaryObject, [string]$Context)
+    $TotalPoints = 0; $NullNodes = 0
+    $PovSummaries = Get-SummaryProp $SummaryObject 'pov_summaries'
+    foreach ($Camp in $script:AITriadPovCamps) {
+        $KeyPoints = Get-SummaryProp (Get-SummaryProp $PovSummaries $Camp) 'key_points'
+        if (-not $KeyPoints) { continue }
+        $Points = @($KeyPoints)
+        $NoField = @($Points.Where({ $null -eq $_ -or -not (Test-SummaryField $_ 'taxonomy_node_id') })).Count
+        if ($NoField -gt 0) {
+            Write-Warning "${Context}: $NoField key point(s) in pov_summaries.$Camp have no taxonomy_node_id field — counting them as unmapped (t/4172)"
+        }
+        $TotalPoints += $Points.Count
+        $NullNodes += @($Points.Where({ $null -eq (Get-SummaryProp $_ 'taxonomy_node_id') })).Count
+    }
+    @{ TotalPoints = $TotalPoints; NullNodes = $NullNodes }
 }

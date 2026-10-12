@@ -333,12 +333,15 @@ function Resolve-SummaryUnmappedConcepts {
     .DESCRIPTION
         Resolved concepts are printed and removed from $SummaryObject.unmapped_concepts. A failure is
         a fallback (every concept stays unmapped), so it is a WARN naming that condition (t/4079).
+        On the single-call path Invoke-SummaryPipeline has already run one resolution pass, so its
+        context_rot stage is folded into this one (Merge-UnmappedResolutionStage, t/4168).
     #>
     param([object]$SummaryObject, [object]$UnmappedConcs, [int]$UnmappedCount)
     $State = @{ Concepts = $UnmappedConcs; Count = $UnmappedCount }
     if ($UnmappedCount -le 0) { return $State }
     try {
         $Resolution = Resolve-UnmappedConcepts -UnmappedConcepts @($SummaryObject.unmapped_concepts)
+        Merge-UnmappedResolutionStage
         if (@($Resolution.Resolved).Count -gt 0) {
             foreach ($R in @($Resolution.Resolved)) {
                 Write-Host "  │  ✔ Resolved: '$($R.ConceptLabel)' → $($R.MatchedNodeId) (score $($R.Score))" -ForegroundColor Green
@@ -357,6 +360,46 @@ function Resolve-SummaryUnmappedConcepts {
         Write-Warning "Finalize-Summary: unmapped concept resolution failed — keeping all $UnmappedCount unmapped concept(s) unresolved: $($_.Exception.Message)"
     }
     return $State
+}
+
+function Merge-UnmappedResolutionStage {
+    <#
+    .SYNOPSIS
+        Folds every 'unmapped_resolution' context_rot stage into one, at the position of the last.
+    .DESCRIPTION
+        On the single-call path both Invoke-SummaryPipeline (Stage 6) and Finalize-Summary resolve
+        unmapped concepts, and each Resolve-UnmappedConcepts call recorded a stage, so the summary's
+        context_rot.stages listed unmapped_resolution twice (t/4168). Both passes still run: the second
+        one sees concepts the first could not, those Move-HallucinatedNodeIdsToUnmapped rerouted and
+        those whose ID-shaped label was replaced, so skipping it would change which concepts resolve.
+        The one stage left describes resolution as a whole:
+          in_count        = the first pass's input, plus the concepts added before each later pass
+                            (a later pass's input minus the previous pass's output);
+          out_count       = still unmapped after the last pass;
+          resolved_count  = the sum over the passes;
+          near_miss_count, threshold, used_embeddings = the last pass's (they describe the concepts
+                            that remain).
+        A single stage, or none, is left as is.
+    #>
+    $Stages = @($script:ContextRotStages)
+    $Idx = @(for ($i = 0; $i -lt $Stages.Count; $i++) { if ((Get-SummaryProp $Stages[$i] 'stage') -eq 'unmapped_resolution') { $i } })
+    if ($Idx.Count -lt 2) { return }
+    $InCount = $Stages[$Idx[0]]['in_count']
+    $Resolved = 0
+    for ($k = 0; $k -lt $Idx.Count; $k++) {
+        $Pass = $Stages[$Idx[$k]]
+        if ($k -gt 0) { $InCount += [Math]::Max(0, $Pass['in_count'] - $Stages[$Idx[$k - 1]]['out_count']) }
+        $Resolved += $Pass['flags']['resolved_count']
+    }
+    $Last = $Stages[$Idx[-1]]
+    $Flags = @{}
+    foreach ($Key in @($Last['flags'].Keys)) { $Flags[$Key] = $Last['flags'][$Key] }
+    $Flags['resolved_count'] = $Resolved
+    $Merged = New-ContextRotStage -Stage 'unmapped_resolution' -InUnits $Last['in_units'] -InCount $InCount `
+        -OutUnits $Last['out_units'] -OutCount $Last['out_count'] -Flags $Flags
+    $script:ContextRotStages = @(for ($i = 0; $i -lt $Stages.Count; $i++) {
+            if ($i -eq $Idx[-1]) { $Merged } elseif ($i -notin $Idx) { $Stages[$i] }
+        })
 }
 
 function New-SummaryModelInfo {

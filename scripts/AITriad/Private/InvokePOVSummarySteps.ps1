@@ -253,17 +253,22 @@ function Get-POVSummaryTaxonomyNodeCount {
 }
 
 function Get-POVSummaryModelInfo {
-    param([string]$Model, [double]$Temperature, $UsedFire, $FireStats, [switch]$FullTaxonomy, $TaxonomyNodeCount)
+    # max_tokens is the extraction call's MaxTokens as Invoke-SummaryPipeline returns it, and
+    # fire_confidence_threshold is the threshold FIRE reports in its FireStats (confidence_threshold),
+    # as in New-SummaryModelInfo (t/4079). Both used to be hard-coded here (32768 and 0.7, t/4172).
+    # Either is recorded as null when the caller does not know it, rather than as a made-up number.
+    param([string]$Model, [double]$Temperature, $UsedFire, $FireStats, [switch]$FullTaxonomy, $TaxonomyNodeCount,
+          [object]$MaxTokens = $null)
     $ModelInfo = [ordered]@{
         model             = $Model
         temperature       = $Temperature
-        max_tokens        = 32768
+        max_tokens        = $MaxTokens
         extraction_mode   = if ($UsedFire) { 'fire' } else { 'single_shot' }
         taxonomy_filter   = if ($FullTaxonomy) { 'full' } else { 'rag' }
         taxonomy_nodes    = $TaxonomyNodeCount
     }
     if ($UsedFire -and $FireStats) {
-        $ModelInfo['fire_confidence_threshold'] = 0.7
+        $ModelInfo['fire_confidence_threshold'] = Get-SummaryField $FireStats 'confidence_threshold'
         $ModelInfo['fire_stats'] = [ordered]@{
             api_calls          = $FireStats.total_api_calls
             iterations         = $FireStats.total_iterations

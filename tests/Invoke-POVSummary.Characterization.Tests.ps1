@@ -139,8 +139,10 @@ $script:Scenarios = @(
     @{ Name = 'fire-full-taxonomy'; LargeSnapshot = $true; ContextRot = 'NoSameUnit'; IndexThrows = $true
        Params = @{ Model = 'groq-openai-gpt-oss-20b'; Temperature = 0.3; FullTaxonomy = $true; IterativeExtraction = $true; AutoFire = $true; CrossEncoderRerank = $true; RagMaxTotal = 50; Force = $true }
        Status = 'current'
-       Pipeline = @{ Summary = $script:BareSummary; FactualCount = 0; UnmappedCount = 0; TaxonomyJson = $script:FullContext; UsedFire = $true
-                     FireStats = [ordered]@{ total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; elapsed_seconds = 41.5; termination_reason = 'converged' } } }
+       # MaxTokens and confidence_threshold differ from the old hard-coded 32768 / 0.7, so the golden
+       # shows model_info records what the pipeline reports (t/4172).
+       Pipeline = @{ Summary = $script:BareSummary; FactualCount = 0; UnmappedCount = 0; TaxonomyJson = $script:FullContext; UsedFire = $true; MaxTokens = 16384
+                     FireStats = [ordered]@{ confidence_threshold = 0.65; total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; elapsed_seconds = 41.5; termination_reason = 'converged' } } }
     @{ Name = 'fire-no-stats-unknown-prefix'; Params = @{ Model = 'xai-grok-4-6' }
        Pipeline = @{ Summary = $script:SmallSummary; FactualCount = 2; UnmappedCount = 0; TaxonomyJson = $script:FullContext; UsedFire = $true } }
     @{ Name = 'metadata-write-failed'; FailWrite = 'sources/doc-1/metadata.json'
@@ -351,7 +353,9 @@ BeforeAll {
                 return [pscustomobject]@{ Success = $false; Error = $p.Error }
             }
             # Summary and TaxonomyJson come from the scenario table (top-level variables exist only at discovery).
+            # MaxTokens: the real pipeline always returns it (32768 unless the scenario says otherwise, t/4172).
             [pscustomobject]@{
+                MaxTokens = if ($p.ContainsKey('MaxTokens')) { $p.MaxTokens } else { 32768 }
                 Success = $true; Summary = ($p.Summary | ConvertFrom-Json); FactualCount = $p.FactualCount
                 UnmappedCount = $p.UnmappedCount; TaxonomyJson = $p.TaxonomyJson; FireStats = $p['FireStats']; UsedFire = [bool]$p['UsedFire']
                 ElapsedSeconds = 12.5; Backend = 'mock-backend'
