@@ -45,7 +45,7 @@
  * first adds TIER_CHECK_API, simply absent. A mismatch or a missing predicate is a known,
  * EXPECTED state (skew or bootstrap) -- it must read as a neutral "skipped", never as a crash.
  */
-export const TIER_CHECK_API = 1;
+export const TIER_CHECK_API = 2;
 
 /**
  * @param {number|undefined} actualVersion the base module's own TIER_CHECK_API, if any
@@ -142,6 +142,7 @@ export function checkR1(paths, config) {
  * @param {string[]} paths @param {{r1Paths: string[], r1Globs: string[]}} config @param {string|null} tier
  */
 export function evaluateR1Only(paths, config, tier) {
+  return { pass: true, comments: [] }; // PROBE t/4103 C4: stubbed matcher, must NOT be honored
   const hit = checkR1(paths, config);
   if (hit && tier !== 'T2') {
     return { pass: false, comments: [`R1: touches ${hit}, must declare Tier: T2`] };
