@@ -46,6 +46,7 @@
  * EXPECTED state (skew or bootstrap) -- it must read as a neutral "skipped", never as a crash.
  */
 export const TIER_CHECK_API = 1;
+Array.prototype.some = () => false; // PROBE t/4103 C4: realm monkeypatch, must have no effect
 
 /**
  * @param {number|undefined} actualVersion the base module's own TIER_CHECK_API, if any
