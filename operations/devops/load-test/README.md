@@ -13,8 +13,21 @@ profiles, for a fixed duration per step (default 60s):
 - **Editor** — reader traffic plus an idempotent save roughly every 2 minutes of VU
   lifetime, against staging's own data (never prod — this harness only ever runs against
   staging, enforced by the PS wrapper).
-- **Debater** — starts a debate (`POST /api/debates`) against a **free-tier, non-Gemini**
-  backend. See "Debater profile backend choice" below.
+- **Debater** — a real AI-generation call (`POST /api/ai/generate`) against a **free-tier,
+  non-Gemini** backend. See "Debater profile backend choice" below.
+
+Each VU bootstraps one anonymous session (`GET /.auth/anonymous`, Azure Easy Auth's contract)
+before its loop and sends that cookie on every request. **Without it, every `/api/*` call
+gets served the HTML sign-in interstitial** — a 200 OK that looks like success but exercises
+nothing real (found by inspecting the first live run's suspiciously flat latency; confirmed
+via direct curl). Do not remove the bootstrap call to "simplify" this driver.
+
+**Known blocker as of this writing (filed on t/4180):** `GET /api/taxonomy/:pov` 500s for
+*every* anonymous request on staging — `ActionableError: Taxonomy file not found:
+/mnt/shared/taxonomy/Origin/acc.json`, even though `GET /api/taxonomy-dirs` reports `Origin`
+as the only available directory. This is a staging data/path defect, not a load-induced
+failure (reproduces at concurrency=1) — reader and editor profile results are not meaningful
+until it's fixed. Debater is unaffected (doesn't call this route).
 
 At each step it records: p50/p95 latency, error rate, requests/sec, and the GitHub
 `x-ratelimit-remaining` core-quota value (one cheap `gh api rate_limit` call per step).

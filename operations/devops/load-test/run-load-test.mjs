@@ -54,14 +54,33 @@ async function timedFetch(url, init) {
   }
 }
 
+// CORRECTION (found while analyzing the first live run, t/4180): every unauthenticated
+// request to an /api/* route was served Azure Easy Auth's HTML sign-in interstitial —
+// 200 OK, content-type text/html — not the application's JSON response. The driver
+// never carried a session cookie, so the entire first ramp (reader + editor + debater,
+// all three) measured the cost of serving a static login page, not real app behavior
+// (confirmed via a direct curl: every endpoint 200'd HTML with no cookie, then returned
+// real JSON once a `/.auth/anonymous` cookie was attached). Each VU now bootstraps one
+// anonymous session before its loop and sends that cookie on every request.
+async function bootstrapAnonSession(baseUrl) {
+  const res = await fetch(`${baseUrl}/.auth/anonymous`, { redirect: 'manual' });
+  await res.arrayBuffer().catch(() => {});
+  const cookies = typeof res.headers.getSetCookie === 'function'
+    ? res.headers.getSetCookie()
+    : [res.headers.get('set-cookie')].filter(Boolean);
+  if (cookies.length === 0) return null;
+  return cookies.map((c) => c.split(';')[0]).join('; ');
+}
+
 const POVS = ['acc', 'saf', 'skp', 'cc'];
 function randomPov() { return POVS[Math.floor(Math.random() * POVS.length)]; }
 
 /** One iteration of the reader profile: browse + search, no writes. */
-async function readerIteration(baseUrl) {
+async function readerIteration(baseUrl, cookie) {
+  const headers = cookie ? { cookie } : undefined;
   const results = [];
-  results.push(await timedFetch(`${baseUrl}/api/taxonomy-dirs`));
-  results.push(await timedFetch(`${baseUrl}/api/taxonomy/${randomPov()}`));
+  results.push(await timedFetch(`${baseUrl}/api/taxonomy-dirs`, { headers }));
+  results.push(await timedFetch(`${baseUrl}/api/taxonomy/${randomPov()}`, { headers }));
   return results;
 }
 
@@ -70,8 +89,9 @@ async function readerIteration(baseUrl) {
  *  wall-clock state across iterations). Staging-only by construction — this script is
  *  never pointed at prod (enforced by the PS wrapper, not here). */
 let editorIterationMs = 0;
-async function editorIteration(baseUrl, iterationIntervalMsEstimate) {
-  const results = await readerIteration(baseUrl);
+async function editorIteration(baseUrl, iterationIntervalMsEstimate, cookie) {
+  const headers = cookie ? { cookie } : undefined;
+  const results = await readerIteration(baseUrl, cookie);
   editorIterationMs += iterationIntervalMsEstimate;
   if (editorIterationMs >= 120_000) {
     editorIterationMs = 0;
@@ -79,17 +99,17 @@ async function editorIteration(baseUrl, iterationIntervalMsEstimate) {
     // Idempotent no-op PUT: read-then-write-the-same-document, so the "save" exercises
     // the write path and session-branch machinery under load without corrupting the
     // staging taxonomy content.
-    const getResult = await timedFetch(`${baseUrl}/api/taxonomy/${pov}`);
+    const getResult = await timedFetch(`${baseUrl}/api/taxonomy/${pov}`, { headers });
     results.push(getResult);
     if (getResult.ok) {
       // The GET body isn't retained (timedFetch drains it) — re-fetch is wasteful but
       // keeps this driver dependency-free and the PUT body honest (same shape the
       // client would send). Acceptable: saves are ~1/120s of editor traffic.
-      const body = await fetch(`${baseUrl}/api/taxonomy/${pov}`).then((r) => r.text()).catch(() => null);
+      const body = await fetch(`${baseUrl}/api/taxonomy/${pov}`, { headers }).then((r) => r.text()).catch(() => null);
       if (body) {
         results.push(await timedFetch(`${baseUrl}/api/taxonomy/${pov}`, {
           method: 'PUT',
-          headers: { 'content-type': 'application/json' },
+          headers: { ...headers, 'content-type': 'application/json' },
           body,
         }));
       }
@@ -98,15 +118,25 @@ async function editorIteration(baseUrl, iterationIntervalMsEstimate) {
   return results;
 }
 
-/** Debater profile: start a debate against a free-tier non-Gemini backend. */
-async function debaterIteration(baseUrl, backendId) {
-  return [await timedFetch(`${baseUrl}/api/debates`, {
+/** Debater profile: a real AI-generation call against a free-tier non-Gemini backend.
+ *
+ * CORRECTION (found while analyzing the first live run, t/4180): there is no
+ * `POST /api/debates` route — debate persistence is `PUT /api/debates` (a session-save,
+ * not a generation call), and debate orchestration itself happens client-side, turn by
+ * turn, through the generic `POST /api/ai/generate` proxy. The original `POST
+ * /api/debates` call silently 200'd (SPA static-file fallback for an unmatched path)
+ * with near-flat ~100ms latency and 0% errors at every concurrency — it measured static-
+ * file serving, not debate-start cost. Switched to `/api/ai/generate`, which is the real
+ * endpoint a debate turn calls. `debateId` is deliberately OMITTED: `/api/ai/generate`
+ * blocks anonymous+free-tier requests that carry a `debateId` (t/3230's anon-debate gate)
+ * — sending one would 403 every request on an anonymous session, not exercise AI load. */
+async function debaterIteration(baseUrl, backendId, cookie) {
+  return [await timedFetch(`${baseUrl}/api/ai/generate`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { ...(cookie ? { cookie } : {}), 'content-type': 'application/json' },
     body: JSON.stringify({
-      topic: 'load-test probe',
+      prompt: 'Load-test probe: respond with a single short sentence.',
       model: backendId,
-      povs: ['acc', 'saf'],
     }),
   })];
 }
@@ -122,12 +152,13 @@ async function runStep({ baseUrl, profile, concurrency, durationSec, debaterBack
   // Rough per-VU iteration pacing so `editor`'s 2-minute save cadence is approximated in
   // wall-clock terms regardless of how fast individual requests return.
   const vu = async () => {
+    const cookie = await bootstrapAnonSession(baseUrl).catch(() => null);
     while (Date.now() < deadline) {
       const iterStart = Date.now();
       let samples;
-      if (profile === 'editor') samples = await editorIteration(baseUrl, 1000);
-      else if (profile === 'debater') samples = await debaterIteration(baseUrl, debaterBackend);
-      else samples = await readerIteration(baseUrl);
+      if (profile === 'editor') samples = await editorIteration(baseUrl, 1000, cookie);
+      else if (profile === 'debater') samples = await debaterIteration(baseUrl, debaterBackend, cookie);
+      else samples = await readerIteration(baseUrl, cookie);
       for (const s of samples) {
         requestCount += 1;
         latenciesMs.push(s.elapsedMs);
