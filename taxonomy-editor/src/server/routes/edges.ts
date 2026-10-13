@@ -11,7 +11,7 @@
 
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param, query } from '../httpKit.js';
+import { json, error, param, query, statusForError, codeForError } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import * as fileIO from '../storage/fileIO.js';
 import { stripEdgeRationale, type EdgesData } from '../../../../lib/edges/stripEdgeRationale.js';
@@ -90,7 +90,7 @@ export function registerEdgesRoutes(r: Router, _ctx: ServerCtx): void {
         message: 'PUT /api/edges rationale-preserving save refused/failed',
         error: { name: (err as Error).name ?? 'Error', message: String((err as Error).message), stack: (err as Error).stack },
       });
-      error(res, (err as Error).message, 500);
+      error(res, (err as Error).message, statusForError(err), err, codeForError(err));
     }
   });
 

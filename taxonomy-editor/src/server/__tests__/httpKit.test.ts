@@ -8,10 +8,11 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { ServerResponse } from 'http';
-import { error, json, withEndpointTimeout } from '../httpKit.js';
+import { error, json, withEndpointTimeout, statusForError, codeForError } from '../httpKit.js';
 import { log } from '../logger.js';
 import { setGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/flightRecorder.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 
 function fakeRes(method = 'GET', routePath = '/api/test'): ServerResponse {
   return {
@@ -96,6 +97,85 @@ describe('httpKit idempotent writes (t/1515)', () => {
     expect(errSpy).not.toHaveBeenCalled();      // bailed before the t/1362 5xx log
     expect(warnSpy).toHaveBeenCalled();          // logged the skip instead
     expect(res.writeHead).not.toHaveBeenCalled();
+  });
+});
+
+// ── t/4185: write-conflict ActionableError → HTTP 409 + machine-readable code ──
+function bodyOf(res: ServerResponse): Record<string, unknown> {
+  const call = (res.end as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+  return JSON.parse(call[0] as string) as Record<string, unknown>;
+}
+
+describe('statusForError (t/4185)', () => {
+  it('ActionableError with httpStatus set → that status', () => {
+    const err = new ActionableError({ goal: 'g', problem: 'p', location: 'l', nextSteps: [] });
+    err.httpStatus = 409;
+    expect(statusForError(err)).toBe(409);
+  });
+
+  it('ActionableError without httpStatus → the fallback (default 500)', () => {
+    const err = new ActionableError({ goal: 'g', problem: 'p', location: 'l', nextSteps: [] });
+    expect(statusForError(err)).toBe(500);
+  });
+
+  it('a plain Error (not ActionableError) → the fallback, never guesses a status from message text', () => {
+    expect(statusForError(new Error('conflict'))).toBe(500);
+  });
+
+  it('a custom fallback is honored when no httpStatus is set', () => {
+    expect(statusForError(new Error('x'), 400)).toBe(400);
+  });
+});
+
+describe('codeForError (t/4185)', () => {
+  it('ActionableError with code set → { code }', () => {
+    const err = new ActionableError({ goal: 'g', problem: 'p', location: 'l', nextSteps: [] });
+    (err as unknown as { code: string }).code = 'WRITE_CONFLICT';
+    expect(codeForError(err)).toEqual({ code: 'WRITE_CONFLICT' });
+  });
+
+  it('ActionableError without code → undefined (no stray code:undefined key)', () => {
+    const err = new ActionableError({ goal: 'g', problem: 'p', location: 'l', nextSteps: [] });
+    expect(codeForError(err)).toBeUndefined();
+  });
+
+  it('a plain Error → undefined', () => {
+    expect(codeForError(new Error('x'))).toBeUndefined();
+  });
+});
+
+describe('error() end-to-end: write-conflict maps to 409 + code, including in production (t/4185)', () => {
+  const ORIG_ENV = process.env.NODE_ENV;
+  afterEach(() => { vi.restoreAllMocks(); process.env.NODE_ENV = ORIG_ENV; });
+
+  it('409 + code survive the <500 branch in development', () => {
+    process.env.NODE_ENV = 'development';
+    const res = fakeRes('PUT', '/api/taxonomy/:pov');
+    const err = new ActionableError({ goal: 'Save the taxonomy write', problem: 'SHA conflict', location: 'x', nextSteps: ['retry'] });
+    err.httpStatus = 409;
+    (err as unknown as { code: string }).code = 'WRITE_CONFLICT';
+    error(res, String(err), statusForError(err), err, codeForError(err));
+    expect(wroteStatus(res, 409)).toBe(true);
+    expect(bodyOf(res).code).toBe('WRITE_CONFLICT');
+  });
+
+  it('409 + code survive the <500 branch in production too (t/853 only strips internals, not code)', () => {
+    process.env.NODE_ENV = 'production';
+    const res = fakeRes('PUT', '/api/taxonomy/:pov');
+    const err = new ActionableError({ goal: 'Save the taxonomy write', problem: 'SHA conflict', location: 'x', nextSteps: ['retry'] });
+    err.httpStatus = 409;
+    (err as unknown as { code: string }).code = 'WRITE_CONFLICT';
+    error(res, String(err), statusForError(err), err, codeForError(err));
+    expect(wroteStatus(res, 409)).toBe(true);
+    expect(bodyOf(res).code).toBe('WRITE_CONFLICT');
+  });
+
+  it('an ordinary unexpected error (no httpStatus) still gets 500 — no regression', () => {
+    const res = fakeRes('PUT', '/api/taxonomy/:pov');
+    const err = new Error('disk full');
+    error(res, String(err), statusForError(err), err, codeForError(err));
+    expect(wroteStatus(res, 500)).toBe(true);
+    expect(bodyOf(res).code).toBeUndefined();
   });
 });
 
