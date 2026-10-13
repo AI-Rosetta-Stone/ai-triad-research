@@ -3,6 +3,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { POV_META } from '@lib/electron-shared/povMeta';
+import {
+  INTRO_EYEBROW, INTRO_TITLE, TOUR_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
+} from '@lib/electron-shared/introCopy';
 import { SettingsDialog } from './settings/SettingsDialog';
 import './OnboardingTour.css';
 
@@ -12,7 +16,8 @@ interface OnboardingTourProps {
   onDismiss: () => void;
 }
 
-interface StepDef {
+interface ImageStep {
+  kind?: 'image';
   heading: string;
   image: string;
   alt: string;
@@ -20,7 +25,16 @@ interface StepDef {
   badge?: string;
 }
 
+/** t/4183: the AI Rosetta Stone hero, rendered as markup from the copy shared with the login page. */
+interface HeroStep {
+  kind: 'hero';
+  heading: string;
+}
+
+type StepDef = ImageStep | HeroStep;
+
 const STEPS: StepDef[] = [
+  { kind: 'hero', heading: INTRO_TITLE },
   {
     heading: 'Explore the Taxonomy',
     image: '/onboarding/onboarding-taxonomy.png',
@@ -57,6 +71,34 @@ const STEPS: StepDef[] = [
     ],
   },
 ];
+
+function IntroHero({ heading }: { heading: string }) {
+  return (
+    <div className="onboarding-hero">
+      <div className="onboarding-hero-eyebrow">{INTRO_EYEBROW}</div>
+      <h2 className="onboarding-heading onboarding-hero-title">{heading}</h2>
+      <p className="onboarding-hero-tagline">
+        {TOUR_TAGLINE_LINES.map((line, i) => <span key={i}>{line}</span>)}
+      </p>
+      <div className="onboarding-hero-specimen">
+        <p className="onboarding-hero-question">&ldquo;{INTRO_QUESTION}&rdquo;</p>
+        <ul className="onboarding-hero-voices">
+          {INTRO_VOICES.map(({ pov, line }) => {
+            const meta = POV_META[pov];
+            const color = `var(${meta.cssVar}, ${meta.color})`;
+            return (
+              <li key={pov} className="onboarding-hero-voice">
+                <span className="onboarding-hero-dot" style={{ background: color }} aria-hidden="true" />
+                <span className="onboarding-hero-name" style={{ color }}>{meta.label}</span>
+                <span className="onboarding-hero-line">{line}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 export function OnboardingTour({ onDismiss }: OnboardingTourProps) {
   const [step, setStep] = useState(0);
@@ -159,38 +201,44 @@ export function OnboardingTour({ onDismiss }: OnboardingTourProps) {
           className={`onboarding-step ${animating ? `onboarding-step-exit-${direction}` : 'onboarding-step-enter'}`}
           key={step}
         >
-          <div className="onboarding-image-frame">
-            <img
-              src={current.image}
-              alt={current.alt}
-              className="onboarding-image"
-              onError={(e) => {
-                getGlobalRecorder()?.record({
-                  type: 'embed.load-failure',
-                  component: 'onboarding-tour',
-                  level: 'warn',
-                  message: 'Onboarding image failed to load',
-                  data: { src: current.image },
-                });
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          </div>
-          <h2 className="onboarding-heading">{current.heading}</h2>
-          <div className="onboarding-body">
-            {current.body.map((p, i) => <p key={i}>{p}</p>)}
-            {isLastStep && (
-              <p>
-                <strong>Get a free API key:</strong>{' '}
-                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
-                  Google AI Studio
-                </a>
-                {' '}— then open <strong>Settings</strong> to add it.
-              </p>
-            )}
-          </div>
-          {current.badge && (
-            <span className="onboarding-badge">{'🔑'} {current.badge}</span>
+          {current.kind === 'hero' ? (
+            <IntroHero heading={current.heading} />
+          ) : (
+            <>
+              <div className="onboarding-image-frame">
+                <img
+                  src={current.image}
+                  alt={current.alt}
+                  className="onboarding-image"
+                  onError={(e) => {
+                    getGlobalRecorder()?.record({
+                      type: 'embed.load-failure',
+                      component: 'onboarding-tour',
+                      level: 'warn',
+                      message: 'Onboarding image failed to load',
+                      data: { src: current.image },
+                    });
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+              <h2 className="onboarding-heading">{current.heading}</h2>
+              <div className="onboarding-body">
+                {current.body.map((p, i) => <p key={i}>{p}</p>)}
+                {isLastStep && (
+                  <p>
+                    <strong>Get a free API key:</strong>{' '}
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
+                      Google AI Studio
+                    </a>
+                    {' '}— then open <strong>Settings</strong> to add it.
+                  </p>
+                )}
+              </div>
+              {current.badge && (
+                <span className="onboarding-badge">{'🔑'} {current.badge}</span>
+              )}
+            </>
           )}
         </div>
         <div className="onboarding-footer">

@@ -68,6 +68,77 @@
   margin-top: 8px;
 }
 
+/* Step 1: the AI Rosetta Stone hero (t/4183), the login page's jacket copy set as markup */
+.onboarding-hero {
+  padding: 8px 0 4px;
+}
+.onboarding-hero-eyebrow {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.onboarding-hero-title {
+  font-size: calc(var(--text-xl) * 1.4);
+  margin-bottom: 16px;
+}
+.onboarding-hero-tagline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 20px;
+  font-size: var(--text-lg, var(--text-md));
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.onboarding-hero-specimen {
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+}
+.onboarding-hero-question {
+  margin: 0 0 12px;
+  font-style: italic;
+  color: var(--text-primary);
+}
+.onboarding-hero-voices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.onboarding-hero-voice {
+  display: grid;
+  grid-template-columns: 10px auto 1fr;
+  align-items: baseline;
+  column-gap: 8px;
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.onboarding-hero-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+}
+.onboarding-hero-name {
+  font-weight: 600;
+}
+.onboarding-hero-line {
+  color: var(--text-secondary);
+}
+@media (max-width: 767px) {
+  .onboarding-hero-voice {
+    grid-template-columns: 10px 1fr;
+  }
+  .onboarding-hero-line {
+    grid-column: 2;
+  }
+}
+
 .onboarding-footer {
   display: flex;
   align-items: center;
