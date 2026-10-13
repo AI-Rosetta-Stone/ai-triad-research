@@ -47,6 +47,26 @@ function throwHttpError(status: number, err: ActionableError): never {
   throw err;
 }
 
+/**
+ * t/4186: a concurrent GitHub write conflict on commit. Discriminated by body `code`
+ * (TL contract, p/772#1), not the bare 409 — other 409s on this path (e.g. save_in_progress)
+ * must keep their existing generic handling. Extracted from `post` to keep its complexity
+ * within the file's complexity budget. Reads a clone so `post` can still read the body.
+ */
+async function throwIfWriteConflict(res: Response, path: string): Promise<void> {
+  if (res.status !== 409 || path !== '/api/sync/commit') return;
+  const data = await res.clone().json().catch(bridgeWarn('Failed to parse 409 response body', {})) as Record<string, unknown>;
+  if (data.code !== 'WRITE_CONFLICT') return;
+  const err = new ActionableError({
+    goal: 'Commit taxonomy changes',
+    problem: 'Someone else changed this file. Reload to see their version.',
+    location: 'web-bridge.post',
+    nextSteps: ['Reload to see the other writer’s change', 'Reapply your edit after reloading'],
+  });
+  (err as ActionableError & { code: string }).code = 'WRITE_CONFLICT';
+  throwHttpError(409, err);
+}
+
 // nextStepsForStatus moved to ./httpErrorSteps (leaf module, unit-tested) — t/2366.
 
 // ── Resilient fetch options for callers ──
@@ -309,22 +329,7 @@ async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptio
       }));
     }
   }
-  // t/4186: a concurrent GitHub write conflict on commit. Discriminated by body `code`
-  // (TL contract, p/772#1), not the bare 409 — other 409s on this path (e.g. save_in_progress)
-  // must keep their existing generic handling.
-  if (res.status === 409 && path === '/api/sync/commit') {
-    const data = await res.json().catch(bridgeWarn('Failed to parse 409 response body', {})) as Record<string, unknown>;
-    if (data.code === 'WRITE_CONFLICT') {
-      const err = new ActionableError({
-        goal: 'Commit taxonomy changes',
-        problem: 'Someone else changed this file. Reload to see their version.',
-        location: 'web-bridge.post',
-        nextSteps: ['Reload to see the other writer’s change', 'Reapply your edit after reloading'],
-      });
-      (err as ActionableError & { code: string }).code = 'WRITE_CONFLICT';
-      throwHttpError(409, err);
-    }
-  }
+  await throwIfWriteConflict(res, path);
   if (!res.ok) {
     const text = await res.text();
     throwHttpError(res.status, new ActionableError({

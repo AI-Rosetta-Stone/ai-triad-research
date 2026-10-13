@@ -349,6 +349,15 @@ export interface TaxonomyDataSlice {
   showCruxDetail: (id: string | null) => void;
 }
 
+// Save-failure record + message, outside `save` for its complexity budget. t/4186: WRITE_CONFLICT (p/772#1) keeps `dirty`, never shows success.
+type FlightRecordInput = Parameters<NonNullable<ReturnType<typeof getGlobalRecorder>>['record']>[0];
+const isWriteConflict = (err: unknown): boolean => (err as { code?: string }).code === 'WRITE_CONFLICT';
+function saveFailureRecord(err: unknown, saveStart: number): FlightRecordInput {
+  const duration_ms = Math.round(performance.now() - saveStart);
+  if (isWriteConflict(err)) return { type: 'state.error', component: 'taxonomy-store', level: 'warn', message: 'save.conflict', data: { code: 'WRITE_CONFLICT', duration_ms } };
+  return { type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.failed', data: { error: String(err), duration_ms }, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } };
+}
+const saveErrorText = (err: unknown): string => isWriteConflict(err) ? 'Someone else changed this file. Reload to see their version.' : `Save failed: ${mapErrorToUserMessage(err)}`;
 // ── Slice creator ──
 
 export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], TaxonomyDataSlice> = (set, get) => ({
@@ -803,19 +812,8 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
         console.warn('[save] Post-save embedding refresh failed (save itself succeeded):', embedErr);
       }
     } catch (err) {
-      // t/4186: a concurrent GitHub write conflict on commit (code === 'WRITE_CONFLICT',
-      // set by web-bridge.post on the /api/sync/commit 409 — TL contract p/772#1). The file
-      // write + validation above already succeeded, so `dirty` is intentionally left as-is
-      // here (not cleared) and no save.completed event is recorded — the user's in-progress
-      // edit survives a reload/retry, and the save is never shown as successful.
-      const conflictCode = (err as { code?: string }).code;
-      if (conflictCode === 'WRITE_CONFLICT') {
-        getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'warn', message: 'save.conflict', data: { code: conflictCode, duration_ms: Math.round(performance.now() - saveStart) } });
-        set({ saveError: 'Someone else changed this file. Reload to see their version.' });
-        return;
-      }
-      getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.failed', data: { error: String(err), duration_ms: Math.round(performance.now() - saveStart) }, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-      set({ saveError: `Save failed: ${mapErrorToUserMessage(err)}` });
+      getGlobalRecorder()?.record(saveFailureRecord(err, saveStart));
+      set({ saveError: saveErrorText(err) });
     }
   },
 

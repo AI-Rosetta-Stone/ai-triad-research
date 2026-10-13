@@ -1578,21 +1578,13 @@ describe('useTaxonomyStore', () => {
       expect(useTaxonomyStore.getState().saveError).toBeTruthy();
     });
 
-    // t/4186: a concurrent GitHub write conflict on commit, surfaced by web-bridge as
-    // an error carrying `code: 'WRITE_CONFLICT'` (TL contract, p/772#1 / p/773#1) —
-    // discriminated on `code`, not the bare HTTP status.
+    // t/4186: WRITE_CONFLICT (discriminated on `code`, p/772#1) shows the conflict message, never success, and keeps the edit.
     it('shows the conflict message and preserves dirty/edits on a WRITE_CONFLICT save error', async () => {
-      const conflictErr = Object.assign(new Error('write conflict'), { code: 'WRITE_CONFLICT' });
-      mockApi.syncCommit.mockRejectedValueOnce(conflictErr);
-      useTaxonomyStore.setState({
-        accelerationist: makePovFile(),
-        dirty: new Set(['accelerationist']),
-      });
-
+      mockApi.syncCommit.mockRejectedValueOnce(Object.assign(new Error('write conflict'), { code: 'WRITE_CONFLICT' }));
+      useTaxonomyStore.setState({ accelerationist: makePovFile(), dirty: new Set(['accelerationist']) });
       await useTaxonomyStore.getState().save();
       const state = useTaxonomyStore.getState();
       expect(state.saveError).toBe('Someone else changed this file. Reload to see their version.');
-      // The save must not be shown as successful, and the user's edit must survive.
       expect(state.dirty.has('accelerationist')).toBe(true);
     });
 
