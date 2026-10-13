@@ -13,7 +13,8 @@ import { PROJECT_ROOT, getDataRootPath } from '../fileIO.js';
 import { computeEmbeddings, computeQueryEmbedding, generateText, generateTextWithSearch, generateChatStream, updateNodeEmbeddings, classifyNli, setDebateTemperature, getEmbeddingInfo, resolveAiCallLogContext } from '../embeddings.js';
 import type { ChatMessage, NodeEmbeddingInput, NliPair } from '../embeddings.js';
 import { refreshAIModels } from '../modelDiscovery.js';
-import { ActionableError } from '../../../../lib/debate/errors.js';
+import { refreshModelsRequestSchema } from './refreshModelsRequestSchema.js';
+import { ActionableError, errorMessage } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { DEFAULT_TEMPERATURE, resolveBackend, DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import type { UrlContextMetadata } from '../../../../lib/ai-client/index.js';
@@ -135,8 +136,26 @@ export function registerAiHandlers(): void {
     }
   });
 
-  ipcMain.handle('refresh-ai-models', async () => {
-    return refreshAIModels();
+  ipcMain.handle('refresh-ai-models', async (_event, opts?: unknown) => {
+    if (opts === undefined) return refreshAIModels();
+    let parsed;
+    try {
+      parsed = refreshModelsRequestSchema.parse(opts);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'ipc-handlers', level: 'warn',
+        message: `refresh-ai-models: malformed payload rejected — ${errorMessage(err)}`,
+        error: { name: (err as Error).name ?? 'Error', message: errorMessage(err), stack: (err as Error).stack },
+      });
+      throw new ActionableError({
+        goal: 'Refresh the AI model registry',
+        problem: err instanceof ActionableError ? err.problem : `refresh-ai-models payload is malformed: ${errorMessage(err)}`,
+        location: 'ipc/aiHandlers.ts refresh-ai-models',
+        nextSteps: ['Retry a plain refresh (no options)', 'If accepting a proposal, resend the exact proposal shown by a prior dry run'],
+        innerError: err,
+      });
+    }
+    return refreshAIModels(parsed);
   });
 
   ipcMain.handle('get-embedding-info', () => {
