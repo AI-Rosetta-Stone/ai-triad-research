@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// @INMEMORY_CACHE_SINGLE_REPLICA — in-memory allowlist cache; must remain single-replica until migrated to shared store (t/3504)
+// Replica-safe (t/4177): the in-memory cache re-reads the shared file at most ALLOWLIST_CACHE_TTL_MS
+// after its last load, so a revocation made on one replica takes effect on every replica within the
+// TTL. (This replaces the single-replica cache marker the scale guard used to block maxReplicas > 1.)
 
 // t/3497 (t/3495 epic — admin-managed shared Gemini key): storage for the admin
 // Gemini allowlist. Persists to <stateRoot>/admin/admin-allowlist.json — the
@@ -10,19 +12,12 @@
 // documented state-root exception to the StorageBackend-for-persistence rule;
 // see featureFlags.ts).
 //
-// LOAD-BEARING SINGLE-REPLICA ASSUMPTION (TL Quality review, t/3497#2-4): the
-// in-memory cache below is invalidated ONLY on this process's own writes — it
-// does NOT re-read on a TTL, unlike featureFlags.ts. That is safe ONLY because
-// taxonomy-editor's Azure Container App is capped at maxReplicas: 1
-// (deploy/azure/main.bicep, t/2885) — a single process means "invalidate on
-// write" is already fully consistent; there is no second replica to go stale.
-// If maxReplicas is ever raised above 1, THIS FILE must be revisited: a removed
-// user would keep access on any replica that didn't perform the removal, until
-// that replica restarts (privilege persistence past the revocation window —
-// this is an ACL, not a feature flag, so staleness is a security gap, not just
-// an operational one). Add the featureFlags.ts TTL+re-read pattern at that
-// point. t/3504 tracks extending the existing scale-guard CI gate
-// (Test-InMemoryJobStoreScaleGuard.ps1) to catch this automatically.
+// MULTI-REPLICA (t/4177; was a single-replica assumption, t/3497#2-4): this is an ACL, so cache
+// staleness is a security gap — a removed user keeps access on a replica whose cache predates the
+// removal. The cache is therefore bounded by a TTL (the featureFlags.ts pattern): the writing
+// replica updates its own cache immediately, and every other replica re-reads within
+// ALLOWLIST_CACHE_TTL_MS. Prod's state root is the shared Azure Files mount, so all replicas read
+// the same file. The revocation window across replicas is the TTL — keep it short.
 
 import fs from 'fs';
 import path from 'path';
@@ -76,10 +71,17 @@ function readEntries(forWrite: boolean): AllowlistEntry[] {
   }
 }
 
+/** Cross-replica revocation window (t/4177): every replica re-reads the shared file this often. */
+export const ALLOWLIST_CACHE_TTL_MS = 30_000;
+
 let _cache: AllowlistEntry[] | null = null;
+let _cacheLoadedAt = 0;
 
 function getCached(): AllowlistEntry[] {
-  if (_cache === null) _cache = readEntries(false);
+  if (_cache === null || Date.now() - _cacheLoadedAt > ALLOWLIST_CACHE_TTL_MS) {
+    _cache = readEntries(false);
+    _cacheLoadedAt = Date.now();
+  }
   return _cache;
 }
 
@@ -100,6 +102,7 @@ function persist(entries: AllowlistEntry[]): void {
   fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries } satisfies AllowlistFile, null, 2));
   fs.renameSync(tmp, p);
   _cache = entries; // invalidate: the in-process cache now reflects the write
+  _cacheLoadedAt = Date.now();
 }
 
 /** Upsert by `userId` (idempotent — a repeat add replaces the existing entry, not a duplicate). */
@@ -117,4 +120,4 @@ export async function removeEntry(userId: string): Promise<void> {
 }
 
 /** Test-only: reset the in-memory cache. */
-export function _resetAllowlistCache(): void { _cache = null; }
+export function _resetAllowlistCache(): void { _cache = null; _cacheLoadedAt = 0; }

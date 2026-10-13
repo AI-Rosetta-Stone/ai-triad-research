@@ -12,7 +12,7 @@
 //   • Reads are pinned to `ref:'main'` (below), and PUTs only ever write per-user SESSION BRANCHES,
 //     never main (writeTaxonomyFile → session ref). So the main-branch corpus is IMMUTABLE at runtime.
 //   • Immutable + identical across replicas ⇒ zero cross-replica staleness ⇒ no invalidation, no
-//     @INMEMORY_JOB_STORE marker needed (conditions 1+3 dissolved, t/3297#8/#11).
+//     in-memory job-store marker needed (conditions 1+3 dissolved, t/3297#8/#11).
 //
 // COHERENCE (the fix TL confirmed, t/3297#9/#10): base node embeddings are derived from node
 // label/description via computeEmbeddings (cache-backed by the precomputed embeddings.json). Reading

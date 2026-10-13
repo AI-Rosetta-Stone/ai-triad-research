@@ -28,9 +28,24 @@ vi.mock('../../../../lib/brief/verify.js', () => ({ verify }));
 vi.mock('../storage/briefExportStore.js', () => ({ saveBriefExport }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => undefined }));
 
+// t/4177: the durable job-record store runs for real against an in-memory backend shared by
+// "both replicas" — the record is the only state another replica can see.
+const { blobs } = vi.hoisted(() => ({ blobs: new Map<string, string>() }));
+vi.mock('../storage/fileIO.js', () => ({
+  getBriefExportBackend: () => ({
+    readFile: async (p: string) => blobs.get(p) ?? null,
+    writeFile: async (p: string, c: string) => { blobs.set(p, c); },
+    deleteFile: async (p: string) => { blobs.delete(p); },
+  }),
+  assertSafeId: () => {},
+}));
+vi.mock('../config.js', () => ({ resolveDataPath: (p: string) => `/data/${p}` }));
+vi.mock('../logger.js', () => ({ log: { server: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } } }));
+vi.mock('../security/userContext.js', () => ({ getStorageUserId: () => 'user-1', isAnonymousUser: () => false }));
+
 import {
   startExportJob, getExportJob, countRunningExportJobs, findIdempotentJob,
-  sweepExportJobs, EXPORT_JOB_TTL_MS, type CreateJobArgs,
+  sweepExportJobs, EXPORT_JOB_TTL_MS, resolveBriefExportJobPoll, type CreateJobArgs,
 } from '../briefExportJobs.js';
 import { BRIEF_ARTIFACTS } from '../../../../lib/brief/types.js';
 
@@ -72,7 +87,7 @@ describe('brief export runner (t/2804)', () => {
   });
 
   it('happy path: persists deck_spec + narration + pptx + manifest and sets exportId', async () => {
-    const job = startExportJob(baseArgs());
+    const job = await startExportJob(baseArgs());
     await waitTerminal(job);
     expect(job.status).toBe('done');
     expect(job.exportId).toBeTruthy();
@@ -89,7 +104,7 @@ describe('brief export runner (t/2804)', () => {
 
   it('TL MUST (b): a verify-gate FAILURE still persists the audit-manifest', async () => {
     verify.mockResolvedValue({ manifest: MANIFEST, hardFailures: ['trace coverage 60% < 80% threshold'] });
-    const job = startExportJob(baseArgs());
+    const job = await startExportJob(baseArgs());
     await waitTerminal(job);
     expect(job.status).toBe('failed');
     expect(job.exportId).toBeNull();                       // a failed export is not returned as a downloadable id
@@ -104,14 +119,14 @@ describe('brief export runner (t/2804)', () => {
 
   it('a schema hardFailure maps to SpecSchemaFailure (checked before trace)', async () => {
     verify.mockResolvedValue({ manifest: MANIFEST, hardFailures: ['deck_spec schema invalid', 'trace unresolved'] });
-    const job = startExportJob(baseArgs());
+    const job = await startExportJob(baseArgs());
     await waitTerminal(job);
     expect(job.errorCode).toBe('SpecSchemaFailure');
   });
 
   it('a narrate THROW persists the partial artifacts (deck_spec) + maps to ModelUnavailable', async () => {
     narrate.mockRejectedValue(new Error('provider 503'));
-    const job = startExportJob(baseArgs());
+    const job = await startExportJob(baseArgs());
     await waitTerminal(job);
     expect(job.status).toBe('failed');
     expect(job.errorCode).toBe('ModelUnavailable');
@@ -122,7 +137,7 @@ describe('brief export runner (t/2804)', () => {
   });
 
   it('skipNarration path still renders + verifies + persists', async () => {
-    const job = startExportJob(baseArgs({ request: { preset: 'classroom', skipNarration: true } }));
+    const job = await startExportJob(baseArgs({ request: { preset: 'classroom', skipNarration: true } }));
     await waitTerminal(job);
     expect(job.status).toBe('done');
     expect(narrate).toHaveBeenCalledWith(expect.objectContaining({ skipNarration: true }), expect.anything());
@@ -130,7 +145,7 @@ describe('brief export runner (t/2804)', () => {
 
   it('allowOpen: extracts a watermarked snapshot and surfaces the in-progress maturity warning (t/2851)', async () => {
     extractDeckSpec.mockReturnValue({ ...SPEC, meta: { ...SPEC.meta, snapshot: true, snapshot_note: 'IN PROGRESS' } });
-    const job = startExportJob(baseArgs({ session: { phase: 'open' } as never, request: { preset: 'policymaker', skipNarration: false, allowOpen: true } }));
+    const job = await startExportJob(baseArgs({ session: { phase: 'open' } as never, request: { preset: 'policymaker', skipNarration: false, allowOpen: true } }));
     await waitTerminal(job);
     // extract was asked for the snapshot (allowOpen threaded through)
     expect(extractDeckSpec).toHaveBeenCalledWith(expect.objectContaining({ phase: 'open' }), { allowOpen: true });
@@ -139,7 +154,7 @@ describe('brief export runner (t/2804)', () => {
   });
 
   it('allowOpen unset: a closed export passes no snapshot opts and adds no maturity warning (t/2851)', async () => {
-    const job = startExportJob(baseArgs());
+    const job = await startExportJob(baseArgs());
     await waitTerminal(job);
     // Since t/2858 the call routes through runBriefPipeline, which always passes an opts object
     // `{ allowOpen: input.allowOpen }` — so an unset allowOpen is `{ allowOpen: undefined }`, not
@@ -149,14 +164,14 @@ describe('brief export runner (t/2804)', () => {
   });
 
   it('registry: getExportJob is user-scoped (another user cannot read the job)', async () => {
-    const job = startExportJob(baseArgs());
+    const job = await startExportJob(baseArgs());
     await waitTerminal(job);
     expect(getExportJob(job.jobId, 'user-1')).not.toBeNull();
     expect(getExportJob(job.jobId, 'other-user')).toBeNull();
   });
 
   it('registry: idempotency lookup returns the in-window job for the same (user, debate, key)', async () => {
-    const job = startExportJob(baseArgs({ idempotencyKey: 'k-1' }));
+    const job = await startExportJob(baseArgs({ idempotencyKey: 'k-1' }));
     await waitTerminal(job);
     expect(findIdempotentJob('user-1', 'deb-1', 'k-1')?.jobId).toBe(job.jobId);
     expect(findIdempotentJob('user-1', 'deb-1', 'other-key')).toBeNull();
@@ -164,12 +179,41 @@ describe('brief export runner (t/2804)', () => {
   });
 
   it('registry: sweep drops terminal jobs older than the TTL', async () => {
-    const job = startExportJob(baseArgs());
+    const job = await startExportJob(baseArgs());
     await waitTerminal(job);
     // Backdate the terminal timestamp beyond the TTL, then sweep.
     (getExportJob(job.jobId, 'user-1') as { startedAt: number }).startedAt -= EXPORT_JOB_TTL_MS + 1000;
     sweepExportJobs();
     expect(getExportJob(job.jobId, 'user-1')).toBeNull();
     expect(countRunningExportJobs('user-1')).toBe(0);
+  });
+
+  // ── t/4177: another replica can answer the poll from the durable record ──
+
+  it('replica-safety: the creation record exists before startExportJob resolves', async () => {
+    let releaseExtract!: () => void;
+    extractDeckSpec.mockImplementation(() => new Promise(r => { releaseExtract = () => r(SPEC); }));
+    const job = await startExportJob(baseArgs());
+    const view = await resolveBriefExportJobPoll(job.jobId);   // what a second replica would read
+    expect(view).not.toBeNull();
+    expect(['queued', 'extracting']).toContain(view!.status);
+    releaseExtract();
+    await waitTerminal(job);
+  });
+
+  it('replica-safety: a finished job is readable from the durable record with its exportId', async () => {
+    const job = await startExportJob(baseArgs());
+    await waitTerminal(job);
+    await vi.waitFor(async () => expect((await resolveBriefExportJobPoll(job.jobId))?.status).toBe('done'));
+    const view = await resolveBriefExportJobPoll(job.jobId);
+    expect(view).toMatchObject({ status: 'done', progressPct: 100, exportId: job.exportId, error: null });
+  });
+
+  it('replica-safety: a failed job is readable from the durable record with its error code', async () => {
+    narrate.mockRejectedValue(new Error('provider 503'));
+    const job = await startExportJob(baseArgs());
+    await waitTerminal(job);
+    await vi.waitFor(async () => expect((await resolveBriefExportJobPoll(job.jobId))?.status).toBe('failed'));
+    expect(await resolveBriefExportJobPoll(job.jobId)).toMatchObject({ status: 'failed', errorCode: 'ModelUnavailable' });
   });
 });

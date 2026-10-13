@@ -1,16 +1,15 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// @INMEMORY_JOB_STORE — job registry is a per-process in-memory Map (not shared across replicas).
-// Remove this marker when migrated to a blob-backed shared store. The CI gate
-// Test-InMemoryJobStoreScaleGuard.ps1 reads this marker and blocks if maxReplicas > 1.
+// Replica-safe (t/4177): the in-memory Map is the fast path. A GET that misses it falls back to the
+// persisted InquiryResult (tier-2), then to the durable job record in inquiryJobStore (tier-3), which
+// is written at creation, on a heartbeat while running, and on failure. Both live in the shared
+// user-content backend (Azure Blob in prod), so any replica can answer any poll.
 //
 // Inquiry async job runner + registry (t/3578, t/3571 arc). Mirrors briefExportJobs.ts:
 // POST → 202 { jobId }, GET polls the evolving state, per-user concurrency cap, TTL sweep,
 // idempotency window, progress percentage. Durable truth is the persisted InquiryResult
-// (inquiryResultStore, keyed by jobId); the in-memory job is an ephemeral progress view —
-// a "job not found" GET falls back to loadInquiryResult(jobId) (cross-restart durability —
-// not cross-replica; maxReplicas: 1).
+// (inquiryResultStore, keyed by jobId); the in-memory job is an ephemeral progress view.
 //
 // TWO DELIBERATE IMPROVEMENTS on the brief precedent (TL t/3578#6):
 //  1. The pipeline is INJECTED, not imported. briefExportJobs imports runBriefPipeline directly,
@@ -275,9 +274,16 @@ async function runInquiryJob(job: InquiryJob, args: CreateInquiryJobArgs): Promi
     });
     log.server.error({ component: 'inquiry', jobId: job.jobId, stage: job.status, err }, 'Inquiry job failed');
     setStatus(job, 'failed');
-    // On failure: leave the durable record in place with the last heartbeat. The staleness check
-    // in markJobFailedIfStale will reap it if the job is still non-terminal after a restart.
-    // (The in-memory job correctly shows 'failed'; tier-3 is only reached after a restart.)
+    // On failure: write the durable record as failed (t/4177). With more than one replica, a poll
+    // can reach tier-3 on another replica while this job's heartbeat is still fresh; without this
+    // write it would read as still running, then as a misleading "server restarted". The message is
+    // a fixed, bounded descriptor (SO condition 6: never raw error text in the record).
+    void saveInquiryJobRecord({
+      ...buildRecord(job, args.userId),
+      error: { code: 'pipeline_failed', message: 'This inquiry failed. Try running it again.' },
+    }).catch((werr) => {
+      log.server.warn({ err: werr, jobId: job.jobId }, 'Failed-state job record write failed (best-effort)');
+    });
   } finally {
     job.startedAt = Date.now(); // restart the TTL clock from the terminal state
   }

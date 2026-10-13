@@ -1,9 +1,10 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// @INMEMORY_JOB_STORE — job registry is a per-process in-memory Map (not shared across replicas).
-// Remove this marker when migrated to blob-backed shared store (t/2885). The CI gate
-// Test-InMemoryJobStoreScaleGuard.ps1 reads this marker and blocks if maxReplicas > 1.
+// Replica-safe (t/4177): the in-memory Map is the fast path; every job's poll view is also written
+// to the durable briefExportJobStore (creation, a heartbeat while running, and the terminal state),
+// and a GET that misses the Map falls back to it. (This replaces the in-memory job-store marker
+// that Test-InMemoryJobStoreScaleGuard.ps1 used to block maxReplicas > 1.)
 // Brief Export async job runner + registry (t/2804, T6). Mirrors the oped run-registry
 // pattern (in-memory Map, per-user concurrency cap, TTL sweep) but exposes the
 // POST-202-jobId + GET-poll shape (not SSE). Durable truth is the exports list +
@@ -21,6 +22,12 @@ import { BRIEF_ARTIFACTS } from '../../../lib/brief/types.js';
 import type { AIAdapter } from '../../../lib/debate/aiAdapter.js';
 import { saveBriefExport, type BriefExportRecord, type ArtifactBlob } from './storage/briefExportStore.js';
 import { loadTemplateBytes } from './storage/templateStore.js';
+import { log } from './logger.js';
+import {
+  saveBriefExportJobRecord, isTerminalExportStatus, BRIEF_EXPORT_HEARTBEAT_INTERVAL_MS,
+  type BriefExportJobRecord,
+} from './storage/briefExportJobStore.js';
+export { resolveBriefExportJobPoll } from './storage/briefExportJobStore.js';
 
 export const MAX_CONCURRENT_EXPORT_JOBS = 1;      // per user — export is billable + heavy
 export const EXPORT_JOB_TTL_MS = 10 * 60_000;     // 10 min (mirrors oped; also the idempotency window)
@@ -133,9 +140,31 @@ export interface CreateJobArgs {
   adapter: AIAdapter;
 }
 
-/** Create a queued job, return it, and kick off the async pipeline (fire-and-forget).
- *  The route returns 202 { jobId } immediately; GET polls the evolving state. */
-export function startExportJob(args: CreateJobArgs): ExportJob {
+/** Snapshot the job's poll view into the durable record shape (t/4177). */
+function toRecord(job: ExportJob): BriefExportJobRecord {
+  return {
+    jobId: job.jobId, userId: job.userId, debateId: job.debateId,
+    status: job.status, progressPct: job.progressPct, warnings: [...job.warnings],
+    error: job.error, errorCode: job.errorCode ?? null, exportId: job.exportId,
+    startedAt: job.startedAt, lastHeartbeatAt: new Date().toISOString(),
+  };
+}
+
+function writeRecordBestEffort(job: ExportJob, what: string): Promise<void> {
+  return saveBriefExportJobRecord(toRecord(job)).catch((err) => {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'brief-export', level: 'warn',
+      message: `Brief export job record ${what} write failed (best-effort)`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    log.server.warn({ err, jobId: job.jobId }, `brief-export job record ${what} write failed (best-effort)`);
+  });
+}
+
+/** Create a queued job, persist its record (awaited, so another replica can answer the very first
+ *  poll), and kick off the async pipeline (fire-and-forget). The route returns 202 { jobId }
+ *  immediately; GET polls the evolving state. */
+export async function startExportJob(args: CreateJobArgs): Promise<ExportJob> {
   const job: ExportJob = {
     jobId: randomUUID(),
     userId: args.userId,
@@ -149,11 +178,31 @@ export function startExportJob(args: CreateJobArgs): ExportJob {
     startedAt: Date.now(),
   };
   jobs.set(job.jobId, job);
+  await saveBriefExportJobRecord(toRecord(job));
   void runExportJob(job, args);
   return job;
 }
 
 async function runExportJob(job: ExportJob, args: CreateJobArgs): Promise<void> {
+  // Heartbeat (t/4177): keeps the durable record's poll view fresh while the job runs, so another
+  // replica serves live progress, and a crashed owner is detected by staleness. Promise-based
+  // setTimeout preserves the request's AsyncLocalStorage user context (setInterval would not).
+  void (async () => {
+    while (!isTerminalExportStatus(job.status)) {
+      await new Promise<void>(resolve => setTimeout(resolve, BRIEF_EXPORT_HEARTBEAT_INTERVAL_MS));
+      if (isTerminalExportStatus(job.status)) break;
+      void writeRecordBestEffort(job, 'heartbeat');
+    }
+  })();
+  try {
+    await runExportPipeline(job, args);
+  } finally {
+    // Terminal state (startedAt was just reset to the terminal time, which starts the retention clock).
+    await writeRecordBestEffort(job, 'terminal');
+  }
+}
+
+async function runExportPipeline(job: ExportJob, args: CreateJobArgs): Promise<void> {
   const exportId = randomUUID();
   const { session, models, request } = args;
   const artifacts: ArtifactBlob[] = [];
