@@ -1,5 +1,5 @@
 {
-  "_comment": "t/4058: every workflow with a `schedule:` trigger MUST be listed (lint: scheduled-workflow-health.test.mjs). maxSilentHours ~= 2x cron interval + 12h headroom for GitHub cron throttling (observed: */15 workflows going 6h between runs), floor 12h.",
+  "_comment": "t/4058: every workflow with a `schedule:` trigger MUST be listed (lint: scheduled-workflow-health.test.mjs). maxSilentHours ~= 2x cron interval + 12h headroom for GitHub cron throttling (observed: */15 workflows going 6h between runs), floor 12h. t/4173#8: the Build B alarm (ScheduledWorkflowLivenessVerdict.ps1) intentionally PERSISTS for a while after a stalled cron actually resumes — it looks at the max gap across the last 5 fetched schedule-triggered runs (t/4173#6, cadence not last-run-age), so a stale run stays inside that 5-run window until enough fresh runs push it out. For a */15 workflow that's about 75 minutes (5 x 15min) after real recovery; for the hourly watchdog it's about 5 hours. This is NOT a bug — do not shorten per_page below 5 to clear the alarm faster, since a smaller window is exactly what let a single burst run read as 'recovered' in the first place (t/4173#5).",
   "workflows": [
     { "file": "base-image.yml",               "maxSilentHours": 348 },
     { "file": "cache-cleanup.yml",            "maxSilentHours": 348 },
