@@ -511,6 +511,9 @@ var baseEnv = [
   // stay in sync with AI_TRIAD_DATA_ROOT (t/2061 invariant; Dockerfile comment).
   { name: 'AI_TRIAD_DATA_ROOT', value: '/mnt/shared' }
   { name: 'TAXONOMY_CACHE_DIR', value: '/mnt/shared' }
+  // t/4176: the code splits per-replica AI RPM and per-client rate limits by this (t/4177, t/4178).
+  // MUST equal the container app's maxReplicas below, and deploy-azure.yml ExpectedEnvVars.
+  { name: 'MAX_REPLICAS', value: '5' }
   { name: 'ALLOWED_ORIGINS', value: 'https://taxonomy-editor.${containerAppEnv.properties.defaultDomain}' }
   { name: 'HOME', value: '/home/aitriad' }
   { name: 'NODE_ENV', value: 'production' }
@@ -733,25 +736,24 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       scale: {
         // Scale-out restored after t/683 (ed489b9): AnonymousSessionStore is now
         // file-backed on the shared /mnt/shared volume — AnonymousSessionStore
-        // (debate/session state) IS replica-independent. HOWEVER: brief-export
-        // and oped job stores are still per-process in-memory Maps and are NOT
-        // replica-independent; see maxReplicas cap below (t/2885, 2026-08-20).
+        // (debate/session state) IS replica-independent. Job stores and the allowlist
+        // cache are replica-safe since t/4177; see the maxReplicas cap below.
         // minReplicas reverted 1->0 (t/1354, 2026-07-07): prod was costing
         // ~$24 in its first 6 days of July alone (~$120+/mo projected) from
         // running 1 vCPU/2GiB continuously. Owner accepted the cold-start
         // latency tradeoff this reintroduces (previously fixed for the same
         // reason in e247ef75, 2026-05-05) in exchange for scale-to-zero savings.
         minReplicas: 0
-        // maxReplicas capped at 1 (t/2885, 2026-08-20): brief-export and oped job
-        // NOTE: the phrase "maxReplicas capped at 1" on this line is load-bearing —
+        // maxReplicas capped at 5 (t/4176, PI 2026-10-13; was 1 since t/2885).
+        // NOTE: the phrase "maxReplicas capped at" on this line is load-bearing —
         // Test-InMemoryJobStoreScaleGuard.ps1 uses it as a regex anchor to locate
         // the maxReplicas value. Do not edit this comment string without updating the gate.
-        // stores are per-process in-memory Maps. Running >1 replica means a POST
-        // that creates a job on replica A and a GET poll on replica B → 404.
-        // DO NOT raise this above 1 until the job store is backed by shared blob
-        // storage (t/2885 deferred). Raising it silently reintroduces the t/2884
-        // export-404 race with no error at startup.
-        maxReplicas: 1
+        // Why 5 and not 10: the GitHub poll runs in every replica (one call per replica
+        // per minute against a 5,000/h App budget shared by the fleet); 5 replicas use
+        // ~6% of it. Going above 5 needs the single-holder poll lease (t/4179) first.
+        // MUST equal MAX_REPLICAS in baseEnv: the code divides per-replica AI RPM and
+        // rate limits by it (t/4177, t/4178). A mismatch overspends the shared quota.
+        maxReplicas: 5
         rules: [
           {
             name: 'http-scaler'

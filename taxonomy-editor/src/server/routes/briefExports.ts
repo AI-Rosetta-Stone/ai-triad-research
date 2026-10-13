@@ -21,7 +21,7 @@ import { resolveExportModel, type ClientModelSource } from './exportModel.js';
 import { enforceBackendAllowed } from './generationContext.js';
 import {
   startExportJob, getExportJob, hasExportJob, sweepExportJobs, countRunningExportJobs,
-  findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, type ResolvedModels,
+  findIdempotentJob, MAX_CONCURRENT_EXPORT_JOBS, resolveBriefExportJobPoll, type ResolvedModels,
 } from '../briefExportJobs.js';
 import { listBriefExports, loadBriefExportRecord, loadBriefArtifact, deleteBriefExport, getBriefExportsQuotaStatus } from '../storage/briefExportStore.js';
 import { BRIEF_ARTIFACTS, type BriefArtifactName, type BriefPreset } from '../../../../lib/brief/types.js';
@@ -89,6 +89,19 @@ function resolveExportModels(
   return models;
 }
 
+/** Start the job and answer 202 { jobId }, or 503 if its durable record can't be created (t/4177).
+ *  Extracted from the POST handler to keep it within the file's complexity budget. */
+async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>[1], args: Parameters<typeof startExportJob>[0]): Promise<void> {
+  try {
+    const job = await startExportJob(args);
+    json(res, { jobId: job.jobId }, 202);
+  } catch (err) {
+    // The durable job record could not be created, so no job was started (nothing billed).
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export job record could not be created — export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    error(res, 'Could not start the export because job storage is unavailable. Nothing was started or charged; try again in a minute.', 503, err);
+  }
+}
+
 export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
   const { get, post, del } = r;
 
@@ -148,19 +161,27 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
 
     const framingMeta = b.framingMeta === false ? false : undefined;
     const templateId = typeof b.templateId === 'string' ? b.templateId : undefined;
-    const job = startExportJob({
+    await startJobAndRespond(res, {
       userId, session, debateId, models,
       request: { preset, skipNarration, framingMeta, allowOpen, templateId },
       toolVersions: TOOL_VERSIONS, timestamp: new Date().toISOString(),
       idempotencyKey, adapter: createWebOpEdAdapter(),
     });
-    json(res, { jobId: job.jobId }, 202);
   });
 
   // ── GET /api/export-jobs/:jobId ──
-  get('/api/export-jobs/:jobId', (req, res) => {
+  get('/api/export-jobs/:jobId', async (req, res) => {
     const jobId = param(req, 'jobId', '/api/export-jobs/:jobId');
     const job = getExportJob(jobId, getStorageUserId());
+    if (!job && !hasExportJob(jobId)) {
+      // Tier-3 (t/4177): the job may be running, or have finished, on another replica. The durable
+      // record is user-scoped, so another user's jobId simply reads as absent.
+      let rec: Awaited<ReturnType<typeof resolveBriefExportJobPoll>> = null;
+      try { rec = await resolveBriefExportJobPoll(jobId); } catch (err) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'warn', message: 'export-job tier-3 lookup failed — answering 404', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      }
+      if (rec) { json(res, { status: rec.status, progressPct: rec.progressPct, warnings: rec.warnings, error: rec.error, errorCode: rec.errorCode, exportId: rec.exportId }); return; }
+    }
     if (!job) {
       // t/2887: record the miss so a poll 404 is diagnosable in server FR (was invisible, t/2884).
       // `inMap` distinguishes "not in THIS process's registry at all" — the cross-replica-404

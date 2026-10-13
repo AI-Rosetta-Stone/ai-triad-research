@@ -52,12 +52,13 @@ if ($markedFiles.Count -eq 0) {
 }
 
 # ── 2. Extract taxonomy-editor maxReplicas from main.bicep ────────────────────
-# NOTE: the regex anchors on the literal string 'maxReplicas capped at 1' — that
-# string is load-bearing for this gate (Gate Co-Location, t/2885). Rewording the
-# cap comment in main.bicep requires updating the regex here.
+# NOTE: the regex anchors on the literal string 'maxReplicas capped at' (followed by the
+# number) — that string is load-bearing for this gate (Gate Co-Location, t/2885; widened
+# from 'capped at 1' when the cap was raised to 5, t/4176). Rewording the cap comment in
+# main.bicep requires updating the regex here.
 $bicepContent = Get-Content -Path $BicepPath -Raw
 
-$match = [regex]::Match($bicepContent, 'maxReplicas capped at 1[\s\S]*?maxReplicas:\s*(\d+)')
+$match = [regex]::Match($bicepContent, 'maxReplicas capped at \d+[\s\S]*?maxReplicas:\s*(\d+)')
 if (-not $match.Success) {
     throw "InMemoryJobStore scale guard: could not parse taxonomy-editor maxReplicas from $BicepPath. Ensure the t/2885 cap comment and maxReplicas line are present and intact."
 }

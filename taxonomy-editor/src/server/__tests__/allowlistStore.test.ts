@@ -22,7 +22,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import {
-  getEntries, isAllowlisted, addEntry, removeEntry, _resetAllowlistCache,
+  getEntries, isAllowlisted, addEntry, removeEntry, _resetAllowlistCache, ALLOWLIST_CACHE_TTL_MS,
 } from '../storage/allowlistStore.js';
 import type { AllowlistEntry } from '../../../../lib/allowlist/types.js';
 
@@ -138,5 +138,27 @@ describe('allowlistStore (t/3497)', () => {
   it('writes { version: 1, entries } verbatim to disk', async () => {
     await addEntry(entry('alice'));
     expect(JSON.parse(fs.readFileSync(allowlistFile(), 'utf-8'))).toEqual({ version: 1, entries: [entry('alice')] });
+  });
+
+  // ─── Multi-replica revocation (t/4177) ─────────────────────────────────────
+  // Another replica's removal is a rewrite of the shared file that THIS process never performed.
+
+  it('a removal written by another replica takes effect here within the cache TTL', async () => {
+    vi.useFakeTimers();
+    try {
+      await addEntry(entry('alice'));
+      expect(isAllowlisted('alice')).toBe(true);
+      // "Replica B" revokes alice by rewriting the shared file directly.
+      fs.writeFileSync(allowlistFile(), JSON.stringify({ version: 1, entries: [] }));
+      expect(isAllowlisted('alice')).toBe(true);            // still cached: within the TTL
+      vi.advanceTimersByTime(ALLOWLIST_CACHE_TTL_MS + 1);
+      expect(isAllowlisted('alice')).toBe(false);           // re-read: the revocation is visible
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the cross-replica revocation window is short (an ACL, not a feature flag)', () => {
+    expect(ALLOWLIST_CACHE_TTL_MS).toBeLessThanOrEqual(60_000);
   });
 });

@@ -26,15 +26,17 @@ vi.mock('../routes/generationContext.js', () => ({ enforceBackendAllowed }));
 
 vi.mock('../ai/opedAdapter.js', () => ({ createWebOpEdAdapter: () => ({ generateText: vi.fn() }) }));
 
-const { startExportJob, getExportJob, sweepExportJobs, countRunningExportJobs, findIdempotentJob } = vi.hoisted(() => ({
-  startExportJob: vi.fn(() => ({ jobId: 'job-1' })),
+const { startExportJob, getExportJob, hasExportJob, resolveBriefExportJobPoll, sweepExportJobs, countRunningExportJobs, findIdempotentJob } = vi.hoisted(() => ({
+  startExportJob: vi.fn(async () => ({ jobId: 'job-1' })),
   getExportJob: vi.fn(),
+  hasExportJob: vi.fn(() => false),
+  resolveBriefExportJobPoll: vi.fn(async () => null),
   sweepExportJobs: vi.fn(),
   countRunningExportJobs: vi.fn(() => 0),
   findIdempotentJob: vi.fn(() => null),
 }));
 vi.mock('../briefExportJobs.js', () => ({
-  startExportJob, getExportJob, sweepExportJobs, countRunningExportJobs, findIdempotentJob,
+  startExportJob, getExportJob, hasExportJob, resolveBriefExportJobPoll, sweepExportJobs, countRunningExportJobs, findIdempotentJob,
   MAX_CONCURRENT_EXPORT_JOBS: 1,
 }));
 
@@ -77,8 +79,10 @@ describe('Brief Export routes (t/2804)', () => {
     loadDebateSession.mockReset().mockResolvedValue({ phase: 'closed' });
     resolveExportModel.mockReset().mockReturnValue(OK_MODEL);
     enforceBackendAllowed.mockReset().mockReturnValue(false);
-    startExportJob.mockReset().mockReturnValue({ jobId: 'job-1' });
+    startExportJob.mockReset().mockResolvedValue({ jobId: 'job-1' });
     getExportJob.mockReset();
+    hasExportJob.mockReset().mockReturnValue(false);
+    resolveBriefExportJobPoll.mockReset().mockResolvedValue(null);
     sweepExportJobs.mockReset();
     countRunningExportJobs.mockReset().mockReturnValue(0);
     findIdempotentJob.mockReset().mockReturnValue(null);
@@ -202,6 +206,42 @@ describe('Brief Export routes (t/2804)', () => {
     const res2 = fakeRes();
     await handlers['GET /api/export-jobs/:jobId'](fakeReq('/api/export-jobs/nope'), res2, undefined);
     expect(res2._status).toBe(404);
+  });
+
+  it('POST answers 503 (and starts nothing) when the durable job record cannot be created (t/4177)', async () => {
+    startExportJob.mockRejectedValue(new Error('blob down'));
+    const res = fakeRes();
+    await handlers['POST /api/debates/:debateId/exports'](fakeReq('/api/debates/deb-1/exports'), res, validBody);
+    expect(res._status).toBe(503);
+    expect(res._body).toContain('job storage is unavailable');
+  });
+
+  // t/4177: a poll that lands on a replica without the job in its Map answers from the durable record.
+  it('GET /api/export-jobs/:jobId falls back to the durable record when the job is not in this replica', async () => {
+    getExportJob.mockReturnValue(null);
+    resolveBriefExportJobPoll.mockResolvedValue({ jobId: 'job-9', userId: 'user-1', debateId: 'deb-1', status: 'narrating', progressPct: 30, warnings: ['w'], error: null, errorCode: null, exportId: null, startedAt: 1, lastHeartbeatAt: '2026-10-13T00:00:00.000Z' });
+    const res = fakeRes();
+    await handlers['GET /api/export-jobs/:jobId'](fakeReq('/api/export-jobs/job-9'), res, undefined);
+    expect(resolveBriefExportJobPoll).toHaveBeenCalledWith('job-9');
+    expect(res._status).toBe(200);
+    expect(JSON.parse(res._body!)).toEqual({ status: 'narrating', progressPct: 30, warnings: ['w'], error: null, errorCode: null, exportId: null });
+  });
+
+  it('GET /api/export-jobs/:jobId does not consult the durable record for a job in this Map owned by another user', async () => {
+    getExportJob.mockReturnValue(null);
+    hasExportJob.mockReturnValue(true);
+    const res = fakeRes();
+    await handlers['GET /api/export-jobs/:jobId'](fakeReq('/api/export-jobs/job-other'), res, undefined);
+    expect(resolveBriefExportJobPoll).not.toHaveBeenCalled();
+    expect(res._status).toBe(404);
+  });
+
+  it('GET /api/export-jobs/:jobId answers 404 (not 500) when the durable lookup throws', async () => {
+    getExportJob.mockReturnValue(null);
+    resolveBriefExportJobPoll.mockRejectedValue(new Error('blob down'));
+    const res = fakeRes();
+    await handlers['GET /api/export-jobs/:jobId'](fakeReq('/api/export-jobs/job-x'), res, undefined);
+    expect(res._status).toBe(404);
   });
 
   it('GET /api/debates/:debateId/exports lists the debate’s exports', async () => {

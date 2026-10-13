@@ -55,7 +55,7 @@ const MAX_TOPIC_LEN = 2000;
 // is gone. Completion stays authoritative via the durable finalized set (opedStore), NOT this
 // store — a cross-replica reconnect / replica recycle recovers via the sets GET (TL Q2, t/2610#3).
 // The store lazy-expires stale 'running' blobs (crashed-A protection); no local sweep needed.
-// The @INMEMORY_JOB_STORE marker is removed — this ticket IS that migration.
+// The in-memory job-store marker is removed — this ticket IS that migration.
 const MAX_CONCURRENT_OPED_RUNS = 1;          // per user, P1 (TL Q1)
 const OPED_HEARTBEAT_MS = 15_000;
 
