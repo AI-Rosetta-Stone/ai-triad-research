@@ -89,6 +89,19 @@ function resolveExportModels(
   return models;
 }
 
+/** Start the job and answer 202 { jobId }, or 503 if its durable record can't be created (t/4177).
+ *  Extracted from the POST handler to keep it within the file's complexity budget. */
+async function startJobAndRespond(res: Parameters<Parameters<Router['post']>[1]>[1], args: Parameters<typeof startExportJob>[0]): Promise<void> {
+  try {
+    const job = await startExportJob(args);
+    json(res, { jobId: job.jobId }, 202);
+  } catch (err) {
+    // The durable job record could not be created, so no job was started (nothing billed).
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'brief-export', level: 'error', message: 'Brief export job record could not be created — export not started', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    error(res, 'Could not start the export because job storage is unavailable. Nothing was started or charged; try again in a minute.', 503, err);
+  }
+}
+
 export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
   const { get, post, del } = r;
 
@@ -148,13 +161,12 @@ export function registerBriefExportsRoutes(r: Router, _ctx: ServerCtx): void {
 
     const framingMeta = b.framingMeta === false ? false : undefined;
     const templateId = typeof b.templateId === 'string' ? b.templateId : undefined;
-    const job = await startExportJob({
+    await startJobAndRespond(res, {
       userId, session, debateId, models,
       request: { preset, skipNarration, framingMeta, allowOpen, templateId },
       toolVersions: TOOL_VERSIONS, timestamp: new Date().toISOString(),
       idempotencyKey, adapter: createWebOpEdAdapter(),
     });
-    json(res, { jobId: job.jobId }, 202);
   });
 
   // ── GET /api/export-jobs/:jobId ──

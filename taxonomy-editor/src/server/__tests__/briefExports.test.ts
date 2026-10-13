@@ -208,6 +208,14 @@ describe('Brief Export routes (t/2804)', () => {
     expect(res2._status).toBe(404);
   });
 
+  it('POST answers 503 (and starts nothing) when the durable job record cannot be created (t/4177)', async () => {
+    startExportJob.mockRejectedValue(new Error('blob down'));
+    const res = fakeRes();
+    await handlers['POST /api/debates/:debateId/exports'](fakeReq('/api/debates/deb-1/exports'), res, validBody);
+    expect(res._status).toBe(503);
+    expect(res._body).toContain('job storage is unavailable');
+  });
+
   // t/4177: a poll that lands on a replica without the job in its Map answers from the durable record.
   it('GET /api/export-jobs/:jobId falls back to the durable record when the job is not in this replica', async () => {
     getExportJob.mockReturnValue(null);

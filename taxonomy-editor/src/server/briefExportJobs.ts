@@ -177,8 +177,10 @@ export async function startExportJob(args: CreateJobArgs): Promise<ExportJob> {
     exportId: null,
     startedAt: Date.now(),
   };
-  jobs.set(job.jobId, job);
+  // Persist BEFORE registering: if the creation write throws, nothing is left in the Map holding the
+  // user's concurrency slot as a 'queued' job that never runs (it would 429 every later POST).
   await saveBriefExportJobRecord(toRecord(job));
+  jobs.set(job.jobId, job);
   void runExportJob(job, args);
   return job;
 }

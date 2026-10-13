@@ -219,6 +219,18 @@ describe('brief export runner (t/2804)', () => {
     expect(view).toMatchObject({ status: 'done', progressPct: 100, exportId: job.exportId, error: null });
   });
 
+  it('replica-safety: a failed creation write starts nothing and holds no concurrency slot', async () => {
+    heartbeatGate.wait = Promise.reject(new Error('blob down'));   // the first (queued) write throws
+    heartbeatGate.wait.catch(() => {});
+    try {
+      await expect(startExportJob(baseArgs({ userId: 'user-slot' }))).rejects.toThrow('blob down');
+    } finally {
+      heartbeatGate.wait = null;
+    }
+    expect(countRunningExportJobs('user-slot')).toBe(0);
+    expect(extractDeckSpec).not.toHaveBeenCalled();
+  });
+
   it('replica-safety: a heartbeat still in flight when the job ends cannot overwrite the terminal record', async () => {
     vi.useFakeTimers();
     try {
