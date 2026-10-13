@@ -741,7 +741,10 @@ export async function generateText(
 ): Promise<{ text: string; stopReason?: StopReason; diagnostics?: ProviderCallDiagnostics; servedModel?: string }> {
   const { timeoutMs, temperature, signal, responseSchema, maxTokens } = opts ?? {};
   const friendlyModel = model || DEFAULT_MODEL;
-  const backend = resolveBackend(friendlyModel);
+  // registry passed explicitly (t/4141): resolveBackend's registry param is optional and falls
+  // through to an id-prefix guess when omitted, routing the request and its key to a provider
+  // the registry didn't name.
+  const backend = resolveBackend(friendlyModel, resolveRegistry());
   const entry = resolveModelEntry(friendlyModel);
   const resolvedModel = entry?.apiModelId ?? friendlyModel;
 
@@ -839,7 +842,8 @@ export async function generateChatStream(
   urlContext?: boolean,
 ): Promise<{ text: string; urlContextMetadata?: UrlContextMetadata }> {
   const friendlyModel = model || DEFAULT_MODEL;
-  const backend = resolveBackend(friendlyModel);
+  // registry passed explicitly (t/4141): see generateText's identical comment.
+  const backend = resolveBackend(friendlyModel, resolveRegistry());
   const entry = resolveModelEntry(friendlyModel);
   const resolvedModel = entry?.apiModelId ?? friendlyModel;
 
@@ -1023,7 +1027,8 @@ export async function generateTextWithSearch(
   model?: string,
 ): Promise<{ text: string; searchQueries?: string[]; citations?: GroundingCitation[] }> {
   const resolvedModel = model || DEFAULT_MODEL;
-  const backend = resolveBackend(resolvedModel);
+  // registry passed explicitly (t/4141): see generateText's identical comment.
+  const backend = resolveBackend(resolvedModel, resolveRegistry());
 
   // Non-Gemini: use Tavily search + LLM if Tavily key is available
   if (backend !== 'gemini') {
