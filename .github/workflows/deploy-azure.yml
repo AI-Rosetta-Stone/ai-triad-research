@@ -203,6 +203,18 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Validate auth config — tokenStore safety (warn-only — t/4133)
+        # t/4133: tokenStore.enabled=true with no blob backing causes HTTP 500 for all signed-in
+        # users on replica recycle or platform roll (t/4132 incident). Checks live Azure state
+        # (not just the template) so ad-hoc CLI drift is also caught. Warn-only until
+        # gate-promotion flip PR; blocking upgrade is T2 (gate flip, separate PR).
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          ./operations/devops/Invoke-TokenStoreGateCheck.ps1 `
+            -ContainerAppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup    '${{ env.RESOURCE_GROUP }}'
+
       - name: Capture current active revisions (traffic-pin + rollback targets)
         id: current_revision
         shell: pwsh
@@ -317,6 +329,16 @@ jobs:
       # traffic pin. steps.current_revision.outputs.revision remains the rollback
       # target below — and, with the pin, that revision holds 100% throughout the
       # deploy, so it can never drop to 0% / go stale / be GC'd mid-deploy (t/2047).
+
+      - name: Validate auth config — tokenStore safety post-apply (warn-only — t/4133)
+        # Second check: verifies the DEPLOYED state, not just the pre-apply live state.
+        # Catches a Bicep template that re-enables tokenStore without backing (t/4132).
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          ./operations/devops/Invoke-TokenStoreGateCheck.ps1 `
+            -ContainerAppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup    '${{ env.RESOURCE_GROUP }}'
 
       # SYNC WITH main.bicep: analyticsContainer, stagingAnalyticsContainer,
       # userContentContainer, stagingUserContentContainer, communityContainer,
