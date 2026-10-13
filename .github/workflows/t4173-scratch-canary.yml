@@ -1,0 +1,23 @@
+# ─── t/4173 Scratch Canary (DISABLED — do not re-enable) ───
+# What:  A deliberately-disabled scheduled workflow, used ONCE to prove the t/4173 Build B
+#        alert arm: a declared-but-never-running workflow must surface as a violation, not
+#        read as healthy by default. Disabled immediately after registration via
+#        `gh workflow disable t4173-scratch-canary.yml`, so its `schedule:` trigger below
+#        never actually fires GitHub-side — the proof is that Build B still flags it.
+# Before: N/A — this workflow is disabled and must stay disabled.
+# After:  N/A. Scheduled for removal once the t/4173 alert-arm proof is posted to the ticket.
+
+name: t/4173 Scratch Canary (disabled)
+
+on:
+  schedule:
+    - cron: '0 0 1 1 *'  # irrelevant — the workflow is disabled and will never fire
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "t/4173 scratch canary — if this ever actually runs, something re-enabled it by mistake. Keep disabled."
