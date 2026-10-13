@@ -11,7 +11,7 @@
 
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param, jsonStringifyChunked, sendJsonBuffer } from '../httpKit.js';
+import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForError, codeForError } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import * as fileIO from '../storage/fileIO.js';
 import { stampNodeAuthorship, diffNodes } from '../storage/editMeta.js';
@@ -226,7 +226,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       // tool-lock + PS lock (t/3203) land.
       if (changedNodeIds.length > 0) enqueueGroundingReconcile(changedNodeIds);
       json(res, { ok: true });
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   // ── Node Edit History ──

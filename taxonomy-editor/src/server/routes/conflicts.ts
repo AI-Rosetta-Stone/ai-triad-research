@@ -16,7 +16,7 @@
 
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param } from '../httpKit.js';
+import { json, error, param, statusForError, codeForError } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getConfig } from '../runtimeConfig.js';
 import * as fileIO from '../storage/fileIO.js';
@@ -121,7 +121,7 @@ export function registerConflictsRoutes(r: Router, ctx: ServerCtx): void {
       await fileIO.writeConflictFile(id, body);
       conflictsCache = null;
       json(res, { ok: true });
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write conflict', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write conflict', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   post('/api/conflicts/:id', async (req, res, body) => {

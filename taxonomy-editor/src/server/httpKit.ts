@@ -9,6 +9,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../lib/debate/errors.js';
 import { log, getRequestId } from './logger.js';
 import { clientSafeMessage } from './security/accessControl.js';
 
@@ -95,6 +96,23 @@ function recordServerError(route: string, status: number, message: string, cause
     error: { name: (cause as Error)?.name ?? 'Error', message, stack: (cause as Error)?.stack },
     data: { response_status: status },
   });
+}
+
+/** t/4185: map a thrown ActionableError's `httpStatus` (e.g. 409 on a storage write conflict) to
+ *  the HTTP response status, falling back when the error didn't set one (an ordinary unexpected
+ *  failure stays a 500). Server-side counterpart to the renderer's existing bridge convention —
+ *  chatStream.ts/electron-bridge.ts already set `err.httpStatus` from `res.status` on the client
+ *  side; this makes the same field load-bearing end to end instead of server-only dead code. */
+export function statusForError(err: unknown, fallback = 500): number {
+  return err instanceof ActionableError && err.httpStatus ? err.httpStatus : fallback;
+}
+
+/** t/4185: pull a machine-readable `code` (e.g. 'WRITE_CONFLICT') off a thrown ActionableError for
+ *  the `extra` param of `error()` below — the UI branches on `code`, never on the transport status,
+ *  because the same HTTP status can mean different things across routes. Returns undefined when
+ *  the error didn't set one, so callers can spread it without adding a stray `code: undefined` key. */
+export function codeForError(err: unknown): { code: string } | undefined {
+  return err instanceof ActionableError && err.code ? { code: err.code } : undefined;
 }
 
 export function error(res: ServerResponse, message: string, status = 500, cause?: unknown, extra?: Record<string, unknown>): void {
