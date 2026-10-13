@@ -153,6 +153,8 @@ function Invoke-TaxEditorLoadTest {
 
     try {
         Write-Host "Warming up (staging scales to zero when idle — this excludes cold-start from the ramp)..."
+        # fetch-allowlist: warm-up GET against our own staging app's /healthz (not arbitrary
+        # external content — $BaseUrl is already validated as the staging host above; t/3314)
         try { Invoke-WebRequest -Uri "$BaseUrl/healthz" -TimeoutSec 60 -UseBasicParsing | Out-Null } catch {
             Write-Warning "Warm-up request failed: $($_.Exception.Message). Proceeding anyway — the first ramp step will absorb the cold start instead."
         }
