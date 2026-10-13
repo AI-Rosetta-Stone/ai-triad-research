@@ -160,6 +160,7 @@
         'Get-FreeTierStatus'
         'Sync-FreeTierKeys'
         'Invoke-TaxEditorSmokeTest'
+        'Invoke-TaxEditorLoadTest'
         'Test-PreloadHealth'
         'Test-AnalyticsBackend'
         'Test-AnalyticsBlobHealth'
