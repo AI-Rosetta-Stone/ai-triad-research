@@ -13,11 +13,8 @@ type IntroPov = 'accelerationist' | 'safetyist' | 'skeptic';
 export const INTRO_EYEBROW = 'AI Triad Research · Berkman Klein Center';
 export const INTRO_TITLE = 'AI Rosetta Stone';
 
-/** The login page's tagline, one entry per line. */
-export const LOGIN_TAGLINE_LINES = ['Three schools of thought.', 'One map of the argument.'] as const;
-
-/** The intro tour's tagline (PI wording and capitalisation, t/4183), one entry per line. */
-export const TOUR_TAGLINE_LINES = ['The goal is NOT to PROVIDE ANSWERS.', 'The goal is to PROVOKE THINKING.'] as const;
+/** The tagline for both the login page and the intro tour (PI wording and capitalisation, t/4183), one entry per line. */
+export const INTRO_TAGLINE_LINES = ['The goal is NOT to PROVIDE ANSWERS.', 'The goal is to PROVOKE THINKING.'] as const;
 
 export const INTRO_QUESTION = 'Should frontier AI development slow down?';
 

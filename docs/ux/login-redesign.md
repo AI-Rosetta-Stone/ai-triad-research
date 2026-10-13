@@ -80,7 +80,7 @@ Placeholder copy (illustrative, replaceable):
 |---|---|---|
 | Eyebrow | UI sans, uppercase, `letter-spacing: 0.08em` | 11px / 600, `rgba(255,255,255,0.55)` |
 | Project title — "AI Rosetta Stone" | Serif (`--font-prose` when it exists; `Georgia, serif` until then) | 36–40px / 700, one line, `#FFFFFF` |
-| Tagline — "Three schools of thought. One map of the argument." | Serif | 18–20px / 400, `rgba(255,255,255,0.72)`, one or two lines |
+| Tagline — "The goal is NOT to PROVIDE ANSWERS. The goal is to PROVOKE THINKING." (t/4183; was "Three schools of thought. One map of the argument.") | Serif | 18–20px / 400, `rgba(255,255,255,0.72)`, one or two lines |
 | Question | Serif italic | 17–18px / 400 |
 | Voice lines | Serif | 15–16px / 400 |
 | "Sign in" heading | UI sans | 20px / 600 |
