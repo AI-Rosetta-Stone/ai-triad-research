@@ -2,9 +2,15 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // NOTE: this is an in-process limiter — it enforces RPM per replica.
-// Correct while maxReplicas=1 (current ACA config, per t/3046).
-// If replicas scale beyond 1, the effective limit becomes N×RPM and
-// this must be replaced with a shared counter (Redis / Durable Object).
+// getLimiter divides the configured RPM by MAX_REPLICAS (t/4177) so N replicas
+// collectively stay within the pool's actual RPM instead of allowing N×RPM.
+// TRADE-OFF (TL t/4177#3): this protects the pool at peak load but under-uses it
+// when fewer replicas are actually live — at MAX_REPLICAS=10 with one live
+// replica, that replica gets RPM/10, so a single user's debate runs ~10× slower
+// than today. Accepted for now (quota safety over speed; 429 retries soften it).
+// A shared counter (Redis / Durable Object) is the real fix if this bites.
+
+import { getMaxReplicas } from '../config.js';
 
 export class RpmLimiter {
   // Burst is intentional: the first idle window can serve up to ~(2·rpm−1) calls
@@ -47,9 +53,17 @@ export class RpmLimiter {
 
 const _limiters = new Map<string, RpmLimiter>();
 
-/** Return (or create) the per-key GCRA limiter. `key` is the full API key string. */
+/** The effective per-replica RPM for a pool-configured limit (t/4177). Exported so the startup
+ *  WARN can log the same value callers are actually limited to. */
+export function effectivePerReplicaRpm(poolRpm: number): number {
+  return poolRpm / getMaxReplicas();
+}
+
+/** Return (or create) the per-key GCRA limiter. `key` is the full API key string; `rpm` is the
+ *  POOL's configured limit — divided by MAX_REPLICAS internally so callers never need to know
+ *  about replica count. */
 export function getLimiter(key: string, rpm: number): RpmLimiter {
-  if (!_limiters.has(key)) _limiters.set(key, new RpmLimiter(rpm));
+  if (!_limiters.has(key)) _limiters.set(key, new RpmLimiter(effectivePerReplicaRpm(rpm)));
   return _limiters.get(key)!;
 }
 
