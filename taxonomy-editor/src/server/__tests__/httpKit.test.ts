@@ -129,8 +129,7 @@ describe('statusForError (t/4185)', () => {
 
 describe('codeForError (t/4185)', () => {
   it('ActionableError with code set → { code }', () => {
-    const err = new ActionableError({ goal: 'g', problem: 'p', location: 'l', nextSteps: [] });
-    (err as unknown as { code: string }).code = 'WRITE_CONFLICT';
+    const err = new ActionableError({ goal: 'g', problem: 'p', location: 'l', nextSteps: [], code: 'WRITE_CONFLICT' });
     expect(codeForError(err)).toEqual({ code: 'WRITE_CONFLICT' });
   });
 
@@ -151,9 +150,7 @@ describe('error() end-to-end: write-conflict maps to 409 + code, including in pr
   it('409 + code survive the <500 branch in development', () => {
     process.env.NODE_ENV = 'development';
     const res = fakeRes('PUT', '/api/taxonomy/:pov');
-    const err = new ActionableError({ goal: 'Save the taxonomy write', problem: 'SHA conflict', location: 'x', nextSteps: ['retry'] });
-    err.httpStatus = 409;
-    (err as unknown as { code: string }).code = 'WRITE_CONFLICT';
+    const err = new ActionableError({ goal: 'Save the taxonomy write', problem: 'SHA conflict', location: 'x', nextSteps: ['retry'], httpStatus: 409, code: 'WRITE_CONFLICT' });
     error(res, String(err), statusForError(err), err, codeForError(err));
     expect(wroteStatus(res, 409)).toBe(true);
     expect(bodyOf(res).code).toBe('WRITE_CONFLICT');
@@ -162,9 +159,7 @@ describe('error() end-to-end: write-conflict maps to 409 + code, including in pr
   it('409 + code survive the <500 branch in production too (t/853 only strips internals, not code)', () => {
     process.env.NODE_ENV = 'production';
     const res = fakeRes('PUT', '/api/taxonomy/:pov');
-    const err = new ActionableError({ goal: 'Save the taxonomy write', problem: 'SHA conflict', location: 'x', nextSteps: ['retry'] });
-    err.httpStatus = 409;
-    (err as unknown as { code: string }).code = 'WRITE_CONFLICT';
+    const err = new ActionableError({ goal: 'Save the taxonomy write', problem: 'SHA conflict', location: 'x', nextSteps: ['retry'], httpStatus: 409, code: 'WRITE_CONFLICT' });
     error(res, String(err), statusForError(err), err, codeForError(err));
     expect(wroteStatus(res, 409)).toBe(true);
     expect(bodyOf(res).code).toBe('WRITE_CONFLICT');

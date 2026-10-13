@@ -110,15 +110,9 @@ export function statusForError(err: unknown, fallback = 500): number {
 /** t/4185: pull a machine-readable `code` (e.g. 'WRITE_CONFLICT') off a thrown ActionableError for
  *  the `extra` param of `error()` below — the UI branches on `code`, never on the transport status,
  *  because the same HTTP status can mean different things across routes. Returns undefined when
- *  the error didn't set one, so callers can spread it without adding a stray `code: undefined` key.
- *  Reads `code` structurally (not as a statically-typed `ActionableError` field): this PR is
- *  joint-gv with t/4184, which adds the field to `lib/debate/errors.ts` — this lands independently
- *  of merge order rather than requiring their type change to be on `main` before this typechecks.
- *  Narrow to the real typed field once that's merged (cosmetic cleanup, not a behavior change). */
+ *  the error didn't set one, so callers can spread it without adding a stray `code: undefined` key. */
 export function codeForError(err: unknown): { code: string } | undefined {
-  if (!(err instanceof ActionableError)) return undefined;
-  const code = (err as unknown as { code?: unknown }).code;
-  return typeof code === 'string' && code.length > 0 ? { code } : undefined;
+  return err instanceof ActionableError && err.code ? { code: err.code } : undefined;
 }
 
 export function error(res: ServerResponse, message: string, status = 500, cause?: unknown, extra?: Record<string, unknown>): void {
