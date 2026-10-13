@@ -685,7 +685,15 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           probes: [
             {
               type: 'Liveness'
-              httpGet: { path: '/healthz', port: 7862 }
+              // /health, NOT /healthz (t/4176 incident, 2026-10-13): /healthz is the DATA-LOADED
+              // signal and returns 503 'warming' until the data load finishes. As a liveness path
+              // it killed any replica whose warm-up took longer than 3 x 30s, and at 5 replicas
+              // warming at once every replica crash-looped ("failed liveness probe, will be
+              // restarted"), users got the "Taxonomy data not found" page whenever no replica was
+              // ready. Liveness = process alive (dataRootReadiness.ts design note); readiness
+              // (/healthz, below) still keeps traffic off a replica until its data is loaded.
+              // /health is served by the same event loop, so the loop-block deadline below holds.
+              httpGet: { path: '/health', port: 7862 }
               periodSeconds: 30
               failureThreshold: 3
               // timeoutSeconds made EXPLICIT (was defaulting to ACA's ~1s). This is
