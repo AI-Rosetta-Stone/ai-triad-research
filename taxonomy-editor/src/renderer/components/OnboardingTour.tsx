@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { POV_META } from '@lib/electron-shared/povMeta';
 import {
-  INTRO_EYEBROW, INTRO_TITLE, TOUR_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
+  INTRO_EYEBROW, INTRO_TITLE, INTRO_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
 } from '@lib/electron-shared/introCopy';
 import { SettingsDialog } from './settings/SettingsDialog';
 import './OnboardingTour.css';
@@ -78,7 +78,7 @@ function IntroHero({ heading }: { heading: string }) {
       <div className="onboarding-hero-eyebrow">{INTRO_EYEBROW}</div>
       <h2 className="onboarding-heading onboarding-hero-title">{heading}</h2>
       <p className="onboarding-hero-tagline">
-        {TOUR_TAGLINE_LINES.map((line, i) => <span key={i}>{line}</span>)}
+        {INTRO_TAGLINE_LINES.map((line, i) => <span key={i}>{line}</span>)}
       </p>
       <div className="onboarding-hero-specimen">
         <p className="onboarding-hero-question">&ldquo;{INTRO_QUESTION}&rdquo;</p>

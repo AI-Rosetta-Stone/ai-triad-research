@@ -16,7 +16,7 @@ import crypto from 'crypto';
 import { hasEasyAuthSessionCookie, expiredAuthCookies } from './security/accessControl.js';
 import { parseCookies } from './httpCookies.js';
 import {
-  INTRO_EYEBROW, INTRO_TITLE, LOGIN_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
+  INTRO_EYEBROW, INTRO_TITLE, INTRO_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
 } from '../../../lib/electron-shared/introCopy.js';
 
 // t/4183: the hero copy is shared with the intro tour's first page; only the markup lives here.
@@ -238,7 +238,7 @@ export function buildLoginPage(showAnonymous: boolean): string {
     <div class="jacket-content">
       <div class="eyebrow">${escapeHtml(INTRO_EYEBROW)}</div>
       <div class="project-title">${escapeHtml(INTRO_TITLE)}</div>
-      <div class="tagline">${LOGIN_TAGLINE_LINES.map(escapeHtml).join('<br>')}</div>
+      <div class="tagline">${INTRO_TAGLINE_LINES.map(escapeHtml).join('<br>')}</div>
       <div class="specimen">
         <div class="specimen-sep"></div>
         <div class="question">&ldquo;${escapeHtml(INTRO_QUESTION)}&rdquo;</div>${heroVoicesHtml()}
