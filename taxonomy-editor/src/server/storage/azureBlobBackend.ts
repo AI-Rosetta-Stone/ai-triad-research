@@ -140,6 +140,15 @@ export class AzureBlobBackend implements StorageBackend {
     return (await this.readBinaryFile(filePath))?.toString('utf-8') ?? null;
   }
 
+  /** t/4187: no write-precondition support here yet — the same class of bug
+   *  this fix closes for GitHubAPIBackend is tracked separately for Blob's own
+   *  write path (ETag preconditions, t/4191). Always a real (not stale) empty
+   *  version; `writeFile`'s `opts.baseSha` is ignored. */
+  async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
+    const content = await this.readFile(filePath, opts);
+    return content === null ? null : { content, version: '' };
+  }
+
   async readBinaryFile(filePath: string): Promise<Buffer | null> {
     const blob = this.toBlobPath(filePath);
     try {

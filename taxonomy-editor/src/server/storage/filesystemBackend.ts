@@ -119,6 +119,14 @@ export class FilesystemBackend implements StorageBackend {
     await this.renameWithRetry(tmpPath, filePath);
   }
 
+  /** t/4187: no write-precondition support on local disk — single-user Electron/dev,
+   *  no concurrent-editor scenario this fixes. Always a real (not stale) empty version;
+   *  writeFile's `opts.baseSha` is ignored. */
+  async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
+    const content = await this.readFile(filePath, opts);
+    return content === null ? null : { content, version: '' };
+  }
+
   async readBinaryFile(filePath: string): Promise<Buffer | null> {
     try {
       return await fs.readFile(filePath);

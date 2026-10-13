@@ -88,6 +88,19 @@ const ERROR_BUFFER_CAPACITY = 100;
 
 const MANIFEST_FILE = 'manifest.json';
 
+/**
+ * t/4187: git blob SHA-1 of UTF-8 file content — the same hash GitHub's
+ * Contents/Trees API reports as a file's `sha` (git's object-hash format:
+ * `sha1("blob " + byteLength + "\0" + content)`). Used to verify a disk-cached
+ * file's content actually matches its own manifest entry before trusting it
+ * as an atomic (content, version) pair.
+ */
+function gitBlobSha(content: string): string {
+  const buf = Buffer.from(content, 'utf-8');
+  const header = `blob ${buf.byteLength}\0`;
+  return crypto.createHash('sha1').update(header).update(buf).digest('hex');
+}
+
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
 
 export class GitHubAPIBackend implements StorageBackend {
@@ -354,6 +367,64 @@ export class GitHubAPIBackend implements StorageBackend {
     return result.content;
   }
 
+  /**
+   * t/4187: like readFile, but also returns the version (GitHub blob SHA) the
+   * content came from — the route's save flow needs to hand this back to the
+   * client as the precondition (`ETag`) for its *next* write.
+   *
+   * Content and version must come from the SAME cache snapshot (TL design
+   * review, t/4187#3) — a manifest entry whose `.sha` moved between reading
+   * the content and reading the sha would hand the client a version newer
+   * than what it's actually editing, reopening the lost update this whole fix
+   * closes. Two independent guards, because a mismatch can happen two ways:
+   *   1. A concurrent write/eviction moves the manifest entry mid-read —
+   *      caught by re-checking the entry after the (async) disk read.
+   *   2. The disk file is simply stale relative to its own manifest entry
+   *      (e.g. a half-written cache file, or disk/manifest drift) — the
+   *      manifest doesn't *move*, so guard 1 alone wouldn't catch it. Caught
+   *      by verifying the disk content's own git blob SHA against the
+   *      manifest's claimed SHA (TL fault-arm requirement, t/4187#3: "stale
+   *      content with a fresh manifest SHA must produce a conflict, not a
+   *      silent save").
+   * Either guard failing retries rather than returning a torn pair. Doesn't
+   * consult the session overlay — overlay writes aren't on the SHA-precondition
+   * path (t/4187 follow-up, t/4188).
+   */
+  async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
+    const repoPath = this.toRepoPath(filePath);
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const entry = this.manifest?.files[repoPath];
+      if (!entry) break; // no cache entry — fall through to a fresh GitHub fetch
+
+      const content = await this.readFromDiskCache(repoPath);
+      const after = this.manifest?.files[repoPath];
+      if (content !== null && after && after.sha === entry.sha) {
+        if (gitBlobSha(content) === entry.sha) {
+          return { content, version: entry.sha };
+        }
+        this.recordEvent({
+          type: 'cache.coherency_violation', component: 'cache', level: 'error',
+          message: `readFileWithVersion: disk content hash doesn't match its own manifest SHA for ${repoPath} — torn/corrupt cache entry, forcing a fresh fetch`,
+          data: { path: repoPath, claimedSha: entry.sha },
+        });
+        break; // don't retry against the same bad disk state — go straight to a fresh fetch
+      }
+      // The manifest entry moved (a write or eviction landed mid-read) — the
+      // pair we just read is torn. Retry against the new state.
+    }
+
+    // Cache miss (or torn-read retries exhausted) — one GitHub response gives
+    // content + sha atomically by construction.
+    if (this.rest.isTripped()) return null;
+    const ref = opts?.ref ?? this.getEffectiveRef();
+    const result = await this.fetchFileFromGitHub(repoPath, ref);
+    if (result === null) return null;
+
+    await this.writeToDiskCache(repoPath, result.content, result.sha, result.etag);
+    return { content: result.content, version: result.sha };
+  }
+
   async readBinaryFile(filePath: string): Promise<Buffer | null> {
     const repoPath = this.toRepoPath(filePath);
 
@@ -384,7 +455,7 @@ export class GitHubAPIBackend implements StorageBackend {
     return result.content;
   }
 
-  async writeFile(filePath: string, content: string, opts?: { ref?: string }): Promise<void> {
+  async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<void> {
     const repoPath = this.toRepoPath(filePath);
     // opts.ref pins the write to a specific ref (e.g. 'main') for shared data
     // that must commit straight to main rather than the caller's session branch
@@ -438,8 +509,23 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
 
-    // Get the current file SHA for the update (required by Contents API)
-    const fileSha = await this.getFileSha(repoPath, ref);
+    // t/4187: the caller's `baseSha` (the version it last read) is the precondition
+    // when supplied — it wins over the server's own cache, which is what actually
+    // fixes the N=1 two-tabs case (the cache's SHA is always "correct" from the
+    // server's point of view; it's just not what the client saw). Only a direct
+    // fileIO caller with no client in the loop (harvest/pipeline writers) falls
+    // back to the cache-derived SHA — WARN-logged, never silent.
+    let fileSha: string | null;
+    if (opts?.baseSha !== undefined) {
+      fileSha = opts.baseSha;
+    } else {
+      fileSha = await this.getFileSha(repoPath, ref);
+      this.recordEvent({
+        type: 'storage.fallback', component: 'github-api', level: 'warn',
+        message: `writeFile(${repoPath}): no baseSha supplied — falling back to the server's cache-derived SHA (direct fileIO caller, not the save route)`,
+        data: { path: repoPath, ref },
+      });
+    }
 
     const creds = await this.getCredsCached();
     if (!creds) throw this.noCredsError('writeFile');
@@ -447,7 +533,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const callId = crypto.randomUUID();
     const encodedContent = Buffer.from(content, 'utf-8').toString('base64');
 
-    const doWrite = async (sha: string | null, attempt: number) => {
+    const doWrite = async (sha: string | null) => {
       const body: Record<string, unknown> = {
         message: `Update ${repoPath}`,
         content: encodedContent,
@@ -458,17 +544,23 @@ export class GitHubAPIBackend implements StorageBackend {
       const resp = await this.rest.request(creds, 'PUT',
         `/repos/${creds.repo}/contents/${repoPath}`, body, callId);
 
-      if (resp.status === 409 && attempt === 0) {
+      // t/4184: NEVER retry a 409 with the same (pre-read) content — the caller
+      // computed `content` from a snapshot that's now stale, so re-sending it
+      // with a fresh SHA silently overwrites whatever the other writer committed
+      // (a lost update, defeating the SHA precondition). `writeFile` receives
+      // whole-file content, not a mutator, so a correct read-modify-write isn't
+      // possible at this layer — fail loud instead (TL design review, t/4184#1).
+      if (resp.status === 409) {
         this.recordEvent({
           type: 'github.api.conflict',
           component: 'github-api',
           level: 'warn',
-          message: `409 SHA conflict on ${repoPath}, retrying with fresh SHA`,
+          message: `409 SHA conflict on ${repoPath} — failing (no retry; would lose the other writer's change)`,
           call_id: callId,
           data: { path: repoPath, ref, staleSha: sha },
         });
-        const freshSha = await this.getFileSha(repoPath, ref);
-        return doWrite(freshSha, 1);
+        await this.evictPathFromCache(repoPath); // SO C1: next readFile fetches fresh, not the same stale state
+        throw this.writeConflictError(repoPath, 'writeFile');
       }
 
       if (!resp.ok) {
@@ -483,7 +575,7 @@ export class GitHubAPIBackend implements StorageBackend {
       return resp;
     };
 
-    const resp = await doWrite(fileSha, 0);
+    const resp = await doWrite(fileSha);
 
     // Write-through: update cache only after confirmed 2xx
     const respData = resp.data as { content?: { sha?: string } };
@@ -511,7 +603,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const callId = crypto.randomUUID();
     const encodedContent = content.toString('base64');
 
-    const doWrite = async (sha: string | null, attempt: number): Promise<{ ok: boolean; status: number; data: unknown }> => {
+    const doWrite = async (sha: string | null): Promise<{ ok: boolean; status: number; data: unknown }> => {
       const body: Record<string, unknown> = {
         message: `Update ${repoPath}`,
         content: encodedContent,
@@ -522,17 +614,19 @@ export class GitHubAPIBackend implements StorageBackend {
       const resp = await this.rest.request(creds, 'PUT',
         `/repos/${creds.repo}/contents/${repoPath}`, body, callId);
 
-      if (resp.status === 409 && attempt === 0) {
+      // t/4184: see writeFile() — never retry a 409 with the same (pre-read)
+      // content; it's a lost update, not a recoverable conflict at this layer.
+      if (resp.status === 409) {
         this.recordEvent({
           type: 'github.api.conflict',
           component: 'github-api',
           level: 'warn',
-          message: `409 SHA conflict on ${repoPath}, retrying with fresh SHA`,
+          message: `409 SHA conflict on ${repoPath} — failing (no retry; would lose the other writer's change)`,
           call_id: callId,
           data: { path: repoPath, ref, staleSha: sha },
         });
-        const freshSha = await this.getFileSha(repoPath, ref);
-        return doWrite(freshSha, 1);
+        await this.evictPathFromCache(repoPath); // SO C1
+        throw this.writeConflictError(repoPath, 'writeBinaryFile');
       }
 
       if (!resp.ok) {
@@ -547,7 +641,7 @@ export class GitHubAPIBackend implements StorageBackend {
       return resp;
     };
 
-    const resp = await doWrite(fileSha, 0);
+    const resp = await doWrite(fileSha);
     const respData = resp.data as { content?: { sha?: string } };
     const newSha = respData?.content?.sha ?? '';
     await this.writeBinaryToDiskCache(repoPath, content, newSha, '');
@@ -1829,6 +1923,43 @@ export class GitHubAPIBackend implements StorageBackend {
         'Set GITHUB_APP_ID + GITHUB_APP_INSTALLATION_ID + GITHUB_APP_PRIVATE_KEY_SECRET_NAME',
         'Or set GITHUB_TOKEN for dev/test',
       ],
+    });
+  }
+
+  /**
+   * t/4184 (SO condition C1): evict a single path's cache entries after a 409
+   * so the NEXT readFile fetches fresh from GitHub instead of serving the same
+   * stale content/SHA that just conflicted — without this, "reload and
+   * re-apply" reloads the same stale state and 409s again indefinitely.
+   */
+  private async evictPathFromCache(repoPath: string): Promise<void> {
+    this.repoTree.delete(repoPath);
+    await this.withManifestLock(async () => {
+      if (this.manifest?.files[repoPath]) {
+        delete this.manifest.files[repoPath];
+        this.manifest.generation++;
+        this.manifest.lastUpdated = new Date().toISOString();
+        await this.saveManifest();
+      }
+    });
+  }
+
+  /**
+   * t/4184: the 409-conflict error for writeFile/writeBinaryFile. No retry —
+   * the caller's `content` was computed from a now-stale read, so re-sending
+   * it with a fresh SHA would silently discard the other writer's commit.
+   * `httpStatus`/`code` let the route layer (ServerAPI, t/4185) map this to a
+   * clean HTTP 409 and the renderer (Sync, t/4186) show a conflict message
+   * instead of a generic 500 — contract finalized at t/4185#2.
+   */
+  private writeConflictError(repoPath: string, method: string): ActionableError {
+    return new ActionableError({
+      goal: `Save ${repoPath}`,
+      problem: 'The file changed since you loaded it (someone else saved a conflicting change).',
+      location: `GitHubAPIBackend.${method}(${repoPath})`,
+      nextSteps: ['Reload the file to see the latest version', 'Re-apply your change and save again'],
+      httpStatus: 409,
+      code: 'WRITE_CONFLICT',
     });
   }
 

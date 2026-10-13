@@ -34,8 +34,16 @@ export interface StorageBackend {
    *  atomic write (tmp+rename) where the backend supports it.
    *  `opts.ref` pins the write to a specific ref (e.g. 'main') for shared data
    *  that must commit straight to main rather than a per-user session branch
-   *  (community submissions). Backends without branches ignore it. */
-  writeFile(filePath: string, content: string, opts?: { ref?: string }): Promise<void>;
+   *  (community submissions). Backends without branches ignore it.
+   *  `opts.baseSha` (t/4187) is the version the caller last read, used as the
+   *  write precondition instead of the backend's own cache-derived version —
+   *  this is what actually catches a same-instance two-tabs conflict, since
+   *  the cache's version is always "correct" from the server's point of view.
+   *  Omitting it falls back to the backend's cache-derived version (WARN-logged
+   *  where supported) — intended for direct non-route callers (pipelines,
+   *  harvest writers) that have no client-loaded version to carry. Backends
+   *  without version preconditions (FilesystemBackend) ignore it. */
+  writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<void>;
 
   /** List entries (files and directories) in a directory. Returns [] if the
    *  directory does not exist.
@@ -55,4 +63,18 @@ export interface StorageBackend {
 
   /** Write raw binary content to a file. Creates parent dirs; atomic where supported. */
   writeBinaryFile(filePath: string, content: Buffer, opts?: { ref?: string }): Promise<void>;
+
+  /** Like readFile, but also returns the file's current version token for use
+   *  as a later write's `baseSha` precondition (t/4187). Content and version
+   *  are read atomically — they describe the same snapshot of the file.
+   *  `version` is the GitHub blob SHA for GitHubAPIBackend; backends with no
+   *  write-precondition support (FilesystemBackend, and AzureBlobBackend until
+   *  its own ETag-precondition audit) return `''` and `writeFile` ignores
+   *  `opts.baseSha` entirely — a real but empty version, never a stale one.
+   *  Optional so lightweight test-double StorageBackend implementations (many
+   *  across the test suite) don't need a stub — callers fall back to
+   *  `readFile` + `version: ''` when it's absent (see `readFileWithVersionOrFallback`
+   *  in fileIO.ts). Every production backend (GitHubAPIBackend, AzureBlobBackend,
+   *  FilesystemBackend) implements it. */
+  readFileWithVersion?(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null>;
 }

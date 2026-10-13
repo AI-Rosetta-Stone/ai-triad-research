@@ -238,6 +238,32 @@ export async function readTaxonomyFile(pov: string, opts?: { ref?: string }): Pr
   return JSON.parse(raw.replace(/^\uFEFF/, ''));
 }
 
+/** t/4187: `backend.readFileWithVersion` is optional (test-double backends
+ *  needn't stub it); every production backend implements it. Falls back to a
+ *  plain `readFile` + empty version \u2014 a real, never-stale "no precondition
+ *  support" marker \u2014 for any backend that doesn't. */
+async function readFileWithVersionOrFallback(
+  filePath: string, opts?: { ref?: string },
+): Promise<{ content: string; version: string } | null> {
+  if (backend.readFileWithVersion) return backend.readFileWithVersion(filePath, opts);
+  const content = await backend.readFile(filePath, opts);
+  return content === null ? null : { content, version: '' };
+}
+
+/** t/4187: like readTaxonomyFile, but also returns the version for the save
+ *  route to hand back to the client as its write precondition (ETag). */
+export async function readTaxonomyFileWithVersion(pov: string, opts?: { ref?: string }): Promise<{ data: unknown; version: string }> {
+  const filePath = await resolveTaxonomyFilePath(pov);
+  const result = await readFileWithVersionOrFallback(filePath, opts);
+  if (result === null) throw new ActionableError({
+    goal: 'Read taxonomy file',
+    problem: `Taxonomy file not found: ${filePath}`,
+    location: 'server/fileIO.ts -> readTaxonomyFileWithVersion',
+    nextSteps: ['Verify the POV file exists in the active taxonomy directory'],
+  });
+  return { data: JSON.parse(result.content.replace(/^\uFEFF/, '')), version: result.version };
+}
+
 const SYNTHETIC_POV_KEYS = new Set(['acc', 'saf', 'skp']);
 
 export async function loadSyntheticCorpus(pov: string): Promise<unknown | null> {
@@ -339,9 +365,9 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
   return found ? result : null;
 }
 
-export async function writeTaxonomyFile(pov: string, data: unknown): Promise<void> {
+export async function writeTaxonomyFile(pov: string, data: unknown, opts?: { baseSha?: string }): Promise<void> {
   const filePath = await resolveTaxonomyFilePath(pov);
-  await backend.writeFile(filePath, JSON.stringify(data, null, 2));
+  await backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
 }
 
 // ── Conflict CRUD ──
@@ -1117,6 +1143,17 @@ export async function listFlightRecorderDumpIds(): Promise<Array<{ kind: 'client
 
 // ── Harvest operations ──
 
+// t/4184 (SO C4): a write conflict from the backend must never collapse into
+// "node not found" / false — it means another writer committed first, not
+// that the data is absent. The RMW harvest writers below re-read (the backend
+// evicted its stale cache on the conflict, t/4184 C1) and re-apply the same
+// mutation, bounded, then rethrow once exhausted.
+const MAX_HARVEST_CONFLICT_RETRIES = 2; // + the initial attempt = 3 total
+
+function isWriteConflict(err: unknown): boolean {
+  return err instanceof ActionableError && (err as ActionableError & { code?: string }).code === 'WRITE_CONFLICT';
+}
+
 export async function harvestCreateConflict(conflict: Record<string, unknown>): Promise<boolean> {
   const id = conflict.claim_id as string || conflict.id as string;
   if (!id) return false;
@@ -1131,36 +1168,57 @@ export async function harvestCreateConflict(conflict: Record<string, unknown>): 
 export async function harvestAddDebateRef(nodeId: string, debateId: string): Promise<boolean> {
   // Find which POV file contains this node and update it
   for (const pov of [...POV_KEYS, 'situations']) {
-    try {
-      const filePath = await resolveTaxonomyFilePath(pov);
-      const raw = await backend.readFile(filePath);
-      if (raw === null) continue;
-      const data = JSON.parse(raw);
-      const nodes = data.nodes || data;
-      const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
-      if (node) {
+    const filePath = await resolveTaxonomyFilePath(pov);
+    let conflictAttempts = 0;
+    for (;;) {
+      try {
+        const raw = await backend.readFile(filePath);
+        if (raw === null) break; // this pov file doesn't exist — try next pov
+        const data = JSON.parse(raw);
+        const nodes = data.nodes || data;
+        const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
+        if (!node) break; // not in this pov — try next pov
         if (!node.debate_refs) node.debate_refs = [];
         if (!node.debate_refs.includes(debateId)) {
           node.debate_refs.push(debateId);
           await backend.writeFile(filePath, JSON.stringify(data, null, 2));
         }
         return true;
+      } catch (err) {
+        if (isWriteConflict(err) && conflictAttempts < MAX_HARVEST_CONFLICT_RETRIES) {
+          conflictAttempts++;
+          log.server.warn({ filePath, nodeId, debateId, attempt: conflictAttempts },
+            'harvestAddDebateRef: write conflict — re-reading and retrying (not a not-found)');
+          continue; // re-read: the backend evicted its stale cache entry on the conflict
+        }
+        if (isWriteConflict(err)) {
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'harvest', level: 'error',
+            message: `harvestAddDebateRef: write conflict unresolved after ${MAX_HARVEST_CONFLICT_RETRIES + 1} attempts`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+            data: { filePath, nodeId, debateId },
+          });
+          throw err; // retries exhausted — never collapse into false
+        }
+        break; // non-conflict error on this pov file — try next pov (pre-existing silent-by-design behavior)
       }
-    } catch { /* telemetry — silent by design;  try next */ }
+    }
   }
   return false;
 }
 
 export async function harvestUpdateSteelman(nodeId: string, attackerPov: string, newText: string): Promise<boolean> {
   for (const pov of [...POV_KEYS, 'situations']) {
-    try {
-      const filePath = await resolveTaxonomyFilePath(pov);
-      const raw = await backend.readFile(filePath);
-      if (raw === null) continue;
-      const data = JSON.parse(raw);
-      const nodes = data.nodes || data;
-      const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
-      if (node) {
+    const filePath = await resolveTaxonomyFilePath(pov);
+    let conflictAttempts = 0;
+    for (;;) {
+      try {
+        const raw = await backend.readFile(filePath);
+        if (raw === null) break; // this pov file doesn't exist — try next pov
+        const data = JSON.parse(raw);
+        const nodes = data.nodes || data;
+        const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
+        if (!node) break; // not in this pov — try next pov
         if (typeof node.steelman_vulnerability === 'string') {
           node.steelman_vulnerability = { [attackerPov]: newText };
         } else if (typeof node.steelman_vulnerability === 'object' && node.steelman_vulnerability !== null) {
@@ -1170,8 +1228,25 @@ export async function harvestUpdateSteelman(nodeId: string, attackerPov: string,
         }
         await backend.writeFile(filePath, JSON.stringify(data, null, 2));
         return true;
+      } catch (err) {
+        if (isWriteConflict(err) && conflictAttempts < MAX_HARVEST_CONFLICT_RETRIES) {
+          conflictAttempts++;
+          log.server.warn({ filePath, nodeId, attackerPov, attempt: conflictAttempts },
+            'harvestUpdateSteelman: write conflict — re-reading and retrying (not a not-found)');
+          continue; // re-read: the backend evicted its stale cache entry on the conflict
+        }
+        if (isWriteConflict(err)) {
+          getGlobalRecorder()?.record({
+            type: 'system.error', component: 'harvest', level: 'error',
+            message: `harvestUpdateSteelman: write conflict unresolved after ${MAX_HARVEST_CONFLICT_RETRIES + 1} attempts`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+            data: { filePath, nodeId, attackerPov },
+          });
+          throw err; // retries exhausted — never collapse into false
+        }
+        break; // non-conflict error on this pov file — try next pov (pre-existing silent-by-design behavior)
       }
-    } catch { /* telemetry — silent by design;  try next */ }
+    }
   }
   return false;
 }
@@ -1179,12 +1254,36 @@ export async function harvestUpdateSteelman(nodeId: string, attackerPov: string,
 export async function harvestAddVerdict(conflictId: string, verdict: Record<string, unknown>): Promise<boolean> {
   assertSafeId(conflictId, 'conflict id'); // L4 (t/720): block path traversal before path construction
   const filePath = path.join(getConflictsDir(), `${conflictId}.json`);
-  const raw = await backend.readFile(filePath);
-  if (raw === null) return false;
-  const data = JSON.parse(raw);
-  data.verdict = verdict;
-  await backend.writeFile(filePath, JSON.stringify(data, null, 2));
-  return true;
+  let conflictAttempts = 0;
+  for (;;) {
+    const raw = await backend.readFile(filePath);
+    if (raw === null) return false;
+    const data = JSON.parse(raw);
+    data.verdict = verdict;
+    try {
+      await backend.writeFile(filePath, JSON.stringify(data, null, 2));
+      return true;
+    } catch (err) {
+      // t/4184 (SO C4, e/300#5): RMW like harvestAddDebateRef/harvestUpdateSteelman
+      // — a bare propagate on WRITE_CONFLICT would still drop the verdict if the
+      // caller doesn't retry (e.g. a fire-and-forget harvest call).
+      if (isWriteConflict(err) && conflictAttempts < MAX_HARVEST_CONFLICT_RETRIES) {
+        conflictAttempts++;
+        log.server.warn({ filePath, conflictId, attempt: conflictAttempts },
+          'harvestAddVerdict: write conflict — re-reading and retrying (not a not-found)');
+        continue; // re-read: the backend evicted its stale cache entry on the conflict
+      }
+      if (isWriteConflict(err)) {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'harvest', level: 'error',
+          message: `harvestAddVerdict: write conflict unresolved after ${MAX_HARVEST_CONFLICT_RETRIES + 1} attempts`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          data: { filePath, conflictId },
+        });
+      }
+      throw err; // never collapse into false
+    }
+  }
 }
 
 export async function harvestQueueConcept(concept: Record<string, unknown>): Promise<boolean> {
