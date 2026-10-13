@@ -309,6 +309,22 @@ async function post<T = unknown>(path: string, body?: unknown, opts?: FetchOptio
       }));
     }
   }
+  // t/4186: a concurrent GitHub write conflict on commit. Discriminated by body `code`
+  // (TL contract, p/772#1), not the bare 409 — other 409s on this path (e.g. save_in_progress)
+  // must keep their existing generic handling.
+  if (res.status === 409 && path === '/api/sync/commit') {
+    const data = await res.json().catch(bridgeWarn('Failed to parse 409 response body', {})) as Record<string, unknown>;
+    if (data.code === 'WRITE_CONFLICT') {
+      const err = new ActionableError({
+        goal: 'Commit taxonomy changes',
+        problem: 'Someone else changed this file. Reload to see their version.',
+        location: 'web-bridge.post',
+        nextSteps: ['Reload to see the other writer’s change', 'Reapply your edit after reloading'],
+      });
+      (err as ActionableError & { code: string }).code = 'WRITE_CONFLICT';
+      throwHttpError(409, err);
+    }
+  }
   if (!res.ok) {
     const text = await res.text();
     throwHttpError(res.status, new ActionableError({
