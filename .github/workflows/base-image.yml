@@ -19,6 +19,7 @@ on:
     # Actions minutes are free; base build ~6 min).
     - cron: '0 0 * * 0'
   push:
+    branches: [main]  # t/4157: a feature branch touching this file must not publish :latest unreviewed
     paths:
       - 'deploy/azure/Dockerfile.base'
 
