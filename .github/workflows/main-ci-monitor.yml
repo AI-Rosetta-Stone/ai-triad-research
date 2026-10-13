@@ -45,6 +45,7 @@ env:
   NOTICE_LABEL: main-ci-notice
   INFRA_LABEL: main-ci-infra
   HEARTBEAT_LABEL: main-ci-monitor-heartbeat
+  SCHEDULE_HEARTBEAT_LABEL: main-ci-monitor-schedule-heartbeat
 
 jobs:
   monitor:
@@ -130,6 +131,56 @@ jobs:
               await github.rest.issues.update({
                 owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, body: `${stamp}\n\nThis issue is the monitor's liveness heartbeat; each scheduled run updates it. Leaving it open is intentional — a stale timestamp here means the monitor stopped running.`,
               });
+            }
+
+      # ── SELF-HEALTH: schedule-only liveness heartbeat (t/4173) ──────────────────────────────
+      # The heartbeat above is refreshed by EITHER trigger (workflow_run OR schedule), so a stalled
+      # GitHub cron is invisible as long as pushes to main keep landing — exactly what happened after
+      # the org move: GitHub's schedules stalled 5-8h and NOTHING alerted, because workflow_run kept
+      # firing on every push and refreshed the heartbeat as if cron were fine. This second heartbeat
+      # updates ONLY on a `schedule`-triggered run, so it alone goes stale when cron stalls, regardless
+      # of push traffic. Same pure heartbeatGap()/stale threshold as the primary heartbeat above.
+      - name: Self-health — schedule-only liveness heartbeat (t/4173)
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const { heartbeatGap, ESCALATED_LABEL } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/main-ci-monitor.mjs`).href);
+            const label = process.env.SCHEDULE_HEARTBEAT_LABEL;
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const now = new Date();
+            const list = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label, per_page: 1 });
+            const note = 'Updated ONLY by `schedule`-triggered runs (t/4173) — unlike the main heartbeat, push-triggered (workflow_run) runs do NOT refresh this. A stale timestamp here means GitHub\'s cron stopped firing this workflow, even if push traffic kept the other heartbeat looking healthy.';
+            const stamp = `main-ci-monitor SCHEDULE-ONLY heartbeat: ${now.toISOString()} (run ${context.runId})`;
+            if (list.data.length === 0) {
+              await github.rest.issues.create({
+                owner, repo,
+                title: 'main-ci-monitor — schedule-only liveness heartbeat (do not close)',
+                body: `${stamp}\n\n${note}`,
+                labels: [label],
+              });
+              console.log('created schedule-only heartbeat issue');
+            } else {
+              const issue = list.data[0];
+              const prior = Date.parse((issue.body || '').match(/heartbeat:\s*([0-9T:.\-Z]+)/)?.[1] || '');
+              const gap = heartbeatGap({ priorMs: prior, nowMs: now.getTime() });
+              console.log(`schedule-only heartbeat gap: ${gap.gapMin}m (stale=${gap.stale})`);
+              if (gap.stale) {
+                const msg = `⚠️ GitHub SCHEDULE stall: the previous schedule-triggered run of main-ci-monitor was ${new Date(prior).toISOString()}, ${gap.gapMin}m ago. Push-triggered runs may have masked this on the primary heartbeat (t/4173) — confirm GitHub's cron is actually firing for this repo/workflow.\n\n- **Run:** ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+                const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: 'main-ci-monitor-schedule-stale', per_page: 1 });
+                if (open.data.length > 0) {
+                  await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: msg });
+                } else {
+                  const created = await github.rest.issues.create({ owner, repo,
+                    title: `main-ci-monitor: schedule-cron stall of ${gap.gapMin}m`, body: msg,
+                    labels: ['main-ci-monitor-schedule-stale', ESCALATED_LABEL, 'bug'] });
+                  try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+                  catch (e) { core.warning(`could not assign ${owner} to #${created.data.number}: ${e.message}`); }
+                }
+              }
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, body: `${stamp}\n\n${note}` });
             }
 
       # ── Route the verdict to graded, deduped, auto-closing issues ────────────────────────────
