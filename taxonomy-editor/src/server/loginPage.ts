@@ -15,6 +15,28 @@ import http from 'http';
 import crypto from 'crypto';
 import { hasEasyAuthSessionCookie, expiredAuthCookies } from './security/accessControl.js';
 import { parseCookies } from './httpCookies.js';
+import {
+  INTRO_EYEBROW, INTRO_TITLE, LOGIN_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
+} from '../../../lib/electron-shared/introCopy.js';
+
+// t/4183: the hero copy is shared with the intro tour's first page; only the markup lives here.
+const VOICE_STYLE: Record<(typeof INTRO_VOICES)[number]['pov'], { short: string; label: string }> = {
+  accelerationist: { short: 'acc', label: 'Accelerationist' },
+  safetyist: { short: 'saf', label: 'Safetyist' },
+  skeptic: { short: 'skp', label: 'Skeptic' },
+};
+
+function heroVoicesHtml(): string {
+  return INTRO_VOICES.map(({ pov, line }) => {
+    const { short, label } = VOICE_STYLE[pov];
+    return `
+        <div class="voice voice-${short}">
+          <span class="voice-dot" style="background:var(--color-${short});"></span>
+          <span class="voice-name" style="color:var(--color-${short});">${label}</span>
+          <span class="voice-line">${escapeHtml(line)}</span>
+        </div>`;
+  }).join('');
+}
 
 // t/940: a stale Easy Auth cookie (AppServiceAuthSession present but no valid
 // principal) makes the OAuth redirect loop back to the login page. Whenever we
@@ -214,27 +236,12 @@ export function buildLoginPage(showAnonymous: boolean): string {
   </section>
   <section class="jacket">
     <div class="jacket-content">
-      <div class="eyebrow">AI Triad Research &middot; Berkman Klein Center</div>
-      <div class="project-title">AI Rosetta Stone</div>
-      <div class="tagline">Three schools of thought.<br>One map of the argument.</div>
+      <div class="eyebrow">${escapeHtml(INTRO_EYEBROW)}</div>
+      <div class="project-title">${escapeHtml(INTRO_TITLE)}</div>
+      <div class="tagline">${LOGIN_TAGLINE_LINES.map(escapeHtml).join('<br>')}</div>
       <div class="specimen">
         <div class="specimen-sep"></div>
-        <div class="question">&ldquo;Should frontier AI development slow down?&rdquo;</div>
-        <div class="voice voice-acc">
-          <span class="voice-dot" style="background:var(--color-acc);"></span>
-          <span class="voice-name" style="color:var(--color-acc);">Accelerationist</span>
-          <span class="voice-line">Slowing down surrenders the benefits to whoever doesn&rsquo;t.</span>
-        </div>
-        <div class="voice voice-saf">
-          <span class="voice-dot" style="background:var(--color-saf);"></span>
-          <span class="voice-name" style="color:var(--color-saf);">Safetyist</span>
-          <span class="voice-line">Speed without verification is how we lose control.</span>
-        </div>
-        <div class="voice voice-skp">
-          <span class="voice-dot" style="background:var(--color-skp);"></span>
-          <span class="voice-name" style="color:var(--color-skp);">Skeptic</span>
-          <span class="voice-line">First show me evidence the premise holds.</span>
-        </div>
+        <div class="question">&ldquo;${escapeHtml(INTRO_QUESTION)}&rdquo;</div>${heroVoicesHtml()}
       </div>
       <div class="jacket-footer">A research instrument of the Berkman Klein Center, 2026</div>
     </div>
