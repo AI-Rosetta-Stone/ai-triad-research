@@ -1578,6 +1578,16 @@ describe('useTaxonomyStore', () => {
       expect(useTaxonomyStore.getState().saveError).toBeTruthy();
     });
 
+    // t/4186: WRITE_CONFLICT (discriminated on `code`, p/772#1) shows the conflict message, never success, and keeps the edit.
+    it('shows the conflict message and preserves dirty/edits on a WRITE_CONFLICT save error', async () => {
+      mockApi.syncCommit.mockRejectedValueOnce(Object.assign(new Error('write conflict'), { code: 'WRITE_CONFLICT' }));
+      useTaxonomyStore.setState({ accelerationist: makePovFile(), dirty: new Set(['accelerationist']) });
+      await useTaxonomyStore.getState().save();
+      const state = useTaxonomyStore.getState();
+      expect(state.saveError).toBe('Someone else changed this file. Reload to see their version.');
+      expect(state.dirty.has('accelerationist')).toBe(true);
+    });
+
     it('dismissSaveError clears error', () => {
       useTaxonomyStore.setState({ saveError: 'Some error' });
       useTaxonomyStore.getState().dismissSaveError();
