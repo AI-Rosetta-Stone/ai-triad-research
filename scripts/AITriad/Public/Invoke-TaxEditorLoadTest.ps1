@@ -190,16 +190,26 @@ function Invoke-TaxEditorLoadTest {
             Write-Host "Sampling az monitor metrics per step..."
             foreach ($step in $result.steps) {
                 $key = "$($step.profile)@$($step.level)"
+                # t/4180 Lead review: without -start-time/-end-time, this queried the metrics
+                # API's default ("now") range regardless of which step it was called for — every
+                # step got the same post-ramp snapshot, not that step's real CPU/memory. The
+                # driver now reports each step's wall-clock window; bound the query to it.
+                if (-not $step.PSObject.Properties['startTime'] -or -not $step.PSObject.Properties['endTime']) {
+                    Write-Warning "Step $key has no startTime/endTime (stale driver?) — skipping per-step metrics for it."
+                    continue
+                }
                 try {
                     $cpu = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
                         --resource-type 'Microsoft.App/containerApps' --metric 'UsageNanoCores' `
+                        --start-time $step.startTime --end-time $step.endTime `
                         --interval PT1M --aggregation Average -o json 2>$null | ConvertFrom-Json
                     $mem = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
                         --resource-type 'Microsoft.App/containerApps' --metric 'WorkingSetBytes' `
+                        --start-time $step.startTime --end-time $step.endTime `
                         --interval PT1M --aggregation Average -o json 2>$null | ConvertFrom-Json
                     $azureMetricsByStep[$key] = @{
-                        cpuNanoCores = ($cpu.value.timeseries.data | Select-Object -Last 1).average
-                        memWorkingSetBytes = ($mem.value.timeseries.data | Select-Object -Last 1).average
+                        cpuNanoCores = ($cpu.value.timeseries.data | Where-Object { $null -ne $_.average } | Select-Object -Last 1).average
+                        memWorkingSetBytes = ($mem.value.timeseries.data | Where-Object { $null -ne $_.average } | Select-Object -Last 1).average
                     }
                 } catch {
                     Write-Warning "az monitor metrics failed for step $key : $($_.Exception.Message)"

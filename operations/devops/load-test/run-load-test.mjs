@@ -190,6 +190,7 @@ async function main() {
   for (const profile of args.profiles) {
     for (const level of args.levels) {
       process.stderr.write(`[load-test] ${profile} @ concurrency=${level} for ${args.durationSec}s...\n`);
+      const startTime = new Date().toISOString();
       const summary = await runStep({
         baseUrl: args.baseUrl,
         profile,
@@ -197,8 +198,14 @@ async function main() {
         durationSec: args.durationSec,
         debaterBackend: args.debaterBackend,
       });
+      const endTime = new Date().toISOString();
       const githubRateLimitRemaining = await getGithubRateLimitRemaining();
-      const step = { level, profile, ...summary, githubRateLimitRemaining };
+      // startTime/endTime (t/4180 Lead review): without these, the PS wrapper's
+      // `az monitor metrics list` call had no way to bound its query to this step's
+      // actual window — it always queried the metrics API's default ("now") range, so
+      // every step's post-hoc sample was really just "whatever the last minute looked
+      // like after the entire ramp finished," not that step's real CPU/memory.
+      const step = { level, profile, startTime, endTime, ...summary, githubRateLimitRemaining };
       steps.push(step);
       process.stderr.write(`[load-test]   p50=${summary.p50Ms.toFixed(0)}ms p95=${summary.p95Ms.toFixed(0)}ms `
         + `errRate=${summary.errorRatePct.toFixed(2)}% rps=${summary.rps.toFixed(1)} `
