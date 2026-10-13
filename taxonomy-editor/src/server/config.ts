@@ -453,6 +453,19 @@ export function getEmbeddingWorkerPoolSize(): number {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
+/** t/4177 (scale to N replicas): each replica runs its own in-process RpmLimiter, so the pool's
+ *  Gemini RPM must be divided by replica count or N replicas collectively allow N×RPM. DEFAULT 1 —
+ *  behavior is unchanged until DevOps sets this alongside the real replica count (t/4181).
+ *  TRADE-OFF (TL t/4177#3): dividing at MAX_REPLICAS protects the pool at peak load, but under-uses
+ *  it when fewer replicas are actually live — at MAX_REPLICAS=10 with one live replica, that replica
+ *  gets RPM/10, so a single user's debate runs ~10× slower than today. Accepted for now (quota safety
+ *  over speed; 429 retries soften it). A shared counter (Redis / Durable Object) is the real fix if
+ *  this bites — a follow-up, not this ticket. A non-positive/NaN env → 1. */
+export function getMaxReplicas(): number {
+  const n = Number.parseInt(process.env.MAX_REPLICAS ?? '', 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 // t/3206 (t/3165 storm-replay canary): per-revision capability switch for the canary loop-lag
 // sampler + its two /internal/canary/loop-sampler routes. DEFAULT OFF — when off the routes 404 AND
 // the anon-exemption for /internal/canary/* does not exist (double-closed; zero prod exposure).

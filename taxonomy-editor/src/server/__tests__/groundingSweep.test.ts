@@ -56,12 +56,14 @@ describe('G8b groundingSweepScheduler (t/3172)', () => {
     __resetSweepForTest();
     __setSweepRunnerForTest(null); // restore default; individual tests inject their own
     delete process.env.GROUNDING_SWEEP_ENABLED;
+    delete process.env.MAX_REPLICAS; // t/4177: default 1 — one test sets it >1
     cfgMock.storageMode = 'filesystem'; // t/3333: default profile is FS-visible; one test flips it
   });
   afterEach(() => {
     stopGroundingSweep();
     __resetSweepForTest();
     __setSweepRunnerForTest(null);
+    delete process.env.MAX_REPLICAS;
     if (ORIG_FLAG === undefined) delete process.env.GROUNDING_SWEEP_ENABLED;
     else process.env.GROUNDING_SWEEP_ENABLED = ORIG_FLAG;
   });
@@ -168,6 +170,15 @@ describe('G8b groundingSweepScheduler (t/3172)', () => {
     it('flag ON + github-api → blocked-github-api (writes invisible to the read path)', () => {
       expect(decideSweepArm('github-api', true)).toBe('blocked-github-api');
     });
+    it('flag ON + filesystem + MAX_REPLICAS=1 (default) → arm', () => {
+      expect(decideSweepArm('filesystem', true, 1)).toBe('arm');
+    });
+    it('flag ON + filesystem + MAX_REPLICAS>1 → blocked-no-lease-multi-replica (no cross-replica lease)', () => {
+      expect(decideSweepArm('filesystem', true, 10)).toBe('blocked-no-lease-multi-replica');
+    });
+    it('github-api takes precedence over the replica check when both would block', () => {
+      expect(decideSweepArm('github-api', true, 10)).toBe('blocked-github-api');
+    });
   });
 
   it('t/3333 hard-guard: flag ON + STORAGE_MODE=github-api → REFUSES to arm + records a loud error (not a silent no-op)', () => {
@@ -183,5 +194,27 @@ describe('G8b groundingSweepScheduler (t/3172)', () => {
     expect(refusal).toBeDefined();
     expect(refusal?.data?.storageMode).toBe('github-api');
     expect(refusal?.data?.armed).toBe(false);
+  });
+
+  // ── t/4177: hard-guard N>1 replicas with no cross-replica lease ──────────────
+  it('t/4177 hard-guard: flag ON + MAX_REPLICAS>1 → REFUSES to arm + records a loud error (no cross-replica lease)', () => {
+    process.env.GROUNDING_SWEEP_ENABLED = '1';
+    process.env.MAX_REPLICAS = '10';
+    const stop = startGroundingSweep(50);
+    // Refused to arm — no timer, so N concurrent uncoordinated sweeps can never run.
+    expect(__stateForTest().armed).toBe(false);
+    expect(typeof stop).toBe('function');
+    stop(); // no-op stop must not throw
+    const refusal = sweepEvents().find((e) => e.level === 'error' && String(e.message).includes('refused to arm'));
+    expect(refusal).toBeDefined();
+    expect(refusal?.data?.maxReplicas).toBe(10);
+    expect(refusal?.data?.armed).toBe(false);
+  });
+
+  it('t/4177: MAX_REPLICAS=1 (default) still arms normally on a filesystem profile', () => {
+    process.env.GROUNDING_SWEEP_ENABLED = '1';
+    const stop = startGroundingSweep(50);
+    expect(__stateForTest().armed).toBe(true);
+    stop();
   });
 });

@@ -27,7 +27,7 @@
  */
 
 import { execFile } from 'child_process';
-import { RECONCILE_SCRIPT, getProjectRoot, isGroundingSweepEnabled, STORAGE_MODE } from './config.js';
+import { RECONCILE_SCRIPT, getProjectRoot, isGroundingSweepEnabled, STORAGE_MODE, getMaxReplicas } from './config.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { ActionableError, errorMessage } from '../../../lib/debate/errors.js';
 import { parseStats, type ReconcilerStats } from './groundingReconcileHook.js';
@@ -139,17 +139,25 @@ async function runSweep(): Promise<void> {
   }
 }
 
-/** t/3333: arm-decision for the sweep. PURE (no I/O) so both arms are unit-tested without config/env
- *  mocking. The sweep's `--apply` writes the LOCAL filesystem; on the `github-api` read profile those
- *  writes are invisible to the read path, so arming it there would SILENTLY no-op (t/2648 class) — a
- *  hard architectural constraint, not the soft default-OFF. Returns:
- *   - 'disabled'            — flag OFF (inert by design; the default).
- *   - 'blocked-github-api'  — flag ON but STORAGE_MODE=github-api → refuse to arm + fail LOUD.
- *   - 'arm'                 — flag ON and a filesystem-visible profile → arm normally. */
-export type SweepArmDecision = 'arm' | 'disabled' | 'blocked-github-api';
-export function decideSweepArm(storageMode: string, enabled: boolean): SweepArmDecision {
+/** t/3333/t/4177: arm-decision for the sweep. PURE (no I/O) so all arms are unit-tested without
+ *  config/env mocking. The sweep's `--apply` writes the LOCAL filesystem; on the `github-api` read
+ *  profile those writes are invisible to the read path, so arming it there would SILENTLY no-op
+ *  (t/2648 class) — a hard architectural constraint, not the soft default-OFF.
+ *  t/4177: the reconciler's `grounding_lock` (O_CREAT|O_EXCL) serializes within ONE host; it has no
+ *  cross-replica lease. Arming the sweep on every one of N>1 replicas would run N concurrent full
+ *  sweeps with no cross-process coordination between them (TL t/4177#3 — a single-holder lease, e.g.
+ *  an Azure Blob lease, is the real fix and is not built yet). Refuse rather than silently risk it.
+ *  Returns:
+ *   - 'disabled'                  — flag OFF (inert by design; the default).
+ *   - 'blocked-github-api'        — flag ON but STORAGE_MODE=github-api → refuse to arm + fail LOUD.
+ *   - 'blocked-no-lease-multi-replica' — flag ON, filesystem-visible profile, but MAX_REPLICAS>1 and
+ *     no cross-replica lease exists → refuse to arm + fail LOUD.
+ *   - 'arm'                       — flag ON, filesystem-visible profile, MAX_REPLICAS<=1 → arm normally. */
+export type SweepArmDecision = 'arm' | 'disabled' | 'blocked-github-api' | 'blocked-no-lease-multi-replica';
+export function decideSweepArm(storageMode: string, enabled: boolean, maxReplicas: number = 1): SweepArmDecision {
   if (!enabled) return 'disabled';
   if (storageMode === 'github-api') return 'blocked-github-api';
+  if (maxReplicas > 1) return 'blocked-no-lease-multi-replica';
   return 'arm';
 }
 
@@ -167,7 +175,8 @@ export function decideSweepArm(storageMode: string, enabled: boolean): SweepArmD
  * called at boot and a misconfigured flag must not crash the host (the module's non-fatal contract).
  */
 export function startGroundingSweep(intervalMs: number = resolveIntervalMs()): () => void {
-  const decision = decideSweepArm(STORAGE_MODE, isGroundingSweepEnabled());
+  const maxReplicas = getMaxReplicas();
+  const decision = decideSweepArm(STORAGE_MODE, isGroundingSweepEnabled(), maxReplicas);
   if (decision === 'disabled') {
     // Log-once so an operator can see the sweep is present-but-disabled (vs. silently absent).
     log.server.info({ component: 'grounding-sweep' }, 'Grounding sweep disabled (GROUNDING_SWEEP_ENABLED off) — timer not armed');
@@ -193,6 +202,26 @@ export function startGroundingSweep(intervalMs: number = resolveIntervalMs()): (
     });
     log.server.error({ component: 'grounding-sweep', storageMode: STORAGE_MODE }, errorMessage(err));
     return () => { /* no-op: refused to arm on the github-api profile */ };
+  }
+  if (decision === 'blocked-no-lease-multi-replica') {
+    const err = new ActionableError({
+      goal: 'Run the scheduled grounding sweep exactly once per tick, even with multiple replicas',
+      problem: `GROUNDING_SWEEP_ENABLED is set and MAX_REPLICAS=${maxReplicas}, but the reconciler's grounding_lock (O_CREAT|O_EXCL) only serializes within one host — it has no cross-replica lease. Arming the sweep on every replica would run ${maxReplicas} concurrent full sweeps with no coordination between them, so the timer is refused.`,
+      location: 'server/groundingSweepScheduler.ts → startGroundingSweep',
+      nextSteps: [
+        'Do NOT set GROUNDING_SWEEP_ENABLED when MAX_REPLICAS>1 until a single-holder lease exists (t/4177 — prefer an Azure Blob lease over O_EXCL on SMB).',
+        'Keep GROUNDING_SWEEP_ENABLED off when scaling to N>1 replicas.',
+        'Once a cross-replica lease lands, this guard can be relaxed — track it on t/4177.',
+      ],
+    });
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'grounding-sweep', level: 'error',
+      message: 'Grounding sweep refused to arm — MAX_REPLICAS>1 with no cross-replica lease (would run N concurrent uncoordinated sweeps)',
+      data: { storageMode: STORAGE_MODE, maxReplicas, armed: false },
+      error: { name: err.name, message: errorMessage(err) },
+    });
+    log.server.error({ component: 'grounding-sweep', storageMode: STORAGE_MODE, maxReplicas }, errorMessage(err));
+    return () => { /* no-op: refused to arm with MAX_REPLICAS>1 and no lease */ };
   }
   if (timer) return stopGroundingSweep;
   log.server.info({ component: 'grounding-sweep', intervalMs }, 'Grounding sweep enabled — arming timer');

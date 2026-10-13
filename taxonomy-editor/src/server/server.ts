@@ -35,8 +35,9 @@ import {
   getStoredApiKeys, addApiKey, removeApiKey, resolveDataPath,
   getPaidGeminiFallbackKey, setPaidGeminiFallbackKey, deletePaidGeminiFallbackKey,
   BROKER_SCRIPT, SCRIPTS_DIR, getProjectRoot, type AIBackend,
-  STORAGE_MODE, CACHE_DIR, isEmbeddingWorkerOffloadEnabled, getEmbeddingWorkerPoolSize,
+  STORAGE_MODE, CACHE_DIR, isEmbeddingWorkerOffloadEnabled, getEmbeddingWorkerPoolSize, getMaxReplicas,
 } from './config.js';
+import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
@@ -1361,6 +1362,13 @@ server.listen(PORT, BIND_HOST, () => {
   // in ACA config but process.env evaluated false" regression (bicep value-form) is then visible
   // immediately, not inferred from a debate's compute path.
   log.server.info({ embeddingWorkerOffload: isEmbeddingWorkerOffloadEnabled() }, 'embedding offload flag at boot');
+  // t/4177: WARN (not info) the effective per-replica Gemini RPM at boot — this is the number a
+  // slow debate is actually paced to, so it must be greppable in Log Analytics without inferring
+  // it from MAX_REPLICAS + the FREE_TIER_RPM_PER_KEY constant.
+  log.server.warn(
+    { maxReplicas: getMaxReplicas(), freeTierRpmPerKey: proxyTiers.FREE_TIER_RPM_PER_KEY, effectivePerReplicaRpm: effectivePerReplicaRpm(proxyTiers.FREE_TIER_RPM_PER_KEY) },
+    'effective per-replica Gemini RPM at boot (t/4177)',
+  );
   // t/3278 Arm-1: log the baked BUILD_SHA at boot so "what SHA is running?" is answerable from LA on
   // every deploy (the durable primitive vs the incidental t/3211 marker). 'unknown' if the build didn't
   // pass --build-arg BUILD_SHA → a visible gap, not a silent one (drift-check reads /health.buildSha).
