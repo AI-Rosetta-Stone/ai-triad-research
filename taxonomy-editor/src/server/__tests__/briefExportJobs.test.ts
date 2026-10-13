@@ -30,11 +30,19 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: 
 
 // t/4177: the durable job-record store runs for real against an in-memory backend shared by
 // "both replicas" — the record is the only state another replica can see.
-const { blobs } = vi.hoisted(() => ({ blobs: new Map<string, string>() }));
+const { blobs, heartbeatGate } = vi.hoisted(() => ({
+  blobs: new Map<string, string>(),
+  // When set, a write of a non-terminal record waits on it (simulates a slow in-flight heartbeat).
+  heartbeatGate: { wait: null as Promise<void> | null },
+}));
 vi.mock('../storage/fileIO.js', () => ({
   getBriefExportBackend: () => ({
     readFile: async (p: string) => blobs.get(p) ?? null,
-    writeFile: async (p: string, c: string) => { blobs.set(p, c); },
+    writeFile: async (p: string, c: string) => {
+      const status = (JSON.parse(c) as { status: string }).status;
+      if (heartbeatGate.wait && status !== 'done' && status !== 'failed') await heartbeatGate.wait;
+      blobs.set(p, c);
+    },
     deleteFile: async (p: string) => { blobs.delete(p); },
   }),
   assertSafeId: () => {},
@@ -191,14 +199,16 @@ describe('brief export runner (t/2804)', () => {
   // ── t/4177: another replica can answer the poll from the durable record ──
 
   it('replica-safety: the creation record exists before startExportJob resolves', async () => {
-    let releaseExtract!: () => void;
-    extractDeckSpec.mockImplementation(() => new Promise(r => { releaseExtract = () => r(SPEC); }));
+    let releaseNarrate!: () => void;
+    narrate.mockImplementation(() => new Promise(r => { releaseNarrate = () => r({ narration: NARRATION }); }));
     const job = await startExportJob(baseArgs());
     const view = await resolveBriefExportJobPoll(job.jobId);   // what a second replica would read
     expect(view).not.toBeNull();
-    expect(['queued', 'extracting']).toContain(view!.status);
-    releaseExtract();
+    expect(['queued', 'extracting', 'narrating']).toContain(view!.status);
+    await vi.waitFor(() => expect(narrate).toHaveBeenCalled());
+    releaseNarrate();
     await waitTerminal(job);
+    expect(job.status).toBe('done');
   });
 
   it('replica-safety: a finished job is readable from the durable record with its exportId', async () => {
@@ -207,6 +217,29 @@ describe('brief export runner (t/2804)', () => {
     await vi.waitFor(async () => expect((await resolveBriefExportJobPoll(job.jobId))?.status).toBe('done'));
     const view = await resolveBriefExportJobPoll(job.jobId);
     expect(view).toMatchObject({ status: 'done', progressPct: 100, exportId: job.exportId, error: null });
+  });
+
+  it('replica-safety: a heartbeat still in flight when the job ends cannot overwrite the terminal record', async () => {
+    vi.useFakeTimers();
+    try {
+      let releaseNarrate!: () => void;
+      narrate.mockImplementation(() => new Promise(r => { releaseNarrate = () => r({ narration: NARRATION }); }));
+      const job = await startExportJob(baseArgs());
+      let releaseHeartbeat!: () => void;
+      heartbeatGate.wait = new Promise<void>(r => { releaseHeartbeat = r; });
+      await vi.advanceTimersByTimeAsync(5_000);          // a heartbeat write starts and blocks
+      releaseNarrate();
+      await vi.waitFor(() => expect(job.status).toBe('done'));
+      releaseHeartbeat();                                // the slow heartbeat lands now
+      heartbeatGate.wait = null;
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(async () => expect((await resolveBriefExportJobPoll(job.jobId))?.status).toBe('done'));
+      await vi.advanceTimersByTimeAsync(60_000);         // long past the staleness window
+      expect((await resolveBriefExportJobPoll(job.jobId))?.status).toBe('done');
+    } finally {
+      heartbeatGate.wait = null;
+      vi.useRealTimers();
+    }
   });
 
   it('replica-safety: a failed job is readable from the durable record with its error code', async () => {

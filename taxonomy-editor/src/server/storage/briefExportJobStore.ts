@@ -98,28 +98,22 @@ async function deleteBriefExportJobRecord(jobId: string): Promise<void> {
 export const STALE_EXPORT_ERROR = 'The server running this export stopped before it finished. Start the export again.';
 
 /** Tier-3 poll view for a job not in this process's Map. Returns the record to serve, or null (→ 404).
- *  - terminal, within the retention window → served as-is;
- *  - terminal, past the window → deleted (best-effort), null;
+ *  - past the retention window (terminal or not) → deleted (best-effort), null;
+ *  - terminal → served as-is;
  *  - non-terminal, fresh heartbeat → served (the job is live on another replica);
- *  - non-terminal, stale heartbeat → its owner is gone: served as failed, and that failed state is
- *    written back (fire-and-forget, identical content under any interleaving) so later polls agree. */
+ *  - non-terminal, stale heartbeat → served as failed, computed on every read and NOT written back.
+ *    A reader never writes the record: if the owner was only slow (not dead) and writes `done` a
+ *    moment later, a reader's write-back could land after it and turn a successful export into a
+ *    failed one. Re-deriving on read is idempotent and race-free; the window bounds the record. */
 export async function resolveBriefExportJobPoll(jobId: string): Promise<BriefExportJobRecord | null> {
   const record = await loadBriefExportJobRecord(jobId);
   if (!record) return null;
-  if (isTerminalExportStatus(record.status)) {
-    if (Date.now() - record.startedAt <= BRIEF_EXPORT_JOB_RECORD_WINDOW_MS) return record;
+  if (Date.now() - record.startedAt > BRIEF_EXPORT_JOB_RECORD_WINDOW_MS) {
     void deleteBriefExportJobRecord(jobId);
     return null;
   }
+  if (isTerminalExportStatus(record.status)) return record;
   const lastBeat = Date.parse(record.lastHeartbeatAt) || 0;
   if (Date.now() - lastBeat < BRIEF_EXPORT_HEARTBEAT_STALE_MS) return record;
-  const failed: BriefExportJobRecord = { ...record, status: 'failed', progressPct: 100, error: STALE_EXPORT_ERROR, errorCode: 'RenderFailure' };
-  void saveBriefExportJobRecord(failed).catch((err) => {
-    getGlobalRecorder()?.record({
-      type: 'system.error', component: 'brief-export', level: 'warn',
-      message: `resolveBriefExportJobPoll: stale-to-failed write failed for ${jobId} (responding anyway)`,
-      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-    });
-  });
-  return failed;
+  return { ...record, status: 'failed', progressPct: 100, error: STALE_EXPORT_ERROR, errorCode: 'RenderFailure' };
 }

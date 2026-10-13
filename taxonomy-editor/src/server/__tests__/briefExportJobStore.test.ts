@@ -56,11 +56,25 @@ describe('t/4177 — brief export job record store', () => {
     expect(await resolveBriefExportJobPoll('job-1')).toMatchObject({ status: 'narrating', progressPct: 30, error: null });
   });
 
-  it('stale heartbeat on a running job → served as failed, and the failed state is written back', async () => {
+  it('stale heartbeat on a running job → served as failed, without writing the record', async () => {
     await saveBriefExportJobRecord(rec({ lastHeartbeatAt: new Date(NOW - BRIEF_EXPORT_HEARTBEAT_STALE_MS - 1_000).toISOString() }));
     const view = await resolveBriefExportJobPoll('job-1');
     expect(view).toMatchObject({ status: 'failed', progressPct: 100, error: STALE_EXPORT_ERROR, errorCode: 'RenderFailure' });
-    await vi.waitFor(async () => expect((await loadBriefExportJobRecord('job-1'))?.status).toBe('failed'));
+    // A reader never writes: a slow (not dead) owner's later `done` must not be clobbered.
+    expect((await loadBriefExportJobRecord('job-1'))?.status).toBe('narrating');
+  });
+
+  it('a slow owner that writes done after a stale read is served as done', async () => {
+    await saveBriefExportJobRecord(rec({ lastHeartbeatAt: new Date(NOW - BRIEF_EXPORT_HEARTBEAT_STALE_MS - 1_000).toISOString() }));
+    expect((await resolveBriefExportJobPoll('job-1'))?.status).toBe('failed');
+    await saveBriefExportJobRecord(rec({ status: 'done', progressPct: 100, exportId: 'exp-1' }));
+    expect(await resolveBriefExportJobPoll('job-1')).toMatchObject({ status: 'done', exportId: 'exp-1' });
+  });
+
+  it('a non-terminal record past the retention window → null and deleted', async () => {
+    await saveBriefExportJobRecord(rec({ startedAt: NOW - BRIEF_EXPORT_JOB_RECORD_WINDOW_MS - 1, lastHeartbeatAt: new Date(0).toISOString() }));
+    expect(await resolveBriefExportJobPoll('job-1')).toBeNull();
+    await vi.waitFor(() => expect(blobs.size).toBe(0));
   });
 
   it('terminal record within the window → served as-is', async () => {

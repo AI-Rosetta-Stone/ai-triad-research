@@ -187,17 +187,22 @@ async function runExportJob(job: ExportJob, args: CreateJobArgs): Promise<void> 
   // Heartbeat (t/4177): keeps the durable record's poll view fresh while the job runs, so another
   // replica serves live progress, and a crashed owner is detected by staleness. Promise-based
   // setTimeout preserves the request's AsyncLocalStorage user context (setInterval would not).
+  // `inFlight` serialises record writes: a heartbeat still in flight when the job ends must not land
+  // AFTER the terminal write and overwrite `done` with a non-terminal status (which would then go
+  // stale and read as failed). The terminal write awaits it first.
+  let inFlight: Promise<void> = Promise.resolve();
   void (async () => {
     while (!isTerminalExportStatus(job.status)) {
       await new Promise<void>(resolve => setTimeout(resolve, BRIEF_EXPORT_HEARTBEAT_INTERVAL_MS));
       if (isTerminalExportStatus(job.status)) break;
-      void writeRecordBestEffort(job, 'heartbeat');
+      inFlight = writeRecordBestEffort(job, 'heartbeat');
     }
   })();
   try {
     await runExportPipeline(job, args);
   } finally {
     // Terminal state (startedAt was just reset to the terminal time, which starts the retention clock).
+    await inFlight;
     await writeRecordBestEffort(job, 'terminal');
   }
 }
