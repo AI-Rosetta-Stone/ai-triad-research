@@ -5,7 +5,7 @@
 // fresh `MAX_REPLICAS` constant. Default (unset) behavior is already covered by
 // rateLimiter.test.ts and is unaffected by this file.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 let seq = 0;
 const uniqueKey = () => `replica-test-${++seq}-${process.pid}`;
@@ -14,6 +14,11 @@ describe('rate limiters at MAX_REPLICAS=10 (t/4178)', () => {
   const originalEnv = process.env.MAX_REPLICAS;
 
   beforeEach(() => {
+    // Without this, dynamic import() below returns the SAME cached module instance
+    // across every test in this file, so `MAX_REPLICAS` (read once at module load)
+    // never re-evaluates — a test setting a new value would silently exercise the
+    // previous test's constant instead (Quality review, PR #3248).
+    vi.resetModules();
     process.env.MAX_REPLICAS = '10';
   });
 
@@ -58,10 +63,13 @@ describe('rate limiters at MAX_REPLICAS=10 (t/4178)', () => {
     process.env.MAX_REPLICAS = '1000';
     const { checkRate } = await import('../security/rateLimiter.js');
     const key = uniqueKey();
-    // Fleet-wide limit 5 at 1000 replicas would floor-divide to 0 — must clamp to 1.
-    const first = checkRate(key, 5, 60_000);
+    // limit=20 is chosen to DISCRIMINATE a stale module: floor(20/1000)=0→clamp 1 is
+    // the correct answer here, but floor(20/10)=2 is what a previous test's cached
+    // MAX_REPLICAS=10 would give instead — so this fails loudly if vi.resetModules()
+    // above stops working, rather than passing coincidentally (Quality review, PR #3248).
+    const first = checkRate(key, 20, 60_000);
     expect(first.allowed).toBe(true);
     expect(first.limit).toBe(1);
-    expect(checkRate(key, 5, 60_000).allowed).toBe(false);
+    expect(checkRate(key, 20, 60_000).allowed).toBe(false);
   });
 });
