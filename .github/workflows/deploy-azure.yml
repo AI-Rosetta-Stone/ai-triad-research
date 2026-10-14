@@ -623,7 +623,7 @@ jobs:
               HOME                               = '/home/aitriad'
               AI_TRIAD_DATA_ROOT                 = '/mnt/shared'
               TAXONOMY_CACHE_DIR                 = '/mnt/shared'
-              MAX_REPLICAS                       = '5'  # t/4176 — must equal main.bicep maxReplicas (AI RPM + rate limits divide by it)
+              MAX_REPLICAS                       = '1'  # t/4176 — must equal main.bicep maxReplicas (AI RPM + rate limits divide by it)
               AUTH_OPTIONAL                      = '${{ inputs.auth_mode == 'optional' && '1' || '' }}'
               AUTH_DISABLED                      = '${{ inputs.auth_mode == 'disabled' && '1' || '' }}'
               ADMIN_USERS                        = '${{ vars.ADMIN_USERS }}'

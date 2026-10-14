@@ -513,7 +513,7 @@ var baseEnv = [
   { name: 'TAXONOMY_CACHE_DIR', value: '/mnt/shared' }
   // t/4176: the code splits per-replica AI RPM and per-client rate limits by this (t/4177, t/4178).
   // MUST equal the container app's maxReplicas below, and deploy-azure.yml ExpectedEnvVars.
-  { name: 'MAX_REPLICAS', value: '5' }
+  { name: 'MAX_REPLICAS', value: '1' }
   { name: 'ALLOWED_ORIGINS', value: 'https://taxonomy-editor.${containerAppEnv.properties.defaultDomain}' }
   { name: 'HOME', value: '/home/aitriad' }
   { name: 'NODE_ENV', value: 'production' }
@@ -685,7 +685,15 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           probes: [
             {
               type: 'Liveness'
-              httpGet: { path: '/healthz', port: 7862 }
+              // /health, NOT /healthz (t/4176 incident, 2026-10-13): /healthz is the DATA-LOADED
+              // signal and returns 503 'warming' until the data load finishes. As a liveness path
+              // it killed any replica whose warm-up took longer than 3 x 30s, and at 5 replicas
+              // warming at once every replica crash-looped ("failed liveness probe, will be
+              // restarted"), users got the "Taxonomy data not found" page whenever no replica was
+              // ready. Liveness = process alive (dataRootReadiness.ts design note); readiness
+              // (/healthz, below) still keeps traffic off a replica until its data is loaded.
+              // /health is served by the same event loop, so the loop-block deadline below holds.
+              httpGet: { path: '/health', port: 7862 }
               periodSeconds: 30
               failureThreshold: 3
               // timeoutSeconds made EXPLICIT (was defaulting to ACA's ~1s). This is
@@ -744,16 +752,18 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         // latency tradeoff this reintroduces (previously fixed for the same
         // reason in e247ef75, 2026-05-05) in exchange for scale-to-zero savings.
         minReplicas: 0
-        // maxReplicas capped at 5 (t/4176, PI 2026-10-13; was 1 since t/2885).
+        // maxReplicas capped at 1 (t/4176 incident, 2026-10-13: back from 5 to 1).
         // NOTE: the phrase "maxReplicas capped at" on this line is load-bearing —
         // Test-InMemoryJobStoreScaleGuard.ps1 uses it as a regex anchor to locate
         // the maxReplicas value. Do not edit this comment string without updating the gate.
-        // Why 5 and not 10: the GitHub poll runs in every replica (one call per replica
-        // per minute against a 5,000/h App budget shared by the fleet); 5 replicas use
-        // ~6% of it. Going above 5 needs the single-holder poll lease (t/4179) first.
-        // MUST equal MAX_REPLICAS in baseEnv: the code divides per-replica AI RPM and
-        // rate limits by it (t/4177, t/4178). A mismatch overspends the shared quota.
-        maxReplicas: 5
+        // Why 1: at 5, copies starting together each fetched their data from GitHub, drew
+        // refusals ("non-ok response", "circuit open"), failed the data-loaded probe and were
+        // restarted in a loop — production went down 10:00-10:28Z. The job stores ARE
+        // replica-safe (t/4177); what's missing is a startup that doesn't depend on GitHub
+        // per copy. Raise again only after: liveness on /health (this PR), the refusal type
+        // confirmed, startup reading the shared cache (or the t/4179 lease), and a monitored
+        // 2-copy test. MUST equal MAX_REPLICAS in baseEnv (t/4177, t/4178).
+        maxReplicas: 1
         rules: [
           {
             name: 'http-scaler'
