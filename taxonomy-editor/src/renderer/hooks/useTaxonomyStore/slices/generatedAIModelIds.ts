@@ -130,7 +130,6 @@ export type AIModel =
   | 'openai-gpt-5.6-sol'
   | 'openai-gpt-5.6-terra'
   | 'openai-gpt-3.5-turbo-16k'
-  | 'deepseek-deepseek-v4-flash'
   | 'deepseek-deepseek-v4-pro'
   | 'ollama-gemma4-e4b-it-q4-k-m'
   | 'claude-opus-5-5'

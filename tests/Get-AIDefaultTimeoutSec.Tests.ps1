@@ -42,7 +42,7 @@ Describe 'Get-AIDefaultTimeoutSec — base timeouts' -Tag 'enrichment' {
     }
 
     It 'Returns 180 for deepseek backend' {
-        Invoke-DefaultTimeout 'deepseek-deepseek-v4-flash' | Should -Be 180
+        Invoke-DefaultTimeout 'deepseek-deepseek-flash' | Should -Be 180
     }
 
     It 'Returns 300 for ollama backend' {

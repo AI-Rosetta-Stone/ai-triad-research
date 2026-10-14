@@ -93,12 +93,12 @@ Describe 'DeepSeek live round-trip — requires DEEPSEEK_API_KEY (t/1938)' -Tag 
         $r.KeySource  | Should -Match 'DEEPSEEK_API_KEY|AI_API_KEY'
     }
 
-    It 'Invoke-AIApi -Model deepseek-deepseek-v4-flash -Prompt returns non-empty Text + usage counters' {
+    It 'Invoke-AIApi -Model deepseek-deepseek-flash -Prompt returns non-empty Text + usage counters' {
         if (-not $script:HasDeepSeekKey) {
             Set-ItResult -Skipped -Because $script:SkipReason
             return
         }
-        $r = Invoke-AIApi -Model 'deepseek-deepseek-v4-flash' -Prompt 'Say hi in one short word.' -MaxTokens 200 -Temperature 0.1
+        $r = Invoke-AIApi -Model 'deepseek-deepseek-flash' -Prompt 'Say hi in one short word.' -MaxTokens 200 -Temperature 0.1
         $r                    | Should -Not -BeNullOrEmpty
         $r.Backend            | Should -Be 'deepseek'
         $r.Text               | Should -Not -BeNullOrEmpty
