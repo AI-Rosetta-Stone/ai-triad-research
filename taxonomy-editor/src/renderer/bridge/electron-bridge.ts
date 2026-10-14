@@ -105,6 +105,8 @@ export const api: AppAPI = {
 
   // Taxonomy CRUD
   loadTaxonomyFile: (pov) => window.electronAPI.loadTaxonomyFile(pov),
+  // t/4187: desktop writes the local checkout (single user), so there's no version to track.
+  loadTaxonomyFileForEdit: (pov) => window.electronAPI.loadTaxonomyFile(pov),
   saveTaxonomyFile: (pov, data) => window.electronAPI.saveTaxonomyFile(pov, data),
   // New-edge persistence (t/1816). Graceful-degrade until the `save-edges` IPC handler
   // lands (ElectronMain); delegates automatically once preload exposes saveEdges.
