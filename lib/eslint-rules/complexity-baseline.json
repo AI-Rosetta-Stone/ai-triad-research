@@ -24,7 +24,7 @@
     "countOver": 1
   },
   "src/main/ipc/taxonomyHandlers.ts": {
-    "max": 24,
+    "max": 19,
     "countOver": 1
   },
   "src/renderer/App.tsx": {
@@ -60,7 +60,7 @@
     "countOver": 3
   },
   "src/renderer/components/debate/NewDebateDialog.tsx": {
-    "max": 34,
+    "max": 31,
     "countOver": 4
   },
   "src/renderer/components/debate-diagnostics/window/EntryDetailRouter.parts.tsx": {
@@ -208,7 +208,7 @@
     "countOver": 1
   },
   "src/renderer/hooks/useDebateStore/slices/clarificationSlice.ts": {
-    "max": 102,
+    "max": 101,
     "countOver": 7
   },
   "src/renderer/hooks/useDebateStore/slices/debateLoopSlice.ts": {
@@ -252,7 +252,7 @@
     "countOver": 1
   },
   "src/renderer/hooks/useTaxonomyStore/slices/taxonomyDataSlice.ts": {
-    "max": 56,
+    "max": 55,
     "countOver": 5
   },
   "src/renderer/lib/flightRecorderInit.ts": {
@@ -276,7 +276,7 @@
     "countOver": 1
   },
   "src/renderer/utils/promptPreview.ts": {
-    "max": 44,
+    "max": 28,
     "countOver": 1
   },
   "src/renderer/utils/qbafExplain.ts": {
@@ -316,7 +316,7 @@
     "countOver": 1
   },
   "src/server/routes/relevantNodes.ts": {
-    "max": 23,
+    "max": 18,
     "countOver": 1
   },
   "src/server/security/accessControl.ts": {
@@ -329,10 +329,6 @@
   },
   "src/server/storage/fileIO.ts": {
     "max": 17,
-    "countOver": 1
-  },
-  "src/server/storage/githubAPIBackend.ts": {
-    "max": 16,
     "countOver": 1
   }
 }

@@ -42,8 +42,14 @@ export interface StorageBackend {
    *  Omitting it falls back to the backend's cache-derived version (WARN-logged
    *  where supported) — intended for direct non-route callers (pipelines,
    *  harvest writers) that have no client-loaded version to carry. Backends
-   *  without version preconditions (FilesystemBackend) ignore it. */
-  writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<void>;
+   *  without version preconditions (FilesystemBackend) ignore it.
+   *  Returns `{ version }` — the new version of the written content (git blob
+   *  SHA for GitHubAPIBackend, real whether the write landed as a direct
+   *  commit or a session-overlay entry), for the caller to hand back as the
+   *  client's next write precondition (route `ETag`). Backends with no
+   *  version concept (FilesystemBackend, AzureBlobBackend pending its own
+   *  audit, t/4191) return `''` — a real but empty version, never a stale one. */
+  writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }>;
 
   /** List entries (files and directories) in a directory. Returns [] if the
    *  directory does not exist.

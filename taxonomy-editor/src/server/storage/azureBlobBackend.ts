@@ -165,7 +165,7 @@ export class AzureBlobBackend implements StorageBackend {
     }
   }
 
-  async writeFile(filePath: string, content: string, _opts?: { ref?: string }): Promise<void> {
+  async writeFile(filePath: string, content: string, _opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
     const blob = this.toBlobPath(filePath);
     const data = Buffer.from(content, 'utf-8');
     const ac = new AbortController();
@@ -175,6 +175,7 @@ export class AzureBlobBackend implements StorageBackend {
         blobHTTPHeaders: { blobContentType: 'application/json; charset=utf-8' },
         abortSignal: ac.signal,
       });
+      return { version: '' }; // no write-precondition support yet — real but empty (t/4191 tracks the audit)
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
         getGlobalRecorder()?.record({

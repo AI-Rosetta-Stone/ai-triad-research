@@ -455,7 +455,7 @@ export class GitHubAPIBackend implements StorageBackend {
     return result.content;
   }
 
-  async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<void> {
+  async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
     const repoPath = this.toRepoPath(filePath);
     // opts.ref pins the write to a specific ref (e.g. 'main') for shared data
     // that must commit straight to main rather than the caller's session branch
@@ -467,38 +467,16 @@ export class GitHubAPIBackend implements StorageBackend {
 
     // When on a session branch (and no ref is forced), write to overlay only —
     // no API call. The overlay is flushed via commitOverlay() (Trees API batch).
+    // t/4187 (Rosetta Stone, p/775#18): this is the path EVERY hosted user save
+    // actually takes — the baseSha precondition has to apply here, not just on
+    // the direct-commit path below, or the fix protects no one on the web.
     if (!forceRef && ref !== this.baseBranch && this.hasSessionContext()) {
       this.recordEvent({ type: 'cache.hit', component: 'cache', level: 'debug',
         message: `writeFile: overlay fast-path taken: ${repoPath}`, data: { path: repoPath, ref } });
-      this.writeToOverlay(filePath, content);
-      return;
+      return this.writeOverlayWithPrecondition(filePath, repoPath, content, ref, opts?.baseSha);
     }
 
-    // Guard: a forced ref that differs from the configured base branch would bypass
-    // base-branch isolation (e.g. forced 'main' on a staging deployment leaks to prod).
-    // Zero current consumers (t/2657) — this future-proofs against re-arming the incident.
-    if (forceRef && forceRef !== this.baseBranch) {
-      throw new ActionableError({
-        goal: `Force-write to ref '${forceRef}'`,
-        problem: `Forced ref '${forceRef}' does not match the configured base branch '${this.baseBranch}'. This would bypass base-branch isolation and risk writing to the wrong environment.`,
-        location: `GitHubAPIBackend.writeFile(${repoPath})`,
-        nextSteps: [
-          `Set GITHUB_BRANCH=${forceRef} if this deployment should write there`,
-          'Or remove opts.ref to use the configured base branch',
-        ],
-      });
-    }
-
-    // Without a forced ref, writes must go to a session branch — caller should
-    // create one first. A forced ref is an explicit opt-in to a direct commit.
-    if (!forceRef && ref === this.baseBranch && this.hasSessionContext()) {
-      throw new ActionableError({
-        goal: 'Write file to GitHub',
-        problem: `Cannot write directly to ${this.baseBranch}. Create a session branch first.`,
-        location: `GitHubAPIBackend.writeFile(${repoPath})`,
-        nextSteps: ['Create a session branch via the Session Branch Manager'],
-      });
-    }
+    this.assertDirectWriteAllowed(forceRef, ref, repoPath);
 
     if (this.rest.isTripped()) {
       throw new ActionableError({
@@ -581,6 +559,81 @@ export class GitHubAPIBackend implements StorageBackend {
     const respData = resp.data as { content?: { sha?: string } };
     const newSha = respData?.content?.sha ?? '';
     await this.writeToDiskCache(repoPath, content, newSha, '');
+    return { version: newSha };
+  }
+
+  /**
+   * Guard rails for the direct-commit write path (not taken on a session
+   * branch — see the overlay fast path above). Split out of writeFile to
+   * keep its own complexity down (t/4187 cleanup).
+   */
+  private assertDirectWriteAllowed(forceRef: string | undefined, ref: string, repoPath: string): void {
+    // A forced ref that differs from the configured base branch would bypass
+    // base-branch isolation (e.g. forced 'main' on a staging deployment leaks to prod).
+    // Zero current consumers (t/2657) — this future-proofs against re-arming the incident.
+    if (forceRef && forceRef !== this.baseBranch) {
+      throw new ActionableError({
+        goal: `Force-write to ref '${forceRef}'`,
+        problem: `Forced ref '${forceRef}' does not match the configured base branch '${this.baseBranch}'. This would bypass base-branch isolation and risk writing to the wrong environment.`,
+        location: `GitHubAPIBackend.writeFile(${repoPath})`,
+        nextSteps: [
+          `Set GITHUB_BRANCH=${forceRef} if this deployment should write there`,
+          'Or remove opts.ref to use the configured base branch',
+        ],
+      });
+    }
+
+    // Without a forced ref, writes must go to a session branch — caller should
+    // create one first. A forced ref is an explicit opt-in to a direct commit.
+    if (!forceRef && ref === this.baseBranch && this.hasSessionContext()) {
+      throw new ActionableError({
+        goal: 'Write file to GitHub',
+        problem: `Cannot write directly to ${this.baseBranch}. Create a session branch first.`,
+        location: `GitHubAPIBackend.writeFile(${repoPath})`,
+        nextSteps: ['Create a session branch via the Session Branch Manager'],
+      });
+    }
+  }
+
+  /**
+   * t/4187 (Rosetta Stone, p/775#18): apply the baseSha precondition on the
+   * overlay fast path — this is where every hosted user save actually lands,
+   * so the precondition has to hold here or it protects no one on the web.
+   *
+   * "Current version" is the git blob SHA of whatever this user's overlay (or,
+   * if nothing's staged yet this session, the last committed content) holds
+   * for this path. Computed locally via gitBlobSha — the same hash GitHub
+   * would report as `sha` for that exact content, whether or not it's actually
+   * been committed. This lets an overlay write be versioned without a round
+   * trip, and lets a second overlay write to the same path in the same
+   * session (two tabs) detect that the first one already landed.
+   */
+  private async writeOverlayWithPrecondition(
+    filePath: string, repoPath: string, content: string, ref: string, baseSha: string | undefined,
+  ): Promise<{ version: string }> {
+    const userId = this.getEffectiveUserId();
+    const existing = userId ? this.sessionOverlays.get(userId)?.get(repoPath) : undefined;
+    const currentVersion = existing && existing !== GitHubAPIBackend.TOMBSTONE
+      ? gitBlobSha(existing)
+      : await this.getFileSha(repoPath, ref);
+
+    if (baseSha === undefined) {
+      this.recordEvent({
+        type: 'storage.fallback', component: 'github-api', level: 'warn',
+        message: `writeFile(${repoPath}): no baseSha supplied on overlay write — falling back to no precondition (direct fileIO caller, not the save route)`,
+        data: { path: repoPath, ref },
+      });
+    } else if (currentVersion !== null && baseSha !== currentVersion) {
+      this.recordEvent({
+        type: 'github.api.conflict', component: 'github-api', level: 'warn',
+        message: `Overlay write conflict on ${repoPath} — staged content moved since the client's last read`,
+        data: { path: repoPath, ref, staleSha: baseSha, currentSha: currentVersion },
+      });
+      throw this.writeConflictError(repoPath, 'writeFile');
+    }
+
+    this.writeToOverlay(filePath, content);
+    return { version: gitBlobSha(content) };
   }
 
   async writeBinaryFile(filePath: string, content: Buffer, opts?: { ref?: string }): Promise<void> {

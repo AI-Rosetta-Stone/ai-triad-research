@@ -55,11 +55,12 @@ export class FilesystemBackend implements StorageBackend {
     }
   }
 
-  async writeFile(filePath: string, content: string): Promise<void> {
+  async writeFile(filePath: string, content: string): Promise<{ version: string }> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tmpPath = filePath + '.tmp';
     await fs.writeFile(tmpPath, content, 'utf-8');
     await this.renameWithRetry(tmpPath, filePath);
+    return { version: '' }; // no write-precondition support — real but empty, never stale
   }
 
   async listDirectory(dirPath: string): Promise<string[]> {
