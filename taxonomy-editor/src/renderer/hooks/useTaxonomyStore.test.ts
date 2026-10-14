@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockApi } = vi.hoisted(() => {
   const mockApi = {
     loadTaxonomyFile: vi.fn().mockResolvedValue({ nodes: [] }),
+    loadTaxonomyFileForEdit: vi.fn().mockResolvedValue({ nodes: [] }),
     saveTaxonomyFile: vi.fn().mockResolvedValue(undefined),
     loadPolicyRegistry: vi.fn().mockResolvedValue({ policies: [] }),
     loadConflictFiles: vi.fn().mockResolvedValue([]),
@@ -1327,7 +1328,7 @@ describe('useTaxonomyStore', () => {
       const skpFile = makePovFile([makePovNode({ id: 'skp-beliefs-001' })]);
       const sitFile = makeSituationsFile();
 
-      mockApi.loadTaxonomyFile.mockImplementation((pov: string) => {
+      mockApi.loadTaxonomyFileForEdit.mockImplementation((pov: string) => {
         if (pov === 'accelerationist') return Promise.resolve(accFile);
         if (pov === 'safetyist') return Promise.resolve(safFile);
         if (pov === 'skeptic') return Promise.resolve(skpFile);
@@ -1352,7 +1353,7 @@ describe('useTaxonomyStore', () => {
         if (state.loading) wasLoading = true;
       });
 
-      mockApi.loadTaxonomyFile.mockResolvedValue({ nodes: [] });
+      mockApi.loadTaxonomyFileForEdit.mockResolvedValue({ nodes: [] });
       mockApi.loadPolicyRegistry.mockResolvedValue({ policies: [] });
       await useTaxonomyStore.getState().loadAll();
 
@@ -1361,7 +1362,7 @@ describe('useTaxonomyStore', () => {
     });
 
     it('handles load failure gracefully', async () => {
-      mockApi.loadTaxonomyFile.mockRejectedValueOnce(new Error('Network error'));
+      mockApi.loadTaxonomyFileForEdit.mockRejectedValueOnce(new Error('Network error'));
       await useTaxonomyStore.getState().loadAll();
       expect(useTaxonomyStore.getState().loading).toBe(false);
       expect(useTaxonomyStore.getState().saveError).toBeTruthy();
@@ -1372,7 +1373,7 @@ describe('useTaxonomyStore', () => {
   // a mass strip (the t/3375 class, 133 frames) should be visible without counting log lines.
   describe('loadAll — logical_form strip summary (t/3378)', () => {
     function mockOtherPovsEmpty(accFile: PovTaxonomyFile) {
-      mockApi.loadTaxonomyFile.mockImplementation((pov: string) => {
+      mockApi.loadTaxonomyFileForEdit.mockImplementation((pov: string) => {
         if (pov === 'accelerationist') return Promise.resolve(accFile);
         return Promise.resolve({ nodes: [] });
       });
@@ -1578,14 +1579,34 @@ describe('useTaxonomyStore', () => {
       expect(useTaxonomyStore.getState().saveError).toBeTruthy();
     });
 
-    // t/4186: WRITE_CONFLICT (discriminated on `code`, p/772#1) shows the conflict message, never success, and keeps the edit.
-    it('shows the conflict message and preserves dirty/edits on a WRITE_CONFLICT save error', async () => {
-      mockApi.syncCommit.mockRejectedValueOnce(Object.assign(new Error('write conflict'), { code: 'WRITE_CONFLICT' }));
+    // t/4186/t/4197: WRITE_CONFLICT and BASE_VERSION_REQUIRED (discriminated on `code`, p/772#1,
+    // p/775#24) both show the bridge's conflict message — never the generic "Save failed: ..."
+    // prefix — never success, and keep the edit. The message itself is the bridge's `.problem`
+    // (taxonomyVersions.ts), surfaced here via mapErrorToUserMessage so the two layers can't drift;
+    // this test file mocks that to String(err), so it asserts routing, not the bridge's wording.
+    it.each(['WRITE_CONFLICT', 'BASE_VERSION_REQUIRED'] as const)(
+      'shows the bridge message (no "Save failed" prefix) and preserves dirty/edits on a %s save error',
+      async (code) => {
+        const conflictErr = Object.assign(new Error(`conflict: ${code}`), { code });
+        mockApi.syncCommit.mockRejectedValueOnce(conflictErr);
+        useTaxonomyStore.setState({ accelerationist: makePovFile(), dirty: new Set(['accelerationist']), saveError: null });
+        await useTaxonomyStore.getState().save();
+        const state = useTaxonomyStore.getState();
+        expect(state.saveError).toBe(String(conflictErr));
+        expect(state.saveError).not.toContain('Save failed');
+        expect(state.dirty.has('accelerationist')).toBe(true);
+      },
+    );
+
+    // t/4197 (TL p/775#24): the pre-save re-read must stay on the plain, cell-blind load — if it
+    // ever switched to loadTaxonomyFileForEdit, the save would carry the newest version as its own
+    // base and the precondition would always pass, reopening the lost update this feature fixes.
+    it('the pre-save logical_form re-read never calls loadTaxonomyFileForEdit', async () => {
+      mockApi.loadTaxonomyFile.mockResolvedValue({ nodes: [] });
       useTaxonomyStore.setState({ accelerationist: makePovFile(), dirty: new Set(['accelerationist']) });
       await useTaxonomyStore.getState().save();
-      const state = useTaxonomyStore.getState();
-      expect(state.saveError).toBe('Someone else changed this file. Reload to see their version.');
-      expect(state.dirty.has('accelerationist')).toBe(true);
+      expect(mockApi.loadTaxonomyFile).toHaveBeenCalledWith('accelerationist');
+      expect(mockApi.loadTaxonomyFileForEdit).not.toHaveBeenCalled();
     });
 
     it('dismissSaveError clears error', () => {
