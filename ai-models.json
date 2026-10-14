@@ -1,5 +1,5 @@
 {
-  "_minTimeoutMs_provenance": "t/3555: `minTimeoutMs: 0` on the fast-class reachable models (gemini/azure/openai flash/lite/mini, claude-haiku-4-5, groq llama/oss, deepseek-v4-flash) is a 0-BY-DEFAULT CLASS judgment (120s base timeout deemed sufficient by model class) — NOT a per-model measured latency. Two reachable models were individually reviewed to a real 300000 floor instead of 0: openai-gpt-5.5 (flagship base; its pro sibling is floored) and ollama-gemma4-e4b-it-q4-k-m (local inference, hardware-dependent cold-start). Per-model p99-latency validation of the zeros is tracked in t/3662. Do not read a 0 here as a measured value. zai-glm-5-3 / zai-glm-5-3-flash are 0 by MEASUREMENT, not class: every Z.AI call sends reasoning_effort low (lib/ai-client/providers/zai.ts), and a 46KB debate-brief prompt on glm-5.3 measured 21s at low effort vs 205s at provider-default effort (2026-10-02). Raise the floor again if that effort setting is ever removed. claude-haiku-5-5 (t/4086) is floored at 300000, NOT the fast-class 0 that claude-haiku-4-5 uses: it is a 5.x model with adaptive thinking + effort whose reasoning can exceed the 120s base, so it is floored like the other 5.x Claude models (sonnet-5-5, opus-5), not treated as fast-class. Per-model p99-latency validation (t/3662) would refine this.",
+  "_minTimeoutMs_provenance": "t/3555: `minTimeoutMs: 0` on the fast-class reachable models (gemini/azure/openai flash/lite/mini, claude-haiku-4-5, groq llama/oss, deepseek-flash) is a 0-BY-DEFAULT CLASS judgment (120s base timeout deemed sufficient by model class) — NOT a per-model measured latency. Two reachable models were individually reviewed to a real 300000 floor instead of 0: openai-gpt-5.5 (flagship base; its pro sibling is floored) and ollama-gemma4-e4b-it-q4-k-m (local inference, hardware-dependent cold-start). Per-model p99-latency validation of the zeros is tracked in t/3662. Do not read a 0 here as a measured value. zai-glm-5-3 / zai-glm-5-3-flash are 0 by MEASUREMENT, not class: every Z.AI call sends reasoning_effort low (lib/ai-client/providers/zai.ts), and a 46KB debate-brief prompt on glm-5.3 measured 21s at low effort vs 205s at provider-default effort (2026-10-02). Raise the floor again if that effort setting is ever removed. claude-haiku-5-5 (t/4086) is floored at 300000, NOT the fast-class 0 that claude-haiku-4-5 uses: it is a 5.x model with adaptive thinking + effort whose reasoning can exceed the 120s base, so it is floored like the other 5.x Claude models (sonnet-5-5, opus-5), not treated as fast-class. Per-model p99-latency validation (t/3662) would refine this.",
   "backends": [
     {
       "id": "gemini",
@@ -952,17 +952,6 @@
       "backend": "openai"
     },
     {
-      "id": "deepseek-deepseek-v4-flash",
-      "minTimeoutMs": 0,
-      "apiModelId": "deepseek-v4-flash",
-      "label": "Deepseek V4 Flash",
-      "backend": "deepseek",
-      "picker": {
-        "label": "V4 Flash (default)",
-        "order": 10
-      }
-    },
-    {
       "id": "deepseek-deepseek-v4-pro",
       "apiModelId": "deepseek-v4-pro",
       "label": "Deepseek V4 Pro",
@@ -1016,16 +1005,21 @@
     },
     {
       "id": "deepseek-deepseek-flash",
+      "minTimeoutMs": 0,
       "apiModelId": "deepseek-flash",
       "label": "Deepseek Flash",
-      "backend": "deepseek"
+      "backend": "deepseek",
+      "picker": {
+        "label": "Flash (default)",
+        "order": 10
+      }
     }
   ],
   "defaults": {
     "gemini": "gemini-3.1-pro-preview",
     "claude": "claude-sonnet-4-6",
     "groq": "groq-openai-gpt-oss-120b",
-    "deepseek": "deepseek-deepseek-v4-flash",
+    "deepseek": "deepseek-deepseek-flash",
     "azure": "azure-gpt-4o",
     "ollama": "ollama-gemma4-e4b-it-q4-k-m",
     "zai": "zai-glm-5-3",
@@ -1085,7 +1079,7 @@
       "gemini-3.5-flash-lite",
       "groq-openai-gpt-oss-20b"
     ],
-    "deepseek-deepseek-v4-flash": [
+    "deepseek-deepseek-flash": [
       "deepseek-deepseek-v4-pro"
     ],
     "zai-glm-5-2": [
@@ -1286,7 +1280,7 @@
       "groq": "groq-openai-gpt-oss-20b",
       "openai": "openai-gpt-4.1-mini",
       "azure": "azure-gpt-4o-mini",
-      "deepseek": "deepseek-deepseek-v4-flash",
+      "deepseek": "deepseek-deepseek-flash",
       "ollama": "ollama-gemma4-e4b-it-q4-k-m",
       "zai": "zai-glm-5-3-flash"
     },
@@ -1301,7 +1295,7 @@
       "zai": "zai-glm-5-3"
     }
   },
-  "_pricing_provenance": "Anthropic pricing page (platform.claude.com/docs/en/about-claude/pricing), read 2026-10-05; standard global Claude API $/MTok (t/3941#4). Cache reads are 0.1x input EXCEPT claude-fable-5-1 (0.025x = 0.25) and claude-opus-5-5 (0.05x = 0.20); claude-fable-5 cache read is 1.00. Sonnet 5 is 2/10 standard — the scheduled 2026-09-01 rise to 3/15 was CANCELLED (pricing-page footnote); the prior stored 3/15 was Sonnet 4.6's price. Schema has no cache-write field; 5m/1h cache-write prices are intentionally not stored (adding one is a schema change). t/3946 BACKFILL (2026-10-05, PR #2840): priced all reachable models, re-keyed orphans, and filled cache rates from live provider pages. PROMO (ends 2026-12-31): gemini-3.8-flash and gemini-3.6-flash are at promotional 0.75/3.75/0.075 (in/out/cache) that DOUBLES on 2027-01-01 to 1.50/7.50/0.15 per ai.google.dev/gemini-api/docs/pricing; refresh tracked in t/3974 (due 2026-12-31). CONTEXT TIER: openai-gpt-5.5 (5/30/0.50) and openai-gpt-5.5-pro (30/180; cachedInputPer1M=input, as no cache price is published) are stored at the <272K-token SHORT-context rate — long context (>272K) is roughly 2x and is NOT modelled (schema has no per-context-tier field). TIER DETAIL (Shared Lib p/726#29): gemini-3.1-pro-preview (2/12/0.20) is stored at the <=200k-token tier, so long context is under-costed; deepseek-v4-flash and deepseek-v4-pro are stored at the standard/PEAK rate — the off-peak 50% discount (UTC window, weekends/holidays) is not modelled. HAIKU 5.5 (t/4086, Anthropic pricing page read 2026-10-07): claude-haiku-5-5 is priced BY PROMPT LENGTH; the stored value is the base <=100K-token tier (input 0.10, output 0.50, cache-read 0.01). The >100K-token tier is 5x (input 0.50, output 2.50, cache-read 0.05) and is NOT modelled (schema has no per-context-tier field). Cache read is the standard 0.1x of base input. Haiku 5.5 has a 1M context window (Models API max_input_tokens=1000000) but, like every other Claude model here, inherits the claude backend capabilityDefault (200000) with no per-model override — a pre-existing Claude context-modeling gap, not changed in this ticket.",
+  "_pricing_provenance": "Anthropic pricing page (platform.claude.com/docs/en/about-claude/pricing), read 2026-10-05; standard global Claude API $/MTok (t/3941#4). Cache reads are 0.1x input EXCEPT claude-fable-5-1 (0.025x = 0.25) and claude-opus-5-5 (0.05x = 0.20); claude-fable-5 cache read is 1.00. Sonnet 5 is 2/10 standard — the scheduled 2026-09-01 rise to 3/15 was CANCELLED (pricing-page footnote); the prior stored 3/15 was Sonnet 4.6's price. Schema has no cache-write field; 5m/1h cache-write prices are intentionally not stored (adding one is a schema change). t/3946 BACKFILL (2026-10-05, PR #2840): priced all reachable models, re-keyed orphans, and filled cache rates from live provider pages. PROMO (ends 2026-12-31): gemini-3.8-flash and gemini-3.6-flash are at promotional 0.75/3.75/0.075 (in/out/cache) that DOUBLES on 2027-01-01 to 1.50/7.50/0.15 per ai.google.dev/gemini-api/docs/pricing; refresh tracked in t/3974 (due 2026-12-31). CONTEXT TIER: openai-gpt-5.5 (5/30/0.50) and openai-gpt-5.5-pro (30/180; cachedInputPer1M=input, as no cache price is published) are stored at the <272K-token SHORT-context rate — long context (>272K) is roughly 2x and is NOT modelled (schema has no per-context-tier field). TIER DETAIL (Shared Lib p/726#29): gemini-3.1-pro-preview (2/12/0.20) is stored at the <=200k-token tier, so long context is under-costed; deepseek-flash (t/4174: replaces the delisted legacy alias deepseek-v4-flash, same Flash price, DeepSeek pricing page read 2026-10-14) and deepseek-v4-pro are stored at the standard/PEAK rate — the off-peak 50% discount (UTC window, weekends/holidays) is not modelled. HAIKU 5.5 (t/4086, Anthropic pricing page read 2026-10-07): claude-haiku-5-5 is priced BY PROMPT LENGTH; the stored value is the base <=100K-token tier (input 0.10, output 0.50, cache-read 0.01). The >100K-token tier is 5x (input 0.50, output 2.50, cache-read 0.05) and is NOT modelled (schema has no per-context-tier field). Cache read is the standard 0.1x of base input. Haiku 5.5 has a 1M context window (Models API max_input_tokens=1000000) but, like every other Claude model here, inherits the claude backend capabilityDefault (200000) with no per-model override — a pre-existing Claude context-modeling gap, not changed in this ticket.",
   "pricing": {
     "_comment": "USD per 1M tokens. cachedInputPer1M is the reduced rate for cache-hit input tokens. Updated 2026-10-05.",
     "gemini-3.1-pro-preview": {
@@ -1427,7 +1421,7 @@
       "outputPer1M": 180,
       "cachedInputPer1M": 30
     },
-    "deepseek-deepseek-v4-flash": {
+    "deepseek-deepseek-flash": {
       "inputPer1M": 0.3,
       "outputPer1M": 1.2,
       "cachedInputPer1M": 0.006
