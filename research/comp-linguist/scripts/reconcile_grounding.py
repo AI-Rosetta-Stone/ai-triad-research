@@ -130,21 +130,45 @@ def grounding_lock(holder="reconciler", path=LOCKFILE, wait_sec=LOCK_WAIT_SEC,
     """Cross-tool advisory write-lock for entity_mentions.json (shared with Update-EntityMentionIndex).
     Acquire = atomic O_CREAT|O_EXCL create of `path`; a holder older than `stale_sec` (by mtime) is
     presumed dead and broken (WARN). Waits up to `wait_sec` for a live holder, then raises. Released on
-    exit. The PS cmdlet MUST honor the SAME lockfile + mtime-staleness rule (TL contract, t/3163#1)."""
+    exit. The PS cmdlet MUST honor the SAME lockfile + mtime-staleness rule (TL contract, t/3163#1).
+
+    Windows (t/4193): another process holding the lockfile open, or a delete still pending, surfaces as
+    PermissionError (WinError 5/13/32) rather than FileExistsError/FileNotFoundError. Every acquire-side
+    PermissionError is treated as contention (wait one poll, retry, same wait_sec budget); a release-side
+    one is retried briefly, then WARNed and left to go stale, never raised into the caller.
+    KNOWN GAP (t/4193): two waiters can both judge one stale lock dead and both break it, so a stale
+    break can admit two holders. Exposure needs a dead or >stale_sec holder; the fix changes the
+    cross-tool protocol and is tracked there."""
     payload = json.dumps({"holder": holder, "pid": os.getpid(), "host": socket.gethostname(),
                           "acquired_at": datetime.now(timezone.utc).isoformat()})
     start = time.monotonic()
+
+    def wait_or_raise(detail):
+        if time.monotonic() - start > wait_sec:
+            raise RuntimeError(
+                "Goal: acquire the grounding write-lock to reconcile entity_mentions.json safely. "
+                f"Error: lock held by another writer for >{wait_sec}s ({detail}). Location: {path}. "
+                "Resolve: another reconciler or Update-EntityMentionIndex run is in progress — let "
+                "it finish; if it is hung, remove the lockfile after confirming no writer is active.")
+        time.sleep(poll_sec)
+
     while True:
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(payload)
             break
+        except PermissionError:
+            wait_or_raise("lockfile busy or delete pending (PermissionError on create)")
+            continue
         except FileExistsError:
             try:
                 age = time.time() - os.path.getmtime(path)
             except FileNotFoundError:
                 continue  # released between the failed create and the stat — retry acquire
+            except PermissionError:
+                wait_or_raise("lockfile busy (PermissionError on stat)")
+                continue
             if age > stale_sec:
                 # Fallback path (root AGENTS.md): a stale lock is being broken — record that + why.
                 sys.stderr.write(f"WARN grounding_lock: breaking stale lock (mtime age {age:.0f}s "
@@ -153,22 +177,29 @@ def grounding_lock(holder="reconciler", path=LOCKFILE, wait_sec=LOCK_WAIT_SEC,
                     os.unlink(path)
                 except FileNotFoundError:
                     pass
+                except PermissionError:
+                    # someone else has it open: another breaker, or a fresh holder writing it. Not ours
+                    # to delete; treat as live and wait.
+                    wait_or_raise("stale lock busy (PermissionError on break)")
                 continue
-            if time.monotonic() - start > wait_sec:
-                raise RuntimeError(
-                    "Goal: acquire the grounding write-lock to reconcile entity_mentions.json safely. "
-                    f"Error: lock held by another writer for >{wait_sec}s and not stale (mtime age "
-                    f"{age:.0f}s < {stale_sec}s). Location: {path}. "
-                    "Resolve: another reconciler or Update-EntityMentionIndex run is in progress — let "
-                    "it finish; if it is hung, remove the lockfile after confirming no writer is active.")
-            time.sleep(poll_sec)
+            wait_or_raise(f"not stale: mtime age {age:.0f}s < {stale_sec}s")
     try:
         yield
     finally:
-        try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
+        for attempt in range(40):  # ~2s: on Windows a reader's brief open can block the delete
+            try:
+                os.unlink(path)
+                break
+            except FileNotFoundError:
+                break
+            except PermissionError:
+                if attempt == 39:
+                    # Fallback path: leave the lockfile; it goes stale after stale_sec and is broken.
+                    sys.stderr.write(f"WARN grounding_lock: could not remove {path} on release "
+                                     f"(PermissionError after retries); it will be broken as stale "
+                                     f"after {stale_sec}s\n")
+                else:
+                    time.sleep(0.05)
 
 # ---------- load resolver inputs ----------
 def load_terms():
