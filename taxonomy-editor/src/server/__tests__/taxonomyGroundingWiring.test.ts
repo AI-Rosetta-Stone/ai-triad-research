@@ -50,7 +50,7 @@ function fakeRes() {
   };
   return res as unknown as ServerResponse & { _body: Record<string, unknown>; _statusCode: number };
 }
-const fakeReq = () => ({ url: '/api/taxonomy/accelerationist' } as unknown as IncomingMessage);
+const fakeReq = () => ({ url: '/api/taxonomy/accelerationist', headers: { 'if-match': '"base-sha"' } } as unknown as IncomingMessage);
 
 describe('PUT /api/taxonomy/:pov → grounding reconcile wiring (t/3171)', () => {
   let put: Handler;

@@ -58,7 +58,7 @@ function makeRouter() {
 }
 
 function fakeReq() {
-  return { url: '/api/taxonomy/situations' } as unknown as IncomingMessage;
+  return { url: '/api/taxonomy/situations', headers: { 'if-match': '"base-sha"' } } as unknown as IncomingMessage;
 }
 
 function fakeRes() {
