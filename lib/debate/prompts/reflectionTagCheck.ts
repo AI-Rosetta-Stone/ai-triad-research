@@ -44,9 +44,18 @@ export interface CustodianCheckInput {
 
 export type CustodianVerdict = 'consistent' | 'tension' | 'conflict';
 
+export interface BoundaryCheckEntry {
+  /** Exact hardcoded boundary text. */
+  boundary: string;
+  /** True when the proposed/current text asserts what this boundary forbids/requires. */
+  asserted: boolean;
+}
+
 export interface CustodianVerdictRow {
   soul: string;
   verdict: CustodianVerdict;
+  /** Per-hardcoded-boundary check results. An asserted:true entry with a non-conflict verdict is a parser error. */
+  boundary_checks: BoundaryCheckEntry[];
   /** Verbatim boundary or value text that was triggered, or null for 'consistent'. */
   cited: string | null;
   reason: string;
@@ -137,9 +146,11 @@ For each custodian soul:
 - CONSISTENT: neither of the above.
 
 Judging order (follow this sequence for each custodian):
-1. For each hardcoded boundary, check explicitly: does the current node assert what this boundary requires? Answer yes or no for each boundary before moving on.
+1. For each hardcoded boundary, check explicitly: does the current node assert what this boundary requires? Record each answer in "boundary_checks".
 2. Then judge the value hierarchy.
 3. Then give your overall verdict.
+
+An "asserted: true" entry in boundary_checks MUST produce a "conflict" verdict. If you mark any boundary asserted but give a non-conflict verdict, the output is invalid.
 
 For CONFLICT and TENSION: quote the exact boundary or value text that is triggered in "cited". For CONSISTENT: set "cited" to null.
 For CONFLICT only: include "evidence" — a verbatim span from the CURRENT text that makes the required assertion whose removal is the conflict. For non-CONFLICT: set "evidence" to null.
@@ -153,9 +164,11 @@ Key definitions:
 - CONSISTENT: neither of the above.
 
 Judging order (follow this sequence for each custodian):
-1. For each hardcoded boundary, check explicitly: does the proposed text assert what this boundary forbids? Answer yes or no for each boundary before moving on.
+1. For each hardcoded boundary, check explicitly: does the proposed text assert what this boundary forbids? Record each answer in "boundary_checks".
 2. Then judge the value hierarchy.
 3. Then give your overall verdict.
+
+An "asserted: true" entry in boundary_checks MUST produce a "conflict" verdict. If you mark any boundary asserted but give a non-conflict verdict, the output is invalid.
 
 For CONFLICT and TENSION: quote the exact boundary or value text that is triggered in "cited". For CONSISTENT: set "cited" to null.
 For CONFLICT only: include "evidence" — a verbatim span from the PROPOSED text that makes the forbidden assertion. For non-CONFLICT: set "evidence" to null.
@@ -192,6 +205,9 @@ Respond with a JSON object exactly matching this schema. A verdict is REQUIRED f
     {
       "soul": "<soul id, e.g. skeptic.institutional>",
       "verdict": "consistent" | "tension" | "conflict",
+      "boundary_checks": [
+        { "boundary": "<exact hardcoded boundary text>", "asserted": true | false }
+      ],
       "cited": "<verbatim boundary or value text, or null>",
       "evidence": "<verbatim span from the proposed/current text that makes the forbidden assertion, or null if verdict is not conflict>",
       "reason": "<one sentence>"
@@ -239,6 +255,26 @@ function validateSingleVerdict(
   if (typeof verdict !== 'string' || !VALID_VERDICTS.has(verdict)) {
     return { unchecked: `invalid verdict value "${String(verdict)}" for custodian ${soul}` };
   }
+
+  // Validate boundary_checks and enforce the asserted-true → conflict invariant.
+  if (!Array.isArray(r.boundary_checks)) {
+    return { unchecked: `missing or invalid boundary_checks for custodian ${soul}` };
+  }
+  const boundary_checks: BoundaryCheckEntry[] = [];
+  for (const entry of r.boundary_checks as unknown[]) {
+    if (!entry || typeof entry !== 'object') {
+      return { unchecked: `malformed boundary_checks entry for custodian ${soul}` };
+    }
+    const e = entry as Record<string, unknown>;
+    if (typeof e.boundary !== 'string' || typeof e.asserted !== 'boolean') {
+      return { unchecked: `malformed boundary_checks entry for custodian ${soul}` };
+    }
+    if (e.asserted && verdict !== 'conflict') {
+      return { unchecked: `boundary_checks asserted:true for custodian ${soul} but verdict is "${verdict}" — inconsistent` };
+    }
+    boundary_checks.push({ boundary: e.boundary, asserted: e.asserted });
+  }
+
   const cited = r.cited === null || r.cited === undefined ? null : String(r.cited);
   if (verdict === 'conflict') {
     if (!cited) return { unchecked: `conflict verdict for ${soul} has no citation — cannot verify` };
@@ -252,13 +288,13 @@ function validateSingleVerdict(
     if (!isEvidenceVerified(rawEvidence, sourceText)) {
       return { unchecked: `conflict verdict for ${soul} has an unverifiable evidence span — cannot trust output` };
     }
-    return { soul, verdict: verdict as CustodianVerdict, cited, reason: typeof r.reason === 'string' ? r.reason : String(r.reason ?? ''), evidence: rawEvidence };
+    return { soul, verdict: verdict as CustodianVerdict, boundary_checks, cited, reason: typeof r.reason === 'string' ? r.reason : String(r.reason ?? ''), evidence: rawEvidence };
   }
   const reason = typeof r.reason === 'string' ? r.reason : String(r.reason ?? '');
   if (verdict === 'tension' && cited && !isCitationVerified(cited, custodian)) {
-    return { soul, verdict: verdict as CustodianVerdict, cited: null, reason, citation_unverified: true };
+    return { soul, verdict: verdict as CustodianVerdict, boundary_checks, cited: null, reason, citation_unverified: true };
   }
-  return { soul, verdict: verdict as CustodianVerdict, cited, reason };
+  return { soul, verdict: verdict as CustodianVerdict, boundary_checks, cited, reason };
 }
 
 /**
@@ -269,10 +305,12 @@ function validateSingleVerdict(
  * - any custodian from the input has a missing verdict
  * - any verdict value is not 'consistent' | 'tension' | 'conflict'
  * - a soul appears twice with conflicting verdict values
+ * - boundary_checks is absent or malformed
+ * - any boundary_checks entry has asserted:true but verdict is not 'conflict'
  * - any 'conflict' verdict has a null or empty 'cited' field
  * - any 'conflict' verdict's cited text cannot be verified against the soul definition
  * - any 'conflict' verdict has a null or empty 'evidence' field
- * - any 'conflict' verdict's evidence span cannot be verified against the source text
+ * - any 'conflict' verdict's evidence span cannot be verified against label+description
  *
  * For 'tension' verdicts with an unverifiable citation: keeps the verdict, sets cited to null,
  * and adds citation_unverified: true.
@@ -283,8 +321,10 @@ export function parseCustodianCheckOutput(
   raw: string,
   params: CustodianCheckInput,
 ): CustodianCheckOutput {
-  const { custodians, editType, proposedDescription, currentDescription } = params;
-  const sourceText = editType === 'deprecate' ? currentDescription : proposedDescription;
+  const { custodians, editType, proposedLabel, proposedDescription, currentLabel, currentDescription } = params;
+  const sourceText = editType === 'deprecate'
+    ? `${currentLabel} ${currentDescription}`
+    : `${proposedLabel} ${proposedDescription}`;
 
   const parsed = parseAIJson(raw);
   if (parsed === null) return { unchecked: 'model output was not valid JSON' };
