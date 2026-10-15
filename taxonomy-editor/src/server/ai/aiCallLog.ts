@@ -25,7 +25,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getDataRoot } from '../config.js';
+import { getDataRoot, getApiKeySource, type AIBackend } from '../config.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { BACKEND_KEY_ENV_VARS, GENERIC_FALLBACK_ENV, GENERIC_FALLBACK_BACKEND } from '../../../../lib/ai-client/apiKeyFallback.js';
 
@@ -57,6 +57,27 @@ export function classifyKeySource(
   }
   if (env[GENERIC_FALLBACK_ENV] === key) return `fallback:${GENERIC_FALLBACK_ENV}`;
   return 'explicit';
+}
+
+export type ChainLinkComplete = (link: { model: string; backend: string; keySource: string; retryCount: number; status: string }) => void;
+
+// t/4088 (PowerShell, p/567#16): extracted out of aiBackends.ts's generateText so its own
+// optional-chain checks for a listener that's usually absent don't count against that
+// function's complexity budget. Only resolves a real key source when someone is listening.
+export async function resolveChainLinkKeySource(
+  onChainLinkComplete: ChainLinkComplete | undefined,
+  explicitKeys: string[] | undefined,
+  keys: string[],
+  backend: AIBackend,
+): Promise<string> {
+  if (!onChainLinkComplete) return '';
+  return explicitKeys !== undefined ? classifyKeySource(keys[0] ?? '', backend) : await getApiKeySource(backend);
+}
+
+// t/4088: single call site for the optional chain-link-complete callback — the three fire points
+// in generateText's loop (success/abort/failure) become one plain statement each there.
+export function emitChainLinkComplete(onChainLinkComplete: ChainLinkComplete | undefined, link: Parameters<ChainLinkComplete>[0]): void {
+  onChainLinkComplete?.(link);
 }
 
 /** Valid env var names for KeySource — derived from the canonical map (t/4088, Shared Lib e/290#4). */

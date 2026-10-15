@@ -19,7 +19,7 @@ const require = createRequire(import.meta.url);
 import { getApiKey, getApiKeyForListing, getProjectRoot, EMBED_SCRIPT, resolveDataPath, isEmbeddingWorkerOffloadEnabled, getApiKeySource, type AIBackend } from '../config.js';
 import { listingNotConfiguredHint, assertKeyForBackend, isKeyRoutingRefusal } from '../../../../lib/ai-client/apiKeyFallback.js';
 import { chainLinkKeys, throwNoApiKeyError } from './chainLinkKeys.js';
-import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource } from './aiCallLog.js';
+import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource, resolveChainLinkKeySource, emitChainLinkComplete, type ChainLinkComplete } from './aiCallLog.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { parseJsonRobust } from '../../../../lib/debate/helpers.js';
 import { extractProviderReason, deriveKeyErrorMessage } from './providerErrors.js';
@@ -369,7 +369,7 @@ export async function generateText(
     responseSchema?: Record<string, unknown>;
     maxTokens?: number;
     /** t/4088: called once per chain link completion (success or failure) for the AI call log. */
-    onChainLinkComplete?: (link: { model: string; backend: string; keySource: string; retryCount: number; status: string }) => void;
+    onChainLinkComplete?: ChainLinkComplete;
   },
 ): Promise<GenerateResult> {
   const resolved = model || DEFAULT_MODEL;
@@ -379,6 +379,7 @@ export async function generateText(
   const registry = getModelRegistry(); // read once per call, not once per chain link (TL e/284#19)
 
   let lastError: unknown;
+  const onChainLinkComplete = options?.onChainLinkComplete; // t/4088: hoisted once — repeated optional access adds no further complexity
   for (let mi = 0; mi < modelsToTry.length; mi++) {
     const currentModel = modelsToTry[mi];
     const backend = resolveBackend(currentModel, registry); // registry first (t/4105 cond 3)
@@ -387,12 +388,7 @@ export async function generateText(
 
     // t/4088: per-link retry count and key source for the AI call log.
     let linkRetryCount = 0;
-    let linkKeySource = '';
-    if (options?.onChainLinkComplete) {
-      linkKeySource = explicitKeys !== undefined
-        ? classifyKeySource(keys[0] ?? '', backend)
-        : await getApiKeySource(backend);
-    }
+    const linkKeySource = await resolveChainLinkKeySource(onChainLinkComplete, explicitKeys, keys, backend);
 
     const apiModel = getApiModelId(currentModel);
     const opts = buildGenerateOptions(options, timeoutMs, currentModel, entryMap);
@@ -421,7 +417,7 @@ export async function generateText(
           data: { originalModel: resolved, fallbackModel: currentModel, fallbackIndex: mi },
         });
       }
-      options?.onChainLinkComplete?.({ model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: '200' });
+      emitChainLinkComplete(onChainLinkComplete, { model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: '200' });
       return { text: result.text, tokenUsage: mapUsage(result.usage), servedModel: currentModel };
     } catch (err) {
       // t/2524: a deliberate cancellation (client disconnect) must NOT advance the
@@ -429,12 +425,12 @@ export async function generateText(
       // warn-level ai.fallback on user cancel. Rethrow AbortError immediately (same
       // name-check as t/2507; DOMException-compatible).
       if ((err as { name?: unknown } | null)?.name === 'AbortError') {
-        options?.onChainLinkComplete?.({ model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: 'aborted' });
+        emitChainLinkComplete(onChainLinkComplete, { model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: 'aborted' });
         throw err;
       }
       if (isKeyRoutingRefusal(err)) throw err; // cond 6: a refused key is never a reason to fail over — no log entry (no call made)
       lastError = err;
-      options?.onChainLinkComplete?.({ model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: deriveCallLogStatus(err) });
+      emitChainLinkComplete(onChainLinkComplete, { model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: deriveCallLogStatus(err) });
       if (mi < modelsToTry.length - 1) {
         const nextModel = modelsToTry[mi + 1];
         getGlobalRecorder()?.record({
