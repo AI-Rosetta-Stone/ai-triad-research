@@ -917,6 +917,43 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: rate limit exhaust
 
     backend.shutdown();
   });
+
+  it('retries on 403 secondary-rate-limit refusal and logs its headers (t/4202)', async () => {
+    let callCount = 0;
+    apiHandlers.push((url, init) => {
+      if (url.includes('/contents/') && init.method === 'GET') {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            status: 403,
+            body: { message: 'You have exceeded a secondary rate limit' },
+            headers: {
+              ...defaultRateLimitHeaders,
+              'retry-after': '0', // 0 seconds for test speed
+            },
+          };
+        }
+        return {
+          status: 200,
+          body: { content: Buffer.from('recovered').toString('base64'), encoding: 'base64', sha: 'x' },
+        };
+      }
+      return null!;
+    });
+
+    const recorder = createTestRecorder();
+    const backend = await createBackend(recorder);
+    const content = await backend.readFile('/taxonomy/nodes.json');
+
+    expect(content).toBe('recovered');
+    expect(callCount).toBe(2);
+
+    const refusedEvents = recorder.events.filter(e => e.type === 'github.api.refused');
+    expect(refusedEvents.length).toBeGreaterThan(0);
+    expect(refusedEvents[0].data).toMatchObject({ retryAfterSec: 0 });
+
+    backend.shutdown();
+  });
 });
 
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: circuit breaker', () => {

@@ -1820,6 +1820,86 @@ Primary detector is eventLoopLagAlert. (t/3167)'''
   }
 }
 
+// ── GitHub API Refusal + Circuit-Open Alerts (t/4202) ──
+// t/4198 investigation: GitHub's 403 ("secondary rate limit" / abuse detection) is a
+// distinct refusal class from the 429 above, and until githubRestClient.ts's t/4202
+// change, its headers (Retry-After, x-ratelimit-*) were never captured at all — the
+// request just fell through to the generic failure path. Logged as 'github.api.refused'
+// so this alert can target that specific refusal class without conflating it with
+// ordinary 429s (already covered by rateLimitWarning/rateLimitCritical above).
+
+resource githubRefusalAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-github-api-refused'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'GitHub API Refused (403 secondary rate limit / abuse detection)'
+    description: 'GitHub returned 403 (not 429) — secondary rate limit or abuse detection, a distinct refusal class from the primary rate limit. (t/4202)'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT5M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where Log_s contains "github.api.refused"
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+// Circuit breaker opening means every GitHub call is being short-circuited (serving
+// from cache only, t/4179) — this is the one circuit-breaker transition worth paging
+// on; 'probing' and 'closed' (no-op) are routine and not alerted. Matches on
+// "consecutive failures)", which appears ONLY in onApiFailure()'s open-transition
+// message (githubRestClient.ts) — not the close or probe messages — avoiding a
+// literal arrow character in the KQL string (az bicep build chokes on it under a
+// non-UTF-8 console codepage; matching message content is also more robust than
+// matching a formatting glyph that could change independently of the transition).
+
+resource circuitOpenAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-github-circuit-open'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'GitHub API Circuit Breaker Open'
+    description: 'The GitHub API circuit breaker opened — all calls are being short-circuited, serving from cache only. (t/4202)'
+    severity: 1
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT1M'
+    windowSize: 'PT5M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where Log_s contains "github.api.circuit_break"
+            | where Log_s contains "consecutive failures)"
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
 // ── Ephemeral Runner Module ──
 module ephemeralRunner 'runner/runner.bicep' = {
   name: 'ephemeral-runner'

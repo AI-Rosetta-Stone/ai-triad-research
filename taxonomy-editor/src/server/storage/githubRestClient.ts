@@ -298,6 +298,30 @@ export class GitHubRestClient {
         return { action: 'retry', delayMs: parseInt(retryAfter, 10) * 1000 };
       }
     }
+    // t/4202: GitHub's 403 is its own refusal class — secondary rate limit / abuse
+    // detection, distinct from the primary 429 above — and until now fell through to
+    // the generic handler below with none of its refusal headers captured. Logged
+    // separately (not folded into github.api.rate_limit) so an alert can target this
+    // specific refusal class without conflating it with ordinary primary-limit 429s.
+    if (res.status === 403) {
+      const retryAfter = res.headers.get('retry-after');
+      this.deps.record({
+        type: 'github.api.refused',
+        component: 'github-api',
+        level: 'warn',
+        message: 'Refused by GitHub API (403)',
+        data: {
+          retryAfterSec: retryAfter ? parseInt(retryAfter, 10) : null,
+          remaining: res.headers.get('x-ratelimit-remaining'),
+          limit: res.headers.get('x-ratelimit-limit'),
+          resetAt: res.headers.get('x-ratelimit-reset'),
+          apiMessage: this.extractApiMessage(data, 'Forbidden'),
+        },
+      });
+      if (retryAfter && attempt < MAX_RETRIES) {
+        return { action: 'retry', delayMs: parseInt(retryAfter, 10) * 1000 };
+      }
+    }
     if (res.status >= 500 && attempt < MAX_RETRIES) {
       this.onApiFailure();
       return { action: 'retry', delayMs: this.backoffMs(attempt) };
