@@ -30,6 +30,7 @@ import type { SourceDocumentResolution } from '../../bridge/types';
 import { ConflictsPanel, conflictsForNode } from '../conflict';
 import { NodeEditHistory } from './NodeEditHistory';
 import { PovTagEditor } from './PovTagEditor';
+import { useCanEditPovTags } from '../../hooks/useCanEditPovTags';
 import { PovMoveTagNotice } from './PovMoveTagNotice';
 import { nodeTypeFromId, nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { POV_KEYS } from '@lib/debate/types';
@@ -970,6 +971,7 @@ interface NodeDetailContentTabProps {
 }
 
 function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode, update, updatePovNode, showDtDrilldown, setShowDtDrilldown, expandedLineage, setExpandedLineage, showAttributeInfo, hasGraphAttrs, descriptionMention, plainDescriptionMention }: NodeDetailContentTabProps) {
+  const canEditPovTags = useCanEditPovTags();
   return (
     <>
       {/* t/3393: Debate Tested must show on every BDI category, not only Beliefs. */}
@@ -980,7 +982,8 @@ function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode,
       )}
 
       {/* t/3961: POV tags (registry tags only; hidden when the POV has none and the node carries none). */}
-      <PovTagEditor pov={pov} tags={node.pov_tags} readOnly={!!readOnly} error={err('pov_tags')} onChange={(next) => update({ pov_tags: next })} />
+      {/* t/4167: tags are admin-only; the rest of the node stays editable. */}
+      <PovTagEditor pov={pov} tags={node.pov_tags} readOnly={!!readOnly || !canEditPovTags} error={err('pov_tags')} onChange={(next) => update({ pov_tags: next })} />
 
       <DescriptionSection
         pov={pov}
