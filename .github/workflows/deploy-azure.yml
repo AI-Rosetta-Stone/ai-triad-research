@@ -349,6 +349,11 @@ jobs:
 
       - name: Refuse to deploy a commit older than the one running in prod (t/4194 prevention)
         shell: pwsh
+        env:
+          # workflow-lint: direct ${{ inputs.* }} in run block content requires env: indirection
+          # (M14 shell-injection pattern, same convention as resolve_digest's INPUT_SHA above).
+          PROD_REV: ${{ steps.current_revision.outputs.revision }}
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
           # t/4194: the 10-14 rollback incident deployed an older commit over a newer one because
           # a stale local state check was trusted instead of re-reading the live revision. This
@@ -359,8 +364,8 @@ jobs:
           # same as exit 1 ("confirmed not an ancestor"); only this step does the actual git calls.
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force -ErrorAction SilentlyContinue
           . ./operations/devops/Get-DeployAgeVerdict.ps1
-          $ProdRev = '${{ steps.current_revision.outputs.revision }}'
-          $Requested = '${{ inputs.sha }}'
+          $ProdRev = $env:PROD_REV
+          $Requested = $env:INPUT_SHA
           $ExitCode = $null
           if ($ProdRev -match '--deploy-([0-9a-f]{7,40})-') {
             $RunningFull = git rev-parse "$($Matches[1])^{commit}" 2>$null
