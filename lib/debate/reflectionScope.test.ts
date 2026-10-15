@@ -9,8 +9,10 @@ import {
   computeNodeEngagement,
   rankByEngagement,
   validateEditEvidence,
+  classifyTagRelation,
   type EngagementInput,
   type NodeEngagement,
+  type PovTagEntry,
 } from './reflectionScope.js';
 import type { ArgumentNetworkNode, ArgumentNetworkEdge } from './types/argumentNetwork.js';
 
@@ -135,5 +137,72 @@ describe('validateEditEvidence', () => {
     const v = validateEditEvidence(null, ['AN-6'], an);
     expect(v.supported).toBe(true);
     expect(v.reason).toContain('not applicable');
+  });
+});
+
+// ── classifyTagRelation (t/4213 D-1) ──────────────────────────────────────
+
+describe('classifyTagRelation', () => {
+  const reg: PovTagEntry[] = [
+    { id: 'critical', soul_doc: 'skeptic.critical' },
+    { id: 'institutional', soul_doc: 'skeptic.institutional' },
+  ];
+
+  it('no_tags — empty registry is a no-op regardless of seat or target', () => {
+    expect(classifyTagRelation('critical', ['critical'], [])).toEqual({ relation: 'no_tags', custodians: [] });
+    expect(classifyTagRelation(null, [], [])).toEqual({ relation: 'no_tags', custodians: [] });
+  });
+
+  it('own — tagged seat, target is exactly {s}', () => {
+    expect(classifyTagRelation('critical', ['critical'], reg)).toEqual({ relation: 'own', custodians: [] });
+  });
+
+  it('shared — tagged seat, s ∈ T, |T| > 1', () => {
+    const r = classifyTagRelation('critical', ['critical', 'institutional'], reg);
+    expect(r.relation).toBe('shared');
+    expect(r.custodians).toEqual(['skeptic.institutional']);
+  });
+
+  it('foreign — tagged seat, s ∉ T, T ≠ ∅', () => {
+    expect(classifyTagRelation('critical', ['institutional'], reg)).toEqual({ relation: 'foreign', custodians: [] });
+  });
+
+  it('untagged_target (tagged seat) — tagged seat, T = ∅', () => {
+    // custodians: umbrella + all tag souls except s
+    const r = classifyTagRelation('critical', [], reg);
+    expect(r.relation).toBe('untagged_target');
+    expect(r.custodians).toContain('skeptic');              // umbrella
+    expect(r.custodians).toContain('skeptic.institutional'); // the other tag soul
+    expect(r.custodians).not.toContain('skeptic.critical'); // not s itself
+  });
+
+  it('untagged_target (tagged seat) — undefined targetTags treated as ∅', () => {
+    const r = classifyTagRelation('institutional', undefined, reg);
+    expect(r.relation).toBe('untagged_target');
+    expect(r.custodians).toContain('skeptic');
+    expect(r.custodians).toContain('skeptic.critical');
+    expect(r.custodians).not.toContain('skeptic.institutional');
+  });
+
+  it('umbrella_on_tagged — untagged seat, T ≠ ∅', () => {
+    const r = classifyTagRelation(null, ['critical'], reg);
+    expect(r.relation).toBe('umbrella_on_tagged');
+    expect(r.custodians).toEqual(['skeptic.critical']);
+  });
+
+  it('untagged_target (untagged seat) — untagged seat, T = ∅', () => {
+    // custodians: every tag soul, NO umbrella (seat is the umbrella)
+    const r = classifyTagRelation(null, [], reg);
+    expect(r.relation).toBe('untagged_target');
+    expect(r.custodians).toContain('skeptic.critical');
+    expect(r.custodians).toContain('skeptic.institutional');
+    expect(r.custodians).not.toContain('skeptic'); // umbrella NOT included
+  });
+
+  it('untagged_target (untagged seat) — undefined targetTags treated as ∅', () => {
+    const r = classifyTagRelation(null, undefined, reg);
+    expect(r.relation).toBe('untagged_target');
+    expect(r.custodians).toHaveLength(2);
+    expect(r.custodians).not.toContain('skeptic');
   });
 });
