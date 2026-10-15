@@ -238,6 +238,24 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
 
     backend.shutdown();
   });
+
+  // SO note on C1 (e/302#7): the re-check also sees a tombstone (a delete
+  // staged by another concurrent call), and a tombstone means no version to
+  // match — deliberately a conflict, same as 'absent', not a compare against
+  // the stale pre-delete branch SHA.
+  it('a save whose path was tombstoned by a concurrent delete conflicts, not a silent re-create', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
+    await backend.deleteFile('/taxonomy/nodes.json');
+
+    const err = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+    backend.shutdown();
+  });
 });
 
 // t/4201 (p/775#30/#31): readFileWithVersion must check the session overlay
