@@ -61,9 +61,10 @@ function Test-CuiTax010 {
     $PutSw = [System.Diagnostics.Stopwatch]::StartNew()
     $PutOk = $false
     try {
+        $PutHeaders = Get-CuiTaxonomyWriteHeaders -BaseUrl $BaseUrl -Pov 'accelerationist' -Headers $AuthHeaders -TimeoutSec $TimeoutSec
         $PutResp = Invoke-WebRequest -Uri "$BaseUrl/api/taxonomy/accelerationist" -Method PUT `
             -Body $PutBody -ContentType 'application/json' -TimeoutSec $TimeoutSec `
-            -UseBasicParsing -ErrorAction Stop -Headers $AuthHeaders
+            -UseBasicParsing -ErrorAction Stop -Headers $PutHeaders
         $PutOk = $PutResp.StatusCode -eq 200
     } catch { $PutOk = $false }
     $PutSw.Stop()
@@ -87,9 +88,11 @@ function Test-CuiTax010 {
     $RestoreBody = $OriginalNodes | ConvertTo-Json -Depth 20 -Compress
     $RestoreOk = $false
     try {
+        # Re-read the ETag: the edit PUT above changed the taxonomy version (t/4222).
+        $RestoreHeaders = Get-CuiTaxonomyWriteHeaders -BaseUrl $BaseUrl -Pov 'accelerationist' -Headers $AuthHeaders -TimeoutSec $TimeoutSec
         $RestoreResp = Invoke-WebRequest -Uri "$BaseUrl/api/taxonomy/accelerationist" -Method PUT `
             -Body $RestoreBody -ContentType 'application/json' -TimeoutSec $TimeoutSec `
-            -UseBasicParsing -ErrorAction Stop -Headers $AuthHeaders
+            -UseBasicParsing -ErrorAction Stop -Headers $RestoreHeaders
         $RestoreOk = $RestoreResp.StatusCode -eq 200
     } catch { $RestoreOk = $false }
     $Checks.Add((New-CuiCheckResult -Check 'Cleanup: restore original' -Pass $RestoreOk `

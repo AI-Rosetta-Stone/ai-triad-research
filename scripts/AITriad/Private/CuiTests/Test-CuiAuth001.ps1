@@ -44,9 +44,10 @@ function Test-CuiAuth001 {
         $tr = Invoke-RemoteCheck -BaseUrl $BaseUrl -Path '/api/taxonomy/accelerationist' -TimeoutSec $TimeoutSec -ExpectedField 'nodes'
         if ($tr.Success -and $tr.Body) {
             try {
+                $PutHeaders = Get-CuiTaxonomyWriteHeaders -BaseUrl $BaseUrl -Pov 'accelerationist' -Headers $AuthHeaders -TimeoutSec $TimeoutSec
                 $PutResp = Invoke-WebRequest -Uri "$BaseUrl/api/taxonomy/accelerationist" -Method PUT `
                     -Body ($tr.Body | ConvertTo-Json -Depth 20 -Compress) -ContentType 'application/json' `
-                    -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop -Headers $AuthHeaders
+                    -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop -Headers $PutHeaders
                 $WriteOk = $PutResp.StatusCode -eq 200
             } catch { }
         }
