@@ -16,12 +16,14 @@ import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForErro
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import * as fileIO from '../storage/fileIO.js';
 import { stampNodeAuthorship, diffNodes } from '../storage/editMeta.js';
-import { isAnonymousUser } from '../security/userContext.js';
+import { isAnonymousUser, getCurrentUserId } from '../security/userContext.js';
 import { getFlag } from '../featureFlags.js';
 import { enqueueGroundingReconcile } from '../groundingReconcileHook.js';
 import { log } from '../logger.js';
 import { findSituationBdiViolations } from '../../../../lib/debate/taxonomyTypes.js';
 import type { SituationNode } from '../../../../lib/debate/taxonomyTypes.js';
+import { isAdmin } from '../community/community.js';
+import { STORAGE_MODE } from '../config.js';
 
 // ── t/3165: serialize-once cache for /api/taxonomy/synthetic-embeddings ───────────────────────────
 // The synthetic corpus (~4144 vectors, ~400MB) is STATIC, but loadSyntheticEmbeddings() rebuilds it on
@@ -143,19 +145,66 @@ function requireBaseVersion(req: IncomingMessage, res: ServerResponse): string |
   return baseSha;
 }
 
+// t/4229 (t/4167 part B): the hosted web app writes go through github-api; a prod rollback runbook
+// can set STORAGE_MODE=filesystem on hosted prod, so mode alone would fail OPEN there. NODE_ENV
+// pins this to genuine desktop/local-server use (TL review, p/522#390).
+function isPovTagsGateExempt(): boolean {
+  return STORAGE_MODE === 'filesystem' && process.env.NODE_ENV !== 'production';
+}
+
+type PovTaggedNode = { id: string; pov_tags?: string[] };
+
+function diffPovTagSets(oldTags: string[] | undefined, newTags: string[] | undefined): { added: string[]; removed: string[] } {
+  const oldSet = new Set(oldTags ?? []);
+  const newSet = new Set(newTags ?? []);
+  return {
+    added: [...newSet].filter(t => !oldSet.has(t)),
+    removed: [...oldSet].filter(t => !newSet.has(t)),
+  };
+}
+
+// t/4229: only admins may change pov_tags in hosted mode (PI p/548#290). Compares each incoming
+// node against its prior version (by id); a brand-new node may carry no tags. Deletions (an old id
+// absent from incoming) are always allowed — nothing to check. Returns one violation per node so a
+// multi-node save names every offending id, not just the first.
+function checkPovTagsAdminGate(
+  oldNodes: PovTaggedNode[],
+  incomingNodes: PovTaggedNode[],
+  callerIsAdmin: boolean,
+): { status: 403; message: string } | null {
+  if (callerIsAdmin) return null;
+  const oldById = new Map(oldNodes.map(n => [n.id, n]));
+  const violations: string[] = [];
+  for (const node of incomingNodes) {
+    const old = oldById.get(node.id);
+    const { added, removed } = diffPovTagSets(old?.pov_tags, node.pov_tags);
+    if (added.length > 0 || removed.length > 0) {
+      violations.push(`${node.id} (added: ${added.join(', ') || 'none'}; removed: ${removed.join(', ') || 'none'})`);
+    }
+  }
+  if (violations.length === 0) return null;
+  const callerId = getCurrentUserId();
+  log.server.warn({ caller: callerId, violations }, 'PUT /api/taxonomy/:pov: non-admin pov_tags change refused (t/4229)');
+  return { status: 403, message: `Only admins can change pov_tags. Refused for: ${violations.join('; ')}` };
+}
+
 // Extracted from the PUT handler to keep its own complexity under budget (t/4185 CI gate): reads the
 // prior nodes, runs the t/3890 BDI gate for situations, computes the t/3171 changed-id set for the
-// inline grounding reconcile, and stamps authorship — all the branching that only applies when the
-// body carries a `nodes` array. Mutates `incoming.nodes` in place (stamped) like the original inline code.
+// inline grounding reconcile, the t/4229 pov_tags admin gate, and stamps authorship — all the
+// branching that only applies when the body carries a `nodes` array. Mutates `incoming.nodes` in
+// place (stamped) like the original inline code.
 async function prepareTaxonomyNodeWrite(
   pov: string,
   incoming: { nodes?: unknown[] },
-): Promise<{ gate: { status: 400 | 500; message: string } | null; changedNodeIds: string[] }> {
+  baseSha: string,
+): Promise<{ gate: { status: 400 | 403 | 500; message: string } | null; changedNodeIds: string[] }> {
   let oldNodes: unknown[] = [];
   let oldNodesErr: Error | null = null;
+  let readVersion: string | null = null;
   try {
-    const existing = await fileIO.readTaxonomyFile(pov) as { nodes?: unknown[] };
+    const { data: existing, version } = await fileIO.readTaxonomyFileWithVersion(pov) as { data: { nodes?: unknown[] }; version: string | null };
     oldNodes = existing?.nodes ?? [];
+    readVersion = version;
   } catch (err) {
     oldNodesErr = err as Error;
     /* telemetry — silent by design: first write or missing file; situations handled in situationsBdiGate */
@@ -164,6 +213,14 @@ async function prepareTaxonomyNodeWrite(
   // t/3890: BDI gate — situations only, changed nodes only, fail-closed on unreadable baseline
   if (pov === 'situations') {
     const gate = situationsBdiGate(oldNodesErr, oldNodes, incoming.nodes as unknown[]);
+    if (gate) return { gate, changedNodeIds: [] };
+  }
+
+  // t/4229: only check against a base that matches what the client actually edited from — a
+  // version mismatch here means the write's own baseSha precondition is about to 409 anyway, so
+  // skip the gate rather than risk a false 403 against the wrong base (TL review, p/522#390).
+  if (!isPovTagsGateExempt() && readVersion === baseSha && incoming.nodes && Array.isArray(incoming.nodes)) {
+    const gate = checkPovTagsAdminGate(oldNodes as PovTaggedNode[], incoming.nodes as PovTaggedNode[], isAdmin());
     if (gate) return { gate, changedNodeIds: [] };
   }
 
@@ -249,7 +306,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       // while oldNodes is in scope. Only computed when the flag is on → flag-OFF adds one getFlag().
       let changedNodeIds: string[] = [];
       if (incoming.nodes && Array.isArray(incoming.nodes)) {
-        const result = await prepareTaxonomyNodeWrite(pov, incoming);
+        const result = await prepareTaxonomyNodeWrite(pov, incoming, baseSha);
         if (result.gate) { error(res, result.gate.message, result.gate.status); return; }
         changedNodeIds = result.changedNodeIds;
       }

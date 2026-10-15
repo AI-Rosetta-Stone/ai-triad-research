@@ -21,6 +21,10 @@ const { mockReadTaxonomy, mockWriteTaxonomy } = vi.hoisted(() => ({
 
 vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: mockReadTaxonomy,
+  // t/4229: prepareTaxonomyNodeWrite now reads via readTaxonomyFileWithVersion; delegate through
+  // mockReadTaxonomy so each test's success/rejection setup still applies, wrapped with the version
+  // that matches this file's fixed 'base-sha' If-Match.
+  readTaxonomyFileWithVersion: async (pov: string) => ({ data: await mockReadTaxonomy(pov), version: 'base-sha' }),
   writeTaxonomyFile: mockWriteTaxonomy,
 }));
 
