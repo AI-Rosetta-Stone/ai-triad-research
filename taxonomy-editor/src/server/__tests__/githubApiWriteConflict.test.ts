@@ -304,7 +304,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
     });
   });
 
-  // t/4203 (p/775#56, TL): a stale baseSha reaching the actual PUT is the
+  // t/4224 (p/775#56, TL): a stale baseSha reaching the actual PUT is the
   // point of the precondition — direct-write mode's own cache-derived SHA
   // must never silently replace the client's baseSha before it's sent.
   it('a stale client baseSha is sent to GitHub unmodified (direct write mode) — the precondition is never silently replaced by the server cache', async () => {
@@ -335,7 +335,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
   });
 });
 
-// t/4203 (TL design, p/538#40): getFileSha() ignores `ref` and only ever
+// t/4224 (TL design, p/538#40): getFileSha() ignores `ref` and only ever
 // reflects main — the root cause of every write-after-commit/merge/external-
 // head-move false conflict this bundle chased. The fix: for a session branch
 // with no pending overlay entry, read the current version and edit-load
@@ -387,7 +387,7 @@ function mockCommitSteps(branch: string): void {
   });
 }
 
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version read live from GitHub (t/4203)', () => {
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version read live from GitHub (t/4224)', () => {
 
   it('save, then commit, then save again with the first save\'s returned version — succeeds, no false WRITE_CONFLICT', async () => {
     const backend = await createBackend();
@@ -526,7 +526,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     backend.shutdown();
   });
 
-  // t/4203 (p/538#43, TL): collapsing 'absent' (404 — a genuinely missing
+  // t/4224 (p/538#43, TL): collapsing 'absent' (404 — a genuinely missing
   // file) into 'unavailable' made every session-branch write that CREATES a
   // path 503. A writer with no baseSha must skip the live lookup entirely.
   it('a new path with no baseSha succeeds and makes no Contents lookup', async () => {
@@ -594,13 +594,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
 // the overlay has no entry for the path, must not fall through to main's
 // on-disk cache — commitOverlay clears the overlay, so a read right after a
 // commit was returning pre-commit content. Unlike readFileWithVersion's
-// always-live read (t/4203), readFile is called from read-modify-write loops
+// always-live read (t/4224), readFile is called from read-modify-write loops
 // over many paths (harvest, policy recount, edges), so it uses a per-session
 // cache instead: filled for free at commitOverlay/mergeBranch, with the
 // branch-head SHA re-verified against the live ref at most once every
 // SESSION_READ_CACHE_REVALIDATE_MS so an out-of-band move (a resync conflict
 // resolved on GitHub, another replica) is bounded rather than missed. Fails
-// closed (503) on an unavailable lookup, same as t/4203 — `null` reads as
+// closed (503) on an unavailable lookup, same as t/4224 — `null` reads as
 // "file doesn't exist" to RMW callers, which would silently rebuild the file
 // from empty. `opts.optional` opts a caller into `null` plus a WARN instead.
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a session branch (t/4215)', () => {
