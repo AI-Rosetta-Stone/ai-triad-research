@@ -51,10 +51,34 @@ export interface ReflectionEdit {
   /** The reviewer's final decision, saved into the debate file's reflection snapshot (t/4214 R-5). Absent
    *  while pending, and in debates saved before this field existed. Read by CL's M2 measurement (t/4211 §6). */
   decision?: ReflectionDecision;
+  /** Tag-aware reflection stamp (t/4214 R-2, spec t/4211 §3, §4), set after the DOLCE retries. `applyReflectionEdit`
+   *  branches on it (the R-3 gate), and it is saved in the reflection snapshot for CL's M2. Absent on edits from
+   *  before this field and on edit types the gate does not check. */
+  tag_check?: ReflectionTagCheck;
+}
+
+/** The tag check on one reflection edit (t/4214 R-2). */
+export interface ReflectionTagCheck {
+  relation: import('@lib/debate/reflectionScope').TagRelation;
+  /** Custodian soul ids the check ran against, e.g. `skeptic.institutional`. Empty when none were needed. */
+  custodians: string[];
+  seat_tag: string | null;
+  target_tags: string[];
+  /** Fingerprint of `target_tags`; a mismatch with the node's live tags makes the stamp stale. */
+  tags_fp: string;
+  /** Hash of the checked label and description; a reviewer override of either makes the stamp stale. */
+  text_hash: string;
+  verdicts?: import('@lib/debate/prompts/reflectionTagCheck').CustodianVerdictRow[];
+  /** Set when the check ran but its result can't be trusted (or the call failed); the edit is gated. */
+  unchecked?: string;
+  /** Model id of the custodian check, when one ran. */
+  model?: string;
+  /** Spec §3 rule 4: a tagged seat deprecating shared ground is always a conflict. */
+  deprecate_shared_note?: string;
 }
 
 /** A reflection decision (t/4214 R-5). `overridden` means applied with at least one gate overridden;
- *  `overrides` names which. `cross_tag` joins `evidence` once the R-3 tag gate lands. */
+ *  `overrides` names which. */
 export interface ReflectionDecision {
   outcome: 'applied' | 'dismissed' | 'overridden';
   at: string;
