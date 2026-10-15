@@ -29,7 +29,7 @@ describe('t/2524 — AbortError short-circuits the fallback chain', () => {
     const model = 'gemini-flash-lite-latest';
     // Non-vacuous guard: this model expands to a multi-entry chain, so WITHOUT the
     // fix the catch would emit an ai.fallback for each remaining entry.
-    expect(buildModelsToTry(model, false).length).toBeGreaterThan(1);
+    expect(buildModelsToTry(model, false, null).length).toBeGreaterThan(1); // t/4196: prefix-only, model id is self-describing
 
     const c = new AbortController();
     c.abort();
