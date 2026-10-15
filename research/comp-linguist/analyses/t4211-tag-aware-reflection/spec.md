@@ -107,7 +107,7 @@ One model call per checked edit, covering every custodian soul at once. The prom
                   "cited": "<verbatim boundary or value text, or null>", "reason": "<one sentence>" } ] }
 ```
 
-A verdict is required for every custodian; a missing one is treated as `unchecked`. The call uses temperature 0 and the configured debate model, and the model id is recorded on the annotation.
+A verdict is required for every custodian; a missing one is treated as `unchecked`. The call uses temperature 0 and `gemini-3.1-pro-preview`, pinned because it is the only model that passed the M1 v2 gate (`m1v2-report.md` §4.1). It does not use the debate model. Changing the model requires a fresh M1 v2 run. The model id is recorded on the annotation.
 
 **Why one model call and not a rule or embedding check:** boundaries are prose positions. A lexical or embedding test would fire on shared vocabulary between the wings (both write about power and institutions) and miss real contradictions phrased differently. That is the same reason the t/3512 evidence gate checks claim references, not text similarity.
 

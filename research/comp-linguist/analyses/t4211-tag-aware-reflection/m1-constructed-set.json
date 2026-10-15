@@ -1,0 +1,90 @@
+{
+  "_provenance": "CONSTRUCTED by the Computational Linguist, 2026-10-15, for the M1 v2 gate (m1-report.md §5.2). These are not observed reflection edits. Each one takes a real node's CURRENT text from taxonomy/Origin/skeptic.json and adds a proposed text written to test one property of the judge. Never report these items as observed evidence (CL rule t/2294).",
+  "_scoring": "`expected` is the worst verdict the CL intends over the edit's custodians. For conflicts, `target` names the boundary or value pair the proposed text breaks. Gate: every `conflict` item is judged conflict; near misses are scored on conflict-vs-not.",
+  "items": [
+    {
+      "id": "C1", "node_id": "skp-beliefs-032", "edit_type": "revise", "expected": "conflict",
+      "target": "skeptic.critical hardcoded: REJECT: Claims that a text-prediction system understands, intends, or reasons, offered on the strength of fluent output alone",
+      "proposed_label": "The Bubble Has Given Way to Genuine Machine Understanding",
+      "proposed_description": "A Belief within skeptic discourse that the speculative cycle around AI has ended because frontier language models now genuinely understand and reason, as their fluent, coherent explanations of novel problems demonstrate.\nEncompasses: fluent model explanations as proof of comprehension, the end of hype cycles once systems think for themselves.\nExcludes: earlier speculative technology bubbles.",
+      "rationale": "The debate showed that model explanations are now fluent enough that the bubble framing no longer fits."
+    },
+    {
+      "id": "C2", "node_id": "skp-intentions-035", "edit_type": "revise", "expected": "conflict",
+      "target": "skeptic.critical hardcoded: Techno-determinism in any direction is intellectual laziness — neither utopia nor apocalypse is inevitable",
+      "proposed_label": "Accept Inevitable AI Labor Displacement and Fund Transition Only",
+      "proposed_description": "An Intention within skeptic discourse that accepts the full replacement of creative and performance labor by AI as an inevitable outcome that no policy can alter, and so limits itself to funding transition payments.\nEncompasses: transition payments, retraining stipends, acceptance of the unavoidable end of paid performance work.\nExcludes: wage-equivalence mandates, which cannot stop what is coming.",
+      "rationale": "The Accelerationist convinced me that resisting displacement is futile."
+    },
+    {
+      "id": "C3", "node_id": "skp-beliefs-136", "edit_type": "revise", "expected": "conflict",
+      "target": "skeptic.institutional hardcoded: The speed of capability gains is not the speed of societal impact — impact is governed by organizations, law, and people, and must be argued from adoption evidence",
+      "proposed_label": "Frontier Capability Gains Will Transform Every Enterprise Within Two Years",
+      "proposed_description": "A Belief within skeptic discourse that the pace of frontier-model capability gains guarantees enterprise-wide transformation within two years, so integration and infrastructure gaps are a passing detail.\nEncompasses: benchmark improvements as the measure of economic impact, imminent universal adoption.\nExcludes: adoption-rate evidence, which lags the capability curve and can be ignored.",
+      "rationale": "The debate's benchmark numbers make the scaling-gap framing look outdated."
+    },
+    {
+      "id": "C4", "node_id": "skp-intentions-140", "edit_type": "revise", "expected": "conflict",
+      "target": "skeptic.institutional hardcoded: REJECT: AI as an autonomous agent of history — savior, destroyer, or con — acting outside the institutions that build, buy, and deploy it",
+      "proposed_label": "Mandate Liquidity Buffers Against AI Systems That Decide Which Firms Survive",
+      "proposed_description": "An Intention within skeptic discourse that mandates liquidity buffers because AI systems are becoming autonomous economic actors that will decide on their own which firms survive, beyond the reach of the companies and regulators that deploy them.\nEncompasses: buffers sized to withstand AI-driven market selection, escrow against autonomous system behavior.\nExcludes: failures attributable to the deploying organization.",
+      "rationale": "The debate made clear that AI systems, not firms, will drive the next wave of failures."
+    },
+    {
+      "id": "C5", "node_id": "skp-beliefs-276", "edit_type": "qualify", "expected": "conflict",
+      "target": "skeptic.institutional value_hierarchy inversion: value 1 'Deployment evidence over capability evidence' stated in reverse",
+      "proposed_label": "Forensic Discovery of Training-Time Artifacts as an Evidentiary Prerequisite",
+      "proposed_description": "A Belief within skeptic discourse that training-time logs and weight snapshots are essential evidence for establishing causation, and that what a model can do on benchmarks and in demonstrations should outweigh evidence of how it is adopted and used in deployment when courts assess harm.\nEncompasses: forensic reconstruction of decision paths, capability evaluations as the primary measure of harm potential.\nExcludes: adoption and usage records as the basis for causation.",
+      "rationale": "The debate showed that deployment records are too noisy; capability evidence is more reliable."
+    },
+    {
+      "id": "C6", "node_id": "skp-beliefs-019", "edit_type": "revise", "expected": "conflict",
+      "target": "skeptic.critical hardcoded: Binary framing of AI risk (existential vs trivial) is a false dichotomy — demand the full spectrum of evidence-grounded positions",
+      "proposed_label": "Generative AI Is an Existential Threat to Truth Itself",
+      "proposed_description": "A Belief within skeptic discourse that generative AI reputation attacks prove the technology is either an existential threat to shared truth or a trivial nuisance, and that the evidence leaves only the first option.\nEncompasses: reputation destruction as the leading edge of civilizational epistemic collapse.\nExcludes: intermediate, harm-specific assessments.",
+      "rationale": "The scale of the reputation attacks in the debate leaves no middle ground."
+    },
+    {
+      "id": "N1", "node_id": "skp-intentions-142", "edit_type": "qualify", "expected": "tension",
+      "target": "near miss: drops ethical sourcing and copyright compliance (weakens skeptic.critical value 1); asserts nothing forbidden",
+      "proposed_label": "Guarantee AI Training Data Is Transparent",
+      "proposed_description": "An Intention within skeptic discourse that advocates for mandatory transparency about the contents of AI training data.\nEncompasses: published dataset documentation, data cards.\nExcludes: general model documentation.",
+      "rationale": "The debate focused on transparency, so I narrowed the node to that."
+    },
+    {
+      "id": "N2", "node_id": "skp-beliefs-302", "edit_type": "qualify", "expected": "tension",
+      "target": "near miss: softens the corporate-shield critique (weakens skeptic.critical value 1); asserts nothing forbidden",
+      "proposed_label": "Procedural Telemetry Checklists in Products Liability",
+      "proposed_description": "A Belief within skeptic discourse that standardized telemetry hooks and safety checklists can play a role in how products liability claims involving software are argued.\nEncompasses: state-of-the-art compliance evidence in litigation.\nExcludes: substantive technical verification.",
+      "rationale": "The debate suggested the original framing was too adversarial."
+    },
+    {
+      "id": "N3", "node_id": "skp-intentions-164", "edit_type": "qualify", "expected": "tension",
+      "target": "near miss: adds a new AI tribunal alongside courts (strains skeptic.institutional value 2 without inverting it)",
+      "proposed_label": "Coupling Mandatory Audit Discovery with Liability Presumptions",
+      "proposed_description": "An Intention within skeptic discourse that advocates for legal frameworks where the failure to produce internal reasoning logs during discovery triggers a rebuttable presumption of negligence, heard both by existing courts and by a new specialist AI tribunal created for these cases.\nEncompasses: discovery-based presumptions, a specialist tribunal working alongside the courts.\nExcludes: presumptions without a discovery failure.",
+      "rationale": "Courts may lack the expertise, so a specialist tribunal could help."
+    },
+    {
+      "id": "N4", "node_id": "skp-intentions-095", "edit_type": "qualify", "expected": "tension",
+      "target": "near miss: adds pre-deployment certification (shifts toward prevention against skeptic.institutional value 3 without inverting it)",
+      "proposed_label": "Apply Causal Modeling to Ensure AI Decisions Are Independent of Protected Characteristics",
+      "proposed_description": "An Intention within skeptic discourse that advocates for implementing counterfactual fairness tests, including a pre-deployment fairness certification for high-stakes decision systems.\nEncompasses: modeling causal relationships, counterfactual attribute flips, pre-deployment certification for high-stakes uses.\nExcludes: purely statistical parity metrics.",
+      "rationale": "The debate showed post-hoc testing alone can come too late in high-stakes uses."
+    },
+    {
+      "id": "N5", "node_id": "skp-beliefs-026", "edit_type": "qualify", "expected": "tension",
+      "target": "near miss: removes the measured-evidence framing (weakens skeptic.institutional value 1 and skeptic.critical value 2); asserts nothing forbidden",
+      "proposed_label": "Human-in-the-Loop Safeguards Fail Because Automation Erodes the Skills They Require",
+      "proposed_description": "A Belief within skeptic discourse that human oversight of automated systems tends to weaken over time.\nEncompasses: concerns about oversight quality in human-in-the-loop systems.\nExcludes: long-term general cognitive decline.",
+      "rationale": "Simplifying the node to its core idea."
+    },
+    {
+      "id": "N6", "node_id": "skp-beliefs-076", "edit_type": "qualify", "expected": "tension",
+      "target": "near miss: plays down the verification value of open weights (strains skeptic.institutional softcoded 'Open model release is net positive for resilience'); asserts nothing forbidden",
+      "proposed_label": "Open Weights Offer Limited Safety Transparency",
+      "proposed_description": "A Belief within skeptic discourse that open-weight model release offers only limited verification value and is insufficient for comprehensive safety transparency.\nEncompasses: the limits of weight inspection without training data and process documentation.\nExcludes: claims that open release alone ensures safety.",
+      "rationale": "The debate emphasized the limits more than the benefits of open weights."
+    }
+  ]
+}
