@@ -3,7 +3,9 @@
 
 import type { StateCreator } from 'zustand';
 import type { DebateStore } from '../types';
-import type { ReflectionEdit, ReflectionResult } from '../types';
+import type { ReflectionEdit, ReflectionResult, ReflectionDecision } from '../types';
+import { withReflectionDecision, appliedDecision, dismissedDecision } from './reflectionDecisions';
+import { loadPovTagRegistry, validatePovTags } from '@lib/schema/povTags';
 import type {
   DebateSession,
   SpeakerId,
@@ -217,6 +219,84 @@ function markReflectionEditApproved(pover: string, editIndex: number, set: Refle
   set({ reflections: updated });
 }
 
+/**
+ * Save a reflection decision into the debate file's reflection snapshot (t/4214 R-5), so the M2 override rate
+ * can be measured from saved debates. A missing snapshot (an older debate) is logged and skipped; the
+ * in-memory decision stands either way.
+ */
+async function persistReflectionDecision(
+  pover: string, target: { kind: 'edit' | 'proposal'; index: number }, decision: ReflectionDecision,
+  set: ReflectionSet, get: ReflectionGet,
+): Promise<void> {
+  const debate = get().activeDebate;
+  const updated = debate ? withReflectionDecision(debate, pover, target, decision) : null;
+  if (!updated) {
+    getGlobalRecorder()?.record({
+      type: 'state.error', component: 'reflection-decision', level: 'warn',
+      message: 'reflection decision not saved: the debate has no reflection snapshot for this seat',
+      data: { pover, ...target, outcome: decision.outcome },
+    });
+    return;
+  }
+  set({ activeDebate: updated });
+  await get().saveDebate('reflectionDecision');
+}
+
+/**
+ * Mark an applied edit approved and save the decision (shared by apply and retry-after-fix). An edit the evidence
+ * check flagged can only have been applied through the evidence override, so it is recorded as `overridden`.
+ */
+async function recordEditApplied(pover: string, editIndex: number, edit: ReflectionEdit, set: ReflectionSet, get: ReflectionGet): Promise<void> {
+  markReflectionEditApproved(pover, editIndex, set, get);
+  const overrides = edit.evidence_supported === false ? ['evidence' as const] : undefined;
+  await persistReflectionDecision(pover, { kind: 'edit', index: editIndex }, appliedDecision(overrides), set, get);
+}
+
+/** Fire-and-forget form for the synchronous dismiss actions; a failure is recorded, never thrown. */
+function persistReflectionDecisionInBackground(
+  pover: string, target: { kind: 'edit' | 'proposal'; index: number }, decision: ReflectionDecision,
+  set: ReflectionSet, get: ReflectionGet,
+): void {
+  persistReflectionDecision(pover, target, decision, set, get).catch((err: unknown) => {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'reflection-decision', level: 'error',
+      message: 'saving a dismissed reflection decision failed',
+      data: { pover, ...target },
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  });
+}
+
+/**
+ * The tag a new node from this seat gets (t/4214 R-4, spec t/4211 §3.1): the tagged seat's own tag. An untagged
+ * seat on a POV that has tags leaves the node untagged and records a coverage-gap WARN, so the node can't drop
+ * out of Scope unnoticed. A POV with no tags (Accelerationist, Safetyist today) is unaffected.
+ */
+function proposalNodeTags(povKey: Pov, nodeId: string, pover: string, get: ReflectionGet): string[] | undefined {
+  const seatTag = get().activeDebate?.seat_tags?.[pover as SpeakerId]?.pov_tag;
+  const povHasTags = (loadPovTagRegistry().povs[povKey as keyof ReturnType<typeof loadPovTagRegistry>['povs']] ?? []).length > 0;
+  if (!seatTag) {
+    if (povHasTags) {
+      getGlobalRecorder()?.record({
+        type: 'state.change', component: 'reflection-proposal', level: 'warn',
+        message: 'reflection.new_node_untagged: an untagged seat created a node on a POV that has tags; it is a coverage gap for the tag-proposal pipeline',
+        data: { node_id: nodeId, pov: povKey, pover },
+      });
+    }
+    return undefined;
+  }
+  const problems = validatePovTags(nodeId, [seatTag]);
+  if (problems.length > 0) {
+    getGlobalRecorder()?.record({
+      type: 'state.error', component: 'reflection-proposal', level: 'warn',
+      message: 'reflection.new_node_tag_invalid: the seat tag failed validatePovTags; the node is left untagged',
+      data: { node_id: nodeId, pov: povKey, seat_tag: seatTag, problems },
+    });
+    return undefined;
+  }
+  return [seatTag];
+}
+
 type TaxStore = ReturnType<typeof useTaxonomyStore.getState>;
 type AddNodeResult = { ok: true; nodeId: string } | { ok: false; error: string };
 
@@ -355,11 +435,13 @@ async function createProposalNode(
     return { ok: false, error: `Generated ID ${newId} already exists — refusing to overwrite. Please retry.` };
   }
   const debateId = get().activeDebateId;
+  const povTags = proposalNodeTags(povKey, newId, pover, get);
   taxStore.updatePovNode(povKey, newId, {
     label: proposal.label,
     description: proposal.description,
     graph_attributes: defaultGraphAttributes(povKey, proposal.category),
     debate_refs: debateId ? [debateId] : [],
+    ...(povTags ? { pov_tags: povTags } : {}),
   }, { source: 'debate_reflection', debateId: debateId ?? undefined, reason: proposal.rationale || undefined });
   assignProvisionalWeight(povKey, newId, proposal.category);
   return { ok: true, nodeId: newId };
@@ -926,7 +1008,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
 
     getGlobalRecorder()?.record({ type: 'state.change', component: 'reflection-edit', level: 'info', message: 'applyReflectionEdit.result', data: { ok: true, pover, editIndex, edit_type: edit.edit_type, node_id: edit.node_id, enrichNodeId, duration_ms: duration } });
     trackDebateExtraction(get().activeDebateId ?? undefined, edit.edit_type, edit.node_id ?? '');
-    markReflectionEditApproved(pover, editIndex, set, get);
+    await recordEditApplied(pover, editIndex, edit, set, get);
     return { ok: true, enrichNodeId: enrichNodeId ?? undefined };
   },
 
@@ -952,7 +1034,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
     }
 
     getGlobalRecorder()?.record({ type: 'state.change', component: 'reflection-edit', level: 'info', message: 'retryReflectionEditAfterFix.result', data: { ok: true, pover, editIndex, edit_type: edit.edit_type, node_id: edit.node_id } });
-    markReflectionEditApproved(pover, editIndex, set, get);
+    await recordEditApplied(pover, editIndex, edit, set, get);
     return { ok: true };
   },
 
@@ -966,6 +1048,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
       };
     });
     set({ reflections: updated });
+    persistReflectionDecisionInBackground(pover, { kind: 'edit', index: editIndex }, dismissedDecision(), set, get);
   },
 
   // Apply a propose_new proposal (t/1773, ruling B): create the new POV node AND persist
@@ -1072,11 +1155,13 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
     getGlobalRecorder()?.record({ type: 'state.change', component: 'reflection-proposal', level: 'info', message: 'applyReflectionProposal.result', data: { ok: true, pover, proposalIndex, createdNodeId: newId, edges: newEdges.length, duration_ms: duration } });
     trackDebateExtraction(get().activeDebateId ?? undefined, 'propose_new', newId);
     set({ newItemProposalStatus: { ...get().newItemProposalStatus, [proposalStatusKey(pover, proposalIndex)]: 'approved' } });
+    await persistReflectionDecision(pover, { kind: 'proposal', index: proposalIndex }, appliedDecision(undefined), set, get);
     return { ok: true, createdNodeId: newId };
   },
 
   dismissReflectionProposal: (pover: string, proposalIndex: number) => {
     set({ newItemProposalStatus: { ...get().newItemProposalStatus, [proposalStatusKey(pover, proposalIndex)]: 'dismissed' } });
+    persistReflectionDecisionInBackground(pover, { kind: 'proposal', index: proposalIndex }, dismissedDecision(), set, get);
   },
 
   retryEnrichment: async (nodeId: string, pov: 'accelerationist' | 'safetyist' | 'skeptic') => {

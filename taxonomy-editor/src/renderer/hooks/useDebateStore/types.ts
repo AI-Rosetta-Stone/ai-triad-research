@@ -48,6 +48,17 @@ export interface ReflectionEdit {
   evidence_note?: string;
   /** Engagement of `node_id` in this debate — drives the "never engaged" badge. */
   engagement?: { injected: boolean; citations: number; claim_count: number; attacked_count: number };
+  /** The reviewer's final decision, saved into the debate file's reflection snapshot (t/4214 R-5). Absent
+   *  while pending, and in debates saved before this field existed. Read by CL's M2 measurement (t/4211 §6). */
+  decision?: ReflectionDecision;
+}
+
+/** A reflection decision (t/4214 R-5). `overridden` means applied with at least one gate overridden;
+ *  `overrides` names which. `cross_tag` joins `evidence` once the R-3 tag gate lands. */
+export interface ReflectionDecision {
+  outcome: 'applied' | 'dismissed' | 'overridden';
+  at: string;
+  overrides?: ('evidence' | 'cross_tag')[];
 }
 
 export interface ReflectionResult {
@@ -58,6 +69,9 @@ export interface ReflectionResult {
   /** Validated new-node proposals (disposition:'propose_new') from the shared generator.
    *  Additive front-half of t/1773; the accept/apply + UI land in the follow-on. */
   new_item_proposals?: NewPovItemProposal[];
+  /** Saved decisions on `new_item_proposals`, keyed by proposal index (t/4214 R-5). Kept here rather than on
+   *  the lib-owned proposal type. Read by CL's M2 measurement (t/4211 §6). */
+  proposal_decisions?: Record<number, ReflectionDecision>;
 }
 
 // t/3257: source of truth relocated to lib/debate/relevanceSelection.ts (the pure relevance-
