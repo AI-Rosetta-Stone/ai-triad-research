@@ -132,7 +132,10 @@ function situationsBdiGate(
 // or undefined after already writing the 428 response.
 function requireBaseVersion(req: IncomingMessage, res: ServerResponse): string | undefined {
   const ifMatch = req.headers?.['if-match'];
-  const baseSha = typeof ifMatch === 'string' ? ifMatch.replace(/^"|"$/g, '') : undefined;
+  // t/4184 GV (TL, p/775#56): strip a leading weak-validator `W/` marker before the quotes — a
+  // client that forwards the GET's ETag verbatim (RFC 7232 allows either strength) must still
+  // match, since this route compares the raw git blob SHA, not validator semantics.
+  const baseSha = typeof ifMatch === 'string' ? ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined;
   if (!baseSha) {
     error(res, 'Save requires an If-Match header carrying the base version read before editing.', 428, undefined, { code: 'BASE_VERSION_REQUIRED' });
     return undefined;

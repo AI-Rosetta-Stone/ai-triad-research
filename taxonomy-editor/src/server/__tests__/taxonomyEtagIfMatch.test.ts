@@ -84,6 +84,14 @@ describe('PUT /api/taxonomy/:pov requires If-Match (t/4187)', () => {
     expect(writeTaxonomyFileSpy).toHaveBeenCalledWith('accelerationist', { nodes: [] }, { baseSha: 'abc123' });
   });
 
+  it('strips a leading weak-validator W/ marker before comparing (t/4184 GV, p/775#56)', async () => {
+    const handlers = registerAndGetHandlers();
+    const res = fakeRes();
+    await handlers['PUT /api/taxonomy/:pov'](fakeReq({ 'if-match': 'W/"abc123"' }), res, { nodes: [] });
+    expect(res._statusCode).toBe(200);
+    expect(writeTaxonomyFileSpy).toHaveBeenCalledWith('accelerationist', { nodes: [] }, { baseSha: 'abc123' });
+  });
+
   it('sets the response ETag to the new version returned by writeTaxonomyFile', async () => {
     const handlers = registerAndGetHandlers();
     const res = fakeRes();
