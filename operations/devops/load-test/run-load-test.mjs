@@ -72,7 +72,15 @@ async function bootstrapAnonSession(baseUrl) {
   return cookies.map((c) => c.split(';')[0]).join('; ');
 }
 
-const POVS = ['acc', 'saf', 'skp', 'cc'];
+// t/4198: /api/taxonomy/:pov expects full names (TAXONOMY_POV_FILES in server.ts),
+// not the acc/saf/skp/cc short codes used for node-ID prefixes — a different, unrelated
+// convention. Using the short codes here 500'd every reader/editor GET on a real
+// taxonomy-file-not-found error that looked like a staging data-path bug (initially
+// misdiagnosed as one, t/4198) but was this driver requesting a file that never existed.
+// 'cross-cutting' is a valid TAXONOMY_POV_FILES name but has no seeded file under the
+// staging "Origin" dataset (verified: also 500s, "file not found", on the real server —
+// a data gap, not a naming bug) — 'situations' in its place, confirmed 200 with real data.
+const POVS = ['accelerationist', 'safetyist', 'skeptic', 'situations'];
 function randomPov() { return POVS[Math.floor(Math.random() * POVS.length)]; }
 
 /** One iteration of the reader profile: browse + search, no writes. */
