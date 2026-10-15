@@ -918,51 +918,20 @@ jobs:
   # EXACTLY the set of top-level directories whose package.json has a `build` script -- the
   # same authoritative enumeration t/3847 used. Always runs (not path-filtered): it's a cheap,
   # deterministic comparison with no per-app build/install cost.
+  #
+  # SO conditions C1/C2 (t/3897, p/682#17): C1 also asserts every matrix app has an entry in
+  # the `changes` job's electron: path filter -- a third hand-maintained list; missing from it
+  # means a PR touching only that app never triggers test-electron at all, and ci-gate "passes"
+  # a job that never ran. C2 scopes the app: [...] regex to the test-electron job's own text
+  # block (it previously matched the FIRST app: [...] anywhere in the file). Logic extracted to
+  # a standalone script (.github/scripts/test-electron-matrix-membership.mjs) rather than an
+  # inline node -e, now that it parses two separate blocks of ci.yml.
   test-electron-matrix-membership:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - name: Assert test-electron matrix matches package.json apps with a build script (t/3897)
-        run: |
-          node -e '
-            const fs = require("fs");
-            const path = require("path");
-            const dirs = fs.readdirSync(".", { withFileTypes: true })
-              .filter((d) => d.isDirectory())
-              .map((d) => d.name)
-              .filter((name) => {
-                const pkgPath = path.join(name, "package.json");
-                if (!fs.existsSync(pkgPath)) return false;
-                try {
-                  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-                  return !!(pkg.scripts && pkg.scripts.build);
-                } catch { return false; }
-              })
-              .sort();
-            // Read the REAL test-electron job matrix out of the checked-out ci.yml itself --
-            // a hardcoded second copy here would never catch drift between the two, since both
-            // are then hand-maintained independently (the exact class this job exists to close).
-            const ciYml = fs.readFileSync(".github/workflows/ci.yml", "utf8");
-            const m = ciYml.match(/^\s*app:\s*\[([^\]]+)\]/m);
-            if (!m) {
-              console.log("::error::test-electron-matrix-membership: could not find the test-electron inline app: [...] matrix array in ci.yml (t/3897)");
-              process.exit(1);
-            }
-            const matrix = m[1].split(",").map((s) => s.trim()).filter(Boolean).sort();
-            const missing = dirs.filter((d) => !matrix.includes(d));
-            const extra = matrix.filter((d) => !dirs.includes(d));
-            let bad = false;
-            if (missing.length) {
-              console.log(`::error::test-electron-matrix-membership: ${missing.join(", ")} has a build script but is NOT in the test-electron matrix app: list (t/3897)`);
-              bad = true;
-            }
-            if (extra.length) {
-              console.log(`::error::test-electron-matrix-membership: ${extra.join(", ")} is in the test-electron matrix app: list but has no build script (t/3897)`);
-              bad = true;
-            }
-            if (bad) process.exit(1);
-            console.log(`test-electron matrix [${matrix.join(", ")}] matches package.json apps with a build script`);
-          '
+      - name: Assert test-electron matrix matches package.json build apps and the electron filter (t/3897)
+        run: node .github/scripts/test-electron-matrix-membership.mjs
 
   # ── renderer-tsc: renderer type-check gate (t/2252) ──
   # CI ran `tsc --noEmit -p tsconfig.main.json` for main-process code but NEVER
