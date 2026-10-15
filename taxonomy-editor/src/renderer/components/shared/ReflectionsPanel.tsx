@@ -14,6 +14,7 @@ import { checkDolceCompliance, type ComplianceViolation } from '../../utils/dolc
 import { DescriptionToggle, resolveDescription, useDescriptionMode } from './DescriptionToggle';
 import { TheoryLink } from './TheoryLink';
 import { generatePlainPreview } from '../../utils/regeneratePlainDescription';
+import { ProposalTagEditor, povTagOptionsFor } from './ProposalTagEditor';
 import './ReflectionsPanel.css';
 
 const PREFIX_TO_POV: Record<string, 'accelerationist' | 'safetyist' | 'skeptic'> = { acc: 'accelerationist', saf: 'safetyist', skp: 'skeptic' };
@@ -1040,6 +1041,18 @@ function PoverReflection({ result }: { result: ReflectionResult }) {
 
 const NEW_ITEM_COLOR = '#22c55e';
 
+/**
+ * t/4214 R-6b: the reviewer picks the new node's wing tags, starting from the seat's own tag (R-4). `applyArgs` is
+ * empty for a POV with no tags, so its apply call is unchanged.
+ */
+function useProposalTags(pover: string, pov: string) {
+  const seatTag = useDebateStore(s => s.activeDebate?.seat_tags?.[pover as SpeakerId]?.pov_tag);
+  const tagOptions = useMemo(() => povTagOptionsFor(pov), [pov]);
+  const [povTags, setPovTags] = useState<string[]>(() => (seatTag ? [seatTag] : []));
+  const applyArgs: [] | [{ povTags: string[] }] = tagOptions.length > 0 ? [{ povTags }] : [];
+  return { tagOptions, povTags, setPovTags, applyArgs };
+}
+
 function ProposalCard({ proposal, pover, proposalIndex }: {
   proposal: NewPovItemProposal;
   pover: string;
@@ -1058,6 +1071,7 @@ function ProposalCard({ proposal, pover, proposalIndex }: {
   const [createdNodeId, setCreatedNodeId] = useState<string | null>(null);
   const resolved = status === 'approved' || status === 'dismissed';
   const info = POVER_INFO[proposal.pov as Exclude<SpeakerId, 'user'>];
+  const { tagOptions, povTags, setPovTags, applyArgs } = useProposalTags(pover, proposal.pov);
 
   return (
     <div
@@ -1132,8 +1146,9 @@ function ProposalCard({ proposal, pover, proposalIndex }: {
         {proposal.rationale}
       </div>
 
-      {/* Actions */}
-      {!resolved && (
+      {/* Wing tags (t/4214 R-6b) and actions */}
+      {!resolved && (<>
+        <ProposalTagEditor options={tagOptions} value={povTags} onChange={setPovTags} disabled={applying} />
         <div className="rp-actions-row">
           <button
             className="btn btn-primary rp-btn-approve"
@@ -1142,7 +1157,7 @@ function ProposalCard({ proposal, pover, proposalIndex }: {
               setApplying(true);
               setApplyError(null);
               try {
-                const result = await applyReflectionProposal(pover, proposalIndex);
+                const result = await applyReflectionProposal(pover, proposalIndex, ...applyArgs);
                 if (!result.ok) setApplyError(result.error ?? 'Save failed — check SaveBar for details');
                 else if (result.createdNodeId) setCreatedNodeId(result.createdNodeId);
               } catch (err) {
@@ -1158,7 +1173,7 @@ function ProposalCard({ proposal, pover, proposalIndex }: {
             onClick={() => dismissReflectionProposal(pover, proposalIndex)}
           >Dismiss</button>
         </div>
-      )}
+      </>)}
       {applyError && (
         <div className="rp-apply-error">
           {applyError}

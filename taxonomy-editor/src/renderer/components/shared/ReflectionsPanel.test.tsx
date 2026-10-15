@@ -310,6 +310,56 @@ describe('ReflectionsPanel — propose_new item proposals (t/1773 AC1)', () => {
   });
 });
 
+describe('ReflectionsPanel — propose_new wing tags (t/4214 R-6b)', () => {
+  function addSkepticProposal() {
+    addProposalReflection();
+    const r = debateStore.reflections[0];
+    r.pover = 'skeptic';
+    r.label = 'Skeptic';
+    r.new_item_proposals[0].pov = 'skeptic';
+    debateStore.newItemProposalStatus = {};
+  }
+  afterEach(() => { debateStore.activeDebate = null; });
+
+  it('a tagged seat starts with its own tag checked, and the choice is passed to apply', async () => {
+    addSkepticProposal();
+    debateStore.activeDebate = { seat_tags: { skeptic: { pov_tag: 'critical', tag_mode: 'scope' } } };
+    debateStore.applyReflectionProposal.mockResolvedValue({ ok: true, createdNodeId: 'skp-beliefs-500' });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    expect(screen.getByRole('group', { name: 'Wing tags for the new node' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Critical' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Institutional' })).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Institutional' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & Apply' }));
+    await waitFor(() => expect(debateStore.applyReflectionProposal).toHaveBeenCalledWith('skeptic', 0, { povTags: ['critical', 'institutional'] }));
+  });
+
+  it('clearing every tag applies the node as common ground', async () => {
+    addSkepticProposal();
+    debateStore.activeDebate = { seat_tags: { skeptic: { pov_tag: 'critical', tag_mode: 'scope' } } };
+    debateStore.applyReflectionProposal.mockResolvedValue({ ok: true });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Critical' }));
+    expect(screen.getByText('No tag: common ground for the whole camp.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & Apply' }));
+    await waitFor(() => expect(debateStore.applyReflectionProposal).toHaveBeenCalledWith('skeptic', 0, { povTags: [] }));
+  });
+
+  it('an untagged seat starts with no tag checked', () => {
+    addSkepticProposal();
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    expect(screen.getByRole('checkbox', { name: 'Critical' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Institutional' })).not.toBeChecked();
+  });
+
+  it('a POV with no tags shows no tag editor', () => {
+    addProposalReflection();
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    expect(screen.queryByRole('group', { name: 'Wing tags for the new node' })).not.toBeInTheDocument();
+  });
+});
+
 // ── Evidence check (t/3512) ──────────────────────────────────
 
 describe('ReflectionsPanel — unsupported-evidence edits (t/3512)', () => {

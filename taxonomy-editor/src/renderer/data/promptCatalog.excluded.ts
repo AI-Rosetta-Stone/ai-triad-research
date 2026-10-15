@@ -48,9 +48,6 @@ export const PROMPT_CATALOG_EXCLUDED: PromptExclusion[] = [
   //    no UX entry point in taxonomy-editor. Will get a catalog entry once the inquiry UX ships.
   { name: 'inquirySynthesisPrompt', reason: 'Backend-only evaluator prompt for the inquiry synthesis pass (t/3580). Not exposed in taxonomy-editor UI.' },
 
-  // ── Tag-aware reflection gate (t/4213 D-2): custodian-check gate helper — not user-facing.
-  { name: 'buildCustodianCheckPrompt', reason: 'Custodian-check gate helper (t/4213 D-2): checks whether a proposed reflection edit conflicts with a custodian soul\'s boundaries. Backend-only gate, same class as coverageCheckPrompt — not a user-facing turn prompt.' },
-
   // ── CL INTERNAL (t/2859): trivial UI utility, not a user-inspected content prompt.
   //    vernacularPrompt + aphorismPrompt ruled EXPOSE (now catalogued); this is the one
   //    permanent INTERNAL exclusion replacing the provisional t/2859 block.

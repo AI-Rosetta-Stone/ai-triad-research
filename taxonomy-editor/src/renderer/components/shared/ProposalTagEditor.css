@@ -1,0 +1,11 @@
+/* Wing-tag editor on a propose_new card (t/4214 R-6b). */
+.rp-proposal-tags {
+  font-size: var(--text-2xs);
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: 4px;
+  padding: 4px 8px 6px;
+  margin: 0 0 8px;
+}
+.rp-proposal-tags-legend { font-weight: 700; padding: 0 4px; }
+.rp-proposal-tag-option { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; }
+.rp-proposal-tags-hint { color: var(--text-muted); margin-top: 2px; }

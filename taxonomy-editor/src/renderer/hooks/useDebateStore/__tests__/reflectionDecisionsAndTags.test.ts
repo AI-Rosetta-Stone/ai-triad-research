@@ -173,4 +173,42 @@ describe('tagging new nodes from reflection proposals (t/4214 R-4)', () => {
     expect(writtenNode()).not.toHaveProperty('pov_tags');
     expect(records().some(r => r.message.startsWith('reflection.new_node_untagged'))).toBe(false);
   });
+
+  describe('the reviewer chooses the tags (t/4214 R-6b)', () => {
+    it('reviewer tags replace the seat default, and the change is recorded', async () => {
+      mockTaxonomyState.createPovNode.mockReturnValue('skp-beliefs-996');
+      seedProposal('skeptic', 'critical');
+      const result = await useDebateStore.getState().applyReflectionProposal('skeptic', 0, { povTags: ['critical', 'institutional'] });
+      expect(result.ok).toBe(true);
+      expect(writtenNode().pov_tags).toEqual(['critical', 'institutional']);
+      expect(records().find(r => r.message === 'reflection.new_node_tags_set_by_reviewer'))
+        .toMatchObject({ data: { node_id: 'skp-beliefs-996', seat_tag: 'critical', pov_tags: ['critical', 'institutional'] } });
+    });
+
+    it('an empty choice leaves the node untagged (common ground), with no coverage-gap WARN', async () => {
+      mockTaxonomyState.createPovNode.mockReturnValue('skp-beliefs-995');
+      seedProposal('skeptic', 'critical');
+      await useDebateStore.getState().applyReflectionProposal('skeptic', 0, { povTags: [] });
+      expect(writtenNode()).not.toHaveProperty('pov_tags');
+      expect(records().some(r => r.message.startsWith('reflection.new_node_untagged'))).toBe(false);
+      expect(records().some(r => r.message === 'reflection.new_node_tags_set_by_reviewer')).toBe(true);
+    });
+
+    it('keeping the seat default is not recorded as a reviewer change', async () => {
+      mockTaxonomyState.createPovNode.mockReturnValue('skp-beliefs-994');
+      seedProposal('skeptic', 'critical');
+      await useDebateStore.getState().applyReflectionProposal('skeptic', 0, { povTags: ['critical'] });
+      expect(writtenNode().pov_tags).toEqual(['critical']);
+      expect(records().some(r => r.message === 'reflection.new_node_tags_set_by_reviewer')).toBe(false);
+    });
+
+    it('an invalid reviewer tag refuses the apply before any node is created', async () => {
+      mockTaxonomyState.createPovNode.mockClear();
+      seedProposal('skeptic', 'critical');
+      const result = await useDebateStore.getState().applyReflectionProposal('skeptic', 0, { povTags: ['not-a-registered-tag'] });
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/can't be applied/);
+      expect(mockTaxonomyState.createPovNode).not.toHaveBeenCalled();
+    });
+  });
 });
