@@ -28,6 +28,41 @@
 # Documented in root AGENTS.md so a fresh clone re-enables enforcement.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Worktree ownership recording (t/4212, TL design review t/4212#2 cond. 2) ────────────────────
+# WHY: the worktree-owner guard (operations/devops/worktree-owner-core.mjs) needs to know who a
+# linked worktree belongs to, to warn when a DIFFERENT role mutates it (three same-day collisions,
+# #3266). `git worktree add` performs a checkout whose PREVIOUS head is the all-zero oid — that's
+# the one reliable, hook-native signal for "this worktree was just created", and it fires for a raw
+# `git worktree add` exactly the same as for `/land-from-worktree`'s `git worktree add -b` (one
+# mechanism covers both — TL cond. 2 notes most agents run the raw form, which never reached any
+# prior skill-level write).
+#
+# Runs BEFORE the `$3`-gated section below (independent concern) and is self-contained: its own
+# git introspection, own fail-open, own early exits — never shares state with the main-checkout
+# nudge logic past this point.
+#
+# IDENTITY (TL cond. 3): $ORCA_AGENT_ID — a stable per-session UUID, exposed to every Bash/
+# PowerShell subprocess the harness launches (confirmed via `env`, t/4212 investigation) — NOT
+# agent.address (that's only resolvable inside an Orca-templated feedback-rule parameter, not a
+# plain shell hook's environment). Absent/empty → write nothing, so the owner file stays absent
+# and the guard later reads that as "unknown owner" (fail-closed), never a silent false match.
+#
+# FAIL-OPEN: any git-introspection error in this block exits the block (not the hook) via the
+# nested subshell early-returns below — a broken check here must never disrupt the checkout.
+_wt_prev_head="$1"
+if [ "$_wt_prev_head" = "0000000000000000000000000000000000000000" ]; then
+  _wt_gd=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd) || _wt_gd=""
+  _wt_cdir=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd) || _wt_cdir=""
+  if [ -n "$_wt_gd" ] && [ -n "$_wt_cdir" ] && [ "$_wt_gd" != "$_wt_cdir" ]; then
+    # Linked worktree being created right now. $_wt_gd IS its git-admin dir (<repo>/.git/worktrees/
+    # <name>) — the owner file's home, per worktree-owner-core.mjs's ownerFilePath().
+    if [ -n "$ORCA_AGENT_ID" ] && [ ! -f "$_wt_gd/orca-owner" ]; then
+      printf '%s' "$ORCA_AGENT_ID" > "$_wt_gd/orca-owner" 2>/dev/null || true
+    fi
+  fi
+fi
+unset _wt_prev_head _wt_gd _wt_cdir
+
 # Arg $3 is the checkout flag: 1 = branch checkout, 0 = file checkout. Only a
 # branch checkout can move HEAD off `main`, so skip everything else.
 [ "$3" = "1" ] || exit 0
