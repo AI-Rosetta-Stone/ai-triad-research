@@ -26,6 +26,10 @@ vi.mock('../security/userContext.js', () => ({
 const oldNodesRef: { nodes: Array<{ id: string; text: string }> } = { nodes: [] };
 vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: vi.fn(async () => oldNodesRef),
+  // t/4229: prepareTaxonomyNodeWrite now reads via readTaxonomyFileWithVersion (so the pov_tags
+  // admin gate can compare against the exact base the client edited from). version matches the
+  // fixed 'base-sha' If-Match this file's fakeReq always sends.
+  readTaxonomyFileWithVersion: vi.fn(async () => ({ data: oldNodesRef, version: 'base-sha' })),
   writeTaxonomyFile: vi.fn(async () => ({ version: 'abc123' })),
   loadSyntheticEmbeddings: vi.fn(),
   loadSyntheticCorpus: vi.fn(),

@@ -138,7 +138,6 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
       : '';
     const isAnon = !principalName;
     const userId = deriveStorageUserId(principalName || '_local', idp || '_local');
-    const adminUsers = (process.env.ADMIN_USERS || 'jpsnover,jsnover13-at-gmail-com').split(',').map(s => s.trim());
     const quotaLimits = isAnon ? null : getQuotaLimits(userId);
     // t/3498 (t/3495 epic, SO cond 5): ALWAYS a boolean — `false` for anonymous
     // callers and on any allowlist-read error, never absent/undefined (a client
@@ -160,7 +159,7 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
       displayName: principalName || 'Anonymous',
       idp: idp || null,
       isAnonymous: isAnon,
-      isAdmin: !isAnon && adminUsers.includes(userId),
+      isAdmin: isAdmin(userId), // t/4229: use the shared helper, not an inline ADMIN_USERS re-parse — isAdmin() already excludes '_local'
       quotas: quotaLimits,
       geminiAllowlisted,
     };
