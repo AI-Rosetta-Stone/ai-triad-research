@@ -27,6 +27,7 @@ vi.mock('../embeddings.js', () => ({
   classifyNli: vi.fn(),
   setDebateTemperature: vi.fn(),
   getEmbeddingInfo: vi.fn(),
+  resolveRegistry: vi.fn(() => ({ models: {} })),
 }));
 
 vi.mock('../../../../lib/ai-client/index.js', () => ({

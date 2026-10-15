@@ -675,7 +675,8 @@ function resolveModelEntry(friendlyId: string): ModelEntry | undefined {
 
 // t/3614: registry is now required by getDefaultTimeout/getModelMinTimeout — cached via
 // modelConfigCache's mtime-guarded loader, reusing this file's existing config-path resolution.
-function resolveRegistry(): ModelRegistry {
+// Exported for aiHandlers.ts (t/4196): resolveBackend's registry param must never be omitted.
+export function resolveRegistry(): ModelRegistry {
   return getMainRegistry(findModelsConfig());
 }
 

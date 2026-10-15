@@ -10,7 +10,7 @@ import { ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { PROJECT_ROOT, getDataRootPath } from '../fileIO.js';
-import { computeEmbeddings, computeQueryEmbedding, generateText, generateTextWithSearch, generateChatStream, updateNodeEmbeddings, classifyNli, setDebateTemperature, getEmbeddingInfo, resolveAiCallLogContext } from '../embeddings.js';
+import { computeEmbeddings, computeQueryEmbedding, generateText, generateTextWithSearch, generateChatStream, updateNodeEmbeddings, classifyNli, setDebateTemperature, getEmbeddingInfo, resolveAiCallLogContext, resolveRegistry } from '../embeddings.js';
 import type { ChatMessage, NodeEmbeddingInput, NliPair } from '../embeddings.js';
 import { refreshAIModels } from '../modelDiscovery.js';
 import { refreshModelsRequestSchema } from './refreshModelsRequestSchema.js';
@@ -332,7 +332,9 @@ export function registerAiHandlers(): void {
 
     // Fetch-and-inject: when model lacks native URL grounding, fetch URLs from
     // the last user message and prepend content as an ephemeral system block.
-    const isUrlCapable = resolveBackend(model ?? DEFAULT_MODEL) === 'gemini' && urlContext === true;
+    // registry passed explicitly (t/4196): resolveBackend's registry param is becoming
+    // required — an omission here would route to a provider the registry didn't name.
+    const isUrlCapable = resolveBackend(model ?? DEFAULT_MODEL, resolveRegistry()) === 'gemini' && urlContext === true;
     let effectiveSystem = systemInstruction;
     let appFetchEvent: AppFetchEvent | undefined;
 
