@@ -2,17 +2,17 @@
 
 **Status:** Canonical (shared)
 **Owner:** Technical Lead
-**Last updated:** 2026-07-16
+**Last updated:** 2026-10-15
 
 Full mechanics for how implementation reviews are routed, queued, and handled in the multi-agent fleet. The Tech Lead AGENTS.md keeps only the one-line load-bearing routing rule inline and points here for the detail.
 
 ## Review Routing — Quality (TL) vs Main (TL)
 
-To reduce review queue bottleneck, **Quality (Technical Lead)** handles routine implementation reviews. Route directly to Main (TL) only when escalation criteria are met.
+To reduce review queue bottleneck, **Quality (Tech Lead)** (`quality.engineering-tech-lead@ai-triad-research.orca.local`) handles routine implementation reviews. Route directly to Main (TL) only when escalation criteria are met.
 
-Three parallel peer reviewers share the routine review queue: **Quality (Technical Lead)**, **Quality2 (Technical Lead)**, **Quality3 (Technical Lead)**. Assign round-robin or pick the one with the shortest queue. All three have identical scope and escalation rules.
+As of 2026-10-15 it is the **only** Quality instance; check `list_instances` (role `engineering/tech-lead`) for the current set. The name "Quality (Technical Lead)" does not resolve, so use the name or address above. If more Quality instances are added, assign round-robin or pick the one with the shortest queue; they share the same scope and escalation rules.
 
-**Route to Quality (TL / Quality2 / Quality3):**
+**Route to Quality (Tech Lead):**
 - Single-role implementation ticket (all changes within one scope)
 - Follows an existing pattern (CRUD endpoint, bridge method, PS cmdlet, test addition, UI-only renderer change)
 - No new cross-role interfaces introduced
@@ -38,7 +38,7 @@ skim before merge**, scoped to **accuracy of the recorded pattern** — does the
 describe the incident/behavior it cites, and is the prescribed rule the right generalization?
 Style, tone, and formatting are explicitly out of scope.
 
-- Route round-robin to Quality / Quality2 / Quality3, same as routine reviews.
+- Route to Quality (Tech Lead), the same as routine reviews.
 - The skim is a fast gate (target: same working session), sized to a read-and-confirm, not a
   design review. A finding routes back to the author; Main (TL) arbitrates disputes.
 - **Sage batch flow:** to avoid stalling batch landings, Sage may open the batch PR and request
@@ -70,7 +70,7 @@ Agents must NOT use async review for novel architecture, cross-scope work, or an
 When a worker posts a design and routes it for Quality review, they must do **three things** — not just ping:
 
 1. **Transition the ticket to "In Review"** status.
-2. **Reassign the ticket to the Quality instance receiving the review** (`Quality (Technical Lead)`, `Quality2`, or `Quality3` — round-robin). This is the queue: `list_tickets(all: false)` on a Quality instance returns only tickets assigned to it.
+2. **Reassign the ticket to the Quality instance receiving the review** (`Quality (Tech Lead)`, or round-robin if more Quality instances exist). This is the queue: `list_tickets(all: false)` on a Quality instance returns only tickets assigned to it.
 3. **Ping** Quality with the ticket ref.
 
 Quality instance on receiving a review:
