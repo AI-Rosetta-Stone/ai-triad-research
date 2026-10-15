@@ -20,7 +20,8 @@ const { mockApi } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@bridge', () => ({ api: mockApi }));
+let mockIsElectron = true;
+vi.mock('@bridge', () => ({ api: mockApi, isElectronMode: () => mockIsElectron }));
 vi.mock('@lib/flight-recorder/index', () => ({
   getGlobalRecorder: () => ({ record: vi.fn() }),
 }));
@@ -81,6 +82,7 @@ describe('SettingsDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDescMode = 'plain';
+    mockIsElectron = true;
     useSettingsDialog.setState({ isOpen: false, requestedSection: null });
   });
 
@@ -222,5 +224,145 @@ describe('SettingsDialog', () => {
     expect(await screen.findByText(/saved to ai-models\.json/i)).toBeInTheDocument();
     expect(screen.queryByText(/refused the write/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Repaired before saving/i)).not.toBeInTheDocument();
+  });
+
+  // ── t/4163: refresh proposal review + accept ──────────────────────────────
+
+  const proposal = {
+    catalogFingerprint: 'sha256:fingerprint-1',
+    hash: 'sha256:hash-1',
+    changes: [
+      { slot: 'defaults.gemini', from: 'gemini-2.5-flash', to: 'gemini-3.0-flash', family: 'gemini-flash', reason: 'vendor-absent' as const },
+    ],
+  };
+
+  it('proposal-required: shows the proposed change and Accept sends the exact proposal, typed name and reason (t/4163)', async () => {
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false,
+      refusal: { reason: 'proposal-required', proposal },
+      pinnedCandidates: [{ slots: ['defaults.claude'], pinned: 'claude-4-0', newerInFamily: 'claude-4-5' }],
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText('proposal-required')).toBeInTheDocument();
+    expect(screen.getByText('defaults.gemini')).toBeInTheDocument();
+    expect(screen.getByText('gemini-2.5-flash')).toBeInTheDocument();
+    expect(screen.getByText('gemini-3.0-flash')).toBeInTheDocument();
+    // pinnedCandidates are informational regardless of reason
+    expect(screen.getByText(/claude-4-0/)).toBeInTheDocument();
+    expect(screen.getByText(/claude-4-5/)).toBeInTheDocument();
+
+    mockApi.refreshAIModels.mockResolvedValueOnce({ ...cleanBackends, totalModels: 8, written: true });
+    await user.type(screen.getByPlaceholderText('Your name'), 'Jeffrey Snover');
+    await user.type(screen.getByPlaceholderText('Why this change is correct'), 'Vendor retired the old id');
+    await user.click(screen.getByText('Accept proposal'));
+
+    expect(mockApi.refreshAIModels).toHaveBeenLastCalledWith({
+      accept: { proposal, approvedBy: 'Jeffrey Snover', reason: 'Vendor retired the old id' },
+    });
+    expect(await screen.findByText(/saved to ai-models\.json/i)).toBeInTheDocument();
+  });
+
+  it('Accept refuses an empty reason client-side, without calling the API (t/4163)', async () => {
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false,
+      refusal: { reason: 'proposal-required', proposal },
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+    await screen.findByText('proposal-required');
+
+    await user.type(screen.getByPlaceholderText('Your name'), 'Jeffrey Snover');
+    // No reason typed.
+    const callsBefore = mockApi.refreshAIModels.mock.calls.length;
+    await user.click(screen.getByText('Accept proposal'));
+
+    expect(screen.getByText(/name and a reason are required/i)).toBeInTheDocument();
+    expect(mockApi.refreshAIModels.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('proposal-changed: shows the diff and the recomputed proposal for re-review (t/4163)', async () => {
+    const user = userEvent.setup();
+    const recomputed = { ...proposal, hash: 'sha256:hash-2', changes: [{ ...proposal.changes[0], to: 'gemini-3.0-flash-lite' }] };
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false,
+      refusal: {
+        reason: 'proposal-changed', accepted: proposal, recomputed,
+        diff: { added: [], removed: [], changed: [{ slot: 'defaults.gemini', accepted: proposal.changes[0], recomputed: recomputed.changes[0] }] },
+      },
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText('proposal-changed')).toBeInTheDocument();
+    expect(screen.getByText(/New proposal for re-review/)).toBeInTheDocument();
+    expect(screen.getByText('gemini-3.0-flash-lite')).toBeInTheDocument();
+    // Accept is offered against the recomputed proposal, not the stale accepted one.
+    expect(screen.getByText('Accept proposal')).toBeInTheDocument();
+  });
+
+  it('needs-human: explains the unresolved slot and offers no Accept (t/4163)', async () => {
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false,
+      refusal: {
+        reason: 'needs-human',
+        proposal: { ...proposal, changes: [{ slot: 'defaults.claude', from: 'claude-3-0', to: null, reason: 'vendor-absent' as const }] },
+        unresolved: ['defaults.claude'],
+      },
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText('needs-human')).toBeInTheDocument();
+    expect(screen.getByText(/manual choice/i)).toBeInTheDocument();
+    expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
+  });
+
+  it('suspected-partial-catalog: explains the per-backend counts and offers no Accept or proposal table (t/4163)', async () => {
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false,
+      refusal: { reason: 'suspected-partial-catalog', backends: [{ backend: 'gemini', registered: 10, vendorListed: 2, wouldDrop: 8 }] },
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText('suspected-partial-catalog')).toBeInTheDocument();
+    expect(screen.getByText(/lists 2 of 10 registered/)).toBeInTheDocument();
+    expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('invalid: explains the dangling refs and offers no Accept (t/4163)', async () => {
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false,
+      refusal: { reason: 'invalid', dangling: ['defaults.gemini'], chainless: [] },
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText('invalid')).toBeInTheDocument();
+    expect(screen.getByText(/dangling refs: defaults\.gemini/)).toBeInTheDocument();
+    expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
+  });
+
+  it('on web (not Electron), Accept is disabled with an explanation even for proposal-required (t/4163)', async () => {
+    mockIsElectron = false;
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false,
+      refusal: { reason: 'proposal-required', proposal },
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText('proposal-required')).toBeInTheDocument();
+    expect(screen.getByText(/needs the desktop app for now/i)).toBeInTheDocument();
+    expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
   });
 });

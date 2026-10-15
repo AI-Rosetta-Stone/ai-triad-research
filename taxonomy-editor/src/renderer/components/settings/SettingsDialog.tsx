@@ -2,9 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@bridge';
+import { api, isElectronMode } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
-import type { RefreshResult, BackendResult } from '@lib/electron-shared/modelDiscovery';
+import type { RefreshResult, BackendResult, RefreshRefusal } from '@lib/electron-shared/modelDiscovery';
+import type { Proposal, ProposedChange, PinnedCandidate } from '@lib/electron-shared/refreshPolicy';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import type { ColorScheme, AIBackend, AIModel } from '../../hooks/useTaxonomyStore';
 import { AI_BACKENDS, MODELS_BY_BACKEND, initAIModels } from '../../hooks/useTaxonomyStore';
@@ -352,7 +353,185 @@ function TestKeysButton({ hasKey }: { hasKey: Record<string, boolean> }) {
 // (pre-t/2039 runtime) reads as legacy success.
 type RefreshOutcome = RefreshResult & { written?: boolean; configWarning?: string };
 
-function RefreshModelsResult({ result, error }: { result: RefreshResult | null; error: string | null }) {
+function formatSlotValue(v: string | string[] | null | undefined): string {
+  if (v === null || v === undefined) return '(none)';
+  return Array.isArray(v) ? v.join(', ') : v;
+}
+
+function ProposalChangesTable({ changes }: { changes: ProposedChange[] }) {
+  return (
+    <table className="settings-refresh-proposal-table">
+      <thead>
+        <tr><th>Slot</th><th>Current</th><th>Proposed</th></tr>
+      </thead>
+      <tbody>
+        {changes.map((c) => (
+          <tr key={c.slot}>
+            <td className="settings-refresh-proposal-slot">{c.slot}</td>
+            <td>{formatSlotValue(c.from)}</td>
+            <td>{formatSlotValue(c.to)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function PinnedCandidatesList({ candidates }: { candidates: PinnedCandidate[] }) {
+  return (
+    <div className="settings-refresh-pinned">
+      <div className="settings-refresh-pinned-heading">Upgrade available (pinned models kept as-is):</div>
+      {candidates.map((c) => (
+        <div key={c.pinned} className="settings-refresh-pinned-row">
+          <code>{c.pinned}</code> is pinned in {c.slots.join(', ')} — newer in family: <code>{c.newerInFamily}</code>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Mirrors the lib's refusalText() wording (modelDiscovery.ts, not exported) for the renderer. */
+function refusalExplanation(r: RefreshRefusal): string {
+  switch (r.reason) {
+    case 'suspected-partial-catalog':
+      return `Suspected partial catalog: ${r.backends.map((b) => `${b.backend} lists ${b.vendorListed} of ${b.registered} registered (would drop ${b.wouldDrop})`).join('; ')}. Nothing was proposed — retry later.`;
+    case 'code-referenced-absent':
+      return `The vendor no longer lists ${r.absent.length} model(s) that code still names: ${r.absent.map((a) => `${a.id} (${a.backend})`).join(', ')}. Update the code that names them, then refresh again.`;
+    case 'proposal-required':
+      return `This refresh would change ${r.proposal.changes.length} selection slot(s). Review the proposal below and accept it explicitly.`;
+    case 'cross-family':
+      return `The proposal would move ${r.slots.join(', ')} to a different model family, which a refresh never does automatically. A human must choose.`;
+    case 'needs-human': {
+      const from = new Map(r.proposal.changes.map((c) => [c.slot, c.from]));
+      const listed = r.unresolved.map((s) => `${s} (${JSON.stringify(from.get(s))})`).join(', ');
+      return `${r.unresolved.length} slot(s) have no same-family successor and need a manual choice: ${listed}.`;
+    }
+    case 'proposal-changed':
+      return `The catalog moved since this proposal was made (${r.diff.added.length} added, ${r.diff.removed.length} removed, ${r.diff.changed.length} changed). Review the new proposal below.`;
+    case 'no-principal':
+      return 'An accept must be made by a signed-in user. Nothing was changed.';
+    case 'invalid':
+      return `The refreshed registry would be invalid (${[...(r.dangling.length ? [`dangling refs: ${r.dangling.join(', ')}`] : []), ...r.chainless].join(' | ')}).`;
+  }
+}
+
+function AcceptProposalForm({ proposal, onAccept }: {
+  proposal: Proposal;
+  onAccept: (proposal: Proposal, approvedBy: string, reason: string) => Promise<void>;
+}) {
+  const [approvedBy, setApprovedBy] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (!approvedBy.trim() || !reason.trim()) {
+      setFormError('Both your name and a reason are required.');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await onAccept(proposal, approvedBy.trim(), reason.trim());
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'settings-dialog',
+        level: 'error',
+        message: 'Failed to accept model refresh proposal',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      setFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="settings-refresh-accept-form">
+      <label className="settings-refresh-accept-label">
+        Approved by
+        <input
+          type="text"
+          value={approvedBy}
+          onChange={(e) => setApprovedBy(e.target.value)}
+          placeholder="Your name"
+          disabled={submitting}
+        />
+      </label>
+      <label className="settings-refresh-accept-label">
+        Reason
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Why this change is correct"
+          disabled={submitting}
+        />
+      </label>
+      {formError && <div className="settings-refresh-accept-error">{formError}</div>}
+      <button
+        className="btn btn-sm btn-primary settings-refresh-accept-btn"
+        onClick={() => void handleSubmit()}
+        disabled={submitting}
+      >
+        {submitting ? 'Accepting...' : 'Accept proposal'}
+      </button>
+    </div>
+  );
+}
+
+function RefusalPanel({ refusal, pinnedCandidates, onAccept, acceptAllowed }: {
+  refusal: RefreshRefusal;
+  pinnedCandidates?: PinnedCandidate[];
+  onAccept: (proposal: Proposal, approvedBy: string, reason: string) => Promise<void>;
+  acceptAllowed: boolean;
+}) {
+  // t/4163#1 (coordinator decision): gated on isElectronMode() in this one place for
+  // now — desktop accept works end to end, web accept is off until t/4162 (server
+  // route) lands. The eventual web admin-gating (ticket ask #5) becomes a one-line
+  // change here once that ships.
+  const acceptDisabledNote = (
+    <div className="settings-refresh-accept-disabled">
+      Accepting needs the desktop app for now — web support is coming.
+    </div>
+  );
+
+  return (
+    <div className="settings-refresh-refused" role="alert">
+      <strong>Models not saved — review needed</strong>{' '}
+      <span className="settings-refresh-reason-badge">{refusal.reason}</span>
+      <div className="settings-refresh-refused-reason">{refusalExplanation(refusal)}</div>
+
+      {refusal.reason === 'proposal-required' && (
+        <>
+          <ProposalChangesTable changes={refusal.proposal.changes} />
+          {acceptAllowed ? <AcceptProposalForm proposal={refusal.proposal} onAccept={onAccept} /> : acceptDisabledNote}
+        </>
+      )}
+
+      {refusal.reason === 'proposal-changed' && (
+        <>
+          <div className="settings-refresh-proposal-subheading">New proposal for re-review:</div>
+          <ProposalChangesTable changes={refusal.recomputed.changes} />
+          {acceptAllowed ? <AcceptProposalForm proposal={refusal.recomputed} onAccept={onAccept} /> : acceptDisabledNote}
+        </>
+      )}
+
+      {(refusal.reason === 'needs-human' || refusal.reason === 'cross-family') && (
+        <ProposalChangesTable changes={refusal.proposal.changes} />
+      )}
+
+      {pinnedCandidates && pinnedCandidates.length > 0 && <PinnedCandidatesList candidates={pinnedCandidates} />}
+    </div>
+  );
+}
+
+function RefreshModelsResult({ result, error, onAccept, acceptAllowed }: {
+  result: RefreshResult | null;
+  error: string | null;
+  onAccept: (proposal: Proposal, approvedBy: string, reason: string) => Promise<void>;
+  acceptAllowed: boolean;
+}) {
   const outcome = result as RefreshOutcome | null;
   const refused = outcome?.written === false;
   const repairNote = outcome && outcome.written !== false ? outcome.configWarning : undefined;
@@ -369,7 +548,15 @@ function RefreshModelsResult({ result, error }: { result: RefreshResult | null; 
     <>
       {outcome && (
         <div className="settings-refresh-result">
-          {refused && (
+          {refused && outcome.refusal && (
+            <RefusalPanel
+              refusal={outcome.refusal}
+              pinnedCandidates={outcome.pinnedCandidates}
+              onAccept={onAccept}
+              acceptAllowed={acceptAllowed}
+            />
+          )}
+          {refused && !outcome.refusal && (
             <div className="settings-refresh-refused" role="alert">
               <strong>Models not saved — the config guard refused the write.</strong>
               {outcome.configWarning && (
@@ -625,6 +812,22 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     }
   };
 
+  // t/4163: accept sends the EXACT proposal object the panel displayed (RefusalPanel
+  // passes refusal.proposal or, on re-review, refusal.recomputed) — never reconstructed.
+  // Errors are left to the caller (AcceptProposalForm) to surface inline; this only
+  // updates shared state on success.
+  const handleAccept = async (proposal: Proposal, approvedBy: string, reason: string) => {
+    const result = await api.refreshAIModels({ accept: { proposal, approvedBy, reason } }) as RefreshResult;
+    await initAIModels();
+    setRefreshResult(result);
+    forceUpdate(n => n + 1);
+  };
+
+  // t/4163#1: gate Accept on isElectronMode() in this one place. Desktop works end to
+  // end today; web Accept stays off until t/4162 (server route) lands, regardless of
+  // admin status — the server ignores `accept` today and would do a plain refresh.
+  const acceptAllowed = isElectronMode();
+
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog settings-dialog" onClick={(e) => e.stopPropagation()}>
@@ -690,7 +893,12 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               </div>
             </div>
 
-            <RefreshModelsResult result={refreshResult} error={refreshError} />
+            <RefreshModelsResult
+              result={refreshResult}
+              error={refreshError}
+              onAccept={handleAccept}
+              acceptAllowed={acceptAllowed}
+            />
           </>
         )}
 
