@@ -9,6 +9,7 @@
 // source order (synthetic-embeddings first), so first-match routing is preserved
 // (see routeTable.test.ts).
 
+import type { IncomingMessage, ServerResponse } from 'http';
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForError, codeForError } from '../httpKit.js';
@@ -125,6 +126,62 @@ function situationsBdiGate(
   return null;
 }
 
+// t/4187: the If-Match precondition is required on every taxonomy save — a missing header means
+// the client loaded the file before this contract existed (or skipped the ForEdit load path) and
+// has no base version to protect against a lost update. Returns the unquoted baseSha on success,
+// or undefined after already writing the 428 response.
+function requireBaseVersion(req: IncomingMessage, res: ServerResponse): string | undefined {
+  const ifMatch = req.headers?.['if-match'];
+  // t/4184 GV (TL, p/775#56): strip a leading weak-validator `W/` marker before the quotes — a
+  // client that forwards the GET's ETag verbatim (RFC 7232 allows either strength) must still
+  // match, since this route compares the raw git blob SHA, not validator semantics.
+  const baseSha = typeof ifMatch === 'string' ? ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined;
+  if (!baseSha) {
+    error(res, 'Save requires an If-Match header carrying the base version read before editing.', 428, undefined, { code: 'BASE_VERSION_REQUIRED' });
+    return undefined;
+  }
+  return baseSha;
+}
+
+// Extracted from the PUT handler to keep its own complexity under budget (t/4185 CI gate): reads the
+// prior nodes, runs the t/3890 BDI gate for situations, computes the t/3171 changed-id set for the
+// inline grounding reconcile, and stamps authorship — all the branching that only applies when the
+// body carries a `nodes` array. Mutates `incoming.nodes` in place (stamped) like the original inline code.
+async function prepareTaxonomyNodeWrite(
+  pov: string,
+  incoming: { nodes?: unknown[] },
+): Promise<{ gate: { status: 400 | 500; message: string } | null; changedNodeIds: string[] }> {
+  let oldNodes: unknown[] = [];
+  let oldNodesErr: Error | null = null;
+  try {
+    const existing = await fileIO.readTaxonomyFile(pov) as { nodes?: unknown[] };
+    oldNodes = existing?.nodes ?? [];
+  } catch (err) {
+    oldNodesErr = err as Error;
+    /* telemetry — silent by design: first write or missing file; situations handled in situationsBdiGate */
+  }
+
+  // t/3890: BDI gate — situations only, changed nodes only, fail-closed on unreadable baseline
+  if (pov === 'situations') {
+    const gate = situationsBdiGate(oldNodesErr, oldNodes, incoming.nodes as unknown[]);
+    if (gate) return { gate, changedNodeIds: [] };
+  }
+
+  let changedNodeIds: string[] = [];
+  if (getFlag('grounding_reconcile_inline')) {
+    const { added, modified, deleted } = diffNodes(
+      oldNodes as Parameters<typeof diffNodes>[0],
+      incoming.nodes as Parameters<typeof diffNodes>[1],
+    );
+    changedNodeIds = [...added, ...modified, ...deleted]; // deleted → the reconciler purges their grounding
+  }
+  incoming.nodes = stampNodeAuthorship(
+    oldNodes as Parameters<typeof stampNodeAuthorship>[0],
+    incoming.nodes as Parameters<typeof stampNodeAuthorship>[1],
+  );
+  return { gate: null, changedNodeIds };
+}
+
 export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
   const { get, put } = r;
   const { ensureSessionBranch } = ctx;
@@ -173,12 +230,16 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
   get('/api/taxonomy/:pov', async (req, res) => {
     try {
       const pov = param(req, 'pov', '/api/taxonomy/:pov');
-      json(res, await fileIO.readTaxonomyFile(pov));
+      const { data, version } = await fileIO.readTaxonomyFileWithVersion(pov);
+      if (version) res.setHeader('ETag', `"${version}"`);
+      json(res, data);
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to read taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
   });
 
   put('/api/taxonomy/:pov', async (req, res, body) => {
     if (isAnonymousUser()) { error(res, 'Anonymous users cannot save taxonomy edits. Sign in to save.', 403); return; }
+    const baseSha = requireBaseVersion(req, res);
+    if (!baseSha) return;
     try {
       await ensureSessionBranch();
       const pov = param(req, 'pov', '/api/taxonomy/:pov');
@@ -188,35 +249,11 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       // while oldNodes is in scope. Only computed when the flag is on → flag-OFF adds one getFlag().
       let changedNodeIds: string[] = [];
       if (incoming.nodes && Array.isArray(incoming.nodes)) {
-        let oldNodes: unknown[] = [];
-        let oldNodesErr: Error | null = null;
-        try {
-          const existing = await fileIO.readTaxonomyFile(pov) as { nodes?: unknown[] };
-          oldNodes = existing?.nodes ?? [];
-        } catch (err) {
-          oldNodesErr = err as Error;
-          /* telemetry — silent by design: first write or missing file; situations handled in situationsBdiGate */
-        }
-
-        // t/3890: BDI gate — situations only, changed nodes only, fail-closed on unreadable baseline
-        if (pov === 'situations') {
-          const gate = situationsBdiGate(oldNodesErr, oldNodes, incoming.nodes);
-          if (gate) { error(res, gate.message, gate.status); return; }
-        }
-
-        if (getFlag('grounding_reconcile_inline')) {
-          const { added, modified, deleted } = diffNodes(
-            oldNodes as Parameters<typeof diffNodes>[0],
-            incoming.nodes as Parameters<typeof diffNodes>[1],
-          );
-          changedNodeIds = [...added, ...modified, ...deleted]; // deleted → the reconciler purges their grounding
-        }
-        incoming.nodes = stampNodeAuthorship(
-          oldNodes as Parameters<typeof stampNodeAuthorship>[0],
-          incoming.nodes as Parameters<typeof stampNodeAuthorship>[1],
-        );
+        const result = await prepareTaxonomyNodeWrite(pov, incoming);
+        if (result.gate) { error(res, result.gate.message, result.gate.status); return; }
+        changedNodeIds = result.changedNodeIds;
       }
-      await fileIO.writeTaxonomyFile(pov, body);
+      const { version } = await fileIO.writeTaxonomyFile(pov, body, { baseSha });
       // t/3267 Fix A: enqueue the debounced scoped grounding reconcile BEFORE responding. It's
       // synchronous + fire-and-forget/no-throw (Set.add + a debounce timer), so it can't delay or fail
       // the response — but placing it AFTER json(res) meant a response-write throw (ECONNRESET when the
@@ -225,6 +262,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       // guarantees it runs; json still returns { ok: true } immediately after. Gated OFF above until the
       // tool-lock + PS lock (t/3203) land.
       if (changedNodeIds.length > 0) enqueueGroundingReconcile(changedNodeIds);
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, { ok: true });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });

@@ -26,7 +26,7 @@ vi.mock('../security/userContext.js', () => ({
 const oldNodesRef: { nodes: Array<{ id: string; text: string }> } = { nodes: [] };
 vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: vi.fn(async () => oldNodesRef),
-  writeTaxonomyFile: vi.fn(async () => undefined),
+  writeTaxonomyFile: vi.fn(async () => ({ version: 'abc123' })),
   loadSyntheticEmbeddings: vi.fn(),
   loadSyntheticCorpus: vi.fn(),
 }));
@@ -50,7 +50,7 @@ function fakeRes() {
   };
   return res as unknown as ServerResponse & { _body: Record<string, unknown>; _statusCode: number };
 }
-const fakeReq = () => ({ url: '/api/taxonomy/accelerationist' } as unknown as IncomingMessage);
+const fakeReq = () => ({ url: '/api/taxonomy/accelerationist', headers: { 'if-match': '"base-sha"' } } as unknown as IncomingMessage);
 
 describe('PUT /api/taxonomy/:pov → grounding reconcile wiring (t/3171)', () => {
   let put: Handler;

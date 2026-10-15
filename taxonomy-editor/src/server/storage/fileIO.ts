@@ -212,7 +212,7 @@ export function getDataRootPath(): string {
 
 // ── Taxonomy CRUD ──
 
-async function resolveTaxonomyFilePath(pov: string): Promise<string> {
+export async function resolveTaxonomyFilePath(pov: string): Promise<string> {
   assertSafePov(pov);
   const taxDir = getTaxonomyDir();
   if (pov === 'situations') {
@@ -236,6 +236,32 @@ export async function readTaxonomyFile(pov: string, opts?: { ref?: string }): Pr
   });
   // Strip UTF-8 BOM if present — PowerShell's Set-Content writes BOM by default
   return JSON.parse(raw.replace(/^\uFEFF/, ''));
+}
+
+/** t/4187: `backend.readFileWithVersion` is optional (test-double backends
+ *  needn't stub it); every production backend implements it. Falls back to a
+ *  plain `readFile` + empty version \u2014 a real, never-stale "no precondition
+ *  support" marker \u2014 for any backend that doesn't. */
+async function readFileWithVersionOrFallback(
+  filePath: string, opts?: { ref?: string },
+): Promise<{ content: string; version: string } | null> {
+  if (backend.readFileWithVersion) return backend.readFileWithVersion(filePath, opts);
+  const content = await backend.readFile(filePath, opts);
+  return content === null ? null : { content, version: '' };
+}
+
+/** t/4187: like readTaxonomyFile, but also returns the version for the save
+ *  route to hand back to the client as its write precondition (ETag). */
+export async function readTaxonomyFileWithVersion(pov: string, opts?: { ref?: string }): Promise<{ data: unknown; version: string }> {
+  const filePath = await resolveTaxonomyFilePath(pov);
+  const result = await readFileWithVersionOrFallback(filePath, opts);
+  if (result === null) throw new ActionableError({
+    goal: 'Read taxonomy file',
+    problem: `Taxonomy file not found: ${filePath}`,
+    location: 'server/fileIO.ts -> readTaxonomyFileWithVersion',
+    nextSteps: ['Verify the POV file exists in the active taxonomy directory'],
+  });
+  return { data: JSON.parse(result.content.replace(/^\uFEFF/, '')), version: result.version };
 }
 
 const SYNTHETIC_POV_KEYS = new Set(['acc', 'saf', 'skp']);
@@ -339,14 +365,14 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
   return found ? result : null;
 }
 
-export async function writeTaxonomyFile(pov: string, data: unknown): Promise<void> {
+export async function writeTaxonomyFile(pov: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   const filePath = await resolveTaxonomyFilePath(pov);
-  await backend.writeFile(filePath, JSON.stringify(data, null, 2));
+  return backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
 }
 
 // ── Conflict CRUD ──
 
-function getConflictsDir(): string {
+export function getConflictsDir(): string {
   const config = loadDataConfig();
   return resolveDataPath(config.conflicts_dir);
 }
@@ -1115,95 +1141,8 @@ export async function listFlightRecorderDumpIds(): Promise<Array<{ kind: 'client
   return results;
 }
 
-// ── Harvest operations ──
-
-export async function harvestCreateConflict(conflict: Record<string, unknown>): Promise<boolean> {
-  const id = conflict.claim_id as string || conflict.id as string;
-  if (!id) return false;
-  assertSafeId(id, 'conflict id');
-  await backend.writeFile(
-    path.join(getConflictsDir(), `${id}.json`),
-    JSON.stringify(conflict, null, 2),
-  );
-  return true;
-}
-
-export async function harvestAddDebateRef(nodeId: string, debateId: string): Promise<boolean> {
-  // Find which POV file contains this node and update it
-  for (const pov of [...POV_KEYS, 'situations']) {
-    try {
-      const filePath = await resolveTaxonomyFilePath(pov);
-      const raw = await backend.readFile(filePath);
-      if (raw === null) continue;
-      const data = JSON.parse(raw);
-      const nodes = data.nodes || data;
-      const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
-      if (node) {
-        if (!node.debate_refs) node.debate_refs = [];
-        if (!node.debate_refs.includes(debateId)) {
-          node.debate_refs.push(debateId);
-          await backend.writeFile(filePath, JSON.stringify(data, null, 2));
-        }
-        return true;
-      }
-    } catch { /* telemetry — silent by design;  try next */ }
-  }
-  return false;
-}
-
-export async function harvestUpdateSteelman(nodeId: string, attackerPov: string, newText: string): Promise<boolean> {
-  for (const pov of [...POV_KEYS, 'situations']) {
-    try {
-      const filePath = await resolveTaxonomyFilePath(pov);
-      const raw = await backend.readFile(filePath);
-      if (raw === null) continue;
-      const data = JSON.parse(raw);
-      const nodes = data.nodes || data;
-      const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
-      if (node) {
-        if (typeof node.steelman_vulnerability === 'string') {
-          node.steelman_vulnerability = { [attackerPov]: newText };
-        } else if (typeof node.steelman_vulnerability === 'object' && node.steelman_vulnerability !== null) {
-          node.steelman_vulnerability[attackerPov] = newText;
-        } else {
-          node.steelman_vulnerability = { [attackerPov]: newText };
-        }
-        await backend.writeFile(filePath, JSON.stringify(data, null, 2));
-        return true;
-      }
-    } catch { /* telemetry — silent by design;  try next */ }
-  }
-  return false;
-}
-
-export async function harvestAddVerdict(conflictId: string, verdict: Record<string, unknown>): Promise<boolean> {
-  assertSafeId(conflictId, 'conflict id'); // L4 (t/720): block path traversal before path construction
-  const filePath = path.join(getConflictsDir(), `${conflictId}.json`);
-  const raw = await backend.readFile(filePath);
-  if (raw === null) return false;
-  const data = JSON.parse(raw);
-  data.verdict = verdict;
-  await backend.writeFile(filePath, JSON.stringify(data, null, 2));
-  return true;
-}
-
-export async function harvestQueueConcept(concept: Record<string, unknown>): Promise<boolean> {
-  const dir = resolveDataPath('harvests');
-  await backend.writeFile(
-    path.join(dir, `concept-${Date.now()}.json`),
-    JSON.stringify(concept, null, 2),
-  );
-  return true;
-}
-
-export async function harvestSaveManifest(manifest: Record<string, unknown>): Promise<boolean> {
-  const dir = resolveDataPath('harvests');
-  await backend.writeFile(
-    path.join(dir, `manifest-${Date.now()}.json`),
-    JSON.stringify(manifest, null, 2),
-  );
-  return true;
-}
+// ── Harvest operations (extracted to harvestStore.ts, ADR-007, max-lines) ──
+export { harvestCreateConflict, harvestAddDebateRef, harvestUpdateSteelman, harvestAddVerdict, harvestQueueConcept, harvestSaveManifest } from './harvestStore.js';
 
 // ── Summaries & Sources ──
 

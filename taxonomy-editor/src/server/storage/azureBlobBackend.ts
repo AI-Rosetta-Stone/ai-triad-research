@@ -26,6 +26,7 @@ import { getDataRoot } from '../config.js';
 import type { StorageBackend } from './storageBackend.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { gitBlobSha } from './gitBlobSha.js';
 
 export interface AzureBlobBackendOptions {
   /** e.g. https://<account>.blob.core.windows.net — from AZURE_STORAGE_ACCOUNT_URL. */
@@ -140,6 +141,14 @@ export class AzureBlobBackend implements StorageBackend {
     return (await this.readBinaryFile(filePath))?.toString('utf-8') ?? null;
   }
 
+  /** t/4201 (p/775#31): version is the content's git blob SHA (gitBlobSha), the
+   *  same hash writeFile's baseSha precondition checks against. Blob's own
+   *  native ETag/If-Match preconditions are tracked separately (t/4191). */
+  async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
+    const content = await this.readFile(filePath, opts);
+    return content === null ? null : { content, version: gitBlobSha(content) };
+  }
+
   async readBinaryFile(filePath: string): Promise<Buffer | null> {
     const blob = this.toBlobPath(filePath);
     try {
@@ -156,8 +165,33 @@ export class AzureBlobBackend implements StorageBackend {
     }
   }
 
-  async writeFile(filePath: string, content: string, _opts?: { ref?: string }): Promise<void> {
+  /**
+   * t/4201 (p/775#31): versions by content's git blob SHA (gitBlobSha) rather
+   * than the empty string this backend used to return — returning `''` meant
+   * no `ETag`, so no `If-Match`, so every save on a local web server backed by
+   * Blob hit the route's mandatory-428 rule. When `opts.baseSha` is supplied,
+   * this is check-then-write: read the current blob, hash it, and compare
+   * before uploading. It is NOT atomic (another write can land between the
+   * read and the upload) — an accepted gap for this single-node precondition,
+   * same tradeoff as FilesystemBackend; Blob's own native ETag/If-Match
+   * preconditions are the real fix and are tracked separately (t/4191).
+   */
+  async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
     const blob = this.toBlobPath(filePath);
+    if (opts?.baseSha !== undefined) {
+      const current = await this.readFile(filePath);
+      const currentSha = current === null ? '' : gitBlobSha(current);
+      if (currentSha !== opts.baseSha) {
+        throw new ActionableError({
+          goal: `Save ${filePath}`,
+          problem: 'The file changed since you loaded it (someone else saved a conflicting change).',
+          location: `AzureBlobBackend.writeFile(${blob})`,
+          nextSteps: ['Reload the file to see the latest version', 'Re-apply your change and save again'],
+          httpStatus: 409,
+          code: 'WRITE_CONFLICT',
+        });
+      }
+    }
     const data = Buffer.from(content, 'utf-8');
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.uploadTimeoutMs);
@@ -166,6 +200,7 @@ export class AzureBlobBackend implements StorageBackend {
         blobHTTPHeaders: { blobContentType: 'application/json; charset=utf-8' },
         abortSignal: ac.signal,
       });
+      return { version: gitBlobSha(content) };
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
         getGlobalRecorder()?.record({

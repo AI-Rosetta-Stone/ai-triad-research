@@ -58,7 +58,7 @@ function makeRouter() {
 }
 
 function fakeReq() {
-  return { url: '/api/taxonomy/situations' } as unknown as IncomingMessage;
+  return { url: '/api/taxonomy/situations', headers: { 'if-match': '"base-sha"' } } as unknown as IncomingMessage;
 }
 
 function fakeRes() {
@@ -99,7 +99,7 @@ describe('PUT /api/taxonomy/situations BDI gate (t/3890)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAnonymousUser.mockReturnValue(false);
-    mockWriteTaxonomy.mockResolvedValue(undefined);
+    mockWriteTaxonomy.mockResolvedValue({ version: 'abc123' });
 
     const r = makeRouter();
     registerTaxonomyRoutes(r.router as never, {

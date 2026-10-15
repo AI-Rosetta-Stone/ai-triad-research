@@ -354,53 +354,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     backend.shutdown();
   });
 
-  it('retries once on 409 SHA conflict with fresh SHA (direct write mode)', async () => {
-    const recorder = createTestRecorder();
-    const backend = await createBackend(recorder);
-    // No session context → writeFile uses Contents API directly
-
-    let putCount = 0;
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'PUT' && url.includes('/contents/')) {
-        putCount++;
-        if (putCount === 1) {
-          // First PUT → 409 conflict
-          return { status: 409, body: { message: 'sha does not match' } };
-        }
-        // Second PUT → success
-        return { status: 200, body: { content: { sha: 'new-blob-sha-retry' } } };
-      }
-      return null!;
-    });
-
-    await backend.writeFile('/taxonomy/nodes.json', '{"retry": true}');
-
-    expect(putCount).toBe(2);
-    // Verify flight recorder logged the conflict
-    const conflictEvent = recorder.events.find(e => e.type === 'github.api.conflict');
-    expect(conflictEvent).toBeDefined();
-    expect(conflictEvent!.data).toMatchObject({ path: 'taxonomy/nodes.json' });
-
-    backend.shutdown();
-  });
-
-  it('throws on second 409 (no infinite retry, direct write mode)', async () => {
-    const backend = await createBackend();
-    // No session context → writeFile uses Contents API directly
-
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'PUT' && url.includes('/contents/')) {
-        return { status: 409, body: { message: 'sha does not match' } };
-      }
-      return null!;
-    });
-
-    await expect(backend.writeFile('/taxonomy/nodes.json', '{}')).rejects.toThrow(/409/);
-
-    backend.shutdown();
-  });
+  // t/4184/t/4187 direct-write-mode 409 handling and readFileWithVersion
+  // atomicity tests moved to githubApiWriteConflict.test.ts (p/775#36) —
+  // see that file for the split-on-budget rationale (ADR-007).
 
   it('rejects path traversal attempts', async () => {
     const backend = await createBackend();
