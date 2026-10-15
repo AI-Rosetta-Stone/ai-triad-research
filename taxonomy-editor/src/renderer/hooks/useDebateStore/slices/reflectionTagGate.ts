@@ -7,8 +7,8 @@
 //        relation (D-1), the custodian verdicts (D-2, one model call at temperature 0), the target's tag
 //        fingerprint and a hash of the checked text.
 //   R-3 `evaluateTagGate`: at apply time, refuse `foreign`, `conflict`, `unchecked` and stale-stamp edits unless
-//        the reviewer overrides (`allowCrossTag`). `tension` is shown, never blocking. It fails closed: a missing
-//        or failed check blocks rather than passes.
+//        the reviewer overrides (`allowCrossTag`). `tension` blocks the same way while TENSION_NEEDS_CONFIRMATION
+//        holds (interim rule, t/4214#6). It fails closed: a missing or failed check blocks rather than passes.
 
 import { classifyTagRelation, type PovTagEntry, type TagRelation } from '@lib/debate/reflectionScope';
 import {
@@ -143,7 +143,26 @@ export async function annotateTagChecks(edits: ReflectionEdit[], ctx: AnnotateCo
   }
 }
 
-export type TagGateBlock = 'foreign' | 'conflict' | 'unchecked' | 'stale';
+/**
+ * Interim rule (CL ruling t/4214#6, M1 calibration PR #3310): the judge is reliable at the flag level (κ 0.69) but
+ * not yet at telling `tension` from `conflict` (κ 0.35, n=34). So both need the reviewer's confirmation before apply;
+ * the verdict and citation are shown either way, and `conflict` is no stronger a block than `tension`.
+ * OFF until R-6 lands: no UI passes `allowCrossTag` yet, so a block is a refusal, not a confirm-to-apply (CL
+ * p/785#3). R-6 turns this on together with its confirm control.
+ * LAPSES when the v2 judge (t/4225) passes M1 report §5.2: set this to false and `tension` goes back to never blocking.
+ */
+export const TENSION_NEEDS_CONFIRMATION = false;
+
+/**
+ * Whether a tag-gate block refuses the apply (CL p/785#5). OFF until R-6 ships the confirm control: with no UI path
+ * to `allowCrossTag`, enforcing refused most Skeptic applies outright (371 of 377 nodes are tagged; pre-#3307 edits
+ * have no stamp; a reviewer override makes the stamp stale; a failed judge call is `unchecked`). While off, a block
+ * is recorded as a WARN (`applyReflectionEdit.cross_tag_would_block`) and returned as a note, and the edit applies.
+ * R-6 sets this to true together with its confirm control and TENSION_NEEDS_CONFIRMATION.
+ */
+export const TAG_GATE_ENFORCED = false;
+
+export type TagGateBlock ='foreign' | 'conflict' | 'tension' | 'unchecked' | 'stale';
 
 export interface TagGateResult {
   /** Why the edit is refused without an override, or null when it may apply. */
@@ -158,6 +177,7 @@ export interface TagGateResult {
  */
 export function evaluateTagGate(
   edit: ReflectionEdit, pov: string, liveTags: string[] | undefined, finalLabel: string, finalDescription: string,
+  tensionNeedsConfirmation: boolean = TENSION_NEEDS_CONFIRMATION,
 ): TagGateResult {
   if (!edit.node_id || !CHECKED_EDIT_TYPES.has(edit.edit_type)) return { block: null, reason: '' };
   if (povTagEntries(pov).length === 0) return { block: null, reason: '' };
@@ -171,7 +191,19 @@ export function evaluateTagGate(
   }
   if (stamp.deprecate_shared_note) return { block: 'conflict', reason: stamp.deprecate_shared_note };
   if (stamp.unchecked) return { block: 'unchecked', reason: `The tag check could not be completed: ${stamp.unchecked}` };
-  const conflict = stamp.verdicts?.find(v => v.verdict === 'conflict');
-  if (conflict) return { block: 'conflict', reason: `Conflicts with ${conflict.soul}: "${conflict.cited}". ${conflict.reason}` };
+  return verdictGate(stamp.verdicts ?? [], tensionNeedsConfirmation);
+}
+
+/** The custodian verdicts' outcome: `conflict` blocks; `tension` blocks only under the interim rule. */
+function verdictGate(verdicts: CustodianVerdictRow[], tensionNeedsConfirmation: boolean): TagGateResult {
+  const conflict = verdicts.find(v => v.verdict === 'conflict');
+  if (conflict) return { block: 'conflict', reason: `Conflicts with ${conflict.soul}${citedText(conflict)}. ${conflict.reason}` };
+  const tension = tensionNeedsConfirmation ? verdicts.find(v => v.verdict === 'tension') : undefined;
+  if (tension) return { block: 'tension', reason: `In tension with ${tension.soul}${citedText(tension)}. ${tension.reason} Confirm to apply.` };
   return { block: null, reason: '' };
+}
+
+/** The quoted citation, or a note when the parser dropped an unverified one (a tension citation can be null). */
+function citedText(v: CustodianVerdictRow): string {
+  return v.cited ? `: "${v.cited}"` : ' (no verified citation)';
 }
