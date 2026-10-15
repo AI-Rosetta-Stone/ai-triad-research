@@ -73,8 +73,12 @@ export function inferBackend(model: string): BackendId | undefined {
  * (t/3675). The prefix table's agreement with every registry entry is pinned by a parity test (registry.test.ts).
  * FAILS CLOSED (t/4101): an id that is neither registered nor prefixed throws instead of defaulting to gemini, so
  * an unknown id can't route a request or a key to a provider by accident.
+ *
+ * `registry` is REQUIRED (t/4196): pass the loaded ai-models.json, or `null` to say "prefix-only, acknowledged"
+ * with a one-line reason at the call site. Omitting it used to fall through to the prefix guess silently; making it
+ * required lets tsc find every call site that bypasses the registry (the t/4099 / t/4141 class).
  */
-export function resolveBackend(model: string, registry?: Pick<ModelRegistry, 'models'>): BackendId {
+export function resolveBackend(model: string, registry: Pick<ModelRegistry, 'models'> | null): BackendId {
   const entry = registry?.models.find((m) => m.id === model);
   if (entry?.backend) return entry.backend as BackendId;
   const backend = inferBackend(model);
@@ -100,7 +104,7 @@ export function resolveModel(registry: ModelRegistry, friendlyId: string): { api
   // (e.g. `gemini-flash-lite-latest`) becomes a real provider call, and the model actually SERVED is not
   // verified here (that is t/3677's job, at the response boundary). Surface that the fallback was taken, per
   // the Fallback-Path Logging rule (root AGENTS.md), mirroring getModelMinTimeout's registry-miss WARN.
-  const backend = resolveBackend(friendlyId);
+  const backend = resolveBackend(friendlyId, null); // null: prefix-only by design, the registry lookup above already missed
   const branch = 'prefix';
   getGlobalRecorder()?.record({
     type: 'system.error',

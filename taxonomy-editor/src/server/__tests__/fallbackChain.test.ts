@@ -20,7 +20,7 @@ describe('filterChainForExplicitKey (t/829)', () => {
   it('drops cross-provider fallbacks when an explicit key is set', () => {
     const filtered = filterChainForExplicitKey(CROSS_PROVIDER, true, null);
     expect(filtered).toEqual(['gemini-flash-lite-latest', 'gemini-2.0-flash']);
-    expect(filtered.every(m => resolveBackend(m) === 'gemini')).toBe(true);
+    expect(filtered.every(m => resolveBackend(m, null) === 'gemini')).toBe(true);
   });
 
   it('keeps the full cross-provider chain when there is no explicit key', () => {
@@ -47,6 +47,6 @@ describe('buildModelsToTry (t/829 integration)', () => {
   it('with an explicit key, every attempted model is same-provider', () => {
     const chain = buildModelsToTry('gemini-flash-lite-latest', true, null);
     expect(chain.length).toBeGreaterThan(0);
-    expect(chain.every(m => resolveBackend(m) === 'gemini')).toBe(true);
+    expect(chain.every(m => resolveBackend(m, null) === 'gemini')).toBe(true);
   });
 });

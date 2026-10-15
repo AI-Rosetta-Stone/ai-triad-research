@@ -45,7 +45,7 @@ export function resolveGenerationContext(req: http.IncomingMessage, model: strin
   // no getModelRegistry) across many route-level test suites; wiring the real registry through
   // here has a blast radius disproportionate to a routing decision that's already prefix-correct
   // for every registered model today. Prefix-only, acknowledged.
-  const backend = ai.resolveBackend(effectiveModel || DEFAULT_MODEL, undefined);
+  const backend = ai.resolveBackend(effectiveModel || DEFAULT_MODEL, null);
   return { tier, isFree, limitKey, effectiveModel, backend };
 }
 

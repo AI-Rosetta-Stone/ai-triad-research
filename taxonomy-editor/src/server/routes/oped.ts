@@ -116,10 +116,10 @@ function applyEventToRun(run: RunControlRecord, event: OpEdProgressEvent, comple
 function logVoiceFailure(event: OpEdProgressEvent, model: string): void {
   if (event.type !== 'voice_failed') return;
   const evt = event as { pov: string; error?: string };
-  // t/4196 Stage 1 (AC3, log-only): undefined, not the real registry — this module is mocked
+  // t/4196 Stage 1 (AC3, log-only): null, not the real registry — this module is mocked
   // (partial factory, no getModelRegistry) across many route-level test suites, and this value
   // only ever reaches a diagnostic log line, never a routing decision. Prefix-only, acknowledged.
-  const backend = resolveBackend(model || DEFAULT_MODEL, undefined);
+  const backend = resolveBackend(model || DEFAULT_MODEL, null);
   getGlobalRecorder()?.record({
     type: 'system.error', component: 'oped', level: 'error',
     message: `Op-ed voice failed to generate (pov=${evt.pov}, model=${model}, backend=${backend})`,
