@@ -449,6 +449,19 @@ Leg-a of the data repo's citation-link check (`Test-CitationLinkIntegrity`, summ
 
 **Revisit when** the corpus shrinks by design (for example, a summary purge or a split into a second repo). Then reset the floor against the new count in the same change.
 
+## 19. Tag-aware reflection: custodian rule and judge go-live gate (t/4211)
+
+These are the rule and threshold for the cross-tag reflection gate, spec `analyses/t4211-tag-aware-reflection/spec.md`. **They aren't `CalibrationDataPoint` fields, so they're excluded from the §5 count.**
+
+| Item | Value | Provenance | Evidence / notes |
+|---|---|---|---|
+| Seat–target relation → custodian souls (spec §2 table) | 7 rows | **stipulated** | A policy definition derived from the t/3935 tag model: a tag soul replaces the umbrella soul, and a node may carry any number of its POV's tags. It isn't fitted. |
+| Verdict scale (`consistent` / `tension` / `conflict`; `conflict` = breaks a hardcoded boundary or inverts the value hierarchy) | 3 levels | **stipulated** | It maps onto the soul docs' existing `boundaries.hardcoded`, `boundaries.softcoded` and `value_hierarchy` fields. |
+| Judge go-live: agreement with CL labels | κ ≥ 0.6, n ≥ 30, at least 5 `conflict` and 5 `consistent` items, both cells non-empty in both raters | **stipulated** | A conventional "substantial agreement" floor. The non-empty-cell condition excludes the degenerate PASS where both raters mark everything one way (t/3587). Becomes **human-validated** when M1 reports. |
+| Baseline (M0) | 177 Skeptic edits from 91 debates: 40% critical-only, 33% both, 27% institutional-only targets; 0 tagged seats | measured | `scripts/t4211_reflection_tag_baseline.py`, data `b030e2b3`, 2026-10-15. It classifies past edits by each node's **current** tags. |
+
+**Revisit when** a second POV gets tags (re-run M0 for that POV), or when M1/M2 show the judge's `conflict` rate is near 0% or near 100% on real edits. Either result means the scale isn't separating cases.
+
 ## Maintenance
 
 - Every PR adding or modifying a metric, threshold, weight, or lexicon must state its provenance class and update this register in the same PR (CL review checklist item).
