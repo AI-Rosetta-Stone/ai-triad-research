@@ -17,5 +17,6 @@ import crypto from 'crypto';
 export function gitBlobSha(content: string): string {
   const buf = Buffer.from(content, 'utf-8');
   const header = `blob ${buf.byteLength}\0`;
+  // codeql[js/weak-cryptographic-algorithm] -- git blob object-hash format (must match GitHub's sha); a version tag, not a security control
   return crypto.createHash('sha1').update(header).update(buf).digest('hex');
 }
