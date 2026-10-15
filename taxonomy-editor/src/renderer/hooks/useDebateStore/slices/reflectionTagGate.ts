@@ -13,7 +13,7 @@
 import { classifyTagRelation, type PovTagEntry, type TagRelation } from '@lib/debate/reflectionScope';
 import {
   buildCustodianCheckPrompt, parseCustodianCheckOutput,
-  type CustodianCheckSoul, type CustodianVerdictRow,
+  type CustodianCheckInput, type CustodianCheckSoul, type CustodianVerdictRow,
 } from '@lib/debate/prompts/reflectionTagCheck';
 import { resolvePoverInfo } from '@lib/debate/tagSoulRegistry';
 import { loadPovTagRegistry } from '@lib/schema/povTags';
@@ -71,9 +71,8 @@ async function runCustodianCheck(
   edit: ReflectionEdit, targetTags: string[], custodians: string[], ctx: AnnotateContext,
 ): Promise<{ verdicts?: CustodianVerdictRow[]; unchecked?: string }> {
   try {
-    // The same souls go to the prompt and the parser: the parser checks each citation against them (#3300).
-    const souls = custodians.map(custodianSoul);
-    const prompt = buildCustodianCheckPrompt({
+    // The same params go to the prompt and the parser: the parser verifies citations and evidence against them.
+    const checkParams: CustodianCheckInput = {
       editType: edit.edit_type as 'revise' | 'qualify' | 'deprecate',
       currentLabel: edit.current_label ?? '',
       currentDescription: edit.current_description ?? '',
@@ -82,10 +81,11 @@ async function runCustodianCheck(
       rationale: edit.rationale,
       nodeTags: targetTags,
       seatTag: ctx.seatTag,
-      custodians: souls,
-    });
+      custodians: custodians.map(custodianSoul),
+    };
+    const prompt = buildCustodianCheckPrompt(checkParams);
     const { text } = await ctx.generateText(prompt, ctx.model, undefined, 0);
-    const out = parseCustodianCheckOutput(text, souls);
+    const out = parseCustodianCheckOutput(text, checkParams);
     if ('unchecked' in out) {
       getGlobalRecorder()?.record({
         type: 'state.error', component: 'reflection-tag-check', level: 'warn', debate_id: ctx.debateId,
