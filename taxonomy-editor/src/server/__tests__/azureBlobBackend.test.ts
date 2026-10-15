@@ -138,6 +138,38 @@ describe('AzureBlobBackend (Azurite)', () => {
     await expect(backend.writeFile('foo/../../bar.json', 'x')).rejects.toThrow(/unsafe path/i);
     await expect(backend.readFile('.git/config')).rejects.toThrow(/unsafe path/i);
   });
+
+  // t/4201 (p/775#31): versions by gitBlobSha(content); writeFile's baseSha is a
+  // check-then-write precondition (not atomic, but sufficient for this single-node
+  // local-web path — see the comment on AzureBlobBackend.writeFile).
+  it('writeFile with a matching baseSha (If-Match) succeeds', async () => {
+    const v1 = await backend.writeFile('taxonomy/conflict.json', '{"v":1}');
+    const v2 = await backend.writeFile('taxonomy/conflict.json', '{"v":2}', { baseSha: v1.version });
+
+    expect(v2.version).toBeTruthy();
+    expect(v2.version).not.toBe(v1.version);
+    expect(await backend.readFile('taxonomy/conflict.json')).toBe('{"v":2}');
+  });
+
+  it('writeFile with a stale baseSha (If-Match) throws WRITE_CONFLICT (409)', async () => {
+    const v1 = await backend.writeFile('taxonomy/conflict2.json', '{"v":1}');
+    await backend.writeFile('taxonomy/conflict2.json', '{"v":2}', { baseSha: v1.version });
+
+    const err = await backend.writeFile('taxonomy/conflict2.json', '{"lost-update":true}', { baseSha: v1.version })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+    expect(await backend.readFile('taxonomy/conflict2.json')).toBe('{"v":2}'); // the stale write never landed
+  });
+
+  it('readFileWithVersion returns the same version writeFile just wrote', async () => {
+    const written = await backend.writeFile('taxonomy/rfv.json', '{"v":1}');
+    const got = await backend.readFileWithVersion!('taxonomy/rfv.json');
+
+    expect(got?.content).toBe('{"v":1}');
+    expect(got?.version).toBe(written.version);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

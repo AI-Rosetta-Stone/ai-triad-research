@@ -9,6 +9,7 @@
 // source order (synthetic-embeddings first), so first-match routing is preserved
 // (see routeTable.test.ts).
 
+import type { IncomingMessage, ServerResponse } from 'http';
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForError, codeForError } from '../httpKit.js';
@@ -125,6 +126,20 @@ function situationsBdiGate(
   return null;
 }
 
+// t/4187: the If-Match precondition is required on every taxonomy save — a missing header means
+// the client loaded the file before this contract existed (or skipped the ForEdit load path) and
+// has no base version to protect against a lost update. Returns the unquoted baseSha on success,
+// or undefined after already writing the 428 response.
+function requireBaseVersion(req: IncomingMessage, res: ServerResponse): string | undefined {
+  const ifMatch = req.headers?.['if-match'];
+  const baseSha = typeof ifMatch === 'string' ? ifMatch.replace(/^"|"$/g, '') : undefined;
+  if (!baseSha) {
+    error(res, 'Save requires an If-Match header carrying the base version read before editing.', 428, undefined, { code: 'BASE_VERSION_REQUIRED' });
+    return undefined;
+  }
+  return baseSha;
+}
+
 export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
   const { get, put } = r;
   const { ensureSessionBranch } = ctx;
@@ -173,12 +188,16 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
   get('/api/taxonomy/:pov', async (req, res) => {
     try {
       const pov = param(req, 'pov', '/api/taxonomy/:pov');
-      json(res, await fileIO.readTaxonomyFile(pov));
+      const { data, version } = await fileIO.readTaxonomyFileWithVersion(pov);
+      if (version) res.setHeader('ETag', `"${version}"`);
+      json(res, data);
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to read taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
   });
 
   put('/api/taxonomy/:pov', async (req, res, body) => {
     if (isAnonymousUser()) { error(res, 'Anonymous users cannot save taxonomy edits. Sign in to save.', 403); return; }
+    const baseSha = requireBaseVersion(req, res);
+    if (!baseSha) return;
     try {
       await ensureSessionBranch();
       const pov = param(req, 'pov', '/api/taxonomy/:pov');
@@ -216,7 +235,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
           incoming.nodes as Parameters<typeof stampNodeAuthorship>[1],
         );
       }
-      await fileIO.writeTaxonomyFile(pov, body);
+      const { version } = await fileIO.writeTaxonomyFile(pov, body, { baseSha });
       // t/3267 Fix A: enqueue the debounced scoped grounding reconcile BEFORE responding. It's
       // synchronous + fire-and-forget/no-throw (Set.add + a debounce timer), so it can't delay or fail
       // the response — but placing it AFTER json(res) meant a response-write throw (ECONNRESET when the
@@ -225,6 +244,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       // guarantees it runs; json still returns { ok: true } immediately after. Gated OFF above until the
       // tool-lock + PS lock (t/3203) land.
       if (changedNodeIds.length > 0) enqueueGroundingReconcile(changedNodeIds);
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, { ok: true });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
