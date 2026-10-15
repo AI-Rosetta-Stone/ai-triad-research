@@ -185,12 +185,13 @@ describe('tagging new nodes from reflection proposals (t/4214 R-4)', () => {
         .toMatchObject({ data: { node_id: 'skp-beliefs-996', seat_tag: 'critical', pov_tags: ['critical', 'institutional'] } });
     });
 
-    it('an empty choice leaves the node untagged (common ground), with no coverage-gap WARN', async () => {
+    it('an empty choice leaves the node untagged, out of every wing\'s Scope, and records the coverage-gap WARN (CL #3315)', async () => {
       mockTaxonomyState.createPovNode.mockReturnValue('skp-beliefs-995');
       seedProposal('skeptic', 'critical');
       await useDebateStore.getState().applyReflectionProposal('skeptic', 0, { povTags: [] });
       expect(writtenNode()).not.toHaveProperty('pov_tags');
-      expect(records().some(r => r.message.startsWith('reflection.new_node_untagged'))).toBe(false);
+      expect(records().find(r => r.message.startsWith('reflection.new_node_untagged')))
+        .toMatchObject({ level: 'warn', data: { node_id: 'skp-beliefs-995', pov: 'skeptic', reviewer_choice: true } });
       expect(records().some(r => r.message === 'reflection.new_node_tags_set_by_reviewer')).toBe(true);
     });
 

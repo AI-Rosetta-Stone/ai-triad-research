@@ -553,7 +553,7 @@ export const PROMPT_CATALOG: PromptCatalogEntry[] = [
     source: 'lib/debate/prompts/reflectionTagCheck.ts',
     template: '(Template requires runtime context — view in Prompt Inspector or Full Prompt tab)',
     group: 'debate-analysis',
-    purpose: 'Fires after reflection for each revise, qualify or deprecate edit to a node another wing co-owns, or to whole-camp common ground (Skeptic today). One call per edit at temperature 0. The ReflectionsPanel shows each custodian wing\'s verdict and citation; a conflict, and under the interim rule a tension, holds the edit until the reviewer confirms the override (t/4214).',
+    purpose: 'Fires after reflection for each revise, qualify or deprecate edit to a node another wing co-owns, or to an untagged node (Skeptic today). One call per edit at temperature 0. The ReflectionsPanel shows each custodian wing\'s verdict and citation; a conflict, and under the interim rule a tension, holds the edit until the reviewer confirms the override (t/4214).',
     phase: 'concluding',
     applicableDataSources: ['taxonomyNodes'],
     builders: ['buildCustodianCheckPrompt'],

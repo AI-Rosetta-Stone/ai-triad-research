@@ -335,13 +335,14 @@ describe('ReflectionsPanel — propose_new wing tags (t/4214 R-6b)', () => {
     await waitFor(() => expect(debateStore.applyReflectionProposal).toHaveBeenCalledWith('skeptic', 0, { povTags: ['critical', 'institutional'] }));
   });
 
-  it('clearing every tag applies the node as common ground', async () => {
+  it('clearing every tag warns that the node leaves every wing\'s Scope, and applies untagged', async () => {
     addSkepticProposal();
     debateStore.activeDebate = { seat_tags: { skeptic: { pov_tag: 'critical', tag_mode: 'scope' } } };
     debateStore.applyReflectionProposal.mockResolvedValue({ ok: true });
     render(<ReflectionsPanel onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Critical' }));
-    expect(screen.getByText('No tag: common ground for the whole camp.')).toBeInTheDocument();
+    expect(screen.getByText('No wing tag: this node will be left out of Critical and Institutional Scope debates. To share it, tag both wings.')).toBeInTheDocument();
+    expect(screen.queryByText(/common ground/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Approve & Apply' }));
     await waitFor(() => expect(debateStore.applyReflectionProposal).toHaveBeenCalledWith('skeptic', 0, { povTags: [] }));
   });

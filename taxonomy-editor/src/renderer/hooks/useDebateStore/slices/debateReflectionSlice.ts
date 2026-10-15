@@ -118,7 +118,8 @@ export interface DebateReflectionSlice {
    *  proposed edges atomically (one save) — no orphaned node. Edge targets are
    *  re-validated against live node ids at apply time. */
   /** `povTags` (t/4214 R-6b) is the reviewer's choice of tags for the new node; omitted, the seat's own tag applies
-   *  (R-4). An empty array leaves the node untagged: common ground for the whole camp. */
+   *  (R-4). An empty array leaves the node untagged, which takes it out of every wing's Scope (t/3955), so it is
+   *  recorded as a coverage gap. */
   applyReflectionProposal: (pover: string, proposalIndex: number, options?: { povTags?: string[] }) => Promise<{ ok: boolean; error?: string; createdNodeId?: string }>;
   dismissReflectionProposal: (pover: string, proposalIndex: number) => void;
   retryEnrichment: (nodeId: string, pov: 'accelerationist' | 'safetyist' | 'skeptic') => Promise<void>;
@@ -682,7 +683,14 @@ function reviewerNodeTags(povKey: Pov, nodeId: string, pover: string, reviewerTa
       data: { node_id: nodeId, pov: povKey, pover, seat_tag: seatTag ?? null, pov_tags: reviewerTags },
     });
   }
-  return reviewerTags.length > 0 ? [...reviewerTags] : undefined;
+  if (reviewerTags.length > 0) return [...reviewerTags];
+  // Untagged is out of every wing's Scope, not shared ground (CL #3315): the same coverage-gap WARN as R-4 (spec §3.1).
+  getGlobalRecorder()?.record({
+    type: 'state.change', component: 'reflection-proposal', level: 'warn',
+    message: 'reflection.new_node_untagged: the reviewer cleared every wing tag; the node is out of Scope for every wing and is a coverage gap for the tag-proposal pipeline',
+    data: { node_id: nodeId, pov: povKey, pover, reviewer_choice: true },
+  });
+  return undefined;
 }
 
 /**
