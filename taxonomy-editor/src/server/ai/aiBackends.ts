@@ -187,12 +187,14 @@ function loadModelMap(): Record<string, string> {
   return Object.fromEntries(Object.entries(entryMap).map(([k, v]) => [k, v.apiModelId]));
 }
 
-function getFallbackChain(modelId: string): string[] {
+// t/4196 Stage 1: registry is required (null = prefix-only, acknowledged) so a mismatch between
+// ai-models.json and resolveBackend's id-prefix guess can't silently pick the wrong chain shape.
+function getFallbackChain(modelId: string, registry: Pick<ModelRegistry, 'models'> | null): string[] {
   const { fallbackChains, defaults } = loadModelConfig();
   const explicit = fallbackChains[modelId];
   if (explicit) return explicit;
 
-  const backend = resolveBackend(modelId);
+  const backend = resolveBackend(modelId, registry ?? undefined);
   const chain: string[] = [];
   const sameDefault = defaults[backend];
   if (sameDefault && sameDefault !== modelId) chain.push(sameDefault);
@@ -269,8 +271,8 @@ export { resolveBackend };
  * making the fallback chain useless. Without an explicit key each model resolves
  * its own per-backend key, so the full cross-provider chain is kept.
  */
-export function buildModelsToTry(resolved: string, hasExplicitKey: boolean): string[] {
-  return filterChainForExplicitKey([resolved, ...getFallbackChain(resolved)], hasExplicitKey);
+export function buildModelsToTry(resolved: string, hasExplicitKey: boolean, registry: Pick<ModelRegistry, 'models'> | null): string[] {
+  return filterChainForExplicitKey([resolved, ...getFallbackChain(resolved, registry)], hasExplicitKey, registry);
 }
 
 /**
@@ -279,11 +281,14 @@ export function buildModelsToTry(resolved: string, hasExplicitKey: boolean): str
  * belongs to one provider. No-op when there's no explicit key or the chain is
  * empty. Split out from buildModelsToTry so the filtering is unit-testable
  * without loading ai-models.json.
+ * t/4196 Stage 1 (key-routing site, AC2): this decides which models a caller's explicit key may
+ * be sent to — an id-prefix/registry disagreement here sends the key to the wrong provider (the
+ * t/4099 class). registry is required; pass null only with a reason for prefix-only acceptance.
  */
-export function filterChainForExplicitKey(models: string[], hasExplicitKey: boolean): string[] {
+export function filterChainForExplicitKey(models: string[], hasExplicitKey: boolean, registry: Pick<ModelRegistry, 'models'> | null): string[] {
   if (!hasExplicitKey || models.length === 0) return models;
-  const primaryBackend = resolveBackend(models[0]);
-  return models.filter(m => resolveBackend(m) === primaryBackend);
+  const primaryBackend = resolveBackend(models[0], registry ?? undefined);
+  return models.filter(m => resolveBackend(m, registry ?? undefined) === primaryBackend);
 }
 
 /** Parse a withRetry progress message and forward it to onRetry + the recorder. */
@@ -374,9 +379,9 @@ export async function generateText(
 ): Promise<GenerateResult> {
   const resolved = model || DEFAULT_MODEL;
   const explicitKeys = normalizeExplicitKeys(explicitApiKey);
-  const modelsToTry = buildModelsToTry(resolved, explicitKeys !== undefined);
-  const entryMap = loadModelConfig().entryMap;
   const registry = getModelRegistry(); // read once per call, not once per chain link (TL e/284#19)
+  const modelsToTry = buildModelsToTry(resolved, explicitKeys !== undefined, registry);
+  const entryMap = loadModelConfig().entryMap;
 
   let lastError: unknown;
   const onChainLinkComplete = options?.onChainLinkComplete; // t/4088: hoisted once — repeated optional access adds no further complexity
@@ -442,7 +447,7 @@ export async function generateText(
     }
   }
 
-  if (lastError === undefined) throwNoApiKeyError(resolveBackend(resolved), modelsToTry); // every link was skipped
+  if (lastError === undefined) throwNoApiKeyError(resolveBackend(resolved, registry), modelsToTry); // every link was skipped
   throw lastError;
 }
 
@@ -453,7 +458,9 @@ export async function generateTextWithSearch(
   prompt: string, model?: string, explicitApiKey?: string | string[],
 ): Promise<{ text: string; searchQueries?: string[]; citations?: SharedGroundingCitation[] }> {
   const resolved = model || DEFAULT_MODEL;
-  const backend = resolveBackend(resolved);
+  // t/4196 Stage 1 (key-routing site, AC2): decides gemini vs Tavily+LLM, and which key goes
+  // downstream — the server-side twin of t/4141's embeddings.ts fix. Registry first (t/4105 cond 3).
+  const backend = resolveBackend(resolved, getModelRegistry());
 
   if (backend !== 'gemini') {
     const tavilyKey = await getApiKey('tavily');

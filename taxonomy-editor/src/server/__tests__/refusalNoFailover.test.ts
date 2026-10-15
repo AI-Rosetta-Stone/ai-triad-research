@@ -58,9 +58,11 @@ afterEach(() => {
   }
 });
 
+// t/4196 Stage 1: registry is `null` throughout — this suite fixtures PRIMARY/chain ids by their
+// prefix on purpose (claude-/gemini-), so prefix-only resolution is exactly what's under test.
 describe('generateText: a key-routing refusal never fails over (t/4105 C6)', () => {
   it('the fixture chain really is claude-primary with gemini later (a vacuous chain would pass anything)', () => {
-    const chain = buildModelsToTry(PRIMARY, false);
+    const chain = buildModelsToTry(PRIMARY, false, null);
     expect(resolveBackend(chain[0])).toBe('claude');
     expect(chain.slice(1).some((m) => resolveBackend(m) === 'gemini')).toBe(true);
   });
@@ -92,7 +94,7 @@ describe('generateText: a key-routing refusal never fails over (t/4105 C6)', () 
   it('a SECONDARY non-gemini link with only AI_API_KEY is skipped with a WARN, not thrown and never called', async () => {
     // gemini primary fails transiently; the later non-gemini links have no own key, only AI_API_KEY.
     process.env.AI_API_KEY = 'google-placeholder';
-    const chain = buildModelsToTry('gemini-3.5-flash-lite', false);
+    const chain = buildModelsToTry('gemini-3.5-flash-lite', false, null);
     expect(chain.slice(1).some((m) => resolveBackend(m) !== 'gemini')).toBe(true); // fixture has a cross-provider link
     claudeBehavior.geminiFails = true;
     // The caller sees gemini's own failure, not the secondary's refusal, and no non-gemini provider is called.
@@ -104,7 +106,7 @@ describe('generateText: a key-routing refusal never fails over (t/4105 C6)', () 
     // gemini primary fails transiently; the cross-provider link's stored key is another backend's credential.
     process.env.AI_API_KEY = 'google-placeholder';
     process.env.ANTHROPIC_API_KEY = 'claude-placeholder';
-    const chain = buildModelsToTry('gemini-3.5-flash-lite', false);
+    const chain = buildModelsToTry('gemini-3.5-flash-lite', false, null);
     const secondary = chain.slice(1).map((m) => resolveBackend(m)).find((b) => b !== 'gemini' && b !== 'claude');
     expect(secondary).toBeDefined(); // fixture has a non-gemini, non-claude link
     storedKeys[secondary!] = ['claude-placeholder'];

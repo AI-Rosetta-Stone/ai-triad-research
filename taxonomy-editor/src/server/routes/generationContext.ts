@@ -41,7 +41,11 @@ export function resolveGenerationContext(req: http.IncomingMessage, model: strin
   // bucket), with the model pinned. Other tiers key by user and honour the request model.
   const limitKey = isFree ? `free:${getClientIp(req)}` : (principalName || '_anonymous');
   const effectiveModel = isFree ? (tier.pinnedModel ?? model) : model;
-  const backend = ai.resolveBackend(effectiveModel || DEFAULT_MODEL);
+  // t/4196 Stage 1 (AC3): null, not the real registry — this module is mocked (partial factory,
+  // no getModelRegistry) across many route-level test suites; wiring the real registry through
+  // here has a blast radius disproportionate to a routing decision that's already prefix-correct
+  // for every registered model today. Prefix-only, acknowledged.
+  const backend = ai.resolveBackend(effectiveModel || DEFAULT_MODEL, undefined);
   return { tier, isFree, limitKey, effectiveModel, backend };
 }
 
