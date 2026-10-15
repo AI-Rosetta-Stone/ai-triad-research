@@ -24,16 +24,20 @@ export function percentile(valuesMs, p) {
 
 /**
  * Summarize one ramp step's raw samples into the headline numbers the ticket asks for.
- * @param {{ latenciesMs: number[], errorCount: number, requestCount: number, durationMs: number }} raw
+ * `preconditionCount` (t/4223, optional, defaults 0) is the editor-save 428/409 count — a
+ * concurrent-editor collision or a stale/missing If-Match, kept OUT of errorCount and
+ * errorRatePct because it's the precondition mechanism doing its job, not a server error.
+ * @param {{ latenciesMs: number[], errorCount: number, requestCount: number, durationMs: number, preconditionCount?: number }} raw
  */
 export function summarizeStep(raw) {
-  const { latenciesMs, errorCount, requestCount, durationMs } = raw;
+  const { latenciesMs, errorCount, requestCount, durationMs, preconditionCount = 0 } = raw;
   const errorRatePct = requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
   return {
     p50Ms: percentile(latenciesMs, 50),
     p95Ms: percentile(latenciesMs, 95),
     errorRatePct,
     requestCount,
+    preconditionCount,
     errorCount,
     rps: durationMs > 0 ? requestCount / (durationMs / 1000) : 0,
   };
