@@ -112,6 +112,9 @@ vi.mock('../shared/MentionField', () => ({
 vi.mock('../../utils/regeneratePlainDescription', () => ({ triggerPovNodeRegeneration: vi.fn() }));
 vi.mock('../../data/lineageLookup', () => ({ getLineageInfo: () => null }));
 vi.mock('../../prompts/research', () => ({ researchPrompt: () => '' }));
+// t/4167: who may edit POV tags (default: may, so the other tests are unaffected).
+const tagPerm = vi.hoisted(() => ({ canEdit: true }));
+vi.mock('../../hooks/useCanEditPovTags', () => ({ useCanEditPovTags: () => tagPerm.canEdit }));
 vi.mock('../../utils/shareLinks', () => ({ publicPovSharePath: () => '' }));
 vi.mock('../conflict/edit-conflicts', () => ({
   EditConflictBadge: () => null,
@@ -447,5 +450,34 @@ describe('NodeDetail — delete flow warns of dangling references and logs the d
       danglingSituationRefs: 1,
       danglingChildren: 0,
     });
+  });
+});
+
+// ── POV tags are admin-only (t/4167) ─────────────────────────────────────────
+describe('NodeDetail — POV tag editing is admin-only (t/4167)', () => {
+  const renderTagged = () => render(
+    <NodeDetail pov="skeptic" node={{ ...mockNode, pov_tags: ['critical'] }} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+  );
+
+  beforeEach(() => { tagPerm.canEdit = true; });
+
+  it('without tag permission the chips show but there is no remove or add control', () => {
+    tagPerm.canEdit = false;
+    renderTagged();
+    expect(screen.getByText('Critical')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Remove tag/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Add POV tag' })).not.toBeInTheDocument();
+  });
+
+  it('without tag permission the rest of the node stays editable', () => {
+    tagPerm.canEdit = false;
+    renderTagged();
+    expect(screen.getAllByRole('textbox').length).toBeGreaterThan(0);
+  });
+
+  it('with tag permission the remove and add controls show', () => {
+    renderTagged();
+    expect(screen.getByRole('button', { name: 'Remove tag Critical' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Add POV tag' })).toBeInTheDocument();
   });
 });
