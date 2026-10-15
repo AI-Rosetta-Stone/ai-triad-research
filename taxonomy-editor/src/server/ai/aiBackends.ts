@@ -281,7 +281,6 @@ export function buildModelsToTry(resolved: string, hasExplicitKey: boolean, regi
  * belongs to one provider. No-op when there's no explicit key or the chain is
  * empty. Split out from buildModelsToTry so the filtering is unit-testable
  * without loading ai-models.json.
- *
  * t/4196 Stage 1 (key-routing site, AC2): this decides which models a caller's explicit key may
  * be sent to — an id-prefix/registry disagreement here sends the key to the wrong provider (the
  * t/4099 class). registry is required; pass null only with a reason for prefix-only acceptance.
