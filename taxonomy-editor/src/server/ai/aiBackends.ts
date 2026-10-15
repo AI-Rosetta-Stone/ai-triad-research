@@ -194,7 +194,7 @@ function getFallbackChain(modelId: string, registry: Pick<ModelRegistry, 'models
   const explicit = fallbackChains[modelId];
   if (explicit) return explicit;
 
-  const backend = resolveBackend(modelId, registry ?? undefined);
+  const backend = resolveBackend(modelId, registry);
   const chain: string[] = [];
   const sameDefault = defaults[backend];
   if (sameDefault && sameDefault !== modelId) chain.push(sameDefault);
@@ -287,8 +287,8 @@ export function buildModelsToTry(resolved: string, hasExplicitKey: boolean, regi
  */
 export function filterChainForExplicitKey(models: string[], hasExplicitKey: boolean, registry: Pick<ModelRegistry, 'models'> | null): string[] {
   if (!hasExplicitKey || models.length === 0) return models;
-  const primaryBackend = resolveBackend(models[0], registry ?? undefined);
-  return models.filter(m => resolveBackend(m, registry ?? undefined) === primaryBackend);
+  const primaryBackend = resolveBackend(models[0], registry);
+  return models.filter(m => resolveBackend(m, registry) === primaryBackend);
 }
 
 /** Parse a withRetry progress message and forward it to onRetry + the recorder. */
