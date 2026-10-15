@@ -23,6 +23,7 @@ import { requireAdmin } from '../community/admin/reviewRegistry.js';
 import { log } from '../logger.js';
 import * as fileIO from '../storage/fileIO.js';
 import * as ai from '../ai/aiBackends.js';
+import { refreshModelsRequestSchema } from '../ai/refreshModelsRequestSchema.js';
 
 /** Converts a git SSH remote URL to HTTPS. Non-SSH URLs are returned unchanged. */
 export function convertSshToHttps(remoteUrl: string): string {
@@ -276,9 +277,16 @@ export function registerDataRoutes(r: Router, ctx: ServerCtx): void {
     json(res, await fileIO.loadAIModels());
   });
 
-  post('/api/models/refresh', async (_req, res) => {
+  // t/4162 Part 1 (T1; TL p/522#398): anon-blocked globally (accessControl.ts `isAnonBlockedRoute`).
+  // A plain/dryRun call runs for any signed-in caller (read-only — ai.refreshAIModels coerces a
+  // non-dryRun call without `accept` to dryRun for every principal, same shape as #3329). `accept`
+  // (the actual write path) is refused outright here — Part 2 (admin-gated accept, T2/SO) lands it.
+  post('/api/models/refresh', async (_req, res, body) => {
+    const parsed = refreshModelsRequestSchema.safeParse(body ?? {});
+    if (!parsed.success) { error(res, 'Invalid refresh request: ' + parsed.error.message, 400); return; }
+    if (parsed.data.accept) { error(res, 'Accepting a model-refresh proposal is not yet available.', 403); return; }
     try {
-      json(res, await ai.refreshAIModels());
+      json(res, await ai.refreshAIModels(parsed.data));
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to refresh AI models', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
   });
 }
