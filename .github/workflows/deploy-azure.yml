@@ -50,10 +50,20 @@ permissions:
   contents: read
   packages: read
   id-token: write  # For Azure OIDC login
+  actions: read    # t/4194 SO C1: `gh run list` in the cross-workflow wait-gate step
 
+# t/4194: SO C1 (p/682#16) — a SHARED concurrency group across both workflows was tried first, but
+# a GitHub Actions concurrency group only holds ONE pending run: a third arrival (prod running,
+# staging queued, a second prod dispatch arrives) REPLACES the queued one, silently dropping it —
+# trading the original race for a different silent-drop bug. Reverted to this workflow's own group
+# (self-serializes repeat dispatches of THIS workflow only); cross-workflow mutual exclusion is now
+# the explicit "Wait for a concurrent staging deploy" step below, not a shared GH-native group.
 concurrency:
   group: deploy-${{ inputs.environment }}
-  cancel-in-progress: true
+  # SO C1c (p/682#20): with per-workflow groups, a pending-run replacement only ever drops an
+  # OLDER run of THIS SAME workflow, which is what we want — so cancel-in-progress:false is safe
+  # and avoids cancelling a live Bicep apply or traffic shift mid-flight.
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -65,6 +75,8 @@ env:
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # SO C2 (t/4194): the `concurrency:` group is workflow-level, so this job
+                         # holds the shared slot too, before `deploy` even starts.
     outputs:
       image_ref: ${{ steps.resolve_digest.outputs.image_ref }}
       digest: ${{ steps.resolve_digest.outputs.digest }}
@@ -187,8 +199,96 @@ jobs:
     needs: [preflight]
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    timeout-minutes: 45  # SO C2 (t/4194, p/682#16): without this, a hung deploy holds the shared
+                         # concurrency group for up to GitHub's 6h default, blocking the other
+                         # workflow for the same window. 45m is generous over this job's observed
+                         # real runtime (health checks + smoke + persona matrix all have their own
+                         # shorter internal timeouts already).
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0  # t/4194: full history, so the refuse-older-than-running guard's
+                           # `git merge-base --is-ancestor` below can actually see both commits.
+
+      - name: Wait for a concurrent staging deploy to finish (t/4194 SO C1)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # t/4194 SO C1 (p/682#16, p/682#20): this workflow's Bicep apply reconciles BOTH the
+          # prod and staging Container Apps in one shot (t/2049/t/2047 landmine) — including
+          # re-pinning staging's traffic from a value captured BEFORE the apply. If
+          # deploy-staging.yml is concurrently mutating the staging app (new revision, traffic
+          # promote), this apply can stomp that promotion with its stale pre-apply capture, or
+          # vice versa. A single shared GH concurrency group was tried first and rejected: it
+          # holds only ONE pending run, so a third trigger silently REPLACES (drops) the queued
+          # one instead of serializing.
+          #
+          # SO C1a: a naive symmetric gate (both workflows wait for "any in-progress other-workflow
+          # run") deadlocks into the exact failure it's meant to prevent — a run sitting in ITS OWN
+          # wait step is itself in_progress, so two near-simultaneous dispatches see each other,
+          # both wait out the full budget, and both proceed together. Fixed by ORDER, not
+          # symmetry: wait only for an other-workflow run STARTED BEFORE this run. Exactly one of
+          # any two near-simultaneous runs then waits.
+          #
+          # SO C1e: `createdAt`/`created_at` is NOT re-set on a re-run — a `gh run rerun` of an old
+          # staging run would keep its original (old) timestamp and so never be seen as "earlier"
+          # than a genuinely later-dispatched prod run, defeating the order check on exactly
+          # staging's own recovery path. Use `startedAt` (gh run list) / `run_started_at` (API) —
+          # both ARE re-set on a re-run — instead.
+          #
+          # SO C1b: budgets are tied to the OTHER job's own timeout-minutes, with asymmetric
+          # failure modes. Prod waits up to staging's job timeout (30m = deploy-staging.yml's
+          # `timeout-minutes: 30`) and then FAILS OPEN (warns, proceeds) — prod is not held
+          # hostage to a hung staging run. (Staging's own gate, in deploy-staging.yml, waits up to
+          # PROD's 45m timeout and fails CLOSED — see that file for the asymmetric rationale.)
+          #
+          # SO C1d: a failed/empty `gh run list` is NOT the same as "zero other runs" — treat it as
+          # BUSY (keep polling) rather than proceeding, so a persistently unreachable API fails
+          # open/closed at the budget (per C1b), never on the first blip.
+          #
+          # RESIDUAL VECTOR (named, not closed; SO-accepted at p/682#20): this is TOCTOU, not a
+          # lock — a deploy-staging.yml run that starts in the instant after this poll's last
+          # check is not caught. Only an actual mutex (e.g. a blob lease, t/4179) closes that.
+          $MaxWaitSeconds = 1800  # SO C1b: matches deploy-staging.yml job's timeout-minutes: 30
+          $PollIntervalSeconds = 20
+          $Elapsed = 0
+          $OwnStartedAt = gh api "repos/$env:GH_REPO/actions/runs/$env:GITHUB_RUN_ID" --jq '.run_started_at'
+          if (-not $OwnStartedAt) {
+            Write-Host "::warning::t/4194 guard: could not resolve this run's own run_started_at via the API — skipping the order check (fail-open)."
+          } else {
+            while ($true) {
+              $Raw = gh run list --repo $env:GH_REPO --workflow deploy-staging.yml --status in_progress --json databaseId,startedAt 2>$null
+              $ApiOk = -not ($null -eq $Raw -or $Raw -eq '')
+              if ($ApiOk) {
+                $Others = @($Raw | ConvertFrom-Json)
+                $Earlier = @($Others | Where-Object { [datetimeoffset]$_.startedAt -lt [datetimeoffset]$OwnStartedAt })
+              } else {
+                # SO C1d: unknown, NOT zero — fall through to the elapsed/poll logic below as "busy".
+                $Earlier = $null
+              }
+              if ($ApiOk -and $Earlier.Count -eq 0) {
+                Write-Host "No EARLIER in-progress deploy-staging.yml run — proceeding."
+                break
+              }
+              if ($Elapsed -ge $MaxWaitSeconds) {
+                if ($ApiOk) {
+                  Write-Host "::warning::t/4194 guard: an earlier deploy-staging.yml run is still in progress after ${MaxWaitSeconds}s — proceeding anyway (fail-open, SO C1b; do not hold prod deploys hostage to a hung/long staging run)."
+                } else {
+                  Write-Host "::warning::t/4194 guard: 'gh run list' for deploy-staging.yml kept failing for ${MaxWaitSeconds}s — proceeding anyway (fail-open, SO C1b/C1d)."
+                }
+                break
+              }
+              if ($ApiOk) {
+                Write-Host "$($Earlier.Count) earlier deploy-staging.yml run(s) still in progress — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
+              } else {
+                Write-Host "::warning::t/4194 guard: 'gh run list' for deploy-staging.yml returned nothing this poll (API error or rate limit) — treating as busy, not clear (SO C1d); retrying in ${PollIntervalSeconds}s..."
+              }
+              Start-Sleep -Seconds $PollIntervalSeconds
+              $Elapsed += $PollIntervalSeconds
+            }
+          }
 
       - name: Show resolved image (digest-pinned, from preflight)
         run: |
@@ -246,6 +346,47 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "staging_revision=$StagingRev"
           Write-Host "Prod pin / rollback target: '$ProdRev'"
           Write-Host "Staging pin target:         '$StagingRev'"
+
+      - name: Refuse to deploy a commit older than the one running in prod (t/4194 prevention)
+        shell: pwsh
+        env:
+          # workflow-lint: direct ${{ inputs.* }} in run block content requires env: indirection
+          # (M14 shell-injection pattern, same convention as resolve_digest's INPUT_SHA above).
+          PROD_REV: ${{ steps.current_revision.outputs.revision }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          # t/4194: the 10-14 rollback incident deployed an older commit over a newer one because
+          # a stale local state check was trusted instead of re-reading the live revision. This
+          # guard makes that class impossible at the workflow level: refuse the deploy outright if
+          # the requested SHA isn't a descendant of (or equal to) the SHA already running in prod.
+          # Decision logic lives in Get-DeployAgeVerdict.ps1 (Pester-tested) — SO C3 (p/682#16): a
+          # git ERROR exit code (merge-base can exit >1, e.g. 128, on a bad ref) must NOT be read the
+          # same as exit 1 ("confirmed not an ancestor"); only this step does the actual git calls.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force -ErrorAction SilentlyContinue
+          . ./operations/devops/Get-DeployAgeVerdict.ps1
+          $ProdRev = $env:PROD_REV
+          $Requested = $env:INPUT_SHA
+          $ExitCode = $null
+          if ($ProdRev -match '--deploy-([0-9a-f]{7,40})-') {
+            $RunningFull = git rev-parse "$($Matches[1])^{commit}" 2>$null
+            if ($RunningFull) {
+              git merge-base --is-ancestor $RunningFull $Requested
+              $ExitCode = $LASTEXITCODE
+            }
+          }
+          $Verdict = Get-DeployAgeVerdict -ProdRevisionName $ProdRev -MergeBaseExitCode $ExitCode
+          switch ($Verdict.Action) {
+            'refuse' {
+              Write-Host "::error::t/4194 guard: refusing to deploy $Requested — it is NOT a descendant of the commit already running in prod (revision '$ProdRev', short SHA $($Verdict.RunningShort)). Deploying it would roll prod backward. If this is a deliberate rollback, use the rollback procedure (docs/runbooks), not a forward deploy."
+              exit 1
+            }
+            'warn-proceed' {
+              Write-Host "::warning::t/4194 guard: $($Verdict.Reason) — skipping the older-than-running check (fail-open)."
+            }
+            default {
+              Write-Host "t/4194 guard: $($Verdict.Reason) — proceeding."
+            }
+          }
 
       - name: Preview Bicep changes (what-if)
         run: |
@@ -797,4 +938,14 @@ jobs:
           if ($Fails.Count -gt 0) {
             Write-Host "::warning::Post-deploy smoke had $($Fails.Count) failure(s) — app is live but some endpoints may need attention"
           }
+
+      - name: Prod/staging digest parity (warn-only, t/4194 prevention item 3)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./operations/devops/Test-ProdStagingDigestParity.ps1 `
+            -ProdApp '${{ env.CONTAINER_APP_NAME }}' `
+            -StagingApp '${{ env.CONTAINER_APP_NAME }}-staging' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}'
 
