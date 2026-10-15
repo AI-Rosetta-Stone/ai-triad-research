@@ -410,16 +410,20 @@ export class GitHubAPIBackend implements StorageBackend {
 
     const ref = opts?.ref ?? this.getEffectiveRef();
 
-    // t/4203 (TL design, p/538#40): an edit-load on a session branch with no
-    // pending overlay entry must read the branch's own current content and
+    // t/4203 (TL design, p/538#40/#43): an edit-load on a session branch with
+    // no pending overlay entry must read the branch's own current content and
     // version, not main's cache — the manifest/disk-cache path below
     // represents main only, so using it here is exactly the bug this fix
     // closes (an edit-load that silently shows pre-commit, pre-merge, or
     // pre-out-of-band content instead of what the session branch actually
-    // holds).
+    // holds). Absent (a genuinely missing file) returns null, matching this
+    // method's existing contract — only unavailable (a real fetch failure)
+    // fails closed with a 503.
     if (ref !== this.baseBranch) {
-      const result = await this.getSessionBranchVersion(repoPath, ref);
-      return { content: result.content, version: result.sha };
+      const status = await this.getSessionBranchFileStatus(repoPath, ref);
+      if (status.kind === 'absent') return null;
+      if (status.kind === 'unavailable') this.throwVersionUnavailable(repoPath, ref);
+      return { content: status.content, version: status.sha };
     }
 
     return this.readFileWithVersionFromMainCache(repoPath, ref);
@@ -648,17 +652,17 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeOverlayWithPrecondition(
     filePath: string, repoPath: string, content: string, ref: string, baseSha: string | undefined,
   ): Promise<{ version: string }> {
-    // t/4203 (TL design, p/538#40): with no pending overlay entry for this
-    // path, the current version must come from the session branch itself —
-    // never from getFileSha()'s main-cache fallback, which ignores `ref` and
-    // is exactly the bug this fix closes (a save right after a commit, a
-    // resync merge, or any other out-of-band move of the branch head would
-    // otherwise compare against main's stale SHA instead of the branch's
-    // real current content).
+    // t/4203 (TL design, p/538#40/#43): with no pending overlay entry for
+    // this path, the current version must come from the session branch
+    // itself — never from getFileSha()'s main-cache fallback, which ignores
+    // `ref` and is exactly the bug this fix closes (a save right after a
+    // commit, a resync merge, or any other out-of-band move of the branch
+    // head would otherwise compare against main's stale SHA instead of the
+    // branch's real current content). The live lookup only runs when there's
+    // a `baseSha` to check against — a writer with no precondition (p/538#43:
+    // harvest, conflicts, edges, any new taxonomy-side file) keeps its
+    // existing no-check behavior and never makes the extra GitHub call.
     const existing = this.checkSessionOverlay(repoPath);
-    const currentVersion = existing !== undefined && existing !== GitHubAPIBackend.TOMBSTONE
-      ? gitBlobSha(existing)
-      : (await this.getSessionBranchVersion(repoPath, ref)).sha;
 
     if (baseSha === undefined) {
       this.recordEvent({
@@ -666,13 +670,27 @@ export class GitHubAPIBackend implements StorageBackend {
         message: `writeFile(${repoPath}): no baseSha supplied on overlay write — falling back to no precondition (direct fileIO caller, not the save route)`,
         data: { path: repoPath, ref },
       });
-    } else if (currentVersion !== null && baseSha !== currentVersion) {
-      this.recordEvent({
-        type: 'github.api.conflict', component: 'github-api', level: 'warn',
-        message: `Overlay write conflict on ${repoPath} — staged content moved since the client's last read`,
-        data: { path: repoPath, ref, staleSha: baseSha, currentSha: currentVersion },
-      });
-      throw this.writeConflictError(repoPath, 'writeFile');
+    } else {
+      let currentVersion: string | null;
+      if (existing !== undefined && existing !== GitHubAPIBackend.TOMBSTONE) {
+        currentVersion = gitBlobSha(existing);
+      } else {
+        const status = await this.getSessionBranchFileStatus(repoPath, ref);
+        if (status.kind === 'unavailable') this.throwVersionUnavailable(repoPath, ref);
+        // 'absent' → null: a baseSha was supplied, so the client expects a
+        // file that does not exist on the branch — that mismatch is itself
+        // the conflict, same as any other currentVersion !== baseSha below.
+        currentVersion = status.kind === 'present' ? status.sha : null;
+      }
+
+      if (currentVersion === null || baseSha !== currentVersion) {
+        this.recordEvent({
+          type: 'github.api.conflict', component: 'github-api', level: 'warn',
+          message: `Overlay write conflict on ${repoPath} — staged content moved since the client's last read`,
+          data: { path: repoPath, ref, staleSha: baseSha, currentSha: currentVersion },
+        });
+        throw this.writeConflictError(repoPath, 'writeFile');
+      }
     }
 
     this.writeToOverlay(filePath, content);
@@ -2065,34 +2083,65 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   /**
-   * t/4203 (TL design, p/538#40): the current version of `repoPath` on a
+   * t/4203 (TL design, p/538#40/#43): the current state of `repoPath` on a
    * session branch, read live from GitHub — the one authoritative source for
    * every route that can move the branch head (commitOverlay, mergeBranch, a
    * resync conflict resolved on GitHub, another replica, SessionBranchManager
    * .commitBatch, or anything else). A session-branch precondition or
    * edit-load checked against main's SHA instead is exactly the t/4203 bug —
    * a stale or wrong baseline silently reverting this session's own commits.
-   * Fails closed: a lookup failure throws a 503 ActionableError with a WARN,
-   * never falls back to main's SHA for a session-branch ref.
+   *
+   * Tells a genuinely missing file ('absent' — a 404, a legitimate "nothing
+   * here yet" for a new path) apart from a real fetch failure ('unavailable'
+   * — no creds, 5xx, timeout, a directory). Collapsing those (p/538#43) made
+   * every session-branch write that CREATES a file 503 — this never throws;
+   * callers decide what each outcome means for their own operation.
    */
-  private async getSessionBranchVersion(repoPath: string, ref: string): Promise<{ content: string; sha: string }> {
-    const result = await this.fetchFileFromGitHub(repoPath, ref, true);
-    if (result === null) {
-      this.recordEvent({
-        type: 'github.api.error', component: 'github-api', level: 'warn',
-        message: `Could not verify the current version of ${repoPath} on ${ref} — failing closed rather than falling back to main`,
-        data: { path: repoPath, ref },
-      });
-      throw new ActionableError({
-        goal: `Read the current version of ${repoPath} on ${ref}`,
-        problem: 'Could not reach GitHub to verify the current version of this file on your session branch.',
-        location: `GitHubAPIBackend.getSessionBranchVersion(${repoPath})`,
-        nextSteps: ['Retry in a moment', 'Check GitHub API status'],
-        httpStatus: 503,
-        code: 'VERSION_UNAVAILABLE',
-      });
+  private async getSessionBranchFileStatus(
+    repoPath: string, ref: string,
+  ): Promise<{ kind: 'present'; content: string; sha: string } | { kind: 'absent' } | { kind: 'unavailable' }> {
+    const creds = await this.getCredsCached();
+    if (!creds) return { kind: 'unavailable' };
+
+    const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
+    const resp = await this.rest.request(creds, 'GET',
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
+      undefined, undefined, { optional: true });
+
+    if (resp.status === 404) return { kind: 'absent' };
+    if (!resp.ok) return { kind: 'unavailable' };
+
+    const data = resp.data as { content?: string; encoding?: string; sha: string; size?: number; type?: string };
+    if (data.type === 'dir') return { kind: 'unavailable' }; // not a valid target for a file precondition/edit-load
+
+    if (!data.content || data.encoding !== 'base64') {
+      // Large file — use Blobs API
+      if (data.sha && (data.size ?? 0) > 0) {
+        const blob = await this.fetchBlobFromGitHub(creds, data.sha, resp.etag ?? '');
+        return blob ? { kind: 'present', content: blob.content, sha: blob.sha } : { kind: 'unavailable' };
+      }
+      return { kind: 'unavailable' };
     }
-    return result;
+
+    const content = Buffer.from(data.content, 'base64').toString('utf-8');
+    return { kind: 'present', content, sha: data.sha };
+  }
+
+  /** Shared 503, for both writeOverlayWithPrecondition and readFileWithVersion. */
+  private throwVersionUnavailable(repoPath: string, ref: string): never {
+    this.recordEvent({
+      type: 'github.api.error', component: 'github-api', level: 'warn',
+      message: `Could not verify the current version of ${repoPath} on ${ref} — failing closed rather than falling back to main`,
+      data: { path: repoPath, ref },
+    });
+    throw new ActionableError({
+      goal: `Read the current version of ${repoPath} on ${ref}`,
+      problem: 'Could not reach GitHub to verify the current version of this file on your session branch.',
+      location: `GitHubAPIBackend.getSessionBranchFileStatus(${repoPath})`,
+      nextSteps: ['Retry in a moment', 'Check GitHub API status'],
+      httpStatus: 503,
+      code: 'VERSION_UNAVAILABLE',
+    });
   }
 
   // ── Flight recorder helpers ────────────────────────────────────────────

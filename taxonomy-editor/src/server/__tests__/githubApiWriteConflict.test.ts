@@ -354,6 +354,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
 // call (TL: "one call per save"), so each test registers it before that
 // first write, not only after a commit.
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version read live from GitHub (t/4203)', () => {
+  // `fail` simulates a real fetch failure ('unavailable' — 500), distinct
+  // from `current === null` ('absent' — 404, a genuinely missing file).
+  // Collapsing those was exactly the p/538#43 regression.
   function sessionBranchState(ref: string): { current: string | null; sha: string | null; fail: boolean } {
     const state = { current: null as string | null, sha: null as string | null, fail: false };
     const refQuery = `ref=${encodeURIComponent(ref)}`;
@@ -361,9 +364,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
       if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
         return null;
       }
-      if (state.fail || state.current === null || state.sha === null) {
-        return { status: 404, body: { message: 'Not Found' } };
-      }
+      if (state.fail) return { status: 500, body: { message: 'Internal Server Error' } };
+      if (state.current === null || state.sha === null) return { status: 404, body: { message: 'Not Found' } };
       return { status: 200, body: { content: Buffer.from(state.current).toString('base64'), encoding: 'base64', sha: state.sha } };
     });
     return state;
@@ -515,6 +517,69 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     // Falls through (no overlay) to a fresh GitHub fetch via the unchanged
     // manifest/disk-cache path — not the new session-branch live-fetch helper.
     expect(result).toEqual({ content: '{"test": true}', version: 'blob-sha' });
+
+    backend.shutdown();
+  });
+
+  // t/4203 (p/538#43, TL): collapsing 'absent' (404 — a genuinely missing
+  // file) into 'unavailable' made every session-branch write that CREATES a
+  // path 503. A writer with no baseSha must skip the live lookup entirely.
+  it('a new path with no baseSha succeeds and makes no Contents lookup', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    let contentsLookups = 0;
+    apiHandlers.push((url, init) => {
+      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/')) contentsLookups++;
+      return null; // count only — let the default handler still answer
+    });
+
+    const result = await backend.writeFile('/taxonomy/new-node.json', '{"new": true}');
+
+    expect(result.version).toBeTruthy();
+    expect(contentsLookups).toBe(0);
+
+    backend.shutdown();
+  });
+
+  // A baseSha was supplied, so the client expects an existing file — the
+  // branch not having one at all is itself the conflict (p/538#43).
+  it('a new path with a baseSha gets WRITE_CONFLICT — the client expected a file that does not exist on the branch', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    apiHandlers.push((url, init) => {
+      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/taxonomy/new-node.json')) {
+        return { status: 404, body: { message: 'Not Found' } };
+      }
+      return null;
+    });
+
+    const err = await backend.writeFile('/taxonomy/new-node.json', '{"new": true}', { baseSha: 'client-thinks-this-exists' })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+
+    backend.shutdown();
+  });
+
+  // 'absent' must behave like today's missing-file contract for an edit-load
+  // — a 503 here would be a regression for any legitimately-new path.
+  it('an edit load of a missing path returns null, not a 503', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    apiHandlers.push((url, init) => {
+      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/taxonomy/new-node.json')) {
+        return { status: 404, body: { message: 'Not Found' } };
+      }
+      return null;
+    });
+
+    const result = await backend.readFileWithVersion('/taxonomy/new-node.json');
+
+    expect(result).toBeNull();
 
     backend.shutdown();
   });
