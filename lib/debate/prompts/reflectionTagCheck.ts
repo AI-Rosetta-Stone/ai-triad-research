@@ -173,6 +173,30 @@ function isCitationVerified(cited: string, custodian: CustodianCheckSoul): boole
   });
 }
 
+/** Validate one verdict row from the model output. Returns the row or an unchecked sentinel. */
+function validateSingleVerdict(
+  r: Record<string, unknown>,
+  soul: string,
+  custodian: CustodianCheckSoul,
+): CustodianVerdictRow | CustodianUnchecked {
+  const verdict = r.verdict;
+  if (typeof verdict !== 'string' || !VALID_VERDICTS.has(verdict)) {
+    return { unchecked: `invalid verdict value "${String(verdict)}" for custodian ${soul}` };
+  }
+  const cited = r.cited === null || r.cited === undefined ? null : String(r.cited);
+  if (verdict === 'conflict') {
+    if (!cited) return { unchecked: `conflict verdict for ${soul} has no citation — cannot verify` };
+    if (!isCitationVerified(cited, custodian)) {
+      return { unchecked: `conflict verdict for ${soul} has an unverifiable citation — cannot verify` };
+    }
+  }
+  const reason = typeof r.reason === 'string' ? r.reason : String(r.reason ?? '');
+  if (verdict === 'tension' && cited && !isCitationVerified(cited, custodian)) {
+    return { soul, verdict: verdict as CustodianVerdict, cited: null, reason, citation_unverified: true };
+  }
+  return { soul, verdict: verdict as CustodianVerdict, cited, reason };
+}
+
 /**
  * Parse the model output from a custodian check call.
  *
@@ -193,23 +217,17 @@ export function parseCustodianCheckOutput(
   custodians: CustodianCheckSoul[],
 ): CustodianCheckOutput {
   const parsed = parseAIJson(raw);
-  if (parsed === null) {
-    return { unchecked: 'model output was not valid JSON' };
-  }
-
+  if (parsed === null) return { unchecked: 'model output was not valid JSON' };
   if (typeof parsed !== 'object' || !('verdicts' in parsed)) {
     return { unchecked: 'model output missing "verdicts" field' };
   }
-
   const rawVerdicts = (parsed as { verdicts: unknown }).verdicts;
-  if (!Array.isArray(rawVerdicts)) {
-    return { unchecked: '"verdicts" is not an array' };
-  }
+  if (!Array.isArray(rawVerdicts)) return { unchecked: '"verdicts" is not an array' };
 
-  const bySoul = new Map<string, unknown>();
+  const bySoul = new Map<string, Record<string, unknown>>();
   for (const row of rawVerdicts) {
     if (row && typeof row === 'object' && typeof (row as Record<string, unknown>).soul === 'string') {
-      bySoul.set((row as Record<string, unknown>).soul as string, row);
+      bySoul.set((row as Record<string, unknown>).soul as string, row as Record<string, unknown>);
     }
   }
 
@@ -217,29 +235,10 @@ export function parseCustodianCheckOutput(
   for (const custodian of custodians) {
     const { soul } = custodian;
     const row = bySoul.get(soul);
-    if (!row || typeof row !== 'object') {
-      return { unchecked: `missing verdict for custodian ${soul}` };
-    }
-    const r = row as Record<string, unknown>;
-    const verdict = r.verdict;
-    if (typeof verdict !== 'string' || !VALID_VERDICTS.has(verdict)) {
-      return { unchecked: `invalid verdict value "${String(verdict)}" for custodian ${soul}` };
-    }
-    const cited = r.cited === null || r.cited === undefined ? null : String(r.cited);
-    if (verdict === 'conflict') {
-      if (!cited) {
-        return { unchecked: `conflict verdict for ${soul} has no citation — cannot verify` };
-      }
-      if (!isCitationVerified(cited, custodian)) {
-        return { unchecked: `conflict verdict for ${soul} has an unverifiable citation — cannot verify` };
-      }
-    }
-    const reason = typeof r.reason === 'string' ? r.reason : String(r.reason ?? '');
-    if (verdict === 'tension' && cited && !isCitationVerified(cited, custodian)) {
-      verdicts.push({ soul, verdict: verdict as CustodianVerdict, cited: null, reason, citation_unverified: true });
-    } else {
-      verdicts.push({ soul, verdict: verdict as CustodianVerdict, cited, reason });
-    }
+    if (!row) return { unchecked: `missing verdict for custodian ${soul}` };
+    const result = validateSingleVerdict(row, soul, custodian);
+    if ('unchecked' in result) return result;
+    verdicts.push(result);
   }
 
   return { verdicts };
