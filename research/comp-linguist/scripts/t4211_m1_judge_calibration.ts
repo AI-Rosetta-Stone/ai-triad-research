@@ -10,6 +10,7 @@
  * Usage:
  *   npx tsx research/comp-linguist/scripts/t4211_m1_judge_calibration.ts \
  *     [--data <ai-triad-data root>] [--model gemini-3.5-flash-lite] [--out <results.jsonl>] [--limit N]
+ *     [--constructed <m1-constructed-set.json>]   judge the CL's constructed challenge set instead (keys `C:<id>`)
  *
  * The data root defaults to $AI_TRIAD_DATA_ROOT, then ../ai-triad-data next to this repo.
  */
@@ -22,6 +23,7 @@ import { classifyTagRelation } from '../../../lib/debate/reflectionScope.js';
 import {
   buildCustodianCheckPrompt,
   parseCustodianCheckOutput,
+  type CustodianCheckInput,
   type CustodianCheckSoul,
 } from '../../../lib/debate/prompts/reflectionTagCheck.js';
 import { loadPovTagRegistry } from '../../../lib/schema/povTags.js';
@@ -106,6 +108,34 @@ function* skepticEdits(root: string): Generator<{ debateId: string; index: numbe
   }
 }
 
+/**
+ * The edits to judge. By default, every observed Skeptic reflection edit. With `--constructed <file>`, the CL's
+ * constructed challenge set instead: each item's current text is read from the live node, and its key is `C:<id>`,
+ * so a constructed row can never be mistaken for an observed one.
+ */
+function* workItems(root: string, nodes: Array<{ id: string; label?: string; description?: string }>):
+  Generator<{ key: string; debateId: string; edit: StoredEdit }> {
+  const constructed = arg('--constructed');
+  if (!constructed) {
+    for (const { debateId, index, edit } of skepticEdits(root)) yield { key: `${debateId}#${index}`, debateId, edit };
+    return;
+  }
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const set = JSON.parse(fs.readFileSync(path.resolve(constructed), 'utf8')) as { items: Array<StoredEdit & { id: string }> };
+  for (const item of set.items) {
+    const node = byId.get(item.node_id ?? '');
+    if (!node) {
+      console.warn(`WARN: constructed item ${item.id} names missing node ${item.node_id}; skipped`);
+      continue;
+    }
+    yield {
+      key: `C:${item.id}`,
+      debateId: 'constructed',
+      edit: { ...item, current_label: node.label ?? '', current_description: node.description ?? '' },
+    };
+  }
+}
+
 async function main(): Promise<number> {
   const root = dataRoot();
   const model = arg('--model') ?? 'gemini-3.5-flash-lite';
@@ -113,7 +143,7 @@ async function main(): Promise<number> {
   const limit = Number(arg('--limit') ?? Infinity);
 
   const skp = JSON.parse(fs.readFileSync(path.join(root, 'taxonomy/Origin/skeptic.json'), 'utf8'));
-  const nodes: Array<{ id: string; pov_tags?: string[] }> = Array.isArray(skp) ? skp : skp.nodes;
+  const nodes: Array<{ id: string; label?: string; description?: string; pov_tags?: string[] }> = Array.isArray(skp) ? skp : skp.nodes;
   const tagsById = new Map(nodes.map(n => [n.id, n.pov_tags ?? []]));
   const registry = loadPovTagRegistry().povs.skeptic ?? [];
 
@@ -129,7 +159,7 @@ async function main(): Promise<number> {
   const soul = (id: string) => soulCache.get(id) ?? soulCache.set(id, loadSoul(id)).get(id)!;
   let ran = 0;
 
-  for (const { debateId, index, edit } of skepticEdits(root)) {
+  for (const { key, debateId, edit } of workItems(root, nodes)) {
     const nodeId = edit.node_id;
     const editType = (edit.edit_type ?? 'revise').toLowerCase();
     if (!nodeId || !tagsById.has(nodeId)) continue;
@@ -138,16 +168,15 @@ async function main(): Promise<number> {
     const norm = (s?: string) => (s ?? '').replace(/\s+/g, ' ').trim();
     if (editType !== 'deprecate' && norm(edit.current_label) === norm(edit.proposed_label)
       && norm(edit.current_description) === norm(edit.proposed_description)) continue;
-    const key = `${debateId}#${index}`;
     if (done.has(key)) continue;
     if (ran >= limit) break;
 
     const targetTags = tagsById.get(nodeId)!;
     const { relation, custodians } = classifyTagRelation(null, targetTags, registry);
-    const souls = custodians.map(soul);
     const base: Omit<Row, 'outcome'> = { key, debate_id: debateId, node_id: nodeId, edit_type: editType, target_tags: targetTags, relation, custodians, model };
 
-    const prompt = buildCustodianCheckPrompt({
+    // One input object goes to both the prompt and the parser, which verifies citations and evidence against it.
+    const checkParams: CustodianCheckInput = {
       editType: editType as 'revise' | 'qualify' | 'deprecate',
       currentLabel: edit.current_label ?? '',
       currentDescription: edit.current_description ?? '',
@@ -156,13 +185,14 @@ async function main(): Promise<number> {
       rationale: edit.rationale ?? '',
       nodeTags: targetTags,
       seatTag: null,
-      custodians: souls,
-    });
+      custodians: custodians.map(soul),
+    };
+    const prompt = buildCustodianCheckPrompt(checkParams);
 
     let row: Row;
     try {
       const raw = await adapter.generateText(prompt, model, { temperature: 0 });
-      const parsed = parseCustodianCheckOutput(raw, souls);
+      const parsed = parseCustodianCheckOutput(raw, checkParams);
       row = 'unchecked' in parsed
         ? { ...base, outcome: 'unchecked', unchecked: parsed.unchecked, raw }
         : { ...base, outcome: 'checked', verdicts: parsed.verdicts };
