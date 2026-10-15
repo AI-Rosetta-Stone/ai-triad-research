@@ -393,15 +393,13 @@ export async function writeAggregatedCruxes(data: unknown, opts?: { baseSha?: st
   return backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
 }
 
-/** t/4190: like readAggregatedCruxes, but also returns the version for the
- *  save route to hand back to the client as its write precondition (ETag). */
+/** t/4190: like readAggregatedCruxes, also returns the version (ETag). */
 export async function readAggregatedCruxesWithVersion(): Promise<{ data: unknown; version: string } | null> {
-  const filePath = path.join(getTaxonomyDir(), 'aggregated-cruxes.json');
   try {
-    const result = await readFileWithVersionOrFallback(filePath);
+    const result = await readFileWithVersionOrFallback(path.join(getTaxonomyDir(), 'aggregated-cruxes.json'));
     if (result === null) return null;
     return { data: JSON.parse(result.content), version: result.version };
-  } catch { /* telemetry — silent by design */ return null; }
+  } catch (err: unknown) { getGlobalRecorder()?.record({ type: 'system.error', component: 'file-io', level: 'warn', message: 'readAggregatedCruxesWithVersion: read/parse failed, returning null', data: { error: String(err) } }); return null; }
 }
 
 export async function readConflictClusters(): Promise<unknown | null> {
@@ -411,15 +409,13 @@ export async function readConflictClusters(): Promise<unknown | null> {
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
 
-/** t/4190: like readConflictClusters, but also returns the version for the
- *  save route to hand back to the client as its write precondition (ETag). */
+/** t/4190: like readConflictClusters, also returns the version (ETag). */
 export async function readConflictClustersWithVersion(): Promise<{ data: unknown; version: string } | null> {
-  const filePath = path.join(getConflictsDir(), '_conflict-clusters.json');
   try {
-    const result = await readFileWithVersionOrFallback(filePath);
+    const result = await readFileWithVersionOrFallback(path.join(getConflictsDir(), '_conflict-clusters.json'));
     if (result === null) return null;
     return { data: JSON.parse(result.content), version: result.version };
-  } catch { /* telemetry — silent by design */ return null; }
+  } catch (err: unknown) { getGlobalRecorder()?.record({ type: 'system.error', component: 'file-io', level: 'warn', message: 'readConflictClustersWithVersion: read/parse failed, returning null', data: { error: String(err) } }); return null; }
 }
 
 // Conflicts are stored in a single wrapper file (t/689 / t/693) instead of
