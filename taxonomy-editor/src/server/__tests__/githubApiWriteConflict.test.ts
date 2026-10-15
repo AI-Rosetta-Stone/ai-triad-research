@@ -353,36 +353,41 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
 // entry — including the very first one in a session — now makes this live
 // call (TL: "one call per save"), so each test registers it before that
 // first write, not only after a commit.
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version read live from GitHub (t/4203)', () => {
-  // `fail` simulates a real fetch failure ('unavailable' — 500), distinct
-  // from `current === null` ('absent' — 404, a genuinely missing file).
-  // Collapsing those was exactly the p/538#43 regression.
-  function sessionBranchState(ref: string): { current: string | null; sha: string | null; fail: boolean } {
-    const state = { current: null as string | null, sha: null as string | null, fail: false };
-    const refQuery = `ref=${encodeURIComponent(ref)}`;
-    apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
-        return null;
-      }
-      if (state.fail) return { status: 500, body: { message: 'Internal Server Error' } };
-      if (state.current === null || state.sha === null) return { status: 404, body: { message: 'Not Found' } };
-      return { status: 200, body: { content: Buffer.from(state.current).toString('base64'), encoding: 'base64', sha: state.sha } };
-    });
-    return state;
-  }
-
-  function mockCommitSteps(branch: string): void {
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.includes(`/git/refs/heads/${branch}`)) {
-        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
-      }
-      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
-      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
-      if (method === 'PATCH' && url.includes(`/git/refs/heads/${branch}`)) return { status: 200, body: {} };
+// `sessionBranchState(ref)` registers ONE handler per test that serves GET
+// .../contents/taxonomy/nodes.json?ref=<branch> from a mutable object — tests
+// mutate `.current`/`.sha` to simulate a commit, a merge, or any other
+// out-of-band change landing on the branch, and set `.fail = true` to make
+// the next lookup fail. `fail` simulates a real fetch failure ('unavailable'
+// — 500), distinct from `current === null` ('absent' — 404, a genuinely
+// missing file) — collapsing those was the p/538#43 regression.
+function sessionBranchState(ref: string): { current: string | null; sha: string | null; fail: boolean } {
+  const state = { current: null as string | null, sha: null as string | null, fail: false };
+  const refQuery = `ref=${encodeURIComponent(ref)}`;
+  apiHandlers.push((url, init) => {
+    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
       return null;
-    });
-  }
+    }
+    if (state.fail) return { status: 500, body: { message: 'Internal Server Error' } };
+    if (state.current === null || state.sha === null) return { status: 404, body: { message: 'Not Found' } };
+    return { status: 200, body: { content: Buffer.from(state.current).toString('base64'), encoding: 'base64', sha: state.sha } };
+  });
+  return state;
+}
+
+function mockCommitSteps(branch: string): void {
+  apiHandlers.push((url, init) => {
+    const method = init?.method ?? 'GET';
+    if (method === 'GET' && url.includes(`/git/refs/heads/${branch}`)) {
+      return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
+    }
+    if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
+    if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
+    if (method === 'PATCH' && url.includes(`/git/refs/heads/${branch}`)) return { status: 200, body: {} };
+    return null;
+  });
+}
+
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version read live from GitHub (t/4203)', () => {
 
   it('save, then commit, then save again with the first save\'s returned version — succeeds, no false WRITE_CONFLICT', async () => {
     const backend = await createBackend();
@@ -580,6 +585,166 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     const result = await backend.readFileWithVersion('/taxonomy/new-node.json');
 
     expect(result).toBeNull();
+
+    backend.shutdown();
+  });
+});
+
+// t/4215 (TL design, t/4215#2): a plain readFile() on a session branch, once
+// the overlay has no entry for the path, must not fall through to main's
+// on-disk cache — commitOverlay clears the overlay, so a read right after a
+// commit was returning pre-commit content. Unlike readFileWithVersion's
+// always-live read (t/4203), readFile is called from read-modify-write loops
+// over many paths (harvest, policy recount, edges), so it uses a per-session
+// cache instead: filled for free at commitOverlay/mergeBranch, with the
+// branch-head SHA re-verified against the live ref at most once every
+// SESSION_READ_CACHE_REVALIDATE_MS so an out-of-band move (a resync conflict
+// resolved on GitHub, another replica) is bounded rather than missed. Fails
+// closed (503) on an unavailable lookup, same as t/4203 — `null` reads as
+// "file doesn't exist" to RMW callers, which would silently rebuild the file
+// from empty. `opts.optional` opts a caller into `null` plus a WARN instead.
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a session branch (t/4215)', () => {
+  it('save, then commit, then a plain readFile sees the committed content', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.current = '{"test": true}';
+    branch.sha = 'blob1';
+
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    mockCommitSteps('api-session/alice');
+    await backend.commitOverlay('alice', 'test commit');
+
+    // Populated for free by commitOverlay — no live Contents call needed.
+    const content = await backend.readFile('/taxonomy/nodes.json');
+    expect(content).toBe('{"v": 1}');
+
+    backend.shutdown();
+  });
+
+  it('a harvest-shaped read-modify-write after a commit keeps the session\'s edit', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.current = '{"test": true}';
+    branch.sha = 'blob1';
+
+    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"count": 1}', { baseSha: 'blob1' });
+    mockCommitSteps('api-session/alice');
+    await backend.commitOverlay('alice', 'test commit');
+
+    // Read current (must see the commit, not main's stale cache), modify,
+    // write back — the shape a corrected harvest route follows.
+    const current = await backend.readFile('/taxonomy/nodes.json');
+    expect(current).toBe('{"count": 1}');
+
+    const modified = JSON.stringify({ count: 2 });
+    const v2 = await backend.writeFile('/taxonomy/nodes.json', modified, { baseSha: v1.version });
+    expect(v2.version).toBeTruthy();
+
+    backend.shutdown();
+  });
+
+  it('two reads of the same path within the revalidation window make only one live Contents lookup (t/4201 invariant)', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    let contentsLookups = 0;
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
+      }
+      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+        contentsLookups++;
+        return { status: 200, body: { content: Buffer.from('{"v": 1}').toString('base64'), encoding: 'base64', sha: 'live-sha' } };
+      }
+      return null;
+    });
+
+    const first = await backend.readFile('/taxonomy/nodes.json');
+    const second = await backend.readFile('/taxonomy/nodes.json');
+
+    expect(first).toBe('{"v": 1}');
+    expect(second).toBe('{"v": 1}');
+    expect(contentsLookups).toBe(1);
+
+    backend.shutdown();
+  });
+
+  it('an out-of-band head change is detected after the revalidation window, and the next read returns the new content', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    let headSha = 'original-head-sha';
+    let liveContent = JSON.stringify({ v: 'original' });
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        return { status: 200, body: { object: { sha: headSha } } };
+      }
+      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+        return { status: 200, body: { content: Buffer.from(liveContent).toString('base64'), encoding: 'base64', sha: 'some-sha' } };
+      }
+      return null;
+    });
+
+    const first = await backend.readFile('/taxonomy/nodes.json');
+    expect(first).toBe(JSON.stringify({ v: 'original' }));
+
+    // Something outside the server (a resync conflict resolved on GitHub,
+    // another replica) pushes new content onto the branch.
+    headSha = 'new-head-sha-from-elsewhere';
+    liveContent = JSON.stringify({ v: 'pushed-elsewhere' });
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now());
+
+      // Still within the window — the cache is trusted without re-checking.
+      const stillCached = await backend.readFile('/taxonomy/nodes.json');
+      expect(stillCached).toBe(JSON.stringify({ v: 'original' }));
+
+      // Advance past SESSION_READ_CACHE_REVALIDATE_MS.
+      vi.setSystemTime(Date.now() + 31_000);
+
+      const afterWindow = await backend.readFile('/taxonomy/nodes.json');
+      expect(afterWindow).toBe(JSON.stringify({ v: 'pushed-elsewhere' }));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    backend.shutdown();
+  });
+
+  it('an optional read returns null (plus a WARN) when the lookup is unavailable', async () => {
+    const recorder = createTestRecorder();
+    const backend = await createBackend(recorder);
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.fail = true;
+
+    const result = await backend.readFile('/taxonomy/nodes.json', { optional: true });
+
+    expect(result).toBeNull();
+    expect(recorder.events.find(e => e.level === 'warn' && e.message.includes('optional read'))).toBeDefined();
+
+    backend.shutdown();
+  });
+
+  it('a non-optional read throws 503 VERSION_UNAVAILABLE when the lookup is unavailable, and a read-modify-write writes nothing', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.fail = true;
+
+    const err = await backend.readFile('/taxonomy/nodes.json')
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(503);
+    expect(err?.code).toBe('VERSION_UNAVAILABLE');
+    // The read-modify-write never reaches a write — nothing was staged.
+    expect(backend.getSessionOverlay('alice')?.has('taxonomy/nodes.json')).toBeFalsy();
 
     backend.shutdown();
   });

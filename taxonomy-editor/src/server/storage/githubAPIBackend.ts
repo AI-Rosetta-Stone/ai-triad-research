@@ -87,6 +87,11 @@ const DEFAULT_MAX_OVERLAY_BYTES_PER_USER = 20 * 1024 * 1024; // 20 MB
 const POLL_INTERVAL_MS = 60_000;
 const ERROR_BUFFER_CAPACITY = 100;
 
+// t/4215: bounds how long a plain session-branch read can serve stale
+// content after a head move the server didn't make (a resync conflict
+// resolved on GitHub, another replica) before re-checking the live ref.
+const SESSION_READ_CACHE_REVALIDATE_MS = 30_000;
+
 const MANIFEST_FILE = 'manifest.json';
 
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
@@ -120,6 +125,16 @@ export class GitHubAPIBackend implements StorageBackend {
   static readonly TOMBSTONE = '\0__DELETED__\0';
   private sessionOverlays: Map<string, Map<string, string>> = new Map();
   private maxOverlayBytesPerUser: number = DEFAULT_MAX_OVERLAY_BYTES_PER_USER;
+
+  // t/4215 (TL design, t/4215#2): userId → (repoPath → content) for a plain
+  // readFile() on a session branch, once the overlay has no entry for that
+  // path. Unlike readFileWithVersion's always-live read (t/4203), this is
+  // called from read-modify-write loops over many paths — filled for free at
+  // commitOverlay/mergeBranch, with the branch-head SHA tracked alongside so
+  // a stale cache (an out-of-band move the server didn't make) is detected
+  // within SESSION_READ_CACHE_REVALIDATE_MS, not served indefinitely.
+  private sessionReadCache: Map<string, Map<string, string>> = new Map();
+  private sessionReadCacheHeadSha: Map<string, { sha: string; checkedAt: number }> = new Map();
 
   // Resilient GitHub HTTP transport — rate limit + circuit breaker live here (t/1698).
   private readonly rest: GitHubRestClient;
@@ -329,7 +344,22 @@ export class GitHubAPIBackend implements StorageBackend {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : overlayVal;
     }
 
-    // Check main cache (on-disk)
+    // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
+    const ref = opts?.ref ?? this.getEffectiveRef();
+
+    // t/4215: a session-branch read with no overlay entry must not fall
+    // through to main's on-disk cache below — that cache represents main
+    // only, so using it here is exactly the bug this fix closes (a read
+    // right after a commit showing pre-commit content).
+    if (ref !== this.baseBranch) {
+      return this.readSessionBranchFile(repoPath, ref, opts?.optional);
+    }
+
+    return this.readFileFromMainCache(repoPath, ref, opts?.optional);
+  }
+
+  /** The pre-t/4215 main-cache path for readFile, unchanged. */
+  private async readFileFromMainCache(repoPath: string, ref: string, optional: boolean | undefined): Promise<string | null> {
     const cached = await this.readFromDiskCache(repoPath);
     if (cached !== null) {
       this.recordEvent({
@@ -361,14 +391,118 @@ export class GitHubAPIBackend implements StorageBackend {
       return null; // Circuit open — serve null (file not available)
     }
 
-    // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
-    const ref = opts?.ref ?? this.getEffectiveRef();
-    const result = await this.fetchFileFromGitHub(repoPath, ref, opts?.optional);
+    const result = await this.fetchFileFromGitHub(repoPath, ref, optional);
     if (result === null) return null;
 
     // Write-through to disk cache
     await this.writeToDiskCache(repoPath, result.content, result.sha, result.etag);
     return result.content;
+  }
+
+  /**
+   * t/4215 (TL design, t/4215#2): a plain read on a session branch, once the
+   * overlay has no entry for this path. Unlike readFileWithVersion's always-
+   * live read (t/4203 — low call volume, correctness-critical), this is
+   * called from read-modify-write loops over many paths (harvest, policy
+   * recount, edges) — a live GitHub call per call would reintroduce the
+   * t/4201 cost. Instead: a per-session cache filled for free at
+   * commitOverlay/mergeBranch, with the branch-head SHA re-verified against
+   * the live ref at most once every SESSION_READ_CACHE_REVALIDATE_MS so an
+   * out-of-band move (a resync conflict resolved on GitHub, another replica)
+   * is bounded, not missed entirely. A miss, or a stale-head mismatch, does
+   * one live fetch for this path.
+   */
+  private async readSessionBranchFile(repoPath: string, ref: string, optional: boolean | undefined): Promise<string | null> {
+    const userId = this.getEffectiveUserId();
+    if (!userId) return this.liveReadSessionBranchFile(repoPath, ref, optional);
+
+    const cacheTrustworthy = await this.revalidateSessionReadCache(userId, ref);
+    if (cacheTrustworthy) {
+      const cached = this.sessionReadCache.get(userId)?.get(repoPath);
+      if (cached !== undefined) {
+        return cached === GitHubAPIBackend.TOMBSTONE ? null : cached;
+      }
+    }
+
+    return this.liveReadSessionBranchFile(repoPath, ref, optional, userId);
+  }
+
+  /**
+   * One live fetch for a session-branch path, caching the result for the
+   * given user if present. Fails closed on an unavailable fetch (503
+   * VERSION_UNAVAILABLE, same as t/4203) — a silent `null` here reads as
+   * "file doesn't exist" to read-modify-write callers, which would rebuild
+   * the file from empty and overwrite it (worse than a visible error).
+   * `optional: true` opts a caller (typically a viewer) into `null` plus a
+   * WARN instead, explicitly accepting that degradation.
+   */
+  private async liveReadSessionBranchFile(
+    repoPath: string, ref: string, optional: boolean | undefined, userId?: string,
+  ): Promise<string | null> {
+    if (this.rest.isTripped()) {
+      return this.handleSessionBranchUnavailable(repoPath, ref, optional);
+    }
+
+    const status = await this.getSessionBranchFileStatus(repoPath, ref);
+    if (status.kind === 'unavailable') {
+      return this.handleSessionBranchUnavailable(repoPath, ref, optional);
+    }
+
+    if (userId) {
+      let cache = this.sessionReadCache.get(userId);
+      if (!cache) { cache = new Map(); this.sessionReadCache.set(userId, cache); }
+      cache.set(repoPath, status.kind === 'present' ? status.content : GitHubAPIBackend.TOMBSTONE);
+    }
+
+    return status.kind === 'present' ? status.content : null;
+  }
+
+  private handleSessionBranchUnavailable(repoPath: string, ref: string, optional: boolean | undefined): null {
+    if (optional) {
+      this.recordEvent({
+        type: 'github.api.error', component: 'github-api', level: 'warn',
+        message: `readFile(${repoPath}): session-branch lookup failed on ${ref} — returning null for an optional read (not an absent file)`,
+        data: { path: repoPath, ref },
+      });
+      return null;
+    }
+    this.throwVersionUnavailable(repoPath, ref);
+  }
+
+  /**
+   * Returns true if sessionReadCache can be trusted for this call (fresh, or
+   * still within SESSION_READ_CACHE_REVALIDATE_MS); false if a ref-check
+   * failed, in which case the caller must skip the cache and go live for
+   * this read (TL: "treat it as a miss, which goes live and fails closed").
+   * A genuine head-sha mismatch clears the whole per-user cache rather than
+   * guessing which paths changed.
+   */
+  private async revalidateSessionReadCache(userId: string, ref: string): Promise<boolean> {
+    const tracked = this.sessionReadCacheHeadSha.get(userId);
+    if (tracked && Date.now() - tracked.checkedAt < SESSION_READ_CACHE_REVALIDATE_MS) {
+      return true;
+    }
+
+    const liveSha = await this.getBranchHeadSha(ref);
+    if (liveSha === null) {
+      return false;
+    }
+
+    if (!tracked || tracked.sha !== liveSha) {
+      this.sessionReadCache.delete(userId);
+    }
+    this.sessionReadCacheHeadSha.set(userId, { sha: liveSha, checkedAt: Date.now() });
+    return true;
+  }
+
+  private async getBranchHeadSha(branch: string): Promise<string | null> {
+    if (this.rest.isTripped()) return null;
+    const creds = await this.getCredsCached();
+    if (!creds) return null;
+    const resp = await this.rest.request(creds, 'GET',
+      `/repos/${creds.repo}/git/refs/heads/${branch}`, undefined, undefined, { optional: true });
+    if (!resp.ok) return null;
+    return (resp.data as { object: { sha: string } }).object.sha;
   }
 
   /**
@@ -1265,6 +1399,15 @@ export class GitHubAPIBackend implements StorageBackend {
       data: { branch, writes: entries.writes.length, deletes: entries.deletes.length, commitSha, durationMs },
     });
 
+    // t/4215: populate the session read cache for free — we already have
+    // the content and the new branch-head sha from this commit, so a plain
+    // readFile() right after this doesn't need to go live at all.
+    let readCache = this.sessionReadCache.get(userId);
+    if (!readCache) { readCache = new Map(); this.sessionReadCache.set(userId, readCache); }
+    for (const w of entries.writes) readCache.set(w.path, w.content);
+    for (const d of entries.deletes) readCache.set(d, GitHubAPIBackend.TOMBSTONE);
+    this.sessionReadCacheHeadSha.set(userId, { sha: commitSha, checkedAt: Date.now() });
+
     // Clear overlay only on success (Tech Lead note #2)
     this.clearSessionOverlay(userId);
 
@@ -1406,10 +1549,21 @@ export class GitHubAPIBackend implements StorageBackend {
 
     const data = resp.data as { sha: string };
 
-    // t/4203 (TL design, p/538#40): no baseline to refresh anymore —
-    // getSessionBranchVersion() reads the branch live on every save/edit-load,
-    // so a merge (or any other out-of-band move of this branch's head) is
-    // covered without this method needing to know about it at all.
+    // t/4203 (TL design, p/538#40): no baseline to refresh — getSessionBranchVersion()
+    // reads the write/edit-load path live on every call, so a merge is covered there
+    // without this method needing to know about it.
+    //
+    // t/4215: the plain-readFile cache is a different story — it IS filled by
+    // this method's own content. The merge just moved the head to a tree we
+    // don't have path-by-path deltas for, so drop the whole cache (next read
+    // per path goes live and refills) and record the new head sha so the
+    // revalidation window (SESSION_READ_CACHE_REVALIDATE_MS) resets too.
+    const userId = this.getEffectiveUserId();
+    if (userId) {
+      this.sessionReadCache.delete(userId);
+      this.sessionReadCacheHeadSha.set(userId, { sha: data.sha, checkedAt: Date.now() });
+    }
+
     return { ok: true, sha: data.sha, conflicts: false, message: `Merged main into ${branch}` };
   }
 
@@ -2306,6 +2460,12 @@ export class GitHubAPIBackend implements StorageBackend {
       message: `Session overlay cleared for ${userId}`,
       data: { userId },
     });
+  }
+
+  /** t/4215: wipe the plain-readFile session cache at true session end. */
+  clearSessionReadCache(userId: string): void {
+    this.sessionReadCache.delete(userId);
+    this.sessionReadCacheHeadSha.delete(userId);
   }
 }
 
