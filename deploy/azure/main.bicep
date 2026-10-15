@@ -1843,9 +1843,12 @@ resource githubRefusalAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-p
     criteria: {
       allOf: [
         {
+          // Matches logGithubRefusal()'s Pino message (githubRestClient.ts, t/4202) —
+          // NOT the FlightRecorder event type string, which never reaches console
+          // output (FlightRecorder.record() only writes an in-memory ring buffer).
           query: '''
             ContainerAppConsoleLogs_CL
-            | where Log_s contains "github.api.refused"
+            | where Log_s contains "github-api-refused-403"
           '''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
@@ -1860,13 +1863,13 @@ resource githubRefusalAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-p
 }
 
 // Circuit breaker opening means every GitHub call is being short-circuited (serving
-// from cache only, t/4179) — this is the one circuit-breaker transition worth paging
-// on; 'probing' and 'closed' (no-op) are routine and not alerted. Matches on
-// "consecutive failures)", which appears ONLY in onApiFailure()'s open-transition
-// message (githubRestClient.ts) — not the close or probe messages — avoiding a
-// literal arrow character in the KQL string (az bicep build chokes on it under a
-// non-UTF-8 console codepage; matching message content is also more robust than
-// matching a formatting glyph that could change independently of the transition).
+// from cache only, t/4179). Matches "circuit-breaker-open" — the cause string
+// githubAPIBackend.ts's listDirectory already emits via log.server.warn whenever it's
+// blocked by the open circuit (NOT githubRestClient.ts's FlightRecorder event, which
+// never reaches console output — confirmed 0 hits during the 10-13 outage, vs this
+// string's 31,747 hits in the same window). Red-armed (t/4202, Lead review):
+//   10-13 09:55-10:30Z (outage window): 31,747 hits
+//   10-14 09:55-10:30Z (clean window):       0 hits
 
 resource circuitOpenAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-github-circuit-open'
@@ -1878,15 +1881,14 @@ resource circuitOpenAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
         {
           query: '''
             ContainerAppConsoleLogs_CL
-            | where Log_s contains "github.api.circuit_break"
-            | where Log_s contains "consecutive failures)"
+            | where Log_s contains "circuit-breaker-open"
           '''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
