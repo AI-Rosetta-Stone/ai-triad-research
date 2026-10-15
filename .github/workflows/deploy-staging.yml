@@ -21,9 +21,11 @@ permissions:
   packages: read
   id-token: write  # For Azure OIDC login
 
+# t/4194: shared with deploy-azure.yml's group — see that file's comment. A prod Bicep apply's
+# staging traffic-pin side effect must never interleave with this workflow's own staging promotion.
 concurrency:
-  group: deploy-staging
-  cancel-in-progress: true
+  group: deploy-azure-shared
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

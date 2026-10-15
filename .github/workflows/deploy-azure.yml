@@ -51,9 +51,18 @@ permissions:
   packages: read
   id-token: write  # For Azure OIDC login
 
+# t/4194: this workflow's own Bicep apply re-pins STAGING traffic too (trafficPinRevisionNameStaging
+# is captured from staging's state before the apply and written back after) — a side effect on a
+# resource deploy-staging.yml also manages concurrently. The old group (`deploy-${{ inputs.environment
+# }}`, always "deploy-production" here) never serialized against deploy-staging.yml's own
+# `deploy-staging` group, so the two could interleave and deploy-staging's promotion would get
+# silently undone by this workflow's stale captured pin (the 10-12/10-13 incidents, t/4194). A single
+# shared group across both workflows is the fix — `cancel-in-progress: false` so a concurrent deploy
+# QUEUES behind the other rather than being cancelled mid-apply (losing a deploy is worse than a
+# delay). Must match deploy-staging.yml's `concurrency.group` exactly.
 concurrency:
-  group: deploy-${{ inputs.environment }}
-  cancel-in-progress: true
+  group: deploy-azure-shared
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -189,6 +198,9 @@ jobs:
     environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0  # t/4194: full history, so the refuse-older-than-running guard's
+                           # `git merge-base --is-ancestor` below can actually see both commits.
 
       - name: Show resolved image (digest-pinned, from preflight)
         run: |
@@ -246,6 +258,40 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "staging_revision=$StagingRev"
           Write-Host "Prod pin / rollback target: '$ProdRev'"
           Write-Host "Staging pin target:         '$StagingRev'"
+
+      - name: Refuse to deploy a commit older than the one running in prod (t/4194 prevention)
+        shell: pwsh
+        run: |
+          # t/4194: the 10-14 rollback incident deployed an older commit over a newer one because
+          # a stale local state check was trusted instead of re-reading the live revision. This
+          # guard makes that class impossible at the workflow level: refuse the deploy outright if
+          # the requested SHA isn't a descendant of (or equal to) the SHA already running in prod.
+          $ErrorActionPreference = 'Stop'
+          $ProdRev = '${{ steps.current_revision.outputs.revision }}'
+          $Requested = '${{ inputs.sha }}'
+          if ([string]::IsNullOrWhiteSpace($ProdRev)) {
+            Write-Host "No active prod revision (first deploy) — nothing to compare against. Proceeding."
+            exit 0
+          }
+          # Revision names are `<app>--deploy-<shortsha>-<suffix>` (t/3679 naming). If a revision
+          # doesn't match that shape (hand-created, or a naming-convention change), FAIL OPEN here —
+          # a guard that can't parse the running state must never block a legitimate deploy.
+          if ($ProdRev -notmatch '--deploy-([0-9a-f]{7,40})-') {
+            Write-Host "::warning::t/4194 guard: could not parse a commit SHA out of revision '$ProdRev' — skipping the older-than-running check (fail-open)."
+            exit 0
+          }
+          $RunningShort = $Matches[1]
+          $RunningFull = git rev-parse "$RunningShort^{commit}" 2>$null
+          if (-not $RunningFull) {
+            Write-Host "::warning::t/4194 guard: '$RunningShort' (from revision '$ProdRev') isn't resolvable in this checkout's history — skipping (fail-open)."
+            exit 0
+          }
+          git merge-base --is-ancestor $RunningFull $Requested
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::t/4194 guard: refusing to deploy $Requested — it is NOT a descendant of the commit already running in prod ($RunningFull, revision '$ProdRev'). Deploying it would roll prod backward. If this is a deliberate rollback, use the rollback procedure (docs/runbooks), not a forward deploy."
+            exit 1
+          }
+          Write-Host "t/4194 guard: $Requested is a descendant of the running commit $RunningFull — proceeding."
 
       - name: Preview Bicep changes (what-if)
         run: |
@@ -797,4 +843,14 @@ jobs:
           if ($Fails.Count -gt 0) {
             Write-Host "::warning::Post-deploy smoke had $($Fails.Count) failure(s) — app is live but some endpoints may need attention"
           }
+
+      - name: Prod/staging digest parity (warn-only, t/4194 prevention item 3)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./operations/devops/Test-ProdStagingDigestParity.ps1 `
+            -ProdApp '${{ env.CONTAINER_APP_NAME }}' `
+            -StagingApp '${{ env.CONTAINER_APP_NAME }}-staging' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}'
 
