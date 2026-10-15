@@ -657,6 +657,19 @@ const POV_PREFIX_BY_KEY: Record<Pov, string> = {
 };
 
 /**
+ * t/4214 R-1 (D-3): the seat's tag and the POV's tag labels for the reflection prompt's tag guidance. A POV with
+ * no registry tags gets neither, so its prompt carries no tag lines at all.
+ */
+export function reflectionTagArgs(activeDebate: DebateSession, povKey: Pov): { seatTag?: string | null; povTagLabels?: Map<string, string> } {
+  const entries = loadPovTagRegistry().povs[povKey] ?? [];
+  if (entries.length === 0) return {};
+  return {
+    seatTag: activeDebate.seat_tags?.[povKey as SpeakerId]?.pov_tag ?? null,
+    povTagLabels: new Map(entries.map(e => [e.id, e.label])),
+  };
+}
+
+/**
  * Build the reflector's node list (t/3512). Only nodes THIS debate engaged — injected, cited, or
  * referenced by an argument-network claim — ranked by engagement, each carrying its debate record.
  * `fullTaxonomySweep` additionally passes the never-engaged remainder as a clearly-marked block.
@@ -683,6 +696,8 @@ function buildReflectionNodes(
     category: n.category,
     label: n.label,
     description: n.description,
+    // t/4214 R-1: rendered only when the POV has registry tags (D-3); `[]` shows as "none".
+    pov_tags: n.pov_tags ?? [],
     ...(e ? { engagement: { injected: e.injected, citations: e.citations, claimIds: e.claimIds, attackedClaimIds: e.attackedClaimIds, strongestAttack: e.strongestAttack } } : {}),
   });
 
@@ -913,6 +928,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
         })),
       }));
 
+      const { seatTag, povTagLabels } = reflectionTagArgs(activeDebate, povKey);
       const prompt = reflectionPrompt(
         info.label,
         info.pov,
@@ -927,6 +943,8 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
         priorReflections.length > 0 ? priorReflections : undefined,
         unengaged,
         info, // t/3975: the seat's resolved soul (base soul when untagged)
+        seatTag,
+        povTagLabels,
       );
 
       try {
