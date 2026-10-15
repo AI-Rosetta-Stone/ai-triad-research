@@ -1402,7 +1402,45 @@ export class GitHubAPIBackend implements StorageBackend {
     }
 
     const data = resp.data as { sha: string };
+
+    // t/4203 (TL probe, p/775#64): this merge just moved the session branch
+    // HEAD independently of commitOverlay — any path already in this user's
+    // committed baseline may now hold content the merge brought in from main,
+    // not what we last recorded. Refresh before returning, or a save right
+    // after this resync could pass its precondition against stale pre-merge
+    // content and silently erase main's merged change on the next commit.
+    const userId = this.getEffectiveUserId();
+    if (userId) await this.refreshCommittedBaselineAfterMerge(userId, branch);
+
     return { ok: true, sha: data.sha, conflicts: false, message: `Merged main into ${branch}` };
+  }
+
+  /**
+   * t/4203: re-fetch every path this user's committed-session baseline
+   * tracks from the branch's new (post-merge) HEAD, so the baseline reflects
+   * what the session branch actually holds, not stale pre-merge content.
+   * Fails closed: a path whose refresh doesn't succeed is evicted rather than
+   * kept — the next precondition check for it falls through to getFileSha()
+   * (the same degraded-but-safe behavior from before this baseline existed),
+   * never silently trusts content that couldn't be re-verified.
+   */
+  private async refreshCommittedBaselineAfterMerge(userId: string, branch: string): Promise<void> {
+    const baseline = this.committedOverlayBaseline.get(userId);
+    if (!baseline || baseline.size === 0) return;
+
+    for (const repoPath of [...baseline.keys()]) {
+      const result = await this.fetchFileFromGitHub(repoPath, branch, true);
+      if (result === null) {
+        baseline.delete(repoPath);
+        this.recordEvent({
+          type: 'storage.fallback', component: 'github-api', level: 'warn',
+          message: `Committed-session baseline refresh failed for ${repoPath} after merge into ${branch} — evicted (fail closed)`,
+          data: { path: repoPath, branch, userId },
+        });
+        continue;
+      }
+      baseline.set(repoPath, result.content);
+    }
   }
 
   // ── Path contract ──────────────────────────────────────────────────────
@@ -2214,6 +2252,11 @@ export class GitHubAPIBackend implements StorageBackend {
 
   getSessionOverlay(userId: string): Map<string, string> | undefined {
     return this.sessionOverlays.get(userId);
+  }
+
+  /** t/4203: test/diagnostic accessor for the committed-session baseline. */
+  getCommittedOverlayBaseline(userId: string): Map<string, string> | undefined {
+    return this.committedOverlayBaseline.get(userId);
   }
 
   /**

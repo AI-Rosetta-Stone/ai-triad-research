@@ -19,6 +19,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { gitBlobSha } from '../storage/gitBlobSha.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index';
 
 const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
@@ -123,6 +124,11 @@ async function createBackend(recorder?: FlightRecorder) {
   });
   await backend.initialize();
   return backend;
+}
+
+async function createSessionManager(backend: Awaited<ReturnType<typeof createBackend>>, recorder?: FlightRecorder) {
+  const { SessionBranchManager } = await import('../storage/sessionBranchManager');
+  return new SessionBranchManager(backend, recorder ?? createTestRecorder());
 }
 
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 handling (t/4184, t/4187)', () => {
@@ -374,6 +380,129 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — committed-session baselin
     expect(v2.version).toBeTruthy();
     expect(v2.version).not.toBe(v1.version);
     expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
+
+    backend.shutdown();
+  });
+});
+
+// t/4203 (TL probe, p/775#64): mergeBranch() moves the session branch HEAD
+// independently of commitOverlay — without a refresh, the committed-session
+// baseline from an earlier commit outlives a resync merge, so a stale tab's
+// save can pass its precondition against pre-merge content and the next
+// commit silently erases whatever the merge brought in from main.
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — committed-session baseline survives a resync merge (t/4203)', () => {
+  it('a resync refreshes the baseline — a stale save then conflicts, and a save against the merged content succeeds', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
+      }
+      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
+      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
+      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
+      return null;
+    });
+    await backend.commitOverlay('alice', 'test commit');
+    expect(backend.getCommittedOverlayBaseline('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 1}');
+
+    // Simulate a resync: main had further, independent changes to this same
+    // path, auto-merged into the session branch by GitHub's Merges API.
+    const mergedContent = JSON.stringify({ v: 'merged-from-main' });
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST' && url.endsWith('/merges')) return { status: 201, body: { sha: 'merge-commit-sha' } };
+      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json') && url.includes('ref=api-session%2Falice')) {
+        return { status: 200, body: { content: Buffer.from(mergedContent).toString('base64'), encoding: 'base64', sha: 'merged-blob-sha' } };
+      }
+      return null;
+    });
+
+    const mergeResult = await backend.mergeBranch('api-session/alice');
+    expect(mergeResult.ok).toBe(true);
+    // The refresh replaced the pre-merge baseline with the merge's real content.
+    expect(backend.getCommittedOverlayBaseline('alice')?.get('taxonomy/nodes.json')).toBe(mergedContent);
+
+    // A tab that loaded before the resync still carries the pre-merge version.
+    const staleErr = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "from a stale tab"}', { baseSha: v1.version })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+    expect(staleErr?.httpStatus).toBe(409);
+    expect(staleErr?.code).toBe('WRITE_CONFLICT');
+
+    // A save against the merged content's own version succeeds, and does not
+    // silently clobber what the merge brought in.
+    const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "after reload"}', { baseSha: gitBlobSha(mergedContent) });
+    expect(v2.version).toBeTruthy();
+
+    backend.shutdown();
+  });
+
+  it('a path whose refresh fails is evicted from the baseline (fails closed) rather than kept stale', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
+      }
+      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
+      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
+      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
+      return null;
+    });
+    await backend.commitOverlay('alice', 'test commit');
+
+    // The merge "succeeds" on GitHub, but re-fetching this path from the
+    // branch's new HEAD fails (e.g. the merge deleted it) — the refresh must
+    // not just keep serving the pre-merge content as if it were still current.
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST' && url.endsWith('/merges')) return { status: 201, body: { sha: 'merge-commit-sha' } };
+      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) return { status: 404, body: { message: 'Not Found' } };
+      return null;
+    });
+
+    await backend.mergeBranch('api-session/alice');
+    expect(backend.getCommittedOverlayBaseline('alice')?.has('taxonomy/nodes.json')).toBe(false);
+
+    backend.shutdown();
+  });
+});
+
+// t/4203 (TL "N3", p/775#64): deleteBranch clears the committed-session
+// baseline alongside the pending overlay — previously wired with no test to
+// catch a regression.
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — deleteBranch clears the committed-session baseline (t/4203)', () => {
+  it('after deleteBranch, the committed baseline for that user is gone', async () => {
+    const backend = await createBackend();
+    const manager = await createSessionManager(backend);
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    await manager.ensureBranch('alice');
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
+      }
+      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
+      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
+      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
+      return null;
+    });
+    await backend.commitOverlay('alice', 'test commit');
+    expect(backend.getCommittedOverlayBaseline('alice')?.size).toBe(1);
+
+    await manager.deleteBranch('alice', 'manual');
+
+    expect(backend.getCommittedOverlayBaseline('alice')).toBeUndefined();
 
     backend.shutdown();
   });
