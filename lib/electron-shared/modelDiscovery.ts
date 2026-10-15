@@ -69,6 +69,12 @@ export interface RefreshResult {
    * proposal, so this is the only signal for them; read by the models:drift check (lib/electron-shared/modelsDrift.ts).
    */
   removedModels?: string[];
+  /**
+   * Replace mode only: the subset of registered models whose apiModelId the vendor's RAW catalog listing no
+   * longer contains (t/4199). Unlike `removedModels`, it excludes models a refresh would merely curate away
+   * (older in their family, or filtered out by type). Read by models:drift.
+   */
+  delistedModels?: string[];
   dryRun?: boolean;
   signoff?: SignoffRecord;
 }
@@ -166,7 +172,7 @@ export function curateGeminiModels(rawModels: GeminiModelInfo[]): ModelEntry[] {
   }));
 }
 
-export async function discoverGeminiModels(apiKey: string): Promise<ModelEntry[]> {
+export async function discoverGeminiModels(apiKey: string, rawIds?: Set<string>): Promise<ModelEntry[]> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=100`;
   const resp = await fetch(url, { headers: { 'x-goog-api-key': apiKey } });
   if (!resp.ok) {
@@ -179,6 +185,8 @@ export async function discoverGeminiModels(apiKey: string): Promise<ModelEntry[]
     });
   }
   const json = await resp.json() as { models: GeminiModelInfo[] };
+  /** Raw vendor ids, before any type filter or curation, recorded for the drift check (t/4199). */
+  for (const m of json.models ?? []) rawIds?.add(m.name.replace(/^models\//, ''));
   return geminiCandidates(json.models);
 }
 
@@ -190,7 +198,7 @@ interface GroqModelInfo {
   active: boolean;
 }
 
-export async function discoverGroqModels(apiKey: string): Promise<ModelEntry[]> {
+export async function discoverGroqModels(apiKey: string, rawIds?: Set<string>): Promise<ModelEntry[]> {
   const resp = await fetch('https://api.groq.com/openai/v1/models', {
     headers: { 'Authorization': `Bearer ${apiKey}` },
   });
@@ -204,6 +212,8 @@ export async function discoverGroqModels(apiKey: string): Promise<ModelEntry[]> 
     });
   }
   const json = await resp.json() as { data: GroqModelInfo[] };
+  /** Raw vendor ids, before any type filter or curation, recorded for the drift check (t/4199). */
+  for (const m of json.data ?? []) rawIds?.add(m.id);
 
   return json.data
     .filter(m => m.active !== false)
@@ -357,7 +367,7 @@ export async function discoverClaudeModels(apiKey: string): Promise<ModelEntry[]
  * /v1/models listing. `probe` = the hand-picked candidate fallback: never authoritative, so the refresh treats a
  * probe-sourced backend as additive only and never lets it drive a drop.
  */
-export async function discoverClaudeCatalog(apiKey: string, allowProbe = true): Promise<{ models: ModelEntry[]; source: 'catalog' | 'probe' }> {
+export async function discoverClaudeCatalog(apiKey: string, allowProbe = true, rawIds?: Set<string>): Promise<{ models: ModelEntry[]; source: 'catalog' | 'probe' }> {
   try {
     const resp = await fetch('https://api.anthropic.com/v1/models', {
       headers: {
@@ -367,6 +377,8 @@ export async function discoverClaudeCatalog(apiKey: string, allowProbe = true): 
     });
     if (resp.ok) {
       const json = await resp.json() as { data: AnthropicModelInfo[] };
+      /** Raw vendor ids, before any type filter or curation, recorded for the drift check (t/4199). */
+      for (const m of json.data ?? []) rawIds?.add(m.id);
       const models = curateClaudeModels(json.data ?? []);
       if (models.length > 0) {
         console.log(`[ModelDiscovery] Claude: ${models.length} models via /v1/models catalog`);
@@ -418,7 +430,7 @@ export async function discoverClaudeCatalog(apiKey: string, allowProbe = true): 
 
 // ── DeepSeek: OpenAI-compatible GET /models ────────────────────────────────────
 
-export async function discoverDeepSeekModels(apiKey: string): Promise<ModelEntry[]> {
+export async function discoverDeepSeekModels(apiKey: string, rawIds?: Set<string>): Promise<ModelEntry[]> {
   const resp = await fetch('https://api.deepseek.com/models', {
     headers: { 'Authorization': `Bearer ${apiKey}` },
   });
@@ -432,6 +444,8 @@ export async function discoverDeepSeekModels(apiKey: string): Promise<ModelEntry
     });
   }
   const json = await resp.json() as { data: { id: string; owned_by: string }[] };
+  /** Raw vendor ids, before any type filter or curation, recorded for the drift check (t/4199). */
+  for (const m of json.data ?? []) rawIds?.add(m.id);
 
   return (json.data ?? [])
     .filter(m => {
@@ -513,7 +527,7 @@ async function discoverBackend(
   config: AIModelsConfig,
   deps: ModelDiscoveryDeps,
   catalogOnly = false,
-): Promise<{ models: ModelEntry[]; result: BackendResult; source: CatalogSource }> {
+): Promise<{ models: ModelEntry[]; result: BackendResult; source: CatalogSource; listed?: ReadonlySet<string> }> {
   const existing = () => config.models.filter(m => m.backend === backendId);
   if (backendId === 'ollama') {
     try {
@@ -542,11 +556,12 @@ async function discoverBackend(
     return { models: existing(), result: { ok: false, count: 0, error: 'No API key configured' }, source: 'existing' };
   }
 
+  const listed = new Set<string>();
   const discoverers: Record<string, (key: string) => Promise<{ models: ModelEntry[]; source: 'catalog' | 'probe' }>> = {
-    gemini: async (k) => ({ models: await discoverGeminiModels(k), source: 'catalog' }),
-    claude: (k) => discoverClaudeCatalog(k, !catalogOnly),
-    groq: async (k) => ({ models: await discoverGroqModels(k), source: 'catalog' }),
-    deepseek: async (k) => ({ models: await discoverDeepSeekModels(k), source: 'catalog' }),
+    gemini: async (k) => ({ models: await discoverGeminiModels(k, listed), source: 'catalog' }),
+    claude: (k) => discoverClaudeCatalog(k, !catalogOnly, listed),
+    groq: async (k) => ({ models: await discoverGroqModels(k, listed), source: 'catalog' }),
+    deepseek: async (k) => ({ models: await discoverDeepSeekModels(k, listed), source: 'catalog' }),
   };
 
   const discover = discoverers[backendId];
@@ -561,7 +576,7 @@ async function discoverBackend(
       return { models: existing(), result: { ok: false, count: 0, error: 'No valid models found via probing — kept existing' }, source: 'existing' };
     }
     console.log(`[ModelDiscovery] ${backendId}: discovered ${models.length} models (${source})`);
-    return { models, result: { ok: true, count: models.length }, source };
+    return { models, result: { ok: true, count: models.length }, source, ...(source === 'catalog' ? { listed } : {}) };
   } catch (err) {
     recordError(err);
     const msg = err instanceof Error ? err.message : String(err);
@@ -732,6 +747,13 @@ function refuse(result: RefreshResult, refusal: RefreshRefusal): RefreshResult {
 /** An accept is recorded under a host-set identity (t/4160); without one, it is refused before any vendor call. */
 const lacksPrincipal = (opts: RefreshOptions): boolean => opts.accept !== undefined && !opts.accept.principal?.trim();
 
+/** Registered ids whose apiModelId an authoritative catalog's raw listing no longer contains (t/4199). */
+function delistedIds(models: readonly ModelEntry[], authoritative: readonly { backend: string; listed?: ReadonlySet<string> }[]): string[] {
+  const listedBy = new Map<string, ReadonlySet<string>>();
+  for (const d of authoritative) if (d.listed) listedBy.set(d.backend, d.listed);
+  return models.filter(m => listedBy.has(m.backend) && !listedBy.get(m.backend)!.has(m.apiModelId)).map(m => m.id);
+}
+
 /** Fallback-Path Logging: a probe-sourced backend's catalog wasn't authoritative, so it can only gain models. */
 function warnProbeSourced(discovered: readonly { backend: string; models: ModelEntry[]; source: CatalogSource }[]): void {
   for (const d of discovered.filter(x => x.source === 'probe')) {
@@ -765,7 +787,7 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
 
   if (lacksPrincipal(opts)) return refuse(result, { reason: 'no-principal' });
 
-  const discovered: { backend: string; models: ModelEntry[]; source: CatalogSource }[] = [];
+  const discovered: { backend: string; models: ModelEntry[]; source: CatalogSource; listed?: ReadonlySet<string> }[] = [];
   for (const backendId of ALL_BACKENDS) {
     if (skip.has(backendId)) {
       // Not probed this run → treated as non-probed so its existing models survive untouched.
@@ -773,7 +795,7 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
       continue;
     }
     const discovery = await discoverBackend(backendId, config, deps, opts.catalogOnly);
-    discovered.push({ backend: backendId, models: discovery.models, source: discovery.source });
+    discovered.push({ backend: backendId, models: discovery.models, source: discovery.source, listed: discovery.listed });
     result[backendId] = discovery.result;
   }
   result.catalogSources = Object.fromEntries(discovered.map(d => [d.backend, d.source]));
@@ -826,6 +848,7 @@ export async function refreshAIModels(deps: ModelDiscoveryDeps, opts: RefreshOpt
   const mergedIds = new Set(merged.map(m => m.id));
   const removed = config.models.filter(m => !mergedIds.has(m.id));
   result.removedModels = removed.map(m => m.id);
+  result.delistedModels = delistedIds(config.models, authoritative);
   config.models = merged;
 
   // ── 3. Proposal: every selection-surface change, never applied on its own (TL t/3553#1, CL #2) ───────

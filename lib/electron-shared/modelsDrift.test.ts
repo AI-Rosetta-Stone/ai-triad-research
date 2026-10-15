@@ -87,8 +87,30 @@ describe('models:drift exit-code contract (TL t/4159#10)', () => {
   it('an unreferenced model the vendor dropped: drift, exit 1, the id named, the file untouched', async () => {
     groqIds = ['alpha-120b', 'beta-20b'];
     expect(await run({ GEMINI_API_KEY: GEMINI_KEY, GROQ_API_KEY: GROQ_KEY })).toBe(1);
-    expect(out.join('\n')).toMatch(/a refresh would drop .*: groq-gamma-8b/);
+    expect(out.join('\n')).toContain('the vendor no longer lists: groq-gamma-8b');
     expect(fs.readFileSync(path.join(repoRoot, 'ai-models.json'), 'utf-8')).toBe(original);
+  });
+
+  // t/4199: a refresh would drop these too, but the vendor still lists them, so they're info, not drift.
+  const withExtra = (extra: object[]) => {
+    const r = registry();
+    r.models.push(...(extra as typeof r.models));
+    fs.writeFileSync(path.join(repoRoot, 'ai-models.json'), JSON.stringify(r, null, 2) + '\n');
+  };
+
+  it('an unreferenced model superseded in its family (still listed): exit 0, reported as info', async () => {
+    withExtra([gm('gemini-3.5-flash')]);
+    geminiIds = [...geminiIds, 'gemini-3.5-flash', 'gemini-3.8-flash'];
+    expect(await run({ GEMINI_API_KEY: GEMINI_KEY, GROQ_API_KEY: GROQ_KEY })).toBe(0);
+    expect(out.join('\n')).toMatch(/info: a refresh would also curate away .*gemini-3\.5-flash/);
+    expect(out.join('\n')).toContain('no drift');
+  });
+
+  it('a registered model discovery filters out by type (still listed): exit 0, reported as info', async () => {
+    withExtra([gq('canopylabs/orpheus-v1-english')]);
+    groqIds = [...groqIds, 'canopylabs/orpheus-v1-english'];
+    expect(await run({ GEMINI_API_KEY: GEMINI_KEY, GROQ_API_KEY: GROQ_KEY })).toBe(0);
+    expect(out.join('\n')).toMatch(/info: a refresh would also curate away .*orpheus/);
   });
 
   it('a dropped model behind a default and chains: drift reported from the refusal, file untouched', async () => {
