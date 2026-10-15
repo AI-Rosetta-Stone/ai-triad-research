@@ -61,6 +61,14 @@ function mockFetchResponse(status: number, body: unknown): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), { status, headers: new Headers(defaultRateLimitHeaders) });
 }
 
+// t/4203 (TL, p/538#48): writes/edit-loads with no pending overlay entry now
+// read the session branch live (eb2b66f6) instead of falling back to the
+// repo-tree/main cache — tests that need a specific live-lookup result (most
+// of this file's first write in each test) push a handler here rather than
+// relying on handleDefaultGithubApi's single fixed sha.
+type MockHandler = (url: string, init: RequestInit) => { status: number; body?: unknown } | null;
+let apiHandlers: MockHandler[] = [];
+
 const MAIN_SHA = 'abc123def456789000000000000000000000dead';
 const TREE_SHA = 'tree-sha-000000000000000000000000000dead';
 
@@ -83,10 +91,16 @@ function handleDefaultGithubApi(url: string, method: string): Response {
 
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
+  apiHandlers = [];
   vi.stubEnv('AI_TRIAD_DATA_ROOT', '/var/cache/taxonomy-test');
   globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    return handleDefaultGithubApi(url, init?.method ?? 'GET');
+    const method = init?.method ?? 'GET';
+    for (const handler of apiHandlers) {
+      const result = handler(url, init ?? {});
+      if (result) return mockFetchResponse(result.status, result.body);
+    }
+    return handleDefaultGithubApi(url, method);
   }) as unknown as typeof fetch;
 });
 afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
@@ -108,14 +122,30 @@ async function createBackend(recorder?: FlightRecorder) {
   return backend;
 }
 
+// t/4203 (TL, p/538#48): with no pending overlay entry, a write/edit-load now
+// reads the session branch live instead of falling back to the repo-tree —
+// mock that live lookup to return `sha` for taxonomy/nodes.json on the given
+// branch, so a test's `baseSha` (still 'blob1' throughout this file, matching
+// the pre-t/4203 repo-tree sha) keeps matching.
+function mockSessionBranchLookup(branch: string, sha: string, content = '{"test": true}'): void {
+  const refQuery = `ref=${encodeURIComponent(branch)}`;
+  apiHandlers.push((url, init) => {
+    if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
+      return null;
+    }
+    return { status: 200, body: { content: Buffer.from(content).toString('base64'), encoding: 'base64', sha } };
+  });
+}
+
 // t/4187 (Rosetta Stone, p/775#18): the overlay fast path is where every
 // hosted user save lands — baseSha must be enforced here too, or the fix
-// protects no one on the web. 'blob1' is the repo-tree sha already in place
-// for this path at initialize() — no GitHub call needed to resolve it.
+// protects no one on the web. 'blob1' is the sha mockSessionBranchLookup
+// reports for this path's first write in each test below.
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondition (t/4187)', () => {
   it('sequential saves succeed when each uses the prior write\'s returned version', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
 
     const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
     expect(v1.version).toBeTruthy();
@@ -130,6 +160,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
   it('a stale baseSha conflicts — another tab already saved this session', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
     await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const err = await backend.writeFile('/taxonomy/nodes.json', '{"lost-update": true}', { baseSha: 'blob1' })
@@ -145,6 +176,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     const recorder = createTestRecorder();
     const backend = await createBackend(recorder);
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
     await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const result = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}');
@@ -163,6 +195,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion overl
   it('save, then GET via readFileWithVersion, then save with the returned version — succeeds, no WRITE_CONFLICT', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
 
     const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
@@ -173,6 +206,32 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion overl
     const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: got?.version });
     expect(v2.version).toBeTruthy();
     expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
+    backend.shutdown();
+  });
+});
+
+// t/4203 (TL design, p/538#40/#48): with no pending overlay entry,
+// readFileWithVersion must read the session branch live — never main's
+// on-disk cache. Disabling this branch previously failed no test, because
+// every other test here already has an overlay entry by the time it calls
+// readFileWithVersion (t/4201's precedence test above).
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion reads the session branch live (t/4203)', () => {
+  it('an edit load on a session branch (no overlay entry) returns the branch content, not main\'s cache', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    // Deliberately different from handleDefaultGithubApi's main-cache content
+    // ('{"test": true}' / 'blob-sha') — if this branch were disabled and the
+    // call fell through to main's cache instead, the assertions below would
+    // see that content/sha, not this one.
+    const branchContent = JSON.stringify({ v: 'on-the-branch' });
+    mockSessionBranchLookup('api-session/alice', 'branch-sha', branchContent);
+
+    const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+
+    expect(result).toEqual({ content: branchContent, version: 'branch-sha' });
+    expect(result?.content).not.toBe('{"test": true}');
+
     backend.shutdown();
   });
 });

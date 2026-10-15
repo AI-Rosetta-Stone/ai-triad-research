@@ -632,6 +632,8 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"count": 1}', { baseSha: 'blob1' });
     mockCommitSteps('api-session/alice');
     await backend.commitOverlay('alice', 'test commit');
+    branch.current = '{"count": 1}';
+    branch.sha = v1.version;
 
     // Read current (must see the commit, not main's stale cache), modify,
     // write back — the shape a corrected harvest route follows.
