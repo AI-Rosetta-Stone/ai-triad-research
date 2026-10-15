@@ -19,6 +19,8 @@ import { resolvePoverInfo } from '@lib/debate/tagSoulRegistry';
 import { loadPovTagRegistry } from '@lib/schema/povTags';
 import { hashString } from '@lib/debate/helpers';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { resolveBackend, type ModelRegistry } from '@lib/ai-client/registry';
+import aiModelsRegistry from '../../../../../../ai-models.json';
 import type { PovInfo, SpeakerId } from '@lib/debate/types';
 import type { ReflectionEdit, ReflectionTagCheck } from '../types';
 
@@ -59,10 +61,17 @@ function custodianSoul(soulId: string): CustodianCheckSoul {
 /**
  * The model the custodian check runs on, whatever model the reflection itself used (CL p/785#34). M1 v2 (PR #3318)
  * passed on it (conflict kappa 0.85, n=46; flag kappa 0.65; 0% unchecked) and failed on flash-lite (flag kappa
- * 0.41). Spec section 4: changing it needs a fresh M1 run. Without a key for its backend the call fails, and the
- * edit is stamped `unchecked` with a WARN (fails closed), never passed.
+ * 0.41). Spec section 4: changing it needs a fresh M1 run. No fallback model (CL p/785#38): without a key for its
+ * backend the calls are skipped and each edit is stamped `unchecked` (fails closed), never passed.
  */
 export const CUSTODIAN_CHECK_MODEL = 'gemini-3.1-pro-preview';
+
+/** The pinned model's backend, from the registry (never from the id prefix). */
+export const CUSTODIAN_CHECK_BACKEND = resolveBackend(CUSTODIAN_CHECK_MODEL, aiModelsRegistry as Pick<ModelRegistry, 'models'>);
+
+/** The reviewer-facing reason when the backend has no key (CL p/785#38). */
+export const NO_CHECK_KEY_REASON =
+  `Tag check needs a Gemini API key (the judge is pinned to ${CUSTODIAN_CHECK_MODEL}). Add GEMINI_API_KEY, or review and confirm each flagged edit.`;
 
 interface AnnotateContext {
   pov: string;
@@ -70,7 +79,27 @@ interface AnnotateContext {
   /** Current `pov_tags` of a node by id (from the live taxonomy). */
   nodeTags: (nodeId: string) => string[] | undefined;
   generateText: GenerateText;
+  /** Whether CUSTODIAN_CHECK_BACKEND has a key; asked at most once per run, and only when an edit needs a check. */
+  hasCheckKey: () => Promise<boolean>;
   debateId?: string;
+}
+
+/**
+ * The key check, memoised for one run. If the lookup itself fails, the calls are tried anyway: each then fails
+ * or succeeds on its own, with its real error text in the `unchecked` reason.
+ */
+function memoisedKeyCheck(ctx: AnnotateContext): () => Promise<boolean> {
+  let answer: Promise<boolean> | undefined;
+  // Promise.resolve().then: a lookup that throws synchronously is caught the same way as a rejected one.
+  return () => (answer ??= Promise.resolve().then(() => ctx.hasCheckKey()).catch((err) => {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'reflection-tag-check', level: 'warn', debate_id: ctx.debateId,
+      message: 'reflection tag check: the API-key lookup failed; trying the custodian calls anyway',
+      data: { backend: CUSTODIAN_CHECK_BACKEND },
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return true;
+  }));
 }
 
 /** Run the custodian check for one edit; any failure is `unchecked`, logged, never thrown. */
@@ -128,13 +157,19 @@ function relationOutcome(relation: TagRelation, edit: ReflectionEdit, seatTag: s
  */
 export async function annotateTagChecks(edits: ReflectionEdit[], ctx: AnnotateContext, isStillValid: () => boolean): Promise<void> {
   const registry = povTagEntries(ctx.pov);
+  const hasKey = memoisedKeyCheck(ctx);
+  let skippedNoKey = 0;
   for (const edit of edits) {
     if (!edit.node_id || !CHECKED_EDIT_TYPES.has(edit.edit_type)) continue;
     if (!isStillValid()) return;
     const targetTags = ctx.nodeTags(edit.node_id) ?? [];
     const { relation, custodians } = classifyTagRelation(ctx.seatTag, targetTags, registry);
     const { needsCheck, conflictNote } = relationOutcome(relation, edit, ctx.seatTag);
-    const check = needsCheck && custodians.length > 0 ? await runCustodianCheck(edit, targetTags, custodians, ctx) : {};
+    let check: { verdicts?: CustodianVerdictRow[]; unchecked?: string } = {};
+    if (needsCheck && custodians.length > 0) {
+      if (await hasKey()) check = await runCustodianCheck(edit, targetTags, custodians, ctx);
+      else { check = { unchecked: NO_CHECK_KEY_REASON }; skippedNoKey++; }
+    }
     const stamp: ReflectionTagCheck = {
       relation,
       custodians,
@@ -147,6 +182,14 @@ export async function annotateTagChecks(edits: ReflectionEdit[], ctx: AnnotateCo
       ...(conflictNote ? { deprecate_shared_note: conflictNote } : {}),
     };
     edit.tag_check = stamp;
+  }
+  if (skippedNoKey > 0) {
+    // One WARN per run with the count, not one per edit (CL p/785#38).
+    getGlobalRecorder()?.record({
+      type: 'state.error', component: 'reflection-tag-check', level: 'warn', debate_id: ctx.debateId,
+      message: `reflection tag check skipped: no API key for ${CUSTODIAN_CHECK_BACKEND}; ${skippedNoKey} edit(s) left unchecked for the reviewer to confirm`,
+      data: { backend: CUSTODIAN_CHECK_BACKEND, model: CUSTODIAN_CHECK_MODEL, unchecked_count: skippedNoKey, pov: ctx.pov },
+    });
   }
 }
 

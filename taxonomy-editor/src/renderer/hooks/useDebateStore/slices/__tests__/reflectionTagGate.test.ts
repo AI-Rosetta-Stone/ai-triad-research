@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockRecord } = vi.hoisted(() => ({ mockRecord: vi.fn() }));
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
 
-const { annotateTagChecks, evaluateTagGate, checkedTextHash, tagsFingerprint, TENSION_NEEDS_CONFIRMATION, CUSTODIAN_CHECK_MODEL } = await import('../reflectionTagGate');
+const { annotateTagChecks, evaluateTagGate, checkedTextHash, tagsFingerprint, TENSION_NEEDS_CONFIRMATION, CUSTODIAN_CHECK_MODEL, CUSTODIAN_CHECK_BACKEND, NO_CHECK_KEY_REASON } = await import('../reflectionTagGate');
 import aiModelsRegistry from '../../../../../../../ai-models.json';
 import type { ReflectionEdit } from '../../types';
 
@@ -41,7 +41,7 @@ const judgeSays = (verdicts: JudgeVerdict[]) =>
 
 async function stamp(edit: ReflectionEdit, opts: { pov?: string; seatTag: string | null; nodeTags: string[] | undefined; generateText?: ReturnType<typeof vi.fn> }) {
   const generateText = opts.generateText ?? vi.fn();
-  await annotateTagChecks([edit], { pov: opts.pov ?? 'skeptic', seatTag: opts.seatTag, nodeTags: () => opts.nodeTags, generateText }, () => true);
+  await annotateTagChecks([edit], { pov: opts.pov ?? 'skeptic', seatTag: opts.seatTag, nodeTags: () => opts.nodeTags, generateText, hasCheckKey: async () => true }, () => true);
   return { stamp: edit.tag_check!, generateText };
 }
 
@@ -205,5 +205,54 @@ describe('R-3 evaluateTagGate: each relation and verdict', () => {
   it('the stamp helpers are order-insensitive and text-sensitive', () => {
     expect(tagsFingerprint(['institutional', 'critical'])).toBe(tagsFingerprint(['critical', 'institutional']));
     expect(checkedTextHash('a', 'b')).not.toBe(checkedTextHash('a', 'c'));
+  });
+});
+
+describe('no API key for the pinned judge (t/4230, CL p/785#38)', () => {
+  const sharedEdits = () => [makeEdit(), makeEdit({ node_id: 'skp-beliefs-002' })];
+  const run = (edits: ReflectionEdit[], hasCheckKey: () => Promise<boolean>, generateText = vi.fn(), pov = 'skeptic') =>
+    annotateTagChecks(edits, { pov, seatTag: 'critical', nodeTags: () => ['critical', 'institutional'], generateText, hasCheckKey }, () => true);
+
+  it('the backend comes from the registry', () => {
+    expect(CUSTODIAN_CHECK_BACKEND).toBe('gemini');
+  });
+
+  it('skips every call, stamps each edit unchecked with the actionable reason, and records ONE WARN with the count', async () => {
+    const edits = sharedEdits();
+    const generateText = vi.fn();
+    const hasCheckKey = vi.fn().mockResolvedValue(false);
+    await run(edits, hasCheckKey, generateText);
+    expect(generateText).not.toHaveBeenCalled();
+    expect(hasCheckKey).toHaveBeenCalledTimes(1); // asked once per run
+    for (const e of edits) expect(e.tag_check!.unchecked).toBe(NO_CHECK_KEY_REASON);
+    expect(NO_CHECK_KEY_REASON).toMatch(/needs a Gemini API key/);
+    const warns = mockRecord.mock.calls.map(c => c[0]).filter(r => r.component === 'reflection-tag-check' && r.level === 'warn');
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({ data: { backend: 'gemini', unchecked_count: 2 } });
+    expect(gate(edits[0], ['critical', 'institutional']).block).toBe('unchecked'); // fails closed
+  });
+
+  it('with a key the calls run, and the key is asked only once for the run', async () => {
+    const edits = sharedEdits();
+    const hasCheckKey = vi.fn().mockResolvedValue(true);
+    const generateText = judgeSays([{ soul: 'skeptic.institutional', verdict: 'consistent' }]);
+    await run(edits, hasCheckKey, generateText);
+    expect(hasCheckKey).toHaveBeenCalledTimes(1);
+    expect(generateText).toHaveBeenCalledTimes(2);
+  });
+
+  it('a POV with no tags never asks for the key', async () => {
+    const hasCheckKey = vi.fn();
+    await run([makeEdit({ node_id: 'acc-beliefs-001' })], hasCheckKey, vi.fn(), 'accelerationist');
+    expect(hasCheckKey).not.toHaveBeenCalled();
+  });
+
+  it('a key lookup that throws is logged and the calls are tried anyway', async () => {
+    const generateText = judgeSays([{ soul: 'skeptic.institutional', verdict: 'consistent' }]);
+    const hasCheckKey = () => { throw new Error('bridge down'); };
+    const edits = sharedEdits();
+    await run(edits, hasCheckKey as never, generateText);
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', message: expect.stringMatching(/API-key lookup failed/) }));
   });
 });
