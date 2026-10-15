@@ -1,16 +1,16 @@
 {
   "meta": {
-    "schema_version": "4.1.0",
+    "schema_version": "4.1.1",
     "corpus_snapshot": "2026-09-13",
     "provenance": "CL empirical inventory (t/3447#1) over 916 POV nodes + 33744 edges; CL+TL co-signed (t/3447#3/#4); SO-approved (e/151#2, t/3447#5).",
     "motivation": "One declarative source-of-truth for the taxonomy schema, replacing the implicit spread across Zod validators, TS types, PS validators, prompts, and JSON conventions. Existence justified by 4 defects the drafting inventory surfaced that scattering had hidden: t/3448 (rhetorical_strategy vocab drift), t/3449 (steelman_vulnerability type-drift), t/3450 (cross-field contamination), t/3451 (transient residue). That is the answer to the dual-maintenance objection.",
     "scope_note": "Covers SHAPE, not content: value sets, types, edge vocab, ID grammar. Per-node data, embeddings metadata, and policy_actions internals are out of scope. graph_attributes[] govern both pov nodes and situation (sit-*) nodes.",
     "snapshot_note": "Fields named cov_at_snapshot (and corpus_snapshot) are INFORMATIONAL only and are NEVER gate inputs. The drift gate compares value sets and types, not coverage.",
     "net_not_gate": "A green drift gate means NO DIVERGENCE between this record and its consumers. It does NOT mean the schema is correct — correctness is a human ontology judgment (CL+TL).",
-    "record_first": "A legitimate new value/type/edge is added to THIS record FIRST (CL+TL co-sign), then to consumers. The gate's failure message repeats this.",
+    "record_first": "A legitimate new value/type/edge is added to THIS record FIRST (CL approval plus the Quality reviewer, per normative_edit_rule), then to consumers. The gate's failure message repeats this.",
     "change_control": {
       "normative_fields": ["graph_attributes[].type", "graph_attributes[].required", "graph_attributes[].elem", "graph_attributes[].values", "graph_attributes[].atomic_values", "graph_attributes[].status", "edges.canonical", "edges.deprecated_types", "node_id.grammar", "node_id.pov", "node_id.category", "situation_relations.parent.values", "situation_relations.disagreement_type.values", "situation_relations.*.from/to", "node_fields[].type", "node_fields[].elem", "node_fields[].unique", "node_fields[].applies_to", "node_fields[].values_source", "node_fields[].absence", "node_fields[].status"],
-      "normative_edit_rule": "Edits to normative fields require CL+TL co-sign, and re-trigger the t/3361 Second Opinion when they meet its schema/data-model bar (normative removal/retype, or new blocking-gate coupling).",
+      "normative_edit_rule": "TL ruling t/4151: an addition-only edit to a normative field (new enum value, new field, new edge type; semver minor) is T1, with CL approval plus the Quality reviewer. A removal or retype (semver major), or an edit to normative_fields itself, is T2, and re-triggers the t/3361 Second Opinion (also for new blocking-gate coupling). Tier-check reads normative_fields from the PR's base revision (cl-path-sets.json schema_rule).",
       "free_fields": ["notes", "cov_at_snapshot", "corpus_snapshot", "contested[].resolution_ref", "review_by"],
       "semver": "major = normative removal or retype; minor = additive normative (new enum value, new field, new edge type); patch = non-normative (notes, snapshot, pointers)."
     }
