@@ -24,11 +24,26 @@ PURE: no I/O. The workflow gathers runningState, healthState and a log tail and 
 # 'Degraded' is deliberately absent: a degraded revision can recover, so it keeps the step waiting.
 $script:TerminalRunningStates = @('ActivationFailed', 'Failed')
 
-# Known startup failures, most specific first. Each pattern is matched against the revision's log tail.
+# githubAppAuth.ts logs `Installation token mint failed` with the HTTP status for ANY non-OK mint (SO C1 on
+# #3217). Only 404 (wrong installation) and 401 (bad App credentials) never recover on their own, so only those
+# are fatal on sight. 403/429/5xx are rate limits or GitHub outages: they keep the step waiting, and the last one
+# seen is reported if the step times out (SO C2).
+$script:MintFailedPattern = '(?m)^.*Installation token mint failed.*$'
+$script:MintFatal = @{
+    404 = @{ Cause   = 'github-app-installation'
+             Message = 'The GitHub App could not mint an installation token (HTTP 404). SYNC_GITHUB_APP_INSTALLATION_ID is probably the installation of a different App, or the App is not installed on the data repo. Check it matches the ai-triad-taxonomy-sync installation.' }
+    401 = @{ Cause   = 'github-app-credentials'
+             Message = 'The GitHub App could not mint an installation token (HTTP 401). The App ID or private key is wrong. Check GITHUB_APP_ID and the Key Vault private-key secret.' }
+}
+
+# Transient GitHub refusals: never fatal, but named on timeout (SO C2). Most specific first.
+$script:RefusalPatterns = @(
+    @{ Pattern = 'github-api circuit open'; Label = 'GitHub API circuit open (repeated refusals during data load)' }
+    @{ Pattern = 'GitHub API non-ok response'; Label = 'GitHub API non-ok response during data load' }
+)
+
+# Other known startup failures, matched against the revision's log tail.
 $script:KnownCauses = @(
-    @{ Pattern = 'Installation token mint failed'
-       Cause   = 'github-app-installation'
-       Message = 'The GitHub App could not mint an installation token (HTTP 404). SYNC_GITHUB_APP_INSTALLATION_ID is probably the installation of a different App, or the App is not installed on the data repo. Check it matches the ai-triad-taxonomy-sync installation.' }
     @{ Pattern = 'GitHub App credentials are missing or not configured'
        Cause   = 'github-app-credentials'
        Message = 'The server reports missing GitHub App credentials (GITHUB_APP_ID, the private-key secret name, or GITHUB_REPO). Check the SYNC_GITHUB_* repo variables and the Key Vault secret.' }
@@ -45,26 +60,43 @@ function Get-RevisionActivationVerdict {
         [AllowEmptyString()][AllowNull()][string] $LogTail,
         [bool] $ProbeHealthy = $false
     )
-    $cause = $null
+    $cause   = $null
+    $refusal = $null
     if (-not [string]::IsNullOrWhiteSpace($LogTail)) {
-        foreach ($known in $script:KnownCauses) {
-            if ($LogTail -match $known.Pattern) { $cause = $known; break }
+        # Token mint: fatal only on 404/401 (SO C1). Any other status is a transient refusal.
+        foreach ($line in [regex]::Matches($LogTail, $script:MintFailedPattern)) {
+            $statusMatch = [regex]::Match($line.Value, '"status"\s*:\s*(\d{3})')
+            $status = if ($statusMatch.Success) { [int]$statusMatch.Groups[1].Value } else { $null }
+            if ($null -ne $status -and $script:MintFatal.ContainsKey($status)) {
+                $cause = $script:MintFatal[$status]; break
+            }
+            $refusal = if ($null -ne $status) { "GitHub App token mint refused (HTTP $status)" } else { 'GitHub App token mint refused (status not logged)' }
+        }
+        if (-not $cause) {
+            foreach ($known in $script:KnownCauses) {
+                if ($LogTail -match $known.Pattern) { $cause = $known; break }
+            }
+        }
+        if (-not $refusal) {
+            foreach ($r in $script:RefusalPatterns) {
+                if ($LogTail -match $r.Pattern) { $refusal = $r.Label; break }
+            }
         }
     }
 
     if ($ProbeHealthy) {
-        return [pscustomobject]@{ Verdict = 'healthy'; Cause = $null; Message = 'Revision answered the health probe.' }
+        return [pscustomobject]@{ Verdict = 'healthy'; Cause = $null; Message = 'Revision answered the health probe.'; LastRefusal = $refusal }
     }
     if ($RunningState -in $script:TerminalRunningStates) {
         if ($cause) {
-            return [pscustomobject]@{ Verdict = 'failed'; Cause = $cause.Cause; Message = $cause.Message }
+            return [pscustomobject]@{ Verdict = 'failed'; Cause = $cause.Cause; Message = $cause.Message; LastRefusal = $refusal }
         }
-        return [pscustomobject]@{ Verdict = 'failed'; Cause = 'activation'; Message = "Revision is $RunningState (health: $HealthState) and will not start. See the revision's container log for the cause." }
+        return [pscustomobject]@{ Verdict = 'failed'; Cause = 'activation'; Message = "Revision is $RunningState (health: $HealthState) and will not start. See the revision's container log for the cause."; LastRefusal = $refusal }
     }
-    # A known fatal cause in the log fails the revision even before Azure flips the state: the token mint
-    # 404 repeats on every request and never recovers on its own.
+    # A known fatal cause in the log fails the revision even before Azure flips the state: a 404/401 mint
+    # repeats on every request and never recovers on its own.
     if ($cause -and $cause.Cause -in @('github-app-installation', 'github-app-credentials')) {
-        return [pscustomobject]@{ Verdict = 'failed'; Cause = $cause.Cause; Message = $cause.Message }
+        return [pscustomobject]@{ Verdict = 'failed'; Cause = $cause.Cause; Message = $cause.Message; LastRefusal = $refusal }
     }
-    return [pscustomobject]@{ Verdict = 'waiting'; Cause = $null; Message = "Revision is $RunningState (health: $HealthState); still waiting." }
+    return [pscustomobject]@{ Verdict = 'waiting'; Cause = $null; Message = "Revision is $RunningState (health: $HealthState); still waiting."; LastRefusal = $refusal }
 }

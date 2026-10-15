@@ -59,4 +59,60 @@ Describe 'Get-RevisionActivationVerdict' {
     It 'null inputs keep waiting rather than throwing' {
         (Get-RevisionActivationVerdict -RunningState $null -HealthState $null -LogTail $null).Verdict | Should -Be 'waiting'
     }
+
+    Context 'SO C1: only a 404 or 401 token mint is fatal on sight' {
+        It 'a 401 mint fails, naming the App credentials' {
+            $log = '{"level":40,"component":"auth","status":401,"msg":"Installation token mint failed"}'
+            $v = Get-RevisionActivationVerdict -RunningState 'Activating' -HealthState 'None' -LogTail $log
+            $v.Verdict | Should -Be 'failed'
+            $v.Cause   | Should -Be 'github-app-credentials'
+            $v.Message | Should -Match 'HTTP 401'
+        }
+
+        It 'a <Status> mint is transient: it keeps waiting and is named as the last refusal' -ForEach @(
+            @{ Status = 403 }, @{ Status = 429 }, @{ Status = 500 }, @{ Status = 502 }, @{ Status = 503 }
+        ) {
+            $log = "{""level"":40,""component"":""auth"",""status"":$Status,""msg"":""Installation token mint failed""}"
+            $v = Get-RevisionActivationVerdict -RunningState 'Activating' -HealthState 'None' -LogTail $log
+            $v.Verdict     | Should -Be 'waiting'
+            $v.LastRefusal | Should -Be "GitHub App token mint refused (HTTP $Status)"
+        }
+
+        It 'a mint failure with no status logged is not fatal' {
+            $log = '{"level":40,"component":"auth","msg":"Installation token mint failed"}'
+            $v = Get-RevisionActivationVerdict -RunningState 'Activating' -HealthState 'None' -LogTail $log
+            $v.Verdict     | Should -Be 'waiting'
+            $v.LastRefusal | Should -Match 'status not logged'
+        }
+
+        It 'a transient 503 followed by a 404 in the same tail still fails on the 404' {
+            $log = @(
+                '{"level":40,"component":"auth","status":503,"msg":"Installation token mint failed"}'
+                '{"level":40,"component":"auth","status":404,"msg":"Installation token mint failed"}'
+            ) -join "`n"
+            (Get-RevisionActivationVerdict -RunningState 'Activating' -HealthState 'None' -LogTail $log).Cause |
+                Should -Be 'github-app-installation'
+        }
+    }
+
+    Context 'SO C2: the last GitHub refusal is reported, never fatal on its own' {
+        It 'circuit open keeps waiting and is named' {
+            $log = '{"level":50,"msg":"readiness: data-load failed: github-api circuit open"}'
+            $v = Get-RevisionActivationVerdict -RunningState 'Running' -HealthState 'Unhealthy' -LogTail $log
+            $v.Verdict     | Should -Be 'waiting'
+            $v.LastRefusal | Should -Match 'circuit open'
+        }
+
+        It 'a non-ok GitHub API response keeps waiting and is named' {
+            $log = '{"level":40,"cause":"api-non-ok","msg":"listDirectory returning [] — GitHub API non-ok response, may be false-empty (t/3300)"}'
+            $v = Get-RevisionActivationVerdict -RunningState 'Running' -HealthState 'Unhealthy' -LogTail $log
+            $v.Verdict     | Should -Be 'waiting'
+            $v.LastRefusal | Should -Match 'non-ok response'
+        }
+
+        It 'a clean log has no last refusal' {
+            (Get-RevisionActivationVerdict -RunningState 'Running' -HealthState 'Healthy' -LogTail '{"msg":"ok"}').LastRefusal |
+                Should -BeNullOrEmpty
+        }
+    }
 }

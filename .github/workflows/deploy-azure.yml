@@ -476,6 +476,7 @@ jobs:
           $Verdict  = $null
           $Result   = $null
           $Round    = 0
+          $LastRefusal = $null   # SO C2: the last transient GitHub refusal seen, named if the step times out
           while ((Get-Date) -lt $Deadline) {
             $Round++
             $State = az containerapp revision show -n '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
@@ -484,7 +485,8 @@ jobs:
               --revision $Rev --tail 60 --format text 2>$null) -join "`n"
             $Result  = Test-TaxEditorHealth -BaseUrl $BaseUrl -TimeoutSec 15 -MaxAttempts 1
             $Verdict = Get-RevisionActivationVerdict -RunningState $State.r -HealthState $State.h -LogTail $LogTail -ProbeHealthy $Result.Healthy
-            Write-Host "round ${Round}: state=$($State.r)/$($State.h) verdict=$($Verdict.Verdict)"
+            if ($Verdict.LastRefusal) { $LastRefusal = $Verdict.LastRefusal }
+            Write-Host "round ${Round}: state=$($State.r)/$($State.h) verdict=$($Verdict.Verdict)$(if ($Verdict.LastRefusal) { " refusal=$($Verdict.LastRefusal)" })"
             if ($Verdict.Verdict -ne 'waiting') { break }
             Start-Sleep -Seconds 15
           }
@@ -505,6 +507,9 @@ jobs:
               Write-Host "::error::Data-loaded check failed — /healthz did not return healthy within 7 minutes ($($DataCheck.Detail))"
             } else {
               Write-Host "::error::Health check failed for an unexpected reason"
+            }
+            if ($LastRefusal) {
+              Write-Host "::error::Last GitHub refusal seen in the revision log: $LastRefusal (transient refusals are not fatal on their own; t/4158 SO C1/C2)"
             }
           }
 
