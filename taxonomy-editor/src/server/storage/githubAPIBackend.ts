@@ -121,6 +121,19 @@ export class GitHubAPIBackend implements StorageBackend {
   private sessionOverlays: Map<string, Map<string, string>> = new Map();
   private maxOverlayBytesPerUser: number = DEFAULT_MAX_OVERLAY_BYTES_PER_USER;
 
+  // t/4203 (p/775#56): userId → (repoPath → content) for paths this session
+  // already committed to its session branch. commitOverlay() clears the
+  // pending overlay above on success, but the content now lives on the
+  // session branch, not main — without this baseline, the next read/write
+  // falls through to main's stale on-disk cache: a read shows pre-edit
+  // content (silently reverting the save), and a write's precondition check
+  // (getFileSha, which ignores `ref` and only ever reflects main) compares
+  // the client's baseSha against main's stale SHA instead of what was just
+  // committed, producing a false WRITE_CONFLICT on every save after the
+  // first. Cleared only at session end (clearCommittedOverlayBaseline),
+  // never by commitOverlay/clearSessionOverlay themselves.
+  private committedOverlayBaseline: Map<string, Map<string, string>> = new Map();
+
   // Resilient GitHub HTTP transport — rate limit + circuit breaker live here (t/1698).
   private readonly rest: GitHubRestClient;
 
@@ -289,17 +302,36 @@ export class GitHubAPIBackend implements StorageBackend {
     const readBranch = this.getEffectiveRef();
     const readUserId = this.getEffectiveUserId();
     if (readBranch === this.baseBranch || !readUserId) return undefined;
+
     const overlay = this.sessionOverlays.get(readUserId);
-    if (!overlay?.has(repoPath)) return undefined;
-    const val = overlay.get(repoPath)!;
-    this.recordEvent({
-      type: 'cache.hit',
-      component: 'cache',
-      level: 'debug',
-      message: `Session overlay hit: ${repoPath}`,
-      data: { path: repoPath, layer: 'session', userId: readUserId },
-    });
-    return val;
+    if (overlay?.has(repoPath)) {
+      const val = overlay.get(repoPath)!;
+      this.recordEvent({
+        type: 'cache.hit',
+        component: 'cache',
+        level: 'debug',
+        message: `Session overlay hit: ${repoPath}`,
+        data: { path: repoPath, layer: 'session', userId: readUserId },
+      });
+      return val;
+    }
+
+    // t/4203: fall back to what this session already committed, before
+    // falling through to main's (stale, from this session's perspective) cache.
+    const baseline = this.committedOverlayBaseline.get(readUserId);
+    if (baseline?.has(repoPath)) {
+      const val = baseline.get(repoPath)!;
+      this.recordEvent({
+        type: 'cache.hit',
+        component: 'cache',
+        level: 'debug',
+        message: `Committed-session baseline hit: ${repoPath}`,
+        data: { path: repoPath, layer: 'session-committed', userId: readUserId },
+      });
+      return val;
+    }
+
+    return undefined;
   }
 
   /**
@@ -622,9 +654,12 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeOverlayWithPrecondition(
     filePath: string, repoPath: string, content: string, ref: string, baseSha: string | undefined,
   ): Promise<{ version: string }> {
-    const userId = this.getEffectiveUserId();
-    const existing = userId ? this.sessionOverlays.get(userId)?.get(repoPath) : undefined;
-    const currentVersion = existing && existing !== GitHubAPIBackend.TOMBSTONE
+    // t/4203: checkSessionOverlay also consults what this session already
+    // committed, so a save right after a commit compares against that, not
+    // main's stale cached SHA (which ignores `ref` entirely) — otherwise a
+    // false WRITE_CONFLICT fires on every save after the first.
+    const existing = this.checkSessionOverlay(repoPath);
+    const currentVersion = existing !== undefined && existing !== GitHubAPIBackend.TOMBSTONE
       ? gitBlobSha(existing)
       : await this.getFileSha(repoPath, ref);
 
@@ -1214,6 +1249,18 @@ export class GitHubAPIBackend implements StorageBackend {
       duration_ms: durationMs,
       data: { branch, writes: entries.writes.length, deletes: entries.deletes.length, commitSha, durationMs },
     });
+
+    // t/4203: remember what just landed on the session branch before clearing
+    // the pending overlay below — otherwise the next read/write for these
+    // paths this session falls through to main's stale cache (see the field
+    // comment on committedOverlayBaseline).
+    let baseline = this.committedOverlayBaseline.get(userId);
+    if (!baseline) {
+      baseline = new Map();
+      this.committedOverlayBaseline.set(userId, baseline);
+    }
+    for (const w of entries.writes) baseline.set(w.path, w.content);
+    for (const d of entries.deletes) baseline.set(d, GitHubAPIBackend.TOMBSTONE);
 
     // Clear overlay only on success (Tech Lead note #2)
     this.clearSessionOverlay(userId);
@@ -2189,6 +2236,17 @@ export class GitHubAPIBackend implements StorageBackend {
       message: `Session overlay cleared for ${userId}`,
       data: { userId },
     });
+  }
+
+  /**
+   * t/4203: wipe the committed-session baseline (see the field comment on
+   * committedOverlayBaseline) — unlike clearSessionOverlay, NOT called by
+   * commitOverlay itself (that would erase the baseline it just set). Call
+   * this only when the session truly ends (branch deleted), alongside
+   * clearSessionOverlay — see SessionBranchManager.deleteBranch.
+   */
+  clearCommittedOverlayBaseline(userId: string): void {
+    this.committedOverlayBaseline.delete(userId);
   }
 }
 

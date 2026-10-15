@@ -303,4 +303,78 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
       backend.shutdown();
     });
   });
+
+  // t/4203 (p/775#56, TL): a stale baseSha reaching the actual PUT is the
+  // point of the precondition — direct-write mode's own cache-derived SHA
+  // must never silently replace the client's baseSha before it's sent.
+  it('a stale client baseSha is sent to GitHub unmodified (direct write mode) — the precondition is never silently replaced by the server cache', async () => {
+    const backend = await createBackend();
+    // No session context → writeFile uses Contents API directly
+
+    let sentSha: string | undefined;
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'PUT' && url.includes('/contents/')) {
+        const body = init?.body ? JSON.parse(init.body as string) : undefined;
+        sentSha = body?.sha;
+        // GitHub itself rejects — this sha is stale relative to its real state.
+        return { status: 409, body: { message: 'sha does not match' } };
+      }
+      return null;
+    });
+
+    const staleBaseSha = 'stale-client-sha';
+    const err = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: staleBaseSha })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+    expect(sentSha).toBe(staleBaseSha);
+
+    backend.shutdown();
+  });
+});
+
+// t/4203 (p/775#56, TL): commitOverlay() clears the pending overlay on
+// success, but getFileSha() ignores `ref` and only ever reflects main — so
+// without a committed-session baseline, the very next save's precondition
+// check compares against main's stale SHA instead of what this session just
+// committed, false-conflicting on every save after the first.
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — committed-session baseline after commitOverlay (t/4203)', () => {
+  it('save, then commit, then save again with the first save\'s returned version — succeeds, no false WRITE_CONFLICT', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    // 'blob1' is the repo-tree sha already in place for this path at
+    // initialize() (see handleDefaultGithubApi's /git/trees/ response).
+    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    expect(v1.version).toBeTruthy();
+
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
+      }
+      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
+      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
+      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
+      return null;
+    });
+
+    const commitResult = await backend.commitOverlay('alice', 'test commit');
+    expect(commitResult).not.toBeNull();
+    expect(backend.getSessionOverlay('alice')).toBeUndefined(); // pending overlay cleared
+
+    // The regression this guards: without the committed-baseline fallback,
+    // this save's precondition check falls through to getFileSha(), which
+    // ignores `ref` and returns main's stale 'blob1' — not v1.version — so a
+    // real client's next save (correctly carrying v1.version as its baseSha)
+    // would false-conflict here.
+    const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: v1.version });
+    expect(v2.version).toBeTruthy();
+    expect(v2.version).not.toBe(v1.version);
+    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
+
+    backend.shutdown();
+  });
 });

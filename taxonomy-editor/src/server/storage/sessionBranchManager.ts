@@ -463,6 +463,7 @@ export class SessionBranchManager {
     // Clear in-memory state and backend overlay
     this.sessions.delete(userId);
     this.backend.clearSessionOverlay(userId);
+    this.backend.clearCommittedOverlayBaseline(userId); // t/4203
   }
 
   /**
