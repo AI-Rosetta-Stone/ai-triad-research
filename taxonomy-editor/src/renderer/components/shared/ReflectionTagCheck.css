@@ -1,0 +1,44 @@
+/* Tag check on a reflection edit card (t/4214 R-6). Matches the evidence-check banner in ReflectionsPanel.css. */
+.rp-tagcheck {
+  font-size: var(--text-2xs);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+
+.rp-tagcheck-flagged {
+  background: rgba(217, 119, 6, 0.08);
+  border-color: rgba(217, 119, 6, 0.4);
+}
+
+.rp-tagcheck-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.rp-tagcheck-relation { font-weight: 700; margin-right: 4px; }
+.rp-tagcheck-seat { color: var(--text-muted); margin-left: 4px; }
+
+.rp-tag-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--color-skp, #8b5cf6);
+  color: #fff;
+  line-height: 1.6;
+}
+.rp-tag-chip-none { background: transparent; color: var(--text-muted); border: 1px dashed var(--text-muted); }
+
+.rp-tagcheck-note { margin-top: 4px; }
+.rp-tagcheck-verdict { margin-top: 4px; }
+.rp-tagcheck-verdict-badge {
+  display: inline-block;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.rp-tagcheck-consistent .rp-tagcheck-verdict-badge { color: var(--text-muted); }
+.rp-tagcheck-tension .rp-tagcheck-verdict-badge { color: #d97706; }
+.rp-tagcheck-conflict .rp-tagcheck-verdict-badge { color: #dc2626; }
+.rp-tagcheck-possible .rp-tagcheck-verdict-badge { color: #d97706; }
+.rp-tagcheck-soul { font-weight: 600; }
+.rp-tagcheck-cited { font-style: italic; }
+.rp-tagcheck-uncited, .rp-tagcheck-reason { color: var(--text-muted); }

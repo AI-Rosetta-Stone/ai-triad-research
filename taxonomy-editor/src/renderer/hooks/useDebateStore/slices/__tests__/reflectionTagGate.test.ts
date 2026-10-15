@@ -114,8 +114,8 @@ describe('R-3 evaluateTagGate: each relation and verdict', () => {
     expect(gate(edit, ['critical', 'institutional']).block).toBe('unchecked');
   });
 
-  it('the interim rule stays off until R-6 ships the confirm control (CL p/785#3)', () => {
-    expect(TENSION_NEEDS_CONFIRMATION).toBe(false);
+  it('the interim rule is on now that R-6 ships the confirm control (CL p/785#8)', () => {
+    expect(TENSION_NEEDS_CONFIRMATION).toBe(true);
   });
 
   it('interim rule on (CL t/4214#6): tension needs confirmation, showing the verdict and the citation', async () => {

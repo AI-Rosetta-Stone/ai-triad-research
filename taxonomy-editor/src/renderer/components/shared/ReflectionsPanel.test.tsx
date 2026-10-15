@@ -427,3 +427,138 @@ describe('ReflectionsPanel — unsupported-evidence edits (t/3512)', () => {
     await waitFor(() => expect(debateStore.applyReflectionEdit).not.toHaveBeenCalled());
   });
 });
+
+describe('tag check on edit cards (t/4214 R-6)', () => {
+  const BOUNDARY = 'The speed of capability gains is not the speed of societal impact';
+
+  function addTaggedEdit(tagCheck: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+    debateStore.reflections = [{
+      pover: 'skeptic',
+      label: 'Skeptic',
+      reflection_summary: '',
+      edits: [{
+        edit_type: 'revise',
+        status: 'pending',
+        category: 'Beliefs',
+        node_id: 'skp-beliefs-010',
+        current_label: 'Old label',
+        proposed_label: 'New label',
+        current_description: 'old description',
+        proposed_description: LONG_FORMAL,
+        rationale: 'because the debate showed it',
+        evidence_entries: [],
+        tag_check: { custodians: [], seat_tag: 'critical', tags_fp: '', text_hash: '', ...tagCheck },
+        ...extra,
+      }],
+    }];
+  }
+
+  it('shows the target tags, the relation, and each verdict with its cited boundary', () => {
+    addTaggedEdit({
+      relation: 'shared', target_tags: ['critical', 'institutional'], custodians: ['skeptic.institutional'],
+      verdicts: [{ soul: 'skeptic.institutional', verdict: 'conflict', cited: BOUNDARY, reason: 'It asserts the opposite.' }],
+    });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    const banner = screen.getByRole('note', { name: 'Tag check' });
+    expect(banner).toHaveTextContent('Shared with another wing');
+    expect(banner).toHaveTextContent('institutional');
+    expect(banner).toHaveTextContent('seat: critical');
+    expect(banner).toHaveTextContent('Possible conflict'); // interim rule: conflict and tension read alike
+    expect(screen.getByTitle('skeptic.institutional')).toHaveTextContent('Institutional'); // the label, id kept as title
+    expect(banner).toHaveTextContent(BOUNDARY);
+    expect(banner).toHaveTextContent('It asserts the opposite.');
+  });
+
+  it('a verdict whose citation failed verification says so', () => {
+    addTaggedEdit({
+      relation: 'shared', target_tags: ['critical', 'institutional'],
+      verdicts: [{ soul: 'skeptic.institutional', verdict: 'tension', cited: null, reason: 'r', citation_unverified: true }],
+    });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    const banner = screen.getByRole('note', { name: 'Tag check' });
+    expect(banner).toHaveTextContent('(no verified citation)');
+    expect(banner).toHaveTextContent('Possible tension');
+  });
+
+  it('a POV with no tags shows no tag banner', () => {
+    addTaggedEdit({ relation: 'no_tags', target_tags: [], seat_tag: null });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    expect(screen.queryByRole('note', { name: 'Tag check' })).not.toBeInTheDocument();
+  });
+
+  it('a cross-tag refusal is shown and arms an explicit cross-wing override, which passes allowCrossTag', async () => {
+    addTaggedEdit({ relation: 'foreign', target_tags: ['institutional'] });
+    debateStore.applyReflectionEdit.mockResolvedValue({ ok: false, error: 'This node belongs to institutional, not critical. Review it; apply anyway to override.', refusedBy: 'cross_tag' });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & Apply' }));
+    const overrideBtn = await screen.findByRole('button', { name: 'Apply anyway (cross-wing)' });
+    expect(screen.getByText(/belongs to institutional, not critical/)).toBeInTheDocument();
+    expect(debateStore.applyReflectionEdit).toHaveBeenCalledWith('skeptic', 0, undefined, { regeneratePhrases: false });
+
+    debateStore.applyReflectionEdit.mockResolvedValue({ ok: true });
+    fireEvent.click(overrideBtn);
+    await waitFor(() => expect(debateStore.applyReflectionEdit).toHaveBeenLastCalledWith(
+      'skeptic', 0, undefined, { regeneratePhrases: false, allowCrossTag: true },
+    ));
+  });
+
+  it('an edit flagged by both gates needs both overrides, armed one at a time', async () => {
+    addTaggedEdit({ relation: 'foreign', target_tags: ['institutional'] }, { evidence_supported: false, evidence_note: 'no cited claim references it' });
+    debateStore.applyReflectionEdit.mockResolvedValueOnce({ ok: false, error: 'Unsupported by debate evidence', refusedBy: 'evidence' });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & Apply' }));
+    const evidenceBtn = await screen.findByRole('button', { name: 'Apply anyway (no evidence)' });
+
+    debateStore.applyReflectionEdit.mockResolvedValueOnce({ ok: false, error: 'This node belongs to institutional.', refusedBy: 'cross_tag' });
+    fireEvent.click(evidenceBtn);
+    const crossBtn = await screen.findByRole('button', { name: 'Apply anyway (cross-wing)' });
+
+    debateStore.applyReflectionEdit.mockResolvedValueOnce({ ok: true });
+    fireEvent.click(crossBtn);
+    await waitFor(() => expect(debateStore.applyReflectionEdit).toHaveBeenLastCalledWith(
+      'skeptic', 0, undefined, { regeneratePhrases: false, allowUnsupportedEvidence: true, allowCrossTag: true },
+    ));
+  });
+
+  it('Approve All skips tag-flagged edits', async () => {
+    addTaggedEdit({ relation: 'foreign', target_tags: ['institutional'] });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Approve All/ }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Applied 0. Skipped 1 flagged by a check; review them one by one.');
+    expect(debateStore.applyReflectionEdit).not.toHaveBeenCalled();
+  });
+
+  it('the relation is worded for the reviewer, not the seat', () => {
+    addTaggedEdit({ relation: 'foreign', target_tags: ['institutional'] });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    expect(screen.getByRole('note', { name: 'Tag check' })).toHaveTextContent("Another wing's node (not the seat's)");
+  });
+
+  it('Approve All still applies an own-wing edit', async () => {
+    addTaggedEdit({ relation: 'own', target_tags: ['critical'] });
+    debateStore.applyReflectionEdit.mockResolvedValue({ ok: true });
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Approve All/ }));
+    await waitFor(() => expect(debateStore.applyReflectionEdit).toHaveBeenCalledWith('skeptic', 0));
+    expect(await screen.findByRole('status')).toHaveTextContent('Applied 1.');
+  });
+});
+
+describe('tag check wording for untagged targets (CL #3315 review)', () => {
+  it('an untagged target is described as out of every wing\'s Scope, not as shared ground', () => {
+    debateStore.reflections = [{
+      pover: 'skeptic', label: 'Skeptic', reflection_summary: '',
+      edits: [{
+        edit_type: 'revise', status: 'pending', category: 'Beliefs', node_id: 'skp-beliefs-011',
+        current_label: 'Old', proposed_label: 'New', current_description: 'old', proposed_description: LONG_FORMAL,
+        rationale: 'r', evidence_entries: [],
+        tag_check: { relation: 'untagged_target', custodians: [], seat_tag: 'critical', target_tags: [], tags_fp: '', text_hash: '' },
+      }],
+    }];
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    const banner = screen.getByRole('note', { name: 'Tag check' });
+    expect(banner).toHaveTextContent("Untagged node (in neither wing's Scope)");
+    expect(banner).not.toHaveTextContent('common ground');
+  });
+});
