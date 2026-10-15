@@ -27,7 +27,7 @@ import { Agent } from 'undici';
 import { type SyncCredentials } from '../security/githubAppAuth.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { RecordInput } from '../../../../lib/flight-recorder/index.js';
-import { getRequestId } from '../logger.js';
+import { getRequestId, log } from '../logger.js';
 import { assertUndiciMajorInvariant } from './undiciInvariant.js';
 export { assertUndiciMajorInvariant } from './undiciInvariant.js';
 
@@ -39,6 +39,9 @@ const API_VERSION = '2022-11-28';
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = [100, 300, 900];
 const BACKOFF_JITTER_MS = 100;
+// t/4202 SO C2: GitHub's secondary-rate-limit Retry-After is attacker/server-controlled
+// input — cap how long a single 403 retry will wait regardless of what the header claims.
+const MAX_REFUSAL_RETRY_DELAY_MS = 60_000;
 
 const CIRCUIT_FAILURE_THRESHOLD = 5;
 const CIRCUIT_PROBE_SCHEDULE_MS = [30_000, 60_000, 120_000, 300_000]; // 30s→1m→2m→5m cap
@@ -267,6 +270,40 @@ export class GitHubRestClient {
       : fallback;
   }
 
+  /** t/4202: capture + log a GitHub 403 refusal's headers, and decide the retry
+   * outcome in one place — extracted out of handleNonOkStatus to keep that method's
+   * branching complexity in budget (local/complexity-budget). deps.record() alone is
+   * NOT console-visible — it only writes to FlightRecorder's in-memory ring buffer —
+   * so this also logs via Pino (log.github.warn) so the refusal shows up in
+   * ContainerAppConsoleLogs_CL and the alert-github-api-refused rule (main.bicep) can
+   * actually fire on it. */
+  private handleGithubRefusal(res: Response, data: unknown, attempt: number): NonOkOutcome | null {
+    const retryAfterHeader = res.headers.get('retry-after');
+    const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : null;
+    const refusalData = {
+      retryAfterSec,
+      remaining: res.headers.get('x-ratelimit-remaining'),
+      limit: res.headers.get('x-ratelimit-limit'),
+      resetAt: res.headers.get('x-ratelimit-reset'),
+      apiMessage: this.extractApiMessage(data, 'Forbidden'),
+    };
+    log.github.warn(refusalData, 'github-api-refused-403');
+    this.deps.record({
+      type: 'github.api.refused',
+      component: 'github-api',
+      level: 'warn',
+      message: 'Refused by GitHub API (403)',
+      data: refusalData,
+    });
+    // t/4202 SO C2: `retryAfterSec && ...` treated Retry-After: 0 ("retry immediately" per
+    // spec) as falsy and skipped the retry. Check for a valid non-negative number instead,
+    // and cap the resulting delay (MAX_REFUSAL_RETRY_DELAY_MS) against a malformed or
+    // absurdly large header value.
+    const hasValidRetryAfter = retryAfterSec !== null && !Number.isNaN(retryAfterSec) && retryAfterSec >= 0;
+    if (!hasValidRetryAfter || attempt >= MAX_RETRIES) return null;
+    return { action: 'retry', delayMs: Math.min(retryAfterSec * 1000, MAX_REFUSAL_RETRY_DELAY_MS) };
+  }
+
   private async handleNonOkStatus(
     res: Response, data: unknown, text: string, attempt: number,
   ): Promise<NonOkOutcome> {
@@ -297,6 +334,15 @@ export class GitHubRestClient {
       if (retryAfter && attempt < MAX_RETRIES) {
         return { action: 'retry', delayMs: parseInt(retryAfter, 10) * 1000 };
       }
+    }
+    // t/4202: GitHub's 403 is its own refusal class — secondary rate limit / abuse
+    // detection, distinct from the primary 429 above — and until now fell through to
+    // the generic handler below with none of its refusal headers captured. Logged
+    // separately (not folded into github.api.rate_limit) so an alert can target this
+    // specific refusal class without conflating it with ordinary primary-limit 429s.
+    if (res.status === 403) {
+      const outcome = this.handleGithubRefusal(res, data, attempt);
+      if (outcome) return outcome;
     }
     if (res.status >= 500 && attempt < MAX_RETRIES) {
       this.onApiFailure();
@@ -358,6 +404,13 @@ export class GitHubRestClient {
       this.circuitState = 'open';
       this.circuitOpenedAt = Date.now();
       this.probeIndex = 0;
+      // t/4202: FlightRecorder.record() only writes to an in-memory ring buffer — it
+      // never reaches Pino/stdout, so it's invisible to ContainerAppConsoleLogs_CL and
+      // any alert built on it would never fire (confirmed: 0 hits during the 10-13
+      // outage, vs githubAPIBackend.ts's separate circuit-breaker-open Pino warn, which
+      // had 31,747). This is the one circuit-breaker transition worth a console-visible
+      // signal — fires once per open transition, not once per blocked call.
+      log.github.warn({ consecutiveFailures: this.consecutiveFailures }, 'circuit-breaker-open-transition: closed → open');
       this.deps.record({
         type: 'github.api.circuit_break',
         component: 'github-api',

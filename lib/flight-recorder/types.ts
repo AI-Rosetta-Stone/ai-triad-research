@@ -89,6 +89,7 @@ export type EventType =
   | 'github.api.error'
   | 'github.api.miss'
   | 'github.api.rate_limit'
+  | 'github.api.refused'
   | 'github.api.circuit_break'
   | 'github.api.conflict'
   // Cache operations
