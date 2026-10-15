@@ -28,6 +28,7 @@ import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorde
 import { getCurrentUserId, getSessionBranchName } from '../security/userContext.js';
 import { GitHubRestClient, normalizeErrorForEvent, type CircuitState } from './githubRestClient.js';
 import { getDataRoot } from '../config.js';
+import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -87,19 +88,6 @@ const POLL_INTERVAL_MS = 60_000;
 const ERROR_BUFFER_CAPACITY = 100;
 
 const MANIFEST_FILE = 'manifest.json';
-
-/**
- * t/4187: git blob SHA-1 of UTF-8 file content — the same hash GitHub's
- * Contents/Trees API reports as a file's `sha` (git's object-hash format:
- * `sha1("blob " + byteLength + "\0" + content)`). Used to verify a disk-cached
- * file's content actually matches its own manifest entry before trusting it
- * as an atomic (content, version) pair.
- */
-function gitBlobSha(content: string): string {
-  const buf = Buffer.from(content, 'utf-8');
-  const header = `blob ${buf.byteLength}\0`;
-  return crypto.createHash('sha1').update(header).update(buf).digest('hex');
-}
 
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
 
@@ -291,6 +279,30 @@ export class GitHubAPIBackend implements StorageBackend {
   // ── StorageBackend interface ───────────────────────────────────────────
 
   /**
+   * Session-overlay lookup shared by readFile and readFileWithVersion (t/4201,
+   * p/775#30) so both check the overlay with identical precedence. Returns
+   * `undefined` when there's nothing to consult (base-branch read, no user, or
+   * no overlay entry) — distinct from a tombstone, which is a real hit whose
+   * value happens to be `GitHubAPIBackend.TOMBSTONE`.
+   */
+  private checkSessionOverlay(repoPath: string): string | undefined {
+    const readBranch = this.getEffectiveRef();
+    const readUserId = this.getEffectiveUserId();
+    if (readBranch === this.baseBranch || !readUserId) return undefined;
+    const overlay = this.sessionOverlays.get(readUserId);
+    if (!overlay?.has(repoPath)) return undefined;
+    const val = overlay.get(repoPath)!;
+    this.recordEvent({
+      type: 'cache.hit',
+      component: 'cache',
+      level: 'debug',
+      message: `Session overlay hit: ${repoPath}`,
+      data: { path: repoPath, layer: 'session', userId: readUserId },
+    });
+    return val;
+  }
+
+  /**
    * Read a file as UTF-8, or null if absent.
    *
    * `opts.ref` pins the GitHub API fallback to a specific ref (e.g. 'main') for
@@ -308,21 +320,9 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
 
     // Check session overlay first
-    const readBranch = this.getEffectiveRef();
-    const readUserId = this.getEffectiveUserId();
-    if (readBranch !== this.baseBranch && readUserId) {
-      const overlay = this.sessionOverlays.get(readUserId);
-      if (overlay?.has(repoPath)) {
-        const val = overlay.get(repoPath)!;
-        this.recordEvent({
-          type: 'cache.hit',
-          component: 'cache',
-          level: 'debug',
-          message: `Session overlay hit: ${repoPath}`,
-          data: { path: repoPath, layer: 'session', userId: readUserId },
-        });
-        return val === GitHubAPIBackend.TOMBSTONE ? null : val;
-      }
+    const overlayVal = this.checkSessionOverlay(repoPath);
+    if (overlayVal !== undefined) {
+      return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : overlayVal;
     }
 
     // Check main cache (on-disk)
@@ -386,12 +386,23 @@ export class GitHubAPIBackend implements StorageBackend {
    *      manifest's claimed SHA (TL fault-arm requirement, t/4187#3: "stale
    *      content with a fresh manifest SHA must produce a conflict, not a
    *      silent save").
-   * Either guard failing retries rather than returning a torn pair. Doesn't
-   * consult the session overlay — overlay writes aren't on the SHA-precondition
-   * path (t/4187 follow-up, t/4188).
+   * Either guard failing retries rather than returning a torn pair.
+   *
+   * Checks the session overlay first, same precedence as readFile() — t/4201
+   * review (p/775#30): without this, a hosted user's GET after a save served
+   * main's stale content instead of the overlay, so every later save in that
+   * session got WRITE_CONFLICT until the overlay committed. The overlay's
+   * version is its own git blob SHA (gitBlobSha(overlay content)), computed
+   * the same way writeFile's overlay fast path does, so a write that follows
+   * this read with that version as baseSha matches cleanly.
    */
   async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
     const repoPath = this.toRepoPath(filePath);
+
+    const overlayVal = this.checkSessionOverlay(repoPath);
+    if (overlayVal !== undefined) {
+      return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
+    }
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const entry = this.manifest?.files[repoPath];

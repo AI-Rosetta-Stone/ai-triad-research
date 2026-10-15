@@ -46,9 +46,11 @@ export interface StorageBackend {
    *  Returns `{ version }` — the new version of the written content (git blob
    *  SHA for GitHubAPIBackend, real whether the write landed as a direct
    *  commit or a session-overlay entry), for the caller to hand back as the
-   *  client's next write precondition (route `ETag`). Backends with no
-   *  version concept (FilesystemBackend, AzureBlobBackend pending its own
-   *  audit, t/4191) return `''` — a real but empty version, never a stale one. */
+   *  client's next write precondition (route `ETag`). FilesystemBackend and
+   *  AzureBlobBackend version by `gitBlobSha(content)` too (t/4201, p/775#31)
+   *  and enforce `baseSha` as a check-then-write precondition — not atomic,
+   *  but sufficient for their single-node write path; Blob's own native
+   *  ETag/If-Match preconditions are tracked separately (t/4191). */
   writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }>;
 
   /** List entries (files and directories) in a directory. Returns [] if the
@@ -73,14 +75,15 @@ export interface StorageBackend {
   /** Like readFile, but also returns the file's current version token for use
    *  as a later write's `baseSha` precondition (t/4187). Content and version
    *  are read atomically — they describe the same snapshot of the file.
-   *  `version` is the GitHub blob SHA for GitHubAPIBackend; backends with no
-   *  write-precondition support (FilesystemBackend, and AzureBlobBackend until
-   *  its own ETag-precondition audit) return `''` and `writeFile` ignores
-   *  `opts.baseSha` entirely — a real but empty version, never a stale one.
-   *  Optional so lightweight test-double StorageBackend implementations (many
-   *  across the test suite) don't need a stub — callers fall back to
-   *  `readFile` + `version: ''` when it's absent (see `readFileWithVersionOrFallback`
-   *  in fileIO.ts). Every production backend (GitHubAPIBackend, AzureBlobBackend,
-   *  FilesystemBackend) implements it. */
+   *  `version` is the GitHub blob SHA for GitHubAPIBackend. FilesystemBackend
+   *  and AzureBlobBackend version by `gitBlobSha(content)` too (t/4201,
+   *  p/775#31) and enforce `opts.baseSha` on `writeFile` as a check-then-write
+   *  precondition — not atomic, but sufficient for their single-node write
+   *  path; Blob's own native ETag/If-Match preconditions are tracked
+   *  separately (t/4191). Optional so lightweight test-double StorageBackend
+   *  implementations (many across the test suite) don't need a stub —
+   *  callers fall back to `readFile` + `version: ''` when it's absent (see
+   *  `readFileWithVersionOrFallback` in fileIO.ts). Every production backend
+   *  (GitHubAPIBackend, AzureBlobBackend, FilesystemBackend) implements it. */
   readFileWithVersion?(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null>;
 }

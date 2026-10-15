@@ -154,3 +154,25 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     backend.shutdown();
   });
 });
+
+// t/4201 (p/775#30/#31): readFileWithVersion must check the session overlay
+// first, the same precedence as readFile — otherwise a hosted user's GET
+// after a save served main's stale content instead of the overlay, so every
+// later save in that session got WRITE_CONFLICT until the overlay committed.
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion overlay precedence (t/4201)', () => {
+  it('save, then GET via readFileWithVersion, then save with the returned version — succeeds, no WRITE_CONFLICT', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    const got = await backend.readFileWithVersion('/taxonomy/nodes.json');
+    expect(got?.content).toBe('{"v": 1}');
+    expect(got?.version).toBe(v1.version); // the overlay's own content hash, not main's stale blob1
+
+    const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: got?.version });
+    expect(v2.version).toBeTruthy();
+    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
+    backend.shutdown();
+  });
+});
