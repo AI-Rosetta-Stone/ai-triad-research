@@ -17,6 +17,7 @@ import { vi, beforeEach, afterEach } from 'vitest';
 const { mockApi, mockTaxonomyState, mockPromptConfigState } = vi.hoisted(() => {
   const mockApi = {
     generateText: vi.fn().mockResolvedValue({ text: '{}' }),
+    hasApiKey: vi.fn().mockResolvedValue(true),
     generateTextWithSearch: vi.fn().mockResolvedValue({ text: '', searchQueries: [], citations: [] }),
     onGenerateTextProgress: vi.fn().mockReturnValue(() => {}),
     listDebateSessions: vi.fn().mockResolvedValue([]),

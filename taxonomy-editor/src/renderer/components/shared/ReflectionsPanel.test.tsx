@@ -463,7 +463,8 @@ describe('tag check on edit cards (t/4214 R-6)', () => {
     expect(banner).toHaveTextContent('Shared with another wing');
     expect(banner).toHaveTextContent('institutional');
     expect(banner).toHaveTextContent('seat: critical');
-    expect(banner).toHaveTextContent('Possible conflict'); // interim rule: conflict and tension read alike
+    expect(banner).toHaveTextContent('conflict');
+    expect(banner).not.toHaveTextContent('Possible'); // the interim rule is lifted (t/4230)
     expect(screen.getByTitle('skeptic.institutional')).toHaveTextContent('Institutional'); // the label, id kept as title
     expect(banner).toHaveTextContent(BOUNDARY);
     expect(banner).toHaveTextContent('It asserts the opposite.');
@@ -477,7 +478,8 @@ describe('tag check on edit cards (t/4214 R-6)', () => {
     render(<ReflectionsPanel onClose={vi.fn()} />);
     const banner = screen.getByRole('note', { name: 'Tag check' });
     expect(banner).toHaveTextContent('(no verified citation)');
-    expect(banner).toHaveTextContent('Possible tension');
+    expect(banner).toHaveTextContent('tension');
+    expect(banner).not.toHaveTextContent('Possible');
   });
 
   it('a POV with no tags shows no tag banner', () => {

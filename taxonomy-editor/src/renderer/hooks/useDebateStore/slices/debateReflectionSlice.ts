@@ -6,7 +6,7 @@ import type { DebateStore } from '../types';
 import type { ReflectionEdit, ReflectionResult, ReflectionDecision } from '../types';
 import { withReflectionDecision, appliedDecision, dismissedDecision } from './reflectionDecisions';
 import { loadPovTagRegistry, validatePovTags } from '@lib/schema/povTags';
-import { annotateTagChecks, evaluateTagGate, TAG_GATE_ENFORCED, tagsFingerprint } from './reflectionTagGate';
+import { annotateTagChecks, evaluateTagGate, TAG_GATE_ENFORCED, tagsFingerprint, CUSTODIAN_CHECK_BACKEND } from './reflectionTagGate';
 import type {
   DebateSession,
   SpeakerId,
@@ -336,9 +336,9 @@ async function runReflectionPostChecks(
   await annotateTagChecks(edits, {
     pov: povKey,
     seatTag: activeDebate.seat_tags?.[povKey as SpeakerId]?.pov_tag ?? null,
-    model,
     nodeTags: (nodeId) => liveNodeTags(povKey, nodeId),
     generateText: (prompt, m, timeoutMs, temperature) => api.generateText(prompt, m, timeoutMs, temperature),
+    hasCheckKey: () => api.hasApiKey(CUSTODIAN_CHECK_BACKEND),
     debateId: activeDebate.id,
   }, isStillValid);
   return !isStillValid();
