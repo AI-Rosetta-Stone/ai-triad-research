@@ -34,6 +34,10 @@ vi.mock('../config.js', async (importActual) => {
     ...actual,
     getProjectRoot: vi.fn(() => '/fake-root'),
     getApiKey: vi.fn(async (backend: string) => (backend === 'tavily' ? 'fake-tavily-key' : 'fake-gemini-key')),
+    // chainLinkKeys (generateText's per-link key resolution) calls getApiKeys, plural — without this,
+    // CI envs with no real keys configured throw "No API key configured" before the mismatch
+    // assertion runs (Quality GV, p/525#14/#15). The test is about backend SELECTION, not key resolution.
+    getApiKeys: vi.fn(async () => ['fake-key']),
   };
 });
 
