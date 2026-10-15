@@ -153,7 +153,16 @@ export async function annotateTagChecks(edits: ReflectionEdit[], ctx: AnnotateCo
  */
 export const TENSION_NEEDS_CONFIRMATION = false;
 
-export type TagGateBlock = 'foreign' | 'conflict' | 'tension' | 'unchecked' | 'stale';
+/**
+ * Whether a tag-gate block refuses the apply (CL p/785#5). OFF until R-6 ships the confirm control: with no UI path
+ * to `allowCrossTag`, enforcing refused most Skeptic applies outright (371 of 377 nodes are tagged; pre-#3307 edits
+ * have no stamp; a reviewer override makes the stamp stale; a failed judge call is `unchecked`). While off, a block
+ * is recorded as a WARN (`applyReflectionEdit.cross_tag_would_block`) and returned as a note, and the edit applies.
+ * R-6 sets this to true together with its confirm control and TENSION_NEEDS_CONFIRMATION.
+ */
+export const TAG_GATE_ENFORCED = false;
+
+export type TagGateBlock ='foreign' | 'conflict' | 'tension' | 'unchecked' | 'stale';
 
 export interface TagGateResult {
   /** Why the edit is refused without an override, or null when it may apply. */
