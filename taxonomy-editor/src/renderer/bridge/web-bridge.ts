@@ -5,7 +5,7 @@
  * Web bridge — implements AppAPI via REST and WebSocket calls to the server.
  * Used when the app runs in a browser served by the container.
  */
-import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult } from './types';
+import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult, RefreshModelsResponse } from './types';
 import { pullDataUpdatesRest } from './dataUpdatesPull';
 import { createTaxonomyVersions } from './taxonomyVersions';
 import { exportInquiryToFileWeb } from './inquiryExportWeb';
@@ -15,7 +15,6 @@ import { ActionableError } from '@lib/debate/errors';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { ALL_API_KEY_BACKENDS } from '@lib/ai-client/types';
 import type { OpEdSet, OpEdSetSummary } from '../../../../lib/oped/types';
-import type { RefreshResult } from '@lib/electron-shared/modelDiscovery';
 import { encryptKeysForSharing, decryptKeysFromSharing } from '../utils/keyShareCrypto';
 import { resilientFetch, categorizeEndpoint, registerConnectionPoolProvider, type EndpointCategory } from './resilience';
 import { nextStepsForStatus } from './httpErrorSteps';
@@ -822,7 +821,7 @@ const rawApi: AppAPI = {
   // AI models & keys
   loadAIModels: () => get('/api/models'),
   // t/4031: opts travel as the POST body; a plain refresh still sends none. Not retried (a mutation).
-  refreshAIModels: (opts) => post<RefreshResult>('/api/models/refresh', opts),
+  refreshAIModels: (opts) => post<RefreshModelsResponse>('/api/models/refresh', opts),
   validateApiKey: (key, backend) => post('/api/keys/validate', { key, backend }),
   verifyStoredKeys: (backend) => post('/api/keys/verify-stored', { backend }),
   setApiKey: async (key, backend) => {

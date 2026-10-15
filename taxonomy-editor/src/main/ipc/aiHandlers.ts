@@ -13,7 +13,9 @@ import { PROJECT_ROOT, getDataRootPath } from '../fileIO.js';
 import { computeEmbeddings, computeQueryEmbedding, generateText, generateTextWithSearch, generateChatStream, updateNodeEmbeddings, classifyNli, setDebateTemperature, getEmbeddingInfo, resolveAiCallLogContext, resolveRegistry } from '../embeddings.js';
 import type { ChatMessage, NodeEmbeddingInput, NliPair } from '../embeddings.js';
 import { refreshAIModels } from '../modelDiscovery.js';
+import type { RefreshResult } from '../modelDiscovery.js';
 import { refreshModelsRequestSchema } from './refreshModelsRequestSchema.js';
+import type { RefreshModelsRequestInput } from './refreshModelsRequestSchema.js';
 import { ActionableError, errorMessage } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { DEFAULT_TEMPERATURE, resolveBackend, DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
@@ -118,6 +120,21 @@ interface AppFetchEvent {
   urlContextMetadata: UrlContextMetadata;
 }
 
+// t/4232 (SO e/297#4 C6): every path into refreshAIModels must refuse to write without an
+// explicit accept. t/4161 predates the ruling and let a bare/no-accept call through as a live
+// write (opts.dryRun only defaults to falsy); this closes that gap at the IPC boundary. A caller
+// that didn't explicitly ask for dryRun:true is coerced into one — accept is untouched, since the
+// lib's own hash/fingerprint recheck (t/4160) already governs whether an accept actually writes.
+async function refreshModelsEnforcingAccept(opts: RefreshModelsRequestInput): Promise<RefreshResult & { coerced?: boolean }> {
+  if (opts.accept || opts.dryRun === true) return refreshAIModels(opts);
+  getGlobalRecorder()?.record({
+    type: 'system.info', component: 'ipc-handlers', level: 'warn',
+    message: 'refresh-ai-models: no accept supplied — coercing to a dry run (SO e/297#4 C6)',
+  });
+  const result = await refreshAIModels({ ...opts, dryRun: true });
+  return { ...result, coerced: true };
+}
+
 export function registerAiHandlers(): void {
   ipcMain.handle('load-ai-models', () => {
     try {
@@ -137,7 +154,7 @@ export function registerAiHandlers(): void {
   });
 
   ipcMain.handle('refresh-ai-models', async (_event, opts?: unknown) => {
-    if (opts === undefined) return refreshAIModels();
+    if (opts === undefined) return refreshModelsEnforcingAccept({});
     let parsed;
     try {
       parsed = refreshModelsRequestSchema.parse(opts);
@@ -155,7 +172,7 @@ export function registerAiHandlers(): void {
         innerError: err,
       });
     }
-    return refreshAIModels(parsed);
+    return refreshModelsEnforcingAccept(parsed);
   });
 
   ipcMain.handle('get-embedding-info', () => {
