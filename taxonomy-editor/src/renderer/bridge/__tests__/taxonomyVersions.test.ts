@@ -125,6 +125,25 @@ describe('taxonomy version cell (t/4187)', () => {
     expect(server.puts[0]['If-Match']).toBe('"v2"');
   });
 
+  it('a 503 VERSION_UNAVAILABLE surfaces its own code and "edits are kept" message, and leaves the cell as it was', async () => {
+    const { server, fetchFn } = fakeServer();
+    let down = true;
+    const v = createTaxonomyVersions(async (path, init) => {
+      if ((init.method ?? 'GET') === 'PUT' && down) return json(503, { code: 'VERSION_UNAVAILABLE' });
+      return fetchFn(path, init);
+    });
+    await v.loadForEdit('safetyist');
+    const err = await v.save('safetyist', { nodes: ['kept'] }).catch(e => e);
+    expect(err).toMatchObject({ code: 'VERSION_UNAVAILABLE', httpStatus: 503 });
+    expect(err.problem).toBe('GitHub is unavailable; your edits are kept; try saving again shortly.');
+    expect(err.nextSteps.join(' ')).toMatch(/Do not reload/);
+    // GitHub is back: the retry still carries the version the editor loaded, so it saves cleanly.
+    down = false;
+    await expect(v.save('safetyist', { nodes: ['kept'] })).resolves.toBeUndefined();
+    expect(server.puts.at(-1)!['If-Match']).toBe('"v1"');
+    expect(server.body).toEqual({ nodes: ['kept'] });
+  });
+
   it('with no editor load there is no If-Match, and the 428 surfaces as BASE_VERSION_REQUIRED', async () => {
     const { server, fetchFn } = fakeServer();
     const v = createTaxonomyVersions(fetchFn);
