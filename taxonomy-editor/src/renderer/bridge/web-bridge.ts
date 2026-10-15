@@ -7,6 +7,7 @@
  */
 import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult } from './types';
 import { pullDataUpdatesRest } from './dataUpdatesPull';
+import { createTaxonomyVersions } from './taxonomyVersions';
 import { exportInquiryToFileWeb } from './inquiryExportWeb';
 import { instrumentBridge } from './instrumentBridge';
 import { makeCancellationError } from './cancellation';
@@ -173,6 +174,7 @@ async function fetchWithSessionRecovery(
   }
   return res;
 }
+const taxonomyVersions /* t/4187: ETag/If-Match version cell, taxonomyVersions.ts; a PUT is never retried */ = createTaxonomyVersions((path, init) => { const m = init.method ?? 'GET', cat = categorizeEndpoint(path, m); return fetchWithSessionRecovery(path, init, { timeoutMs: m === 'GET' ? DEFAULT_READ_TIMEOUT_MS : DEFAULT_MUTATION_TIMEOUT_MS, maxRetries: m === 'GET' ? defaultMaxRetries(cat, 'GET') : 0, critical: true, category: cat }); });
 
 async function isAnonymous(): Promise<boolean> {
   if (_authAnonymous !== null) return _authAnonymous;
@@ -760,10 +762,10 @@ const rawApi: AppAPI = {
   getTaxonomyDirs: () => get('/api/taxonomy-dirs'),
   getActiveTaxonomyDir: () => get('/api/taxonomy-dir/active'),
   setTaxonomyDir: (dirName) => put('/api/taxonomy-dir/active', { dirName }).then(() => {}),
-
   // Taxonomy CRUD
-  loadTaxonomyFile: (pov) => get(`/api/taxonomy/${encodeURIComponent(pov)}`),
-  saveTaxonomyFile: (pov, data) => put(`/api/taxonomy/${encodeURIComponent(pov)}`, data).then(() => {}),
+  loadTaxonomyFile: (pov) => taxonomyVersions.load(pov),
+  loadTaxonomyFileForEdit: (pov) => taxonomyVersions.loadForEdit(pov),
+  saveTaxonomyFile: (pov, data) => taxonomyVersions.save(pov, data),
   loadPolicyRegistry: () => get('/api/policy-registry'),
   // t/4034: recount member_count / source_povs for these ids after a save (lib/policy/registryRecount.ts).
   recountPolicyMembers: (ids) => post('/api/policy-registry/recount', { ids }),

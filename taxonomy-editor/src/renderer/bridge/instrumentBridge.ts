@@ -144,7 +144,7 @@ function aiCallMeta(method: string, args: unknown[]): { model?: string; timeoutM
 function extractResultMeta(method: string, args: unknown[], value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const v = value as Record<string, unknown>;
-  if (method === 'loadTaxonomyFile') {
+  if (method.startsWith('loadTaxonomyFile')) { // + loadTaxonomyFileForEdit (t/4187); one branch for the complexity budget
     const nodes = v.nodes;
     return { pov: args[0], node_count: Array.isArray(nodes) ? nodes.length : undefined };
   }

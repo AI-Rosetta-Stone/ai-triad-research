@@ -373,7 +373,13 @@ export interface AppAPI {
   setTaxonomyDir: (dirName: string) => Promise<void>;
 
   // --- Taxonomy CRUD ---
+  /** A plain read. It never moves the save's version cell, so use it for re-reads and viewers (t/4187). */
   loadTaxonomyFile: (pov: string) => Promise<unknown>;
+  /** The editor's load (initial load, refresh, POV switch): on web it also records the file's version, which the
+   *  next save sends as If-Match. Same result as loadTaxonomyFile on desktop (t/4187). */
+  loadTaxonomyFileForEdit: (pov: string) => Promise<unknown>;
+  /** Web: sends If-Match from the version cell; rejects with `code` 'WRITE_CONFLICT' (409) or
+   *  'BASE_VERSION_REQUIRED' (428) for the UI to offer a reload. Saves to one POV are serialized (t/4187). */
   saveTaxonomyFile: (pov: string, data: unknown) => Promise<void>;
   loadPolicyRegistry: () => Promise<unknown>;
   /** t/4034: recount member_count / source_povs in policy_actions.json for these policy ids, from the POV
