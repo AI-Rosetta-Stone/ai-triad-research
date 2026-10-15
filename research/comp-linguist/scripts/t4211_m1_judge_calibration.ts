@@ -64,6 +64,17 @@ function dataRoot(): string {
   return arg('--data') ?? process.env.AI_TRIAD_DATA_ROOT ?? path.join(path.dirname(REPO_ROOT), 'ai-triad-data');
 }
 
+/** The results file's contents, or '' when there is none yet. Read directly, without an exists check first,
+ *  so the check and the read can't race. */
+function readExisting(file: string): string {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw e;
+  }
+}
+
 function loadSoul(id: string): CustodianCheckSoul {
   const doc = JSON.parse(fs.readFileSync(path.join(SOUL_DIR, `${id}.soul.json`), 'utf8'));
   return {
@@ -107,12 +118,10 @@ async function main(): Promise<number> {
   const registry = loadPovTagRegistry().povs.skeptic ?? [];
 
   const done = new Set<string>();
-  if (fs.existsSync(out)) {
-    for (const line of fs.readFileSync(out, 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      const row = JSON.parse(line) as Row;
-      if (row.outcome !== 'error') done.add(row.key);
-    }
+  for (const line of readExisting(out).split('\n')) {
+    if (!line.trim()) continue;
+    const row = JSON.parse(line) as Row;
+    if (row.outcome !== 'error') done.add(row.key);
   }
 
   const adapter = createCLIAdapter(REPO_ROOT);
