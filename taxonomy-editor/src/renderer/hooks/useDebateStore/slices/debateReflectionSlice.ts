@@ -111,7 +111,7 @@ export interface DebateReflectionSlice {
   /** `allowCrossTag` (t/4214 R-3) applies an edit the tag gate flagged (foreign, conflict, unchecked or a stale
    *  check) — again only on an explicit, confirmed human override, which is recorded. While TAG_GATE_ENFORCED is
    *  off, a flagged edit applies and `note` carries the would-block reason. */
-  applyReflectionEdit: (pover: string, editIndex: number, overrides?: { label?: string; description?: string }, options?: { regeneratePhrases?: boolean; allowUnsupportedEvidence?: boolean; allowCrossTag?: boolean }) => Promise<{ ok: boolean; error?: string; enrichNodeId?: string; note?: string }>;
+  applyReflectionEdit: (pover: string, editIndex: number, overrides?: { label?: string; description?: string }, options?: { regeneratePhrases?: boolean; allowUnsupportedEvidence?: boolean; allowCrossTag?: boolean }) => Promise<{ ok: boolean; error?: string; enrichNodeId?: string; note?: string; refusedBy?: ApplyRefusal }>;
   retryReflectionEditAfterFix: (pover: string, editIndex: number) => Promise<{ ok: boolean; error?: string }>;
   dismissReflectionEdit: (pover: string, editIndex: number) => void;
   /** Apply a `propose_new` proposal (t/1773): create the new POV node AND persist its
@@ -287,6 +287,9 @@ function applyTagGate(
   return { refusal: null, overridden: true };
 }
 
+/** Which apply-time gate refused an edit; the panel arms the matching override (t/4214 R-6). */
+export type ApplyRefusal = 'evidence' | 'cross_tag';
+
 /**
  * The apply-time gates, in order: the evidence gate (t/3512) and the tag gate (t/4214 R-3). Each refuses a flagged
  * edit unless its own override is set, and records the refusal or the override. Returns the text to write.
@@ -295,7 +298,7 @@ function runApplyGates(
   pover: string, editIndex: number, edit: ReflectionEdit,
   overrides: { label?: string; description?: string } | undefined,
   options: { allowUnsupportedEvidence?: boolean; allowCrossTag?: boolean } | undefined,
-): { refusal: string | null; finalLabel: string; finalDescription: string; crossTagOverridden: boolean; tagNote?: string } {
+): { refusal: string | null; refusedBy?: ApplyRefusal; finalLabel: string; finalDescription: string; crossTagOverridden: boolean; tagNote?: string } {
   const finalLabel = overrides?.label ?? edit.proposed_label;
   const finalDescription = overrides?.description ?? edit.proposed_description;
   // Evidence gate (t/3512): an edit whose cited claims do not reference the node it edits is not
@@ -308,7 +311,7 @@ function runApplyGates(
         message: 'applyReflectionEdit.refused_unsupported_evidence',
         data: { pover, editIndex, node_id: edit.node_id, evidence_entries: edit.evidence_entries, engagement: edit.engagement, note: edit.evidence_note },
       });
-      return { refusal: `Unsupported by debate evidence — ${edit.evidence_note ?? 'no cited claim references this node'}. Review the rationale; apply anyway to override.`, finalLabel, finalDescription, crossTagOverridden: false };
+      return { refusal: `Unsupported by debate evidence — ${edit.evidence_note ?? 'no cited claim references this node'}. Review the rationale; apply anyway to override.`, refusedBy: 'evidence', finalLabel, finalDescription, crossTagOverridden: false };
     }
     getGlobalRecorder()?.record({
       type: 'state.change', component: 'reflection-edit', level: 'warn',
@@ -317,7 +320,7 @@ function runApplyGates(
     });
   }
   const tagGate = applyTagGate(pover, editIndex, edit, finalLabel, finalDescription, !!options?.allowCrossTag);
-  return { refusal: tagGate.refusal, finalLabel, finalDescription, crossTagOverridden: tagGate.overridden, tagNote: tagGate.note };
+  return { refusal: tagGate.refusal, ...(tagGate.refusal ? { refusedBy: 'cross_tag' as const } : {}), finalLabel, finalDescription, crossTagOverridden: tagGate.overridden, tagNote: tagGate.note };
 }
 
 /** The DOLCE compliance retries, then the t/4214 R-2 tag check on the final text. True when the run went stale. */
@@ -1040,7 +1043,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
     if (!reflection || !edit) { getGlobalRecorder()?.record({ type: 'state.error', component: 'reflection-edit', level: 'warn', message: 'applyReflectionEdit.result', data: { ok: false, error: 'Edit not found', pover, editIndex } }); return { ok: false, error: 'Edit not found' }; }
 
     const gates = runApplyGates(pover, editIndex, edit, overrides, options);
-    if (gates.refusal) return { ok: false, error: gates.refusal };
+    if (gates.refusal) return { ok: false, error: gates.refusal, refusedBy: gates.refusedBy };
     const { finalLabel, finalDescription } = gates;
     const taxStore = useTaxonomyStore.getState();
     const povKey = pover as 'accelerationist' | 'safetyist' | 'skeptic';

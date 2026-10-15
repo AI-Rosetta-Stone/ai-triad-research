@@ -14,6 +14,7 @@ import { checkDolceCompliance, type ComplianceViolation } from '../../utils/dolc
 import { DescriptionToggle, resolveDescription, useDescriptionMode } from './DescriptionToggle';
 import { TheoryLink } from './TheoryLink';
 import { generatePlainPreview } from '../../utils/regeneratePlainDescription';
+import { ReflectionTagCheckBanner, tagCheckFlagged } from './ReflectionTagCheck';
 import './ReflectionsPanel.css';
 
 const PREFIX_TO_POV: Record<string, 'accelerationist' | 'safetyist' | 'skeptic'> = { acc: 'accelerationist', saf: 'safetyist', skp: 'skeptic' };
@@ -566,6 +567,38 @@ function EditCardRegenerateToggle({ showRegenerateToggle, regeneratePhrases, set
   );
 }
 
+/** The per-edit overrides the reviewer has armed by seeing a gate's refusal (t/3512 evidence, t/4214 R-6 tag). */
+type ArmedOverrides = { evidence: boolean; crossTag: boolean };
+
+function applyOptions(regeneratePhrases: boolean, armed: ArmedOverrides) {
+  return {
+    regeneratePhrases,
+    ...(armed.evidence ? { allowUnsupportedEvidence: true } : {}),
+    ...(armed.crossTag ? { allowCrossTag: true } : {}),
+  };
+}
+
+/** The override a refusal arms, or null when the apply succeeded or its gate's override was already armed. */
+function overrideToArm(result: { ok: boolean; refusedBy?: string }, unsupportedEvidence: boolean, armed: ArmedOverrides): keyof ArmedOverrides | null {
+  if (result.ok) return null;
+  const refusedBy = result.refusedBy ?? (unsupportedEvidence ? 'evidence' : undefined);
+  if (refusedBy === 'evidence') return armed.evidence ? null : 'evidence';
+  if (refusedBy === 'cross_tag') return armed.crossTag ? null : 'crossTag';
+  return null;
+}
+
+function applyButtonLabel(armed: ArmedOverrides): string {
+  if (armed.crossTag) return 'Apply anyway (cross-wing)';
+  return armed.evidence ? 'Apply anyway (no evidence)' : 'Approve & Apply';
+}
+
+/** Approve All applies only edits no gate flagged (t/3512, t/4214 R-6): overriding a check is a per-edit,
+ *  deliberate act, never a side effect of a bulk approve. A stale stamp is still refused by the store. */
+function bulkApplicable(e: ReflectionEdit): boolean {
+  if (e.status !== 'pending' || e.evidence_supported === false) return false;
+  return !(e.tag_check && tagCheckFlagged(e.tag_check));
+}
+
 function EditCardActions({ resolved, editing, isModified, isNoOpEdit, applying, editType, setApplying, setApplyError, setTrackedEnrichNodeId, applyReflectionEdit, editedLabel, editedDescription, regeneratePhrases, pover, editIndex, handleReset, handleCancel, dismissReflectionEdit, unsupportedEvidence }: {
   resolved: boolean;
   editing: boolean;
@@ -589,7 +622,9 @@ function EditCardActions({ resolved, editing, isModified, isNoOpEdit, applying, 
   /** The evidence check flagged this edit (t/3512) — apply requires an explicit override. */
   unsupportedEvidence: boolean;
 }) {
-  const [overrideArmed, setOverrideArmed] = useState(false);
+  // Each apply-time gate (evidence t/3512, tag t/4214 R-6) refuses first; the refusal is shown and arms that gate's
+  // explicit override, so the human, not the model, confirms applying a flagged edit. Armed overrides accumulate.
+  const [armed, setArmed] = useState<ArmedOverrides>({ evidence: false, crossTag: false });
   if (resolved) return null;
   const isEmpty = editing && (
     (editType === 'add' && !editedLabel.trim()) || !editedDescription.trim()
@@ -621,15 +656,11 @@ function EditCardActions({ resolved, editing, isModified, isNoOpEdit, applying, 
               setApplyError(null);
               try {
                 const overrides = editing && isModified ? { label: editedLabel, description: editedDescription } : undefined;
-                // Evidence gate (t/3512): the store refuses a flagged edit; the first click surfaces
-                // why and arms an explicit override, so the human — not the model — decides to apply
-                // an edit the debate never evidenced.
-                const result = await applyReflectionEdit(pover, editIndex, overrides,
-                  { regeneratePhrases, ...(overrideArmed ? { allowUnsupportedEvidence: true } : {}) },
-                );
-                if (!result.ok && unsupportedEvidence && !overrideArmed) {
-                  setOverrideArmed(true);
-                  setApplyError(result.error ?? 'Unsupported by debate evidence');
+                const result = await applyReflectionEdit(pover, editIndex, overrides, applyOptions(regeneratePhrases, armed));
+                const toArm = overrideToArm(result, unsupportedEvidence, armed);
+                if (toArm) {
+                  setArmed(a => ({ ...a, [toArm]: true }));
+                  setApplyError(result.error ?? (toArm === 'evidence' ? 'Unsupported by debate evidence' : 'Flagged by the tag check'));
                   return;
                 }
                 if (!result.ok) {
@@ -645,7 +676,7 @@ function EditCardActions({ resolved, editing, isModified, isNoOpEdit, applying, 
               }
             }}
           >
-            {applying ? 'Saving…' : overrideArmed ? 'Apply anyway (no evidence)' : 'Approve & Apply'}
+            {applying ? 'Saving…' : applyButtonLabel(armed)}
           </button>
           {editing && isModified && (
             <button
@@ -933,6 +964,8 @@ function EditCard({ edit, pover, editIndex }: {
 
       <EditCardEvidenceCheck edit={edit} />
 
+      <ReflectionTagCheckBanner check={edit.tag_check} />
+
       <EditCardRegenerateToggle showRegenerateToggle={showRegenerateToggle} regeneratePhrases={regeneratePhrases} setRegeneratePhrases={setRegeneratePhrases} />
 
       <EditCardActions
@@ -1186,9 +1219,7 @@ export function ReflectionsPanel({ onClose }: { onClose: () => void }) {
   const approveAll = async () => {
     for (const r of reflections) {
       for (let i = 0; i < r.edits.length; i++) {
-        // Evidence-flagged edits are skipped by Approve All (t/3512) — overriding the check is a
-        // per-edit, deliberate act, never a side effect of a bulk approve.
-        if (r.edits[i].status === 'pending' && r.edits[i].evidence_supported !== false) await applyReflectionEdit(r.pover, i);
+        if (bulkApplicable(r.edits[i])) await applyReflectionEdit(r.pover, i);
       }
       const proposals = r.new_item_proposals ?? [];
       for (let i = 0; i < proposals.length; i++) {
