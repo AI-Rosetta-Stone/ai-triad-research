@@ -351,7 +351,16 @@ function TestKeysButton({ hasKey }: { hasKey: Record<string, boolean> }) {
 // them through a tolerant view so this compiles both before AND after the shared type
 // gains them — t/2041 lands first, then t/2039 (see t/2041#1). Missing `written`
 // (pre-t/2039 runtime) reads as legacy success.
-type RefreshOutcome = RefreshResult & { written?: boolean; configWarning?: string };
+//
+// `coerced` is the SO ruling on t/4162 (t/4163#3, e/297#4 condition C1): once
+// t/4162 (web route) and t/4232 (Electron IPC) land, a plain refresh with no
+// `accept` is ALWAYS forced to a dry run, for every principal — so `written`
+// is always false on an un-accepted call, and `coerced: true` distinguishes
+// "nothing needed changing" from an actual refusal (`.refusal` absent either
+// way). Read tolerantly for the same reason as `written`/`configWarning`
+// above: neither dependency has landed yet, so this field doesn't exist on
+// any live response today.
+type RefreshOutcome = RefreshResult & { written?: boolean; configWarning?: string; coerced?: boolean };
 
 function formatSlotValue(v: string | string[] | null | undefined): string {
   if (v === null || v === undefined) return '(none)';
@@ -480,22 +489,33 @@ function AcceptProposalForm({ proposal, onAccept }: {
   );
 }
 
+// t/4163#1 (coordinator decision): gated on isElectronMode() in this one place for
+// now — desktop accept works end to end, web accept is off until t/4162 (server
+// route) lands. The eventual web admin-gating (ticket ask #5) becomes a one-line
+// change here once that ships. Shared by RefusalPanel (proposal-required,
+// proposal-changed) and the additive-only "N found" panel below (t/4163#4) — the
+// accept flow (who + why) is identical in every case.
+function AcceptOrDisabled({ proposal, onAccept, acceptAllowed }: {
+  proposal: Proposal;
+  onAccept: (proposal: Proposal, approvedBy: string, reason: string) => Promise<void>;
+  acceptAllowed: boolean;
+}) {
+  if (!acceptAllowed) {
+    return (
+      <div className="settings-refresh-accept-disabled">
+        Accepting needs the desktop app for now — web support is coming.
+      </div>
+    );
+  }
+  return <AcceptProposalForm proposal={proposal} onAccept={onAccept} />;
+}
+
 function RefusalPanel({ refusal, pinnedCandidates, onAccept, acceptAllowed }: {
   refusal: RefreshRefusal;
   pinnedCandidates?: PinnedCandidate[];
   onAccept: (proposal: Proposal, approvedBy: string, reason: string) => Promise<void>;
   acceptAllowed: boolean;
 }) {
-  // t/4163#1 (coordinator decision): gated on isElectronMode() in this one place for
-  // now — desktop accept works end to end, web accept is off until t/4162 (server
-  // route) lands. The eventual web admin-gating (ticket ask #5) becomes a one-line
-  // change here once that ships.
-  const acceptDisabledNote = (
-    <div className="settings-refresh-accept-disabled">
-      Accepting needs the desktop app for now — web support is coming.
-    </div>
-  );
-
   return (
     <div className="settings-refresh-refused" role="alert">
       <strong>Models not saved — review needed</strong>{' '}
@@ -505,7 +525,7 @@ function RefusalPanel({ refusal, pinnedCandidates, onAccept, acceptAllowed }: {
       {refusal.reason === 'proposal-required' && (
         <>
           <ProposalChangesTable changes={refusal.proposal.changes} />
-          {acceptAllowed ? <AcceptProposalForm proposal={refusal.proposal} onAccept={onAccept} /> : acceptDisabledNote}
+          <AcceptOrDisabled proposal={refusal.proposal} onAccept={onAccept} acceptAllowed={acceptAllowed} />
         </>
       )}
 
@@ -513,7 +533,7 @@ function RefusalPanel({ refusal, pinnedCandidates, onAccept, acceptAllowed }: {
         <>
           <div className="settings-refresh-proposal-subheading">New proposal for re-review:</div>
           <ProposalChangesTable changes={refusal.recomputed.changes} />
-          {acceptAllowed ? <AcceptProposalForm proposal={refusal.recomputed} onAccept={onAccept} /> : acceptDisabledNote}
+          <AcceptOrDisabled proposal={refusal.recomputed} onAccept={onAccept} acceptAllowed={acceptAllowed} />
         </>
       )}
 
@@ -522,6 +542,57 @@ function RefusalPanel({ refusal, pinnedCandidates, onAccept, acceptAllowed }: {
       )}
 
       {pinnedCandidates && pinnedCandidates.length > 0 && <PinnedCandidatesList candidates={pinnedCandidates} />}
+    </div>
+  );
+}
+
+// t/4163#3/#4: the non-trivial branching for a refused/coerced result, pulled out
+// of RefreshModelsResult to keep that component's complexity down. A plain
+// (un-accepted) refresh is always written:false once coerced-dry-run lands
+// (t/4162, t/4232), but that isn't necessarily a refusal — `.refusal` is absent
+// whenever nothing needed human review. There's no dedicated "additions" field
+// (p/528#131): a top-level `outcome.proposal` (even with empty `changes`) means
+// additive-only models were found and there's something to accept; its absence
+// means a clean dry run with truly nothing to do. Both are distinct from the
+// legacy t/2039 config-guard refusal path (no `coerced` field at all).
+function RefreshStatusBlock({ outcome, onAccept, acceptAllowed }: {
+  outcome: RefreshOutcome;
+  onAccept: (proposal: Proposal, approvedBy: string, reason: string) => Promise<void>;
+  acceptAllowed: boolean;
+}) {
+  if (outcome.refusal) {
+    return (
+      <RefusalPanel
+        refusal={outcome.refusal}
+        pinnedCandidates={outcome.pinnedCandidates}
+        onAccept={onAccept}
+        acceptAllowed={acceptAllowed}
+      />
+    );
+  }
+
+  if (outcome.coerced === true) {
+    if (outcome.proposal) {
+      return (
+        <div className="settings-refresh-additions" role="status">
+          <div>{outcome.totalModels} new models found; accept to add them.</div>
+          <AcceptOrDisabled proposal={outcome.proposal} onAccept={onAccept} acceptAllowed={acceptAllowed} />
+        </div>
+      );
+    }
+    return (
+      <div className="settings-refresh-clean" role="status">
+        Checked — no changes needed. Nothing to accept.
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-refresh-refused" role="alert">
+      <strong>Models not saved — the config guard refused the write.</strong>
+      {outcome.configWarning && (
+        <div className="settings-refresh-refused-reason">{outcome.configWarning}</div>
+      )}
     </div>
   );
 }
@@ -548,21 +619,8 @@ function RefreshModelsResult({ result, error, onAccept, acceptAllowed }: {
     <>
       {outcome && (
         <div className="settings-refresh-result">
-          {refused && outcome.refusal && (
-            <RefusalPanel
-              refusal={outcome.refusal}
-              pinnedCandidates={outcome.pinnedCandidates}
-              onAccept={onAccept}
-              acceptAllowed={acceptAllowed}
-            />
-          )}
-          {refused && !outcome.refusal && (
-            <div className="settings-refresh-refused" role="alert">
-              <strong>Models not saved — the config guard refused the write.</strong>
-              {outcome.configWarning && (
-                <div className="settings-refresh-refused-reason">{outcome.configWarning}</div>
-              )}
-            </div>
+          {refused && (
+            <RefreshStatusBlock outcome={outcome} onAccept={onAccept} acceptAllowed={acceptAllowed} />
           )}
           {repairNote && (
             <div className="settings-refresh-repair">Repaired before saving: {repairNote}</div>

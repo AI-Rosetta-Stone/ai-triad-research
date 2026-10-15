@@ -339,6 +339,24 @@
 
 /* Model-refresh proposal review + accept (t/4163) */
 
+.settings-refresh-clean {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.settings-refresh-additions {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
 .settings-refresh-reason-badge {
   font-family: var(--font-mono, monospace);
   font-size: 0.68rem;

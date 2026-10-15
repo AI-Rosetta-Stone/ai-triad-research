@@ -365,4 +365,56 @@ describe('SettingsDialog', () => {
     expect(screen.getByText(/needs the desktop app for now/i)).toBeInTheDocument();
     expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
   });
+
+  // ── t/4163#3/#4: a plain refresh is coerced to a dry run for everyone ─────
+
+  it('coerced + no proposal: a clean dry run says nothing needs accepting, not "refused" (t/4163#3)', async () => {
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 8, written: false, coerced: true,
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText(/no changes needed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/refused the write/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
+  });
+
+  it('coerced + additive-only proposal: offers accept for the found models, sending the exact proposal (t/4163#4)', async () => {
+    const user = userEvent.setup();
+    const additiveProposal = { catalogFingerprint: 'sha256:fp', hash: 'sha256:additive', changes: [] };
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 9, written: false, coerced: true,
+      proposal: additiveProposal,
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText(/9 new models found; accept to add them/i)).toBeInTheDocument();
+
+    mockApi.refreshAIModels.mockResolvedValueOnce({ ...cleanBackends, totalModels: 9, written: true });
+    await user.type(screen.getByPlaceholderText('Your name'), 'Jeffrey Snover');
+    await user.type(screen.getByPlaceholderText('Why this change is correct'), 'New models look good');
+    await user.click(screen.getByText('Accept proposal'));
+
+    expect(mockApi.refreshAIModels).toHaveBeenLastCalledWith({
+      accept: { proposal: additiveProposal, approvedBy: 'Jeffrey Snover', reason: 'New models look good' },
+    });
+  });
+
+  it('coerced + additive-only proposal on web: Accept stays disabled like any other coerced result (t/4163#4)', async () => {
+    mockIsElectron = false;
+    const user = userEvent.setup();
+    mockApi.refreshAIModels.mockResolvedValueOnce({
+      ...cleanBackends, totalModels: 9, written: false, coerced: true,
+      proposal: { catalogFingerprint: 'sha256:fp', hash: 'sha256:additive', changes: [] },
+    });
+    render(<SettingsDialog onClose={onClose} />);
+    await user.click(screen.getByText('Refresh Models'));
+
+    expect(await screen.findByText(/9 new models found; accept to add them/i)).toBeInTheDocument();
+    expect(screen.getByText(/needs the desktop app for now/i)).toBeInTheDocument();
+    expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
+  });
 });
