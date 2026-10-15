@@ -16,7 +16,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fsPromises from 'fs/promises';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { gitBlobSha } from '../storage/gitBlobSha.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index';
 
 const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
@@ -218,19 +220,37 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion overl
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion reads the session branch live (t/4203)', () => {
   it('an edit load on a session branch (no overlay entry) returns the branch content, not main\'s cache', async () => {
     const backend = await createBackend();
+
+    // TL fault-arm (p/538#50): a bare mocked live lookup doesn't catch
+    // disabling the session-branch branch, because `ref` is computed once,
+    // outside that branch's gate, as the session ref — so a disabled gate
+    // still falls through to readFileWithVersionFromMainCache's *fetch*,
+    // which (with no manifest entry) hits the same session-ref URL and the
+    // same mock. A genuinely warm main cache makes the two paths diverge:
+    // the main-cache path then returns synchronously from the manifest/disk
+    // entry below, with no fetch at all, so a disabled gate surfaces
+    // mainContent/mainSha instead of silently reproducing branchContent.
+    const mainContent = '{"test": true}'; // matches handleDefaultGithubApi's content
+    const mainSha = gitBlobSha(mainContent);
+    vi.mocked(fsPromises.readFile).mockResolvedValue(mainContent);
+    (backend as unknown as { manifest: { version: 1; generation: number; lastCommitSha: string; lastUpdated: string; files: Record<string, { sha: string; etag: string; cachedAt: string }> } }).manifest = {
+      version: 1, generation: 1, lastCommitSha: 'main-commit-sha', lastUpdated: new Date().toISOString(),
+      files: { 'taxonomy/nodes.json': { sha: mainSha, etag: 'main-etag', cachedAt: new Date().toISOString() } },
+    };
+
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
-    // Deliberately different from handleDefaultGithubApi's main-cache content
-    // ('{"test": true}' / 'blob-sha') — if this branch were disabled and the
-    // call fell through to main's cache instead, the assertions below would
-    // see that content/sha, not this one.
+    // Deliberately different from the warm main cache above — if the
+    // session-branch branch were disabled, the call would return mainContent/
+    // mainSha instead of these, and the assertions below would catch it.
     const branchContent = JSON.stringify({ v: 'on-the-branch' });
     mockSessionBranchLookup('api-session/alice', 'branch-sha', branchContent);
 
     const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
 
     expect(result).toEqual({ content: branchContent, version: 'branch-sha' });
-    expect(result?.content).not.toBe('{"test": true}');
+    expect(result?.content).not.toBe(mainContent);
+    expect(result?.version).not.toBe(mainSha);
 
     backend.shutdown();
   });
