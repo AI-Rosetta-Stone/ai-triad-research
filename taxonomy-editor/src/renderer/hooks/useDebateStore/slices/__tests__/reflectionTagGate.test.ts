@@ -15,7 +15,9 @@ import type { ReflectionEdit } from '../../types';
 function makeEdit(over: Partial<ReflectionEdit> = {}): ReflectionEdit {
   return {
     edit_type: 'revise', node_id: 'skp-beliefs-001', category: 'Beliefs',
-    current_label: 'Old', proposed_label: 'New', current_description: 'old d', proposed_description: 'new d',
+    current_label: 'Old Speed Concern', proposed_label: 'New Speed Concern',
+    current_description: 'Capability gains and societal impact occur at different speeds.',
+    proposed_description: 'Rapid capability gains outpace societal adaptation mechanisms in deployment.',
     rationale: 'r', confidence: 'high', evidence_entries: ['AN-1'], status: 'pending', ...over,
   };
 }
@@ -23,9 +25,18 @@ function makeEdit(over: Partial<ReflectionEdit> = {}): ReflectionEdit {
 // Real Skeptic-Institutional boundary text: the D-2 parser verifies each citation against the custodian soul (#3300).
 const HARD_BOUNDARY = 'The speed of capability gains is not the speed of societal impact';
 const SOFT_BOUNDARY = 'Existing frameworks are adequate for a given sector';
+// Evidence span: verbatim substring of makeEdit()'s proposedDescription, verifiable by the judge v2 parser.
+const CONFLICT_EVIDENCE = 'capability gains outpace societal adaptation';
 
-const judgeSays = (verdicts: { soul: string; verdict: string; cited?: string | null }[]) =>
-  vi.fn().mockResolvedValue({ text: JSON.stringify({ verdicts: verdicts.map(v => ({ cited: null, reason: 'because', ...v })) }) });
+type JudgeVerdict = { soul: string; verdict: string; cited?: string | null; boundary_checks?: Array<{ boundary: string; asserted: boolean }>; evidence?: string | null };
+const judgeSays = (verdicts: JudgeVerdict[]) =>
+  vi.fn().mockResolvedValue({ text: JSON.stringify({ verdicts: verdicts.map(v => ({
+    cited: null,
+    reason: 'because',
+    boundary_checks: [{ boundary: HARD_BOUNDARY, asserted: v.verdict === 'conflict' }],
+    evidence: v.verdict === 'conflict' ? CONFLICT_EVIDENCE : null,
+    ...v,
+  })) }) });
 
 async function stamp(edit: ReflectionEdit, opts: { pov?: string; seatTag: string | null; nodeTags: string[] | undefined; generateText?: ReturnType<typeof vi.fn> }) {
   const generateText = opts.generateText ?? vi.fn();
