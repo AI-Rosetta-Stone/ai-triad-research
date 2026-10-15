@@ -10,11 +10,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 const { writeEdgesFileMock, readBaselineMock } = vi.hoisted(() => ({
-  writeEdgesFileMock: vi.fn(async () => {}),
+  writeEdgesFileMock: vi.fn(async () => ({ version: 'new-sha' })),
   // The write-baseline read (t/2957): default to a genuinely-empty baseline (nothing to restore).
   // 'absent' is ABSENT_BASELINE; a rejecting impl models a read/parse failure (must refuse, no write).
   readBaselineMock: vi.fn(async (): Promise<unknown> => ({ edges: [] })),
 }));
+
+const TEST_BASE_SHA = 'test-base-sha';
 
 // Partial mock: override the two edge fileIO calls, keep everything else real.
 vi.mock('../storage/fileIO.js', async (importActual) => {
@@ -28,13 +30,13 @@ import { registerEdgesRoutes } from '../routes/edges.js';
 
 interface InvokeResult { status: number; body: unknown }
 
-async function putEdges(body: unknown): Promise<InvokeResult> {
+async function putEdges(body: unknown, headers: Record<string, string> = { 'if-match': `"${TEST_BASE_SHA}"` }): Promise<InvokeResult> {
   const routes: { method: string; path: string; handler: Handler }[] = [];
   registerEdgesRoutes(createRouter(routes), {} as ServerCtx);
   const route = routes.find(r => r.path === '/api/edges' && r.method === 'PUT');
   if (!route) throw new Error('PUT /api/edges route not registered');
 
-  const req = { url: '/api/edges', method: 'PUT', headers: {}, socket: {} } as unknown as IncomingMessage;
+  const req = { url: '/api/edges', method: 'PUT', headers, socket: {} } as unknown as IncomingMessage;
   const result: InvokeResult = { status: 200, body: undefined };
   const res = {
     writableEnded: false, headersSent: false,
@@ -59,7 +61,7 @@ describe('PUT /api/edges — whole-file edge save (t/1821)', () => {
     const res = await putEdges(file);
     expect(res.status).toBe(200);
     expect(writeEdgesFileMock).toHaveBeenCalledTimes(1);
-    expect(writeEdgesFileMock).toHaveBeenCalledWith(file);
+    expect(writeEdgesFileMock).toHaveBeenCalledWith(file, { baseSha: TEST_BASE_SHA });
   });
 
   it('accepts an empty edges array (valid whole-file save)', async () => {
@@ -83,6 +85,15 @@ describe('PUT /api/edges — whole-file edge save (t/1821)', () => {
   it('rejects a body whose edges is not an array with 400 and does NOT write', async () => {
     const res = await putEdges({ edges: 'nope' });
     expect(res.status).toBe(400);
+    expect(writeEdgesFileMock).not.toHaveBeenCalled();
+  });
+
+  // t/4189: the If-Match precondition — a missing header means the client never loaded
+  // a version to protect, so the route refuses (428) rather than writing unguarded.
+  it('rejects a save with no If-Match header with 428 BASE_VERSION_REQUIRED and does NOT write', async () => {
+    const res = await putEdges({ edges: [] }, {});
+    expect(res.status).toBe(428);
+    expect((res.body as { error?: string } | undefined)?.error).toMatch(/If-Match/);
     expect(writeEdgesFileMock).not.toHaveBeenCalled();
   });
 });
@@ -111,7 +122,7 @@ describe('PUT /api/edges — rationale re-merge on save (t/2957)', () => {
     const res = await putEdges(body);
     expect(res.status).toBe(200);
     expect(writeEdgesFileMock).toHaveBeenCalledTimes(1);
-    expect(writeEdgesFileMock).toHaveBeenCalledWith(body);
+    expect(writeEdgesFileMock).toHaveBeenCalledWith(body, { baseSha: TEST_BASE_SHA });
   });
 
   it('BLOCKER arm 2 — a read/parse FAILURE refuses the save with 500 and writes NOTHING (never a stripped write)', async () => {
