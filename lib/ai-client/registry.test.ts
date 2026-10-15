@@ -443,14 +443,14 @@ describe('resolveModel fallback WARN (t/3675)', () => {
 
 describe('resolveBackend fails closed; no gemini default (t/4101)', () => {
   it('an id whose prefix names no backend THROWS an ActionableError instead of becoming a gemini call', () => {
-    expect(() => resolveBackend('learnlm-1.5-pro')).toThrow(/refusing to guess/);
-    expect(() => resolveBackend('unknown-model')).toThrow(/not in ai-models.json/);
+    expect(() => resolveBackend('learnlm-1.5-pro', null)).toThrow(/refusing to guess/);
+    expect(() => resolveBackend('unknown-model', null)).toThrow(/not in ai-models.json/);
     expect(() => resolveModel(TEST_REGISTRY, 'unknown-model')).toThrow(/refusing to guess/);
   });
 
   it('gemini ids still resolve to gemini: they arrived via the old default, now via an explicit prefix', () => {
-    expect(resolveBackend('gemini-2.5-flash')).toBe('gemini');
-    expect(resolveBackend('gemini-flash-lite-latest')).toBe('gemini');
+    expect(resolveBackend('gemini-2.5-flash', null)).toBe('gemini');
+    expect(resolveBackend('gemini-flash-lite-latest', null)).toBe('gemini');
   });
 
   it('PARITY: for every id in the real ai-models.json the PREFIX names its registry backend (cond 3)', async () => {
@@ -468,7 +468,7 @@ describe('resolveBackend fails closed; no gemini default (t/4101)', () => {
   it("REGISTRY FIRST: a registered id resolves to its entry's backend even when its prefix says otherwise", () => {
     const reg = { models: [{ id: 'gemini-but-served-by-groq', apiModelId: 'x', label: 'x', backend: 'groq' }] };
     expect(resolveBackend('gemini-but-served-by-groq', reg)).toBe('groq');
-    expect(resolveBackend('gemini-but-served-by-groq')).toBe('gemini'); // no registry: the prefix
+    expect(resolveBackend('gemini-but-served-by-groq', null)).toBe('gemini'); // null registry: the prefix
     expect(() => resolveBackend('learnlm-1.5-pro', reg)).toThrow(/refusing to guess/); // unregistered + unprefixed
   });
 
@@ -481,8 +481,8 @@ describe('moonshot backend routing (t/1945)', () => {
   // The server path (aiBackends.ts generateText) uses the prefix-based
   // resolveBackend(model); without the moonshot branch it fell through to gemini.
   it('resolveBackend maps the moonshot prefix to moonshot, not gemini', () => {
-    expect(resolveBackend('moonshot-kimi-k3')).toBe('moonshot');
-    expect(resolveBackend('moonshot')).toBe('moonshot');
+    expect(resolveBackend('moonshot-kimi-k3', null)).toBe('moonshot');
+    expect(resolveBackend('moonshot', null)).toBe('moonshot');
   });
 
   it('resolveModel resolves the moonshot prefix as a verbatim passthrough', () => {
