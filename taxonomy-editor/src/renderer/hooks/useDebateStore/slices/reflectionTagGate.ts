@@ -147,9 +147,11 @@ export async function annotateTagChecks(edits: ReflectionEdit[], ctx: AnnotateCo
  * Interim rule (CL ruling t/4214#6, M1 calibration PR #3310): the judge is reliable at the flag level (κ 0.69) but
  * not yet at telling `tension` from `conflict` (κ 0.35, n=34). So both need the reviewer's confirmation before apply;
  * the verdict and citation are shown either way, and `conflict` is no stronger a block than `tension`.
+ * OFF until R-6 lands: no UI passes `allowCrossTag` yet, so a block is a refusal, not a confirm-to-apply (CL
+ * p/785#3). R-6 turns this on together with its confirm control.
  * LAPSES when the v2 judge (t/4225) passes M1 report §5.2: set this to false and `tension` goes back to never blocking.
  */
-export const TENSION_NEEDS_CONFIRMATION = true;
+export const TENSION_NEEDS_CONFIRMATION = false;
 
 export type TagGateBlock = 'foreign' | 'conflict' | 'tension' | 'unchecked' | 'stale';
 
@@ -186,8 +188,13 @@ export function evaluateTagGate(
 /** The custodian verdicts' outcome: `conflict` blocks; `tension` blocks only under the interim rule. */
 function verdictGate(verdicts: CustodianVerdictRow[], tensionNeedsConfirmation: boolean): TagGateResult {
   const conflict = verdicts.find(v => v.verdict === 'conflict');
-  if (conflict) return { block: 'conflict', reason: `Conflicts with ${conflict.soul}: "${conflict.cited}". ${conflict.reason}` };
+  if (conflict) return { block: 'conflict', reason: `Conflicts with ${conflict.soul}${citedText(conflict)}. ${conflict.reason}` };
   const tension = tensionNeedsConfirmation ? verdicts.find(v => v.verdict === 'tension') : undefined;
-  if (tension) return { block: 'tension', reason: `In tension with ${tension.soul}: "${tension.cited}". ${tension.reason} Confirm to apply.` };
+  if (tension) return { block: 'tension', reason: `In tension with ${tension.soul}${citedText(tension)}. ${tension.reason} Confirm to apply.` };
   return { block: null, reason: '' };
+}
+
+/** The quoted citation, or a note when the parser dropped an unverified one (a tension citation can be null). */
+function citedText(v: CustodianVerdictRow): string {
+  return v.cited ? `: "${v.cited}"` : ' (no verified citation)';
 }

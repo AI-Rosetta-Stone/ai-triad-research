@@ -114,15 +114,28 @@ describe('R-3 evaluateTagGate: each relation and verdict', () => {
     expect(gate(edit, ['critical', 'institutional']).block).toBe('unchecked');
   });
 
-  it('interim rule (CL t/4214#6): tension needs confirmation, showing the verdict and the citation', async () => {
-    expect(TENSION_NEEDS_CONFIRMATION).toBe(true);
+  it('the interim rule stays off until R-6 ships the confirm control (CL p/785#3)', () => {
+    expect(TENSION_NEEDS_CONFIRMATION).toBe(false);
+  });
+
+  it('interim rule on (CL t/4214#6): tension needs confirmation, showing the verdict and the citation', async () => {
     const edit = makeEdit();
     await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'tension', cited: SOFT_BOUNDARY }]) });
     expect(edit.tag_check!.verdicts![0].verdict).toBe('tension');
-    const g = gate(edit, ['critical', 'institutional']);
+    const g = evaluateTagGate(edit, 'skeptic', ['critical', 'institutional'], edit.proposed_label, edit.proposed_description, true);
     expect(g.block).toBe('tension');
     expect(g.reason).toContain(SOFT_BOUNDARY);
     expect(g.reason).toMatch(/In tension with skeptic\.institutional/);
+  });
+
+  it('interim rule on: a tension whose citation failed verification says so instead of quoting "null"', async () => {
+    const edit = makeEdit();
+    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'tension', cited: 'Text that no soul contains anywhere at all' }]) });
+    expect(edit.tag_check!.verdicts![0]).toMatchObject({ verdict: 'tension', cited: null });
+    const g = evaluateTagGate(edit, 'skeptic', ['critical', 'institutional'], edit.proposed_label, edit.proposed_description, true);
+    expect(g.block).toBe('tension');
+    expect(g.reason).not.toContain('null');
+    expect(g.reason).toContain('(no verified citation)');
   });
 
   it('once the interim rule is lifted (the constant set to false), tension is shown but does not block', async () => {
