@@ -194,12 +194,13 @@ export class GitHubAPIBackend implements StorageBackend {
 
     const mainSha = await this.getLatestCommitSha();
     if (this.manifest && this.manifest.lastCommitSha === mainSha) {
+      const treeSource = await this.loadTreeOnCacheHit(mainSha);
       this.recordEvent({
         type: 'cache.hit',
         component: 'cache',
         level: 'info',
         message: 'Cache manifest matches main HEAD — serving from cache',
-        data: { sha: mainSha, fileCount: Object.keys(this.manifest.files).length },
+        data: { sha: mainSha, fileCount: Object.keys(this.manifest.files).length, treeSource, treeSize: this.repoTree.size },
       });
       this._dataLoadStatus = 'ready';
     } else {
@@ -1601,6 +1602,32 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   // ── Repo tree ──────────────────────────────────────────────────────────
+
+  /**
+   * t/4201: populate `repoTree` on a cache-hit start. Without it, `listDirectory` and `exists` fall back
+   * to the GitHub Contents API on EVERY call — including every /healthz probe — so GitHub load scaled
+   * with replicas × probes, and at 5 replicas GitHub refused and every replica crash-looped (t/4176,
+   * 2026-10-13). One recursive-tree fetch (2 API calls) per start replaces that per-request traffic.
+   * If the fetch fails, seed the tree from the manifest's known files instead (logged WARN), so
+   * listings keep working from the shared cache while GitHub is unavailable.
+   */
+  private async loadTreeOnCacheHit(mainSha: string): Promise<'api' | 'manifest' | 'none'> {
+    if (await this.fetchRepoTree(mainSha)) return 'api';
+    const files = Object.entries(this.manifest?.files ?? {});
+    for (const [repoPath, f] of files) {
+      this.repoTree.set(repoPath, { path: repoPath, mode: '100644', type: 'blob', sha: f.sha });
+    }
+    this.recordEvent({
+      type: 'github.api.error',
+      component: 'github-api',
+      level: 'warn',
+      message: `initialize: tree fetch failed on a cache hit — seeded repoTree from the manifest (${files.length} files); listings may omit files not yet cached`,
+      data: { sha: mainSha, seeded: files.length },
+    });
+    log.server.warn({ sha: mainSha, seeded: files.length, cause: 'tree-fetch-failed-on-cache-hit' },
+      'initialize: tree fetch failed on a cache hit — seeded repoTree from the manifest (t/4201)');
+    return files.length > 0 ? 'manifest' : 'none';
+  }
 
   private async fetchRepoTree(commitSha: string): Promise<boolean> {
     if (!commitSha) return false;

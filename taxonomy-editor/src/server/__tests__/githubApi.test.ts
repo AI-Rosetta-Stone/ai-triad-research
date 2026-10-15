@@ -1851,3 +1851,60 @@ describe('assertUndiciMajorInvariant', () => {
     expect(() => assertUndiciMajorInvariant('6.28.0', undefined)).not.toThrow();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// t/4201 — a cache-hit start must load repoTree, so listings and /healthz never hit the Contents API.
+// Before the fix, every listDirectory after a cache-hit start called GitHub (the 10-13 outage, t/4176).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — cache-hit start loads the repo tree (t/4201)', () => {
+  const manifest = {
+    version: 1, generation: 1, lastCommitSha: MAIN_SHA, lastUpdated: '2026-10-15T00:00:00Z',
+    files: {
+      'taxonomy/accelerationist.json': { sha: 'm-blob-acc', etag: '', cachedAt: '2026-10-15T00:00:00Z' },
+      'taxonomy/skeptic.json': { sha: 'm-blob-skp', etag: '', cachedAt: '2026-10-15T00:00:00Z' },
+    },
+  };
+
+  async function withManifestOnDisk<T>(fn: () => Promise<T>): Promise<T> {
+    const fsp = (await import('fs/promises')).default as unknown as { readFile: ReturnType<typeof vi.fn> };
+    fsp.readFile.mockImplementation(async (p: string) => {
+      if (String(p).endsWith('manifest.json')) return JSON.stringify(manifest);
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    });
+    try { return await fn(); } finally {
+      fsp.readFile.mockImplementation(async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); });
+    }
+  }
+
+  const contentsCalls = () => fetchCalls.filter(c => c.method === 'GET' && c.url.includes('/contents/'));
+
+  it('loads the tree with one fetch, then N listings make zero Contents API calls', async () => {
+    await withManifestOnDisk(async () => {
+      const backend = await createBackend();
+      const before = contentsCalls().length;
+      for (let i = 0; i < 10; i++) {
+        const entries = await backend.listDirectory('/taxonomy');
+        expect(entries).toEqual(expect.arrayContaining(['nodes.json', 'edges.json']));
+      }
+      expect(contentsCalls().length - before).toBe(0);
+      expect(fetchCalls.filter(c => c.url.includes('/git/trees/')).length).toBe(1);
+      backend.shutdown();
+    });
+  });
+
+  it('seeds the tree from the manifest (with a warn) when the tree fetch fails, and still lists without GitHub', async () => {
+    await withManifestOnDisk(async () => {
+      apiHandlers.push((url, init) =>
+        (init.method ?? 'GET') === 'GET' && /\/git\/commits\/[a-f0-9]/.test(url) ? { status: 500, body: { message: 'boom' } } : (undefined as never));
+      const recorder = createTestRecorder();
+      const backend = await createBackend(recorder);
+      const before = contentsCalls().length;
+      const entries = await backend.listDirectory('/taxonomy');
+      expect(entries).toEqual(expect.arrayContaining(['accelerationist.json', 'skeptic.json']));
+      expect(contentsCalls().length - before).toBe(0);
+      expect(recorder.events.some(e => e.level === 'warn' && String(e.message).includes('seeded repoTree from the manifest'))).toBe(true);
+      backend.shutdown();
+    });
+  });
+});
