@@ -1,0 +1,82 @@
+{
+  "_comment": "Machine-readable path sets for the CL advisory checks (t/4151, from CL rules #2, #3 and #9 in t/4109#3). Owned by the Computational Linguist; tier-check reads this file, so CL can change a set without a DevOps change. Globs use gitignore-style ** semantics, relative to the repo root. `exclude` applies to every set. Advisory only: a match produces a warning, never a failure.",
+  "version": 1,
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/*.snap"
+  ],
+
+  "owned_files_rule": {
+    "_comment": "Rule #2. A PR that ADDS a file matching `paths` (or `name_tokens`) must also change research/comp-linguist/docs/owned-files.md. Modified or deleted files don't trigger. The waiver is the PR-body line `Owned-files: not prompt or metric code` (for a name-token false positive).",
+    "requires": "research/comp-linguist/docs/owned-files.md",
+    "waiver_line": "Owned-files: not prompt or metric code",
+    "paths": [
+      "lib/debate/prompts/**",
+      "lib/debate/soul-docs/**",
+      "lib/oped/prompts/**",
+      "scripts/AITriad/Prompts/**",
+      "taxonomy-editor/src/renderer/prompts/**",
+      "lib/debate/calibrationLogger/**",
+      "lib/debate/aif/**",
+      "research/comp-linguist/tools/**"
+    ],
+    "name_tokens": {
+      "_comment": "Also triggers on a NEW file directly in lib/debate/ (not a subfolder) whose basename contains one of these tokens, case-sensitive. Heuristic; the 14-day replay measures its false positives.",
+      "dir": "lib/debate/",
+      "extensions": [".ts"],
+      "tokens": ["Gate", "Scoring", "Signals", "Threshold", "Metric", "Lexicon", "Calibration", "Convergence", "Crux", "crux", "Confidence", "Priority", "Operationality", "Closure", "Stagnation", "Dedup", "Compression", "Relevance", "Outcomes", "Anchoring", "Transitions", "Resolution", "Guard", "Prompt"]
+    }
+  },
+
+  "provenance_rule": {
+    "_comment": "Rule #3. A PR that ADDS or MODIFIES a file matching `paths` must also change research/comp-linguist/docs/metric-provenance-register.md, or carry the PR-body waiver line `Provenance: unchanged` (refactors, comments, renames). These are the files that hold a metric, threshold, weight, lexicon or model pin with a register row.",
+    "requires": "research/comp-linguist/docs/metric-provenance-register.md",
+    "waiver_line": "Provenance: unchanged",
+    "paths": [
+      "lib/debate/calibration-config.json",
+      "lib/debate/calibrationLogger/**",
+      "lib/debate/affectSignals.ts",
+      "lib/debate/beliefConfidence.ts",
+      "lib/debate/claimOutcomes.ts",
+      "lib/debate/confidenceDedup.ts",
+      "lib/debate/convergenceSignals.ts",
+      "lib/debate/cruxResolution.ts",
+      "lib/debate/debateTested.ts",
+      "lib/debate/desirePriority.ts",
+      "lib/debate/doctrinalAnchoring.ts",
+      "lib/debate/exclusionGuard.ts",
+      "lib/debate/intentionOperationality.ts",
+      "lib/debate/lookaheadGate.ts",
+      "lib/debate/operationalClosure.ts",
+      "lib/debate/operationalityEvolution.ts",
+      "lib/debate/phaseTransitions.ts",
+      "lib/debate/policyScoring.ts",
+      "lib/debate/pragmaticSignals.ts",
+      "lib/debate/repairHintScoring.ts",
+      "lib/debate/revoiceGate.ts",
+      "lib/debate/schemeStagnation.ts",
+      "lib/debate/signalConfidence.ts",
+      "lib/debate/situationScoring.ts",
+      "lib/debate/taxonomyRelevance.ts",
+      "lib/debate/tieredCompression.ts",
+      "lib/debate/wellTestedSelection.ts",
+      "lib/oped/outletBands.ts",
+      "lib/oped/readabilityMeasure.ts",
+      "taxonomy-editor/src/renderer/hooks/useDebateStore/slices/reflectionTagGate.ts",
+      "research/comp-linguist/tools/score_lf_golden.py",
+      "research/comp-linguist/analyses/edge-rationale-quality/check_rationale_quality.py"
+    ]
+  },
+
+  "schema_rule": {
+    "_comment": "Rule #9. For a diff to `file`, read the normative field list FROM THE FILE ITSELF at `list_pointer`, using the BASE revision's list, so a PR can't narrow the list and change a field in the same diff. Any change under `list_pointer` itself is normative. Classification follows meta.change_control.semver: a removal, retype, or removal of an enum value from a normative field = MAJOR -> T2 plus a CL review request (it also meets the t/3361 Second Opinion bar). An addition-only normative change (new field, new enum value, new edge type) = MINOR -> T1 plus a CL+TL co-sign request. A change to `free_fields` only = PATCH -> no action. Any other non-normative path -> no action.",
+    "file": "lib/schema/taxonomy-schema.json",
+    "list_pointer": "meta.change_control.normative_fields",
+    "free_pointer": "meta.change_control.free_fields",
+    "self_normative": "meta.change_control"
+  }
+}

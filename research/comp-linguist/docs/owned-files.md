@@ -1,6 +1,6 @@
 # Computational Linguist — Owned Files
 
-**Last updated:** 2026-07-31
+**Last updated:** 2026-10-15 (t/4151: directory rows for prompt folders, tag-aware reflection, and five metric files that were missing. The machine-readable path sets for the advisory checks are in `cl-path-sets.json`.)
 **Author:** Computational Linguist (Orca)
 
 Files the Computational Linguist holds **mandatory review authority** over. Changes to any of these block merge until CL review (see `research/comp-linguist/AGENTS.md` → *When to Engage*). This list is updated in any PR that adds new prompt-bearing or metric-bearing code — see the Maintenance rule at the bottom.
@@ -10,7 +10,9 @@ Files the Computational Linguist holds **mandatory review authority** over. Chan
 | **Prompt templates** | | |
 | `scripts/AITriad/Prompts/*.prompt` | PS prompt templates | Mandatory |
 | `scripts/AITriad/Private/Get-Prompt.ps1` | PS prompt loader | Mandatory |
-| `lib/debate/prompts.ts` | TS debate prompts | Mandatory |
+| `lib/debate/prompts/**` | TS debate prompts. The former `prompts.ts` is now a folder (opening, turn, turn-pipeline, moderator, synthesis, reflection, `reflectionTagCheck` custodian judge, and others) | Mandatory |
+| `lib/debate/soul-docs/**` | POV and tag soul documents plus `pov-tags.json`; they feed every persona and the custodian judge (t/3975, t/4211) | Mandatory |
+| `taxonomy-editor/src/renderer/prompts/**` | Renderer prompts. Rows below name the original four; the folder also holds aphorism, argumentNetwork, debate and newDebateDialog | Mandatory |
 | `lib/debate/topicCritique.ts` | Topic evaluation rubric | Mandatory |
 | `lib/debate/synthesisPhases.ts` | Synthesis phase prompts | Mandatory |
 | `lib/debate/neutralEvaluator.ts` | Neutral evaluation prompts | Mandatory |
@@ -37,6 +39,11 @@ Files the Computational Linguist holds **mandatory review authority** over. Chan
 | `lib/debate/repairHintScoring.ts` | Repair hint relevance scoring | Mandatory |
 | `lib/debate/operationalClosure.ts` | Operational-closure metric (self- vs opponent-targeted AN edges; t/1537) | Mandatory |
 | `lib/debate/debateTested.ts` | Debate-Tested tier/verdict/sort-key computation (t/1523/t/1545) | Mandatory |
+| `lib/debate/affectSignals.ts` | Affect lexicons, saturation rates, phase baselines (register §1, §5) | Mandatory |
+| `lib/debate/clarityMetrics.ts` | Clarity metrics (sentence length, lexical diversity, jargon density) | Mandatory |
+| `lib/debate/signalConfidence.ts` | Confidence gating for adaptive-staging signals | Mandatory |
+| `lib/debate/policyScoring.ts` | Policy consensus score composition | Mandatory |
+| `lib/debate/wellTestedSelection.ts` | Exclude-well-tested mode and under-tested boost (register: `UNDER_TESTED_BOOST`) | Mandatory |
 | **Convergence & phase transitions** | | |
 | `lib/debate/phaseTransitions.ts` | Phase transition logic | Mandatory |
 | `lib/debate/cruxResolution.ts` | Crux resolution thresholds | Mandatory |
@@ -55,6 +62,9 @@ Files the Computational Linguist holds **mandatory review authority** over. Chan
 | `lib/debate/vocabularyContext.ts` | Vocabulary constraints | Mandatory |
 | `lib/debate/counterfactualCrux.ts` | Counterfactual crux identification | Mandatory |
 | `lib/debate/cruxTaxonomyFeedback.ts` | Crux-to-situation promotion | Mandatory |
+| **Tag-aware reflection (t/4211)** | | |
+| `lib/debate/reflectionScope.ts` | Reflection engagement scope, evidence check, `classifyTagRelation` custodian rule (spec §2) | Mandatory |
+| `taxonomy-editor/src/renderer/hooks/useDebateStore/slices/reflectionTagGate.ts` | Custodian-check stamp and apply gate; `CUSTODIAN_CHECK_MODEL` pin, `TENSION_NEEDS_CONFIRMATION` and `TAG_GATE_ENFORCED` (register §19) | Mandatory |
 | **Entity ontology (t/1767, t/1803)** | | |
 | `ai-usages.json` → `enrichment.entity-extraction` | Entity extraction prompt (CL-owned instrument) | Mandatory |
 | `<data>/taxonomy/Origin/entities.json` | Entity records — DOLCE-typed (`entity_type` + `dolce_category`, genus-differentia descriptions) | Mandatory |
