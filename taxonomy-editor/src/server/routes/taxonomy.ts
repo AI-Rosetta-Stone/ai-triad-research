@@ -140,6 +140,45 @@ function requireBaseVersion(req: IncomingMessage, res: ServerResponse): string |
   return baseSha;
 }
 
+// Extracted from the PUT handler to keep its own complexity under budget (t/4185 CI gate): reads the
+// prior nodes, runs the t/3890 BDI gate for situations, computes the t/3171 changed-id set for the
+// inline grounding reconcile, and stamps authorship — all the branching that only applies when the
+// body carries a `nodes` array. Mutates `incoming.nodes` in place (stamped) like the original inline code.
+async function prepareTaxonomyNodeWrite(
+  pov: string,
+  incoming: { nodes?: unknown[] },
+): Promise<{ gate: { status: 400 | 500; message: string } | null; changedNodeIds: string[] }> {
+  let oldNodes: unknown[] = [];
+  let oldNodesErr: Error | null = null;
+  try {
+    const existing = await fileIO.readTaxonomyFile(pov) as { nodes?: unknown[] };
+    oldNodes = existing?.nodes ?? [];
+  } catch (err) {
+    oldNodesErr = err as Error;
+    /* telemetry — silent by design: first write or missing file; situations handled in situationsBdiGate */
+  }
+
+  // t/3890: BDI gate — situations only, changed nodes only, fail-closed on unreadable baseline
+  if (pov === 'situations') {
+    const gate = situationsBdiGate(oldNodesErr, oldNodes, incoming.nodes as unknown[]);
+    if (gate) return { gate, changedNodeIds: [] };
+  }
+
+  let changedNodeIds: string[] = [];
+  if (getFlag('grounding_reconcile_inline')) {
+    const { added, modified, deleted } = diffNodes(
+      oldNodes as Parameters<typeof diffNodes>[0],
+      incoming.nodes as Parameters<typeof diffNodes>[1],
+    );
+    changedNodeIds = [...added, ...modified, ...deleted]; // deleted → the reconciler purges their grounding
+  }
+  incoming.nodes = stampNodeAuthorship(
+    oldNodes as Parameters<typeof stampNodeAuthorship>[0],
+    incoming.nodes as Parameters<typeof stampNodeAuthorship>[1],
+  );
+  return { gate: null, changedNodeIds };
+}
+
 export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
   const { get, put } = r;
   const { ensureSessionBranch } = ctx;
@@ -207,33 +246,9 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       // while oldNodes is in scope. Only computed when the flag is on → flag-OFF adds one getFlag().
       let changedNodeIds: string[] = [];
       if (incoming.nodes && Array.isArray(incoming.nodes)) {
-        let oldNodes: unknown[] = [];
-        let oldNodesErr: Error | null = null;
-        try {
-          const existing = await fileIO.readTaxonomyFile(pov) as { nodes?: unknown[] };
-          oldNodes = existing?.nodes ?? [];
-        } catch (err) {
-          oldNodesErr = err as Error;
-          /* telemetry — silent by design: first write or missing file; situations handled in situationsBdiGate */
-        }
-
-        // t/3890: BDI gate — situations only, changed nodes only, fail-closed on unreadable baseline
-        if (pov === 'situations') {
-          const gate = situationsBdiGate(oldNodesErr, oldNodes, incoming.nodes);
-          if (gate) { error(res, gate.message, gate.status); return; }
-        }
-
-        if (getFlag('grounding_reconcile_inline')) {
-          const { added, modified, deleted } = diffNodes(
-            oldNodes as Parameters<typeof diffNodes>[0],
-            incoming.nodes as Parameters<typeof diffNodes>[1],
-          );
-          changedNodeIds = [...added, ...modified, ...deleted]; // deleted → the reconciler purges their grounding
-        }
-        incoming.nodes = stampNodeAuthorship(
-          oldNodes as Parameters<typeof stampNodeAuthorship>[0],
-          incoming.nodes as Parameters<typeof stampNodeAuthorship>[1],
-        );
+        const result = await prepareTaxonomyNodeWrite(pov, incoming);
+        if (result.gate) { error(res, result.gate.message, result.gate.status); return; }
+        changedNodeIds = result.changedNodeIds;
       }
       const { version } = await fileIO.writeTaxonomyFile(pov, body, { baseSha });
       // t/3267 Fix A: enqueue the debounced scoped grounding reconcile BEFORE responding. It's
