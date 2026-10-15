@@ -30,6 +30,9 @@ import { GitHubRestClient, normalizeErrorForEvent, type CircuitState } from './g
 import { getDataRoot } from '../config.js';
 import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
+import { BlobLease } from './blobLease.js';
+import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestError } from '@azure/storage-blob';
+import { DefaultAzureCredential } from '@azure/identity';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -76,6 +79,40 @@ export interface GitHubAPIBackendConfig {
   pollIntervalMs?: number;
   coherencyProbeRate?: number;   // 0.0–1.0, default 0.01
   maxOverlayBytesPerUser?: number; // per-user uncommitted-overlay cap (t/727)
+  /** t/4179 (TL design, t/4179#2/#7): cross-replica single-holder poll
+   *  coordination via `blobLease.ts`. Omitted, or `maxReplicas <= 1`, keeps
+   *  today's behavior unchanged — every replica polls GitHub directly. */
+  pollLease?: {
+    accountUrl: string;
+    container?: string; // default 'poll-coordination'
+    maxReplicas: number;
+    serviceClient?: BlobServiceClient; // test seam (Azurite)
+  };
+}
+
+/** Published to the poll-coordination blob by the current holder. */
+interface PollState {
+  holderId: string;
+  generation: number;
+  lastCommitSha: string;
+  /** Capped-length history of per-generation changed paths, oldest first —
+   *  lets a non-holder catch up without replaying every tick, and lets it
+   *  detect a gap (its last-seen generation predates the oldest entry here). */
+  changedSinceGeneration: Array<{ generation: number; paths: string[] }>;
+  publishedAt: string; // ISO timestamp — staleness detection
+}
+
+async function streamToStringForPoll(readable: NodeJS.ReadableStream | undefined): Promise<string> {
+  if (!readable) return '';
+  const chunks: Buffer[] = [];
+  for await (const chunk of readable) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array | string));
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+function isBlobNotFoundForPoll(err: unknown): boolean {
+  return err instanceof RestError ? (err.statusCode === 404 || err.code === 'BlobNotFound') : false;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -86,6 +123,14 @@ const DEFAULT_MAX_OVERLAY_BYTES_PER_USER = 20 * 1024 * 1024; // 20 MB
 
 const POLL_INTERVAL_MS = 60_000;
 const ERROR_BUFFER_CAPACITY = 100;
+
+// t/4179 (TL R1/R2/R3): single-holder poll coordination constants.
+const POLL_STATE_BLOB = 'poll-state.json';
+const POLL_STATE_HISTORY_CAP = 50;
+// A non-holder falls back to direct polling once the published state is
+// older than this multiple of the poll interval — fails toward coherence,
+// never toward silent staleness (TL t/4179#2 §2 point 2).
+const POLL_STATE_STALE_FACTOR = 3;
 
 // t/4215: bounds how long a plain session-branch read can serve stale
 // content after a head move the server didn't make (a resync conflict
@@ -145,6 +190,20 @@ export class GitHubAPIBackend implements StorageBackend {
   // Polling timer
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
+  // t/4179: single-holder poll coordination (undefined/null → today's
+  // unchanged every-replica-polls-directly behavior).
+  private readonly pollLeaseContainer: string | undefined;
+  private readonly blobLease: BlobLease | null = null;
+  private readonly blobLeaseContainerClient: ContainerClient | null = null;
+  private readonly pollLeaseDurationSeconds: number = 0;
+  private leaseRenewTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly holderId = crypto.randomUUID();
+  private pollStateGeneration = 0;
+  private pollStateHistory: Array<{ generation: number; paths: string[] }> = [];
+  private pollLastSeenGeneration = 0;
+  private pollLastSeenHolderId: string | null = null;
+  private repoTreeRefillInFlight: Promise<void> | null = null;
+
   // Coherency probe stats
   private coherencyViolations = 0;
 
@@ -169,6 +228,23 @@ export class GitHubAPIBackend implements StorageBackend {
     this.coherencyProbeRate = config.coherencyProbeRate ?? 0.01;
     this.maxOverlayBytesPerUser = config.maxOverlayBytesPerUser
       ?? (process.env.OVERLAY_MAX_BYTES_PER_USER ? parseInt(process.env.OVERLAY_MAX_BYTES_PER_USER, 10) : DEFAULT_MAX_OVERLAY_BYTES_PER_USER);
+
+    if (config.pollLease && config.pollLease.maxReplicas > 1) {
+      this.pollLeaseContainer = config.pollLease.container ?? 'poll-coordination';
+      // Azure Blob leases must be 15-60s; match the poll interval so a
+      // renewal cadence of duration/3 (R1) stays sane at both ends.
+      this.pollLeaseDurationSeconds = Math.min(60, Math.max(15, Math.round(this.pollIntervalMs / 1000)));
+      this.blobLease = new BlobLease({
+        accountUrl: config.pollLease.accountUrl,
+        container: this.pollLeaseContainer,
+        blobName: POLL_STATE_BLOB,
+        durationSeconds: this.pollLeaseDurationSeconds,
+        serviceClient: config.pollLease.serviceClient,
+      });
+      const pollService = config.pollLease.serviceClient
+        ?? new BlobServiceClient(config.pollLease.accountUrl, new DefaultAzureCredential());
+      this.blobLeaseContainerClient = pollService.getContainerClient(this.pollLeaseContainer);
+    }
 
     this.rest = new GitHubRestClient({
       record: (input) => this.recordEvent(input),
@@ -250,6 +326,13 @@ export class GitHubAPIBackend implements StorageBackend {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    if (this.leaseRenewTimer) {
+      clearInterval(this.leaseRenewTimer);
+      this.leaseRenewTimer = null;
+    }
+    // Best-effort — so a graceful shutdown hands the lease off immediately
+    // rather than making the next holder wait out the full lease duration.
+    if (this.blobLease) void this.blobLease.release();
   }
 
   // ── Session context ────────────────────────────────────────────────────
@@ -918,6 +1001,8 @@ export class GitHubAPIBackend implements StorageBackend {
     // merge below can add/remove entries idempotently.
     const seen = new Set<string>();
 
+    if (this.repoTree.size === 0 && this.blobLease) await this.ensureRepoTreeFilled();
+
     if (this.repoTree.size > 0) {
       for (const [p] of this.repoTree) {
         if (prefix && !p.startsWith(prefix)) continue;
@@ -926,8 +1011,13 @@ export class GitHubAPIBackend implements StorageBackend {
         // Direct children only — first path segment under the prefix.
         seen.add(rest.split('/')[0]);
       }
-    } else if (!(this.rest.isTripped())) {
+    } else if (this.mayFallBackToContentsApi() && !(this.rest.isTripped())) {
       await this.fetchDirectoryFromAPI(repoPath, opts, seen);
+    } else if (!this.mayFallBackToContentsApi()) {
+      // t/4179 R3: a non-holder with an empty tree even after a refill
+      // attempt never hits the Contents API per-call — that's the N>1
+      // crash-loop pattern t/4201/t/4176 fixed. Degraded [] instead.
+      log.server.warn({ dir: repoPath, cause: 'non-holder-tree-empty' }, 'listDirectory returning [] — coordinated non-holder with no tree, avoiding per-call Contents API (t/4179)');
     } else {
       log.server.warn({ dir: repoPath, cause: 'circuit-breaker-open' }, 'listDirectory returning [] — circuit breaker open, may be false-empty (t/3300)');
     }
@@ -1087,6 +1177,8 @@ export class GitHubAPIBackend implements StorageBackend {
     // Check disk cache manifest
     if (this.manifest?.files[repoPath]) return true;
 
+    if (this.repoTree.size === 0 && this.blobLease) await this.ensureRepoTreeFilled();
+
     // Check in-memory tree
     if (this.repoTree.has(repoPath)) return true;
 
@@ -1098,7 +1190,14 @@ export class GitHubAPIBackend implements StorageBackend {
       }
     }
 
-    // Fallback: HEAD request to Contents API
+    // t/4179 R3: a non-holder never falls through to the per-call Contents
+    // API below — same reasoning as listDirectory.
+    if (!this.mayFallBackToContentsApi()) return false;
+    return this.fileExistsViaContentsApi(repoPath);
+  }
+
+  /** Extracted from fileExists() to keep its own complexity under budget. */
+  private async fileExistsViaContentsApi(repoPath: string): Promise<boolean> {
     if (this.rest.isTripped()) return false;
 
     const creds = await this.getCredsCached();
@@ -2067,12 +2166,146 @@ export class GitHubAPIBackend implements StorageBackend {
   private startPolling(): void {
     if (this.pollTimer) return;
 
-    this.pollTimer = setInterval(() => void (async () => {
-      try {
-        const currentSha = await this.getLatestCommitSha();
-        if (!currentSha || currentSha === this.manifest?.lastCommitSha) return;
+    this.pollTimer = setInterval(() => void this.pollTick(), this.pollIntervalMs);
 
-        const changed = this.manifest?.lastCommitSha
+    if (this.blobLease) {
+      // t/4179 R1 (TL p/538#66): renew on its OWN timer, independent of tick
+      // latency. With duration == pollIntervalMs, renewing only on the tick
+      // would renew right at the expiry boundary — any slow tick (a GitHub
+      // call, GC) lets the lease lapse and the holder churns every minute.
+      // duration/3 gives two full retry windows before expiry.
+      const renewMs = Math.max(1000, Math.floor((this.pollLeaseDurationSeconds * 1000) / 3));
+      this.leaseRenewTimer = setInterval(() => void this.renewPollLease(), renewMs);
+      void this.renewPollLease(); // first attempt now, not after a full renewMs wait
+    }
+  }
+
+  /**
+   * t/4179 R1: the ONLY place that calls `blobLease.acquireOrRenew()`. The
+   * poll tick itself just reads `blobLease.isHolder()` (a cheap local flag)
+   * to pick its branch — safety against that flag being stale comes from the
+   * fenced write in publishPollState(), not from this timer being perfectly
+   * accurate.
+   */
+  private async renewPollLease(): Promise<void> {
+    if (!this.blobLease) return;
+    const wasHolder = this.blobLease.isHolder();
+    let isHolder: boolean;
+    try {
+      isHolder = await this.blobLease.acquireOrRenew();
+    } catch (err: unknown) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Poll-lease acquire/renew failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      this.recordEvent({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Poll-lease acquire/renew failed — holder status uncertain, pollTick will fall back to direct polling',
+        error: normalizeErrorForEvent(err),
+      });
+      return;
+    }
+    if (isHolder && !wasHolder) await this.seedGenerationAfterAcquiring();
+  }
+
+  /**
+   * t/4179 R2 (TL p/538#66): read the published state AFTER acquiring, never
+   * before — a dying holder can still publish right up to expiry, and once
+   * we hold the lease the fence guarantees this read is the final word.
+   * Seeds at remote.generation + 1 so numbering stays continuous across a
+   * holder handoff; a missing/unparseable state seeds at 0 with a WARN.
+   */
+  private async seedGenerationAfterAcquiring(): Promise<void> {
+    let remote: PollState | null = null;
+    try {
+      remote = await this.readPollState();
+    } catch (err: unknown) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Became poll-lease holder: reading existing poll-state failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      this.recordEvent({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Became poll-lease holder: reading existing poll-state failed — seeding generation at 0',
+        error: normalizeErrorForEvent(err),
+      });
+    }
+    if (remote === null) {
+      this.recordEvent({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Became poll-lease holder: poll-state missing or unparseable — seeding generation at 0',
+      });
+    }
+    this.pollStateGeneration = remote && Number.isFinite(remote.generation) ? remote.generation + 1 : 0;
+    this.pollStateHistory = [];
+  }
+
+  private async pollTick(): Promise<void> {
+    if (!this.blobLease) return this.pollDirect();
+    if (this.blobLease.isHolder()) return this.pollAsHolder();
+    return this.pollAsNonHolder();
+  }
+
+  /** The pre-t/4179 poll body, unchanged — used when no pollLease is
+   *  configured, and as the fallback when coordination is unavailable
+   *  (TL t/4179#2 §2 point 2: fail toward coherence, never toward silent
+   *  staleness). */
+  private async pollDirect(): Promise<void> {
+    try {
+      const currentSha = await this.getLatestCommitSha();
+      if (!currentSha || currentSha === this.manifest?.lastCommitSha) return;
+
+      const changed = this.manifest?.lastCommitSha
+        ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
+        : [];
+
+      if (changed.length > 0) {
+        this.recordEvent({
+          type: 'cache.invalidate',
+          component: 'cache',
+          level: 'info',
+          message: `Poll: ${changed.length} files changed`,
+          data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
+        });
+        await this.withManifestLock(async () => {
+          for (const filePath of changed) {
+            if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
+          }
+        });
+      }
+
+      await this.fetchRepoTree(currentSha);
+      await this.updateManifestSha(currentSha);
+    } catch (err: unknown) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'github-api',
+        level: 'error',
+        message: 'Operation failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      this.recordEvent({
+        type: 'system.error',
+        component: 'cache',
+        level: 'error',
+        message: 'Polling loop error',
+        error: normalizeErrorForEvent(err),
+        data: { context: 'background-task' },
+      });
+    }
+  }
+
+  /** The current holder's poll: does the real GitHub work (unchanged from
+   *  pollDirect), then publishes the result for non-holders to consume. */
+  private async pollAsHolder(): Promise<void> {
+    let currentSha = '';
+    let changed: string[] = [];
+    try {
+      currentSha = await this.getLatestCommitSha();
+      if (currentSha && currentSha !== this.manifest?.lastCommitSha) {
+        changed = this.manifest?.lastCommitSha
           ? await this.getChangedFiles(this.manifest.lastCommitSha, currentSha)
           : [];
 
@@ -2084,38 +2317,215 @@ export class GitHubAPIBackend implements StorageBackend {
             message: `Poll: ${changed.length} files changed`,
             data: { paths: changed.slice(0, 20), trigger: 'poll', sha: currentSha },
           });
-
-          // Invalidate changed files from disk cache (under manifest lock)
           await this.withManifestLock(async () => {
             for (const filePath of changed) {
-              if (this.manifest?.files[filePath]) {
-                delete this.manifest.files[filePath];
-              }
+              if (this.manifest?.files[filePath]) delete this.manifest.files[filePath];
             }
           });
         }
 
-        // Update tree
         await this.fetchRepoTree(currentSha);
         await this.updateManifestSha(currentSha);
-      } catch (err: unknown) {
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          component: 'github-api',
-          level: 'error',
-          message: 'Operation failed',
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        this.recordEvent({
-          type: 'system.error',
-          component: 'cache',
-          level: 'error',
-          message: 'Polling loop error',
-          error: normalizeErrorForEvent(err),
-          data: { context: 'background-task' },
-        });
       }
-    })(), this.pollIntervalMs);
+    } catch (err: unknown) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'github-api',
+        level: 'error',
+        message: 'Operation failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      this.recordEvent({
+        type: 'system.error',
+        component: 'cache',
+        level: 'error',
+        message: 'Polling loop error',
+        error: normalizeErrorForEvent(err),
+        data: { context: 'background-task' },
+      });
+      return;
+    }
+    await this.publishPollState(currentSha || this.manifest?.lastCommitSha || '', changed);
+  }
+
+  /** Publish the holder's result, fenced to its current lease — a holder
+   *  that renewed too late (another replica already took over) gets a 412
+   *  here and just skips the publish, instead of silently writing stale
+   *  state under a lease it no longer holds. */
+  private async publishPollState(lastCommitSha: string, changedPaths: string[]): Promise<void> {
+    if (!this.blobLease) return;
+    const leaseId = this.blobLease.getLeaseId();
+    if (!leaseId) return; // lost holder status — next tick re-evaluates via isHolder()
+
+    this.pollStateGeneration++;
+    if (changedPaths.length > 0) {
+      this.pollStateHistory.push({ generation: this.pollStateGeneration, paths: changedPaths });
+      if (this.pollStateHistory.length > POLL_STATE_HISTORY_CAP) this.pollStateHistory.shift();
+    }
+    const state: PollState = {
+      holderId: this.holderId,
+      generation: this.pollStateGeneration,
+      lastCommitSha,
+      changedSinceGeneration: this.pollStateHistory,
+      publishedAt: new Date().toISOString(),
+    };
+    const payload = JSON.stringify(state);
+    try {
+      await this.pollStateBlobClient().upload(payload, Buffer.byteLength(payload), { conditions: { leaseId } });
+    } catch (err: unknown) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Poll-state publish rejected (fence) — another replica took over the lease',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      this.recordEvent({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Poll-state publish rejected (fence) — another replica took over the lease',
+        error: normalizeErrorForEvent(err),
+      });
+    }
+  }
+
+  private async readPollState(): Promise<PollState | null> {
+    if (!this.blobLeaseContainerClient) return null;
+    try {
+      const resp = await this.pollStateBlobClient().download();
+      const raw = await streamToStringForPoll(resp.readableStreamBody);
+      return JSON.parse(raw) as PollState;
+    } catch (err: unknown) {
+      if (isBlobNotFoundForPoll(err)) return null;
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'readPollState: poll-state blob read failed (not a 404)',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err;
+    }
+  }
+
+  private pollStateBlobClient(): BlockBlobClient {
+    return this.blobLeaseContainerClient!.getBlockBlobClient(POLL_STATE_BLOB);
+  }
+
+  /**
+   * Non-holder poll: read the holder's published state instead of calling
+   * GitHub. Falls back to pollDirect() (TL t/4179#2 §2 point 2) if the state
+   * is missing, unreadable, or older than POLL_STATE_STALE_FACTOR × the poll
+   * interval — never trusts a state we can't confirm is current.
+   */
+  private async pollAsNonHolder(): Promise<void> {
+    let state: PollState | null;
+    try {
+      state = await this.readPollState();
+    } catch (err: unknown) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Poll-state read failed — falling back to direct poll',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      this.recordEvent({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: 'Poll-state read failed — falling back to direct poll',
+        error: normalizeErrorForEvent(err),
+      });
+      return this.pollDirect();
+    }
+    if (state === null) return this.pollDirect();
+
+    const ageMs = Date.now() - Date.parse(state.publishedAt);
+    if (!Number.isFinite(ageMs) || ageMs > this.pollIntervalMs * POLL_STATE_STALE_FACTOR) {
+      this.recordEvent({
+        type: 'system.error', component: 'cache', level: 'warn',
+        message: `Poll-state stale (${ageMs}ms old, limit ${this.pollIntervalMs * POLL_STATE_STALE_FACTOR}ms) — falling back to direct poll`,
+        data: { ageMs },
+      });
+      return this.pollDirect();
+    }
+
+    await this.applyPollState(state);
+
+    this.pollLastSeenGeneration = state.generation;
+    this.pollLastSeenHolderId = state.holderId;
+  }
+
+  /** Extracted from pollAsNonHolder() to keep its own complexity under
+   *  budget. Decides gap vs. incremental catch-up and applies it to the
+   *  local manifest/tree caches; does not touch pollLastSeen* bookkeeping. */
+  private async applyPollState(state: PollState): Promise<void> {
+    // t/4179 R2: a generation that goes backwards, or stays the same/lower
+    // while the holderId changed, is a gap — never trust it as "no change".
+    const generationWentBackwards = state.generation < this.pollLastSeenGeneration;
+    const suspiciousHolderChange = this.pollLastSeenHolderId !== null
+      && state.holderId !== this.pollLastSeenHolderId
+      && state.generation <= this.pollLastSeenGeneration;
+
+    if (this.pollLastSeenGeneration === 0 || generationWentBackwards || suspiciousHolderChange) {
+      await this.fullCacheInvalidation();
+      await this.ensureRepoTreeFilled();
+    } else if (state.generation > this.pollLastSeenGeneration) {
+      await this.applyIncrementalPollChanges(state);
+    }
+
+    if (state.lastCommitSha && state.lastCommitSha !== this.manifest?.lastCommitSha) {
+      await this.updateManifestSha(state.lastCommitSha);
+    }
+  }
+
+  /** Extracted from applyPollState(): the "generation moved forward, no gap
+   *  detected yet" branch — still checks the history-list gap case. */
+  private async applyIncrementalPollChanges(state: PollState): Promise<void> {
+    const oldestTracked = state.changedSinceGeneration[0]?.generation;
+    const hasHistoryGap = oldestTracked === undefined || oldestTracked > this.pollLastSeenGeneration + 1;
+    if (hasHistoryGap) {
+      await this.fullCacheInvalidation();
+      await this.ensureRepoTreeFilled();
+      return;
+    }
+
+    const toApply = state.changedSinceGeneration.filter(e => e.generation > this.pollLastSeenGeneration);
+    const paths = new Set<string>();
+    for (const entry of toApply) for (const p of entry.paths) paths.add(p);
+    if (paths.size === 0) return;
+
+    await this.withManifestLock(async () => {
+      for (const p of paths) if (this.manifest?.files[p]) delete this.manifest.files[p];
+    });
+    this.repoTree.clear();
+    this.treeSha = null;
+    await this.ensureRepoTreeFilled();
+    this.recordEvent({
+      type: 'cache.invalidate', component: 'cache', level: 'info',
+      message: `Poll (non-holder): ${paths.size} files changed`,
+      data: { paths: [...paths].slice(0, 20), trigger: 'poll-shared-state' },
+    });
+  }
+
+  /**
+   * t/4179 R3 (TL p/538#66): single-flight lazy repoTree refill for
+   * non-holders. On failure, takes the SAME t/4201 manifest-seed path
+   * `loadTreeOnCacheHit` already uses on a cold start — it NEVER falls
+   * through to a per-call Contents API, which at N>1 non-holder replicas is
+   * exactly the crash-loop pattern t/4201/t/4176 fixed. Concurrent callers
+   * share one in-flight refill.
+   */
+  private async ensureRepoTreeFilled(): Promise<void> {
+    if (this.repoTree.size > 0) return;
+    if (!this.repoTreeRefillInFlight) {
+      const sha = this.manifest?.lastCommitSha;
+      this.repoTreeRefillInFlight = (sha ? this.loadTreeOnCacheHit(sha) : Promise.resolve('none' as const))
+        .then(() => undefined)
+        .finally(() => { this.repoTreeRefillInFlight = null; });
+    }
+    await this.repoTreeRefillInFlight;
+  }
+
+  /** t/4179 R3: only the holder (or a no-pollLease/single-replica backend)
+   *  may fall back to a per-call Contents API hit when the tree is empty. A
+   *  non-holder doing that at N>1 replicas reintroduces the t/4201 storm —
+   *  it takes the manifest-seed path instead, even degraded to an empty
+   *  listing on a cold cache, never a per-replica API call. */
+  private mayFallBackToContentsApi(): boolean {
+    return !this.blobLease || this.blobLease.isHolder();
   }
 
   private async invalidateChangedFiles(fromSha: string, toSha: string): Promise<void> {
