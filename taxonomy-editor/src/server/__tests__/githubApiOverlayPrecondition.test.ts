@@ -187,6 +187,57 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — overlay baseSha precondit
     expect(recorder.events.find(e => e.type === 'storage.fallback')).toBeDefined();
     backend.shutdown();
   });
+
+  // SO fault-arm (C1, e/302#4): the first push of this precondition only
+  // re-checked the overlay once, before awaiting the live session-branch
+  // lookup. Two concurrent saves of the same path by the same user (two
+  // tabs — exactly the case this precondition exists for), with no overlay
+  // entry yet, both saw the live lookup match their shared baseSha and both
+  // wrote — the second silently overwrote the first, with no conflict ever
+  // raised. Delaying the lookup here forces both writes to overlap at that
+  // await, so this only passes once the overlay is re-checked synchronously
+  // after the lookup resolves (githubAPIBackend.ts writeOverlayWithPrecondition).
+  it('two concurrent saves with the same baseSha and a delayed lookup: exactly one succeeds, the other conflicts', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    const refQuery = `ref=${encodeURIComponent('api-session/alice')}`;
+    let releaseFirst: () => void = () => {};
+    const secondArrived = new Promise<void>(resolve => { releaseFirst = resolve; });
+    let lookupCalls = 0;
+    const priorFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if ((init?.method ?? 'GET') === 'GET' && url.includes('/contents/taxonomy/nodes.json') && url.includes(refQuery)) {
+        lookupCalls++;
+        if (lookupCalls === 1) {
+          // Hold the first lookup open until the second save has also
+          // reached its own lookup — proving both were in flight together,
+          // not serialized — then let both resolve with the same sha.
+          await secondArrived;
+        } else {
+          releaseFirst();
+        }
+        return mockFetchResponse(200, { content: Buffer.from('{"test": true}').toString('base64'), encoding: 'base64', sha: 'blob1' });
+      }
+      return priorFetch(input, init);
+    }) as unknown as typeof fetch;
+
+    const [a, b] = await Promise.allSettled([
+      backend.writeFile('/taxonomy/nodes.json', '{"from": "tab-a"}', { baseSha: 'blob1' }),
+      backend.writeFile('/taxonomy/nodes.json', '{"from": "tab-b"}', { baseSha: 'blob1' }),
+    ]);
+
+    expect(lookupCalls).toBe(2); // both saves actually overlapped at the live lookup
+    const results = [a, b];
+    const succeeded = results.filter((r): r is PromiseFulfilledResult<{ version: string }> => r.status === 'fulfilled');
+    const conflicted = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(succeeded).toHaveLength(1);
+    expect(conflicted).toHaveLength(1);
+    expect(conflicted[0].reason).toMatchObject({ httpStatus: 409, code: 'WRITE_CONFLICT' });
+
+    backend.shutdown();
+  });
 });
 
 // t/4201 (p/775#30/#31): readFileWithVersion must check the session overlay

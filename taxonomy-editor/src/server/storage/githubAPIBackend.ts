@@ -810,11 +810,24 @@ export class GitHubAPIBackend implements StorageBackend {
         currentVersion = gitBlobSha(existing);
       } else {
         const status = await this.getSessionBranchFileStatus(repoPath, ref);
-        if (status.kind === 'unavailable') this.throwVersionUnavailable(repoPath, ref);
-        // 'absent' → null: a baseSha was supplied, so the client expects a
-        // file that does not exist on the branch — that mismatch is itself
-        // the conflict, same as any other currentVersion !== baseSha below.
-        currentVersion = status.kind === 'present' ? status.sha : null;
+
+        // SO fault (C1, e/302#4): a concurrent save of the same path by the
+        // same user (two tabs — exactly the case this precondition exists
+        // for) can land its overlay entry while this call was awaiting the
+        // live lookup above. Re-check the overlay now, synchronously — from
+        // here to writeToOverlay() below there's no more await, so this
+        // closes the check-then-write race the first (`existing`) check
+        // alone left open.
+        const landedWhileAwaiting = this.checkSessionOverlay(repoPath);
+        if (landedWhileAwaiting !== undefined) {
+          currentVersion = landedWhileAwaiting === GitHubAPIBackend.TOMBSTONE ? null : gitBlobSha(landedWhileAwaiting);
+        } else {
+          if (status.kind === 'unavailable') this.throwVersionUnavailable(repoPath, ref);
+          // 'absent' → null: a baseSha was supplied, so the client expects a
+          // file that does not exist on the branch — that mismatch is itself
+          // the conflict, same as any other currentVersion !== baseSha below.
+          currentVersion = status.kind === 'present' ? status.sha : null;
+        }
       }
 
       if (currentVersion === null || baseSha !== currentVersion) {
