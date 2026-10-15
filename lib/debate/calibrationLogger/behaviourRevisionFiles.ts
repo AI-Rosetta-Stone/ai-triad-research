@@ -10,11 +10,8 @@
  * Directories (prompts/, turnPipeline/) are enumerated at call time — *.test.ts
  * and *.generated.ts are excluded. Explicit individual files are listed below.
  *
- * KNOWN LIMITATION: The normalization in genBehaviourRevision.ts strips
- * // line comments and /* block comments *\/ textually, including occurrences
- * inside string literals (e.g. `const msg = "// old"` → `"// new"` hashes
- * identically). This is an acceptable approximation: behaviour-bearing source
- * files do not carry load-bearing logic in string literals that look like comments.
+ * Normalization uses the TypeScript scanner (t/4205), so `//` inside string and
+ * template literals is preserved as code and not stripped as a comment.
  */
 
 import { readdirSync } from 'node:fs';
