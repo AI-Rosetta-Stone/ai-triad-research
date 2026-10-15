@@ -95,6 +95,49 @@ Describe 'Get-RevisionActivationVerdict' {
         }
     }
 
+    Context 'SO C3: the loop both workflows run (Wait-RevisionActivation)' {
+        BeforeAll { Mock Start-Sleep {} }
+
+        It 'RED ARM: the real 10-12 revision (Activating, then the mint 404 in its log) fails in round 2, naming the cause' {
+            $script:n = 0
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { [pscustomobject]@{ r = 'Activating'; h = 'None' } } `
+                -GetLogTail { $script:n++; if ($script:n -ge 2) { $script:MintLog } else { '{"msg":"starting"}' } } `
+                -Probe      { [pscustomobject]@{ Healthy = $false; Checks = @() } }
+            $w.Verdict | Should -Be 'failed'
+            $w.Cause   | Should -Be 'github-app-installation'
+            $w.Rounds  | Should -Be 2
+        }
+
+        It 'GREEN ARM: a revision that comes up passes on the round its probe is healthy' {
+            $script:p = 0
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { [pscustomobject]@{ r = 'Running'; h = 'Healthy' } } `
+                -GetLogTail { '' } `
+                -Probe      { $script:p++; [pscustomobject]@{ Healthy = ($script:p -ge 3); Checks = @() } }
+            $w.Verdict | Should -Be 'healthy'
+            $w.Rounds  | Should -Be 3
+        }
+
+        It 'a transient refusal that never clears times out (never fails fast) and is named' {
+            $w = Wait-RevisionActivation -TimeoutSeconds 1 -IntervalSeconds 0 `
+                -GetState   { [pscustomobject]@{ r = 'Running'; h = 'Unhealthy' } } `
+                -GetLogTail { '{"level":40,"component":"auth","status":429,"msg":"Installation token mint failed"}' } `
+                -Probe      { [pscustomobject]@{ Healthy = $false; Checks = @() } }
+            $w.Verdict     | Should -Be 'timeout'
+            $w.LastRefusal | Should -Be 'GitHub App token mint refused (HTTP 429)'
+        }
+
+        It 'a failed az state read keeps waiting rather than throwing' {
+            $script:q = 0
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { $null } `
+                -GetLogTail { '' } `
+                -Probe      { $script:q++; [pscustomobject]@{ Healthy = ($script:q -ge 2); Checks = @() } }
+            $w.Verdict | Should -Be 'healthy'
+        }
+    }
+
     Context 'SO C2: the last GitHub refusal is reported, never fatal on its own' {
         It 'circuit open keeps waiting and is named' {
             $log = '{"level":50,"msg":"readiness: data-load failed: github-api circuit open"}'

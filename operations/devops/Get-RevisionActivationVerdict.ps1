@@ -100,3 +100,57 @@ function Get-RevisionActivationVerdict {
     }
     return [pscustomobject]@{ Verdict = 'waiting'; Cause = $null; Message = "Revision is $RunningState (health: $HealthState); still waiting."; LastRefusal = $refusal }
 }
+
+<#
+.SYNOPSIS
+The bounded health-check loop both deploy workflows run (t/4158; SO C3 on #3217).
+
+.DESCRIPTION
+Each round reads the revision state, its log tail and one health probe through the three injected
+scriptblocks, asks Get-RevisionActivationVerdict, and stops on the first round that is not 'waiting'. On
+timeout it returns Verdict 'timeout' with the last result and the last transient GitHub refusal seen (SO C2).
+
+The Azure and HTTP calls are injected so the loop itself is unit-tested (tests/Get-RevisionActivationVerdict
+.Tests.ps1) against the real log lines of the 2026-10-12 failure. That's the red arm the SO asked for, since a
+staging deploy can't be made to fail this way without touching the repo variables prod also reads.
+#>
+function Wait-RevisionActivation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][scriptblock] $GetState,    # returns an object with .r (runningState) and .h (healthState)
+        [Parameter(Mandatory)][scriptblock] $GetLogTail,  # returns the revision's recent log as one string
+        [Parameter(Mandatory)][scriptblock] $Probe,       # returns the Test-TaxEditorHealth result (.Healthy, .Checks)
+        [ValidateRange(1, 3600)][int] $TimeoutSeconds = 420,
+        [ValidateRange(0, 300)][int] $IntervalSeconds = 15
+    )
+    $deadline    = (Get-Date).AddSeconds($TimeoutSeconds)
+    $round       = 0
+    $verdict     = $null
+    $result      = $null
+    $lastRefusal = $null
+    do {
+        $round++
+        $state   = & $GetState
+        if (-not $state) { $state = [pscustomobject]@{ r = $null; h = $null } }  # az call failed: keep waiting
+        $logTail = & $GetLogTail
+        $result  = & $Probe
+        $healthy = [bool]($result -and $result.Healthy)
+        $verdict = Get-RevisionActivationVerdict -RunningState $state.r -HealthState $state.h -LogTail $logTail -ProbeHealthy $healthy
+        if ($verdict.LastRefusal) { $lastRefusal = $verdict.LastRefusal }
+        $refusalNote = if ($verdict.LastRefusal) { " refusal=$($verdict.LastRefusal)" } else { '' }
+        Write-Host "round ${round}: state=$($state.r)/$($state.h) verdict=$($verdict.Verdict)$refusalNote"
+        if ($verdict.Verdict -ne 'waiting') { break }
+        if ((Get-Date) -ge $deadline) { break }
+        Start-Sleep -Seconds $IntervalSeconds
+    } while ((Get-Date) -lt $deadline)
+
+    $final = if ($verdict.Verdict -eq 'waiting') { 'timeout' } else { $verdict.Verdict }
+    [pscustomobject]@{
+        Verdict     = $final
+        Cause       = $verdict.Cause
+        Message     = $verdict.Message
+        LastRefusal = $lastRefusal
+        Rounds      = $round
+        Result      = $result
+    }
+}

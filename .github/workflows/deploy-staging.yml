@@ -175,12 +175,25 @@ jobs:
           Write-Host "Smoke testing revision at: $BaseUrl"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "base_url=$BaseUrl"
 
-          # Health gate: wait for server up + data loaded before running the full smoke.
-          # 18 attempts x 10s = 3 min cold-start budget.
-          $Health = Test-TaxEditorHealth -BaseUrl $BaseUrl -MaxAttempts 18 -RetryIntervalSec 10
-          if (-not $Health.Healthy) {
-            Write-Host "::error::Health check failed on new staging revision — NOT promoting traffic"
-            $Health.Checks | Format-Table -AutoSize
+          # Health gate: wait for server up + data loaded before running the full smoke. Same loop as prod
+          # (Wait-RevisionActivation, t/4158 SO C3): it fails fast with the cause named on a revision that can't
+          # start, and names the last GitHub refusal on timeout. 3-minute cold-start budget, as before.
+          . ./operations/devops/Get-RevisionActivationVerdict.ps1
+          $Rev = '${{ steps.new_revision.outputs.revision }}'
+          $App = '${{ env.CONTAINER_APP_NAME }}'
+          $Rg  = '${{ env.RESOURCE_GROUP }}'
+          $Gate = Wait-RevisionActivation -TimeoutSeconds 180 -IntervalSeconds 10 `
+            -GetState   { az containerapp revision show -n $App -g $Rg --revision $Rev --query '{r:properties.runningState,h:properties.healthState}' -o json 2>$null | ConvertFrom-Json } `
+            -GetLogTail { (az containerapp logs show -n $App -g $Rg --revision $Rev --tail 60 --format text 2>$null) -join "`n" } `
+            -Probe      { Test-TaxEditorHealth -BaseUrl $BaseUrl -TimeoutSec 15 -MaxAttempts 1 }
+          if ($Gate.Verdict -ne 'healthy') {
+            if ($Gate.Verdict -eq 'failed') {
+              Write-Host "::error::Staging revision $Rev cannot start ($($Gate.Cause)): $($Gate.Message) — NOT promoting traffic"
+            } else {
+              Write-Host "::error::Health check timed out on new staging revision — NOT promoting traffic"
+            }
+            if ($Gate.LastRefusal) { Write-Host "::error::Last GitHub refusal seen in the revision log: $($Gate.LastRefusal)" }
+            if ($Gate.Result) { $Gate.Result.Checks | Format-Table -AutoSize }
             exit 1
           }
           Write-Host "Health gate passed"

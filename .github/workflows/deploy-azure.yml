@@ -470,26 +470,17 @@ jobs:
           # on the first round that shows it, with the cause named, instead of holding the job for 20+ min.
           # The 7-minute wall clock matches the prior combined budget (5 min server start + 2 min data load).
           # -TimeoutSec 15 keeps the protection against Envoy 504 gateway hangs.
+          # The loop lives in Wait-RevisionActivation (unit-tested; shared with deploy-staging.yml, SO C3).
           . ./operations/devops/Get-RevisionActivationVerdict.ps1
-          $Rev      = '${{ steps.new_revision.outputs.revision }}'
-          $Deadline = (Get-Date).AddMinutes(7)
-          $Verdict  = $null
-          $Result   = $null
-          $Round    = 0
-          $LastRefusal = $null   # SO C2: the last transient GitHub refusal seen, named if the step times out
-          while ((Get-Date) -lt $Deadline) {
-            $Round++
-            $State = az containerapp revision show -n '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-              --revision $Rev --query '{r:properties.runningState,h:properties.healthState}' -o json 2>$null | ConvertFrom-Json
-            $LogTail = (az containerapp logs show -n '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-              --revision $Rev --tail 60 --format text 2>$null) -join "`n"
-            $Result  = Test-TaxEditorHealth -BaseUrl $BaseUrl -TimeoutSec 15 -MaxAttempts 1
-            $Verdict = Get-RevisionActivationVerdict -RunningState $State.r -HealthState $State.h -LogTail $LogTail -ProbeHealthy $Result.Healthy
-            if ($Verdict.LastRefusal) { $LastRefusal = $Verdict.LastRefusal }
-            Write-Host "round ${Round}: state=$($State.r)/$($State.h) verdict=$($Verdict.Verdict)$(if ($Verdict.LastRefusal) { " refusal=$($Verdict.LastRefusal)" })"
-            if ($Verdict.Verdict -ne 'waiting') { break }
-            Start-Sleep -Seconds 15
-          }
+          $Rev     = '${{ steps.new_revision.outputs.revision }}'
+          $App     = '${{ env.CONTAINER_APP_NAME }}'
+          $Rg      = '${{ env.RESOURCE_GROUP }}'
+          $Verdict = Wait-RevisionActivation -TimeoutSeconds 420 -IntervalSeconds 15 `
+            -GetState   { az containerapp revision show -n $App -g $Rg --revision $Rev --query '{r:properties.runningState,h:properties.healthState}' -o json 2>$null | ConvertFrom-Json } `
+            -GetLogTail { (az containerapp logs show -n $App -g $Rg --revision $Rev --tail 60 --format text 2>$null) -join "`n" } `
+            -Probe      { Test-TaxEditorHealth -BaseUrl $BaseUrl -TimeoutSec 15 -MaxAttempts 1 }
+          $Result      = $Verdict.Result
+          $LastRefusal = $Verdict.LastRefusal   # SO C2: named if the step times out
 
           if ($Verdict.Verdict -eq 'healthy') {
             Add-Content -Path $env:GITHUB_OUTPUT -Value "healthy=true"
