@@ -1,78 +1,73 @@
 // @vitest-environment node
 
 /**
- * t/1624 — refreshAIModels() must surface the *specific* Gemini model-discovery
- * failure (SERVICE_DISABLED / restricted / quota / invalid) instead of collapsing
- * every non-200 into a bare `HTTP ${status}`, and must record it structured to the
- * flight recorder — with NO key material, since the key rides in the fetch URL.
- *
- * These tests set GEMINI_API_KEY (so a key is present) and mock global.fetch (so we
- * control the provider response), then assert both the returned `error` message and
- * the recorded FR event carry { backend, httpStatus, reason } and never the key.
- *
- * t/4105: the key comes through the REAL listing resolver (getApiKeyForListing), the path
- * refreshAIModels uses, set with vi.stubEnv so it never leaks into a shared worker. The
- * key store is mocked empty so no backend's resolution reaches the disk.
+ * t/4162 (TL t/4031#1-3; SO e/297#4) — `ai.refreshAIModels()` delegates to the shared lib's
+ * `refreshAIModels` (lib/electron-shared/modelDiscovery.ts, t/4160), mocked here so these tests
+ * drive only the server-side wiring: the dryRun-coercion gate (SO C1), the host-set `principal`
+ * (C3), and the `coerced: true` result flag (SO risk 2). The lib's own discovery/proposal/write
+ * logic is covered by modelDiscovery.test.ts and its siblings.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../security/keyStore.js', () => ({ getKeyStore: () => ({ getKeys: async () => [] as string[] }) }));
-vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'test-user' }));
+const { libRefreshMock, getCurrentUserIdMock, recordMock } = vi.hoisted(() => ({
+  libRefreshMock: vi.fn(async () => ({
+    gemini: { ok: true, count: 1 }, claude: { ok: true, count: 1 }, groq: { ok: true, count: 1 },
+    openai: { ok: true, count: 1 }, deepseek: { ok: true, count: 1 }, ollama: { ok: true, count: 0 },
+    totalModels: 5, written: false, dryRun: true,
+  })),
+  getCurrentUserIdMock: vi.fn(() => 'test-principal'),
+  recordMock: vi.fn(),
+}));
+
+vi.mock('../../../../lib/electron-shared/modelDiscovery.js', () => ({ refreshAIModels: libRefreshMock }));
+vi.mock('../security/userContext.js', () => ({ getCurrentUserId: getCurrentUserIdMock }));
+vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
+vi.mock('../config.js', async (importActual) => ({
+  ...(await importActual<typeof import('../config.js')>()),
+  getApiKeyForListing: vi.fn(async () => 'test-key'),
+  getProjectRoot: () => '/fake/repo/root',
+}));
 
 import { refreshAIModels } from '../ai/aiBackends.js';
-import { setGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
-const realFetch = global.fetch;
+const PROPOSAL = { catalogFingerprint: 'fp1', hash: 'h1', changes: [] };
+
 beforeEach(() => {
-  vi.stubEnv('GEMINI_API_KEY', 'secret-key-value');
-  for (const v of ['AI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'GROQ_API_KEY']) vi.stubEnv(v, '');
+  libRefreshMock.mockClear();
+  getCurrentUserIdMock.mockClear();
+  recordMock.mockClear();
 });
-afterEach(() => { global.fetch = realFetch; vi.restoreAllMocks(); vi.unstubAllEnvs(); setGlobalRecorder(null as never); });
 
-describe('refreshAIModels surfaces the specific Gemini failure (t/1624)', () => {
-  it('maps a 403 SERVICE_DISABLED body to a distinct message and records it with no key material', async () => {
-    const recorded: Record<string, unknown>[] = [];
-    setGlobalRecorder({ record: (e: Record<string, unknown>) => { recorded.push(e); } } as never);
-
-    const body = {
-      error: {
-        code: 403,
-        status: 'PERMISSION_DENIED',
-        message: 'Generative Language API has not been used in project 123 before or it is disabled.',
-        details: [{ reason: 'SERVICE_DISABLED' }],
-      },
-    };
-    global.fetch = vi.fn(async () => new Response(JSON.stringify(body), { status: 403 })) as unknown as typeof fetch;
-
-    const result = await refreshAIModels() as Record<string, { ok: boolean; count: number; error?: string }>;
-
-    // Specific verdict, not a bare HTTP status and not "Invalid API key".
-    expect(result.gemini.ok).toBe(false);
-    expect(result.gemini.error).toMatch(/api is not enabled/i);
-    expect(result.gemini.error).not.toMatch(/^HTTP 403$/);
-    expect(result.gemini.error).not.toBe('Invalid API key');
-
-    // FR event carries { backend, httpStatus, reason } and never the key.
-    const evt = recorded.find(e => e.component === 'ai-backends');
-    expect(evt, 'an ai-backends event should be recorded for the non-200').toBeDefined();
-    expect(evt!.data).toMatchObject({ backend: 'gemini', httpStatus: 403, reason: 'SERVICE_DISABLED' });
-    expect(JSON.stringify(evt)).not.toContain('secret-key-value');
+describe('refreshAIModels — dryRun coercion (SO C1)', () => {
+  it('a plain call (no dryRun, no accept) is coerced to dryRun, WARNs, and flags coerced:true', async () => {
+    const result = await refreshAIModels({});
+    expect(libRefreshMock).toHaveBeenCalledWith(expect.anything(), { dryRun: true });
+    expect(result.coerced).toBe(true);
+    const warn = recordMock.mock.calls.find(([e]) => e.level === 'warn');
+    expect(warn?.[0].message).toMatch(/coerced to dryRun/);
+    expect(warn?.[0].message).toContain('test-principal');
   });
 
-  it('records reason:null and a status-aware message when the error body is absent/non-JSON', async () => {
-    const recorded: Record<string, unknown>[] = [];
-    setGlobalRecorder({ record: (e: Record<string, unknown>) => { recorded.push(e); } } as never);
+  it('an explicit dryRun:true call is NOT coerced (the caller already asked for a dry run)', async () => {
+    const result = await refreshAIModels({ dryRun: true });
+    expect(libRefreshMock).toHaveBeenCalledWith(expect.anything(), { dryRun: true });
+    expect(result.coerced).toBeUndefined();
+    expect(recordMock).not.toHaveBeenCalled();
+  });
 
-    // Non-JSON body → extractProviderReason throws → reason stays undefined.
-    global.fetch = vi.fn(async () => new Response('gateway timeout', { status: 503 })) as unknown as typeof fetch;
+  it('a non-dryRun call WITH accept is not coerced — dryRun flows through as the caller sent it', async () => {
+    await refreshAIModels({ accept: { proposal: PROPOSAL, approvedBy: 'Alice', reason: 'r' } });
+    expect(libRefreshMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { dryRun: undefined, accept: { proposal: PROPOSAL, approvedBy: 'Alice', reason: 'r', principal: 'test-principal' } },
+    );
+    expect(recordMock).not.toHaveBeenCalled();
+  });
 
-    const result = await refreshAIModels() as Record<string, { ok: boolean; count: number; error?: string }>;
-    expect(result.gemini.ok).toBe(false);
-    expect(result.gemini.error).toMatch(/HTTP 503/);
-
-    const evt = recorded.find(e => e.component === 'ai-backends');
-    expect(evt!.data).toMatchObject({ backend: 'gemini', httpStatus: 503, reason: null });
-    expect(JSON.stringify(evt)).not.toContain('secret-key-value');
+  it('accept always carries the host-set principal, never anything from the caller', async () => {
+    await refreshAIModels({ accept: { proposal: PROPOSAL, approvedBy: 'Alice', reason: 'r' } });
+    const [, opts] = libRefreshMock.mock.calls[0];
+    expect((opts as { accept: { principal: string } }).accept.principal).toBe('test-principal');
   });
 });
