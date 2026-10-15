@@ -33,9 +33,11 @@ function Test-CuiAuth002 {
     $WriteStatus = 0
     try {
         $PutBody = '{"nodes":[]}'
+        # Send If-Match anyway (t/4222), so a 428 can never hide the 401/403 this check expects.
+        $PutHeaders = Get-CuiTaxonomyWriteHeaders -BaseUrl $BaseUrl -Pov 'accelerationist' -TimeoutSec $TimeoutSec
         $PutResp = Invoke-WebRequest -Uri "$BaseUrl/api/taxonomy/accelerationist" -Method PUT `
             -Body $PutBody -ContentType 'application/json' -TimeoutSec $TimeoutSec `
-            -UseBasicParsing -ErrorAction Stop
+            -UseBasicParsing -ErrorAction Stop -Headers $PutHeaders
         $WriteStatus = $PutResp.StatusCode
     } catch {
         if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) {
