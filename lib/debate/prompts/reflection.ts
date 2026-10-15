@@ -252,16 +252,22 @@ not convergence.\n`
     if (!hasTags) return '';
     const tagLabel = (id: string) => povTagLabels?.get(id) ?? id;
     if (seatTag != null) {
+      const otherTagIds = povTagLabels ? [...povTagLabels.keys()].filter(id => id !== seatTag) : [];
+      const foreignExample = otherTagIds.length > 0 ? `[tags: ${otherTagIds[0]}]` : '[tags: other-wing]';
+      const sharedExample = otherTagIds.length > 0
+        ? `[tags: ${seatTag}, ${otherTagIds[0]}]`
+        : `[tags: ${seatTag}, other-wing]`;
       return `\n=== YOUR WING ===
 You speak for the *${tagLabel(seatTag)}* wing of the ${pov} perspective.
 
-- Nodes tagged [tags: ${seatTag}] only — these belong to your wing. You may revise them freely within your doctrinal boundaries.
-- Nodes tagged for another wing only (e.g. [tags: institutional] when you are critical) — those are not yours to revise. If the debate exposed something wrong with such a node, record it in your reflection_summary; do not propose an edit.
-- Nodes tagged for several wings (e.g. [tags: critical, institutional]) — this is shared ground. A revision must stay true for every wing listed. Be precise about what is wing-specific and what is shared.
+- Nodes tagged [tags: ${seatTag}] only — these belong to your wing. Revise them only where the debate gives you reason to.
+- Nodes tagged for another wing only (e.g. ${foreignExample} when you are ${tagLabel(seatTag)}) — those are not yours to revise, qualify or deprecate. If the debate exposed something wrong with such a node, record it in your reflection_summary; do not propose an edit.
+- Nodes tagged for several wings (e.g. ${sharedExample}) — this is shared ground. A revision must stay true for every wing listed. Be precise about what is wing-specific and what is shared.
+- Nodes with [tags: none] are common ground for the whole ${pov} camp. A revision must stay true to every wing, not only yours.
 `;
     }
     return `\n=== TAG GUIDANCE ===
-Some nodes in your taxonomy carry [tags: ...] indicating which wing they belong to. When you propose edits to tagged nodes, your revision must stay true to every wing listed. A revision that is correct for one wing but contradicts another's position should be scoped or qualified rather than applied across all wings.
+Some nodes in your taxonomy carry [tags: ...] indicating which wing they belong to. When you propose edits to tagged nodes, your revision must stay true to every wing listed. If the debate shows a single-wing node is wrong from the whole-camp view, use QUALIFY to add the camp-wide caveat rather than rewriting that wing's position, or say so in reflection_summary.
 `;
   })();
 

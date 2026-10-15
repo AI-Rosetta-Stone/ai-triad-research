@@ -48,6 +48,8 @@ export interface CustodianVerdictRow {
   /** Verbatim boundary or value text that was triggered, or null for 'consistent'. */
   cited: string | null;
   reason: string;
+  /** Set true when cited text could not be verified against the custodian's soul definition. */
+  citation_unverified?: true;
 }
 
 export interface CustodianCheckResult {
@@ -92,6 +94,19 @@ ${c.boundaries.hardcoded.map(b => `  • ${b}`).join('\n')}
 Softcoded boundaries (should not be strained without clear reason):
 ${c.boundaries.softcoded.map(b => `  • ${b}`).join('\n')}`).join('\n');
 
+  const editBlock = editType === 'deprecate'
+    ? `Current label: "${currentLabel}"
+Current description: ${currentDescription}
+
+This edit REMOVES the node. Judge whether removing this position would be unacceptable to the custodian: \`conflict\` if the node states something the custodian's hardcoded boundaries or top-ranked values require, \`tension\` if it supports a softcoded boundary or a lower-ranked value, otherwise \`consistent\`.`
+    : `Current label: "${currentLabel}"
+Current description: ${currentDescription}
+
+Proposed label: "${proposedLabel}"
+Proposed description: ${proposedDescription}
+
+Reflector's rationale: ${rationale}`;
+
   return `You are a neutral judge checking whether a proposed taxonomy-node edit stays true to a set of custodian souls.
 
 Your task: for each custodian soul listed below, decide whether the PROPOSED text is consistent, in tension, or in conflict with that soul's position.
@@ -102,13 +117,7 @@ Edit type: ${editType}
 ${nodeTagLine}
 ${seatTagLine}
 
-Current label: "${currentLabel}"
-Current description: ${currentDescription}
-
-Proposed label: "${proposedLabel}"
-Proposed description: ${proposedDescription}
-
-Reflector's rationale: ${rationale}
+${editBlock}
 
 == JUDGING INSTRUCTIONS ==
 
@@ -146,6 +155,24 @@ Respond with a JSON object exactly matching this schema. A verdict is REQUIRED f
 
 const VALID_VERDICTS = new Set<string>(['consistent', 'tension', 'conflict']);
 
+function normalizeCited(s: string): string {
+  return s.replace(/^[\s"'•\-]+|[\s"'•\-]+$/g, '').replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isCitationVerified(cited: string, custodian: CustodianCheckSoul): boolean {
+  const norm = normalizeCited(cited);
+  const entries = [
+    ...custodian.value_hierarchy,
+    ...custodian.boundaries.hardcoded,
+    ...custodian.boundaries.softcoded,
+  ];
+  return entries.some(e => {
+    const normEntry = normalizeCited(e);
+    if (normEntry === norm) return true; // exact match (whole entry, any length)
+    return norm.length >= 20 && normEntry.includes(norm);
+  });
+}
+
 /**
  * Parse the model output from a custodian check call.
  *
@@ -154,12 +181,16 @@ const VALID_VERDICTS = new Set<string>(['consistent', 'tension', 'conflict']);
  * - any custodian from the input has a missing verdict
  * - any verdict value is not 'consistent' | 'tension' | 'conflict'
  * - any 'conflict' verdict has a null or empty 'cited' field
+ * - any 'conflict' verdict's cited text cannot be verified against the soul definition
  *
- * These conditions are all treated as unchecked (fails closed, spec §3).
+ * For 'tension' verdicts with an unverifiable citation: keeps the verdict, sets cited to null,
+ * and adds citation_unverified: true.
+ *
+ * These conditions are treated as unchecked (fails closed, spec §3).
  */
 export function parseCustodianCheckOutput(
   raw: string,
-  expectedSouls: string[],
+  custodians: CustodianCheckSoul[],
 ): CustodianCheckOutput {
   const parsed = parseAIJson(raw);
   if (parsed === null) {
@@ -175,16 +206,17 @@ export function parseCustodianCheckOutput(
     return { unchecked: '"verdicts" is not an array' };
   }
 
-  const bySOul = new Map<string, unknown>();
+  const bySoul = new Map<string, unknown>();
   for (const row of rawVerdicts) {
     if (row && typeof row === 'object' && typeof (row as Record<string, unknown>).soul === 'string') {
-      bySOul.set((row as Record<string, unknown>).soul as string, row);
+      bySoul.set((row as Record<string, unknown>).soul as string, row);
     }
   }
 
   const verdicts: CustodianVerdictRow[] = [];
-  for (const soul of expectedSouls) {
-    const row = bySOul.get(soul);
+  for (const custodian of custodians) {
+    const { soul } = custodian;
+    const row = bySoul.get(soul);
     if (!row || typeof row !== 'object') {
       return { unchecked: `missing verdict for custodian ${soul}` };
     }
@@ -194,11 +226,20 @@ export function parseCustodianCheckOutput(
       return { unchecked: `invalid verdict value "${String(verdict)}" for custodian ${soul}` };
     }
     const cited = r.cited === null || r.cited === undefined ? null : String(r.cited);
-    if (verdict === 'conflict' && !cited) {
-      return { unchecked: `conflict verdict for ${soul} has no citation — cannot verify` };
+    if (verdict === 'conflict') {
+      if (!cited) {
+        return { unchecked: `conflict verdict for ${soul} has no citation — cannot verify` };
+      }
+      if (!isCitationVerified(cited, custodian)) {
+        return { unchecked: `conflict verdict for ${soul} has an unverifiable citation — cannot verify` };
+      }
     }
     const reason = typeof r.reason === 'string' ? r.reason : String(r.reason ?? '');
-    verdicts.push({ soul, verdict: verdict as CustodianVerdict, cited, reason });
+    if (verdict === 'tension' && cited && !isCitationVerified(cited, custodian)) {
+      verdicts.push({ soul, verdict: verdict as CustodianVerdict, cited: null, reason, citation_unverified: true });
+    } else {
+      verdicts.push({ soul, verdict: verdict as CustodianVerdict, cited, reason });
+    }
   }
 
   return { verdicts };

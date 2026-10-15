@@ -56,16 +56,26 @@ describe('buildCustodianCheckPrompt', () => {
     const prompt = buildCustodianCheckPrompt({ ...BASE_INPUT, seatTag: null });
     expect(prompt).toContain('untagged (umbrella)');
   });
+
+  it('deprecate prompt contains removal instruction and no empty Proposed block', () => {
+    const prompt = buildCustodianCheckPrompt({
+      ...BASE_INPUT,
+      editType: 'deprecate',
+      proposedLabel: '',
+      proposedDescription: '',
+    });
+    expect(prompt).toContain('REMOVES the node');
+    expect(prompt).not.toContain('Proposed label: ""');
+    expect(prompt).not.toContain('Proposed description:');
+  });
 });
 
 describe('parseCustodianCheckOutput', () => {
-  const souls = ['skeptic.institutional'];
-
   it('returns verdicts for a well-formed consistent response', () => {
     const raw = JSON.stringify({
       verdicts: [{ soul: 'skeptic.institutional', verdict: 'consistent', cited: null, reason: 'No conflict found.' }],
     });
-    const result = parseCustodianCheckOutput(raw, souls);
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
     expect('verdicts' in result).toBe(true);
     if ('verdicts' in result) {
       expect(result.verdicts[0].verdict).toBe('consistent');
@@ -73,20 +83,24 @@ describe('parseCustodianCheckOutput', () => {
     }
   });
 
-  it('returns verdicts for a tension response', () => {
+  it('returns verdicts for a tension response with verified citation', () => {
     const raw = JSON.stringify({
       verdicts: [{ soul: 'skeptic.institutional', verdict: 'tension', cited: 'Avoid overstating the speed of institutional adaptation', reason: 'Shifts emphasis toward rapid regulatory failure.' }],
     });
-    const result = parseCustodianCheckOutput(raw, souls);
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
     expect('verdicts' in result).toBe(true);
-    if ('verdicts' in result) expect(result.verdicts[0].verdict).toBe('tension');
+    if ('verdicts' in result) {
+      expect(result.verdicts[0].verdict).toBe('tension');
+      expect(result.verdicts[0].cited).toBeTruthy();
+      expect(result.verdicts[0].citation_unverified).toBeUndefined();
+    }
   });
 
-  it('returns verdicts for a conflict response with citation', () => {
+  it('returns verdicts for a conflict response with verbatim citation', () => {
     const raw = JSON.stringify({
       verdicts: [{ soul: 'skeptic.institutional', verdict: 'conflict', cited: 'Never advocate abolition of existing regulatory bodies', reason: 'Proposes abolishing the existing framework.' }],
     });
-    const result = parseCustodianCheckOutput(raw, souls);
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
     expect('verdicts' in result).toBe(true);
     if ('verdicts' in result) {
       expect(result.verdicts[0].verdict).toBe('conflict');
@@ -94,9 +108,39 @@ describe('parseCustodianCheckOutput', () => {
     }
   });
 
+  it('conflict — lightly reformatted citation (surrounding quotes stripped) passes', () => {
+    const raw = JSON.stringify({
+      verdicts: [{ soul: 'skeptic.institutional', verdict: 'conflict', cited: '"Never advocate abolition of existing regulatory bodies"', reason: 'Proposes abolishing the existing framework.' }],
+    });
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
+    expect('verdicts' in result).toBe(true);
+  });
+
+  it('unchecked — conflict verdict with invented citation', () => {
+    const raw = JSON.stringify({
+      verdicts: [{ soul: 'skeptic.institutional', verdict: 'conflict', cited: 'Models must be open-sourced before deployment to the public', reason: 'Made-up boundary.' }],
+    });
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
+    expect('unchecked' in result).toBe(true);
+    if ('unchecked' in result) expect(result.unchecked).toContain('unverifiable citation');
+  });
+
+  it('tension — unverified citation yields citation_unverified flag, not unchecked', () => {
+    const raw = JSON.stringify({
+      verdicts: [{ soul: 'skeptic.institutional', verdict: 'tension', cited: 'Models must be open-sourced before deployment to the public', reason: 'Invented.' }],
+    });
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
+    expect('verdicts' in result).toBe(true);
+    if ('verdicts' in result) {
+      expect(result.verdicts[0].verdict).toBe('tension');
+      expect(result.verdicts[0].cited).toBeNull();
+      expect(result.verdicts[0].citation_unverified).toBe(true);
+    }
+  });
+
   it('unchecked — missing verdict for a custodian', () => {
     const raw = JSON.stringify({ verdicts: [] }); // skeptic.institutional verdict absent
-    const result = parseCustodianCheckOutput(raw, souls);
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
     expect('unchecked' in result).toBe(true);
     if ('unchecked' in result) expect(result.unchecked).toContain('skeptic.institutional');
   });
@@ -105,7 +149,7 @@ describe('parseCustodianCheckOutput', () => {
     const raw = JSON.stringify({
       verdicts: [{ soul: 'skeptic.institutional', verdict: 'maybe', cited: null, reason: '.' }],
     });
-    const result = parseCustodianCheckOutput(raw, souls);
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
     expect('unchecked' in result).toBe(true);
     if ('unchecked' in result) expect(result.unchecked).toContain('maybe');
   });
@@ -114,7 +158,7 @@ describe('parseCustodianCheckOutput', () => {
     const raw = JSON.stringify({
       verdicts: [{ soul: 'skeptic.institutional', verdict: 'conflict', cited: null, reason: 'Breaks a boundary.' }],
     });
-    const result = parseCustodianCheckOutput(raw, souls);
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
     expect('unchecked' in result).toBe(true);
     if ('unchecked' in result) expect(result.unchecked).toContain('citation');
   });
@@ -123,12 +167,12 @@ describe('parseCustodianCheckOutput', () => {
     const raw = JSON.stringify({
       verdicts: [{ soul: 'skeptic.institutional', verdict: 'conflict', cited: '', reason: 'Breaks a boundary.' }],
     });
-    const result = parseCustodianCheckOutput(raw, souls);
+    const result = parseCustodianCheckOutput(raw, CUSTODIANS);
     expect('unchecked' in result).toBe(true);
   });
 
   it('unchecked — unparseable JSON', () => {
-    const result = parseCustodianCheckOutput('not json at all', souls);
+    const result = parseCustodianCheckOutput('not json at all', CUSTODIANS);
     expect('unchecked' in result).toBe(true);
     if ('unchecked' in result) expect(result.unchecked).toContain('JSON');
   });
