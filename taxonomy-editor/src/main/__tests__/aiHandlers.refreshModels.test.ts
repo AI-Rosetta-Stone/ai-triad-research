@@ -4,12 +4,18 @@
 // t/4161 — the refresh-ai-models IPC handler: Zod-validated opts reach
 // refreshAIModels(); a malformed payload throws an ActionableError and refreshAIModels
 // is NEVER called (it must not silently fall through to a plain refresh).
+//
+// t/4232 (SO e/297#4 C6) — every call without `accept` is coerced into dryRun:true
+// (logged, result.coerced === true), unless the caller already asked for dryRun:true
+// or supplied accept. Supersedes t/4161's old "no opts == plain refresh" behavior,
+// which let an omitted payload silently perform a live write.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ipcMain } from 'electron';
 
 const mockGenerateText = vi.hoisted(() => vi.fn());
 const mockRefreshAIModels = vi.hoisted(() => vi.fn(async () => ({ proposal: null, updated: false })));
+const mockRecord = vi.hoisted(() => vi.fn());
 
 vi.mock('../embeddings.js', () => ({
   generateText: mockGenerateText,
@@ -56,7 +62,7 @@ vi.mock('../../../../lib/debate/errors.js', () => ({
   },
   errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
-vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: vi.fn(() => null) }));
+vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: vi.fn(() => ({ record: mockRecord })) }));
 vi.mock('../../../../lib/debate/constants.js', () => ({ DEFAULT_RELEVANCE_THRESHOLD: 0.5 }));
 vi.mock('../../../../lib/url-fetch/fetchUrlForPrompt.js', () => ({ fetchUrlForPrompt: vi.fn() }));
 
@@ -76,23 +82,19 @@ beforeEach(() => {
 });
 
 describe('refresh-ai-models IPC handler (t/4161)', () => {
-  it('no opts: identical to today — refreshAIModels called with no argument', async () => {
+  it('valid dryRun reaches refreshAIModels, no coercion', async () => {
     const handler = getHandler('refresh-ai-models');
-    await handler({});
-    expect(mockRefreshAIModels).toHaveBeenCalledWith();
-  });
-
-  it('valid dryRun reaches refreshAIModels', async () => {
-    const handler = getHandler('refresh-ai-models');
-    await handler({}, { dryRun: true });
+    const result = await handler({}, { dryRun: true });
     expect(mockRefreshAIModels).toHaveBeenCalledWith({ dryRun: true });
+    expect(result).not.toHaveProperty('coerced');
   });
 
-  it('valid accept reaches refreshAIModels with the exact parsed shape', async () => {
+  it('valid accept reaches refreshAIModels with the exact parsed shape, no coercion', async () => {
     const proposal = { catalogFingerprint: 'sha256:a', hash: 'sha256:b', changes: [] };
     const handler = getHandler('refresh-ai-models');
-    await handler({}, { accept: { proposal, approvedBy: 'Jane', reason: 'vendor rotation' } });
+    const result = await handler({}, { accept: { proposal, approvedBy: 'Jane', reason: 'vendor rotation' } });
     expect(mockRefreshAIModels).toHaveBeenCalledWith({ accept: { proposal, approvedBy: 'Jane', reason: 'vendor rotation' } });
+    expect(result).not.toHaveProperty('coerced');
   });
 
   it('an unknown key throws an ActionableError and refreshAIModels is never called', async () => {
@@ -118,5 +120,46 @@ describe('refresh-ai-models IPC handler (t/4161)', () => {
     const handler = getHandler('refresh-ai-models');
     await expect(handler({}, { bogus: true })).rejects.toThrow();
     expect(mockRefreshAIModels).not.toHaveBeenCalled();
+  });
+});
+
+describe('refresh-ai-models: no accept coerces to dryRun (t/4232, SO e/297#4 C6)', () => {
+  it('no opts at all: coerced to dryRun:true, warns, result.coerced is true', async () => {
+    const handler = getHandler('refresh-ai-models');
+    const result = await handler({});
+    expect(mockRefreshAIModels).toHaveBeenCalledWith({ dryRun: true });
+    expect(result).toMatchObject({ coerced: true });
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', message: expect.stringContaining('coercing') }));
+  });
+
+  it('an empty payload ({}): coerced to dryRun:true', async () => {
+    const handler = getHandler('refresh-ai-models');
+    const result = await handler({}, {});
+    expect(mockRefreshAIModels).toHaveBeenCalledWith({ dryRun: true });
+    expect(result).toMatchObject({ coerced: true });
+  });
+
+  it('dryRun:false with no accept: still coerced (false is not an explicit ask for dryRun:true)', async () => {
+    const handler = getHandler('refresh-ai-models');
+    const result = await handler({}, { dryRun: false });
+    expect(mockRefreshAIModels).toHaveBeenCalledWith({ dryRun: true });
+    expect(result).toMatchObject({ coerced: true });
+  });
+
+  it('dryRun:true: not coerced, no warn, refreshAIModels called with dryRun:true unmodified', async () => {
+    const handler = getHandler('refresh-ai-models');
+    const result = await handler({}, { dryRun: true });
+    expect(mockRefreshAIModels).toHaveBeenCalledWith({ dryRun: true });
+    expect(result).not.toHaveProperty('coerced');
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it('accept supplied: not coerced, no warn, forwarded as-is', async () => {
+    const proposal = { catalogFingerprint: 'sha256:a', hash: 'sha256:b', changes: [] };
+    const handler = getHandler('refresh-ai-models');
+    const result = await handler({}, { accept: { proposal, approvedBy: 'Jane', reason: 'vendor rotation' } });
+    expect(mockRefreshAIModels).toHaveBeenCalledWith({ accept: { proposal, approvedBy: 'Jane', reason: 'vendor rotation' } });
+    expect(result).not.toHaveProperty('coerced');
+    expect(mockRecord).not.toHaveBeenCalled();
   });
 });

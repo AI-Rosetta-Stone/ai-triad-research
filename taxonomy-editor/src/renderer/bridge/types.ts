@@ -26,6 +26,15 @@ export interface RefreshModelsRequest {
   accept?: Pick<RefreshAccept, 'proposal' | 'approvedBy' | 'reason'>;
 }
 
+/**
+ * t/4232 (SO e/297#4 C6): a call with no `accept` is coerced into a dry run rather than
+ * silently writing. `coerced` is present and true only when that coercion happened — a caller
+ * that explicitly asked for a dry run, or supplied `accept`, never gets `coerced: true`.
+ */
+export interface RefreshModelsResponse extends RefreshResult {
+  coerced?: boolean;
+}
+
 export interface GroundingSegment {
   startIndex: number;
   endIndex: number;
@@ -441,7 +450,7 @@ export interface AppAPI {
   // --- AI models & keys ---
   loadAIModels: () => Promise<unknown>;
   /** t/4031: `opts` asks for a dry run or accepts a proposal; omit it for a plain refresh. */
-  refreshAIModels: (opts?: RefreshModelsRequest) => Promise<RefreshResult>;
+  refreshAIModels: (opts?: RefreshModelsRequest) => Promise<RefreshModelsResponse>;
   validateApiKey: (key: string, backend: string) => Promise<{ valid: boolean; error?: string }>;
   verifyStoredKeys: (backend: string) => Promise<{ results: { index: number; masked: string; valid: boolean; error?: string }[] }>;
   setApiKey: (key: string, backend?: string) => Promise<void>;
