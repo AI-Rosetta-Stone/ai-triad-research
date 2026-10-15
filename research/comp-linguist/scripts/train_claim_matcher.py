@@ -39,6 +39,9 @@ REPO_ROOT = RESEARCH_DIR.parent.parent
 # Large data artifacts (corpora, model, results) live in the sibling data repo (t/1289).
 ARTIFACTS_DIR = REPO_ROOT.parent / "ai-triad-data" / "research-artifacts" / "comp-linguist"
 
+sys.path.insert(0, str(SCRIPT_DIR))
+from _model_release import LOCAL_MODEL_ROOT, report_release_steps  # noqa: E402
+
 MODEL_NAME = "all-MiniLM-L6-v2"
 
 
@@ -241,8 +244,11 @@ def main():
     parser = argparse.ArgumentParser(description="Train claim matcher via contrastive fine-tuning")
     parser.add_argument("--corpus", default=str(ARTIFACTS_DIR / "training_corpus.json"),
                         help="Path to training corpus JSON")
-    parser.add_argument("--output-dir", default=str(ARTIFACTS_DIR / "fine_tuned_model"),
-                        help="Output directory for fine-tuned model")
+    parser.add_argument("--output-dir", default=str(LOCAL_MODEL_ROOT / "claim_matcher"),
+                        help="Output directory for the fine-tuned model. The default is gitignored; weights are "
+                             "published as a release asset, never committed (t/4154)")
+    parser.add_argument("--release-tag", default="comp-linguist-claim-matcher-v2",
+                        help="Release tag to print in the publish steps")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -335,6 +341,7 @@ def main():
     log(f"  Improvement:     +{results['improvement']:.4f} ({results['improvement_pct']:+.1f}%)")
     log(f"  Model saved to:  {output_dir / 'best_model'}")
     log(f"  Results saved to: {results_path}")
+    report_release_steps(output_dir / "best_model", "fine_tuned_model", args.release_tag)
 
 
 if __name__ == "__main__":

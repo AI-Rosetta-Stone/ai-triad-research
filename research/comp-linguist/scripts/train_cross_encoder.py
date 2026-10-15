@@ -38,6 +38,9 @@ REPO_ROOT = RESEARCH_DIR.parent.parent
 # Large data artifacts (corpora, model, results) live in the sibling data repo (t/1289).
 ARTIFACTS_DIR = REPO_ROOT.parent / "ai-triad-data" / "research-artifacts" / "comp-linguist"
 
+sys.path.insert(0, str(SCRIPT_DIR))
+from _model_release import LOCAL_MODEL_ROOT, report_release_steps  # noqa: E402
+
 BI_ENCODER_MODEL = "all-MiniLM-L6-v2"
 CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
@@ -182,7 +185,11 @@ def build_cross_encoder_examples(corpus, node_descriptions, neg_per_pos=3):
 def main():
     parser = argparse.ArgumentParser(description="Train cross-encoder reranker for claim matching")
     parser.add_argument("--corpus", default=str(ARTIFACTS_DIR / "training_corpus.json"))
-    parser.add_argument("--output-dir", default=str(RESEARCH_DIR / "cross_encoder_model"))
+    parser.add_argument("--output-dir", default=str(LOCAL_MODEL_ROOT / "cross_encoder"),
+                        help="Output directory for the model. The default is gitignored; weights are published "
+                             "as a release asset, never committed (t/4154)")
+    parser.add_argument("--release-tag", default="comp-linguist-cross-encoder-v1",
+                        help="Release tag to print in the publish steps")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -292,6 +299,7 @@ def main():
         evaluate_reranked_mrr(bi_model, trained_cross, golden, node_descriptions,
                               top_k=k, label=f"trained-top{k}")
 
+    report_release_steps(output_dir / "best_model", "cross_encoder_model", args.release_tag)
     log("Done.")
 
 
