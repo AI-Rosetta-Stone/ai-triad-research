@@ -229,8 +229,14 @@ jobs:
           # run") deadlocks into the exact failure it's meant to prevent — a run sitting in ITS OWN
           # wait step is itself in_progress, so two near-simultaneous dispatches see each other,
           # both wait out the full budget, and both proceed together. Fixed by ORDER, not
-          # symmetry: wait only for an other-workflow run CREATED BEFORE this run. Exactly one of
+          # symmetry: wait only for an other-workflow run STARTED BEFORE this run. Exactly one of
           # any two near-simultaneous runs then waits.
+          #
+          # SO C1e: `createdAt`/`created_at` is NOT re-set on a re-run — a `gh run rerun` of an old
+          # staging run would keep its original (old) timestamp and so never be seen as "earlier"
+          # than a genuinely later-dispatched prod run, defeating the order check on exactly
+          # staging's own recovery path. Use `startedAt` (gh run list) / `run_started_at` (API) —
+          # both ARE re-set on a re-run — instead.
           #
           # SO C1b: budgets are tied to the OTHER job's own timeout-minutes, with asymmetric
           # failure modes. Prod waits up to staging's job timeout (30m = deploy-staging.yml's
@@ -238,36 +244,47 @@ jobs:
           # hostage to a hung staging run. (Staging's own gate, in deploy-staging.yml, waits up to
           # PROD's 45m timeout and fails CLOSED — see that file for the asymmetric rationale.)
           #
+          # SO C1d: a failed/empty `gh run list` is NOT the same as "zero other runs" — treat it as
+          # BUSY (keep polling) rather than proceeding, so a persistently unreachable API fails
+          # open/closed at the budget (per C1b), never on the first blip.
+          #
           # RESIDUAL VECTOR (named, not closed; SO-accepted at p/682#20): this is TOCTOU, not a
           # lock — a deploy-staging.yml run that starts in the instant after this poll's last
           # check is not caught. Only an actual mutex (e.g. a blob lease, t/4179) closes that.
           $MaxWaitSeconds = 1800  # SO C1b: matches deploy-staging.yml job's timeout-minutes: 30
           $PollIntervalSeconds = 20
           $Elapsed = 0
-          $OwnCreatedAt = gh api "repos/$env:GH_REPO/actions/runs/$env:GITHUB_RUN_ID" --jq '.created_at'
-          if (-not $OwnCreatedAt) {
-            Write-Host "::warning::t/4194 guard: could not resolve this run's own created_at via the API — skipping the order check (fail-open)."
+          $OwnStartedAt = gh api "repos/$env:GH_REPO/actions/runs/$env:GITHUB_RUN_ID" --jq '.run_started_at'
+          if (-not $OwnStartedAt) {
+            Write-Host "::warning::t/4194 guard: could not resolve this run's own run_started_at via the API — skipping the order check (fail-open)."
           } else {
             while ($true) {
-              $Raw = gh run list --repo $env:GH_REPO --workflow deploy-staging.yml --status in_progress --json databaseId,createdAt 2>$null
-              if ($null -eq $Raw -or $Raw -eq '') {
-                # SO C1d: an empty/failed `gh run list` is NOT the same as "zero other runs" —
-                # don't silently read it as clear.
-                Write-Host "::warning::t/4194 guard: 'gh run list' for deploy-staging.yml returned nothing (API error or rate limit) — cannot see the other workflow's state this poll."
-                $Earlier = @()
-              } else {
+              $Raw = gh run list --repo $env:GH_REPO --workflow deploy-staging.yml --status in_progress --json databaseId,startedAt 2>$null
+              $ApiOk = -not ($null -eq $Raw -or $Raw -eq '')
+              if ($ApiOk) {
                 $Others = @($Raw | ConvertFrom-Json)
-                $Earlier = @($Others | Where-Object { [datetimeoffset]$_.createdAt -lt [datetimeoffset]$OwnCreatedAt })
+                $Earlier = @($Others | Where-Object { [datetimeoffset]$_.startedAt -lt [datetimeoffset]$OwnStartedAt })
+              } else {
+                # SO C1d: unknown, NOT zero — fall through to the elapsed/poll logic below as "busy".
+                $Earlier = $null
               }
-              if ($Earlier.Count -eq 0) {
+              if ($ApiOk -and $Earlier.Count -eq 0) {
                 Write-Host "No EARLIER in-progress deploy-staging.yml run — proceeding."
                 break
               }
               if ($Elapsed -ge $MaxWaitSeconds) {
-                Write-Host "::warning::t/4194 guard: an earlier deploy-staging.yml run is still in progress after ${MaxWaitSeconds}s — proceeding anyway (fail-open, SO C1b; do not hold prod deploys hostage to a hung/long staging run)."
+                if ($ApiOk) {
+                  Write-Host "::warning::t/4194 guard: an earlier deploy-staging.yml run is still in progress after ${MaxWaitSeconds}s — proceeding anyway (fail-open, SO C1b; do not hold prod deploys hostage to a hung/long staging run)."
+                } else {
+                  Write-Host "::warning::t/4194 guard: 'gh run list' for deploy-staging.yml kept failing for ${MaxWaitSeconds}s — proceeding anyway (fail-open, SO C1b/C1d)."
+                }
                 break
               }
-              Write-Host "$($Earlier.Count) earlier deploy-staging.yml run(s) still in progress — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
+              if ($ApiOk) {
+                Write-Host "$($Earlier.Count) earlier deploy-staging.yml run(s) still in progress — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
+              } else {
+                Write-Host "::warning::t/4194 guard: 'gh run list' for deploy-staging.yml returned nothing this poll (API error or rate limit) — treating as busy, not clear (SO C1d); retrying in ${PollIntervalSeconds}s..."
+              }
               Start-Sleep -Seconds $PollIntervalSeconds
               $Elapsed += $PollIntervalSeconds
             }
