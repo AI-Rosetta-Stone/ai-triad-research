@@ -16,7 +16,7 @@ vi.mock('../security/userContext.js', () => ({
   getCurrentUserId: () => 'tester',
 }));
 
-const { writeTaxonomyFileSpy } = vi.hoisted(() => ({ writeTaxonomyFileSpy: vi.fn(async () => undefined) }));
+const { writeTaxonomyFileSpy } = vi.hoisted(() => ({ writeTaxonomyFileSpy: vi.fn(async () => ({ version: 'def456' })) }));
 vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: vi.fn(async () => ({ nodes: [] })),
   readTaxonomyFileWithVersion: vi.fn(async () => ({ data: { nodes: [] }, version: 'abc123' })),
@@ -82,5 +82,12 @@ describe('PUT /api/taxonomy/:pov requires If-Match (t/4187)', () => {
     await handlers['PUT /api/taxonomy/:pov'](fakeReq({ 'if-match': '"abc123"' }), res, { nodes: [] });
     expect(res._statusCode).toBe(200);
     expect(writeTaxonomyFileSpy).toHaveBeenCalledWith('accelerationist', { nodes: [] }, { baseSha: 'abc123' });
+  });
+
+  it('sets the response ETag to the new version returned by writeTaxonomyFile', async () => {
+    const handlers = registerAndGetHandlers();
+    const res = fakeRes();
+    await handlers['PUT /api/taxonomy/:pov'](fakeReq({ 'if-match': '"abc123"' }), res, { nodes: [] });
+    expect(res.setHeader).toHaveBeenCalledWith('ETag', '"def456"');
   });
 });

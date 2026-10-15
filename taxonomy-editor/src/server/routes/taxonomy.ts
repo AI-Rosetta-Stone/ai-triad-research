@@ -235,7 +235,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
           incoming.nodes as Parameters<typeof stampNodeAuthorship>[1],
         );
       }
-      await fileIO.writeTaxonomyFile(pov, body, { baseSha });
+      const { version } = await fileIO.writeTaxonomyFile(pov, body, { baseSha });
       // t/3267 Fix A: enqueue the debounced scoped grounding reconcile BEFORE responding. It's
       // synchronous + fire-and-forget/no-throw (Set.add + a debounce timer), so it can't delay or fail
       // the response — but placing it AFTER json(res) meant a response-write throw (ECONNRESET when the
@@ -244,6 +244,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       // guarantees it runs; json still returns { ok: true } immediately after. Gated OFF above until the
       // tool-lock + PS lock (t/3203) land.
       if (changedNodeIds.length > 0) enqueueGroundingReconcile(changedNodeIds);
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, { ok: true });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });

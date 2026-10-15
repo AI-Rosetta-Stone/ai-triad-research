@@ -99,7 +99,7 @@ describe('PUT /api/taxonomy/situations BDI gate (t/3890)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAnonymousUser.mockReturnValue(false);
-    mockWriteTaxonomy.mockResolvedValue(undefined);
+    mockWriteTaxonomy.mockResolvedValue({ version: 'abc123' });
 
     const r = makeRouter();
     registerTaxonomyRoutes(r.router as never, {

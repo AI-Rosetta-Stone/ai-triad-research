@@ -26,7 +26,7 @@ vi.mock('../security/userContext.js', () => ({
 const oldNodesRef: { nodes: Array<{ id: string; text: string }> } = { nodes: [] };
 vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: vi.fn(async () => oldNodesRef),
-  writeTaxonomyFile: vi.fn(async () => undefined),
+  writeTaxonomyFile: vi.fn(async () => ({ version: 'abc123' })),
   loadSyntheticEmbeddings: vi.fn(),
   loadSyntheticCorpus: vi.fn(),
 }));
