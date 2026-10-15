@@ -51,6 +51,24 @@ describe('normalizeSource', () => {
     const edited = `export function foo() { return 43; }`;
     expect(normalizeSource(original)).not.toBe(normalizeSource(edited));
   });
+
+  it('// inside a string literal is not stripped', () => {
+    const withUrl = `const url = "http://example.com";`;
+    const withOther = `const url = "https://example.com";`;
+    expect(normalizeSource(withUrl)).not.toBe(normalizeSource(withOther));
+  });
+
+  it('// inside a template literal is not stripped', () => {
+    const withSlashes = 'const s = `prefix // not a comment`;';
+    const withoutSlashes = 'const s = `prefix`;';
+    expect(normalizeSource(withSlashes)).not.toBe(normalizeSource(withoutSlashes));
+  });
+
+  it('// after code on a line is stripped like a comment', () => {
+    const withComment = `return 42; // inline comment`;
+    const withoutComment = `return 42;`;
+    expect(normalizeSource(withComment)).toBe(normalizeSource(withoutComment));
+  });
 });
 
 describe('computeBehaviourRevision', () => {

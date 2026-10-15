@@ -19,20 +19,38 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { getBehaviourFiles } from './behaviourRevisionFiles.js';
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 const outPath = path.join(thisDir, 'behaviourRevision.generated.ts');
 
+/**
+ * Normalize TypeScript source for stable hashing: strip comments, collapse whitespace.
+ * Uses the TypeScript scanner so that `//` inside string or template literals is preserved
+ * as code, not stripped as a comment (t/4205).
+ */
 export function normalizeSource(source: string): string {
-  return source
-    // Strip block comments (/* ... */)
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    // Strip line comments (// ...)
-    .replace(/\/\/[^\n]*/g, ' ')
-    // Collapse all whitespace runs to a single space
-    .replace(/\s+/g, ' ')
-    .trim();
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    source,
+  );
+  let result = '';
+  let tok = scanner.scan();
+  while (tok !== ts.SyntaxKind.EndOfFileToken) {
+    if (
+      tok === ts.SyntaxKind.SingleLineCommentTrivia ||
+      tok === ts.SyntaxKind.MultiLineCommentTrivia
+    ) {
+      result += ' ';
+    } else {
+      result += scanner.getTokenText();
+    }
+    tok = scanner.scan();
+  }
+  return result.replace(/\s+/g, ' ').trim();
 }
 
 export function computeBehaviourRevision(files: string[]): string {
