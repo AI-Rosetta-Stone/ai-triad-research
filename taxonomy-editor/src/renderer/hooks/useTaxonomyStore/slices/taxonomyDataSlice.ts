@@ -50,6 +50,7 @@ import type { ValidationResult, ValidationIssue } from '@lib/debate/validators';
 import { validatePovNodeId } from '@lib/debate/validateNodeId';
 import type { AggregatedCrux as LibAggregatedCrux, CruxSource } from '@lib/debate/types/synthesis';
 import { api } from '@bridge';
+import { saveFailureRecord, saveErrorText } from './saveFailure';
 import { loadLineageCategoriesData } from '../../../data/lineageCategories';
 import { loadLineageInfoData } from '../../../data/lineageLookup';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -349,15 +350,6 @@ export interface TaxonomyDataSlice {
   showCruxDetail: (id: string | null) => void;
 }
 
-// Save-failure record + message, outside `save` for its complexity budget. t/4186: WRITE_CONFLICT (p/772#1) keeps `dirty`, never shows success.
-type FlightRecordInput = Parameters<NonNullable<ReturnType<typeof getGlobalRecorder>>['record']>[0];
-const isWriteConflict = (err: unknown): boolean => (err as { code?: string }).code === 'WRITE_CONFLICT';
-function saveFailureRecord(err: unknown, saveStart: number): FlightRecordInput {
-  const duration_ms = Math.round(performance.now() - saveStart);
-  if (isWriteConflict(err)) return { type: 'state.error', component: 'taxonomy-store', level: 'warn', message: 'save.conflict', data: { code: 'WRITE_CONFLICT', duration_ms } };
-  return { type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.failed', data: { error: String(err), duration_ms }, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } };
-}
-const saveErrorText = (err: unknown): string => isWriteConflict(err) ? 'Someone else changed this file. Reload to see their version.' : `Save failed: ${mapErrorToUserMessage(err)}`;
 // ── Slice creator ──
 
 export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], TaxonomyDataSlice> = (set, get) => ({
@@ -441,7 +433,10 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       });
 
     try {
-      const acc = await track(steps[0], api.loadTaxonomyFile('accelerationist'));
+      // t/4187: an editor load — sets the bridge's version cell so save() can carry If-Match.
+      // The pre-save re-read in reattachStrippedLogicalForms below must stay on plain
+      // loadTaxonomyFile (never touch the cell) or the precondition would always pass.
+      const acc = await track(steps[0], api.loadTaxonomyFileForEdit('accelerationist'));
       const accFile = acc as PovTaxonomyFile;
       if (accFile?.nodes) {
         let accStrippedCount = 0;
@@ -469,9 +464,9 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       });
 
       const [saf, skp, cc, polReg] = await Promise.all([
-        track(steps[1], api.loadTaxonomyFile('safetyist')),
-        track(steps[2], api.loadTaxonomyFile('skeptic')),
-        track(steps[3], api.loadTaxonomyFile('situations')),
+        track(steps[1], api.loadTaxonomyFileForEdit('safetyist')),
+        track(steps[2], api.loadTaxonomyFileForEdit('skeptic')),
+        track(steps[3], api.loadTaxonomyFileForEdit('situations')),
         track(steps[4], api.loadPolicyRegistry()),
       ]);
       // Defer conflict file load — on cold starts this triggers 1,242 individual
