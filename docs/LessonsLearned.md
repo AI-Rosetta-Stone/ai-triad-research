@@ -5238,3 +5238,86 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (PowerShell p/20#94, t/4146, PR #3235).
 
 **Applies To:** All agents writing or running cmdlets/scripts that regenerate baselines, indexes, or summary files from a directory scan.
+
+---
+
+## #248 [Build] Reusing a Merged Branch Name Opens a PR from the Stale Remote Branch — Near-Miss: 388-File Revert Almost Landed
+
+**Pattern:** An agent creates a new local branch reusing a name that was previously squash-merged but never deleted on the remote. `git push` is rejected (non-fast-forward). The agent then calls `gh pr create --head <name>` anyway — but `gh pr create` does not verify that the push succeeded; it opens the PR from whatever the remote currently holds under that name. The result is a PR whose head is the old, stale remote branch, not the new local commit. If the stale head is far behind main, the PR diff can show hundreds of unintended file reversions.
+
+**Instances:**
+- 2026-10-14 — Shared Lib (p/5#53): reused branch name `fix/parser-api`; `git push` rejected non-fast-forward; `gh pr create --head fix/parser-api` opened a PR from the stale remote branch diffing 388 files against main. Auto-merge did not arm because `--match-head-commit` pinned the wrong SHA — the mismatch was the only guard that caught it. Resolved: closed PR, deleted remote branch, pushed fresh branch under a new name.
+
+**Root Cause:** Squash merges leave the remote head branch intact unless explicitly deleted. `gh pr create` resolves `--head <name>` against the remote, not the local. A failed `git push` leaves the remote at the old commit, so `gh pr create` silently opens a PR from stale content with no error or warning.
+
+**Prevention:**
+1. **Always use a fresh, unique branch name** — include the ticket number and a counter or date (e.g. `fix/parser-api-t4153`). Never reuse a name that has been merged, even if the remote branch was supposed to be deleted.
+2. **Check `$?` (or `$LASTEXITCODE`) after `git push` before calling `gh pr create`.** A rejected push is a hard stop — do not proceed to PR creation until the push succeeds.
+3. **Check `changedFiles` on the new PR before arming auto-merge:** `gh pr view <N> --json changedFiles -q .changedFiles`. A docs-only or single-file fix that shows hundreds of changed files is a red flag.
+4. **`--match-head-commit` is the last-resort guard.** It caught this near-miss, but it should not be the only check — it mismatching means the PR was already open with the wrong content.
+
+**Status:** Active — 1 instance (Shared Lib p/5#53). Near-miss: 388-file revert almost armed.
+
+**Applies To:** All agents creating PRs after a `git push`; especially relevant when reusing or recycling branch names.
+
+---
+
+## #249 [Build] `gh pr merge --match-head-commit` Rejects Abbreviated SHAs — Always Supply the Full 40-Char OID
+
+**Pattern:** An agent runs `gh pr merge <N> --squash --match-head-commit <short-sha>` using an abbreviated commit SHA (7–8 hex chars). The call is rejected with a GraphQL coercion error. `--match-head-commit` passes the value directly to GitHub's GraphQL API, which expects a full 40-character OID. An abbreviated SHA is not a valid OID and fails schema validation before the merge is attempted.
+
+**Instances:**
+- 2026-10-15 — ServerAPI (p/504#21): `gh pr merge 3301 --squash --match-head-commit aa938981` (8 chars) rejected with GraphQL coercion error. Resolved by re-running with `$(gh pr view 3301 --json headRefOid -q .headRefOid)`.
+
+**Root Cause:** GitHub GraphQL's `PullRequestMergeMethod` and head-commit matching validate the OID as a full SHA-1 (40 hex chars). Abbreviated SHAs used in local git commands (e.g. from `git log --oneline` or `git show --stat HEAD`) are not expanded by `gh` before submission.
+
+**Prevention:**
+1. **Always supply the full 40-char SHA to `--match-head-commit`:** use `$(gh pr view <N> --json headRefOid -q .headRefOid)` — never use a short SHA from `git log --oneline` or `git show --stat HEAD`.
+2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
+3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
+
+**Status:** Active — 1 instance (ServerAPI p/504#21).
+
+**Applies To:** All agents running `gh pr merge --match-head-commit`.
+
+---
+
+## #250 [Build] Shared Feature Branch + Shared Worktree With Two Agents — Rebase by One Agent Blocks the Other's Push and Recovery
+
+**Pattern:** Two agents share a feature branch and a shared worktree. One agent rebases the branch onto main (new SHAs), while the other has uncommitted WIP from the first agent sitting in the same worktree. The second agent's `git push` is now rejected (non-fast-forward against the rebased tip). `git branch -f` fails because the branch is checked out. `git reset --hard` is blocked by the auto-mode destructive-op classifier. The worktree is stuck: the branch pointer, the working tree, and the remote are all inconsistent.
+
+**Instances:**
+- 2026-10-15 — ServerAPI (p/504#20, t/4184): Server Storage rebased `t4184-write-conflict-fix` onto main while ServerAPI had uncommitted WIP from Server Storage in the same worktree. Push rejected; `git branch -f` failed (branch checked out); `git reset --hard` blocked by classifier. Resolved: stashed the foreign WIP, cherry-picked own commit onto a fresh branch at the new remote tip, pushed as fast-forward, realigned with `git checkout -B`, restored stash.
+
+**Root Cause:** Shared worktrees on a shared feature branch create a coordination hazard: a rebase rewrites SHAs and invalidates any local commit ancestry, but uncommitted changes from the "other" agent's files are mixed into the worktree with no clear ownership boundary. The destructive-op classifier correctly blocks `git reset --hard`, which would silently discard those changes.
+
+**Prevention:**
+1. **Commit or stash all WIP before rebasing a shared branch.** Never rebase a branch another agent is actively working on without pinging them first and confirming their worktree is clean.
+2. **Coordinate rebase via ping before running it.** A rebase on a shared branch rewrites the history every contributor is building on — treat it as a breaking change that all contributors must acknowledge.
+3. **Recovery path when stuck:** (a) `git stash -u` to save all WIP including untracked; (b) `git fetch origin`; (c) cherry-pick your own commit onto a fresh branch at `origin/<branch>`; (d) `git push origin <new-branch>:<shared-branch>` (fast-forward); (e) `git checkout -B <shared-branch> origin/<shared-branch>` to realign; (f) `git stash pop`.
+4. **Prefer per-agent branches over shared feature branches** when multiple agents contribute to the same epic. Use a shared epic → main PR and let each agent land their own child PRs into the epic branch.
+
+**Status:** Active — 1 instance (ServerAPI p/504#20, t/4184).
+
+**Applies To:** All agents sharing a feature branch or worktree with another agent; especially relevant during active epic work.
+
+---
+
+## #251 [Build] Heredoc With `\'` Inside the Body Errors "Unexpected EOF While Looking for Matching ''" — Use Write/Edit, Never Inline Heredocs
+
+**Pattern:** An agent uses a `cat >> file << 'EOF'` heredoc to write content that contains backslash-apostrophe sequences (`\'`) — for example, JavaScript string literals like `'first save\'s returned version'`. The shell tool layer mis-parses the `\'` as closing an outer single-quote context, raising "unexpected EOF while looking for matching ''" before writing anything. Standard Bash heredoc rules suppress substitution inside `'EOF'`-quoted delimiters, but the shell tool layer applies an additional quoting pass that does not follow standard heredoc rules.
+
+**Instances:**
+- 2026-10-15 — Server Storage (p/539#4): `cat >> testFixtures.ts << 'EOF'` with `'first save\'s returned version'` in the body. The `\'` sequence triggered "unexpected EOF while looking for matching ''" in the shell tool layer; nothing was written. Resolved by abandoning the heredoc and using the Write tool instead (per root AGENTS.md Shell Quoting Rule).
+
+**Root Cause:** The shell tool layer applies quote-parsing before passing content to Bash. A `\'` inside a single-quoted heredoc body is valid Bash (the backslash is literal inside `'…'`) but the tool layer sees the `'` after `\` as a quote boundary, closing the outer context prematurely. This is a deviation from POSIX heredoc semantics introduced by the tool wrapper.
+
+**Prevention:**
+1. **Use the Write tool for any file content containing single quotes, apostrophes, or backslash sequences** — especially JS/TS string literals, SQL, or natural-language text with contractions. The Write tool does not apply shell quoting.
+2. **Never use inline heredocs (`<< 'EOF'`) for code or text with special shell characters.** This is the root AGENTS.md Shell Quoting Rule: "code with special shell characters: use Edit/Write, and run scripts from a file; never use inline heredocs."
+3. **`\'` inside a single-quoted heredoc body is the trigger.** If content must go through Bash, use `$'…'` (ANSI-C quoting) and escape the apostrophes as `\'` in that context — but the Write tool is simpler and safer.
+4. **The failure is silent on content**: no partial write, no file created. If using heredocs is unavoidable, check the exit code and verify the file exists and has expected content before continuing.
+
+**Status:** Active — 1 instance (Server Storage p/539#4).
+
+**Applies To:** All agents writing file content via Bash heredocs when the content includes apostrophes, single quotes, or backslash sequences; use Write/Edit instead.
