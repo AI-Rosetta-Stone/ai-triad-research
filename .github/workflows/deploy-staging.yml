@@ -20,12 +20,11 @@ permissions:
   contents: read
   packages: read
   id-token: write  # For Azure OIDC login
+  actions: read    # t/4194 SO C1: `gh run list` in the cross-workflow wait-gate step
 
-# t/4194: shared with deploy-azure.yml's group — see that file's comment. A prod Bicep apply's
-# staging traffic-pin side effect must never interleave with this workflow's own staging promotion.
 concurrency:
-  group: deploy-azure-shared
-  cancel-in-progress: false
+  group: deploy-staging
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -39,6 +38,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     environment: staging
+    timeout-minutes: 30  # SO C2 (t/4194, p/682#16): same rationale as deploy-azure.yml's job —
+                         # staging's own runtime is normally shorter, so a tighter cap.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -47,6 +48,46 @@ jobs:
       # DISPATCH ref tip (main at dispatch time) while the build checks out, bakes and tags inputs.sha.
       # Using head_sha looked up a tag that was never pushed (built eeb267d0, looked up d42561bc).
       # Fail-closed: no `(sha-<hex>)` marker in the run name aborts the deploy; never fall back to head_sha.
+      - name: Wait for a concurrent prod deploy to finish (t/4194 SO C1)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # t/4194 SO C1 (p/682#16): deploy-azure.yml's Bicep apply reconciles BOTH the prod and
+          # staging Container Apps in one shot (t/2049/t/2047 landmine) — including re-pinning
+          # staging's traffic from a value captured BEFORE that apply. If this workflow mutates
+          # the staging app (new revision, traffic promote) while deploy-azure.yml is mid-apply,
+          # its stale pre-apply capture can stomp this run's promotion, or vice versa. A single
+          # shared GH concurrency group was tried first and rejected: it holds only ONE pending
+          # run, so a third trigger silently REPLACES (drops) the queued one instead of
+          # serializing. This step is the real cross-workflow mutual exclusion: poll for an
+          # in-progress deploy-azure.yml run and wait it out before touching the staging app.
+          #
+          # RESIDUAL VECTOR (named, not closed): this is TOCTOU, not a lock. A deploy-azure.yml
+          # run that starts in the instant after this poll returns clear is not caught — only an
+          # actual mutex (e.g. a blob lease, t/4179) closes that. Honest tradeoff: this closes the
+          # common case (two deploys dispatched within the same multi-minute window) at zero infra
+          # cost; the sub-second race remains open.
+          $MaxWaitSeconds = 600
+          $PollIntervalSeconds = 20
+          $Elapsed = 0
+          while ($true) {
+            $Count = gh run list --repo $env:GH_REPO --workflow deploy-azure.yml --status in_progress --json databaseId -q 'length' 2>$null
+            if (-not $Count) { $Count = 0 }
+            if ([int]$Count -eq 0) {
+              Write-Host "No in-progress deploy-azure.yml run — proceeding."
+              break
+            }
+            if ($Elapsed -ge $MaxWaitSeconds) {
+              Write-Host "::warning::t/4194 guard: deploy-azure.yml still in progress after ${MaxWaitSeconds}s — proceeding anyway (fail-open; do not hold staging deploys hostage to a hung/long prod run)."
+              break
+            }
+            Write-Host "deploy-azure.yml has $Count in-progress run(s) — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
+            Start-Sleep -Seconds $PollIntervalSeconds
+            $Elapsed += $PollIntervalSeconds
+          }
+
       - name: Determine the built commit from the Container Image run name (t/4129)
         id: built
         shell: pwsh
