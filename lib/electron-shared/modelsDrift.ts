@@ -6,7 +6,8 @@
 // Runs the t/3553 refresh as a DRY RUN in catalog-only mode: vendor /models listings only, never a completion and
 // never Claude's paid candidate probe, and nothing is written. Drift is anything a real refresh would act on: a
 // refusal (a code-referenced model is gone, a partial catalog, ...), a proposal to move a default/tier/chain, or a
-// registered model the vendor no longer lists (which a refresh would silently drop when nothing references it).
+// registered model the vendor no longer lists at all (t/4199). Models a refresh would merely curate away (older in
+// their family, or filtered out by type) are reported as info, not drift, so a new vendor release isn't an alert.
 //
 // Exit codes: 0 no drift · 1 drift (report printed) · 2 nothing could be checked (every backend skipped).
 // A backend without a key is skipped with a WARN. Keys come from the environment and are never printed: any key
@@ -67,10 +68,11 @@ export function assessDrift(result: RefreshResult): DriftReport {
   else if (result.proposal && result.proposal.changes.length > 0) {
     drift.push(`a refresh would change ${result.proposal.changes.length} slot(s): ${result.proposal.changes.map(c => `${c.slot} ${JSON.stringify(c.from)} -> ${JSON.stringify(c.to)}`).join('; ')}`);
   }
-  if (result.removedModels && result.removedModels.length > 0) {
-    drift.push(`registered model(s) a refresh would drop (no longer listed by the vendor, or superseded in their family): ${result.removedModels.join(', ')}`);
-  }
+  const delisted = result.delistedModels ?? [];
+  if (delisted.length > 0) drift.push(`registered model(s) the vendor no longer lists: ${delisted.join(', ')}`);
   const info = (result.pinnedCandidates ?? []).map(p => `newer model in a pinned family: ${p.newerInFamily} (pinned ${p.pinned})`);
+  const curated = (result.removedModels ?? []).filter(id => !delisted.includes(id));
+  if (curated.length > 0) info.push(`a refresh would also curate away (still listed; superseded in their family or filtered by type): ${curated.join(', ')}`);
   return { skipped, allSkipped: skipped.length === DRIFT_BACKENDS.length, drift, info };
 }
 
