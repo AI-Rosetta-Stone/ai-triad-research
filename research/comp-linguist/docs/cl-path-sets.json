@@ -73,10 +73,10 @@
   },
 
   "schema_rule": {
-    "_comment": "Rule #9. For a diff to `file`, read the normative field list FROM THE FILE ITSELF at `list_pointer`, using the BASE revision's list, so a PR can't narrow the list and change a field in the same diff. Any change under `list_pointer` itself is normative. Classification follows meta.change_control.semver: a removal, retype, or removal of an enum value from a normative field = MAJOR -> T2 plus a CL review request (it also meets the t/3361 Second Opinion bar). An addition-only normative change (new field, new enum value, new edge type) = MINOR -> T1 plus a CL+TL co-sign request. A change to `free_fields` only = PATCH -> no action. Any other non-normative path -> no action.",
+    "_comment": "Rule #9. For a diff to `file`, read the normative field list FROM THE FILE ITSELF at `list_pointer`, using the BASE revision's list, so a PR can't narrow the list and change a field in the same diff. Classification (TL ruling t/4151, matching meta.change_control.normative_edit_rule): a change to `list_pointer` itself, a removal, a retype, or the removal of an enum value from a normative field = MAJOR -> T2 plus a CL review request (it also meets the t/3361 Second Opinion bar). An addition-only normative change (new field, new enum value, new edge type) = MINOR -> T1, with CL approval plus the normal Quality reviewer. Any other edit under meta.change_control (rule text, semver note) -> T1 plus a CL review request. A change to `free_fields` only = PATCH -> no action. Any other non-normative path -> no action. A PR that edits this file or `list_pointer` is flagged for CL review.",
     "file": "lib/schema/taxonomy-schema.json",
     "list_pointer": "meta.change_control.normative_fields",
     "free_pointer": "meta.change_control.free_fields",
-    "self_normative": "meta.change_control"
+    "change_control_pointer": "meta.change_control"
   }
 }
