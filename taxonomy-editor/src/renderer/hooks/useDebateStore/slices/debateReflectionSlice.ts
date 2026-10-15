@@ -336,7 +336,6 @@ async function runReflectionPostChecks(
   await annotateTagChecks(edits, {
     pov: povKey,
     seatTag: activeDebate.seat_tags?.[povKey as SpeakerId]?.pov_tag ?? null,
-    model,
     nodeTags: (nodeId) => liveNodeTags(povKey, nodeId),
     generateText: (prompt, m, timeoutMs, temperature) => api.generateText(prompt, m, timeoutMs, temperature),
     debateId: activeDebate.id,

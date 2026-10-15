@@ -9,7 +9,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockRecord } = vi.hoisted(() => ({ mockRecord: vi.fn() }));
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
 
-const { annotateTagChecks, evaluateTagGate, checkedTextHash, tagsFingerprint, TENSION_NEEDS_CONFIRMATION } = await import('../reflectionTagGate');
+const { annotateTagChecks, evaluateTagGate, checkedTextHash, tagsFingerprint, TENSION_NEEDS_CONFIRMATION, CUSTODIAN_CHECK_MODEL } = await import('../reflectionTagGate');
+import aiModelsRegistry from '../../../../../../../ai-models.json';
 import type { ReflectionEdit } from '../../types';
 
 function makeEdit(over: Partial<ReflectionEdit> = {}): ReflectionEdit {
@@ -40,7 +41,7 @@ const judgeSays = (verdicts: JudgeVerdict[]) =>
 
 async function stamp(edit: ReflectionEdit, opts: { pov?: string; seatTag: string | null; nodeTags: string[] | undefined; generateText?: ReturnType<typeof vi.fn> }) {
   const generateText = opts.generateText ?? vi.fn();
-  await annotateTagChecks([edit], { pov: opts.pov ?? 'skeptic', seatTag: opts.seatTag, model: 'm', nodeTags: () => opts.nodeTags, generateText }, () => true);
+  await annotateTagChecks([edit], { pov: opts.pov ?? 'skeptic', seatTag: opts.seatTag, nodeTags: () => opts.nodeTags, generateText }, () => true);
   return { stamp: edit.tag_check!, generateText };
 }
 
@@ -69,10 +70,10 @@ describe('R-2 annotateTagChecks: the stamp', () => {
   it('shared: one judge call at temperature 0 against the other wing, with the real soul content', async () => {
     const generateText = judgeSays([{ soul: 'skeptic.institutional', verdict: 'consistent' }]);
     const { stamp: s } = await stamp(makeEdit(), { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText });
-    expect(s).toMatchObject({ relation: 'shared', custodians: ['skeptic.institutional'], model: 'm' });
+    expect(s).toMatchObject({ relation: 'shared', custodians: ['skeptic.institutional'], model: CUSTODIAN_CHECK_MODEL });
     expect(generateText).toHaveBeenCalledTimes(1);
     const [prompt, model, , temperature] = generateText.mock.calls[0];
-    expect(model).toBe('m');
+    expect(model).toBe(CUSTODIAN_CHECK_MODEL); // pinned, not the reflection's model (t/4230)
     expect(temperature).toBe(0);
     expect(prompt).toContain('Deployment evidence over capability evidence'); // Institutional's first value
   });
@@ -125,8 +126,14 @@ describe('R-3 evaluateTagGate: each relation and verdict', () => {
     expect(gate(edit, ['critical', 'institutional']).block).toBe('unchecked');
   });
 
-  it('the interim rule is on now that R-6 ships the confirm control (CL p/785#8)', () => {
-    expect(TENSION_NEEDS_CONFIRMATION).toBe(true);
+  it('the interim rule is lifted now that the v2 judge passed M1 on the pinned model (t/4230, CL p/785#34)', () => {
+    expect(TENSION_NEEDS_CONFIRMATION).toBe(false);
+  });
+
+  it('the custodian check is pinned to gemini-3.1-pro-preview, a model the registry knows (t/4230)', () => {
+    expect(CUSTODIAN_CHECK_MODEL).toBe('gemini-3.1-pro-preview');
+    const entry = (aiModelsRegistry as { models: { id: string; backend: string }[] }).models.find(m => m.id === CUSTODIAN_CHECK_MODEL);
+    expect(entry?.backend).toBe('gemini');
   });
 
   it('interim rule on (CL t/4214#6): tension needs confirmation, showing the verdict and the citation', async () => {
