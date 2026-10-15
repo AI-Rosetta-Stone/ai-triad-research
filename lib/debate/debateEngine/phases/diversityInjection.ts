@@ -256,6 +256,7 @@ export async function runDiversityRound(engine: DebateEngineInternals, round: nu
       addressing: 'all',
       caveats: caveats.length > 0 ? caveats : undefined,
       model: engine.config.speakerModels ? resolveModelForSpeaker(engine, pov) : undefined,
+      provider_model: engine.adapter.lastProviderModel,
       metadata: {
         round,
         debate_phase: phase,

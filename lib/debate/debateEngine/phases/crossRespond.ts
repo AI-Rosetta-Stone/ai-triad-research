@@ -994,6 +994,7 @@ export async function runCrossRespondRound(engine: DebateEngineInternals, round:
     addressing: addressing as SpeakerId | 'all',
     caveats: caveats.length > 0 ? caveats : undefined,
     model: engine.config.speakerModels ? resolveModelForSpeaker(engine, responder) : undefined,
+    provider_model: engine.adapter.lastProviderModel,
     metadata: {
       cross_respond: true,
       round,

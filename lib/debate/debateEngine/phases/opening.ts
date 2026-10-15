@@ -195,6 +195,7 @@ export async function runOpeningStatements(engine: DebateEngineInternals): Promi
       taxonomy_refs: taxonomyRefs,
       policy_refs: meta.policy_refs,
       model: engine.config.speakerModels ? speakerModel : undefined,
+      provider_model: engine.adapter.lastProviderModel,
       metadata: {
         key_assumptions: meta.key_assumptions,
         my_claims: meta.my_claims,
