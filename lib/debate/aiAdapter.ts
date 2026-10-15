@@ -72,6 +72,13 @@ export interface AIAdapter {
   onRetryProgress?: (info: { attempt: number; maxRetries: number; backoffSeconds: number; message: string }) => void;
   generate?(request: GenerateRequest): Promise<GenerateResponse>;
   computeQueryEmbedding?(text: string): Promise<{ vector: number[] }>;
+  /**
+   * The provider-reported model string from the most recent successful generateText call.
+   * Set by CLI adapters for forensic dating of silent provider model swaps (t/4195).
+   * ADDITIVE-OPTIONAL — NO consumer may branch on this field until the exemption lapses
+   * (the moment a consumer uses it for routing or gating logic, not logging/display).
+   */
+  readonly lastProviderModel?: string;
 }
 
 /**
@@ -247,6 +254,7 @@ function computeEmbeddingViaPython(repoRoot: string, text: string): number[] | n
 
 export function createCLIAdapter(repoRoot: string, explicitApiKey?: string): ExtendedAIAdapter {
   const registry = loadRegistry(repoRoot);
+  let _lastProviderModel: string | undefined;
 
   // Warm up ONNX embedding model in background (loads once, stays warm for all calls)
   onnxTryWarmup().then(ok => {
@@ -363,6 +371,7 @@ export function createCLIAdapter(repoRoot: string, explicitApiKey?: string): Ext
             nextSteps: ['Review the prompt for policy-violating content', 'Try a different model or backend'],
           });
         }
+        _lastProviderModel = result.providerReportedModel;
         return result.text;
       } catch (err) {
         lastErr = err;
@@ -511,6 +520,7 @@ export function createCLIAdapter(repoRoot: string, explicitApiKey?: string): Ext
     generateText: doGenerateText,
     registry,
     generate: process.env.DEBATE_ENVELOPE !== '0' ? doGenerate : undefined,
+    get lastProviderModel() { return _lastProviderModel; },
 
     async generateTextWithSearch(prompt: string, model?: string): Promise<{ text: string; searchQueries?: string[]; citations?: GroundingCitation[] }> {
       const resolved = model || DEFAULT_MODEL;

@@ -112,6 +112,14 @@ export interface TranscriptEntry {
    *  Surfaced to readers as "Caveats" alongside the statement. */
   caveats?: string[];
   model?: string;
+  /**
+   * Provider's own model string from the response header, if reported (t/4195).
+   * Distinct from `model` (registry id): use for forensic dating of silent provider
+   * model swaps, not for routing or gating.
+   * ADDITIVE-OPTIONAL — NO consumer may branch on this field until the exemption lapses
+   * (the moment a consumer uses it for routing or gating logic, not logging/display).
+   */
+  provider_model?: string;
   /** True when this turn's brief or plan parse retries were exhausted and degraded gracefully (t/2229). */
   degraded?: boolean;
   /**
