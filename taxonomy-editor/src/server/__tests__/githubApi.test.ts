@@ -19,6 +19,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Agent } from 'undici';
 import { assertUndiciMajorInvariant, isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { log } from '../logger.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index';
 
 // t/3444: every describe below that constructs a GitHubAPIBackend/SessionBranchManager
@@ -918,7 +919,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: rate limit exhaust
     backend.shutdown();
   });
 
-  it('retries on 403 secondary-rate-limit refusal and logs its headers (t/4202)', async () => {
+  it('retries immediately on 403 with Retry-After: 0 and logs its headers via Pino (t/4202 SO C1/C2)', async () => {
+    // SO C2 (bug, confirmed): a prior `retryAfterSec && attempt < MAX_RETRIES` check
+    // treated Retry-After: 0 ("retry immediately" per spec) as falsy and skipped the
+    // retry. This test's retry-after:0 value exercises exactly that branch — expecting
+    // callCount===2 (the retry DID happen) catches a regression back to the falsy check.
     let callCount = 0;
     apiHandlers.push((url, init) => {
       if (url.includes('/contents/') && init.method === 'GET') {
@@ -929,7 +934,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: rate limit exhaust
             body: { message: 'You have exceeded a secondary rate limit' },
             headers: {
               ...defaultRateLimitHeaders,
-              'retry-after': '0', // 0 seconds for test speed
+              'retry-after': '0',
             },
           };
         }
@@ -940,6 +945,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: rate limit exhaust
       }
       return null!;
     });
+
+    // SO C1: pin the alert-github-api-refused match string (main.bicep) to its real
+    // emitter. deps.record()'s FlightRecorder event (asserted below) never reaches
+    // console output — only this Pino call does (t/3300#2 precedent: assert the real
+    // stdout sink, not just the ring buffer).
+    const githubWarnSpy = vi.spyOn(log.github, 'warn');
 
     const recorder = createTestRecorder();
     const backend = await createBackend(recorder);
@@ -952,6 +963,11 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — chaos: rate limit exhaust
     expect(refusedEvents.length).toBeGreaterThan(0);
     expect(refusedEvents[0].data).toMatchObject({ retryAfterSec: 0 });
 
+    const refusalLogCall = githubWarnSpy.mock.calls.find(([, msg]) => msg === 'github-api-refused-403');
+    expect(refusalLogCall).toBeDefined();
+    expect(refusalLogCall?.[0]).toMatchObject({ retryAfterSec: 0 });
+
+    githubWarnSpy.mockRestore();
     backend.shutdown();
   });
 });

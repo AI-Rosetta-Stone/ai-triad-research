@@ -39,6 +39,9 @@ const API_VERSION = '2022-11-28';
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = [100, 300, 900];
 const BACKOFF_JITTER_MS = 100;
+// t/4202 SO C2: GitHub's secondary-rate-limit Retry-After is attacker/server-controlled
+// input — cap how long a single 403 retry will wait regardless of what the header claims.
+const MAX_REFUSAL_RETRY_DELAY_MS = 60_000;
 
 const CIRCUIT_FAILURE_THRESHOLD = 5;
 const CIRCUIT_PROBE_SCHEDULE_MS = [30_000, 60_000, 120_000, 300_000]; // 30s→1m→2m→5m cap
@@ -292,7 +295,13 @@ export class GitHubRestClient {
       message: 'Refused by GitHub API (403)',
       data: refusalData,
     });
-    return (retryAfterSec && attempt < MAX_RETRIES) ? { action: 'retry', delayMs: retryAfterSec * 1000 } : null;
+    // t/4202 SO C2: `retryAfterSec && ...` treated Retry-After: 0 ("retry immediately" per
+    // spec) as falsy and skipped the retry. Check for a valid non-negative number instead,
+    // and cap the resulting delay (MAX_REFUSAL_RETRY_DELAY_MS) against a malformed or
+    // absurdly large header value.
+    const hasValidRetryAfter = retryAfterSec !== null && !Number.isNaN(retryAfterSec) && retryAfterSec >= 0;
+    if (!hasValidRetryAfter || attempt >= MAX_RETRIES) return null;
+    return { action: 'retry', delayMs: Math.min(retryAfterSec * 1000, MAX_REFUSAL_RETRY_DELAY_MS) };
   }
 
   private async handleNonOkStatus(

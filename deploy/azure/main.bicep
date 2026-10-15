@@ -1838,8 +1838,10 @@ resource githubRefusalAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-p
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // SO C4 (optional cost margin, applied): PT5M -> PT15M. windowSize matches so the
+    // 15-min eval gap has no blind spot between checks.
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
