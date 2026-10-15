@@ -120,7 +120,7 @@ describe('useTaxonomyStore save conflicts (t/4186/t/4197)', () => {
   // prefix — never success, and keep the edit. The message itself is the bridge's `.problem`
   // (taxonomyVersions.ts), surfaced here via mapErrorToUserMessage so the two layers can't drift;
   // this test file mocks that to String(err), so it asserts routing, not the bridge's wording.
-  it.each(['WRITE_CONFLICT', 'BASE_VERSION_REQUIRED'] as const)(
+  it.each(['WRITE_CONFLICT', 'BASE_VERSION_REQUIRED', 'VERSION_UNAVAILABLE'] as const)(
     'shows the bridge message (no "Save failed" prefix) and preserves dirty/edits on a %s save error',
     async (code) => {
       const conflictErr = Object.assign(new Error(`conflict: ${code}`), { code });
@@ -133,6 +133,33 @@ describe('useTaxonomyStore save conflicts (t/4186/t/4197)', () => {
       expect(state.dirty.has('accelerationist')).toBe(true);
     },
   );
+
+  // t/4221 (SO condition C3, e/302#4): a 503 VERSION_UNAVAILABLE on the PUT itself (the server couldn't
+  // look up the version — a GitHub outage) must keep every edit, never show success, and leave the store
+  // ready to save the same edits again once GitHub is back. The availability trade holds only if a 503
+  // never loses typed work.
+  it('a VERSION_UNAVAILABLE save keeps the edits, shows no success, and the same edits save on the next try', async () => {
+    const unavailable = Object.assign(new Error('GitHub is unavailable; your edits are kept; try saving again shortly.'), { code: 'VERSION_UNAVAILABLE', httpStatus: 503 });
+    const edited = makePovFile([makePovNode({ label: 'Typed during the outage' })]);
+    mockApi.saveTaxonomyFile.mockRejectedValueOnce(unavailable);
+    useTaxonomyStore.setState({ accelerationist: edited, dirty: new Set(['accelerationist']), saveError: null });
+
+    await useTaxonomyStore.getState().save();
+
+    let state = useTaxonomyStore.getState();
+    expect(state.dirty.has('accelerationist')).toBe(true);
+    expect(state.accelerationist!.nodes[0].label).toBe('Typed during the outage');
+    expect(state.saveError).toBe(String(unavailable));
+    expect(state.saveError).not.toContain('Save failed');
+    expect(mockApi.syncCommit).not.toHaveBeenCalled();
+
+    // GitHub is back: the same save goes through with the kept edits, and only then is dirty cleared.
+    await useTaxonomyStore.getState().save();
+    state = useTaxonomyStore.getState();
+    expect(mockApi.saveTaxonomyFile).toHaveBeenLastCalledWith('accelerationist', expect.objectContaining({ nodes: [expect.objectContaining({ label: 'Typed during the outage' })] }));
+    expect(state.dirty.size).toBe(0);
+    expect(state.saveError).toBeNull();
+  });
 
   // t/4197 (TL p/775#24): the pre-save re-read must stay on the plain, cell-blind load — if it
   // ever switched to loadTaxonomyFileForEdit, the save would carry the newest version as its own

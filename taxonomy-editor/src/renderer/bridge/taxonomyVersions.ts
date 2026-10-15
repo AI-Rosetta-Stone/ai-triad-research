@@ -34,17 +34,32 @@ export interface TaxonomyVersions {
 /** The codes a save surfaces for the UI to branch on, alongside httpStatus. */
 export const SAVE_CONFLICT_CODES = ['WRITE_CONFLICT', 'BASE_VERSION_REQUIRED'] as const;
 
+/** Save codes the bridge words itself and that keep the user's edits (t/4221): the conflicts, plus
+ *  VERSION_UNAVAILABLE, the 503 when the server couldn't look up the version (GitHub unavailable). */
+export const SAVE_KEPT_CODES = [...SAVE_CONFLICT_CODES, 'VERSION_UNAVAILABLE'] as const;
+
+/** The reviewer-facing text for a refused save, by code. */
+const SAVE_PROBLEMS: Record<string, string> = {
+  WRITE_CONFLICT: 'Someone else changed this file since you loaded it. Reload to see their version.',
+  BASE_VERSION_REQUIRED: 'This page is out of date. Reload to save.',
+  // t/4221 (SO condition C3, e/302#4): fail closed, but never at the cost of typed work.
+  VERSION_UNAVAILABLE: 'GitHub is unavailable; your edits are kept; try saving again shortly.',
+};
+
 const pathFor = (pov: string) => `/api/taxonomy/${encodeURIComponent(pov)}`;
 
+function nextStepsFor(code: string | undefined): string[] {
+  if (code === 'WRITE_CONFLICT' || code === 'BASE_VERSION_REQUIRED') return ['Reload to see the current version', 'Reapply your edit after reloading'];
+  if (code === 'VERSION_UNAVAILABLE') return ['Try saving again in a few minutes', 'Do not reload: your edits stay in this window until a save succeeds'];
+  return ['Try again', 'Check the server logs if it keeps failing'];
+}
+
 function httpError(status: number, problem: string, location: string, code?: string): ActionableError {
-  const conflict = code === 'WRITE_CONFLICT' || code === 'BASE_VERSION_REQUIRED';
   const err = new ActionableError({
     goal: location.endsWith('save') ? 'Save the taxonomy file' : 'Load the taxonomy file',
     problem,
     location,
-    nextSteps: conflict
-      ? ['Reload to see the current version', 'Reapply your edit after reloading']
-      : ['Try again', 'Check the server logs if it keeps failing'],
+    nextSteps: nextStepsFor(code),
   });
   Object.assign(err, { httpStatus: status }, code ? { code } : {});
   return err;
@@ -116,11 +131,7 @@ export function createTaxonomyVersions(fetchFn: BridgeFetch): TaxonomyVersions {
     const res = await send(fetchFn, pathFor(pov), { method: 'PUT', headers, body: JSON.stringify(data) }, location);
     if (!res.ok) {
       const code = await readCode(res);
-      const problem = code === 'WRITE_CONFLICT'
-        ? 'Someone else changed this file since you loaded it. Reload to see their version.'
-        : code === 'BASE_VERSION_REQUIRED'
-          ? 'This page is out of date. Reload to save.'
-          : `PUT ${pathFor(pov)} failed with HTTP ${res.status}: ${await res.text()}`;
+      const problem = (code && SAVE_PROBLEMS[code]) ?? `PUT ${pathFor(pov)} failed with HTTP ${res.status}: ${await res.text()}`;
       throw httpError(res.status, problem, location, code);
     }
     assertNotLoginPage(res, location);
