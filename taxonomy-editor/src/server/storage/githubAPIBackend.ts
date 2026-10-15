@@ -121,19 +121,6 @@ export class GitHubAPIBackend implements StorageBackend {
   private sessionOverlays: Map<string, Map<string, string>> = new Map();
   private maxOverlayBytesPerUser: number = DEFAULT_MAX_OVERLAY_BYTES_PER_USER;
 
-  // t/4203 (p/775#56): userId → (repoPath → content) for paths this session
-  // already committed to its session branch. commitOverlay() clears the
-  // pending overlay above on success, but the content now lives on the
-  // session branch, not main — without this baseline, the next read/write
-  // falls through to main's stale on-disk cache: a read shows pre-edit
-  // content (silently reverting the save), and a write's precondition check
-  // (getFileSha, which ignores `ref` and only ever reflects main) compares
-  // the client's baseSha against main's stale SHA instead of what was just
-  // committed, producing a false WRITE_CONFLICT on every save after the
-  // first. Cleared only at session end (clearCommittedOverlayBaseline),
-  // never by commitOverlay/clearSessionOverlay themselves.
-  private committedOverlayBaseline: Map<string, Map<string, string>> = new Map();
-
   // Resilient GitHub HTTP transport — rate limit + circuit breaker live here (t/1698).
   private readonly rest: GitHubRestClient;
 
@@ -316,21 +303,6 @@ export class GitHubAPIBackend implements StorageBackend {
       return val;
     }
 
-    // t/4203: fall back to what this session already committed, before
-    // falling through to main's (stale, from this session's perspective) cache.
-    const baseline = this.committedOverlayBaseline.get(readUserId);
-    if (baseline?.has(repoPath)) {
-      const val = baseline.get(repoPath)!;
-      this.recordEvent({
-        type: 'cache.hit',
-        component: 'cache',
-        level: 'debug',
-        message: `Committed-session baseline hit: ${repoPath}`,
-        data: { path: repoPath, layer: 'session-committed', userId: readUserId },
-      });
-      return val;
-    }
-
     return undefined;
   }
 
@@ -436,6 +408,29 @@ export class GitHubAPIBackend implements StorageBackend {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
     }
 
+    const ref = opts?.ref ?? this.getEffectiveRef();
+
+    // t/4203 (TL design, p/538#40): an edit-load on a session branch with no
+    // pending overlay entry must read the branch's own current content and
+    // version, not main's cache — the manifest/disk-cache path below
+    // represents main only, so using it here is exactly the bug this fix
+    // closes (an edit-load that silently shows pre-commit, pre-merge, or
+    // pre-out-of-band content instead of what the session branch actually
+    // holds).
+    if (ref !== this.baseBranch) {
+      const result = await this.getSessionBranchVersion(repoPath, ref);
+      return { content: result.content, version: result.sha };
+    }
+
+    return this.readFileWithVersionFromMainCache(repoPath, ref);
+  }
+
+  /**
+   * The pre-t/4203 main-cache path for readFileWithVersion, unchanged —
+   * split out to keep readFileWithVersion's own complexity down once the
+   * session-branch live-read branch above was added.
+   */
+  private async readFileWithVersionFromMainCache(repoPath: string, ref: string): Promise<{ content: string; version: string } | null> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const entry = this.manifest?.files[repoPath];
       if (!entry) break; // no cache entry — fall through to a fresh GitHub fetch
@@ -460,7 +455,6 @@ export class GitHubAPIBackend implements StorageBackend {
     // Cache miss (or torn-read retries exhausted) — one GitHub response gives
     // content + sha atomically by construction.
     if (this.rest.isTripped()) return null;
-    const ref = opts?.ref ?? this.getEffectiveRef();
     const result = await this.fetchFileFromGitHub(repoPath, ref);
     if (result === null) return null;
 
@@ -654,14 +648,17 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeOverlayWithPrecondition(
     filePath: string, repoPath: string, content: string, ref: string, baseSha: string | undefined,
   ): Promise<{ version: string }> {
-    // t/4203: checkSessionOverlay also consults what this session already
-    // committed, so a save right after a commit compares against that, not
-    // main's stale cached SHA (which ignores `ref` entirely) — otherwise a
-    // false WRITE_CONFLICT fires on every save after the first.
+    // t/4203 (TL design, p/538#40): with no pending overlay entry for this
+    // path, the current version must come from the session branch itself —
+    // never from getFileSha()'s main-cache fallback, which ignores `ref` and
+    // is exactly the bug this fix closes (a save right after a commit, a
+    // resync merge, or any other out-of-band move of the branch head would
+    // otherwise compare against main's stale SHA instead of the branch's
+    // real current content).
     const existing = this.checkSessionOverlay(repoPath);
     const currentVersion = existing !== undefined && existing !== GitHubAPIBackend.TOMBSTONE
       ? gitBlobSha(existing)
-      : await this.getFileSha(repoPath, ref);
+      : (await this.getSessionBranchVersion(repoPath, ref)).sha;
 
     if (baseSha === undefined) {
       this.recordEvent({
@@ -1250,18 +1247,6 @@ export class GitHubAPIBackend implements StorageBackend {
       data: { branch, writes: entries.writes.length, deletes: entries.deletes.length, commitSha, durationMs },
     });
 
-    // t/4203: remember what just landed on the session branch before clearing
-    // the pending overlay below — otherwise the next read/write for these
-    // paths this session falls through to main's stale cache (see the field
-    // comment on committedOverlayBaseline).
-    let baseline = this.committedOverlayBaseline.get(userId);
-    if (!baseline) {
-      baseline = new Map();
-      this.committedOverlayBaseline.set(userId, baseline);
-    }
-    for (const w of entries.writes) baseline.set(w.path, w.content);
-    for (const d of entries.deletes) baseline.set(d, GitHubAPIBackend.TOMBSTONE);
-
     // Clear overlay only on success (Tech Lead note #2)
     this.clearSessionOverlay(userId);
 
@@ -1403,44 +1388,11 @@ export class GitHubAPIBackend implements StorageBackend {
 
     const data = resp.data as { sha: string };
 
-    // t/4203 (TL probe, p/775#64): this merge just moved the session branch
-    // HEAD independently of commitOverlay — any path already in this user's
-    // committed baseline may now hold content the merge brought in from main,
-    // not what we last recorded. Refresh before returning, or a save right
-    // after this resync could pass its precondition against stale pre-merge
-    // content and silently erase main's merged change on the next commit.
-    const userId = this.getEffectiveUserId();
-    if (userId) await this.refreshCommittedBaselineAfterMerge(userId, branch);
-
+    // t/4203 (TL design, p/538#40): no baseline to refresh anymore —
+    // getSessionBranchVersion() reads the branch live on every save/edit-load,
+    // so a merge (or any other out-of-band move of this branch's head) is
+    // covered without this method needing to know about it at all.
     return { ok: true, sha: data.sha, conflicts: false, message: `Merged main into ${branch}` };
-  }
-
-  /**
-   * t/4203: re-fetch every path this user's committed-session baseline
-   * tracks from the branch's new (post-merge) HEAD, so the baseline reflects
-   * what the session branch actually holds, not stale pre-merge content.
-   * Fails closed: a path whose refresh doesn't succeed is evicted rather than
-   * kept — the next precondition check for it falls through to getFileSha()
-   * (the same degraded-but-safe behavior from before this baseline existed),
-   * never silently trusts content that couldn't be re-verified.
-   */
-  private async refreshCommittedBaselineAfterMerge(userId: string, branch: string): Promise<void> {
-    const baseline = this.committedOverlayBaseline.get(userId);
-    if (!baseline || baseline.size === 0) return;
-
-    for (const repoPath of [...baseline.keys()]) {
-      const result = await this.fetchFileFromGitHub(repoPath, branch, true);
-      if (result === null) {
-        baseline.delete(repoPath);
-        this.recordEvent({
-          type: 'storage.fallback', component: 'github-api', level: 'warn',
-          message: `Committed-session baseline refresh failed for ${repoPath} after merge into ${branch} — evicted (fail closed)`,
-          data: { path: repoPath, branch, userId },
-        });
-        continue;
-      }
-      baseline.set(repoPath, result.content);
-    }
   }
 
   // ── Path contract ──────────────────────────────────────────────────────
@@ -2112,6 +2064,37 @@ export class GitHubAPIBackend implements StorageBackend {
     });
   }
 
+  /**
+   * t/4203 (TL design, p/538#40): the current version of `repoPath` on a
+   * session branch, read live from GitHub — the one authoritative source for
+   * every route that can move the branch head (commitOverlay, mergeBranch, a
+   * resync conflict resolved on GitHub, another replica, SessionBranchManager
+   * .commitBatch, or anything else). A session-branch precondition or
+   * edit-load checked against main's SHA instead is exactly the t/4203 bug —
+   * a stale or wrong baseline silently reverting this session's own commits.
+   * Fails closed: a lookup failure throws a 503 ActionableError with a WARN,
+   * never falls back to main's SHA for a session-branch ref.
+   */
+  private async getSessionBranchVersion(repoPath: string, ref: string): Promise<{ content: string; sha: string }> {
+    const result = await this.fetchFileFromGitHub(repoPath, ref, true);
+    if (result === null) {
+      this.recordEvent({
+        type: 'github.api.error', component: 'github-api', level: 'warn',
+        message: `Could not verify the current version of ${repoPath} on ${ref} — failing closed rather than falling back to main`,
+        data: { path: repoPath, ref },
+      });
+      throw new ActionableError({
+        goal: `Read the current version of ${repoPath} on ${ref}`,
+        problem: 'Could not reach GitHub to verify the current version of this file on your session branch.',
+        location: `GitHubAPIBackend.getSessionBranchVersion(${repoPath})`,
+        nextSteps: ['Retry in a moment', 'Check GitHub API status'],
+        httpStatus: 503,
+        code: 'VERSION_UNAVAILABLE',
+      });
+    }
+    return result;
+  }
+
   // ── Flight recorder helpers ────────────────────────────────────────────
 
   private recordEvent(input: RecordInput): void {
@@ -2254,11 +2237,6 @@ export class GitHubAPIBackend implements StorageBackend {
     return this.sessionOverlays.get(userId);
   }
 
-  /** t/4203: test/diagnostic accessor for the committed-session baseline. */
-  getCommittedOverlayBaseline(userId: string): Map<string, string> | undefined {
-    return this.committedOverlayBaseline.get(userId);
-  }
-
   /**
    * Read the main-branch base content for a path from the on-disk cache,
    * bypassing the session overlay. Returns null on cache miss. Used to diff
@@ -2279,17 +2257,6 @@ export class GitHubAPIBackend implements StorageBackend {
       message: `Session overlay cleared for ${userId}`,
       data: { userId },
     });
-  }
-
-  /**
-   * t/4203: wipe the committed-session baseline (see the field comment on
-   * committedOverlayBaseline) — unlike clearSessionOverlay, NOT called by
-   * commitOverlay itself (that would erase the baseline it just set). Call
-   * this only when the session truly ends (branch deleted), alongside
-   * clearSessionOverlay — see SessionBranchManager.deleteBranch.
-   */
-  clearCommittedOverlayBaseline(userId: string): void {
-    this.committedOverlayBaseline.delete(userId);
   }
 }
 

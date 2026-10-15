@@ -19,7 +19,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
-import { gitBlobSha } from '../storage/gitBlobSha.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index';
 
 const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
@@ -124,11 +123,6 @@ async function createBackend(recorder?: FlightRecorder) {
   });
   await backend.initialize();
   return backend;
-}
-
-async function createSessionManager(backend: Awaited<ReturnType<typeof createBackend>>, recorder?: FlightRecorder) {
-  const { SessionBranchManager } = await import('../storage/sessionBranchManager');
-  return new SessionBranchManager(backend, recorder ?? createTestRecorder());
 }
 
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 handling (t/4184, t/4187)', () => {
@@ -341,91 +335,102 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — direct-write-mode 409 han
   });
 });
 
-// t/4203 (p/775#56, TL): commitOverlay() clears the pending overlay on
-// success, but getFileSha() ignores `ref` and only ever reflects main — so
-// without a committed-session baseline, the very next save's precondition
-// check compares against main's stale SHA instead of what this session just
-// committed, false-conflicting on every save after the first.
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — committed-session baseline after commitOverlay (t/4203)', () => {
+// t/4203 (TL design, p/538#40): getFileSha() ignores `ref` and only ever
+// reflects main — the root cause of every write-after-commit/merge/external-
+// head-move false conflict this bundle chased. The fix: for a session branch
+// with no pending overlay entry, read the current version and edit-load
+// content live from GitHub at that branch's ref, on every save and every
+// edit-load. Never fall back to main's SHA for a session-branch ref — a
+// lookup failure is a 503 ActionableError, not a silent fallback. One
+// authoritative source covers commitOverlay, mergeBranch, a resync conflict
+// resolved on GitHub, another replica, or anything else that moves the head.
+//
+// `sessionBranchState(ref)` registers ONE handler per test that serves GET
+// .../contents/taxonomy/nodes.json?ref=<branch> from a mutable object — tests
+// mutate `.current`/`.sha` to simulate a commit, a merge, or any other
+// out-of-band change landing on the branch, and set `.fail = true` to make
+// the next lookup fail. Every overlay-fast-path write with no pending overlay
+// entry — including the very first one in a session — now makes this live
+// call (TL: "one call per save"), so each test registers it before that
+// first write, not only after a commit.
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version read live from GitHub (t/4203)', () => {
+  function sessionBranchState(ref: string): { current: string | null; sha: string | null; fail: boolean } {
+    const state = { current: null as string | null, sha: null as string | null, fail: false };
+    const refQuery = `ref=${encodeURIComponent(ref)}`;
+    apiHandlers.push((url, init) => {
+      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes(refQuery)) {
+        return null;
+      }
+      if (state.fail || state.current === null || state.sha === null) {
+        return { status: 404, body: { message: 'Not Found' } };
+      }
+      return { status: 200, body: { content: Buffer.from(state.current).toString('base64'), encoding: 'base64', sha: state.sha } };
+    });
+    return state;
+  }
+
+  function mockCommitSteps(branch: string): void {
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes(`/git/refs/heads/${branch}`)) {
+        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
+      }
+      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
+      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
+      if (method === 'PATCH' && url.includes(`/git/refs/heads/${branch}`)) return { status: 200, body: {} };
+      return null;
+    });
+  }
+
   it('save, then commit, then save again with the first save\'s returned version — succeeds, no false WRITE_CONFLICT', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.current = '{"test": true}';
+    branch.sha = 'blob1';
 
-    // 'blob1' is the repo-tree sha already in place for this path at
-    // initialize() (see handleDefaultGithubApi's /git/trees/ response).
     const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
     expect(v1.version).toBeTruthy();
 
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
-        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
-      }
-      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
-      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
-      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
-      return null;
-    });
-
-    const commitResult = await backend.commitOverlay('alice', 'test commit');
-    expect(commitResult).not.toBeNull();
+    // The commit lands — the branch now holds what was just written.
+    branch.current = '{"v": 1}';
+    branch.sha = v1.version;
+    mockCommitSteps('api-session/alice');
+    await backend.commitOverlay('alice', 'test commit');
     expect(backend.getSessionOverlay('alice')).toBeUndefined(); // pending overlay cleared
 
-    // The regression this guards: without the committed-baseline fallback,
-    // this save's precondition check falls through to getFileSha(), which
-    // ignores `ref` and returns main's stale 'blob1' — not v1.version — so a
-    // real client's next save (correctly carrying v1.version as its baseSha)
-    // would false-conflict here.
     const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: v1.version });
     expect(v2.version).toBeTruthy();
     expect(v2.version).not.toBe(v1.version);
-    expect(backend.getSessionOverlay('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 2}');
 
     backend.shutdown();
   });
-});
 
-// t/4203 (TL probe, p/775#64): mergeBranch() moves the session branch HEAD
-// independently of commitOverlay — without a refresh, the committed-session
-// baseline from an earlier commit outlives a resync merge, so a stale tab's
-// save can pass its precondition against pre-merge content and the next
-// commit silently erases whatever the merge brought in from main.
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — committed-session baseline survives a resync merge (t/4203)', () => {
-  it('a resync refreshes the baseline — a stale save then conflicts, and a save against the merged content succeeds', async () => {
+  it('after main changes and a resync merge, a stale save gets WRITE_CONFLICT and an edit load returns the merged content', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.current = '{"test": true}';
+    branch.sha = 'blob1';
 
     const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
-        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
-      }
-      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
-      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
-      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
-      return null;
-    });
+    branch.current = '{"v": 1}';
+    branch.sha = v1.version;
+    mockCommitSteps('api-session/alice');
     await backend.commitOverlay('alice', 'test commit');
-    expect(backend.getCommittedOverlayBaseline('alice')?.get('taxonomy/nodes.json')).toBe('{"v": 1}');
 
-    // Simulate a resync: main had further, independent changes to this same
-    // path, auto-merged into the session branch by GitHub's Merges API.
+    // main had further, independent changes; the resync auto-merges them in.
     const mergedContent = JSON.stringify({ v: 'merged-from-main' });
+    branch.current = mergedContent;
+    branch.sha = 'merged-blob-sha';
     apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'POST' && url.endsWith('/merges')) return { status: 201, body: { sha: 'merge-commit-sha' } };
-      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json') && url.includes('ref=api-session%2Falice')) {
-        return { status: 200, body: { content: Buffer.from(mergedContent).toString('base64'), encoding: 'base64', sha: 'merged-blob-sha' } };
-      }
+      if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/merges')) return { status: 201, body: { sha: 'merge-commit-sha' } };
       return null;
     });
 
     const mergeResult = await backend.mergeBranch('api-session/alice');
     expect(mergeResult.ok).toBe(true);
-    // The refresh replaced the pre-merge baseline with the merge's real content.
-    expect(backend.getCommittedOverlayBaseline('alice')?.get('taxonomy/nodes.json')).toBe(mergedContent);
 
     // A tab that loaded before the resync still carries the pre-merge version.
     const staleErr = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "from a stale tab"}', { baseSha: v1.version })
@@ -433,76 +438,83 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — committed-session baselin
     expect(staleErr?.httpStatus).toBe(409);
     expect(staleErr?.code).toBe('WRITE_CONFLICT');
 
-    // A save against the merged content's own version succeeds, and does not
-    // silently clobber what the merge brought in.
-    const v2 = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "after reload"}', { baseSha: gitBlobSha(mergedContent) });
-    expect(v2.version).toBeTruthy();
+    // An edit-load reads the branch's real current content, not main's cache.
+    const loaded = await backend.readFileWithVersion('/taxonomy/nodes.json');
+    expect(loaded).toEqual({ content: mergedContent, version: 'merged-blob-sha' });
 
     backend.shutdown();
   });
 
-  it('a path whose refresh fails is evicted from the baseline (fails closed) rather than kept stale', async () => {
+  it('the branch is changed outside the server (no mergeBranch call) — a stale save still gets WRITE_CONFLICT', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.current = '{"test": true}';
+    branch.sha = 'blob1';
 
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
-        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
-      }
-      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
-      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
-      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
-      return null;
-    });
+    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    branch.current = '{"v": 1}';
+    branch.sha = v1.version;
+    mockCommitSteps('api-session/alice');
     await backend.commitOverlay('alice', 'test commit');
 
-    // The merge "succeeds" on GitHub, but re-fetching this path from the
-    // branch's new HEAD fails (e.g. the merge deleted it) — the refresh must
-    // not just keep serving the pre-merge content as if it were still current.
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'POST' && url.endsWith('/merges')) return { status: 201, body: { sha: 'merge-commit-sha' } };
-      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) return { status: 404, body: { message: 'Not Found' } };
-      return null;
-    });
+    // No mergeBranch() call at all — simulates a conflict resolved directly on
+    // GitHub, another replica's push, or SessionBranchManager.commitBatch.
+    // Nothing here is specific to a merge: the branch's content just changed.
+    branch.current = JSON.stringify({ v: 'pushed-from-elsewhere' });
+    branch.sha = 'external-blob-sha';
 
-    await backend.mergeBranch('api-session/alice');
-    expect(backend.getCommittedOverlayBaseline('alice')?.has('taxonomy/nodes.json')).toBe(false);
+    const staleErr = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "from a stale tab"}', { baseSha: v1.version })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+    expect(staleErr?.httpStatus).toBe(409);
+    expect(staleErr?.code).toBe('WRITE_CONFLICT');
 
     backend.shutdown();
   });
-});
 
-// t/4203 (TL "N3", p/775#64): deleteBranch clears the committed-session
-// baseline alongside the pending overlay — previously wired with no test to
-// catch a regression.
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — deleteBranch clears the committed-session baseline (t/4203)', () => {
-  it('after deleteBranch, the committed baseline for that user is gone', async () => {
-    const backend = await createBackend();
-    const manager = await createSessionManager(backend);
+  it('a failed version lookup throws a 503 ActionableError with a WARN, and the save is not staged', async () => {
+    const recorder = createTestRecorder();
+    const backend = await createBackend(recorder);
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    const branch = sessionBranchState('api-session/alice');
+    branch.current = '{"test": true}';
+    branch.sha = 'blob1';
 
-    await manager.ensureBranch('alice');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const v1 = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-    apiHandlers.push((url, init) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
-        return { status: 200, body: { object: { sha: 'branch-head-sha' } } };
-      }
-      if (method === 'POST' && url.endsWith('/git/trees')) return { status: 201, body: { sha: 'new-tree-sha' } };
-      if (method === 'POST' && url.endsWith('/git/commits')) return { status: 201, body: { sha: 'new-commit-sha' } };
-      if (method === 'PATCH' && url.includes('/git/refs/heads/api-session/alice')) return { status: 200, body: {} };
-      return null;
-    });
+    branch.current = '{"v": 1}';
+    branch.sha = v1.version;
+    mockCommitSteps('api-session/alice');
     await backend.commitOverlay('alice', 'test commit');
-    expect(backend.getCommittedOverlayBaseline('alice')?.size).toBe(1);
 
-    await manager.deleteBranch('alice', 'manual');
+    // The live lookup can't verify the current version (e.g. a transient
+    // GitHub error, or any other fetch failure).
+    branch.fail = true;
 
-    expect(backend.getCommittedOverlayBaseline('alice')).toBeUndefined();
+    const err = await backend.writeFile('/taxonomy/nodes.json', '{"edit": "should not land"}', { baseSha: v1.version })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(503);
+    expect(err?.code).toBe('VERSION_UNAVAILABLE');
+    // Never staged — the precondition lookup failed before writeToOverlay ran.
+    // (the overlay map itself is gone post-commit, so this is undefined, not
+    // false — toBeFalsy() covers both rather than over-asserting the shape).
+    expect(backend.getSessionOverlay('alice')?.has('taxonomy/nodes.json')).toBeFalsy();
+    expect(recorder.events.find(e => e.level === 'warn' && e.message.includes('failing closed'))).toBeDefined();
+
+    backend.shutdown();
+  });
+
+  it('ref === baseBranch: readFileWithVersion keeps using the manifest/disk-cache path, unchanged', async () => {
+    const backend = await createBackend();
+    // No session context — the effective ref is main (the base branch).
+
+    const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+
+    // Falls through (no overlay) to a fresh GitHub fetch via the unchanged
+    // manifest/disk-cache path — not the new session-branch live-fetch helper.
+    expect(result).toEqual({ content: '{"test": true}', version: 'blob-sha' });
 
     backend.shutdown();
   });
