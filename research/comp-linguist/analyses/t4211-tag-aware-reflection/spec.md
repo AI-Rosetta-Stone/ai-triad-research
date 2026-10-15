@@ -129,6 +129,7 @@ This guidance is **advisory**. The gate in §3 is what enforces the rule.
 ## 6. Measurement (CL)
 
 - **M0 (done):** the baseline in §1.1.
+- **M1 result (2026-10-15): the gate was not met.** See `m1-report.md`. The judge v2 changes, the constructed challenge set, and the interim "tension or conflict, confirm before apply" rule replace the go-live condition below.
 - **M1, before the gate goes live (calibration):** run the judge offline over all 177 baseline edits. Each edit's custodians are computed as for an untagged seat, so `C` is the target's tag souls.
   - Report the `consistent`, `tension` and `conflict` counts, each with n.
   - Hand-label a stratified sample of at least 30 edits (spanning the three target classes, with at least 5 judged `conflict` and 5 judged `consistent`, so agreement can't be degenerate). Report agreement with the judge, as counts plus Cohen's κ with its n and prevalence (statistic-provenance rule).
