@@ -244,6 +244,51 @@ function isEvidenceVerified(evidence: string, sourceText: string): boolean {
   return normalizeCited(sourceText).includes(normEvidence);
 }
 
+function parseBoundaryChecks(
+  raw: unknown[],
+  soul: string,
+  verdict: string,
+): BoundaryCheckEntry[] | CustodianUnchecked {
+  const result: BoundaryCheckEntry[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') {
+      return { unchecked: `malformed boundary_checks entry for custodian ${soul}` };
+    }
+    const e = entry as Record<string, unknown>;
+    if (typeof e.boundary !== 'string' || typeof e.asserted !== 'boolean') {
+      return { unchecked: `malformed boundary_checks entry for custodian ${soul}` };
+    }
+    if (e.asserted && verdict !== 'conflict') {
+      return { unchecked: `boundary_checks asserted:true for custodian ${soul} but verdict is "${verdict}" — inconsistent` };
+    }
+    result.push({ boundary: e.boundary, asserted: e.asserted });
+  }
+  return result;
+}
+
+function validateConflictFields(
+  r: Record<string, unknown>,
+  soul: string,
+  custodian: CustodianCheckSoul,
+  sourceText: string,
+  boundary_checks: BoundaryCheckEntry[],
+): CustodianVerdictRow | CustodianUnchecked {
+  const cited = r.cited === null || r.cited === undefined ? null : String(r.cited);
+  if (!cited) return { unchecked: `conflict verdict for ${soul} has no citation — cannot verify` };
+  if (!isCitationVerified(cited, custodian)) {
+    return { unchecked: `conflict verdict for ${soul} has an unverifiable citation — cannot verify` };
+  }
+  const rawEvidence = r.evidence === null || r.evidence === undefined ? null : String(r.evidence);
+  if (!rawEvidence) {
+    return { unchecked: `conflict verdict for ${soul} has no evidence span — cannot verify` };
+  }
+  if (!isEvidenceVerified(rawEvidence, sourceText)) {
+    return { unchecked: `conflict verdict for ${soul} has an unverifiable evidence span — cannot trust output` };
+  }
+  const reason = typeof r.reason === 'string' ? r.reason : String(r.reason ?? '');
+  return { soul, verdict: 'conflict', boundary_checks, cited, reason, evidence: rawEvidence };
+}
+
 /** Validate one verdict row from the model output. Returns the row or an unchecked sentinel. */
 function validateSingleVerdict(
   r: Record<string, unknown>,
@@ -255,46 +300,18 @@ function validateSingleVerdict(
   if (typeof verdict !== 'string' || !VALID_VERDICTS.has(verdict)) {
     return { unchecked: `invalid verdict value "${String(verdict)}" for custodian ${soul}` };
   }
-
-  // Validate boundary_checks and enforce the asserted-true → conflict invariant.
   if (!Array.isArray(r.boundary_checks)) {
     return { unchecked: `missing or invalid boundary_checks for custodian ${soul}` };
   }
-  const boundary_checks: BoundaryCheckEntry[] = [];
-  for (const entry of r.boundary_checks as unknown[]) {
-    if (!entry || typeof entry !== 'object') {
-      return { unchecked: `malformed boundary_checks entry for custodian ${soul}` };
-    }
-    const e = entry as Record<string, unknown>;
-    if (typeof e.boundary !== 'string' || typeof e.asserted !== 'boolean') {
-      return { unchecked: `malformed boundary_checks entry for custodian ${soul}` };
-    }
-    if (e.asserted && verdict !== 'conflict') {
-      return { unchecked: `boundary_checks asserted:true for custodian ${soul} but verdict is "${verdict}" — inconsistent` };
-    }
-    boundary_checks.push({ boundary: e.boundary, asserted: e.asserted });
-  }
-
+  const bcResult = parseBoundaryChecks(r.boundary_checks, soul, verdict);
+  if ('unchecked' in bcResult) return bcResult;
+  if (verdict === 'conflict') return validateConflictFields(r, soul, custodian, sourceText, bcResult);
   const cited = r.cited === null || r.cited === undefined ? null : String(r.cited);
-  if (verdict === 'conflict') {
-    if (!cited) return { unchecked: `conflict verdict for ${soul} has no citation — cannot verify` };
-    if (!isCitationVerified(cited, custodian)) {
-      return { unchecked: `conflict verdict for ${soul} has an unverifiable citation — cannot verify` };
-    }
-    const rawEvidence = r.evidence === null || r.evidence === undefined ? null : String(r.evidence);
-    if (!rawEvidence) {
-      return { unchecked: `conflict verdict for ${soul} has no evidence span — cannot verify` };
-    }
-    if (!isEvidenceVerified(rawEvidence, sourceText)) {
-      return { unchecked: `conflict verdict for ${soul} has an unverifiable evidence span — cannot trust output` };
-    }
-    return { soul, verdict: verdict as CustodianVerdict, boundary_checks, cited, reason: typeof r.reason === 'string' ? r.reason : String(r.reason ?? ''), evidence: rawEvidence };
-  }
   const reason = typeof r.reason === 'string' ? r.reason : String(r.reason ?? '');
   if (verdict === 'tension' && cited && !isCitationVerified(cited, custodian)) {
-    return { soul, verdict: verdict as CustodianVerdict, boundary_checks, cited: null, reason, citation_unverified: true };
+    return { soul, verdict: verdict as CustodianVerdict, boundary_checks: bcResult, cited: null, reason, citation_unverified: true };
   }
-  return { soul, verdict: verdict as CustodianVerdict, boundary_checks, cited, reason };
+  return { soul, verdict: verdict as CustodianVerdict, boundary_checks: bcResult, cited, reason };
 }
 
 /**
