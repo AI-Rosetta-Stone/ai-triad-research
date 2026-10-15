@@ -71,6 +71,8 @@ async function runCustodianCheck(
   edit: ReflectionEdit, targetTags: string[], custodians: string[], ctx: AnnotateContext,
 ): Promise<{ verdicts?: CustodianVerdictRow[]; unchecked?: string }> {
   try {
+    // The same souls go to the prompt and the parser: the parser checks each citation against them (#3300).
+    const souls = custodians.map(custodianSoul);
     const prompt = buildCustodianCheckPrompt({
       editType: edit.edit_type as 'revise' | 'qualify' | 'deprecate',
       currentLabel: edit.current_label ?? '',
@@ -80,10 +82,10 @@ async function runCustodianCheck(
       rationale: edit.rationale,
       nodeTags: targetTags,
       seatTag: ctx.seatTag,
-      custodians: custodians.map(custodianSoul),
+      custodians: souls,
     });
     const { text } = await ctx.generateText(prompt, ctx.model, undefined, 0);
-    const out = parseCustodianCheckOutput(text, custodians);
+    const out = parseCustodianCheckOutput(text, souls);
     if ('unchecked' in out) {
       getGlobalRecorder()?.record({
         type: 'state.error', component: 'reflection-tag-check', level: 'warn', debate_id: ctx.debateId,

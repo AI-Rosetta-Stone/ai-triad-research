@@ -20,6 +20,10 @@ function makeEdit(over: Partial<ReflectionEdit> = {}): ReflectionEdit {
   };
 }
 
+// Real Skeptic-Institutional boundary text: the D-2 parser verifies each citation against the custodian soul (#3300).
+const HARD_BOUNDARY = 'The speed of capability gains is not the speed of societal impact';
+const SOFT_BOUNDARY = 'Existing frameworks are adequate for a given sector';
+
 const judgeSays = (verdicts: { soul: string; verdict: string; cited?: string | null }[]) =>
   vi.fn().mockResolvedValue({ text: JSON.stringify({ verdicts: verdicts.map(v => ({ cited: null, reason: 'because', ...v })) }) });
 
@@ -97,15 +101,15 @@ describe('R-3 evaluateTagGate: each relation and verdict', () => {
 
   it('a conflict verdict is refused and quotes the cited boundary', async () => {
     const edit = makeEdit();
-    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'conflict', cited: 'Resilience over prevention' }]) });
+    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'conflict', cited: HARD_BOUNDARY }]) });
     const g = gate(edit, ['critical', 'institutional']);
     expect(g.block).toBe('conflict');
-    expect(g.reason).toContain('Resilience over prevention');
+    expect(g.reason).toContain(HARD_BOUNDARY);
   });
 
   it('tension is shown in the stamp but does not block', async () => {
     const edit = makeEdit();
-    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'tension', cited: 'x' }]) });
+    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'tension', cited: SOFT_BOUNDARY }]) });
     expect(edit.tag_check!.verdicts![0].verdict).toBe('tension');
     expect(gate(edit, ['critical', 'institutional']).block).toBeNull();
   });
