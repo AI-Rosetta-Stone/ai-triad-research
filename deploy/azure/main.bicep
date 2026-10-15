@@ -1086,7 +1086,13 @@ resource authConfigStaging 'Microsoft.App/containerApps/authConfigs@2024-10-02-p
 }
 
 // ── Budget Alert ──
-// Alerts at 80% and 100% of $5/month to catch cost overruns early.
+// Monthly Azure cost budget for this resource group (t/4181). PI set the limit to $30/month on 2026-10-15
+// (was $5 since t/3155). Alerts at 50% and 80% actual, 100% actual, and 100% FORECAST, so an overrun is
+// flagged mid-month while there is still time to act, not only after the money is spent.
+// Gemini spend on the operator pool keys is billed outside Azure and is not in this budget.
+
+@description('Monthly Azure cost limit for the resource group, in USD (PI, 2026-10-15).')
+param monthlyBudgetUsd int = 30
 
 @description('Email address for budget alerts')
 param budgetAlertEmail string = ''
@@ -1100,12 +1106,18 @@ resource budget 'Microsoft.Consumption/budgets@2023-11-01' = if (budgetAlertConf
   name: 'budget-aitriad-monthly'
   properties: {
     category: 'Cost'
-    amount: 5
+    amount: monthlyBudgetUsd
     timeGrain: 'Monthly'
     timePeriod: {
       startDate: budgetStartDate
     }
     notifications: {
+      warning50: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 50
+        contactEmails: [ budgetAlertEmail ]
+      }
       warning80: {
         enabled: true
         operator: 'GreaterThanOrEqualTo'
@@ -1116,6 +1128,13 @@ resource budget 'Microsoft.Consumption/budgets@2023-11-01' = if (budgetAlertConf
         enabled: true
         operator: 'GreaterThanOrEqualTo'
         threshold: 100
+        contactEmails: [ budgetAlertEmail ]
+      }
+      forecast100: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 100
+        thresholdType: 'Forecasted'
         contactEmails: [ budgetAlertEmail ]
       }
     }
