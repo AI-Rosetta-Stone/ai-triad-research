@@ -6,7 +6,7 @@ import type { DebateStore } from '../types';
 import type { ReflectionEdit, ReflectionResult, ReflectionDecision } from '../types';
 import { withReflectionDecision, appliedDecision, dismissedDecision } from './reflectionDecisions';
 import { loadPovTagRegistry, validatePovTags } from '@lib/schema/povTags';
-import { annotateTagChecks, evaluateTagGate, TAG_GATE_ENFORCED } from './reflectionTagGate';
+import { annotateTagChecks, evaluateTagGate, TAG_GATE_ENFORCED, tagsFingerprint } from './reflectionTagGate';
 import type {
   DebateSession,
   SpeakerId,
@@ -117,7 +117,10 @@ export interface DebateReflectionSlice {
   /** Apply a `propose_new` proposal (t/1773): create the new POV node AND persist its
    *  proposed edges atomically (one save) — no orphaned node. Edge targets are
    *  re-validated against live node ids at apply time. */
-  applyReflectionProposal: (pover: string, proposalIndex: number) => Promise<{ ok: boolean; error?: string; createdNodeId?: string }>;
+  /** `povTags` (t/4214 R-6b) is the reviewer's choice of tags for the new node; omitted, the seat's own tag applies
+   *  (R-4). An empty array leaves the node untagged, which takes it out of every wing's Scope (t/3955), so it is
+   *  recorded as a coverage gap. */
+  applyReflectionProposal: (pover: string, proposalIndex: number, options?: { povTags?: string[] }) => Promise<{ ok: boolean; error?: string; createdNodeId?: string }>;
   dismissReflectionProposal: (pover: string, proposalIndex: number) => void;
   retryEnrichment: (nodeId: string, pov: 'accelerationist' | 'safetyist' | 'skeptic') => Promise<void>;
 }
@@ -507,7 +510,13 @@ function collectKnownNodeIds(includeSituations = true): Set<string> {
  */
 async function createProposalNode(
   povKey: Pov, proposal: NewPovItemProposal, taxStore: TaxStore, get: ReflectionGet, pover: string, proposalIndex: number,
+  reviewerTags?: string[],
 ): Promise<AddNodeResult> {
+  const tagProblems = reviewerTagProblems(povKey, reviewerTags);
+  if (tagProblems) {
+    getGlobalRecorder()?.record({ type: 'state.error', component: 'reflection-proposal', level: 'warn', message: 'applyReflectionProposal.result', data: { ok: false, error: 'invalid reviewer pov_tags', pover, proposalIndex, pov_tags: reviewerTags, problems: tagProblems } });
+    return { ok: false, error: `Those tags can't be applied: ${tagProblems.join('; ')}` };
+  }
   // Create the new POV node (mirrors the add path; t/1564 collision backstop).
   const preExistingIds = collectKnownNodeIds(false);
   let newId = taxStore.createPovNode(povKey, proposal.category);
@@ -524,7 +533,7 @@ async function createProposalNode(
     return { ok: false, error: `Generated ID ${newId} already exists — refusing to overwrite. Please retry.` };
   }
   const debateId = get().activeDebateId;
-  const povTags = proposalNodeTags(povKey, newId, pover, get);
+  const povTags = reviewerTags !== undefined ? reviewerNodeTags(povKey, newId, pover, reviewerTags, get) : proposalNodeTags(povKey, newId, pover, get);
   taxStore.updatePovNode(povKey, newId, {
     label: proposal.label,
     description: proposal.description,
@@ -658,6 +667,34 @@ const POV_PREFIX_BY_KEY: Record<Pov, string> = {
   safetyist: 'saf-',
   skeptic: 'skp-',
 };
+
+/** Problems with the reviewer's tags for a new node of this POV (t/4214 R-6b), checked before the node is created. */
+function reviewerTagProblems(povKey: Pov, reviewerTags: string[] | undefined): string[] | null {
+  if (!reviewerTags || reviewerTags.length === 0) return null;
+  const problems = validatePovTags(`${POV_PREFIX_BY_KEY[povKey]}new`, reviewerTags);
+  return problems.length > 0 ? problems : null;
+}
+
+/** The reviewer's (already validated) tags for the new node; a choice that differs from the seat's tag is recorded. */
+function reviewerNodeTags(povKey: Pov, nodeId: string, pover: string, reviewerTags: string[], get: ReflectionGet): string[] | undefined {
+  const seatTag = get().activeDebate?.seat_tags?.[pover as SpeakerId]?.pov_tag;
+  const seatDefault = seatTag ? [seatTag] : [];
+  if (tagsFingerprint(reviewerTags) !== tagsFingerprint(seatDefault)) {
+    getGlobalRecorder()?.record({
+      type: 'state.change', component: 'reflection-proposal', level: 'info',
+      message: 'reflection.new_node_tags_set_by_reviewer',
+      data: { node_id: nodeId, pov: povKey, pover, seat_tag: seatTag ?? null, pov_tags: reviewerTags },
+    });
+  }
+  if (reviewerTags.length > 0) return [...reviewerTags];
+  // Untagged is out of every wing's Scope, not shared ground (CL #3315): the same coverage-gap WARN as R-4 (spec §3.1).
+  getGlobalRecorder()?.record({
+    type: 'state.change', component: 'reflection-proposal', level: 'warn',
+    message: 'reflection.new_node_untagged: the reviewer cleared every wing tag; the node is out of Scope for every wing and is a coverage gap for the tag-proposal pipeline',
+    data: { node_id: nodeId, pov: povKey, pover, reviewer_choice: true },
+  });
+  return undefined;
+}
 
 /**
  * t/4214 R-1 (D-3): the seat's tag and the POV's tag labels for the reflection prompt's tag guidance. A POV with
@@ -1146,7 +1183,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
 
   // Apply a propose_new proposal (t/1773, ruling B): create the new POV node AND persist
   // its proposed edges atomically — per-camp, independent, no consensus integration.
-  applyReflectionProposal: async (pover: string, proposalIndex: number) => {
+  applyReflectionProposal: async (pover: string, proposalIndex: number, options?: { povTags?: string[] }) => {
     const startTime = performance.now();
     const { reflections } = get();
     const reflection = reflections.find(r => r.pover === pover);
@@ -1183,7 +1220,7 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
       return { ok: false, error: 'Edges file not loaded — cannot persist proposed edges.' };
     }
 
-    const createResult = await createProposalNode(povKey, proposal, taxStore, get, pover, proposalIndex);
+    const createResult = await createProposalNode(povKey, proposal, taxStore, get, pover, proposalIndex, options?.povTags);
     if (!createResult.ok) return { ok: false, error: createResult.error };
     const newId = createResult.nodeId;
 

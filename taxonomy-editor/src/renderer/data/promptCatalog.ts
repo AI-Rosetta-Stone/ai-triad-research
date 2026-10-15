@@ -545,6 +545,20 @@ export const PROMPT_CATALOG: PromptCatalogEntry[] = [
     applicableDataSources: ['taxonomyNodes', 'commitments', 'argumentNetwork'],
   },
   {
+    // EXPOSE (CL t/4214#4): its verdicts can block a reflection edit in the ReflectionsPanel (R-6), so a reviewer
+    // must be able to inspect the prompt behind a block.
+    id: 'debate-reflection-tag-check',
+    title: 'Debate: Reflection Tag Check',
+    description: 'Asks a judge whether a reflection edit to a tagged node stays true to the other wings that hold it: consistent, tension or conflict, with the boundary or value it cites.',
+    source: 'lib/debate/prompts/reflectionTagCheck.ts',
+    template: '(Template requires runtime context — view in Prompt Inspector or Full Prompt tab)',
+    group: 'debate-analysis',
+    purpose: 'Fires after reflection for each revise, qualify or deprecate edit to a node another wing co-owns, or to an untagged node (Skeptic today). One call per edit at temperature 0. The ReflectionsPanel shows each custodian wing\'s verdict and citation; a conflict, and under the interim rule a tension, holds the edit until the reviewer confirms the override (t/4214).',
+    phase: 'concluding',
+    applicableDataSources: ['taxonomyNodes'],
+    builders: ['buildCustodianCheckPrompt'],
+  },
+  {
     id: 'debate-news-report',
     title: 'Debate: News Report',
     description: 'Transforms a completed debate into a 700-900 word news-style explainer article with headline, lede, interleaved perspectives, common ground, crux classification, and policy implications.',
