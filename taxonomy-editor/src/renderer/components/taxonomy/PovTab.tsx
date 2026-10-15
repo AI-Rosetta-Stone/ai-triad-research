@@ -31,96 +31,13 @@ import { CruxDetail } from '../debate/CruxesTab';
 import { ToolbarPaneRenderer, isFullWidthPanel, PhoneToolClose } from '../shared/ToolbarPaneRenderer';
 import { LineageDetailView } from '../shared/LineageDetailView';
 import { ExternalEmbed } from '../shared/ExternalEmbed';
-import { POVER_INFO } from '@lib/debate/types';
-import type { SpeakerId } from '@lib/debate/types';
-
-/** Map taxonomy POV name → POVER_INFO speaker key (identity map after speaker rename) */
-const POV_TO_SPEAKER: Record<string, Exclude<SpeakerId, 'user'>> = {
-  accelerationist: 'accelerationist',
-  safetyist: 'safetyist',
-  skeptic: 'skeptic',
-};
+import { SoulDocDialog } from './SoulDocDialog';
 import { api } from '@bridge';
 import { useNodeConflicts } from '../conflict/edit-conflicts';
 import { useSyncStatus } from '../../hooks/useSyncStatus';
 
 interface PovTabProps {
   pov: Pov;
-}
-
-function SoulDocDialog({ pov, onClose }: { pov: string; onClose: () => void }) {
-  const speakerKey = POV_TO_SPEAKER[pov.toLowerCase()];
-  const info = speakerKey ? POVER_INFO[speakerKey] : undefined;
-  if (!info) return null;
-
-  const infoRec = info as unknown as Record<string, unknown>;
-  const voice = infoRec.voice as Record<string, string> | undefined;
-  const antiPatterns = infoRec.anti_patterns as string[] | undefined;
-  const valueHierarchy = infoRec.value_hierarchy as string[] | undefined;
-  const epistemicStance = infoRec.epistemic_stance as string[] | undefined;
-  const boundaries = info.boundaries ?? { hardcoded: [], softcoded: [] };
-
-  return (
-    <div className="dialog-overlay" onClick={onClose}>
-      <div className="soul-doc-dialog" onClick={e => e.stopPropagation()}>
-        <div className="soul-doc-header">
-          <h2 className="soul-doc-title">{info.label} Soul Document</h2>
-          <button className="btn btn-ghost soul-doc-close-btn" onClick={onClose}>&times;</button>
-        </div>
-        <div className="soul-doc-personality">{info.personality}</div>
-
-        {voice && (
-          <section className="soul-doc-section">
-            <h3 className="soul-doc-section-title">Voice</h3>
-            <div className="soul-doc-field"><strong>Disposition:</strong> {voice.disposition}</div>
-            <div className="soul-doc-field"><strong>Style:</strong> {voice.style}</div>
-            <div className="soul-doc-field"><strong>Reasoning:</strong> {voice.reasoning}</div>
-            <div className="soul-doc-field"><strong>Evidence:</strong> {voice.evidence}</div>
-            <div className="soul-doc-field"><strong>Signature:</strong> {voice.signature}</div>
-          </section>
-        )}
-
-        {valueHierarchy && valueHierarchy.length > 0 && (
-          <section className="soul-doc-section">
-            <h3 className="soul-doc-section-title">Value Hierarchy</h3>
-            <ol className="soul-doc-list">{valueHierarchy.map((v, i) => <li key={i}>{v}</li>)}</ol>
-          </section>
-        )}
-
-        {epistemicStance && epistemicStance.length > 0 && (
-          <section className="soul-doc-section">
-            <h3 className="soul-doc-section-title">Epistemic Stance</h3>
-            <ul className="soul-doc-list">{epistemicStance.map((s, i) => <li key={i}>{s}</li>)}</ul>
-          </section>
-        )}
-
-        {(boundaries.hardcoded.length > 0 || boundaries.softcoded.length > 0) && (
-          <section className="soul-doc-section">
-            <h3 className="soul-doc-section-title">Boundaries</h3>
-            {boundaries.hardcoded.length > 0 && (
-              <div className="soul-doc-boundary-group">
-                <div className="soul-doc-boundary-label soul-doc-boundary-label-hard">Identity (never concede)</div>
-                <ul className="soul-doc-list">{boundaries.hardcoded.map((b, i) => <li key={i}>{b}</li>)}</ul>
-              </div>
-            )}
-            {boundaries.softcoded.length > 0 && (
-              <div>
-                <div className="soul-doc-boundary-label soul-doc-boundary-label-soft">Default (can evolve)</div>
-                <ul className="soul-doc-list">{boundaries.softcoded.map((b, i) => <li key={i}>{b}</li>)}</ul>
-              </div>
-            )}
-          </section>
-        )}
-
-        {antiPatterns && antiPatterns.length > 0 && (
-          <section>
-            <h3 className="soul-doc-section-title">Anti-Patterns</h3>
-            <ul className="soul-doc-list">{antiPatterns.map((a, i) => <li key={i}>{a}</li>)}</ul>
-          </section>
-        )}
-      </div>
-    </div>
-  );
 }
 
 type StepStatus = 'pending' | 'running' | 'ok' | 'error' | 'polling';
@@ -467,7 +384,8 @@ export function PovTab({ pov }: PovTabProps) {
     }
   }, [syncStatus.main_updated_available, nodeConflicts.enabled, nodeConflicts.refresh]);
 
-  const [showSoulDoc, setShowSoulDoc] = useState(false);
+  // t/4200: null = closed; otherwise the selected node's pov_tags, so the dialog opens on its tag's soul.
+  const [soulDoc, setSoulDoc] = useState<{ nodeTags?: readonly string[] } | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('label');
   const [dtTierFilter, setDtTierFilter] = useState<DebateTestedTier | 'all'>('all');
   const [dtStaleOnly, setDtStaleOnly] = useState(false);
@@ -842,7 +760,7 @@ export function PovTab({ pov }: PovTabProps) {
               <button className="pane-collapse-btn" onClick={() => setListCollapsed(true)} title="Collapse">&lsaquo;</button>
             </div>
           </div>
-          {showSoulDoc && <SoulDocDialog pov={pov} onClose={() => setShowSoulDoc(false)} />}
+          {soulDoc && <SoulDocDialog pov={pov} nodeTags={soulDoc.nodeTags} onClose={() => setSoulDoc(null)} />}
           {isDtSort && (
             <div className="dt-filter-bar">
               <select
@@ -954,7 +872,7 @@ export function PovTab({ pov }: PovTabProps) {
                 </div>
               )}
               {selectedNode ? (
-                <NodeDetail pov={pov} node={selectedNode} onPin={handlePin} onSimilarSearch={handleSimilarSearch} onRelated={handleRelated} onOpenSoulDoc={() => setShowSoulDoc(true)} conflict={nodeConflicts.conflicts.get(selectedNode.id)} resolveUrl={syncStatus.pr_url} />
+                <NodeDetail pov={pov} node={selectedNode} onPin={handlePin} onSimilarSearch={handleSimilarSearch} onRelated={handleRelated} onOpenSoulDoc={(nodeTags) => setSoulDoc({ nodeTags })} conflict={nodeConflicts.conflicts.get(selectedNode.id)} resolveUrl={syncStatus.pr_url} />
               ) : (
                 <div className="detail-panel-empty">Select a node to edit</div>
               )}

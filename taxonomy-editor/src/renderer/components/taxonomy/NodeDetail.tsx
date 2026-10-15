@@ -86,8 +86,9 @@ interface NodeDetailProps {
   onPin?: () => void;
   onSimilarSearch?: () => void;
   onRelated?: () => void;
-  /** Opens the camp Soul Document dialog (t/2827) — rendered in the header icon row, Advanced-view only. */
-  onOpenSoulDoc?: () => void;
+  /** Opens the camp Soul Document dialog (t/2827) — rendered in the header icon row, Advanced-view only.
+   *  Gets the node's pov_tags, so the dialog opens on that tag's soul (t/4200). */
+  onOpenSoulDoc?: (nodeTags?: readonly string[]) => void;
   chipDepth?: number;
   conflict?: NodeConflict;
   resolveUrl?: string | null;
@@ -411,7 +412,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           {/* Soul-doc bookmark relocated here (t/2827), right of the soul-doc icon; Advanced-view
               only (same bookmark-control gate as t/2826 — not an always-visible control). */}
           {viewMode === 'advanced' && onOpenSoulDoc && (
-            <button className="nd-header-btn" onClick={onOpenSoulDoc} title="Soul document" aria-label="Soul document">&#x1f4dc;</button>
+            <button className="nd-header-btn" onClick={() => onOpenSoulDoc(node.pov_tags)} title="Soul document" aria-label="Soul document">&#x1f4dc;</button>
           )}
           <EditConflictBadge conflict={conflict} resolveUrl={resolveUrl} />
         </div>
