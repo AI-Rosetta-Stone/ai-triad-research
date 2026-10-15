@@ -40,17 +40,21 @@ function parseArgs(argv) {
   return args;
 }
 
-async function timedFetch(url, init) {
+/** `captureBody` (t/4223): when true, return the response text and its ETag instead of
+ *  draining-and-discarding — the editor PUT needs the SAME GET's body and ETag (a second
+ *  GET could race a concurrent editor and hand back a different, now-stale ETag). */
+export async function timedFetch(url, init, { captureBody = false } = {}) {
   const start = performance.now();
   try {
     const res = await fetch(url, init);
     const elapsedMs = performance.now() - start;
-    // Drain the body so keep-alive sockets are reusable and we measure a complete
-    // response, not just headers.
-    await res.arrayBuffer().catch(() => {});
-    return { elapsedMs, ok: res.ok, status: res.status };
+    const etag = res.headers.get('etag');
+    const body = captureBody
+      ? await res.text().catch(() => null)
+      : await res.arrayBuffer().then(() => null).catch(() => null);
+    return { elapsedMs, ok: res.ok, status: res.status, etag, body };
   } catch (err) {
-    return { elapsedMs: performance.now() - start, ok: false, status: 0, error: String(err) };
+    return { elapsedMs: performance.now() - start, ok: false, status: 0, error: String(err), etag: null, body: null };
   }
 }
 
@@ -97,7 +101,7 @@ async function readerIteration(baseUrl, cookie) {
  *  wall-clock state across iterations). Staging-only by construction — this script is
  *  never pointed at prod (enforced by the PS wrapper, not here). */
 let editorIterationMs = 0;
-async function editorIteration(baseUrl, iterationIntervalMsEstimate, cookie) {
+export async function editorIteration(baseUrl, iterationIntervalMsEstimate, cookie) {
   const headers = cookie ? { cookie } : undefined;
   const results = await readerIteration(baseUrl, cookie);
   editorIterationMs += iterationIntervalMsEstimate;
@@ -107,20 +111,30 @@ async function editorIteration(baseUrl, iterationIntervalMsEstimate, cookie) {
     // Idempotent no-op PUT: read-then-write-the-same-document, so the "save" exercises
     // the write path and session-branch machinery under load without corrupting the
     // staging taxonomy content.
-    const getResult = await timedFetch(`${baseUrl}/api/taxonomy/${pov}`, { headers });
+    //
+    // t/4223: a single GET supplies BOTH the PUT body and the If-Match precondition's
+    // ETag (the old double-GET was wasteful and its second call could race a concurrent
+    // editor, handing back an ETag that no longer matched the body already in hand).
+    // Since #3266 (t/4184/t/4187), the server 428s a conditionless PUT — send If-Match
+    // when the GET returned an ETag, and warn (not fail) when it didn't, so a server
+    // predating #3266 still gets exercised the same way it always has.
+    const getResult = await timedFetch(`${baseUrl}/api/taxonomy/${pov}`, { headers }, { captureBody: true });
     results.push(getResult);
-    if (getResult.ok) {
-      // The GET body isn't retained (timedFetch drains it) — re-fetch is wasteful but
-      // keeps this driver dependency-free and the PUT body honest (same shape the
-      // client would send). Acceptable: saves are ~1/120s of editor traffic.
-      const body = await fetch(`${baseUrl}/api/taxonomy/${pov}`, { headers }).then((r) => r.text()).catch(() => null);
-      if (body) {
-        results.push(await timedFetch(`${baseUrl}/api/taxonomy/${pov}`, {
-          method: 'PUT',
-          headers: { ...headers, 'content-type': 'application/json' },
-          body,
-        }));
+    if (getResult.ok && getResult.body) {
+      const putHeaders = { ...headers, 'content-type': 'application/json' };
+      if (getResult.etag) {
+        putHeaders['if-match'] = getResult.etag;
+      } else {
+        process.stderr.write(
+          `[load-test] WARN editor save: GET ${pov} returned no ETag — sending PUT without `
+          + `If-Match (pre-#3266 server, or ETag not yet enabled)\n`,
+        );
       }
+      results.push(await timedFetch(`${baseUrl}/api/taxonomy/${pov}`, {
+        method: 'PUT',
+        headers: putHeaders,
+        body: getResult.body,
+      }));
     }
   }
   return results;
@@ -157,6 +171,7 @@ async function runStep({ baseUrl, profile, concurrency, durationSec, debaterBack
   const latenciesMs = [];
   let errorCount = 0;
   let requestCount = 0;
+  let preconditionCount = 0;
   // Rough per-VU iteration pacing so `editor`'s 2-minute save cadence is approximated in
   // wall-clock terms regardless of how fast individual requests return.
   const vu = async () => {
@@ -170,7 +185,12 @@ async function runStep({ baseUrl, profile, concurrency, durationSec, debaterBack
       for (const s of samples) {
         requestCount += 1;
         latenciesMs.push(s.elapsedMs);
-        if (!s.ok) errorCount += 1;
+        // t/4223: 428 (no/stale If-Match) and 409 (a concurrent editor won the race) are
+        // the editor save's OWN expected outcomes under load, not server errors — folding
+        // them into errorCount would report the precondition mechanism working correctly
+        // as if the server were failing.
+        if (s.status === 428 || s.status === 409) preconditionCount += 1;
+        else if (!s.ok) errorCount += 1;
       }
       const elapsed = Date.now() - iterStart;
       if (elapsed < 200) await new Promise((r) => setTimeout(r, 200 - elapsed));
@@ -179,7 +199,7 @@ async function runStep({ baseUrl, profile, concurrency, durationSec, debaterBack
   const start = Date.now();
   await Promise.all(Array.from({ length: concurrency }, vu));
   const durationMs = Date.now() - start;
-  return summarizeStep({ latenciesMs, errorCount, requestCount, durationMs });
+  return summarizeStep({ latenciesMs, errorCount, requestCount, durationMs, preconditionCount });
 }
 
 async function getGithubRateLimitRemaining() {
@@ -230,7 +250,13 @@ async function main() {
   process.stdout.write(json + '\n');
 }
 
-main().catch((err) => {
-  process.stderr.write(`[load-test] FATAL: ${err?.stack || err}\n`);
-  process.exitCode = 1;
-});
+// CLI shim (t/4223): only run when this file is executed directly, not when imported as a
+// module — the same idiom as worktree-target-guard.mjs's own CLI shim. Without this guard,
+// `main()` ran unconditionally on import and threw "--base-url is required" the moment
+// run-load-test.test.mjs imported timedFetch/editorIteration for unit testing.
+if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('run-load-test.mjs')) {
+  main().catch((err) => {
+    process.stderr.write(`[load-test] FATAL: ${err?.stack || err}\n`);
+    process.exitCode = 1;
+  });
+}

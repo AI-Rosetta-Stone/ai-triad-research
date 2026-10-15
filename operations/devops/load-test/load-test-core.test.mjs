@@ -45,6 +45,25 @@ test('summarizeStep: computes error rate and rps correctly', () => {
   assert.equal(s.rps, 10);
 });
 
+test('summarizeStep: preconditionCount defaults to 0 for callers that do not pass it (t/4223)', () => {
+  const s = summarizeStep({ latenciesMs: [100], errorCount: 0, requestCount: 1, durationMs: 1000 });
+  assert.equal(s.preconditionCount, 0);
+});
+
+test('summarizeStep: preconditionCount is reported separately and does NOT inflate errorRatePct (t/4223)', () => {
+  // 5 428/409s and 0 real errors out of 10 requests — errorRatePct must stay 0, not 50%,
+  // since a 428/409 on the editor save is the precondition mechanism working as designed.
+  const s = summarizeStep({
+    latenciesMs: Array(10).fill(100),
+    errorCount: 0,
+    requestCount: 10,
+    durationMs: 1000,
+    preconditionCount: 5,
+  });
+  assert.equal(s.preconditionCount, 5);
+  assert.equal(s.errorRatePct, 0);
+});
+
 test('stepVerdict: breaches only on p95 over threshold', () => {
   const v = stepVerdict({ p95Ms: 2001, errorRatePct: 0 });
   assert.equal(v.breached, true);
