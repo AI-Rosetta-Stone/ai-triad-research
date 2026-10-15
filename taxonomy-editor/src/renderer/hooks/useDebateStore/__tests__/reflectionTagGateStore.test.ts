@@ -2,16 +2,16 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // t/4214 R-2 and R-3 end to end through the store: a Critical-wing Skeptic seat's edit to an Institutional-only node
-// is stamped `foreign` during requestReflections. With TAG_GATE_ENFORCED on (R-6), it is refused by
-// applyReflectionEdit and applied only with `allowCrossTag`, saved as a `cross_tag` override. Off (the default
-// until R-6, CL p/785#5), it applies with a would-block WARN and a note.
+// is stamped `foreign` during requestReflections. With TAG_GATE_ENFORCED on (the default since R-6), it is refused
+// by applyReflectionEdit and applied only with `allowCrossTag`, saved as a `cross_tag` override. Off, it applies with
+// a would-block WARN and a note (CL p/785#5).
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mockApi, mockTaxonomyState, makeSession } from './storeTestHarness';
 import { useDebateStore } from '../../useDebateStore';
 import type { ReflectionResult } from '../types';
 
-const { mockRecord, gateFlags } = vi.hoisted(() => ({ mockRecord: vi.fn(), gateFlags: { enforced: false } }));
+const { mockRecord, gateFlags } = vi.hoisted(() => ({ mockRecord: vi.fn(), gateFlags: { enforced: true } }));
 vi.mock('../slices/reflectionTagGate', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../slices/reflectionTagGate')>();
   return { ...actual, get TAG_GATE_ENFORCED() { return gateFlags.enforced; } };
@@ -50,15 +50,16 @@ const savedEdit = () => {
   return (entry?.metadata as { reflection_results: ReflectionResult[] }).reflection_results[0].edits[0];
 };
 
-afterEach(() => { mockTaxonomyState.skeptic = { nodes: [] } as never; gateFlags.enforced = false; });
+afterEach(() => { mockTaxonomyState.skeptic = { nodes: [] } as never; gateFlags.enforced = true; });
 
 describe('tag gate through the store (t/4214 R-2, R-3)', () => {
-  it('the gate ships unenforced until R-6 (CL p/785#5)', async () => {
+  it('the gate is enforced now that R-6 ships the confirm control (CL p/785#8)', async () => {
     const { TAG_GATE_ENFORCED } = await vi.importActual<typeof import('../slices/reflectionTagGate')>('../slices/reflectionTagGate');
-    expect(TAG_GATE_ENFORCED).toBe(false);
+    expect(TAG_GATE_ENFORCED).toBe(true);
   });
 
   it('unenforced: a foreign edit applies, with a would-block WARN and the reason as a note', async () => {
+    gateFlags.enforced = false;
     seedSkepticDebate(['institutional']);
     await useDebateStore.getState().requestReflections();
     const applied = await useDebateStore.getState().applyReflectionEdit('skeptic', 0);
@@ -70,6 +71,7 @@ describe('tag gate through the store (t/4214 R-2, R-3)', () => {
   });
 
   it('unenforced: an edit with no stamp (saved before #3307) applies', async () => {
+    gateFlags.enforced = false;
     seedSkepticDebate(['critical']);
     await useDebateStore.getState().requestReflections();
     delete useDebateStore.getState().reflections[0].edits[0].tag_check;
@@ -90,6 +92,7 @@ describe('tag gate through the store (t/4214 R-2, R-3)', () => {
     const refused = await useDebateStore.getState().applyReflectionEdit('skeptic', 0);
     expect(refused.ok).toBe(false);
     expect(refused.error).toMatch(/belongs to institutional, not critical/);
+    expect(refused.refusedBy).toBe('cross_tag'); // the panel arms the cross-wing override from this (R-6)
     expect(mockTaxonomyState.updatePovNode).not.toHaveBeenCalled();
     expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ message: 'applyReflectionEdit.refused_cross_tag' }));
 

@@ -147,22 +147,20 @@ export async function annotateTagChecks(edits: ReflectionEdit[], ctx: AnnotateCo
  * Interim rule (CL ruling t/4214#6, M1 calibration PR #3310): the judge is reliable at the flag level (κ 0.69) but
  * not yet at telling `tension` from `conflict` (κ 0.35, n=34). So both need the reviewer's confirmation before apply;
  * the verdict and citation are shown either way, and `conflict` is no stronger a block than `tension`.
- * OFF until R-6 lands: no UI passes `allowCrossTag` yet, so a block is a refusal, not a confirm-to-apply (CL
- * p/785#3). R-6 turns this on together with its confirm control.
+ * ON since R-6 (CL p/785#8): the ReflectionsPanel's confirm-then-override passes `allowCrossTag`.
  * LAPSES when the v2 judge (t/4225) passes M1 report §5.2: set this to false and `tension` goes back to never blocking.
  */
-export const TENSION_NEEDS_CONFIRMATION = false;
+export const TENSION_NEEDS_CONFIRMATION = true;
 
 /**
- * Whether a tag-gate block refuses the apply (CL p/785#5). OFF until R-6 ships the confirm control: with no UI path
- * to `allowCrossTag`, enforcing refused most Skeptic applies outright (371 of 377 nodes are tagged; pre-#3307 edits
- * have no stamp; a reviewer override makes the stamp stale; a failed judge call is `unchecked`). While off, a block
- * is recorded as a WARN (`applyReflectionEdit.cross_tag_would_block`) and returned as a note, and the edit applies.
- * R-6 sets this to true together with its confirm control and TENSION_NEEDS_CONFIRMATION.
+ * Whether a tag-gate block refuses the apply (CL p/785#5). ON since R-6, whose ReflectionsPanel shows the block
+ * reason and arms an explicit "Apply anyway (cross-wing)" override (`allowCrossTag`). Set to false only if that
+ * confirm path is lost: while off, a block is recorded as a WARN (`applyReflectionEdit.cross_tag_would_block`) and
+ * returned as a note, and the edit applies.
  */
-export const TAG_GATE_ENFORCED = false;
+export const TAG_GATE_ENFORCED = true;
 
-export type TagGateBlock ='foreign' | 'conflict' | 'tension' | 'unchecked' | 'stale';
+export type TagGateBlock = 'foreign' | 'conflict' | 'tension' | 'unchecked' | 'stale';
 
 export interface TagGateResult {
   /** Why the edit is refused without an override, or null when it may apply. */

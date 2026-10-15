@@ -418,3 +418,4 @@
   background: var(--bg-secondary);
   border-radius: 4px;
 }
+.rp-bulk-summary { font-size: 0.7rem; color: var(--text-muted); }
