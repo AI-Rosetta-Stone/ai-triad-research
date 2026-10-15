@@ -18,17 +18,18 @@ const { resolveEmbeddingsChunked } = await import('../ai/aiBackends');
 
 describe('resolveEmbeddingsChunked per-chunk timeout (t/2985)', () => {
   it('multi-chunk batch succeeds when each chunk fits the per-chunk budget', async () => {
-    // 3 chunks × ~15ms each = ~45ms aggregate. With an aggregate timeout of 30ms this
-    // would have failed under the old code; with a 30ms per-chunk budget each chunk passes.
+    // 3 chunks × ~5ms each = ~15ms aggregate. With an aggregate timeout of 500ms this
+    // would have failed under the old code; with a 500ms per-chunk budget each chunk passes
+    // with a wide margin (t/4206: a tight 15ms-compute/30ms-budget margin flaked under CI load).
     const chain = [{
       name: 'slow',
       compute: async (texts: string[]) => {
-        await new Promise(r => setTimeout(r, 15));
+        await new Promise(r => setTimeout(r, 5));
         return texts.map(() => [1]);
       },
     }];
     const texts = Array.from({ length: 6 }, (_, i) => `t${i}`);
-    const result = await resolveEmbeddingsChunked(texts, undefined, null, chain, 2, 30);
+    const result = await resolveEmbeddingsChunked(texts, undefined, null, chain, 2, 500);
     expect(result).toHaveLength(6);
     expect(result.every(v => Array.isArray(v) && v[0] === 1)).toBe(true);
   });
