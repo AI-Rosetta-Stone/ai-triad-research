@@ -182,3 +182,69 @@ export function validateEditEvidence(
   }
   return { supported, supportingClaimIds, unrelatedClaimIds, unresolvedEntries, reason };
 }
+
+// ── Tag-relation classifier (t/4213 D-1) ──────────────────────────────────
+
+/** A single tag entry from pov-tags.json, sufficient for relation classification. */
+export interface PovTagEntry {
+  id: string;
+  soul_doc: string;
+}
+
+/** How an edit seat's tag relates to the target node's tags (spec §2). */
+export type TagRelation =
+  | 'own'               // seat owns the target exclusively
+  | 'shared'            // seat co-owns the target with other tag souls
+  | 'foreign'           // target belongs to a different wing — refused unless reviewer overrides
+  | 'untagged_target'   // target is untagged — umbrella/all-tag custodians apply
+  | 'umbrella_on_tagged' // untagged seat editing a tagged target
+  | 'no_tags';          // POV has no tags — rule is a no-op
+
+/**
+ * Classify how the editing seat's tag relates to the target node's tags (spec §2 table).
+ *
+ * @param seatTag   The seat's pov_tag id (e.g. 'critical'), or null for an untagged seat.
+ * @param targetTags The target node's pov_tags array, or undefined/empty for an untagged node.
+ * @param registry  The POV's tag entries from pov-tags.json (pre-filtered to the POV).
+ *                  Pass [] when the POV has no tags — returns 'no_tags'.
+ * @returns relation and the custodian soul ids to check (empty when no check is needed).
+ */
+export function classifyTagRelation(
+  seatTag: string | null,
+  targetTags: string[] | undefined,
+  registry: PovTagEntry[],
+): { relation: TagRelation; custodians: string[] } {
+  if (registry.length === 0) return { relation: 'no_tags', custodians: [] };
+
+  const T = targetTags && targetTags.length > 0 ? targetTags : [];
+  const umbrellaSoul = registry[0].soul_doc.split('.')[0]; // e.g. 'skeptic'
+  const soulDocOf = (tagId: string): string =>
+    registry.find(e => e.id === tagId)?.soul_doc ?? `${umbrellaSoul}.${tagId}`;
+
+  if (seatTag !== null) {
+    if (T.length === 0) {
+      // tagged seat, T = ∅ → untagged_target: umbrella + all tag souls except s
+      return {
+        relation: 'untagged_target',
+        custodians: [umbrellaSoul, ...registry.filter(e => e.id !== seatTag).map(e => e.soul_doc)],
+      };
+    }
+    if (T.length === 1 && T[0] === seatTag) {
+      return { relation: 'own', custodians: [] };
+    }
+    if (T.includes(seatTag)) {
+      // s ∈ T, |T| > 1 → shared: souls of T \ {s}
+      return { relation: 'shared', custodians: T.filter(t => t !== seatTag).map(soulDocOf) };
+    }
+    // s ∉ T, T ≠ ∅ → foreign
+    return { relation: 'foreign', custodians: [] };
+  }
+
+  // untagged seat
+  if (T.length > 0) {
+    // T ≠ ∅ → umbrella_on_tagged: souls of T
+    return { relation: 'umbrella_on_tagged', custodians: T.map(soulDocOf) };
+  }
+  // T = ∅ → untagged_target: every tag soul (no umbrella — seat IS the umbrella)
+  return { relation: 'untagged_target', custodians: registry.map(e => e.soul_doc) };
+}

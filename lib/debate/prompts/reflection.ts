@@ -137,6 +137,13 @@ export interface ReflectionTaxonomyNode {
   confidence?: number;
   priority?: number;
   doctrinally_anchored?: boolean;
+  /**
+   * Tags this node carries (e.g. ['critical', 'institutional']).
+   * Only rendered in the prompt when the POV has registry tags (t/4213 D-3).
+   * ADDITIVE-OPTIONAL — NO consumer may branch on this field until the exemption lapses
+   * (the moment a consumer uses it for routing or gating logic, not display).
+   */
+  pov_tags?: string[];
   /** Engagement record — absent for nodes listed in a full-taxonomy sweep. */
   engagement?: {
     injected: boolean;
@@ -163,7 +170,19 @@ export function reflectionPrompt(
   unengagedNodes?: ReflectionTaxonomyNode[],
   /** Resolved soul for this speaker (t/3988). Always required — use engine.getSoulForSpeaker. */
   soul?: PovInfo,
+  /**
+   * The seat's pov_tag id (e.g. 'critical'), or null for an untagged seat.
+   * Omit (undefined) when the POV has no registry tags — tag guidance block is suppressed (t/4213 D-3).
+   */
+  seatTag?: string | null,
+  /**
+   * Human-readable label for each tag id (e.g. Map{ 'critical' → 'Critical', 'institutional' → 'Institutional' }).
+   * Used only in the guidance block. Omit when the POV has no tags.
+   */
+  povTagLabels?: Map<string, string>,
 ): string {
+  const hasTags = seatTag !== undefined; // undefined means POV has no tags at all
+
   const renderNode = (n: ReflectionTaxonomyNode): string => {
     let meta = `(${n.category})`;
     if (n.category === 'Beliefs' && n.confidence !== undefined) {
@@ -182,7 +201,10 @@ export function reflectionPrompt(
           ? `; ATTACKED — ${e.attackedClaimIds.join(', ')} (strongest attack strength ${e.strongestAttack.toFixed(2)})`
           : '')
       : '';
-    return `[${n.id}] ${meta} "${n.label}"\n  ${n.description}${debateRecord}`;
+    const tagLine = hasTags && n.pov_tags !== undefined
+      ? `\n  [tags: ${n.pov_tags.length > 0 ? n.pov_tags.join(', ') : 'none'}]`
+      : '';
+    return `[${n.id}] ${meta} "${n.label}"\n  ${n.description}${tagLine}${debateRecord}`;
   };
 
   const nodesBlock = taxonomyNodes.map(renderNode).join('\n\n');
@@ -226,13 +248,36 @@ strongest claim to it. Three camps proposing "Epistemic Asymmetry" is redundancy
 not convergence.\n`
     : '';
 
+  const tagGuidanceBlock = (() => {
+    if (!hasTags) return '';
+    const tagLabel = (id: string) => povTagLabels?.get(id) ?? id;
+    if (seatTag != null) {
+      const otherTagIds = povTagLabels ? [...povTagLabels.keys()].filter(id => id !== seatTag) : [];
+      const foreignExample = otherTagIds.length > 0 ? `[tags: ${otherTagIds[0]}]` : '[tags: other-wing]';
+      const sharedExample = otherTagIds.length > 0
+        ? `[tags: ${seatTag}, ${otherTagIds[0]}]`
+        : `[tags: ${seatTag}, other-wing]`;
+      return `\n=== YOUR WING ===
+You speak for the *${tagLabel(seatTag)}* wing of the ${pov} perspective.
+
+- Nodes tagged [tags: ${seatTag}] only — these belong to your wing. Revise them only where the debate gives you reason to.
+- Nodes tagged for another wing only (e.g. ${foreignExample} when you are ${tagLabel(seatTag)}) — those are not yours to revise, qualify or deprecate. If the debate exposed something wrong with such a node, record it in your reflection_summary; do not propose an edit.
+- Nodes tagged for several wings (e.g. ${sharedExample}) — this is shared ground. A revision must stay true for every wing listed. Be precise about what is wing-specific and what is shared.
+- Nodes with [tags: none] are common ground for the whole ${pov} camp. A revision must stay true to every wing, not only yours.
+`;
+    }
+    return `\n=== TAG GUIDANCE ===
+Some nodes in your taxonomy carry [tags: ...] indicating which wing they belong to. When you propose edits to tagged nodes, your revision must stay true to every wing listed. If the debate shows a single-wing node is wrong from the whole-camp view, use QUALIFY to add the camp-wide caveat rather than rewriting that wing's position, or say so in reflection_summary.
+`;
+  })();
+
   return `You are ${label}, an AI debater representing the ${pov} perspective on AI policy.
 ${getCharacterBlock(pov, soul!)}
 ${getReadingLevel(audience)}
 ${formatDoctrinalBoundaries(pov, soul!)}
 You have just finished a structured debate on:
 "${topic}"
-
+${tagGuidanceBlock}
 === DEBATE TRANSCRIPT ===
 ${transcript}
 ${argNetSection}${commitSection}${convergenceSection}${priorReflectionBlock}
