@@ -107,6 +107,13 @@ describe('R-3 evaluateTagGate: each relation and verdict', () => {
     expect(g.reason).toContain(HARD_BOUNDARY);
   });
 
+  it('a conflict citing text that is not in the custodian soul is unverified, so the edit is unchecked (fails closed)', async () => {
+    const edit = makeEdit();
+    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'conflict', cited: 'A boundary the judge made up and that no soul contains' }]) });
+    expect(edit.tag_check!.unchecked).toBeTruthy();
+    expect(gate(edit, ['critical', 'institutional']).block).toBe('unchecked');
+  });
+
   it('tension is shown in the stamp but does not block', async () => {
     const edit = makeEdit();
     await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'tension', cited: SOFT_BOUNDARY }]) });
