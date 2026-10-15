@@ -1367,6 +1367,8 @@ describe('useTaxonomyStore', () => {
       expect(useTaxonomyStore.getState().loading).toBe(false);
       expect(useTaxonomyStore.getState().saveError).toBeTruthy();
     });
+
+    // t/4208: call-target assertion moved to useTaxonomyStore.loadAllForEdit.test.ts (max-lines).
   });
 
   // t/3378: aggregate strip-count observability on top of the existing per-node WARN (t/3250) —
