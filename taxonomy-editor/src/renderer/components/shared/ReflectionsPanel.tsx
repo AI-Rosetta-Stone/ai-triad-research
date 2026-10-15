@@ -599,6 +599,13 @@ function bulkApplicable(e: ReflectionEdit): boolean {
   return !(e.tag_check && tagCheckFlagged(e.tag_check));
 }
 
+/** What Approve All did (CL #3314 review): a skipped edit is never silent. */
+function bulkSummaryText(applied: number, skipped: number): string {
+  return skipped > 0
+    ? `Applied ${applied}. Skipped ${skipped} flagged by a check; review them one by one.`
+    : `Applied ${applied}.`;
+}
+
 function EditCardActions({ resolved, editing, isModified, isNoOpEdit, applying, editType, setApplying, setApplyError, setTrackedEnrichNodeId, applyReflectionEdit, editedLabel, editedDescription, regeneratePhrases, pover, editIndex, handleReset, handleCancel, dismissReflectionEdit, unsupportedEvidence }: {
   resolved: boolean;
   editing: boolean;
@@ -1216,16 +1223,22 @@ export function ReflectionsPanel({ onClose }: { onClose: () => void }) {
     sum + r.edits.filter(e => e.status === 'approved').length
         + (r.new_item_proposals ?? []).filter((_, i) => newItemProposalStatus[`${r.pover}#${i}`] === 'approved').length, 0);
 
+  const [bulkSummary, setBulkSummary] = useState<string | null>(null);
   const approveAll = async () => {
+    let applied = 0;
+    let skipped = 0;
     for (const r of reflections) {
       for (let i = 0; i < r.edits.length; i++) {
-        if (bulkApplicable(r.edits[i])) await applyReflectionEdit(r.pover, i);
+        if (r.edits[i].status !== 'pending') continue;
+        if (!bulkApplicable(r.edits[i])) { skipped++; continue; }
+        if ((await applyReflectionEdit(r.pover, i)).ok) applied++;
       }
       const proposals = r.new_item_proposals ?? [];
       for (let i = 0; i < proposals.length; i++) {
-        if (proposalIsPending(r.pover, i)) await applyReflectionProposal(r.pover, i);
+        if (proposalIsPending(r.pover, i) && (await applyReflectionProposal(r.pover, i)).ok) applied++;
       }
     }
+    setBulkSummary(bulkSummaryText(applied, skipped));
   };
 
   const dismissAll = () => {
@@ -1301,6 +1314,7 @@ export function ReflectionsPanel({ onClose }: { onClose: () => void }) {
           {totalApproved > 0 && (
             <span className="rp-total-applied">{totalApproved} applied</span>
           )}
+          {bulkSummary && <span className="rp-bulk-summary" role="status">{bulkSummary}</span>}
           <button
             onClick={onClose}
             className="rp-close-btn"

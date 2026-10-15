@@ -33,12 +33,12 @@
 .rp-tagcheck-verdict-badge {
   display: inline-block;
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0.02em;
 }
 .rp-tagcheck-consistent .rp-tagcheck-verdict-badge { color: var(--text-muted); }
 .rp-tagcheck-tension .rp-tagcheck-verdict-badge { color: #d97706; }
 .rp-tagcheck-conflict .rp-tagcheck-verdict-badge { color: #dc2626; }
-.rp-tagcheck-soul { font-family: var(--font-mono, monospace); }
+.rp-tagcheck-possible .rp-tagcheck-verdict-badge { color: #d97706; }
+.rp-tagcheck-soul { font-weight: 600; }
 .rp-tagcheck-cited { font-style: italic; }
 .rp-tagcheck-uncited, .rp-tagcheck-reason { color: var(--text-muted); }
