@@ -115,6 +115,24 @@ export function codeForError(err: unknown): { code: string } | undefined {
   return err instanceof ActionableError && err.code ? { code: err.code } : undefined;
 }
 
+/** t/4187/t/4189/t/4190/t/4192: the If-Match precondition shared by every GitHub-backed save
+ *  route (taxonomy, edges, conflicts, proposals) — a missing header means the client loaded the
+ *  file before this contract existed (or skipped the version-returning read), so there's no base
+ *  version to protect against a lost update. Returns the unquoted baseSha on success, or
+ *  undefined after already writing the 428 response. */
+export function requireBaseVersion(req: IncomingMessage, res: ServerResponse): string | undefined {
+  const ifMatch = req.headers?.['if-match'];
+  // t/4184 GV (TL, p/775#56): strip a leading weak-validator `W/` marker before the quotes — a
+  // client that forwards the GET's ETag verbatim (RFC 7232 allows either strength) must still
+  // match, since this route compares the raw git blob SHA, not validator semantics.
+  const baseSha = typeof ifMatch === 'string' ? ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined;
+  if (!baseSha) {
+    error(res, 'Save requires an If-Match header carrying the base version read before editing.', 428, undefined, { code: 'BASE_VERSION_REQUIRED' });
+    return undefined;
+  }
+  return baseSha;
+}
+
 export function error(res: ServerResponse, message: string, status = 500, cause?: unknown, extra?: Record<string, unknown>): void {
   // M4: don't leak internal detail (file paths, stack) to clients on server
   // errors in production — record the real message server-side, return generic.

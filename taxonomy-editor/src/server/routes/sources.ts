@@ -26,7 +26,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param, statusForError, codeForError } from '../httpKit.js';
+import { json, error, param, statusForError, codeForError, requireBaseVersion } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { DEFAULT_MODEL, withTimeout } from '../../../../lib/ai-client/index.js';
 import { log } from '../logger.js';
@@ -346,9 +346,22 @@ export function registerSourcesRoutes(r: Router, _ctx: ServerCtx): void {
 
   get('/api/proposals', async (_req, res) => { json(res, await fileIO.listProposals()); });
 
+  // t/4192: single-proposal read with its version — the client loads this (or the
+  // filename+content from the list above) before editing, then carries the version
+  // back as If-Match on the PUT below.
+  get('/api/proposals/:filename', async (req, res) => {
+    const loaded = await fileIO.readProposalWithVersion(param(req, 'filename', '/api/proposals/:filename'));
+    if (!loaded) { error(res, 'Proposal not found', 404); return; }
+    if (loaded.version) res.setHeader('ETag', `"${loaded.version}"`);
+    json(res, loaded.data);
+  });
+
   put('/api/proposals/:filename', async (req, res, body) => {
+    const baseSha = requireBaseVersion(req, res);
+    if (!baseSha) return;
     try {
-      await fileIO.saveProposal(param(req, 'filename', '/api/proposals/:filename'), body);
+      const { version } = await fileIO.saveProposal(param(req, 'filename', '/api/proposals/:filename'), body, { baseSha });
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, { saved: true });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to save proposal', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });

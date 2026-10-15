@@ -9,10 +9,9 @@
 // source order (synthetic-embeddings first), so first-match routing is preserved
 // (see routeTable.test.ts).
 
-import type { IncomingMessage, ServerResponse } from 'http';
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForError, codeForError } from '../httpKit.js';
+import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForError, codeForError, requireBaseVersion } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import * as fileIO from '../storage/fileIO.js';
 import { stampNodeAuthorship, diffNodes } from '../storage/editMeta.js';
@@ -126,23 +125,6 @@ function situationsBdiGate(
     return { status: 400, message: `BDI validation failed — ${violations.length} violation(s): ${details}` };
   }
   return null;
-}
-
-// t/4187: the If-Match precondition is required on every taxonomy save — a missing header means
-// the client loaded the file before this contract existed (or skipped the ForEdit load path) and
-// has no base version to protect against a lost update. Returns the unquoted baseSha on success,
-// or undefined after already writing the 428 response.
-function requireBaseVersion(req: IncomingMessage, res: ServerResponse): string | undefined {
-  const ifMatch = req.headers?.['if-match'];
-  // t/4184 GV (TL, p/775#56): strip a leading weak-validator `W/` marker before the quotes — a
-  // client that forwards the GET's ETag verbatim (RFC 7232 allows either strength) must still
-  // match, since this route compares the raw git blob SHA, not validator semantics.
-  const baseSha = typeof ifMatch === 'string' ? ifMatch.replace(/^W\//, '').replace(/^"|"$/g, '') : undefined;
-  if (!baseSha) {
-    error(res, 'Save requires an If-Match header carrying the base version read before editing.', 428, undefined, { code: 'BASE_VERSION_REQUIRED' });
-    return undefined;
-  }
-  return baseSha;
 }
 
 // t/4229 (t/4167 part B): the hosted web app writes go through github-api; a prod rollback runbook

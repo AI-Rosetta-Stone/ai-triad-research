@@ -16,7 +16,7 @@
 
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param, statusForError, codeForError } from '../httpKit.js';
+import { json, error, param, statusForError, codeForError, requireBaseVersion } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getConfig } from '../runtimeConfig.js';
 import * as fileIO from '../storage/fileIO.js';
@@ -26,7 +26,7 @@ import { appendCruxEvidence, removeCruxEvidence, type CruxEvidenceEntry } from '
 // t/929: conflicts cache TTL is runtime-configurable — getConfig().server.conflictsCacheTtlMs (default 5m).
 // t/1687: moved module-local out of server.ts; invalidateConflictsCache() below is
 // wired into ctx.invalidateConflictsCache so routes/harvest.ts can null it after a write.
-let conflictsCache: { data: unknown[]; ts: number } | null = null;
+let conflictsCache: { data: unknown[]; version: string; ts: number } | null = null;
 
 /** Null the conflicts cache — called by the conflict writes here and (via ctx) by routes/harvest.ts. */
 export function invalidateConflictsCache(): void {
@@ -41,8 +41,8 @@ export function invalidateConflictsCache(): void {
  * module-local, so the warm path threads through this exported setter.
  */
 export async function warmConflictsCache(): Promise<number> {
-  const data = await fileIO.readAllConflictFiles();
-  conflictsCache = { data, ts: Date.now() };
+  const { conflicts: data, version } = await fileIO.readAllConflictFilesWithVersion();
+  conflictsCache = { data, version, ts: Date.now() };
   return data.length;
 }
 
@@ -54,22 +54,30 @@ export function registerConflictsRoutes(r: Router, ctx: ServerCtx): void {
 
   get('/api/conflicts', async (_req, res) => {
     if (conflictsCache && Date.now() - conflictsCache.ts < getConfig().server.conflictsCacheTtlMs) {
+      if (conflictsCache.version) res.setHeader('ETag', `"${conflictsCache.version}"`);
       json(res, conflictsCache.data);
       return;
     }
-    const data = await fileIO.readAllConflictFiles();
-    conflictsCache = { data, ts: Date.now() };
+    const { conflicts: data, version } = await fileIO.readAllConflictFilesWithVersion();
+    conflictsCache = { data, version, ts: Date.now() };
+    if (version) res.setHeader('ETag', `"${version}"`);
     json(res, data);
   });
 
   get('/api/conflicts/clusters', async (_req, res) => {
-    json(res, await fileIO.readConflictClusters());
+    const loaded = await fileIO.readConflictClustersWithVersion();
+    if (!loaded) { json(res, null); return; }
+    if (loaded.version) res.setHeader('ETag', `"${loaded.version}"`);
+    json(res, loaded.data);
   });
 
   // ── Cruxes ──
 
   get('/api/cruxes', async (_req, res) => {
-    json(res, await fileIO.readAggregatedCruxes());
+    const loaded = await fileIO.readAggregatedCruxesWithVersion();
+    if (!loaded) { json(res, null); return; }
+    if (loaded.version) res.setHeader('ETag', `"${loaded.version}"`);
+    json(res, loaded.data);
   });
 
   // t/1541: reviewer-entered external_evidence write path (append-only). Persists to
@@ -77,6 +85,8 @@ export function registerConflictsRoutes(r: Router, ctx: ServerCtx): void {
   // writes above. external_evidence is CL-owned display-only metadata (never read by
   // scoring/sort code). Mutation logic is the pure cruxEvidence.ts helpers.
   post('/api/cruxes/:id/evidence', async (req, res, body) => {
+    const baseSha = requireBaseVersion(req, res);
+    if (!baseSha) return;
     try {
       await ensureSessionBranch();
       const id = param(req, 'id', '/api/cruxes/:id/evidence');
@@ -92,15 +102,18 @@ export function registerConflictsRoutes(r: Router, ctx: ServerCtx): void {
       };
       const crux = appendCruxEvidence(data, id, entry);
       if (!crux) { error(res, `Crux not found: ${id}`, 404); return; }
-      await fileIO.writeAggregatedCruxes(data);
+      const { version } = await fileIO.writeAggregatedCruxes(data, { baseSha });
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, crux);
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to add crux evidence', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to add crux evidence', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   // DELETE by array index — under concurrent edits to the same crux the index can
   // shift between read and delete (TL-accepted tradeoff for a low-concurrency
   // reviewer tool, t/1541; would switch to an added_at+url match if it ever bites).
   del('/api/cruxes/:id/evidence/:index', async (req, res) => {
+    const baseSha = requireBaseVersion(req, res);
+    if (!baseSha) return;
     try {
       await ensureSessionBranch();
       const id = param(req, 'id', '/api/cruxes/:id/evidence/:index');
@@ -109,29 +122,36 @@ export function registerConflictsRoutes(r: Router, ctx: ServerCtx): void {
       const result = removeCruxEvidence(data, id, index);
       if (result === 'not_found') { error(res, `Crux not found: ${id}`, 404); return; }
       if (result === 'out_of_range') { error(res, `Evidence index out of range: ${index}`, 404); return; }
-      await fileIO.writeAggregatedCruxes(data);
+      const { version } = await fileIO.writeAggregatedCruxes(data, { baseSha });
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, result);
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to remove crux evidence', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to remove crux evidence', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   put('/api/conflicts/:id', async (req, res, body) => {
+    const baseSha = requireBaseVersion(req, res);
+    if (!baseSha) return;
     try {
       await ensureSessionBranch();
       const id = param(req, 'id', '/api/conflicts/:id');
-      await fileIO.writeConflictFile(id, body);
+      const { version } = await fileIO.writeConflictFile(id, body, { baseSha });
       conflictsCache = null;
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, { ok: true });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to write conflict', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   post('/api/conflicts/:id', async (req, res, body) => {
+    const baseSha = requireBaseVersion(req, res);
+    if (!baseSha) return;
     try {
       await ensureSessionBranch();
       const id = param(req, 'id', '/api/conflicts/:id');
-      await fileIO.createConflictFile(id, body);
+      const { version } = await fileIO.createConflictFile(id, body, { baseSha });
       conflictsCache = null;
+      if (version) res.setHeader('ETag', `"${version}"`);
       json(res, { ok: true });
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to create conflict', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to create conflict', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   del('/api/conflicts/:id', async (req, res) => {
