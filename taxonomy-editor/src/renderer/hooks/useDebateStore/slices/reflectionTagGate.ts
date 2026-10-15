@@ -7,8 +7,8 @@
 //        relation (D-1), the custodian verdicts (D-2, one model call at temperature 0), the target's tag
 //        fingerprint and a hash of the checked text.
 //   R-3 `evaluateTagGate`: at apply time, refuse `foreign`, `conflict`, `unchecked` and stale-stamp edits unless
-//        the reviewer overrides (`allowCrossTag`). `tension` is shown, never blocking. It fails closed: a missing
-//        or failed check blocks rather than passes.
+//        the reviewer overrides (`allowCrossTag`). `tension` blocks the same way while TENSION_NEEDS_CONFIRMATION
+//        holds (interim rule, t/4214#6). It fails closed: a missing or failed check blocks rather than passes.
 
 import { classifyTagRelation, type PovTagEntry, type TagRelation } from '@lib/debate/reflectionScope';
 import {
@@ -143,7 +143,15 @@ export async function annotateTagChecks(edits: ReflectionEdit[], ctx: AnnotateCo
   }
 }
 
-export type TagGateBlock = 'foreign' | 'conflict' | 'unchecked' | 'stale';
+/**
+ * Interim rule (CL ruling t/4214#6, M1 calibration PR #3310): the judge is reliable at the flag level (κ 0.69) but
+ * not yet at telling `tension` from `conflict` (κ 0.35, n=34). So both need the reviewer's confirmation before apply;
+ * the verdict and citation are shown either way, and `conflict` is no stronger a block than `tension`.
+ * LAPSES when the v2 judge (t/4225) passes M1 report §5.2: set this to false and `tension` goes back to never blocking.
+ */
+export const TENSION_NEEDS_CONFIRMATION = true;
+
+export type TagGateBlock = 'foreign' | 'conflict' | 'tension' | 'unchecked' | 'stale';
 
 export interface TagGateResult {
   /** Why the edit is refused without an override, or null when it may apply. */
@@ -158,6 +166,7 @@ export interface TagGateResult {
  */
 export function evaluateTagGate(
   edit: ReflectionEdit, pov: string, liveTags: string[] | undefined, finalLabel: string, finalDescription: string,
+  tensionNeedsConfirmation: boolean = TENSION_NEEDS_CONFIRMATION,
 ): TagGateResult {
   if (!edit.node_id || !CHECKED_EDIT_TYPES.has(edit.edit_type)) return { block: null, reason: '' };
   if (povTagEntries(pov).length === 0) return { block: null, reason: '' };
@@ -171,7 +180,14 @@ export function evaluateTagGate(
   }
   if (stamp.deprecate_shared_note) return { block: 'conflict', reason: stamp.deprecate_shared_note };
   if (stamp.unchecked) return { block: 'unchecked', reason: `The tag check could not be completed: ${stamp.unchecked}` };
-  const conflict = stamp.verdicts?.find(v => v.verdict === 'conflict');
+  return verdictGate(stamp.verdicts ?? [], tensionNeedsConfirmation);
+}
+
+/** The custodian verdicts' outcome: `conflict` blocks; `tension` blocks only under the interim rule. */
+function verdictGate(verdicts: CustodianVerdictRow[], tensionNeedsConfirmation: boolean): TagGateResult {
+  const conflict = verdicts.find(v => v.verdict === 'conflict');
   if (conflict) return { block: 'conflict', reason: `Conflicts with ${conflict.soul}: "${conflict.cited}". ${conflict.reason}` };
+  const tension = tensionNeedsConfirmation ? verdicts.find(v => v.verdict === 'tension') : undefined;
+  if (tension) return { block: 'tension', reason: `In tension with ${tension.soul}: "${tension.cited}". ${tension.reason} Confirm to apply.` };
   return { block: null, reason: '' };
 }

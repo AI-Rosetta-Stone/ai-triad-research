@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockRecord } = vi.hoisted(() => ({ mockRecord: vi.fn() }));
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
 
-const { annotateTagChecks, evaluateTagGate, checkedTextHash, tagsFingerprint } = await import('../reflectionTagGate');
+const { annotateTagChecks, evaluateTagGate, checkedTextHash, tagsFingerprint, TENSION_NEEDS_CONFIRMATION } = await import('../reflectionTagGate');
 import type { ReflectionEdit } from '../../types';
 
 function makeEdit(over: Partial<ReflectionEdit> = {}): ReflectionEdit {
@@ -114,10 +114,26 @@ describe('R-3 evaluateTagGate: each relation and verdict', () => {
     expect(gate(edit, ['critical', 'institutional']).block).toBe('unchecked');
   });
 
-  it('tension is shown in the stamp but does not block', async () => {
+  it('interim rule (CL t/4214#6): tension needs confirmation, showing the verdict and the citation', async () => {
+    expect(TENSION_NEEDS_CONFIRMATION).toBe(true);
     const edit = makeEdit();
     await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'tension', cited: SOFT_BOUNDARY }]) });
     expect(edit.tag_check!.verdicts![0].verdict).toBe('tension');
+    const g = gate(edit, ['critical', 'institutional']);
+    expect(g.block).toBe('tension');
+    expect(g.reason).toContain(SOFT_BOUNDARY);
+    expect(g.reason).toMatch(/In tension with skeptic\.institutional/);
+  });
+
+  it('once the interim rule is lifted (the constant set to false), tension is shown but does not block', async () => {
+    const edit = makeEdit();
+    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'tension', cited: SOFT_BOUNDARY }]) });
+    expect(evaluateTagGate(edit, 'skeptic', ['critical', 'institutional'], edit.proposed_label, edit.proposed_description, false).block).toBeNull();
+  });
+
+  it('all consistent verdicts still apply without confirmation', async () => {
+    const edit = makeEdit();
+    await stamp(edit, { seatTag: 'critical', nodeTags: ['critical', 'institutional'], generateText: judgeSays([{ soul: 'skeptic.institutional', verdict: 'consistent' }]) });
     expect(gate(edit, ['critical', 'institutional']).block).toBeNull();
   });
 
