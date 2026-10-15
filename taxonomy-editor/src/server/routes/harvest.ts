@@ -10,7 +10,7 @@
 
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error } from '../httpKit.js';
+import { json, error, statusForError, codeForError } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import * as fileIO from '../storage/fileIO.js';
 
@@ -24,7 +24,7 @@ export function registerHarvestRoutes(r: Router, ctx: ServerCtx): void {
       const created = await fileIO.harvestCreateConflict(body as Record<string, unknown>);
       if (created) invalidateConflictsCache();
       json(res, { created });
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to create harvested conflict', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to create harvested conflict', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   post('/api/harvest/debate-ref', async (_req, res, body) => {
@@ -32,7 +32,7 @@ export function registerHarvestRoutes(r: Router, ctx: ServerCtx): void {
       await ensureSessionBranch();
       const { nodeId, debateId } = body as { nodeId: string; debateId: string };
       json(res, { updated: await fileIO.harvestAddDebateRef(nodeId, debateId) });
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to add debate reference during harvest', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to add debate reference during harvest', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   post('/api/harvest/steelman', async (_req, res, body) => {
@@ -40,7 +40,7 @@ export function registerHarvestRoutes(r: Router, ctx: ServerCtx): void {
       await ensureSessionBranch();
       const { nodeId, attackerPov, newText } = body as { nodeId: string; attackerPov: string; newText: string };
       json(res, { updated: await fileIO.harvestUpdateSteelman(nodeId, attackerPov, newText) });
-    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to update steelman during harvest', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
+    } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to update steelman during harvest', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), statusForError(err), err, codeForError(err)); }
   });
 
   post('/api/harvest/verdict', async (_req, res, body) => {
@@ -53,7 +53,7 @@ export function registerHarvestRoutes(r: Router, ctx: ServerCtx): void {
         message: 'Failed to add harvest verdict', data: { conflictId },
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      error(res, String(err), 500, err);
+      error(res, String(err), statusForError(err), err, codeForError(err));
     }
   });
 
@@ -66,7 +66,7 @@ export function registerHarvestRoutes(r: Router, ctx: ServerCtx): void {
         message: 'Failed to queue harvest concept',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      error(res, String(err), 500, err);
+      error(res, String(err), statusForError(err), err, codeForError(err));
     }
   });
 
@@ -79,7 +79,7 @@ export function registerHarvestRoutes(r: Router, ctx: ServerCtx): void {
         message: 'Failed to save harvest manifest',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      error(res, String(err), 500, err);
+      error(res, String(err), statusForError(err), err, codeForError(err));
     }
   });
 }
