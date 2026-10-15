@@ -17,7 +17,8 @@ const RELATION_TEXT: Record<TagRelation, string> = {
   own: "The seat's own wing",
   shared: 'Shared with another wing',
   foreign: "Another wing's node (not the seat's)",
-  untagged_target: 'Common ground for the whole camp',
+  // Untagged is NOT shared ground: it is out of Scope for every wing (t/3955); shared means tagged with both.
+  untagged_target: "Untagged node (in neither wing's Scope)",
   umbrella_on_tagged: "Whole-camp seat editing one wing's node",
   no_tags: '',
 };

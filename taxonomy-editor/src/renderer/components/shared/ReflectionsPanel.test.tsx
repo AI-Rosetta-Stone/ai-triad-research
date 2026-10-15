@@ -493,3 +493,21 @@ describe('tag check on edit cards (t/4214 R-6)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Applied 1.');
   });
 });
+
+describe('tag check wording for untagged targets (CL #3315 review)', () => {
+  it('an untagged target is described as out of every wing\'s Scope, not as shared ground', () => {
+    debateStore.reflections = [{
+      pover: 'skeptic', label: 'Skeptic', reflection_summary: '',
+      edits: [{
+        edit_type: 'revise', status: 'pending', category: 'Beliefs', node_id: 'skp-beliefs-011',
+        current_label: 'Old', proposed_label: 'New', current_description: 'old', proposed_description: LONG_FORMAL,
+        rationale: 'r', evidence_entries: [],
+        tag_check: { relation: 'untagged_target', custodians: [], seat_tag: 'critical', target_tags: [], tags_fp: '', text_hash: '' },
+      }],
+    }];
+    render(<ReflectionsPanel onClose={vi.fn()} />);
+    const banner = screen.getByRole('note', { name: 'Tag check' });
+    expect(banner).toHaveTextContent("Untagged node (in neither wing's Scope)");
+    expect(banner).not.toHaveTextContent('common ground');
+  });
+});
