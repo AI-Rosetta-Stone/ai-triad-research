@@ -388,9 +388,20 @@ export async function readAggregatedCruxes(): Promise<unknown | null> {
 // writeEdgesFile). Callers ensureSessionBranch() first, so this lands on the
 // caller's session branch. Regeneration safety (Export-AggregatedCruxes) is
 // handled by Merge-CruxExternalEvidence.ps1 (t/1540), not here.
-export async function writeAggregatedCruxes(data: unknown): Promise<void> {
+export async function writeAggregatedCruxes(data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   const filePath = path.join(getTaxonomyDir(), 'aggregated-cruxes.json');
-  await backend.writeFile(filePath, JSON.stringify(data, null, 2));
+  return backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
+}
+
+/** t/4190: like readAggregatedCruxes, but also returns the version for the
+ *  save route to hand back to the client as its write precondition (ETag). */
+export async function readAggregatedCruxesWithVersion(): Promise<{ data: unknown; version: string } | null> {
+  const filePath = path.join(getTaxonomyDir(), 'aggregated-cruxes.json');
+  try {
+    const result = await readFileWithVersionOrFallback(filePath);
+    if (result === null) return null;
+    return { data: JSON.parse(result.content), version: result.version };
+  } catch { /* telemetry — silent by design */ return null; }
 }
 
 export async function readConflictClusters(): Promise<unknown | null> {
@@ -398,6 +409,17 @@ export async function readConflictClusters(): Promise<unknown | null> {
   const raw = await backend.readFile(filePath);
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
+}
+
+/** t/4190: like readConflictClusters, but also returns the version for the
+ *  save route to hand back to the client as its write precondition (ETag). */
+export async function readConflictClustersWithVersion(): Promise<{ data: unknown; version: string } | null> {
+  const filePath = path.join(getConflictsDir(), '_conflict-clusters.json');
+  try {
+    const result = await readFileWithVersionOrFallback(filePath);
+    if (result === null) return null;
+    return { data: JSON.parse(result.content), version: result.version };
+  } catch { /* telemetry — silent by design */ return null; }
 }
 
 // Conflicts are stored in a single wrapper file (t/689 / t/693) instead of
@@ -422,49 +444,63 @@ function claimIdOf(entry: unknown): string | undefined {
   return (entry as { claim_id?: string })?.claim_id;
 }
 
-/** Read the conflicts wrapper, tolerating a missing or malformed file (→ empty). */
-async function readConflictsWrapper(): Promise<ConflictsWrapper> {
+/** Read the conflicts wrapper, tolerating a missing or malformed file (→ empty).
+ *  t/4190: version is the on-disk wrapper's own git blob SHA (empty string for
+ *  a missing/malformed file — no precondition to check against, same marker
+ *  convention as readFileWithVersionOrFallback). */
+async function readConflictsWrapper(): Promise<{ wrapper: ConflictsWrapper; version: string }> {
   const empty: ConflictsWrapper = {
     _schema_version: CONFLICTS_SCHEMA_VERSION,
     last_modified: new Date().toISOString(),
     conflict_count: 0,
     conflicts: [],
   };
-  const raw = await backend.readFile(conflictsFilePath());
-  if (raw === null) return empty;
+  const result = await readFileWithVersionOrFallback(conflictsFilePath());
+  if (result === null) return { wrapper: empty, version: '' };
   try {
-    const parsed = JSON.parse(raw) as Partial<ConflictsWrapper>;
+    const parsed = JSON.parse(result.content) as Partial<ConflictsWrapper>;
     const conflicts = Array.isArray(parsed.conflicts) ? parsed.conflicts as Record<string, unknown>[] : [];
     return {
-      _schema_version: parsed._schema_version ?? CONFLICTS_SCHEMA_VERSION,
-      last_modified: parsed.last_modified ?? empty.last_modified,
-      conflict_count: conflicts.length,
-      conflicts,
+      wrapper: {
+        _schema_version: parsed._schema_version ?? CONFLICTS_SCHEMA_VERSION,
+        last_modified: parsed.last_modified ?? empty.last_modified,
+        conflict_count: conflicts.length,
+        conflicts,
+      },
+      version: result.version,
     };
   } catch {
     /* telemetry — silent by design; treat an unreadable conflicts file as empty */
-    return empty;
+    return { wrapper: empty, version: '' };
   }
 }
 
 /** Persist the conflicts array, refreshing conflict_count + last_modified. */
-async function writeConflictsWrapper(conflicts: Record<string, unknown>[]): Promise<void> {
+async function writeConflictsWrapper(conflicts: Record<string, unknown>[], opts?: { baseSha?: string }): Promise<{ version: string }> {
   const wrapper: ConflictsWrapper = {
     _schema_version: CONFLICTS_SCHEMA_VERSION,
     last_modified: new Date().toISOString(),
     conflict_count: conflicts.length,
     conflicts,
   };
-  await backend.writeFile(conflictsFilePath(), JSON.stringify(wrapper, null, 2));
+  return backend.writeFile(conflictsFilePath(), JSON.stringify(wrapper, null, 2), opts);
 }
 
 export async function readAllConflictFiles(): Promise<unknown[]> {
-  return (await readConflictsWrapper()).conflicts;
+  return (await readConflictsWrapper()).wrapper.conflicts;
 }
 
-export async function writeConflictFile(claimId: string, data: unknown): Promise<void> {
+/** t/4190: like readAllConflictFiles, but also returns the wrapper file's
+ *  version for the save route to hand back to the client as its write
+ *  precondition (ETag). */
+export async function readAllConflictFilesWithVersion(): Promise<{ conflicts: unknown[]; version: string }> {
+  const { wrapper, version } = await readConflictsWrapper();
+  return { conflicts: wrapper.conflicts, version };
+}
+
+export async function writeConflictFile(claimId: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   assertSafeId(claimId, 'claimId');
-  const wrapper = await readConflictsWrapper();
+  const { wrapper } = await readConflictsWrapper();
   const idx = wrapper.conflicts.findIndex(c => claimIdOf(c) === claimId);
   if (idx === -1) throw new ActionableError({
     goal: 'Update conflict definition',
@@ -477,12 +513,12 @@ export async function writeConflictFile(claimId: string, data: unknown): Promise
     ],
   });
   wrapper.conflicts[idx] = data as Record<string, unknown>;
-  await writeConflictsWrapper(wrapper.conflicts);
+  return writeConflictsWrapper(wrapper.conflicts, opts);
 }
 
-export async function createConflictFile(claimId: string, data: unknown): Promise<void> {
+export async function createConflictFile(claimId: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   assertSafeId(claimId, 'claimId');
-  const wrapper = await readConflictsWrapper();
+  const { wrapper } = await readConflictsWrapper();
   if (wrapper.conflicts.some(c => claimIdOf(c) === claimId)) throw new ActionableError({
     goal: 'Create conflict definition',
     problem: `Conflict already exists: ${claimId}`,
@@ -493,12 +529,12 @@ export async function createConflictFile(claimId: string, data: unknown): Promis
     ],
   });
   wrapper.conflicts.push(data as Record<string, unknown>);
-  await writeConflictsWrapper(wrapper.conflicts);
+  return writeConflictsWrapper(wrapper.conflicts, opts);
 }
 
 export async function deleteConflictFile(claimId: string): Promise<void> {
   assertSafeId(claimId, 'claimId');
-  const wrapper = await readConflictsWrapper();
+  const { wrapper } = await readConflictsWrapper();
   const filtered = wrapper.conflicts.filter(c => claimIdOf(c) !== claimId);
   // No-op if the claim wasn't present (mirrors the prior delete-missing behavior).
   if (filtered.length !== wrapper.conflicts.length) {
@@ -737,6 +773,23 @@ export async function readEdgesFile(): Promise<unknown | null> {
   }
 }
 
+/** t/4189: like readEdgesFile, but also returns the version for the save
+ *  route to hand back to the client as its write precondition (ETag). */
+export async function readEdgesFileWithVersion(): Promise<{ data: unknown; version: string } | null> {
+  try {
+    const result = await readFileWithVersionOrFallback(getEdgesPath());
+    if (result === null) return null;
+    return { data: JSON.parse(result.content), version: result.version };
+  } catch (err: unknown) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'file-io', level: 'warn',
+      message: 'readEdgesFileWithVersion: read/parse failed, returning null',
+      data: { error: String(err) },
+    });
+    return null;
+  }
+}
+
 /**
  * Read the on-disk edges.json as a WRITE baseline for the rationale re-merge (t/2957),
  * strictly discriminating genuine absence from a read/parse failure — unlike `readEdgesFile`
@@ -758,34 +811,48 @@ export async function readEdgesForSaveBaseline(): Promise<EdgesData | typeof ABS
   return JSON.parse(raw) as EdgesData;
 }
 
-export async function writeEdgesFile(data: unknown): Promise<void> {
-  await backend.writeFile(getEdgesPath(), serializeEdgesJson(data));
+export async function writeEdgesFile(data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
+  return backend.writeFile(getEdgesPath(), serializeEdgesJson(data), opts);
 }
 
-export async function updateEdgeStatus(edges: unknown, index: number, status: string): Promise<unknown> {
+/** t/4189: `updateEdgeStatus`/`bulkUpdateEdges`/`swapEdgeDirection` mutate an
+ *  already-loaded edges object and save it — unlike `writeTaxonomyFile`'s
+ *  plain `(data, opts) => {version}` shape, callers need the mutated object
+ *  back too (it becomes the route's in-memory cache). When the index/indices
+ *  don't match anything, no write happens — the version is the client's own
+ *  `baseSha` echoed back (nothing moved), not a fresh one. */
+export async function updateEdgeStatus(
+  edges: unknown, index: number, status: string, opts?: { baseSha?: string },
+): Promise<{ data: unknown; version: string }> {
   const arr = edges as { edges: Record<string, unknown>[] };
   if (arr.edges && arr.edges[index]) {
     arr.edges[index].status = status;
     if (status === 'approved') {
       delete arr.edges[index].direction_flag;
     }
-    await writeEdgesFile(arr);
+    const result = await writeEdgesFile(arr, opts);
+    return { data: arr, version: result.version };
   }
-  return arr;
+  return { data: arr, version: opts?.baseSha ?? '' };
 }
 
-export async function bulkUpdateEdges(edges: unknown, indices: number[], status: string): Promise<unknown> {
+export async function bulkUpdateEdges(
+  edges: unknown, indices: number[], status: string, opts?: { baseSha?: string },
+): Promise<{ data: unknown; version: string }> {
   const arr = edges as { edges: Record<string, unknown>[] };
   if (arr.edges) {
     for (const i of indices) {
       if (arr.edges[i]) arr.edges[i].status = status;
     }
-    await writeEdgesFile(arr);
+    const result = await writeEdgesFile(arr, opts);
+    return { data: arr, version: result.version };
   }
-  return arr;
+  return { data: arr, version: opts?.baseSha ?? '' };
 }
 
-export async function swapEdgeDirection(edges: unknown, index: number): Promise<unknown> {
+export async function swapEdgeDirection(
+  edges: unknown, index: number, opts?: { baseSha?: string },
+): Promise<{ data: unknown; version: string }> {
   const arr = edges as { edges: Record<string, unknown>[] };
   if (arr.edges && arr.edges[index]) {
     const edge = arr.edges[index];
@@ -793,9 +860,10 @@ export async function swapEdgeDirection(edges: unknown, index: number): Promise<
     edge.source = edge.target;
     edge.target = tmp;
     delete edge.direction_flag;
-    await writeEdgesFile(arr);
+    const result = await writeEdgesFile(arr, opts);
+    return { data: arr, version: result.version };
   }
-  return arr;
+  return { data: arr, version: opts?.baseSha ?? '' };
 }
 
 // ── Node/Policy source index ──
@@ -1015,9 +1083,18 @@ export async function listProposals(): Promise<unknown[]> {
   }
 }
 
-export async function saveProposal(filename: string, data: unknown): Promise<void> {
+export async function saveProposal(filename: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   assertSafeFilename(filename, 'proposal filename');
-  await backend.writeFile(path.join(getDataRoot(), filename), JSON.stringify(data, null, 2));
+  return backend.writeFile(path.join(getDataRoot(), filename), JSON.stringify(data, null, 2), opts);
+}
+
+/** t/4192: a single proposal's content plus its version, for the save route
+ *  to hand back to the client as its write precondition (ETag). */
+export async function readProposalWithVersion(filename: string): Promise<{ data: unknown; version: string } | null> {
+  assertSafeFilename(filename, 'proposal filename');
+  const result = await readFileWithVersionOrFallback(path.join(getDataRoot(), filename));
+  if (result === null) return null;
+  return { data: JSON.parse(result.content), version: result.version };
 }
 
 // ── Admin feedback & error reports (t/837) ──
