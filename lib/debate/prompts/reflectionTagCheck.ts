@@ -36,6 +36,8 @@ export interface CustodianCheckInput {
   /** The seat's pov_tag, or null for an untagged seat. */
   seatTag: string | null;
   custodians: CustodianCheckSoul[];
+  /** Model to use for this judge call. When omitted the caller chooses the default. */
+  model?: string;
 }
 
 // ── Output types ───────────────────────────────────────────────────────────
@@ -50,6 +52,11 @@ export interface CustodianVerdictRow {
   reason: string;
   /** Set true when cited text could not be verified against the custodian's soul definition. */
   citation_unverified?: true;
+  /**
+   * For conflict verdicts: verbatim span from the proposed text (or current text for deprecate)
+   * that asserts the forbidden thing. Present and verified when verdict === 'conflict'.
+   */
+  evidence?: string | null;
 }
 
 export interface CustodianCheckResult {
@@ -125,21 +132,33 @@ ${rationale}
     ? `Judge whether removing this node would deprive a custodian of a required position.
 
 For each custodian soul:
-- CONFLICT: the node states something a hardcoded boundary or top-ranked value explicitly requires; its removal leaves that requirement unmet.
-- TENSION: the node supports a softcoded boundary or a lower-ranked value; its removal weakens that support.
+- CONFLICT: the node asserts something a hardcoded boundary explicitly requires; its removal leaves that requirement unmet. OR the node states a priority order that the custodian's value hierarchy requires.
+- TENSION: removing the node removes or weakens a position the custodian values — a softcoded boundary or lower-ranked value is no longer supported.
 - CONSISTENT: neither of the above.
 
+Judging order (follow this sequence for each custodian):
+1. For each hardcoded boundary, check explicitly: does the current node assert what this boundary requires? Answer yes or no for each boundary before moving on.
+2. Then judge the value hierarchy.
+3. Then give your overall verdict.
+
 For CONFLICT and TENSION: quote the exact boundary or value text that is triggered in "cited". For CONSISTENT: set "cited" to null.
+For CONFLICT only: include "evidence" — a verbatim span from the CURRENT text that makes the required assertion whose removal is the conflict. For non-CONFLICT: set "evidence" to null.
 
 Do not judge writing quality — judge only whether removing this node is unacceptable to the custodian.`
     : `Judge ONLY what the proposed text INTRODUCES compared to the current text. A change that keeps an existing conflict without making it worse is CONSISTENT.
 
-For each custodian soul:
-- CONFLICT: the proposed text asserts something a hardcoded boundary explicitly forbids, OR it inverts the order of two values in the custodian's value hierarchy.
-- TENSION: the proposed text strains a softcoded boundary, or shifts emphasis between values without inverting them.
+Key definitions:
+- CONFLICT requires the proposed text to assert something a hardcoded boundary forbids, OR to state a priority order opposite to the custodian's value hierarchy.
+- TENSION means the proposed text removes or weakens a position the custodian values — strains a softcoded boundary, or shifts emphasis between values without inverting them.
 - CONSISTENT: neither of the above.
 
+Judging order (follow this sequence for each custodian):
+1. For each hardcoded boundary, check explicitly: does the proposed text assert what this boundary forbids? Answer yes or no for each boundary before moving on.
+2. Then judge the value hierarchy.
+3. Then give your overall verdict.
+
 For CONFLICT and TENSION: quote the exact boundary or value text that is triggered in "cited". For CONSISTENT: set "cited" to null.
+For CONFLICT only: include "evidence" — a verbatim span from the PROPOSED text that makes the forbidden assertion. For non-CONFLICT: set "evidence" to null.
 
 Do not judge writing quality or whether the custodian would have phrased it differently — judge only whether the proposed text is false or unacceptable to the custodian.`;
 
@@ -174,6 +193,7 @@ Respond with a JSON object exactly matching this schema. A verdict is REQUIRED f
       "soul": "<soul id, e.g. skeptic.institutional>",
       "verdict": "consistent" | "tension" | "conflict",
       "cited": "<verbatim boundary or value text, or null>",
+      "evidence": "<verbatim span from the proposed/current text that makes the forbidden assertion, or null if verdict is not conflict>",
       "reason": "<one sentence>"
     }
   ]
@@ -202,11 +222,18 @@ function isCitationVerified(cited: string, custodian: CustodianCheckSoul): boole
   });
 }
 
+function isEvidenceVerified(evidence: string, sourceText: string): boolean {
+  const normEvidence = normalizeCited(evidence);
+  if (normEvidence.length < 10) return false;
+  return normalizeCited(sourceText).includes(normEvidence);
+}
+
 /** Validate one verdict row from the model output. Returns the row or an unchecked sentinel. */
 function validateSingleVerdict(
   r: Record<string, unknown>,
   soul: string,
   custodian: CustodianCheckSoul,
+  sourceText: string,
 ): CustodianVerdictRow | CustodianUnchecked {
   const verdict = r.verdict;
   if (typeof verdict !== 'string' || !VALID_VERDICTS.has(verdict)) {
@@ -218,6 +245,14 @@ function validateSingleVerdict(
     if (!isCitationVerified(cited, custodian)) {
       return { unchecked: `conflict verdict for ${soul} has an unverifiable citation — cannot verify` };
     }
+    const rawEvidence = r.evidence === null || r.evidence === undefined ? null : String(r.evidence);
+    if (!rawEvidence) {
+      return { unchecked: `conflict verdict for ${soul} has no evidence span — cannot verify` };
+    }
+    if (!isEvidenceVerified(rawEvidence, sourceText)) {
+      return { unchecked: `conflict verdict for ${soul} has an unverifiable evidence span — cannot trust output` };
+    }
+    return { soul, verdict: verdict as CustodianVerdict, cited, reason: typeof r.reason === 'string' ? r.reason : String(r.reason ?? ''), evidence: rawEvidence };
   }
   const reason = typeof r.reason === 'string' ? r.reason : String(r.reason ?? '');
   if (verdict === 'tension' && cited && !isCitationVerified(cited, custodian)) {
@@ -236,6 +271,8 @@ function validateSingleVerdict(
  * - a soul appears twice with conflicting verdict values
  * - any 'conflict' verdict has a null or empty 'cited' field
  * - any 'conflict' verdict's cited text cannot be verified against the soul definition
+ * - any 'conflict' verdict has a null or empty 'evidence' field
+ * - any 'conflict' verdict's evidence span cannot be verified against the source text
  *
  * For 'tension' verdicts with an unverifiable citation: keeps the verdict, sets cited to null,
  * and adds citation_unverified: true.
@@ -244,8 +281,11 @@ function validateSingleVerdict(
  */
 export function parseCustodianCheckOutput(
   raw: string,
-  custodians: CustodianCheckSoul[],
+  params: CustodianCheckInput,
 ): CustodianCheckOutput {
+  const { custodians, editType, proposedDescription, currentDescription } = params;
+  const sourceText = editType === 'deprecate' ? currentDescription : proposedDescription;
+
   const parsed = parseAIJson(raw);
   if (parsed === null) return { unchecked: 'model output was not valid JSON' };
   if (typeof parsed !== 'object' || !('verdicts' in parsed)) {
@@ -271,7 +311,7 @@ export function parseCustodianCheckOutput(
     const { soul } = custodian;
     const row = bySoul.get(soul);
     if (!row) return { unchecked: `missing verdict for custodian ${soul}` };
-    const result = validateSingleVerdict(row, soul, custodian);
+    const result = validateSingleVerdict(row, soul, custodian, sourceText);
     if ('unchecked' in result) return result;
     verdicts.push(result);
   }
