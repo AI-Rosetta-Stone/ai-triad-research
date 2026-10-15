@@ -50,7 +50,7 @@ import type { ValidationResult, ValidationIssue } from '@lib/debate/validators';
 import { validatePovNodeId } from '@lib/debate/validateNodeId';
 import type { AggregatedCrux as LibAggregatedCrux, CruxSource } from '@lib/debate/types/synthesis';
 import { api } from '@bridge';
-import { SAVE_CONFLICT_CODES } from '../../../bridge/taxonomyVersions';
+import { saveFailureRecord, saveErrorText } from './saveFailure';
 import { loadLineageCategoriesData } from '../../../data/lineageCategories';
 import { loadLineageInfoData } from '../../../data/lineageLookup';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -350,19 +350,6 @@ export interface TaxonomyDataSlice {
   showCruxDetail: (id: string | null) => void;
 }
 
-// Save-failure record + message, outside `save` for its complexity budget. t/4186/t/4197: WRITE_CONFLICT
-// and BASE_VERSION_REQUIRED (p/772#1, p/775#24) both keep `dirty` and never show success. The bridge
-// (web-bridge/taxonomyVersions.ts) already crafts a one-line, code-specific `.problem` for each — reuse it
-// via mapErrorToUserMessage rather than re-authoring the text here, so the two layers can't drift.
-type FlightRecordInput = Parameters<NonNullable<ReturnType<typeof getGlobalRecorder>>['record']>[0];
-const isSaveConflict = (err: unknown): boolean =>
-  (SAVE_CONFLICT_CODES as readonly string[]).includes((err as { code?: string }).code ?? '');
-function saveFailureRecord(err: unknown, saveStart: number): FlightRecordInput {
-  const duration_ms = Math.round(performance.now() - saveStart);
-  if (isSaveConflict(err)) return { type: 'state.error', component: 'taxonomy-store', level: 'warn', message: 'save.conflict', data: { code: (err as { code?: string }).code, duration_ms } };
-  return { type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.failed', data: { error: String(err), duration_ms }, error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } };
-}
-const saveErrorText = (err: unknown): string => isSaveConflict(err) ? mapErrorToUserMessage(err) : `Save failed: ${mapErrorToUserMessage(err)}`;
 // ── Slice creator ──
 
 export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], TaxonomyDataSlice> = (set, get) => ({
