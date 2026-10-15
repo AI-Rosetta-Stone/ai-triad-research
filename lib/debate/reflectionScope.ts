@@ -218,6 +218,8 @@ export function classifyTagRelation(
 
   const T = targetTags && targetTags.length > 0 ? targetTags : [];
   const umbrellaSoul = registry[0].soul_doc.split('.')[0]; // e.g. 'skeptic'
+  // Fallback `${pov}.${tagId}` is intentional for unregistered tags: R-2 then fails to load
+  // that soul doc and fails closed to `unchecked` rather than silently skipping the custodian.
   const soulDocOf = (tagId: string): string =>
     registry.find(e => e.id === tagId)?.soul_doc ?? `${umbrellaSoul}.${tagId}`;
 
