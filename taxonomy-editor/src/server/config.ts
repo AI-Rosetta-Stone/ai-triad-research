@@ -224,7 +224,7 @@ const ENV_KEY_NAMES: Record<AIBackend, string> = {
 // Imported after AIBackend is defined (keyStore depends on the type).
 import { getKeyStore, type KeyRotationResult } from './security/keyStore.js';
 import { getCurrentUserId } from './security/userContext.js';
-import { resolveGenericFallbackKey, assertKeyForBackend, isKeyRoutingRefusal, LISTING_WARN } from '../../../lib/ai-client/apiKeyFallback.js';
+import { resolveGenericFallbackKey, assertKeyForBackend, isKeyRoutingRefusal, LISTING_WARN, GENERIC_FALLBACK_ENV, GENERIC_FALLBACK_BACKEND } from '../../../lib/ai-client/apiKeyFallback.js';
 
 /** The backend's OWN key: its env var, then the keyStore. Never the AI_API_KEY fallback. */
 async function ownApiKey(backend: AIBackend): Promise<string | null> {
@@ -311,6 +311,35 @@ export async function getApiKeys(backend: AIBackend = 'gemini'): Promise<string[
 
   const fallback = resolveGenericFallbackKey(backend); // gemini only (t/4105); throws for any other backend
   return fallback ? [fallback] : [];
+}
+
+/**
+ * Determine the KeySource string for a backend without returning key material (t/4088).
+ * Uses the same priority as getApiKey: env var → key store → AI_API_KEY fallback.
+ * Returns a value from the closed KeySource vocabulary (see tests/fixtures/ai-call-log/README.md).
+ */
+export async function getApiKeySource(backend: AIBackend): Promise<string> {
+  // Keyless backends (ollama has ENV_KEY_NAMES[backend] === '' which is falsy)
+  if (!ENV_KEY_NAMES[backend]) return 'none';
+  // Own env var
+  const envVarName = ENV_KEY_NAMES[backend];
+  if (process.env[envVarName]) return `env:${envVarName}`;
+  // Key store (local file or Azure Key Vault)
+  try {
+    const stored = await getKeyStore(getStateRoot).getKeys(backend, getCurrentUserId());
+    if (stored.length > 0) {
+      return process.env.AZURE_KEYVAULT_URL ? 'keyvault' : 'store';
+    }
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'server-config', level: 'warn',
+      message: 'getApiKeySource: key store unavailable — treating source as unknown',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+  // AI_API_KEY fallback (gemini only, t/4102)
+  if (backend === GENERIC_FALLBACK_BACKEND && process.env[GENERIC_FALLBACK_ENV]) return `fallback:${GENERIC_FALLBACK_ENV}`;
+  return '';
 }
 
 /** The user's stored BYOK keys for a backend (t/835) — excludes env/platform
