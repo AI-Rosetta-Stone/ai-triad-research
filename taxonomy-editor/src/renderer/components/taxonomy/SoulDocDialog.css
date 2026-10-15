@@ -1,0 +1,45 @@
+/* SoulDocDialog.css: the tab strip for POV tag souls (t/4200). The dialog's base styles stay in PovTab.css. */
+
+.soul-doc-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-color);
+  margin: 4px 0 12px;
+}
+
+.soul-doc-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.soul-doc-tab:hover {
+  color: var(--text-primary);
+}
+.soul-doc-tab.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--focus-ring);
+}
+.soul-doc-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.soul-doc-tab-description {
+  margin: 0 0 12px;
+  font-size: var(--text-sm);
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.soul-doc-missing {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}

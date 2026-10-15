@@ -224,6 +224,17 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
     fireEvent.click(screen.getByTitle('More actions'));
     expect(screen.getByRole('menuitem', { name: /pin for comparison/i })).toBeInTheDocument();
   });
+
+  // t/4200 — the soul-doc button hands the node's pov_tags to the dialog, which opens on that tag's soul.
+  it('the soul-doc button passes the node pov_tags to onOpenSoulDoc', () => {
+    mockPrefsState.viewMode = 'advanced';
+    const onOpenSoulDoc = vi.fn();
+    render(
+      <NodeDetail pov="skeptic" node={{ ...mockNode, pov_tags: ['institutional'] }} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} onOpenSoulDoc={onOpenSoulDoc} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Soul document' }));
+    expect(onOpenSoulDoc).toHaveBeenCalledWith(['institutional']);
+  });
 });
 
 // ── History tab viewMode gating (t/3021) ──────────────────────────────────────
