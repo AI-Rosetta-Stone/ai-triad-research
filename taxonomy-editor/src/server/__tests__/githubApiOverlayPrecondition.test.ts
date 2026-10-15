@@ -63,7 +63,7 @@ function mockFetchResponse(status: number, body: unknown): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), { status, headers: new Headers(defaultRateLimitHeaders) });
 }
 
-// t/4203 (TL, p/538#48): writes/edit-loads with no pending overlay entry now
+// t/4224 (TL, p/538#48): writes/edit-loads with no pending overlay entry now
 // read the session branch live (eb2b66f6) instead of falling back to the
 // repo-tree/main cache — tests that need a specific live-lookup result (most
 // of this file's first write in each test) push a handler here rather than
@@ -124,11 +124,11 @@ async function createBackend(recorder?: FlightRecorder) {
   return backend;
 }
 
-// t/4203 (TL, p/538#48): with no pending overlay entry, a write/edit-load now
+// t/4224 (TL, p/538#48): with no pending overlay entry, a write/edit-load now
 // reads the session branch live instead of falling back to the repo-tree —
 // mock that live lookup to return `sha` for taxonomy/nodes.json on the given
 // branch, so a test's `baseSha` (still 'blob1' throughout this file, matching
-// the pre-t/4203 repo-tree sha) keeps matching.
+// the pre-t/4224 repo-tree sha) keeps matching.
 function mockSessionBranchLookup(branch: string, sha: string, content = '{"test": true}'): void {
   const refQuery = `ref=${encodeURIComponent(branch)}`;
   apiHandlers.push((url, init) => {
@@ -281,12 +281,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion overl
   });
 });
 
-// t/4203 (TL design, p/538#40/#48): with no pending overlay entry,
+// t/4224 (TL design, p/538#40/#48): with no pending overlay entry,
 // readFileWithVersion must read the session branch live — never main's
 // on-disk cache. Disabling this branch previously failed no test, because
 // every other test here already has an overlay entry by the time it calls
 // readFileWithVersion (t/4201's precedence test above).
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion reads the session branch live (t/4203)', () => {
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion reads the session branch live (t/4224)', () => {
   it('an edit load on a session branch (no overlay entry) returns the branch content, not main\'s cache', async () => {
     const backend = await createBackend();
 

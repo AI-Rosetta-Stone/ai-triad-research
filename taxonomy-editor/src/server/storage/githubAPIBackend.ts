@@ -128,7 +128,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
   // t/4215 (TL design, t/4215#2): userId → (repoPath → content) for a plain
   // readFile() on a session branch, once the overlay has no entry for that
-  // path. Unlike readFileWithVersion's always-live read (t/4203), this is
+  // path. Unlike readFileWithVersion's always-live read (t/4224), this is
   // called from read-modify-write loops over many paths — filled for free at
   // commitOverlay/mergeBranch, with the branch-head SHA tracked alongside so
   // a stale cache (an out-of-band move the server didn't make) is detected
@@ -403,7 +403,7 @@ export class GitHubAPIBackend implements StorageBackend {
   /**
    * t/4215 (TL design, t/4215#2): a plain read on a session branch, once the
    * overlay has no entry for this path. Unlike readFileWithVersion's always-
-   * live read (t/4203 — low call volume, correctness-critical), this is
+   * live read (t/4224 — low call volume, correctness-critical), this is
    * called from read-modify-write loops over many paths (harvest, policy
    * recount, edges) — a live GitHub call per call would reintroduce the
    * t/4201 cost. Instead: a per-session cache filled for free at
@@ -431,7 +431,7 @@ export class GitHubAPIBackend implements StorageBackend {
   /**
    * One live fetch for a session-branch path, caching the result for the
    * given user if present. Fails closed on an unavailable fetch (503
-   * VERSION_UNAVAILABLE, same as t/4203) — a silent `null` here reads as
+   * VERSION_UNAVAILABLE, same as t/4224) — a silent `null` here reads as
    * "file doesn't exist" to read-modify-write callers, which would rebuild
    * the file from empty and overwrite it (worse than a visible error).
    * `optional: true` opts a caller (typically a viewer) into `null` plus a
@@ -545,7 +545,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
     const ref = opts?.ref ?? this.getEffectiveRef();
 
-    // t/4203 (TL design, p/538#40/#43): an edit-load on a session branch with
+    // t/4224 (TL design, p/538#40/#43): an edit-load on a session branch with
     // no pending overlay entry must read the branch's own current content and
     // version, not main's cache — the manifest/disk-cache path below
     // represents main only, so using it here is exactly the bug this fix
@@ -565,7 +565,7 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   /**
-   * The pre-t/4203 main-cache path for readFileWithVersion, unchanged —
+   * The pre-t/4224 main-cache path for readFileWithVersion, unchanged —
    * split out to keep readFileWithVersion's own complexity down once the
    * session-branch live-read branch above was added.
    */
@@ -787,7 +787,7 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeOverlayWithPrecondition(
     filePath: string, repoPath: string, content: string, ref: string, baseSha: string | undefined,
   ): Promise<{ version: string }> {
-    // t/4203 (TL design, p/538#40/#43): with no pending overlay entry for
+    // t/4224 (TL design, p/538#40/#43): with no pending overlay entry for
     // this path, the current version must come from the session branch
     // itself — never from getFileSha()'s main-cache fallback, which ignores
     // `ref` and is exactly the bug this fix closes (a save right after a
@@ -1563,7 +1563,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
     const data = resp.data as { sha: string };
 
-    // t/4203 (TL design, p/538#40): no baseline to refresh — getSessionBranchVersion()
+    // t/4224 (TL design, p/538#40): no baseline to refresh — getSessionBranchVersion()
     // reads the write/edit-load path live on every call, so a merge is covered there
     // without this method needing to know about it.
     //
@@ -2277,12 +2277,12 @@ export class GitHubAPIBackend implements StorageBackend {
   }
 
   /**
-   * t/4203 (TL design, p/538#40/#43): the current state of `repoPath` on a
+   * t/4224 (TL design, p/538#40/#43): the current state of `repoPath` on a
    * session branch, read live from GitHub — the one authoritative source for
    * every route that can move the branch head (commitOverlay, mergeBranch, a
    * resync conflict resolved on GitHub, another replica, SessionBranchManager
    * .commitBatch, or anything else). A session-branch precondition or
-   * edit-load checked against main's SHA instead is exactly the t/4203 bug —
+   * edit-load checked against main's SHA instead is exactly the t/4224 bug —
    * a stale or wrong baseline silently reverting this session's own commits.
    *
    * Tells a genuinely missing file ('absent' — a 404, a legitimate "nothing
