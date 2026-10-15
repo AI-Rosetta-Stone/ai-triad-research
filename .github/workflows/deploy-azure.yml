@@ -60,7 +60,10 @@ permissions:
 # the explicit "Wait for a concurrent staging deploy" step below, not a shared GH-native group.
 concurrency:
   group: deploy-${{ inputs.environment }}
-  cancel-in-progress: true
+  # SO C1c (p/682#20): with per-workflow groups, a pending-run replacement only ever drops an
+  # OLDER run of THIS SAME workflow, which is what we want — so cancel-in-progress:false is safe
+  # and avoids cancelling a live Bicep apply or traffic shift mid-flight.
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -213,38 +216,61 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # t/4194 SO C1 (p/682#16): this workflow's Bicep apply reconciles BOTH the prod and
-          # staging Container Apps in one shot (t/2049/t/2047 landmine) — including re-pinning
-          # staging's traffic from a value captured BEFORE the apply. If deploy-staging.yml is
-          # concurrently mutating the staging app (new revision, traffic promote), this apply can
-          # stomp that promotion with its stale pre-apply capture, or vice versa. A single shared
-          # GH concurrency group was tried first and rejected: it holds only ONE pending run, so a
-          # third trigger silently REPLACES (drops) the queued one instead of serializing. This
-          # step is the real cross-workflow mutual exclusion: poll for an in-progress
-          # deploy-staging.yml run and wait it out before capturing/touching shared Azure state.
+          # t/4194 SO C1 (p/682#16, p/682#20): this workflow's Bicep apply reconciles BOTH the
+          # prod and staging Container Apps in one shot (t/2049/t/2047 landmine) — including
+          # re-pinning staging's traffic from a value captured BEFORE the apply. If
+          # deploy-staging.yml is concurrently mutating the staging app (new revision, traffic
+          # promote), this apply can stomp that promotion with its stale pre-apply capture, or
+          # vice versa. A single shared GH concurrency group was tried first and rejected: it
+          # holds only ONE pending run, so a third trigger silently REPLACES (drops) the queued
+          # one instead of serializing.
           #
-          # RESIDUAL VECTOR (named, not closed): this is TOCTOU, not a lock. A deploy-staging.yml
-          # run that starts in the instant after this poll returns clear is not caught — only an
-          # actual mutex (e.g. a blob lease, t/4179) closes that. Honest tradeoff: this closes the
-          # common case (two deploys dispatched within the same multi-minute window) at zero infra
-          # cost; the sub-second race remains open.
-          $MaxWaitSeconds = 600
+          # SO C1a: a naive symmetric gate (both workflows wait for "any in-progress other-workflow
+          # run") deadlocks into the exact failure it's meant to prevent — a run sitting in ITS OWN
+          # wait step is itself in_progress, so two near-simultaneous dispatches see each other,
+          # both wait out the full budget, and both proceed together. Fixed by ORDER, not
+          # symmetry: wait only for an other-workflow run CREATED BEFORE this run. Exactly one of
+          # any two near-simultaneous runs then waits.
+          #
+          # SO C1b: budgets are tied to the OTHER job's own timeout-minutes, with asymmetric
+          # failure modes. Prod waits up to staging's job timeout (30m = deploy-staging.yml's
+          # `timeout-minutes: 30`) and then FAILS OPEN (warns, proceeds) — prod is not held
+          # hostage to a hung staging run. (Staging's own gate, in deploy-staging.yml, waits up to
+          # PROD's 45m timeout and fails CLOSED — see that file for the asymmetric rationale.)
+          #
+          # RESIDUAL VECTOR (named, not closed; SO-accepted at p/682#20): this is TOCTOU, not a
+          # lock — a deploy-staging.yml run that starts in the instant after this poll's last
+          # check is not caught. Only an actual mutex (e.g. a blob lease, t/4179) closes that.
+          $MaxWaitSeconds = 1800  # SO C1b: matches deploy-staging.yml job's timeout-minutes: 30
           $PollIntervalSeconds = 20
           $Elapsed = 0
-          while ($true) {
-            $Count = gh run list --repo $env:GH_REPO --workflow deploy-staging.yml --status in_progress --json databaseId -q 'length' 2>$null
-            if (-not $Count) { $Count = 0 }
-            if ([int]$Count -eq 0) {
-              Write-Host "No in-progress deploy-staging.yml run — proceeding."
-              break
+          $OwnCreatedAt = gh api "repos/$env:GH_REPO/actions/runs/$env:GITHUB_RUN_ID" --jq '.created_at'
+          if (-not $OwnCreatedAt) {
+            Write-Host "::warning::t/4194 guard: could not resolve this run's own created_at via the API — skipping the order check (fail-open)."
+          } else {
+            while ($true) {
+              $Raw = gh run list --repo $env:GH_REPO --workflow deploy-staging.yml --status in_progress --json databaseId,createdAt 2>$null
+              if ($null -eq $Raw -or $Raw -eq '') {
+                # SO C1d: an empty/failed `gh run list` is NOT the same as "zero other runs" —
+                # don't silently read it as clear.
+                Write-Host "::warning::t/4194 guard: 'gh run list' for deploy-staging.yml returned nothing (API error or rate limit) — cannot see the other workflow's state this poll."
+                $Earlier = @()
+              } else {
+                $Others = @($Raw | ConvertFrom-Json)
+                $Earlier = @($Others | Where-Object { [datetimeoffset]$_.createdAt -lt [datetimeoffset]$OwnCreatedAt })
+              }
+              if ($Earlier.Count -eq 0) {
+                Write-Host "No EARLIER in-progress deploy-staging.yml run — proceeding."
+                break
+              }
+              if ($Elapsed -ge $MaxWaitSeconds) {
+                Write-Host "::warning::t/4194 guard: an earlier deploy-staging.yml run is still in progress after ${MaxWaitSeconds}s — proceeding anyway (fail-open, SO C1b; do not hold prod deploys hostage to a hung/long staging run)."
+                break
+              }
+              Write-Host "$($Earlier.Count) earlier deploy-staging.yml run(s) still in progress — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
+              Start-Sleep -Seconds $PollIntervalSeconds
+              $Elapsed += $PollIntervalSeconds
             }
-            if ($Elapsed -ge $MaxWaitSeconds) {
-              Write-Host "::warning::t/4194 guard: deploy-staging.yml still in progress after ${MaxWaitSeconds}s — proceeding anyway (fail-open; do not hold prod deploys hostage to a hung/long staging run)."
-              break
-            }
-            Write-Host "deploy-staging.yml has $Count in-progress run(s) — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
-            Start-Sleep -Seconds $PollIntervalSeconds
-            $Elapsed += $PollIntervalSeconds
           }
 
       - name: Show resolved image (digest-pinned, from preflight)

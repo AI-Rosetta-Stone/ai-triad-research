@@ -24,7 +24,10 @@ permissions:
 
 concurrency:
   group: deploy-staging
-  cancel-in-progress: true
+  # SO C1c (p/682#20): with per-workflow groups, a pending-run replacement only ever drops an
+  # OLDER run of THIS SAME workflow, which is what we want — so cancel-in-progress:false is safe
+  # and avoids cancelling a live traffic shift mid-flight.
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -43,51 +46,76 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      # t/4129: the BUILT commit comes from the Container Image run's NAME, not workflow_run.head_sha.
-      # On a workflow_dispatch with an explicit `sha` (the only real build path), head_sha is the
-      # DISPATCH ref tip (main at dispatch time) while the build checks out, bakes and tags inputs.sha.
-      # Using head_sha looked up a tag that was never pushed (built eeb267d0, looked up d42561bc).
-      # Fail-closed: no `(sha-<hex>)` marker in the run name aborts the deploy; never fall back to head_sha.
       - name: Wait for a concurrent prod deploy to finish (t/4194 SO C1)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # t/4194 SO C1 (p/682#16): deploy-azure.yml's Bicep apply reconciles BOTH the prod and
-          # staging Container Apps in one shot (t/2049/t/2047 landmine) — including re-pinning
-          # staging's traffic from a value captured BEFORE that apply. If this workflow mutates
-          # the staging app (new revision, traffic promote) while deploy-azure.yml is mid-apply,
-          # its stale pre-apply capture can stomp this run's promotion, or vice versa. A single
-          # shared GH concurrency group was tried first and rejected: it holds only ONE pending
-          # run, so a third trigger silently REPLACES (drops) the queued one instead of
-          # serializing. This step is the real cross-workflow mutual exclusion: poll for an
-          # in-progress deploy-azure.yml run and wait it out before touching the staging app.
+          # t/4194 SO C1 (p/682#16, p/682#20): deploy-azure.yml's Bicep apply reconciles BOTH the
+          # prod and staging Container Apps in one shot (t/2049/t/2047 landmine) — including
+          # re-pinning staging's traffic from a value captured BEFORE that apply. If this workflow
+          # mutates the staging app (new revision, traffic promote) while deploy-azure.yml is
+          # mid-apply, its stale pre-apply capture can stomp this run's promotion, or vice versa. A
+          # single shared GH concurrency group was tried first and rejected: it holds only ONE
+          # pending run, so a third trigger silently REPLACES (drops) the queued one instead of
+          # serializing.
           #
-          # RESIDUAL VECTOR (named, not closed): this is TOCTOU, not a lock. A deploy-azure.yml
-          # run that starts in the instant after this poll returns clear is not caught — only an
-          # actual mutex (e.g. a blob lease, t/4179) closes that. Honest tradeoff: this closes the
-          # common case (two deploys dispatched within the same multi-minute window) at zero infra
-          # cost; the sub-second race remains open.
-          $MaxWaitSeconds = 600
+          # SO C1a: a naive symmetric gate (both workflows wait for "any in-progress other-workflow
+          # run") deadlocks into the exact failure it's meant to prevent — a run sitting in ITS OWN
+          # wait step is itself in_progress, so two near-simultaneous dispatches see each other,
+          # both wait out the full budget, and both proceed together. Fixed by ORDER, not
+          # symmetry: wait only for an other-workflow run CREATED BEFORE this run. Exactly one of
+          # any two near-simultaneous runs then waits.
+          #
+          # SO C1b: budgets are tied to the OTHER job's own timeout-minutes, with asymmetric
+          # failure modes. Staging waits up to PROD's job timeout (45m = deploy-azure.yml's
+          # `deploy` job `timeout-minutes: 45`) and then FAILS CLOSED: staging isn't urgent, and a
+          # long prod apply is exactly when a stale-capture stomp is most likely, so staging backs
+          # off entirely rather than racing ahead — the next Container Image build or a re-run
+          # picks staging up. (Prod's own gate, in deploy-azure.yml, waits up to staging's 30m
+          # timeout and fails OPEN — see that file for the asymmetric rationale.)
+          #
+          # RESIDUAL VECTOR (named, not closed; SO-accepted at p/682#20): this is TOCTOU, not a
+          # lock — a deploy-azure.yml run that starts in the instant after this poll's last check
+          # is not caught. Only an actual mutex (e.g. a blob lease, t/4179) closes that.
+          $MaxWaitSeconds = 2700  # SO C1b: matches deploy-azure.yml `deploy` job's timeout-minutes: 45
           $PollIntervalSeconds = 20
           $Elapsed = 0
+          $OwnCreatedAt = gh api "repos/$env:GH_REPO/actions/runs/$env:GITHUB_RUN_ID" --jq '.created_at'
+          if (-not $OwnCreatedAt) {
+            Write-Host "::error::t/4194 guard: could not resolve this run's own created_at via the API — failing closed (SO C1b: staging is not urgent)."
+            exit 1
+          }
           while ($true) {
-            $Count = gh run list --repo $env:GH_REPO --workflow deploy-azure.yml --status in_progress --json databaseId -q 'length' 2>$null
-            if (-not $Count) { $Count = 0 }
-            if ([int]$Count -eq 0) {
-              Write-Host "No in-progress deploy-azure.yml run — proceeding."
+            $Raw = gh run list --repo $env:GH_REPO --workflow deploy-azure.yml --status in_progress --json databaseId,createdAt 2>$null
+            if ($null -eq $Raw -or $Raw -eq '') {
+              # SO C1d: an empty/failed `gh run list` is NOT the same as "zero other runs" — don't
+              # silently read it as clear.
+              Write-Host "::warning::t/4194 guard: 'gh run list' for deploy-azure.yml returned nothing (API error or rate limit) — cannot see the other workflow's state this poll."
+              $Earlier = @()
+            } else {
+              $Others = @($Raw | ConvertFrom-Json)
+              $Earlier = @($Others | Where-Object { [datetimeoffset]$_.createdAt -lt [datetimeoffset]$OwnCreatedAt })
+            }
+            if ($Earlier.Count -eq 0) {
+              Write-Host "No EARLIER in-progress deploy-azure.yml run — proceeding."
               break
             }
             if ($Elapsed -ge $MaxWaitSeconds) {
-              Write-Host "::warning::t/4194 guard: deploy-azure.yml still in progress after ${MaxWaitSeconds}s — proceeding anyway (fail-open; do not hold staging deploys hostage to a hung/long prod run)."
-              break
+              Write-Host "::error::t/4194 guard: an earlier deploy-azure.yml run is still in progress after ${MaxWaitSeconds}s — failing CLOSED (SO C1b: staging is not urgent; the next Container Image build or a re-run will pick this up)."
+              exit 1
             }
-            Write-Host "deploy-azure.yml has $Count in-progress run(s) — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
+            Write-Host "$($Earlier.Count) earlier deploy-azure.yml run(s) still in progress — waiting ${PollIntervalSeconds}s (elapsed ${Elapsed}s/${MaxWaitSeconds}s)..."
             Start-Sleep -Seconds $PollIntervalSeconds
             $Elapsed += $PollIntervalSeconds
           }
 
+      # t/4129: the BUILT commit comes from the Container Image run's NAME, not workflow_run.head_sha.
+      # On a workflow_dispatch with an explicit `sha` (the only real build path), head_sha is the
+      # DISPATCH ref tip (main at dispatch time) while the build checks out, bakes and tags inputs.sha.
+      # Using head_sha looked up a tag that was never pushed (built eeb267d0, looked up d42561bc).
+      # Fail-closed: no `(sha-<hex>)` marker in the run name aborts the deploy; never fall back to head_sha.
       - name: Determine the built commit from the Container Image run name (t/4129)
         id: built
         shell: pwsh
