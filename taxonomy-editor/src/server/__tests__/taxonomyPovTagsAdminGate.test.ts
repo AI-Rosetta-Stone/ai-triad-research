@@ -130,12 +130,40 @@ describe('PUT /api/taxonomy/:pov pov_tags admin gate, hosted mode (t/4229)', () 
     expect(writeTaxonomyFileSpy).toHaveBeenCalledOnce();
   });
 
-  it('a stale read (version !== baseSha) skips the gate — the write\'s own baseSha precondition handles it, not a false 403', async () => {
+  // t/4229 SO C1/C2 (e/303#2): the gate must FAIL CLOSED on a version mismatch or a failed/
+  // versionless read, not skip — baseSha is caller-supplied and the version is a predictable git
+  // blob SHA, so "the write's own precondition will 409 anyway" is not a safe assumption to lean
+  // an authorization check on. These three replace the earlier (incorrect) "stale read → 200" test.
+
+  it('C2(i): stale read (version !== baseSha), non-admin tag change: 409 WRITE_CONFLICT, nothing written', async () => {
     readVersionMock.mockResolvedValue({ data: { nodes: [{ id: 'skp-desires-062', pov_tags: ['critical'] }] }, version: 'different-sha' });
     const res = fakeRes();
     await put(fakeReq(), res, { nodes: [{ id: 'skp-desires-062', pov_tags: ['critical', 'new-tag'] }] });
-    expect(res._statusCode).not.toBe(403); // writeTaxonomyFile is mocked to always succeed here
-    expect(writeTaxonomyFileSpy).toHaveBeenCalledOnce();
+    expect(res._statusCode).toBe(409);
+    expect(res._body.code).toBe('WRITE_CONFLICT');
+    expect(writeTaxonomyFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('C2(ii): the read throws, non-admin tag change: not 200, nothing written', async () => {
+    readVersionMock.mockRejectedValue(new Error('backend unavailable'));
+    const res = fakeRes();
+    await put(fakeReq(), res, { nodes: [{ id: 'skp-desires-062', pov_tags: ['critical', 'new-tag'] }] });
+    expect(res._statusCode).not.toBe(200);
+    expect(res._body.code).toBe('VERSION_UNAVAILABLE');
+    expect(writeTaxonomyFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('C2(iii): the engineered race — a stale read whose baseSha would later match the real pre-write state is still refused, even though the write mock would succeed', async () => {
+    // The attacker's read sees old content X at some other version; their If-Match carries a SHA
+    // that happens to equal what the CURRENT content will become after a concurrent legitimate
+    // write lands (gitBlobSha is predictable/computable). The gate must not let that coincidence
+    // through just because a downstream write call would, hypothetically, succeed.
+    readVersionMock.mockResolvedValue({ data: { nodes: [{ id: 'skp-desires-062', pov_tags: ['critical'] }] }, version: 'X-pre-race-sha' });
+    writeTaxonomyFileSpy.mockResolvedValueOnce({ version: 'sha-of-C' }); // would succeed if ever called
+    const res = fakeRes(); // fakeReq's If-Match is 'base-sha', which still != 'X-pre-race-sha'
+    await put(fakeReq(), res, { nodes: [{ id: 'skp-desires-062', pov_tags: ['critical', 'new-tag'] }] });
+    expect(writeTaxonomyFileSpy).not.toHaveBeenCalled();
+    expect(res._statusCode).toBe(409);
   });
 });
 

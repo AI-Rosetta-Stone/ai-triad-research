@@ -167,11 +167,13 @@ function diffPovTagSets(oldTags: string[] | undefined, newTags: string[] | undef
 // node against its prior version (by id); a brand-new node may carry no tags. Deletions (an old id
 // absent from incoming) are always allowed — nothing to check. Returns one violation per node so a
 // multi-node save names every offending id, not just the first.
+type TaxonomyWriteGate = { status: number; message: string; code?: string };
+
 function checkPovTagsAdminGate(
   oldNodes: PovTaggedNode[],
   incomingNodes: PovTaggedNode[],
   callerIsAdmin: boolean,
-): { status: 403; message: string } | null {
+): TaxonomyWriteGate | null {
   if (callerIsAdmin) return null;
   const oldById = new Map(oldNodes.map(n => [n.id, n]));
   const violations: string[] = [];
@@ -197,14 +199,14 @@ async function prepareTaxonomyNodeWrite(
   pov: string,
   incoming: { nodes?: unknown[] },
   baseSha: string,
-): Promise<{ gate: { status: 400 | 403 | 500; message: string } | null; changedNodeIds: string[] }> {
+): Promise<{ gate: TaxonomyWriteGate | null; changedNodeIds: string[] }> {
   let oldNodes: unknown[] = [];
   let oldNodesErr: Error | null = null;
   let readVersion: string | null = null;
   try {
-    const { data: existing, version } = await fileIO.readTaxonomyFileWithVersion(pov) as { data: { nodes?: unknown[] }; version: string | null };
+    const { data: existing, version } = await fileIO.readTaxonomyFileWithVersion(pov) as { data: { nodes?: unknown[] }; version: string };
     oldNodes = existing?.nodes ?? [];
-    readVersion = version;
+    readVersion = version || null; // t/4229 SO C1 (e/303#2): an empty/falsy version counts as versionless too
   } catch (err) {
     oldNodesErr = err as Error;
     /* telemetry — silent by design: first write or missing file; situations handled in situationsBdiGate */
@@ -216,10 +218,25 @@ async function prepareTaxonomyNodeWrite(
     if (gate) return { gate, changedNodeIds: [] };
   }
 
-  // t/4229: only check against a base that matches what the client actually edited from — a
-  // version mismatch here means the write's own baseSha precondition is about to 409 anyway, so
-  // skip the gate rather than risk a false 403 against the wrong base (TL review, p/522#390).
-  if (!isPovTagsGateExempt() && readVersion === baseSha && incoming.nodes && Array.isArray(incoming.nodes)) {
+  // t/4229: the pov_tags admin gate must FAIL CLOSED, not skip, when it can't establish the exact
+  // base the client edited from (SO C1, e/303#2 — overriding the original TL review's "the write's
+  // own precondition will 409 anyway" reasoning). baseSha is caller-supplied and the version is a
+  // predictable git blob SHA, so a non-admin can deliberately engineer a stale-looking read whose
+  // claimed baseSha later matches the real pre-write state, sliding an ungated change through the
+  // write's own precondition. Never write when the gate couldn't run.
+  if (!isPovTagsGateExempt() && incoming.nodes && Array.isArray(incoming.nodes)) {
+    if (oldNodesErr) {
+      return {
+        gate: { status: statusForError(oldNodesErr, 503), message: 'Could not verify the base version for the pov_tags admin check — refusing to write.', code: 'VERSION_UNAVAILABLE' },
+        changedNodeIds: [],
+      };
+    }
+    if (readVersion !== baseSha) {
+      return {
+        gate: { status: 409, message: 'Base version mismatch — reload and retry.', code: 'WRITE_CONFLICT' },
+        changedNodeIds: [],
+      };
+    }
     const gate = checkPovTagsAdminGate(oldNodes as PovTaggedNode[], incoming.nodes as PovTaggedNode[], isAdmin());
     if (gate) return { gate, changedNodeIds: [] };
   }
@@ -307,7 +324,7 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
       let changedNodeIds: string[] = [];
       if (incoming.nodes && Array.isArray(incoming.nodes)) {
         const result = await prepareTaxonomyNodeWrite(pov, incoming, baseSha);
-        if (result.gate) { error(res, result.gate.message, result.gate.status); return; }
+        if (result.gate) { error(res, result.gate.message, result.gate.status, undefined, result.gate.code ? { code: result.gate.code } : undefined); return; }
         changedNodeIds = result.changedNodeIds;
       }
       const { version } = await fileIO.writeTaxonomyFile(pov, body, { baseSha });
