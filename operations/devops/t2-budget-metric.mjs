@@ -45,6 +45,19 @@ export function topPathsByFrequency(fileListsPerT2Pr, topN = 5) {
     .map(([path, count]) => ({ path, count }));
 }
 
+/**
+ * PURE (t/4122 fix, TL correction t/4122#5/#6). An epic-child PR (base != main) is not a T2
+ * LANDING -- it merges into the epic integration branch, not main, so counting it inflates the
+ * share and can false-alarm on fragmentation of a single epic rather than real over-tiering
+ * (the exact bug: 4 of 15 "T2" PRs in the first run were epic children of t4184-write-conflict-
+ * fix, #3270/#3274/#3291/#3302 -- the real main-landing count was 11, ~8%, under threshold).
+ * An unreadable/missing baseRefName is excluded (fail toward NOT counting an unverifiable base,
+ * not toward inflating the share).
+ */
+export function filterMainMerges(prs, mainBranch = 'main') {
+  return (prs ?? []).filter((pr) => pr.baseRefName === mainBranch);
+}
+
 /** PURE. Tallies a list of {body} PR objects into {t0,t1,t2,none} via extractTier. */
 export function tallyTiers(prs) {
   const counts = { t0: 0, t1: 0, t2: 0, none: 0 };
@@ -69,7 +82,11 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('operations/
   let out;
   try {
     const sinceIso = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const q = encodeURIComponent(`repo:${repo} is:pr is:merged merged:>=${sinceIso}`);
+    // base:main (t/4122 fix, TL correction t/4122#5/#6): the search API's own scope, not just a
+    // post-filter -- an epic-child PR (base != main) is not a T2 LANDING. Kept alongside the pure
+    // filterMainMerges() backstop below rather than trusting the query alone (defense in depth:
+    // a malformed/ignored qualifier degrading silently to "all merged PRs" must still be caught).
+    const q = encodeURIComponent(`repo:${repo} is:pr is:merged base:main merged:>=${sinceIso}`);
     let items = [];
     for (let page = 1; page <= 10; page++) {
       const batch = ghJson(`search/issues?q=${q}&per_page=100&page=${page}`);
@@ -77,15 +94,18 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('operations/
       items = items.concat(results);
       if (results.length < 100) break;
     }
-    // search/issues doesn't include the PR body reliably for all fields across API versions;
-    // re-fetch each PR's body explicitly to avoid depending on an undocumented search payload shape.
-    const prs = items.map((it) => {
-      let body = it.body;
-      if (body === undefined) {
-        try { body = ghJson(`repos/${repo}/pulls/${it.number}`).body; } catch { body = null; }
+    // search/issues doesn't reliably include the PR body or base ref across API versions;
+    // re-fetch each PR's full detail explicitly rather than depending on an undocumented
+    // search payload shape.
+    const allPrs = items.map((it) => {
+      try {
+        const detail = ghJson(`repos/${repo}/pulls/${it.number}`);
+        return { number: it.number, body: detail.body, baseRefName: detail.base?.ref ?? null };
+      } catch {
+        return { number: it.number, body: null, baseRefName: null };
       }
-      return { number: it.number, body };
     });
+    const prs = filterMainMerges(allPrs);
 
     const counts = tallyTiers(prs);
     const verdict = t2BudgetVerdict(counts);
@@ -100,7 +120,12 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('operations/
     });
     const topT2Paths = topPathsByFrequency(fileLists, 5);
 
-    out = { ok: true, repo, windowDays, since: sinceIso, counts, verdict, topT2Paths };
+    out = {
+      ok: true, repo, windowDays, since: sinceIso,
+      mainMergesChecked: prs.length,
+      excludedNonMain: allPrs.length - prs.length,
+      counts, verdict, topT2Paths,
+    };
   } catch (e) {
     out = { ok: false, error: String((e && e.message) || e) };
   }
