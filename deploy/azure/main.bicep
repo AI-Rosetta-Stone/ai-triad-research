@@ -629,8 +629,7 @@ var stagingContainerEnv = paidTierEnabled
   ? concat(stagingEnvWithFreeTier, [ { name: 'GEMINI_PAID_KEY', secretRef: paidTierSecretName } ])
   : stagingEnvWithFreeTier
 
-// API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
-resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
+resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'taxonomy-editor'
   location: location
   tags: tags
@@ -753,10 +752,6 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
         // latency tradeoff this reintroduces (previously fixed for the same
         // reason in e247ef75, 2026-05-05) in exchange for scale-to-zero savings.
         minReplicas: 0
-        // t/4249 cost: scale to zero after 120s with no HTTP requests (ACA default 300s).
-        // Each wake at 2 vCPU/4Gi bills at least this long. Safe because debounced writes
-        // finish within 15s (groundingReconcileHook) and SIGTERM gets the 60s grace below.
-        cooldownPeriod: 120
         // maxReplicas capped at 1 (t/4176 incident, 2026-10-13: back from 5 to 1).
         // NOTE: the phrase "maxReplicas capped at" on this line is load-bearing —
         // Test-InMemoryJobStoreScaleGuard.ps1 uses it as a regex anchor to locate
@@ -785,7 +780,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
 // Separate app for staging deploys — shares the environment and storage but
 // runs independently so a bad staging deploy cannot affect production.
 
-resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
+resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'taxonomy-editor-staging'
   location: location
   tags: union(tags, { environment: 'staging' })
@@ -869,8 +864,6 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
       scale: {
         minReplicas: 0
         maxReplicas: 1
-        // t/4249: match prod's 120s scale-to-zero cooldown (ACA default 300s).
-        cooldownPeriod: 120
       }
     }
   }
