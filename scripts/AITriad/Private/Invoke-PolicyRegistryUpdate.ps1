@@ -7,7 +7,8 @@ function Invoke-PolicyRegistryUpdate {
         The body of Update-PolicyRegistry, moved here unchanged so the public cmdlet can hold the
         t/4028 advisory lock around it with a plain try/finally. See Update-PolicyRegistry for the
         parameters and behaviour. The only addition is the registry-writable preflight before
-        Set-PolicyIdsOnNodes (marked t/4028).
+        Set-PolicyIdsOnNodes (marked t/4028), and the lock-ownership check before each -Fix write
+        (marked t/4193).
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -15,7 +16,9 @@ function Invoke-PolicyRegistryUpdate {
         [switch]$PassThru,
         [string[]]$NodeId,
         [AllowEmptyCollection()]
-        [string[]]$PriorPolicyIds = @()
+        [string[]]$PriorPolicyIds = @(),
+        # The lock object from Enter-PolicyRegistryLock ($null for report-only runs, which never write).
+        [AllowNull()][object]$Lock
     )
 
     Set-StrictMode -Version Latest
@@ -75,6 +78,7 @@ function Invoke-PolicyRegistryUpdate {
             # earlier run's change still uncommitted, the registry write would be refused AFTER the
             # node ids had landed, leaving minted ids that no registry entry backs.
             Assert-DataWriteAllowed -Path $RegistryPath
+            Assert-GroundingLockHeld -Lock $Lock   # t/4193 TL condition 2: no write once the lock is lost
             Set-PolicyIdsOnNodes -TaxDir $TaxDir -Assignments $Minted.Assignments
         }
 
@@ -92,6 +96,7 @@ function Invoke-PolicyRegistryUpdate {
             Update-PolicyMemberCounts -Policies $Policies -Referenced $Final.Referenced
         }
 
+        Assert-GroundingLockHeld -Lock $Lock   # t/4193 TL condition 2
         Save-PolicyRegistry -RegistryPath $RegistryPath -Policies $Policies -Cmdlet $PSCmdlet
     }
 
