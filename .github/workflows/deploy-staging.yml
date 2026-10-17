@@ -359,32 +359,50 @@ jobs:
           . ./operations/devops/Get-RevisionDeactivationVerdict.ps1
           $serving = '${{ steps.new_revision.outputs.revision }}'
           $prior   = '${{ steps.current_revision.outputs.revision }}'
-          # t/4242: --0000220 was deactivated while still at 100% traffic weight. The list read
-          # below can be stale (Azure read-after-write propagation lag is the leading root-cause
-          # hypothesis, t/4242#1) — never trust it alone. $serving is EXCLUDED BY NAME here,
-          # independent of whatever weight this list call reports for it, and every remaining
-          # candidate gets a FRESH `revision show` re-check immediately before the actual
-          # deactivate call, not the weight from this list read.
+          # t/4242 + SO review (p/682#33): a revision's own `trafficWeight` is a value Azure
+          # DERIVES from the app's ingress traffic config — if the read-after-write lag is in that
+          # derivation, re-reading the same derived field alone can still be stale. Every candidate
+          # that survives the cheap name-based exclusion below gets a FRESH re-check against BOTH
+          # independently-sourced inputs — `revision show`'s own trafficWeight AND a fresh read of
+          # `properties.configuration.ingress.traffic` (the routing source) — immediately before
+          # the actual deactivate call, never an earlier list read.
           $candidates = az containerapp revision list `
             --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
             -o json | ConvertFrom-Json
           foreach ($c in $candidates) {
-            $verdict = Get-RevisionDeactivationVerdict -RevisionName $c.name `
-              -TrafficWeight ([int]$c.properties.trafficWeight) -Active ([bool]$c.properties.active) `
-              -ServingRevisionName $serving -ProtectedNames @($prior)
-            if ($verdict.Action -ne 'deactivate') {
-              Write-Host "Skipping $($c.name): $($verdict.Reason)"
+            if ($c.name -eq $serving -or @($prior) -contains $c.name) {
+              Write-Host "Skipping $($c.name): name-excluded (serving or protected rollback target), no Azure call needed"
               continue
             }
-            # Fresh re-check immediately before the destructive call — the list read above may be stale.
+            # Fresh re-check immediately before the destructive call, on BOTH independent sources —
+            # the earlier list read above is never trusted for the actual decision.
             $fresh = az containerapp revision show `
               --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $c.name `
               -o json | ConvertFrom-Json
-            $freshVerdict = Get-RevisionDeactivationVerdict -RevisionName $fresh.name `
-              -TrafficWeight ([int]$fresh.properties.trafficWeight) -Active ([bool]$fresh.properties.active) `
+            $app = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' -o json `
+              | ConvertFrom-Json
+            $trafficEntries = $null
+            $latestRevisionName = $null
+            if ($app.PSObject.Properties['properties']) {
+              if ($app.properties.PSObject.Properties['configuration'] -and
+                  $app.properties.configuration.PSObject.Properties['ingress'] -and
+                  $app.properties.configuration.ingress.PSObject.Properties['traffic']) {
+                $trafficEntries = @($app.properties.configuration.ingress.traffic)
+              }
+              if ($app.properties.PSObject.Properties['latestRevisionName']) {
+                $latestRevisionName = $app.properties.latestRevisionName
+              }
+            }
+            $ingress = Get-IngressTrafficWeightForRevision -RevisionName $c.name `
+              -TrafficEntries $trafficEntries -LatestRevisionName $latestRevisionName
+            $freshWeight = if ($fresh.properties.PSObject.Properties['trafficWeight']) { $fresh.properties.trafficWeight } else { $null }
+            $freshActive = if ($fresh.properties.PSObject.Properties['active']) { [bool]$fresh.properties.active } else { $false }
+            $freshVerdict = Get-RevisionDeactivationVerdict -RevisionName $c.name `
+              -TrafficWeight $freshWeight -Active $freshActive `
+              -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic `
               -ServingRevisionName $serving -ProtectedNames @($prior)
             if ($freshVerdict.Action -ne 'deactivate') {
-              Write-Host "Skipping $($c.name) on fresh re-check: $($freshVerdict.Reason) (list read was stale)"
+              Write-Host "Skipping $($c.name) on fresh re-check: $($freshVerdict.Reason)"
               continue
             }
             az containerapp revision deactivate `
@@ -437,6 +455,8 @@ jobs:
             Write-Error "t/4242 AC2: serving revision '$Rev' is NOT active after deploy — the exact t/4242 incident shape (a revision holding traffic but deactivated). Failing the run."
             exit 1
           }
+          # SO C4: 100 assumes no canary split (two revisions both > 0% at once) — true today. If
+          # canary deploys are introduced, this check needs to change to "the expected split".
           if ([int]$Info.weight -ne 100) {
             Write-Error "t/4242 AC2: serving revision '$Rev' traffic weight is $($Info.weight), not 100 — traffic did not land where expected. Failing the run."
             exit 1
