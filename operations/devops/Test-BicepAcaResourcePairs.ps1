@@ -94,7 +94,8 @@ function Resolve-PairValue([System.Text.RegularExpressions.Match]$M, [string]$Ki
 }
 
 function Add-Pair([string]$Cpu, [string]$Memory) {
-    if ($null -ne $Cpu -and $null -ne $Memory -and $Cpu -ne '?' -and $Memory -ne '?') {
+    # [string] params coerce $null to '' — test for empty, not $null, or an unparsed site sneaks in as cpu=''.
+    if (-not [string]::IsNullOrEmpty($Cpu) -and -not [string]::IsNullOrEmpty($Memory) -and $Cpu -ne '?' -and $Memory -ne '?') {
         $pairs.Add([PSCustomObject]@{ Cpu = $Cpu; Memory = $Memory })
     }
 }
