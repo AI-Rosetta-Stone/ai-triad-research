@@ -69,7 +69,7 @@ function Switch-TaxEditorRevision {
     # ── Validate az CLI ──────────────────────────────────────────────────
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Switch ACA revision' `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location 'Switch-TaxEditorRevision' `
@@ -78,7 +78,7 @@ function Switch-TaxEditorRevision {
 
     $AccountJson = & az account show --output json 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $AccountJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Switch ACA revision' `
             -Problem 'Azure CLI is not logged in' `
             -Location 'Switch-TaxEditorRevision' `
@@ -89,7 +89,7 @@ function Switch-TaxEditorRevision {
     $Revisions = @(Get-TaxEditorRevision -ResourceGroup $ResourceGroup -AppName $AppName)
 
     if ($Revisions.Count -eq 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Switch ACA revision' `
             -Problem "No revisions found for '$AppName' in '$ResourceGroup'" `
             -Location 'Switch-TaxEditorRevision' `
@@ -106,7 +106,7 @@ function Switch-TaxEditorRevision {
             Sort-Object { $_.CreatedAt } -Descending)
 
         if ($Inactive.Count -eq 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Roll back to previous revision' `
                 -Problem 'No inactive revisions found — nothing to roll back to' `
                 -Location 'Switch-TaxEditorRevision' `
@@ -118,7 +118,7 @@ function Switch-TaxEditorRevision {
     else {
         $Match = @($Revisions | Where-Object { $_.Name -eq $Revision })
         if ($Match.Count -eq 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Switch to revision '$Revision'" `
                 -Problem "Revision '$Revision' not found" `
                 -Location 'Switch-TaxEditorRevision' `
@@ -142,7 +142,7 @@ function Switch-TaxEditorRevision {
         Write-Verbose "Activating revision '$TargetName'..."
         & az containerapp revision activate -g $ResourceGroup -n $AppName --revision $TargetName 2>$null
         if ($LASTEXITCODE -ne 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Activate revision '$TargetName'" `
                 -Problem "az containerapp revision activate failed (exit code $LASTEXITCODE)" `
                 -Location 'Switch-TaxEditorRevision' `
@@ -155,7 +155,7 @@ function Switch-TaxEditorRevision {
     & az containerapp ingress traffic set -g $ResourceGroup -n $AppName `
         --revision-weight "${TargetName}=100" 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Shift traffic to '$TargetName'" `
             -Problem "az containerapp ingress traffic set failed (exit code $LASTEXITCODE)" `
             -Location 'Switch-TaxEditorRevision' `

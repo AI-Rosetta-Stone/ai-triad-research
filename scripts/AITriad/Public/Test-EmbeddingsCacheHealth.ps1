@@ -83,7 +83,7 @@ function Test-EmbeddingsCacheHealth {
         $toUtc   = if ($PSBoundParameters.ContainsKey('To'))   { $To.ToUniversalTime() }   else { [datetime]::UtcNow }
         $fromUtc = if ($PSBoundParameters.ContainsKey('From')) { $From.ToUniversalTime() } else { $toUtc.AddMinutes(-30) }
         if ($fromUtc -gt $toUtc) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal     'Assess embeddings-cache health over a time window' `
                 -Problem  "-From ($fromUtc) is after -To ($toUtc)." `
                 -Location 'Test-EmbeddingsCacheHealth' `

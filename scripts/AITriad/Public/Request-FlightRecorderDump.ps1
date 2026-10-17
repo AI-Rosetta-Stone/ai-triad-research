@@ -72,7 +72,7 @@ function Request-FlightRecorderDump {
             try {
                 $pipe.Connect($timeoutMs)
             } catch [TimeoutException] {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal "Request flight recorder dump from PID $ProcessId" `
                     -Problem "Named pipe '$pipeName' did not respond within ${TimeoutSeconds}s" `
                     -Location 'Request-FlightRecorderDump' `
@@ -81,7 +81,7 @@ function Request-FlightRecorderDump {
                         'Ensure the flight recorder pipe listener is enabled in the app'
                     ))
             } catch {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal "Request flight recorder dump from PID $ProcessId" `
                     -Problem "Cannot connect to pipe '$pipeName': $($_.Exception.Message)" `
                     -Location 'Request-FlightRecorderDump' `
@@ -105,7 +105,7 @@ function Request-FlightRecorderDump {
 
                 $responseLine = $reader.ReadLine()
                 if (-not $responseLine) {
-                    throw (New-ActionableError `
+                    throw (New-ActionableError -AsErrorRecord `
                         -Goal "Request flight recorder $actionName from PID $ProcessId" `
                         -Problem 'Received empty response from flight recorder pipe' `
                         -Location 'Request-FlightRecorderDump' `

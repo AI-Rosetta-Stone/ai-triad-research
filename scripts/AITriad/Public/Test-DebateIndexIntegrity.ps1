@@ -45,7 +45,7 @@ function Test-DebateIndexIntegrity {
     if (-not $DebatesDir) {
         $DataRoot = Get-DataRoot
         if (-not $DataRoot) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal     'Locate debates directory' `
                 -Problem  'Could not resolve data root — .aitriad.json not found' `
                 -Location 'Test-DebateIndexIntegrity' `

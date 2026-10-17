@@ -52,7 +52,7 @@ function Test-TaxEditorInfra {
     # ── Validate az CLI ──────────────────────────────────────────────────
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Run Bicep what-if preview' `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location $CallerName `
@@ -61,7 +61,7 @@ function Test-TaxEditorInfra {
 
     $AccountJson = & az account show --output json 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $AccountJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Run Bicep what-if preview' `
             -Problem 'Azure CLI is not logged in' `
             -Location $CallerName `
@@ -72,7 +72,7 @@ function Test-TaxEditorInfra {
     if (-not $TemplatePath) {
         $RepoRoot = (git rev-parse --show-toplevel 2>$null)
         if (-not $RepoRoot) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Locate Bicep template' `
                 -Problem 'Not in a git repository — cannot resolve default template path' `
                 -Location $CallerName `
@@ -83,7 +83,7 @@ function Test-TaxEditorInfra {
     }
 
     if (-not (Test-Path $TemplatePath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Run Bicep what-if preview' `
             -Problem "Bicep template not found: $TemplatePath" `
             -Location $CallerName `

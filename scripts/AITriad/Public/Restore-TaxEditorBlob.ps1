@@ -59,7 +59,7 @@ function Restore-TaxEditorBlob {
         # ── Validate az CLI ──────────────────────────────────────────────
         $AzCmd = Get-Command az -ErrorAction SilentlyContinue
         if (-not $AzCmd) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Restore soft-deleted blob' `
                 -Problem 'Azure CLI (az) not found on PATH' `
                 -Location $CallerName `
@@ -68,7 +68,7 @@ function Restore-TaxEditorBlob {
 
         $AccountJson = & az account show --output json 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $AccountJson) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Restore soft-deleted blob' `
                 -Problem 'Azure CLI is not logged in' `
                 -Location $CallerName `
@@ -79,7 +79,7 @@ function Restore-TaxEditorBlob {
         if (-not $StorageAccount) {
             $AccountListJson = & az storage account list -g $ResourceGroup --query "[?starts_with(name,'staitriad')].name" -o json 2>$null
             if ($LASTEXITCODE -ne 0 -or -not $AccountListJson) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Resolve storage account' `
                     -Problem "No storage accounts found in resource group '$ResourceGroup'" `
                     -Location $CallerName `
@@ -87,7 +87,7 @@ function Restore-TaxEditorBlob {
             }
             $Accounts = $AccountListJson | ConvertFrom-Json
             if (@($Accounts).Count -eq 0) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Resolve storage account' `
                     -Problem "No 'staitriad*' storage accounts found in '$ResourceGroup'" `
                     -Location $CallerName `
@@ -101,7 +101,7 @@ function Restore-TaxEditorBlob {
         if ($LASTEXITCODE -eq 0 -and $PropsJson) {
             $Props = $PropsJson | ConvertFrom-Json
             if ($Props.PSObject.Properties['enabled'] -and -not $Props.enabled) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Restore soft-deleted blob' `
                     -Problem "Blob soft-delete is not enabled on storage account '$StorageAccount'" `
                     -Location $CallerName `
@@ -127,7 +127,7 @@ function Restore-TaxEditorBlob {
             --output json 2>$null
 
         if ($LASTEXITCODE -ne 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Restore blob '$Path'" `
                 -Problem "az storage blob undelete failed (exit code $LASTEXITCODE)" `
                 -Location $CallerName `

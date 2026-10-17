@@ -53,7 +53,7 @@ function Reset-TaxEditorSession {
             -CallerName $CallerName
     }
     catch {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Reset session for user '$UserId'" `
             -Problem "Session branch 'api-session/$UserId' does not exist" `
             -Location $CallerName `

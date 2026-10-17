@@ -44,7 +44,7 @@ function Show-WorkflowRunner {
 
     $CodeRoot = Get-CodeRoot
     if (-not $CodeRoot) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Launch Workflow Runner' `
             -Problem 'Cannot find the ai-triad-research code repository' `
             -Location 'Show-WorkflowRunner' `
@@ -56,7 +56,7 @@ function Show-WorkflowRunner {
 
     $AppDir = Join-Path $CodeRoot 'workflow-app'
     if (-not (Test-Path $AppDir)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Launch Workflow Runner' `
             -Problem "App directory not found: $AppDir" `
             -Location 'Show-WorkflowRunner' `
@@ -67,7 +67,7 @@ function Show-WorkflowRunner {
 
     # ── Check npm ────────────────────────────────────────────────────────────
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Launch Workflow Runner' `
             -Problem 'npm is not installed — Node.js is required' `
             -Location 'Show-WorkflowRunner' `
@@ -85,7 +85,7 @@ function Show-WorkflowRunner {
         try {
             pnpm install
             if ($LASTEXITCODE -ne 0) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Install Workflow Runner dependencies' `
                     -Problem "pnpm install failed (exit code $LASTEXITCODE)" `
                     -Location 'Show-WorkflowRunner' `
