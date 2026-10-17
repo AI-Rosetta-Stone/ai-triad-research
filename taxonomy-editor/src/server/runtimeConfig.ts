@@ -136,6 +136,13 @@ export interface RuntimeConfig {
   generation: {
     opedVoiceTimeoutMs: number;
   };
+  /** t/4262: the t/4251 renderer poll gate's live switch, read from GET /api/config/client.
+   *  Read by the renderer poll gate (`pollGate.isPollAllowed`, #3388). T0 per TL p/336#614.
+   *  Default false until t/4258 AC2 lands. Flipping the default to true is a TL/PI decision —
+   *  not part of this ticket. */
+  pollGate: {
+    enabled: boolean;
+  };
 }
 
 // Mirror of the backend ids in ai-models.json (t/1513). Used to validate admin
@@ -246,6 +253,9 @@ const DEFAULTS: RuntimeConfig = {
   generation: {
     opedVoiceTimeoutMs: 360_000, // 6 min; New-OpEd = grounding + full-essay LLM (debate briefs use 330s)
   },
+  pollGate: {
+    enabled: false, // t/4262: off until t/4258 AC2 lands (TL/PI decision, not this ticket)
+  },
 };
 
 // ── Field validation helpers ──
@@ -282,6 +292,15 @@ function vStr(val: unknown, def: string, field: string, errors: string[]): strin
   if (val === undefined) return def;
   if (typeof val !== 'string' || val.length === 0) {
     errors.push(`${field}: expected non-empty string — using default "${def}"`);
+    return def;
+  }
+  return val;
+}
+
+function vBool(val: unknown, def: boolean, field: string, errors: string[]): boolean {
+  if (val === undefined) return def;
+  if (typeof val !== 'boolean') {
+    errors.push(`${field}: expected boolean, got ${typeof val} — using default ${def}`);
     return def;
   }
   return val;
@@ -370,6 +389,7 @@ export function validateAndMerge(raw: unknown, defaults: RuntimeConfig): { confi
   const cache = section(r, 'cache', errors);
   const deb = section(r, 'debate', errors);
   const gen = section(r, 'generation', errors);
+  const pg = section(r, 'pollGate', errors);
 
   let resilience: RuntimeConfig['resilience'] = {
     circuitThreshold: vNum(res.circuitThreshold, defaults.resilience.circuitThreshold, { min: 1, max: 1_000, integer: true }, 'resilience.circuitThreshold', errors),
@@ -476,6 +496,9 @@ export function validateAndMerge(raw: unknown, defaults: RuntimeConfig): { confi
     },
     generation: {
       opedVoiceTimeoutMs: vNum(gen.opedVoiceTimeoutMs, defaults.generation.opedVoiceTimeoutMs, { min: 60_000, max: 3_600_000 }, 'generation.opedVoiceTimeoutMs', errors),
+    },
+    pollGate: {
+      enabled: vBool(pg.enabled, defaults.pollGate.enabled, 'pollGate.enabled', errors),
     },
   };
 
@@ -675,6 +698,7 @@ export interface ClientConfig {
   flightRecorder: Pick<RuntimeConfig['flightRecorder'], 'minDumpIntervalMs' | 'maxDumpsPerWindow' | 'dumpWindowMs'>;
   analytics: Pick<RuntimeConfig['analytics'], 'bufferRequeueLimit' | 'IDLE_TIMEOUT_MS' | 'MAX_ENGAGED_MS' | 'ENGAGED_MIN_MS' | 'MIN_VISIT_MS' | 'PULSE_THROTTLE_MS' | 'IDLE_GRACE_MS' | 'CREDIT_WINDOW_MS'>;
   debate: RuntimeConfig['debate'];
+  pollGate: RuntimeConfig['pollGate'];
 }
 
 /**
@@ -702,5 +726,6 @@ export function getClientConfig(): ClientConfig {
       CREDIT_WINDOW_MS: c.analytics.CREDIT_WINDOW_MS,
     },
     debate: c.debate,
+    pollGate: c.pollGate,
   };
 }

@@ -296,9 +296,9 @@ describe('REST-endpoint support — file round-trip (t/927)', () => {
     expect(diffFromDefaults()).toEqual([{ path: 'resilience.circuitThreshold', current: 9, default: 5 }]);
   });
 
-  it('getClientConfig exposes only resilience + flightRecorder subset + analytics + debate (AC#5)', () => {
+  it('getClientConfig exposes only resilience + flightRecorder subset + analytics + debate + pollGate (AC#5)', () => {
     const client = getClientConfig();
-    expect(Object.keys(client).sort()).toEqual(['analytics', 'debate', 'flightRecorder', 'resilience']);
+    expect(Object.keys(client).sort()).toEqual(['analytics', 'debate', 'flightRecorder', 'pollGate', 'resilience']);
     expect(Object.keys(client.flightRecorder).sort()).toEqual(['dumpWindowMs', 'maxDumpsPerWindow', 'minDumpIntervalMs']);
     expect(Object.keys(client.analytics)).toEqual(['bufferRequeueLimit', 'IDLE_TIMEOUT_MS', 'MAX_ENGAGED_MS', 'ENGAGED_MIN_MS', 'MIN_VISIT_MS', 'PULSE_THROTTLE_MS', 'IDLE_GRACE_MS', 'CREDIT_WINDOW_MS']);
     expect(client.resilience.circuitThreshold).toBe(5);
@@ -309,5 +309,14 @@ describe('REST-endpoint support — file round-trip (t/927)', () => {
       summarizationTemperature: 0.3, summarizationMaxTokens: 500, evaluatorMaxTokens: 8192,
       defaultTimeoutMs: 120_000, maxRegenAttempts: 3,
     });
+  });
+
+  it('pollGate.enabled defaults to false in GET /api/config/client output (t/4262)', () => {
+    expect(getClientConfig().pollGate).toEqual({ enabled: false });
+  });
+
+  it('setting pollGate.enabled true in runtime config is reflected in getClientConfig (t/4262)', () => {
+    writeConfig({ pollGate: { enabled: true } }, 'tester');
+    expect(getClientConfig().pollGate).toEqual({ enabled: true });
   });
 });
