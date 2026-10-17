@@ -30,7 +30,8 @@ function Resolve-TriadConfigRequest {
             -Problem 'GITHUB_TOKEN environment variable is not set' `
             -Location $CallerName `
             -NextSteps @('Set $env:GITHUB_TOKEN to a GitHub personal access token',
-                         'The token is used for admin endpoint authentication'))
+                         'The token is used for admin endpoint authentication') `
+            -AsErrorRecord)
     }
 
     [PSCustomObject]@{

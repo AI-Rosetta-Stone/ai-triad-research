@@ -27,7 +27,8 @@ function Invoke-GitHubApi {
             -Problem 'GITHUB_TOKEN environment variable is not set' `
             -Location $CallerName `
             -NextSteps @('Set $env:GITHUB_TOKEN to a GitHub personal access token',
-                         'Token needs repo scope for data operations'))
+                         'Token needs repo scope for data operations') `
+            -AsErrorRecord)
     }
 
     $Headers = @{
@@ -68,6 +69,7 @@ function Invoke-GitHubApi {
             -Problem "GitHub API error: $Msg" `
             -Location $CallerName `
             -NextSteps @('Verify GITHUB_TOKEN has repo scope',
-                         "Endpoint: $Endpoint"))
+                         "Endpoint: $Endpoint") `
+            -AsErrorRecord)
     }
 }

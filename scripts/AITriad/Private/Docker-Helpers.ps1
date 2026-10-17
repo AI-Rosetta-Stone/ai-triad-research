@@ -35,7 +35,8 @@ function Assert-DockerAvailable {
                 'Install Docker Desktop from https://www.docker.com/products/docker-desktop/'
                 'Ensure Docker Desktop is running'
                 'Run Show-TaxonomyEditor again'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 
     # Check that the daemon is responsive
@@ -54,7 +55,8 @@ function Assert-DockerAvailable {
                 'Start Docker Desktop'
                 'Wait for the Docker icon to show "running"'
                 'Run Show-TaxonomyEditor again'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 }
 
@@ -91,7 +93,8 @@ function Pull-TaxonomyEditorImage {
                 'Verify Docker is working: docker pull hello-world'
                 'Verify GHCR is accessible: docker pull ghcr.io/ai-rosetta-stone/taxonomy-editor:latest'
                 'If behind a proxy, configure Docker proxy settings'
-            ))
+            ) `
+            -AsErrorRecord)
     }
     Write-OK 'Image pulled successfully.'
 }

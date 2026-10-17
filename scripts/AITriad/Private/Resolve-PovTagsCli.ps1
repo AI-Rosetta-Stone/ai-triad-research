@@ -34,7 +34,8 @@ function Resolve-PovTagsCli {
                 -NextSteps @(
                     'Run from a full repo checkout (where lib/schema lives)',
                     'Install dependencies (npm ci) — the CLI needs tsx AND its runtime packages'
-                ))
+                ) `
+                -AsErrorRecord)
     }
 
     return @{ Exe = 'npx'; ArgPrefix = @('--yes', 'tsx', $cliPath) }

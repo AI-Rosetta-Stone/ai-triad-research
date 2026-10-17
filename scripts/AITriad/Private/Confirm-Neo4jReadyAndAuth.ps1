@@ -123,7 +123,8 @@ function Confirm-Neo4jReadyAndAuth {
                         "Check: docker logs $ContainerName (look for auth/NEO4J_AUTH_FILE errors)",
                         'Confirm the image honors NEO4J_AUTH_FILE; fallback is neo4j-admin dbms set-initial-password (t/3833)',
                         "The secret file was left at $AuthFile — remove it after resolving",
-                        'Then re-run Install-GraphDatabase -Force'))
+                        'Then re-run Install-GraphDatabase -Force') `
+                    -AsErrorRecord)
         }
     } else {
         # SO cond.2: timeout only WARNS (never fails) — so do NOT delete the file out from under a

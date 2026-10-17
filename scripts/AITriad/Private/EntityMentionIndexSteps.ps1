@@ -298,7 +298,8 @@ function Assert-EmiOwnedScope {
                 -Goal     'Rebuild the entity mention index within its {sei:*, summary:*} scope' `
                 -Problem  "Built container key(s) outside scope: $($ownBuiltForeign -join ', '). node:* grounding is owned by the CL reconciler (t/3160 G7)." `
                 -Location 'Update-EntityMentionIndex' `
-                -NextSteps @('Disjoint-scope regression — the cmdlet must only produce sei:*/summary:* keys. Check the container-collection blocks.'))
+                -NextSteps @('Disjoint-scope regression — the cmdlet must only produce sei:*/summary:* keys. Check the container-collection blocks.') `
+                -AsErrorRecord)
     }
 }
 
