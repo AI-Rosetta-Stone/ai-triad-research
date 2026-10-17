@@ -198,21 +198,55 @@ function Invoke-TaxEditorLoadTest {
                     Write-Warning "Step $key has no startTime/endTime (stale driver?) — skipping per-step metrics for it."
                     continue
                 }
-                try {
-                    $cpu = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
-                        --resource-type 'Microsoft.App/containerApps' --metric 'UsageNanoCores' `
-                        --start-time $step.startTime --end-time $step.endTime `
-                        --interval PT1M --aggregation Average -o json 2>$null | ConvertFrom-Json
-                    $mem = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
-                        --resource-type 'Microsoft.App/containerApps' --metric 'WorkingSetBytes' `
-                        --start-time $step.startTime --end-time $step.endTime `
-                        --interval PT1M --aggregation Average -o json 2>$null | ConvertFrom-Json
-                    $azureMetricsByStep[$key] = @{
-                        cpuNanoCores = ($cpu.value.timeseries.data | Where-Object { $null -ne $_.average } | Select-Object -Last 1).average
-                        memWorkingSetBytes = ($mem.value.timeseries.data | Where-Object { $null -ne $_.average } | Select-Object -Last 1).average
+                # t/4239: the first live run (t/4180#10) saw EVERY step's query fail with
+                # "'average' cannot be found" — Azure Monitor's own ingestion lag: a metric
+                # for a window that just ended isn't necessarily queryable yet, and the API
+                # returns a well-formed response with an EMPTY timeseries data array (not an
+                # error) in that case, so `2>$null` swallowing real az stderr was never the
+                # actual problem — the data just wasn't there yet. Re-querying the identical
+                # windows minutes later (same script, by hand) returned real values cleanly.
+                # Retry-with-backoff closes this without needing a manual re-query afterward.
+                $cpuNano = $null; $memBytes = $null
+                $lastErr = $null
+                for ($attempt = 1; $attempt -le 4; $attempt++) {
+                    try {
+                        $cpuRaw = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
+                            --resource-type 'Microsoft.App/containerApps' --metric 'UsageNanoCores' `
+                            --start-time $step.startTime --end-time $step.endTime `
+                            --interval PT1M --aggregation Average -o json 2>&1
+                        if ($LASTEXITCODE -ne 0) { throw "az exited $LASTEXITCODE`: $cpuRaw" }
+                        $cpu = $cpuRaw | ConvertFrom-Json
+                        $memRaw = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
+                            --resource-type 'Microsoft.App/containerApps' --metric 'WorkingSetBytes' `
+                            --start-time $step.startTime --end-time $step.endTime `
+                            --interval PT1M --aggregation Average -o json 2>&1
+                        if ($LASTEXITCODE -ne 0) { throw "az exited $LASTEXITCODE`: $memRaw" }
+                        $mem = $memRaw | ConvertFrom-Json
+
+                        $cpuPoints = @($cpu.value[0].timeseries[0].data | Where-Object { $null -ne $_.average })
+                        $memPoints = @($mem.value[0].timeseries[0].data | Where-Object { $null -ne $_.average })
+                        if ($cpuPoints.Count -eq 0 -or $memPoints.Count -eq 0) {
+                            throw "no datapoints yet (ingestion lag) — cpuPoints=$($cpuPoints.Count) memPoints=$($memPoints.Count)"
+                        }
+                        $cpuNano = ($cpuPoints | Select-Object -Last 1).average
+                        $memBytes = ($memPoints | Select-Object -Last 1).average
+                        $lastErr = $null
+                        break
+                    } catch {
+                        $lastErr = $_.Exception.Message
+                        if ($attempt -lt 4) {
+                            Write-Verbose "az monitor metrics attempt $attempt/4 for step $key : $lastErr — retrying in $($attempt * 5)s"
+                            Start-Sleep -Seconds ($attempt * 5)
+                        }
                     }
-                } catch {
-                    Write-Warning "az monitor metrics failed for step $key : $($_.Exception.Message)"
+                }
+                if ($lastErr) {
+                    Write-Warning "az monitor metrics failed for step $key after 4 attempts : $lastErr"
+                } else {
+                    $azureMetricsByStep[$key] = @{
+                        cpuNanoCores = $cpuNano
+                        memWorkingSetBytes = $memBytes
+                    }
                 }
             }
         }
