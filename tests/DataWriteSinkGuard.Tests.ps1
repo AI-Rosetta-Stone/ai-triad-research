@@ -60,6 +60,7 @@ BeforeAll {
         'scripts/AITriad/Public/New-SyntheticCorpus.ps1'   = 'append-checkpoint + fresh corpus generation + NEW metadata (not a whole-file data rewrite)'
         'scripts/AITriad/Public/Test-DebatePersistence.ps1' = 'writes a random persist-probe .tmp (test probe, non-data)'
         'scripts/AITriad/Private/AICallLog.ps1'            = 'append-only AI call-log JSONL (Add-Content); references Get-DataRoot only to locate the log file — never read-mutate-rewrites a data-of-record file (t/3241)'
+        'scripts/AITriad/Private/GroundingLock.ps1'        = 'advisory lockfile bookkeeping only (t/4193): [IO.File]::Move renames the <data>.lock file for the stale-break and its non-overwriting restore; it names entity_mentions.json/policy_actions.json only as the files the lock PROTECTS and never writes a data-of-record file (the callers write those through the guarded funnel)'
         'scripts/run-fol-debate-eval.ps1'                  = 'read-only FOL-on-debate eval harness (t/3354); Set-Content writes only run-manifest.json + clauses.jsonl + classified-clauses.jsonl + resolved-clauses.jsonl + formalized-clauses.jsonl + contradictions.jsonl + fn-rate-report.json + summary-contradictions.jsonl + correlation-index.json to -OutputDir, which is fail-closed asserted OUTSIDE the data root via Test-IsUnderDataRoot (design §1) — references data tokens (debates/summaries/conflicts) as read-only inputs, never writes ../ai-triad-data'
     }
 

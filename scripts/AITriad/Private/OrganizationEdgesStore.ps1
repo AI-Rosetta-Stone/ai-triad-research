@@ -55,7 +55,8 @@ function Get-OrganizationEdgesStore {
                 'Verify the data repo is present at ../ai-triad-data/',
                 'Check .aitriad.json or $env:AI_TRIAD_DATA_ROOT for override',
                 'Confirm taxonomy/Origin/organization_edges.json exists in the data repo'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 
     $mtime = (Get-Item $path).LastWriteTimeUtc
@@ -75,7 +76,8 @@ function Get-OrganizationEdgesStore {
                 'Validate JSON with: Get-Content organization_edges.json | ConvertFrom-Json',
                 'Check for trailing commas or unbalanced brackets',
                 'Restore from git history if the file was recently modified'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 
     $script:OrganizationEdgesCache = $parsed

@@ -64,11 +64,12 @@ function Update-PolicyRegistry {
     # read to the registry write, so a concurrent -Fix cannot mint between our uniqueness check and
     # our write. Report-only runs write nothing and take no lock.
     $LockPath = Join-Path (Get-TaxonomyDir) 'policy_actions.lock'
-    $LockHandle = if ($Fix) { Enter-PolicyRegistryLock -LockPath $LockPath } else { $null }
+    # t/4193: the lock object goes to the body, which checks ownership right before each final write.
+    $Lock = if ($Fix) { Enter-PolicyRegistryLock -LockPath $LockPath } else { $null }
     try {
-        Invoke-PolicyRegistryUpdate @PSBoundParameters
+        Invoke-PolicyRegistryUpdate @PSBoundParameters -Lock $Lock
     }
     finally {
-        if ($LockHandle) { Exit-GroundingLock -Handle $LockHandle -LockPath $LockPath }
+        Exit-GroundingLock -Lock $Lock
     }
 }

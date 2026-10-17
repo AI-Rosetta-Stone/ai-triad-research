@@ -80,6 +80,28 @@ Describe 'Update-PolicyRegistry advisory lock and preflight (t/4028)' -Tag 'taxo
         Test-Path $script:Lock | Should -BeFalse
     }
 
+    It 't/4193 condition 2: a lock lost before the node write refuses every write with an ActionableError' {
+        $before = (Get-FileHash (Join-Path $script:Dir 'skeptic.json')).Hash
+        $regBefore = (Get-FileHash (Join-Path $script:Dir 'policy_actions.json')).Hash
+        $err = $null
+        try {
+            # Named LockFile, not Lock: the mock body resolves variables dynamically, and the body it runs
+            # inside has its own -Lock parameter (the lock object).
+            InModuleScope AITriad -Parameters @{ Dir = $script:Dir; LockFile = $script:Lock } {
+                param($Dir, $LockFile)
+                Mock Get-TaxonomyDir { $Dir }
+                # The registry preflight runs just before the node write: another writer takes the lock over here.
+                Mock Assert-DataWriteAllowed { [System.IO.File]::WriteAllText($LockFile, 'other-holder') }
+                Update-PolicyRegistry -Fix -NodeId 'skp-target' *> $null
+            }
+        } catch { $err = $_ }
+        $err.Exception.Message | Should -Match 'Goal:'
+        $err.Exception.Message | Should -Match 'lost while held'
+        (Get-FileHash (Join-Path $script:Dir 'skeptic.json')).Hash | Should -Be $before
+        (Get-FileHash (Join-Path $script:Dir 'policy_actions.json')).Hash | Should -Be $regBefore
+        Get-Content -Raw $script:Lock | Should -Be 'other-holder'   # the new holder's lock is not released by us
+    }
+
     It 'PREFLIGHT: when the registry write would be refused, no node file is written' {
         # Simulates policy_actions.json dirty with an earlier run's uncommitted change (BLOCK-tier).
         $before = (Get-FileHash (Join-Path $script:Dir 'skeptic.json')).Hash
@@ -166,7 +188,8 @@ Describe 'Stale-lock break that cannot delete the lockfile (t/4049)' -Tag 'taxon
         try {
             InModuleScope AITriad -Parameters @{ Lock = $script:Lock } {
                 param($Lock)
-                Mock Remove-Item { }   # the delete "succeeds" but the file stays: permissions, an open handle, AV
+                # v2 (t/4193) breaks by rename-away: refuse it, as permissions, an open handle or AV would.
+                Mock Move-GroundingLockAway { throw [System.UnauthorizedAccessException]::new('Access to the path is denied (test).') }
                 Enter-GroundingLock -LockPath $Lock -WaitSec 2 -PollSec 0.1 3> $null
             }
         } catch { $err = $_ }
@@ -183,10 +206,11 @@ Describe 'Stale-lock break that cannot delete the lockfile (t/4049)' -Tag 'taxon
         (Get-Item $script:Lock).LastWriteTime = (Get-Date).AddMinutes(-10)
         $warnings = InModuleScope AITriad -Parameters @{ Lock = $script:Lock } {
             param($Lock)
-            Mock Remove-Item { }
+            Mock Move-GroundingLockAway { throw [System.UnauthorizedAccessException]::new('Access to the path is denied (test).') }
             try { Enter-GroundingLock -LockPath $Lock -WaitSec 1 -PollSec 0.05 3>&1 } catch { }
         }
         @(@($warnings) | Where-Object { "$_" -match 'could not delete stale lock' }).Count | Should -Be 1
-        @(@($warnings) | Where-Object { "$_" -match 'breaking stale lock' }).Count | Should -Be 1
+        # v2 (t/4193) WARNs 'breaking stale lock' only once a break is confirmed; this one never is.
+        @(@($warnings) | Where-Object { "$_" -match 'breaking stale lock' }).Count | Should -Be 0
     }
 }

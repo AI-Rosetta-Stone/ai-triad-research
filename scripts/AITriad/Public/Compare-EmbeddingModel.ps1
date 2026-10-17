@@ -50,7 +50,7 @@ function Compare-EmbeddingModel {
         $GoldenSetPath = Join-Path $script:RepoRoot 'research/comp-linguist/_golden_test_set.json'
     }
     if (-not (Test-Path $GoldenSetPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Run embedding model comparison' `
             -Problem "Golden test set not found: $GoldenSetPath" `
             -Location 'Compare-EmbeddingModel' `
@@ -59,7 +59,7 @@ function Compare-EmbeddingModel {
 
     $EvalScript = Join-Path $script:RepoRoot 'scripts/evaluate_embeddings.py'
     if (-not (Test-Path $EvalScript)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Run embedding model comparison' `
             -Problem "evaluate_embeddings.py not found at $EvalScript" `
             -Location 'Compare-EmbeddingModel' `
@@ -90,7 +90,7 @@ function Compare-EmbeddingModel {
     if ($StdErr) { $StdErr | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray } }
 
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Run embedding model comparison' `
             -Problem "evaluate_embeddings.py failed (exit code $LASTEXITCODE)" `
             -Location 'Compare-EmbeddingModel' `

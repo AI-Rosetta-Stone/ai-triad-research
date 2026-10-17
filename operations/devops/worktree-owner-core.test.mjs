@@ -14,6 +14,7 @@ import path from 'node:path';
 import {
   extractCdTarget,
   resolveWorktree,
+  resolveWorktreeFromPathString,
   ownerVerdict,
   detectMutatingGitOp,
   extractRmTarget,
@@ -80,6 +81,32 @@ test('resolveWorktree: a relative path from a DIFFERENT cwd resolves there, not 
   // would, not as the agent probably intended.
   const r = resolveWorktree('.worktrees/foo', ROOT, 'C:/repo/operations/devops');
   assert.equal(r, null);
+});
+
+// ── resolveWorktreeFromPathString (t/4212 platform finding, p/156#68/#69) — no base/cwd needed ──────
+
+test('resolveWorktreeFromPathString: an absolute path still resolves (superset of resolveWorktree)', () => {
+  const r = resolveWorktreeFromPathString('C:/repo/.worktrees/foo/src/x.ts');
+  assert.equal(r.name, 'foo');
+});
+
+test('resolveWorktreeFromPathString: a RELATIVE path with ../.. resolves, no base needed', () => {
+  const r = resolveWorktreeFromPathString('../../../.worktrees/foo/src/x.ts');
+  assert.equal(r.name, 'foo');
+});
+
+test('resolveWorktreeFromPathString: a relative BACKSLASH path resolves identically', () => {
+  const r = resolveWorktreeFromPathString('..\\..\\..\\.worktrees\\foo\\src\\x.ts');
+  assert.equal(r.name, 'foo');
+});
+
+test('resolveWorktreeFromPathString: a path with no .worktrees/ segment at all — null', () => {
+  assert.equal(resolveWorktreeFromPathString('../../AppData/Local/Temp/claude/scratchpad/probe.txt'), null);
+});
+
+test('resolveWorktreeFromPathString: empty/undefined input — null, not a throw', () => {
+  assert.equal(resolveWorktreeFromPathString(''), null);
+  assert.equal(resolveWorktreeFromPathString(undefined), null);
 });
 
 // ── ownerVerdict (TL cond. 3: empty on EITHER side is unknown, never a match) ───────────────────────
@@ -160,13 +187,34 @@ function makeRepoWithOwner(ownerId) {
   return root;
 }
 
-test('evaluateShellCommand: non-owner `cd .worktrees/foo && git stash` WARNS (today\'s real collision)', () => {
+test('evaluateShellCommand: non-owner `cd .worktrees/foo && git stash` WARNS with NO cwd passed at all (t/4212 platform finding, p/156#68/#69)', () => {
+  // The pre-fix evaluateShellCommand depended on `cwd` matching the real shell cwd the agent's `cd`
+  // target is relative to — never actually proven true for this guard's own script invocation
+  // (worktree-owner-guard-shell.mjs's CLI shim never passes one). Omitting `cwd` here entirely is
+  // the regression case: resolveWorktreeFromPathString needs no cwd, so this must still warn.
   const root = makeRepoWithOwner('agent-owner');
   const r = evaluateShellCommand({
     command: 'cd .worktrees/foo && git stash',
     callerId: 'agent-other',
     repoRoot: root,
-    cwd: root,
+  });
+  assert.equal(r.action, 'warn');
+  assert.equal(r.reason, 'mismatch');
+  assert.equal(r.worktreeName, 'foo');
+});
+
+test('evaluateShellCommand: non-owner `cd .worktrees\\foo && git stash` (Windows BACKSLASH cd target) WARNS', () => {
+  // Quality review finding (p/331#2060): the shell arm's hidden backslash bug — the exact class
+  // this PR exists to close — needs a REAL test, not just a PR-body claim. A Windows agent can
+  // type a backslash path in `cd` just as easily as a forward-slash one; extractCdTarget captures
+  // it unchanged (backslash isn't excluded by its token regex), and resolveWorktreeFromPathString
+  // must normalize it (via `toSlash`) before the `.worktrees/` substring match, or this silently
+  // fails exactly like the pre-fix relative-path case did.
+  const root = makeRepoWithOwner('agent-owner');
+  const r = evaluateShellCommand({
+    command: 'cd .worktrees\\foo && git stash',
+    callerId: 'agent-other',
+    repoRoot: root,
   });
   assert.equal(r.action, 'warn');
   assert.equal(r.reason, 'mismatch');
@@ -301,6 +349,45 @@ test('evaluateFilePath: a file outside .worktrees/ (shared tree) is exempt — S
   });
   assert.equal(r.action, 'silent');
   assert.equal(r.reason, 'not-under-worktrees-root');
+});
+
+// t/4212 platform finding (p/156#68/#69, t/4212#13): Orca delivers a PreToolUse Edit/Write rule's
+// file_path relative to the CALLING AGENT'S OWN SCOPE CWD, not repoRoot and not this script's
+// process.cwd() — the exact shape that silently defeated the pre-fix resolveWorktree-based
+// evaluateFilePath (every real Edit/Write call returned not-under-worktrees-root). This is the
+// regression case: a relative, forward-slash path with leading ../.. segments, as actually observed
+// by Orca Support's probe (t/4212#13), NOT tied to `root` in any way.
+test('evaluateFilePath: a RELATIVE path with ../.. (the real engine shape) under a non-owner worktree WARNS', () => {
+  const root = makeRepoWithOwner('agent-owner');
+  const r = evaluateFilePath({
+    filePath: '../../../.worktrees/foo/src/x.ts',
+    callerId: 'agent-other',
+    repoRoot: root,
+  });
+  assert.equal(r.action, 'warn');
+  assert.equal(r.worktreeName, 'foo');
+});
+
+test('evaluateFilePath: a RELATIVE path with ../.. outside any worktree is exempt — SILENT', () => {
+  const root = makeRepoWithOwner('agent-owner');
+  const r = evaluateFilePath({
+    filePath: '../../AppData/Local/Temp/claude/scratchpad/probe.txt',
+    callerId: 'agent-other',
+    repoRoot: root,
+  });
+  assert.equal(r.action, 'silent');
+  assert.equal(r.reason, 'not-under-worktrees-root');
+});
+
+test('evaluateFilePath: a RELATIVE backslash path under a non-owner worktree WARNS (either slash direction)', () => {
+  const root = makeRepoWithOwner('agent-owner');
+  const r = evaluateFilePath({
+    filePath: '..\\..\\..\\.worktrees\\foo\\src\\x.ts',
+    callerId: 'agent-other',
+    repoRoot: root,
+  });
+  assert.equal(r.action, 'warn');
+  assert.equal(r.worktreeName, 'foo');
 });
 
 // ── canonAbs normalization (reused from worktree-target-guard's proven idiom) ───────────────────────

@@ -44,7 +44,7 @@ function Invoke-VerifiedMerge {
     Write-Verbose "Fetching PR #$PrNumber metadata from GitHub..."
     $PrJson = gh pr view $PrNumber --json headRefOid,headRefName 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Verify PR #$PrNumber before merging" `
             -Problem "gh pr view failed: $PrJson" `
             -Location 'Invoke-VerifiedMerge' `
@@ -58,7 +58,7 @@ function Invoke-VerifiedMerge {
     Write-Verbose "Resolving remote tip for origin/$Branch via git ls-remote..."
     $LsOutput = git ls-remote origin "refs/heads/$Branch" 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Verify PR #$PrNumber before merging" `
             -Problem "git ls-remote failed: $LsOutput" `
             -Location 'Invoke-VerifiedMerge' `
@@ -69,7 +69,7 @@ function Invoke-VerifiedMerge {
     $RemoteOid = if ($LsOutput) { ($LsOutput -split '\s+')[0].Trim() } else { '' }
 
     if (-not $RemoteOid) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Verify PR #$PrNumber before merging" `
             -Problem "Branch '$Branch' not found on origin (ls-remote returned empty)." `
             -Location 'Invoke-VerifiedMerge' `
@@ -78,7 +78,7 @@ function Invoke-VerifiedMerge {
 
     # ── Guard: refuse when SHAs differ (stale-head-merge prevention) ─────────
     if ($CachedOid -ne $RemoteOid) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Merge PR #$PrNumber without stranding commits" `
             -Problem ("PR headRefOid cache lag detected — cached and actual tips differ.`n" +
                       "  PR cached (gh):    $CachedOid`n" +
@@ -94,7 +94,7 @@ function Invoke-VerifiedMerge {
     if ($PSCmdlet.ShouldProcess("PR #$PrNumber ($Branch @ $CachedOid)", 'gh pr merge')) {
         $MergeOutput = gh pr merge $PrNumber @MergeArgs 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Merge PR #$PrNumber" `
                 -Problem "gh pr merge exited ${LASTEXITCODE}: $MergeOutput" `
                 -Location 'Invoke-VerifiedMerge' `

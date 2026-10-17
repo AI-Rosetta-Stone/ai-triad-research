@@ -88,7 +88,7 @@ function Import-OrganizationEdge {
     if ($PSCmdlet.ParameterSetName -eq 'InputObject') {
         foreach ($f in @('source','target','type')) {
             if (-not $InputObject.PSObject.Properties[$f]) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Import organization edge' `
                     -Problem "-InputObject is missing required field: $f" `
                     -Location 'Import-OrganizationEdge' `
@@ -116,7 +116,7 @@ function Import-OrganizationEdge {
     # different from the integrity validator (which reports on already-written data).
     $res = Resolve-OrganizationEdgeType -Type $typeIn
     if ($res.Action -ne 'accept') {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Import organization edge' `
             -Problem "type '$typeIn' rejected: $($res.Reason)" `
             -Location 'Import-OrganizationEdge' `
@@ -130,7 +130,7 @@ function Import-OrganizationEdge {
     # Prevent self-loops early — the integrity check would flag them post-write, but no
     # reason to write them and then complain.
     if ($srcIn -eq $tgtIn) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Import organization edge' `
             -Problem "self-loop rejected: source and target are both '$srcIn'" `
             -Location 'Import-OrganizationEdge' `
@@ -199,7 +199,7 @@ function Import-OrganizationEdge {
         [System.IO.File]::Move($temp, $path, $true)
     } catch {
         if (Test-Path $temp) { Remove-Item $temp -Force -ErrorAction SilentlyContinue }
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Write organization_edges.json' `
             -Problem "Failed to write registry: $($_.Exception.Message)" `
             -Location 'Import-OrganizationEdge' `

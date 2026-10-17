@@ -24,7 +24,8 @@ function Get-GhcrAuthToken {
             -Problem 'GITHUB_TOKEN environment variable is not set' `
             -Location $CallerName `
             -NextSteps @('Set $env:GITHUB_TOKEN to a GitHub personal access token',
-                         'Token needs write:packages scope for tag operations'))
+                         'Token needs write:packages scope for tag operations') `
+            -AsErrorRecord)
     }
 
     $AuthBytes = [System.Text.Encoding]::UTF8.GetBytes("_:$Token")
@@ -43,6 +44,7 @@ function Get-GhcrAuthToken {
             -Problem "Failed to obtain GHCR bearer token: $($_.Exception.Message)" `
             -Location $CallerName `
             -NextSteps @('Verify GITHUB_TOKEN has write:packages scope',
-                         "Package: $Package"))
+                         "Package: $Package") `
+            -AsErrorRecord)
     }
 }

@@ -117,6 +117,31 @@ export function resolveWorktree(absOrRelPath, repoRoot, cwd) {
   return { name, root: `${wtRoot}/${name}` };
 }
 
+/**
+ * Resolve a worktree name from ANY string containing `.worktrees/<name>` as a substring — absolute
+ * or relative, forward- or back-slash, regardless of what it's relative TO. (t/4212 platform finding,
+ * Orca Support p/156#68 / t/4212#13: a PreToolUse rule's `file_path` parameter is delivered relative
+ * to the calling agent's OWN scope cwd, not the repo root and not this script's own `process.cwd()`
+ * — e.g. `../../../.worktrees/<name>/file` — so reconstructing an absolute path via
+ * `path.resolve(cwd, …)`, as `resolveWorktree` below does, is unreliable: there is no cwd this script
+ * can use that is guaranteed to match the base the engine computed the relative path from. A
+ * `.worktrees/` substring match needs no base at all — it works identically on the relative form, an
+ * absolute form, and either slash direction, since the segment immediately after `.worktrees/` is the
+ * name regardless of what precedes it.) Returns `{ name }`, or null if `.worktrees/` doesn't appear in
+ * the string at all — callers resolve the owner file against their OWN trusted `repoRoot` (never
+ * derived from this string), per Support's fix guidance (resolve ownership from `repoRoot` + `name`,
+ * not from path shape or cwd).
+ */
+export function resolveWorktreeFromPathString(pathStr) {
+  const slashed = toSlash(pathStr).toLowerCase();
+  const idx = slashed.indexOf('.worktrees/');
+  if (idx === -1) return null;
+  const rest = slashed.slice(idx + '.worktrees/'.length);
+  const name = rest.split('/')[0];
+  if (!name) return null;
+  return { name };
+}
+
 /** The worktree's git-admin directory (where its `orca-owner` file lives), from the repo root and
  *  worktree name — this is `<repoRoot>/.git/worktrees/<name>`, NOT the worktree's own working tree. */
 export function ownerFilePath(repoRoot, worktreeName) {
@@ -221,14 +246,27 @@ export function extractOverrideTicket(command) {
 
 /**
  * Full evaluation for a Bash/PowerShell command: resolves the target worktree (via `cd`/`-C`/
- * `--git-dir` parsing, falling back to `cwd`), checks for a mutating git op or a worktree-targeted
- * rm, and compares the recorded owner to the caller. Returns:
+ * `--git-dir` parsing), checks for a mutating git op or a worktree-targeted rm, and compares the
+ * recorded owner to the caller. Returns:
  *   { action: 'silent', reason } — not a worktree, no mutating op, override used, or owner matches.
  *   { action: 'warn', reason, op, worktreeName, ownerId, overrideTicket? }
  * `overrideTicket` is present (and action is 'silent') when the bypass was used, so the caller can
  * still log it to telemetry even though no warning is shown.
+ *
+ * Resolves the extracted target via `resolveWorktreeFromPathString` (substring match), NOT
+ * `resolveWorktree` (cwd-relative reconstruction) — same t/4212 platform-finding rationale as
+ * `evaluateFilePath` above (p/156#68/#69, t/4212#13): this guard script's own `process.cwd()` at
+ * invocation time was never actually PROVEN to match the real shell cwd the agent's `cd`/`-C` target
+ * is relative to (the Worker's one successful live-fire used an absolute, forward-slash `cd` target,
+ * which needs no cwd resolution at all — a plain relative `cd .worktrees/<name> && …`, today's real
+ * collision shape per this module's own header, was never actually exercised end-to-end). The
+ * substring match needs no cwd at all, so it's correct whether the agent's target was relative or
+ * absolute. The no-`cd`-at-all fallback (`targetPath = '.'`) is unchanged in effect: `'.'.`
+ * contains no `.worktrees/` substring, so it still (correctly) returns `not-under-worktrees-root` —
+ * matching TL cond. 1's own framing that the real session cwd is always the role's scope dir, never a
+ * worktree, so no finding there is correct either way.
  */
-export function evaluateShellCommand({ command, callerId, repoRoot, cwd }) {
+export function evaluateShellCommand({ command, callerId, repoRoot }) {
   const op = detectMutatingGitOp(command);
   const rmTarget = extractRmTarget(command);
   if (!op && !rmTarget) return { action: 'silent', reason: 'not-a-mutating-command' };
@@ -242,7 +280,7 @@ export function evaluateShellCommand({ command, callerId, repoRoot, cwd }) {
     || (op === 'worktree-remove' ? extractWorktreeRemoveTarget(command) : '')
     || (!op && rmTarget ? rmTarget : '')
     || '.';
-  const wt = resolveWorktree(targetPath, repoRoot, cwd);
+  const wt = resolveWorktreeFromPathString(targetPath);
   if (!wt) return { action: 'silent', reason: 'not-under-worktrees-root' };
 
   const overrideTicket = extractOverrideTicket(command);
@@ -265,9 +303,18 @@ export function evaluateShellCommand({ command, callerId, repoRoot, cwd }) {
 
 /** Full evaluation for an Edit/Write/NotebookEdit `file_path` — route-enumeration blank #1 (t/4212,
  *  closed per TL cond. 4). Same owner comparison, no git-op detection (any write under another role's
- *  worktree is in scope). */
-export function evaluateFilePath({ filePath, callerId, repoRoot, cwd }) {
-  const wt = resolveWorktree(filePath, repoRoot, cwd);
+ *  worktree is in scope).
+ *
+ *  Uses `resolveWorktreeFromPathString` (substring match), NOT `resolveWorktree` (cwd-relative
+ *  reconstruction) — t/4212 platform finding (p/156#68/#69, t/4212#13): Orca delivers `file_path`
+ *  relative to the calling agent's own scope cwd, which this script has no reliable way to recover,
+ *  so `path.resolve(cwd, filePath)` silently resolved to the WRONG absolute path and never matched
+ *  `.worktrees/` at all — the guard ran, saw an unrelated path, and correctly (from its own
+ *  perspective) returned `not-under-worktrees-root` on every real Edit/Write call. `cwd` is no
+ *  longer used here; `repoRoot` still is, but only to locate the OWNER FILE (`ownerFilePath` below),
+ *  never to reconstruct or validate the received path shape. */
+export function evaluateFilePath({ filePath, callerId, repoRoot }) {
+  const wt = resolveWorktreeFromPathString(filePath);
   if (!wt) return { action: 'silent', reason: 'not-under-worktrees-root' };
 
   const overrideTicket = extractOverrideTicket(filePath);

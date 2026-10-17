@@ -87,7 +87,7 @@ function Invoke-OrgStanceExtraction {
     # ── Resolve paths + registries ───────────────────────────────────────
     $sourcesRoot = Get-SourcesDir
     if (-not (Test-Path $sourcesRoot)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Extract org stance claims' `
             -Problem "Sources directory not found: $sourcesRoot" `
             -Location 'Invoke-OrgStanceExtraction' `

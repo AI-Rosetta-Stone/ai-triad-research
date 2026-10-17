@@ -45,7 +45,7 @@ function Compare-OrganizationPositions {
     foreach ($i in $Id) {
         $o = Get-Organization -Id $i
         if (-not $o -or @($o).Count -eq 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Compare organization positions' `
                 -Problem "Organization id '$i' not found in the registry" `
                 -Location 'Compare-OrganizationPositions' `

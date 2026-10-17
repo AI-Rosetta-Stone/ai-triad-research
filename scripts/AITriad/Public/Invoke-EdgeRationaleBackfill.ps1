@@ -109,7 +109,7 @@ function Invoke-EdgeRationaleBackfill {
     $TaxDir    = if ($RepoRoot) { Join-Path $RepoRoot 'taxonomy/Origin' } else { Get-TaxonomyDir }
     $EdgesPath = Join-Path $TaxDir 'edges.json'
     if (-not (Test-Path -LiteralPath $EdgesPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Backfill edge rationales' `
             -Problem "edges.json not found at $EdgesPath" `
             -Location 'Invoke-EdgeRationaleBackfill' `

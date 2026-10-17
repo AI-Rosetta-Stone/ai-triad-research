@@ -77,7 +77,7 @@ function Get-TriadConfig {
                elseif ($StatusCode) { "HTTP $StatusCode" }
                else { $_.Exception.Message }
 
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Download runtime config from taxonomy-editor' `
             -Problem "Config API error: $Msg" `
             -Location 'Get-TriadConfig' `

@@ -31,7 +31,8 @@ function Assert-AzCli {
             -NextSteps @(
                 'Install the Azure CLI: https://aka.ms/azcli'
                 'Then authenticate: az login'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 
     # Invoke-Az throws an actionable error on non-zero exit (the not-logged-in case);
@@ -45,6 +46,7 @@ function Assert-AzCli {
             -NextSteps @(
                 'Run: az login'
                 'Verify the active subscription: az account show'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 }

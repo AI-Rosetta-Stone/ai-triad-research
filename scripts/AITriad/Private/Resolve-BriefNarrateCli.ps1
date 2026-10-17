@@ -38,7 +38,8 @@ function Resolve-BriefNarrateCli {
                     'Run from a full repo checkout (where lib/brief lives)',
                     'Install dependencies (npm ci) — the stage needs tsx AND its runtime packages',
                     'If lib/brief/narrate-cli.ts has not landed yet, track t/2873'
-                ))
+                ) `
+                -AsErrorRecord)
     }
 
     return @{ Exe = 'npx'; ArgPrefix = @('--yes', 'tsx', $cliPath) }

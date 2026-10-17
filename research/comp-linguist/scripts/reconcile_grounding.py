@@ -24,9 +24,10 @@ Usage: --selftest (tests, no write) | --apply (write) | default dry-run summary.
 CROSS-TOOL WRITE-LOCK CONTRACT (TL, t/3163#1 / t/3194): both writers of the shared
 entity_mentions.json — this reconciler AND Update-EntityMentionIndex.ps1 — coordinate on ONE
 advisory lockfile `entity_mentions.lock` beside it. Acquire = atomic O_CREAT|O_EXCL create;
-a holder older than LOCK_STALE_SEC (by mtime) is presumed dead and broken; every file write is
-tmp-file + atomic rename so no reader sees a torn file. Staleness is by MTIME (language-agnostic)
-so the PS cmdlet honors the identical rule. The lock is held only around the live apply
+the holder heartbeats the file's mtime, and a lock with no heartbeat for LOCK_STALE_SEC is broken by
+an identity-checked rename; every file write is tmp-file + atomic rename so no reader sees a torn
+file. Staleness is by MTIME (language-agnostic) so the PS cmdlet honors the identical rule. Protocol
+v2 (t/4193) is spelled out in grounding_lock's docstring. The lock is held only around the live apply
 read-merge-write; dry-run/selftest never lock.
 """
 import json, re, os, glob, sys, hashlib, time, socket, contextlib
@@ -71,6 +72,7 @@ LOCKFILE = os.path.join(O, "entity_mentions.lock")
 LOCK_WAIT_SEC = 60    # max wait for a live lock before erroring
 LOCK_STALE_SEC = 120  # a holder older than this (by mtime) is presumed dead and broken
 LOCK_POLL_SEC = 0.5
+LOCK_MAX_HOLD_SEC = 1800  # heartbeat stops after this, so a hung holder's lock goes stale (t/4193#4)
 CON_TAU = 0.55
 APPLY = "--apply" in sys.argv
 SELFTEST = "--selftest" in sys.argv
@@ -124,23 +126,129 @@ def dump_json(path, obj):
         f.write(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
     os.replace(tmp, path)
 
+class LockLost(RuntimeError):
+    """The grounding lock was taken over while held (t/4193 TL condition 2). Raised by
+    `_LockGuard.check()`, so the holder refuses its write instead of racing the new holder."""
+
+
+def _lock_read(path):
+    """The lockfile's raw contents, or None when it is gone. PermissionError (a Windows open in
+    progress) propagates to the caller, which decides whether it is contention."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def _lock_restore(breaking, path):
+    """Put a wrongly broken lock back WITHOUT ever overwriting a lock created meanwhile (t/4193 TL
+    condition 1). POSIX: os.link fails with EEXIST if `path` exists. Windows: os.rename refuses to
+    replace an existing file. Returns False when a newer lock exists; that holder's lock is lost. A
+    `breaking` file that has vanished (the Windows concurrent-rename case) counts as restored-nothing:
+    True, since there is no lock of ours left to put back or delete."""
+    try:
+        if os.name == "nt":
+            os.rename(breaking, path)
+        else:
+            os.link(breaking, path)
+            os.unlink(breaking)
+        return True
+    except FileExistsError:
+        return False
+    except FileNotFoundError:
+        return True
+
+
+class _LockGuard:
+    """What a grounding_lock holder gets. A heartbeat thread touches the lockfile's mtime every
+    `interval` seconds (mtime only, never a JSON rewrite: TL condition 3) after checking that the file
+    still carries this holder's nonce (condition 2). It stops after `max_hold_sec` with a WARN, so a hung
+    holder's lock goes stale normally (condition 4). Call `check()` immediately before the final write."""
+
+    def __init__(self, path, payload, interval, max_hold_sec):
+        import threading
+        self.path, self.payload, self.lost, self._why = path, payload, False, ""
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._beat, args=(interval, max_hold_sec), daemon=True)
+        self._thread.start()
+
+    def _mark_lost(self, why):
+        if not self.lost:
+            self.lost, self._why = True, why
+            sys.stderr.write(f"WARN grounding_lock: lock at {self.path} lost while held ({why}); "
+                             f"this holder will refuse its write\n")
+
+    def _beat(self, interval, max_hold_sec):
+        began = time.monotonic()
+        while not self._stop.wait(interval):
+            if time.monotonic() - began > max_hold_sec:
+                sys.stderr.write(f"WARN grounding_lock: held > max_hold_sec ({max_hold_sec:g}s) at "
+                                 f"{self.path}; heartbeat stopped, so the lock will go stale and can be "
+                                 f"broken\n")
+                return
+            try:
+                current = _lock_read(self.path)
+                if current != self.payload:
+                    self._mark_lost("lockfile missing" if current is None else "lockfile replaced")
+                    return
+                os.utime(self.path, None)
+            except PermissionError:
+                continue  # a reader or breaker has it open for a moment; try again next beat
+            except FileNotFoundError:
+                self._mark_lost("lockfile missing")
+                return
+
+    def check(self):
+        """Raise LockLost unless this holder still owns the lock. Re-reads the file directly, so it
+        also catches a takeover after the heartbeat stopped."""
+        if not self.lost:
+            try:
+                current = _lock_read(self.path)
+            except PermissionError:
+                current = self.payload  # momentary Windows open; the heartbeat would have flagged a takeover
+            if current != self.payload:
+                self._mark_lost("lockfile missing" if current is None else "lockfile replaced")
+        if self.lost:
+            raise LockLost(
+                "Goal: write entity_mentions.json under the grounding write-lock. "
+                f"Error: the lock was lost while held ({self._why}). Location: {self.path}. "
+                "Resolve: another writer now holds the lock; this run did not write. Re-run the "
+                "reconciler once the other writer finishes.")
+
+    def stop(self):
+        self._stop.set()
+        self._thread.join(timeout=2)
+
+
 @contextlib.contextmanager
 def grounding_lock(holder="reconciler", path=LOCKFILE, wait_sec=LOCK_WAIT_SEC,
-                   stale_sec=LOCK_STALE_SEC, poll_sec=LOCK_POLL_SEC):
+                   stale_sec=LOCK_STALE_SEC, poll_sec=LOCK_POLL_SEC, max_hold_sec=LOCK_MAX_HOLD_SEC):
     """Cross-tool advisory write-lock for entity_mentions.json (shared with Update-EntityMentionIndex).
-    Acquire = atomic O_CREAT|O_EXCL create of `path`; a holder older than `stale_sec` (by mtime) is
-    presumed dead and broken (WARN). Waits up to `wait_sec` for a live holder, then raises. Released on
-    exit. The PS cmdlet MUST honor the SAME lockfile + mtime-staleness rule (TL contract, t/3163#1).
+    Yields a `_LockGuard`; call `guard.check()` right before the final write.
 
-    Windows (t/4193): another process holding the lockfile open, or a delete still pending, surfaces as
-    PermissionError (WinError 5/13/32) rather than FileExistsError/FileNotFoundError. Every acquire-side
-    PermissionError is treated as contention (wait one poll, retry, same wait_sec budget); a release-side
-    one is retried briefly, then WARNed and left to go stale, never raised into the caller.
-    KNOWN GAP (t/4193): two waiters can both judge one stale lock dead and both break it, so a stale
-    break can admit two holders. Exposure needs a dead or >stale_sec holder; the fix changes the
-    cross-tool protocol and is tracked there."""
+    Protocol v2 (t/4193, TL conditions in t/4193#4). The PS cmdlet MUST follow the same rules:
+      acquire   atomic O_CREAT|O_EXCL create of `path`; the payload is JSON carrying a random `nonce`.
+      liveness  the holder touches the file's mtime every stale_sec/4 (mtime only). A lock whose mtime is
+                older than `stale_sec` has a dead (or > max_hold_sec) holder.
+      break     a waiter that judges the lock stale records its contents, then atomically RENAMES it to
+                `<path>.breaking.<pid>.<nonce>` (only one waiter can win the rename). If the renamed
+                contents match what it judged stale, it deletes them and acquires normally. If not, a
+                fresh lock was taken in between: it restores it without overwriting (`_lock_restore`),
+                and if a newer lock already exists the restored holder has lost its lock (it finds out
+                through its own nonce check).
+      ownership the heartbeat and `check()` compare the file with the holder's own payload. On a
+                mismatch the holder refuses its write (LockLost).
+      release   delete the file only if it still carries this holder's payload.
+    Windows: an acquire-side PermissionError is treated as contention (wait one poll, retry, same
+    wait_sec budget); a release-side one is retried briefly, then WARNed, never raised into the caller.
+    STILL OPEN (accepted, t/4193#4): clock skew between hosts (harmless for writes, because of the
+    ownership check) and non-atomic rename on some network filesystems. OS locks are required before
+    this lock serves more than one host."""
+    import uuid
+    nonce = uuid.uuid4().hex
     payload = json.dumps({"holder": holder, "pid": os.getpid(), "host": socket.gethostname(),
-                          "acquired_at": datetime.now(timezone.utc).isoformat()})
+                          "nonce": nonce, "acquired_at": datetime.now(timezone.utc).isoformat()})
     start = time.monotonic()
 
     def wait_or_raise(detail):
@@ -151,6 +259,59 @@ def grounding_lock(holder="reconciler", path=LOCKFILE, wait_sec=LOCK_WAIT_SEC,
                 "Resolve: another reconciler or Update-EntityMentionIndex run is in progress — let "
                 "it finish; if it is hung, remove the lockfile after confirming no writer is active.")
         time.sleep(poll_sec)
+
+    def break_stale(age):
+        """Identity-checked break of a lock judged stale. Returns after one attempt; the caller loops."""
+        try:
+            seen = _lock_read(path)
+        except PermissionError:
+            wait_or_raise("stale lock busy (PermissionError on read)")
+            return
+        if seen is None:
+            return  # released meanwhile
+        breaking = f"{path}.breaking.{os.getpid()}.{nonce}"
+        try:
+            os.rename(path, breaking)
+        except FileNotFoundError:
+            return  # another waiter won the rename, or the holder released
+        except (PermissionError, FileExistsError):
+            wait_or_raise("stale lock busy (rename refused)")
+            return
+        try:
+            taken = _lock_read(breaking)
+        except PermissionError:
+            taken = ""  # present but unreadable for a moment: not the content we judged stale
+        if taken is None:
+            # Observed on Windows NTFS under contention (t/4193 probe): concurrent renames of one file can
+            # all report success while only one caller ends up with it. Nothing is held here, so there is
+            # nothing to restore or delete: treat it as losing the break race.
+            sys.stderr.write(f"WARN grounding_lock: rename of {path} reported success but the moved file "
+                             f"is missing (concurrent break); retrying acquire\n")
+            return
+        try:
+            # rename keeps mtime, so a lock that was broken and replaced between our stat and our read
+            # (seen == taken == a FRESH lock) still shows a fresh mtime here (PowerShell, t/4193 #3344)
+            moved_age = time.time() - os.path.getmtime(breaking)
+        except OSError:
+            moved_age = 0.0
+        if taken == seen and moved_age <= stale_sec:
+            taken = None  # not the stale lock we judged: fall through to the restore below
+        if taken == seen:
+            sys.stderr.write(f"WARN grounding_lock: broke stale lock (mtime age {age:.0f}s > "
+                             f"{stale_sec}s) at {path}; prior holder presumed dead\n")
+            try:
+                os.unlink(breaking)
+            except OSError:
+                pass
+            return
+        # A fresh lock replaced the stale one between our read and our rename: put it back.
+        if not _lock_restore(breaking, path):
+            sys.stderr.write(f"WARN grounding_lock: could not restore a live lock at {path} (a newer "
+                             f"lock exists); its holder will detect the loss and refuse to write\n")
+            try:
+                os.unlink(breaking)
+            except OSError:
+                pass
 
     while True:
         try:
@@ -170,24 +331,19 @@ def grounding_lock(holder="reconciler", path=LOCKFILE, wait_sec=LOCK_WAIT_SEC,
                 wait_or_raise("lockfile busy (PermissionError on stat)")
                 continue
             if age > stale_sec:
-                # Fallback path (root AGENTS.md): a stale lock is being broken — record that + why.
-                sys.stderr.write(f"WARN grounding_lock: breaking stale lock (mtime age {age:.0f}s "
-                                 f"> {stale_sec}s) at {path}; prior holder presumed dead\n")
-                try:
-                    os.unlink(path)
-                except FileNotFoundError:
-                    pass
-                except PermissionError:
-                    # someone else has it open: another breaker, or a fresh holder writing it. Not ours
-                    # to delete; treat as live and wait.
-                    wait_or_raise("stale lock busy (PermissionError on break)")
+                break_stale(age)
                 continue
             wait_or_raise(f"not stale: mtime age {age:.0f}s < {stale_sec}s")
+
+    guard = _LockGuard(path, payload, max(stale_sec / 4.0, 0.02), max_hold_sec)
     try:
-        yield
+        yield guard
     finally:
+        guard.stop()
         for attempt in range(40):  # ~2s: on Windows a reader's brief open can block the delete
             try:
+                if _lock_read(path) != payload:
+                    break  # not ours any more (lost, or already gone): never delete another holder's lock
                 os.unlink(path)
                 break
             except FileNotFoundError:
@@ -589,6 +745,68 @@ def selftest():
     with grounding_lock("t", path=lp, wait_sec=1, stale_sec=120):  # stale -> broken + re-acquired
         assert os.path.exists(lp), "FAIL: stale lock not re-acquired"
     assert not os.path.exists(lp), "FAIL: lock file not removed after stale-break run"
+    # t/4193 condition 1: restoring a wrongly broken lock never overwrites a lock created meanwhile.
+    breaking = lp + ".breaking.selftest"
+    with open(breaking, "w", encoding="utf-8") as f:
+        f.write("old-holder")
+    with open(lp, "w", encoding="utf-8") as f:
+        f.write("fresh-holder")  # injected between rename-away and restore
+    assert _lock_restore(breaking, lp) is False, "FAIL: restore reported success over an existing lock"
+    assert _lock_read(lp) == "fresh-holder", "FAIL: restore overwrote the fresh lock"
+    os.unlink(lp)
+    assert _lock_restore(breaking, lp) is True and _lock_read(lp) == "old-holder", "FAIL: restore to a free path"
+    assert not os.path.exists(breaking), "FAIL: restore left the breaking file behind"
+    os.unlink(lp)
+    # t/4193 (#3344 review): a lock that LOOKED stale at the stat but is fresh by the time we move it
+    # (broken and replaced in between) must be restored, never deleted. Fake the stale stat once.
+    with open(lp, "w", encoding="utf-8") as f:
+        f.write('{"nonce": "fresh-holder"}')  # fresh mtime
+    real_getmtime, calls = os.path.getmtime, {"n": 0}
+
+    def stale_once(p):
+        calls["n"] += 1
+        return real_getmtime(p) - 10000 if calls["n"] == 1 else real_getmtime(p)
+
+    os.path.getmtime = stale_once
+    try:
+        with grounding_lock("t", path=lp, wait_sec=0.5, stale_sec=120, poll_sec=0.05):
+            assert False, "FAIL: acquired over a fresh lock that only looked stale"
+    except RuntimeError:
+        pass  # expected: the fresh lock was restored, so we waited and timed out
+    finally:
+        os.path.getmtime = real_getmtime
+    assert _lock_read(lp) == '{"nonce": "fresh-holder"}', "FAIL: a fresh lock that looked stale was deleted"
+    assert not [n for n in os.listdir(os.path.dirname(lp)) if n.startswith(os.path.basename(lp) + ".breaking")], \
+        "FAIL: breaking file left behind"
+    os.unlink(lp)
+    # t/4193 condition 2: a holder whose lock is replaced or deleted refuses its write.
+    for takeover in ("replace", "delete"):
+        with grounding_lock("t", path=lp, wait_sec=1, stale_sec=0.2) as g:
+            if takeover == "replace":
+                with open(lp, "w", encoding="utf-8") as f:
+                    f.write('{"nonce": "someone-else"}')
+            else:
+                os.unlink(lp)
+            try:
+                g.check()
+                assert False, f"FAIL: check() passed after the lock was {takeover}d"
+            except LockLost:
+                pass
+        if takeover == "replace":
+            assert _lock_read(lp) == '{"nonce": "someone-else"}', "FAIL: release deleted another holder's lock"
+            os.unlink(lp)
+    # t/4193 condition 3 + liveness: the heartbeat keeps a long hold fresh (mtime only, payload unchanged).
+    with grounding_lock("t", path=lp, wait_sec=1, stale_sec=0.4) as g:
+        before = _lock_read(lp)
+        time.sleep(1.0)  # 2.5x stale_sec
+        assert time.time() - os.path.getmtime(lp) < 0.4, "FAIL: heartbeat did not refresh mtime"
+        assert _lock_read(lp) == before, "FAIL: heartbeat rewrote the payload"
+        g.check()
+    # t/4193 condition 4: the heartbeat stops after max_hold_sec, so a hung holder's lock goes stale.
+    with grounding_lock("t", path=lp, wait_sec=1, stale_sec=0.2, max_hold_sec=0.3):
+        time.sleep(0.9)
+        assert time.time() - os.path.getmtime(lp) > 0.2, "FAIL: heartbeat kept beating past max_hold_sec"
+    assert not os.path.exists(lp), "FAIL: lock file not removed after max-hold run"
     print("SELFTEST PASS: consistency, disjoint-scope, idempotence, change-detection, removal-purge, vocab-churn, scoped, lock")
     print(f"  cold run: {s1}   used_by_nodes terms: {len(ubn)}")
 
@@ -611,13 +829,14 @@ def commit_mentions(ms):
     summary:* pass through untouched. Hold time = one entity_mentions read+write (was ~61s when the
     whole run_live, incl. the per-node concept-embedding cosine, sat under the lock)."""
     node_star = {k: v for k, v in ms["containers"].items() if k.startswith("node:")}
-    with grounding_lock("reconciler"):
+    with grounding_lock("reconciler") as lock:
         t0 = datetime.now(timezone.utc)
         fresh = load_json(MENTIONS)
         fc = fresh["containers"]
         for k in [k for k in fc if k.startswith("node:")]:
             del fc[k]
         fc.update(node_star)
+        lock.check()  # t/4193: refuse to write if another writer took the lock over meanwhile
         dump_json(MENTIONS, fresh)
         held = (datetime.now(timezone.utc) - t0).total_seconds()
         # observability for the t/3163 lock-hold gate: must stay well under the 120s stale-break.

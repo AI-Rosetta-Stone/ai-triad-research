@@ -53,7 +53,7 @@ function Export-SyntheticEmbeddings {
     if (-not $CorpusPath) { $CorpusPath = Join-Path $TaxDir 'synthetic' }
 
     if (-not (Test-Path $CorpusPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Export synthetic embeddings' `
             -Problem "Corpus directory not found: $CorpusPath" `
             -Location 'Export-SyntheticEmbeddings' `
@@ -78,7 +78,7 @@ function Export-SyntheticEmbeddings {
     if ($StdErr) { $StdErr | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray } }
 
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Export synthetic embeddings' `
             -Problem "generate_corpus.py export-embeddings failed (exit $LASTEXITCODE)" `
             -Location 'Export-SyntheticEmbeddings' `

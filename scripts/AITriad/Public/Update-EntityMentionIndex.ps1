@@ -141,7 +141,9 @@ function Update-EntityMentionIndex {
     # existing-index read + merge + write below is serialized under the advisory lockfile + mtime-staleness rule (TL
     # contract t/3163#1 / t/3194): that read is the lost-update surface and MUST stay under the lock.
     $LockPath = Join-Path (Split-Path -Parent $OutPath) 'entity_mentions.lock'
-    $LockHandle = Enter-GroundingLock -LockPath $LockPath
+    # Protocol v2 (t/4193): the returned lock object heartbeats while held; Assert-GroundingLockHeld runs right
+    # before the final write so a holder whose lock was broken or replaced refuses to write.
+    $LockHandle = Enter-GroundingLock -LockPath $LockPath -Holder 'Update-EntityMentionIndex'
     # Lock-hold telemetry (t/3163): the released hold time must stay well under the 120s stale-break.
     $LockHeld = [System.Diagnostics.Stopwatch]::StartNew()
     try {
@@ -190,6 +192,7 @@ function Update-EntityMentionIndex {
     if ($PSCmdlet.ShouldProcess($OutPath, "Write entity_mentions.json ($($result.ContainerCount) own + $PreservedForeign preserved containers, $TotalMentions mentions)")) {
         $json = ConvertTo-Json $file -Depth 8
         Assert-DataWriteAllowed -Path $OutPath  # t/2902
+        Assert-GroundingLockHeld -Lock $LockHandle  # t/4193 TL condition 2: no write once the lock is lost
         $tmp = "$OutPath.tmp"
         try {
             Set-Content -LiteralPath $tmp -Value $json -Encoding utf8NoBOM
@@ -214,7 +217,7 @@ function Update-EntityMentionIndex {
         # t/3203: always release the grounding lock (even on an early return or a write error).
         # t/3163: stop the hold timer BEFORE releasing so the emitted number is the true hold time.
         $LockHeld.Stop()
-        Exit-GroundingLock -Handle $LockHandle -LockPath $LockPath
+        Exit-GroundingLock -Lock $LockHandle
         Write-Verbose ("Grounding lock held {0:N1}s (t/3163: read-only source scan runs outside the lock; must stay < the 120s stale-break)." -f $LockHeld.Elapsed.TotalSeconds)
     }
 }

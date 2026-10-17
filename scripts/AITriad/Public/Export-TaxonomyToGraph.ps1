@@ -71,7 +71,7 @@ function Export-TaxonomyToGraph {
         $Pair = "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)"
     } else {
         if (-not $env:NEO4J_PASSWORD) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Connect to Neo4j' `
                 -Problem 'NEO4J_PASSWORD environment variable is not set and no -Credential was provided' `
                 -Location 'Export-TaxonomyToGraph' `
@@ -118,7 +118,7 @@ function Export-TaxonomyToGraph {
         # t/3857: this used to Write-Fail + bare `return` -- never rethrow, so a connectivity
         # failure here was indistinguishable from a successful (silent) export. No internal
         # caller relies on this today, but a silent $null on failure is a trap for the next one.
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Export the taxonomy to Neo4j' `
                 -Problem "Cannot connect to Neo4j at ${Uri}: $($_.Exception.Message)" `
                 -Location 'Export-TaxonomyToGraph' `

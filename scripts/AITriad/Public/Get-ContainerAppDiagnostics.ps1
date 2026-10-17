@@ -61,7 +61,7 @@ function Get-ContainerAppDiagnostics {
 
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Get diagnostics for revision '$RevisionName'" `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location 'Get-ContainerAppDiagnostics' `

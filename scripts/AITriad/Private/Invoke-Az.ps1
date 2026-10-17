@@ -50,7 +50,8 @@ function Invoke-Az {
             -NextSteps @('Verify az login: az account show',
                          'Check the arguments passed to Invoke-Az',
                          "Stderr: $($StderrLines -join '; ')",
-                         "Output: $(($StdoutLines | Out-String).Trim())"))
+                         "Output: $(($StdoutLines | Out-String).Trim())") `
+            -AsErrorRecord)
     }
     if (-not $StdoutLines) { return $null }
     ($StdoutLines | Out-String).Trim()
