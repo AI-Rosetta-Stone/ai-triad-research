@@ -42,6 +42,15 @@ export interface ClientConfig {
     /** t/3422: each pulse grants engagement credit valid through t + CREDIT_WINDOW_MS. */
     CREDIT_WINDOW_MS: number;
   };
+  /**
+   * t/4251 poll gate switch (TL p/336#614). OFF by default: pollers run as before (visible or not,
+   * active or idle), which keeps the hosted app warm. It stays off until t/4258 makes uncommitted
+   * overlay writes durable, because ending background polling lets the app scale to zero and drop
+   * them. Turned on from the server's runtime config (GET /api/config/client), no code change.
+   */
+  pollGate: {
+    enabled: boolean;
+  };
   healthProbe: {
     intervalMs: number;
     warmUpCount: number;
@@ -102,6 +111,9 @@ const DEFAULTS: ClientConfig = {
     PULSE_THROTTLE_MS: 5_000,
     IDLE_GRACE_MS: 10_000,
     CREDIT_WINDOW_MS: 15_000,
+  },
+  pollGate: {
+    enabled: false, // t/4251: off until t/4258 lands (see ClientConfig.pollGate)
   },
   healthProbe: {
     intervalMs: 30_000,

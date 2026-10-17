@@ -9,7 +9,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 vi.mock('../resilience', () => ({ setThrottleFromProbe: vi.fn() }));
 vi.mock('../../lib/clientConfig', () => ({
-  getClientConfig: () => ({ healthProbe: {
+  // The gate is switched on for these tests (it ships off, t/4258).
+  getClientConfig: () => ({ pollGate: { enabled: true }, healthProbe: {
     intervalMs: 30_000, warmUpCount: 2, warmUpDiscardCount: 0, warmUpIntervalMs: 1_000, windowSize: 20,
     enterFactor: 2, exitFactor: 1.5, gracePeriodMs: 30_000, timeoutMs: 10_000, thresholdFloorMs: 500, coldStartMultiple: 50,
   } }),

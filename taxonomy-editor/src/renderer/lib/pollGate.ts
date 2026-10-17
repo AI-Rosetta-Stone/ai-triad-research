@@ -14,6 +14,8 @@
 // onPollAllowedChange directly; fixed-interval pollers use gatedInterval. No poller re-implements
 // the visibility or idle logic.
 
+import { getClientConfig } from './clientConfig';
+
 /** Polling stops after this long with no user input (t/4251: about 10 minutes). */
 export const POLL_IDLE_MS = 10 * 60_000;
 
@@ -51,9 +53,18 @@ function pageVisible(): boolean {
   return typeof document === 'undefined' || document.visibilityState !== 'hidden';
 }
 
-/** The predicate against the live page. */
+/**
+ * Whether the gate is switched on (client config `pollGate.enabled`, read live; default OFF, t/4258).
+ * Off, every poller polls as it did before t/4251.
+ */
+export function pollGateEnabled(): boolean {
+  return getClientConfig().pollGate?.enabled === true;
+}
+
+/** The predicate against the live page. Always true while the gate is switched off. */
 export function isPollAllowed(idleMs: number = POLL_IDLE_MS): boolean {
   install();
+  if (!pollGateEnabled()) return true;
   return shouldPoll(pageVisible(), Date.now() - lastInputAt, idleMs);
 }
 

@@ -4,7 +4,10 @@
 // t/4251: the shared poll gate. Fake timers drive the clock; visibilityState is mocked.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { shouldPoll, isPollAllowed, gatedInterval, POLL_IDLE_MS, __resetPollGateForTests } from '../pollGate';
+const switchState = vi.hoisted(() => ({ cfg: { pollGate: { enabled: true } } as { pollGate?: { enabled: boolean } } }));
+vi.mock('../clientConfig', () => ({ getClientConfig: () => switchState.cfg }));
+
+import { shouldPoll, isPollAllowed, gatedInterval, pollGateEnabled, POLL_IDLE_MS, __resetPollGateForTests } from '../pollGate';
 
 let visibility: DocumentVisibilityState = 'visible';
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
@@ -15,6 +18,7 @@ const userInput = () => window.dispatchEvent(new Event('keydown'));
 beforeEach(() => {
   vi.useFakeTimers();
   visibility = 'visible';
+  switchState.cfg = { pollGate: { enabled: true } };
   __resetPollGateForTests(Date.now());
 });
 afterEach(() => { vi.useRealTimers(); });
@@ -84,5 +88,32 @@ describe('gatedInterval', () => {
     vi.advanceTimersByTime(120_000);
     setVisible(false); setVisible(true);
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe('the switch (t/4258 deploy hold, TL p/336#614)', () => {
+  it('switched off, polling is always allowed: hidden and idle tabs poll as before', () => {
+    switchState.cfg = { pollGate: { enabled: false } };
+    const fn = vi.fn();
+    const stop = gatedInterval(fn, 30_000);
+    setVisible(false);
+    vi.advanceTimersByTime(POLL_IDLE_MS + 5 * 60_000);
+    expect(isPollAllowed()).toBe(true);
+    expect(fn.mock.calls.length).toBe(Math.floor((POLL_IDLE_MS + 5 * 60_000) / 30_000));
+    stop();
+  });
+
+  it('switched on, the gate applies (hidden means no polling)', () => {
+    switchState.cfg = { pollGate: { enabled: true } };
+    setVisible(false);
+    expect(pollGateEnabled()).toBe(true);
+    expect(isPollAllowed()).toBe(false);
+  });
+
+  it('no pollGate value from the server at all means OFF', () => {
+    switchState.cfg = {};
+    setVisible(false);
+    expect(pollGateEnabled()).toBe(false);
+    expect(isPollAllowed()).toBe(true);
   });
 });

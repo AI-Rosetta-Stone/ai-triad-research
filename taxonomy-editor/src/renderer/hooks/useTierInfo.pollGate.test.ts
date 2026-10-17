@@ -9,6 +9,9 @@ import { renderHook } from '@testing-library/react';
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 const bridgeGet = vi.hoisted(() => vi.fn());
 vi.mock('../bridge/web-bridge', () => ({ bridgeGet }));
+// The gate is switched on for these tests (it ships off, t/4258).
+vi.mock('../lib/clientConfig', () => ({ getClientConfig: () => ({ pollGate: { enabled: true } }) }));
+
 
 const { useTierInfo } = await import('./useTierInfo');
 const { __resetPollGateForTests } = await import('../lib/pollGate');

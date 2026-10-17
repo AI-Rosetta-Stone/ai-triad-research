@@ -8,6 +8,9 @@ import { renderHook } from '@testing-library/react';
 
 const getSyncStatus = vi.hoisted(() => vi.fn());
 vi.mock('../utils/syncApi', () => ({ getSyncStatus }));
+// The gate is switched on for these tests (it ships off, t/4258).
+vi.mock('../lib/clientConfig', () => ({ getClientConfig: () => ({ pollGate: { enabled: true } }) }));
+
 
 const { useSyncStatus, SYNC_POLL_MS } = await import('./useSyncStatus');
 const { __resetPollGateForTests } = await import('../lib/pollGate');
