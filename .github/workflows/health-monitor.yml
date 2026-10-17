@@ -22,6 +22,7 @@ permissions:
   contents: read
   issues: write
   actions: read  # list-workflow-runs for the schedule-staleness heartbeat (t/3672)
+  packages: read  # GHCR version query for the known-good-liveness check (t/4170 ask 3)
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -239,4 +240,84 @@ jobs:
                   issue_number: issue.number, state: 'closed',
                 });
               }
+            }
+
+  known-good-liveness:
+    # t/4170 ask 3: the known-good GHCR tag (Restore-TaxEditorKnownGood's rollback target) is
+    # manual-only to SET (Set-TaxEditorKnownGood is never called from CI — t/4170#1) and had
+    # silently never been set across the org move. This watches for that going forward:
+    # missing entirely, or present but stale (more than MaxDeploysBehind newer deploys past it).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Check known-good tag liveness
+        id: knowngood
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          . ./operations/devops/Get-KnownGoodLivenessVerdict.ps1
+          $Verdict = Test-TaxEditorKnownGoodLiveness
+          Write-Host ($Verdict | ConvertTo-Json)
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "pass=$($Verdict.Pass.ToString().ToLower())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "message=$($Verdict.Message)"
+          if (-not $Verdict.Pass) { exit 1 }
+
+      - name: Create issue on known-good liveness failure
+        if: failure() && steps.knowngood.outputs.pass == 'false'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const LABEL = 'known-good-stale';
+            const message = `${{ steps.knowngood.outputs.message }}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: LABEL, per_page: 1,
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body: `Still failing at ${new Date().toISOString()}: ${message}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: 'known-good GHCR tag is missing or stale',
+                body: [
+                  '## known-good liveness alarm',
+                  '',
+                  message,
+                  '',
+                  '`Restore-TaxEditorKnownGood` has no (or a stale) rollback target.',
+                  '',
+                  `- **Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                  '',
+                  'Run `Set-TaxEditorKnownGood` against the current production revision (t/4170).',
+                ].join('\n'),
+                labels: [LABEL, 'bug'],
+              });
+            }
+
+      - name: Auto-close resolved known-good issues
+        if: steps.knowngood.outputs.pass == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'known-good-stale', per_page: 5,
+            });
+            for (const issue of existing.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Resolved at ${new Date().toISOString()} — known-good is fresh again.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed',
+              });
             }
