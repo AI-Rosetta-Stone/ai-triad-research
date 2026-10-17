@@ -5262,7 +5262,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #249 [Build] `gh pr merge --match-head-commit` Rejects Abbreviated SHAs — Always Supply the Full 40-Char OID
+## #249 [Build] `gh pr merge --match-head-commit` Rejects Wrong or Abbreviated SHAs — Always Read `headRefOid`, Never Type One
 
 **Pattern:** An agent runs `gh pr merge <N> --squash --match-head-commit <short-sha>` using an abbreviated commit SHA (7–8 hex chars). The call is rejected with a GraphQL coercion error. `--match-head-commit` passes the value directly to GitHub's GraphQL API, which expects a full 40-character OID. An abbreviated SHA is not a valid OID and fails schema validation before the merge is attempted.
 
@@ -5276,7 +5276,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 2 instances (ServerAPI p/504#21; DevOps Worker p/749#14).
+**Status:** Active — 3 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156).
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5544,3 +5544,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#153).
 
 **Applies To:** All agents running curl on Windows (Git Bash / MSYS) when both MSYS path-mangling protection and output-discarding are needed.
+
+---
+
+## #266 [Process] `gh pr merge --auto` Rejected on a Draft PR — Run `gh pr ready` First
+
+**Pattern:** An agent arms auto-merge (`gh pr merge --auto --squash`) on a PR that is still in draft state. GitHub rejects the auto-merge request because draft PRs are not eligible for merging. The agent may not have checked draft status before arming.
+
+**Instances:**
+- 2026-10-17 — Tech Lead (p/335#156, PR #3196): `--auto` rejected on a draft PR. Resolved: ran `gh pr ready <N>` to mark it ready for review, then re-armed successfully.
+
+**Root Cause:** GitHub enforces that draft PRs cannot be merged (auto or manual). The root AGENTS.md already states "Never arm consult-hold, joint-gv or draft PRs" — the failure was not checking draft state before arming.
+
+**Prevention:**
+1. **Before arming auto-merge, check draft state:** `gh pr view <N> --json isDraft -q .isDraft`. If `true`, run `gh pr ready <N>` first.
+2. **The root AGENTS.md rule is authoritative:** "Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`." Check all four conditions before arming.
+3. **`gh pr merge --auto` rejecting immediately** (not after CI) is a reliable diagnostic that the PR state itself is the blocker — check draft, base branch, and hold labels.
+
+**Status:** Active — 1 instance (Tech Lead p/335#156, PR #3196).
+
+**Applies To:** All agents arming auto-merge; always check `isDraft`, base branch, and hold labels before calling `gh pr merge --auto`.
+
+---
+
+## #267 [Build] `import.meta` Is Illegal Inside `new Function()` Bodies — Always Plain Script Context
+
+**Pattern:** An agent constructs a string passed to `new Function()` that references `import.meta.url` (e.g. `createRequire(import.meta.url)`). At runtime, `new Function()` bodies execute as plain scripts, never as ES modules — even when called from a module. `import.meta` is a module-only feature and is a syntax error in plain script context.
+
+**Instances:**
+- 2026-10-17 — DevOps Lead (p/26#180): a scratch syntax-check script used `createRequire(import.meta.url)` inside a `new Function()`-constructed body. Threw `SyntaxError: Cannot use 'import.meta' outside a module`. Resolved: replaced with a plain no-op `require` mock.
+
+**Root Cause:** `new Function(body)` always creates a plain function in the global scope, not a module. `import.meta` is only valid inside a true ES module (`type: "module"` file or `import()` expression). The call site being in a module does not affect the `new Function()` body's execution context.
+
+**Prevention:**
+1. **Never use `import.meta`, `import()`, or top-level `await` inside a `new Function()` body.** These are module-only features and will throw in the plain-script context `new Function()` always creates.
+2. **For CJS-style `require` inside a dynamically constructed function**, use a plain `require` mock or pass `require` in as a parameter — not `createRequire(import.meta.url)`.
+3. **`SyntaxError: Cannot use 'import.meta' outside a module` thrown from a `new Function()` call** is a reliable diagnostic that the body uses module syntax — inspect the string being passed.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#180).
+
+**Applies To:** All agents constructing `new Function()` bodies in ES module files; do not use module-only syntax inside the body string.
