@@ -14,7 +14,7 @@ import {
 } from '../eventLoopMonitor.js';
 
 const sample = (maxMs: number, overrides: Partial<EventLoopSample> = {}): EventLoopSample => ({
-  maxMs, meanMs: 5, p99Ms: 20, utilization: 0.3, ...overrides,
+  maxMs, meanMs: 5, p99Ms: 20, utilization: 0.3, gcMs: 0, ...overrides,
 });
 
 describe('classifyEventLoopSample (t/3166)', () => {
@@ -46,6 +46,11 @@ describe('classifyEventLoopSample (t/3166)', () => {
     expect(message).toContain('mean 3.2ms');
     expect(message).toContain('p99 12ms');
     expect(message).toContain('ELU 55%');
+  });
+
+  it('t/4241: gauge message carries the GC pause sum, to distinguish "GC is the lag" from other causes', () => {
+    const { message } = classifyEventLoopSample(sample(50, { gcMs: 312 }));
+    expect(message).toContain('gc 312ms');
   });
 });
 

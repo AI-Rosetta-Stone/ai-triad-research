@@ -92,6 +92,53 @@ export function __invalidateSyntheticEmbeddingsCache(): void { _synthEmbeddingsB
 /** @internal t/3165 test hook — exercise the cache/dedupe path without the full Router harness. */
 export const __getSyntheticEmbeddingsBufferForTest = getSyntheticEmbeddingsBuffer;
 
+// t/4241: response-buffer cache for GET /api/taxonomy/:pov — the t/4241 load test found event-loop
+// lag of 716ms-2.7s under reader concurrency, localized by local measurement to the read+parse
+// phase (GC pressure from repeated concurrent large-object-graph allocation; see t/4241#4). Caches
+// the fully-serialized response Buffer keyed by (pov, content hash, variant), content-hash-keyed so
+// it's SELF-INVALIDATING — a write, an overlay change, a session-branch read (t/4215), or an
+// out-of-band commit all change the hash, so no write hook is needed and a route enumeration can't
+// miss a writer. Also correct per user: a session user's overlay content hashes differently from
+// main's, so one user never sees another's cached bytes. One entry per (pov, variant) — the latest
+// hash evicts whatever was there, bounding memory (not a growing history). Promise-dedupe: a second
+// concurrent miss for the same key awaits the first build rather than starting a second parse (t/3165
+// pattern — see getSyntheticEmbeddingsBuffer above for the sibling implementation of this idiom).
+const TAXONOMY_GET_DEFAULT_VARIANT = 'default'; // no per-caller transform exists on this route today;
+// the slot is here so one is never silently needed later without a cache key change (TL review, p/522#402).
+
+interface TaxonomyGetCacheEntry {
+  hash: string;
+  bufferPromise: Promise<Buffer>;
+}
+const taxonomyGetCache = new Map<string, TaxonomyGetCacheEntry>();
+
+/** @internal test hook — evict everything, so tests don't leak cache state across runs. */
+export function __resetTaxonomyGetCacheForTest(): void { taxonomyGetCache.clear(); }
+
+async function getTaxonomyResponseBuffer(
+  pov: string, variant: string, rawContent: string, hash: string,
+): Promise<{ buffer: Buffer; cacheHit: boolean }> {
+  const cacheKey = `${pov}:${variant}`;
+  // No cache for a backend that can't version content (empty-string fallback, t/4187) — correctness
+  // over speed; an unversioned read would mean every write looks identical to the cache.
+  if (!hash) return { buffer: await jsonStringifyChunked(JSON.parse(rawContent.replace(/^﻿/, ''))), cacheHit: false };
+
+  const existing = taxonomyGetCache.get(cacheKey);
+  if (existing && existing.hash === hash) return { buffer: await existing.bufferPromise, cacheHit: true };
+
+  const bufferPromise = (async () => {
+    const data = JSON.parse(rawContent.replace(/^﻿/, '')); // strips a PowerShell-written UTF-8 BOM, same as fileIO.ts's parse
+    return jsonStringifyChunked(data);
+  })();
+  taxonomyGetCache.set(cacheKey, { hash, bufferPromise });
+  bufferPromise.catch(() => {
+    // A parse/stringify failure must not poison the cache for the NEXT (possibly fixed) read —
+    // evict only if we're still the current entry for this key (a newer write may have replaced us).
+    if (taxonomyGetCache.get(cacheKey)?.bufferPromise === bufferPromise) taxonomyGetCache.delete(cacheKey);
+  });
+  return { buffer: await bufferPromise, cacheHit: false };
+}
+
 // t/3890: BDI gate helper — extracted to keep the PUT handler under complexity-15.
 // Returns null on pass, or { status, message } to send as the response.
 function situationsBdiGate(
@@ -286,9 +333,33 @@ export function registerTaxonomyRoutes(r: Router, ctx: ServerCtx): void {
   get('/api/taxonomy/:pov', async (req, res) => {
     try {
       const pov = param(req, 'pov', '/api/taxonomy/:pov');
-      const { data, version } = await fileIO.readTaxonomyFileWithVersion(pov);
+      // t/4241: per-phase timings (debug-level, cheap) — DevOps's load-test found event-loop lag of
+      // 716ms-2.7s under light-to-moderate reader concurrency, CPU staying under 14% throughout.
+      // Local measurement (TL review, p/522#402) localized the cost to "load" (storage read +
+      // JSON.parse) — stringify stayed flat under the same concurrency. The cache below (t/4241
+      // design) skips parse+stringify entirely on a hit, keyed by content hash so it's self-
+      // invalidating; "load" below is now read-only (the parse moved inside the cache helper).
+      const tLoadStart = process.hrtime.bigint();
+      const { content: rawContent, version } = await fileIO.readTaxonomyFileRawWithVersion(pov);
+      const tLoadEnd = process.hrtime.bigint();
       if (version) res.setHeader('ETag', `"${version}"`);
-      json(res, data);
+      if (res.writableEnded || res.headersSent) { // t/1515: mirrors httpKit.json()'s idempotent-write guard
+        log.server.warn({ component: 'taxonomy-get', pov }, 'GET /api/taxonomy/:pov: response already sent — skipping duplicate write');
+        return;
+      }
+      const tSerializeStart = process.hrtime.bigint();
+      const { buffer, cacheHit } = await getTaxonomyResponseBuffer(pov, TAXONOMY_GET_DEFAULT_VARIANT, rawContent, version);
+      const tSerializeEnd = process.hrtime.bigint();
+      sendJsonBuffer(res, buffer);
+      const tWriteEnd = process.hrtime.bigint();
+      log.api.debug({
+        component: 'api', route: 'taxonomy-get', pov, cacheHit,
+        loadMs: Number(tLoadEnd - tLoadStart) / 1e6,
+        serializeMs: Number(tSerializeEnd - tSerializeStart) / 1e6,
+        writeMs: Number(tWriteEnd - tSerializeEnd) / 1e6,
+        totalMs: Number(tWriteEnd - tLoadStart) / 1e6,
+        bytes: buffer.length,
+      }, 'GET /api/taxonomy/:pov phase timings (t/4241)');
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to read taxonomy file', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
   });
 
