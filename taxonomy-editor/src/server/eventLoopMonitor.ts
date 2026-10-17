@@ -61,6 +61,14 @@ export function classifyEventLoopSample(
 
 let timer: NodeJS.Timeout | null = null;
 let hist: IntervalHistogram | null = null;
+let lastSample: EventLoopSample | null = null;
+
+/** t/4239/t/4240: the most recent sample, for /health's unauth branch (the t/4180 load-test
+ *  harness polls /health anonymously, so this is the only reachable read path during a run).
+ *  `null` before the first tick, or after stopEventLoopMonitor(). */
+export function getLastEventLoopSample(): EventLoopSample | null {
+  return lastSample;
+}
 
 /**
  * Start the periodic event-loop monitor. Idempotent (a second call is a no-op while running).
@@ -84,6 +92,7 @@ export function startEventLoopMonitor(intervalMs: number = SAMPLE_INTERVAL_MS): 
       utilization: delta.utilization,
     };
     hist.reset();
+    lastSample = sample;
 
     const { level, message } = classifyEventLoopSample(sample);
     if (level === 'warn') {
@@ -105,4 +114,5 @@ export function startEventLoopMonitor(intervalMs: number = SAMPLE_INTERVAL_MS): 
 export function stopEventLoopMonitor(): void {
   if (timer) { clearInterval(timer); timer = null; }
   if (hist) { hist.disable(); hist = null; }
+  lastSample = null;
 }
