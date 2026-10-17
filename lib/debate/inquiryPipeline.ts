@@ -15,6 +15,7 @@
  */
 
 import { deriveDebateConfig } from './inquiryConfig.js';
+import { ActionableError } from './errors.js';
 import { buildGroundingEnvelope } from './inquiryGrounding.js';
 import type { GroundingTaxonomy } from './inquiryGrounding.js';
 import { projectTrust, getRawMetrics } from './calibrationLogger/trustProjection.js';
@@ -100,6 +101,34 @@ export async function runInquiryPipeline(
     { situationId: request.situationId, tagSelection: request.tagSelection },
   );
   if (appliedTag) derivation.tag = appliedTag;
+
+  // Fail loudly on objectively wrong grounding outcomes (t/4255).
+  if (request.tagSelection && !appliedTag) {
+    throw new ActionableError({
+      goal: `Ground Inquiry on ${request.tagSelection.pov}/${request.tagSelection.tag}`,
+      problem: `tagSelection was requested but grounding returned no appliedTag — the camp was empty or the pov is not a recognized value`,
+      location: 'inquiryPipeline.ts › runInquiryPipeline',
+      nextSteps: [
+        `Check that embedding.pov values use a known camp code (acc/saf/skp/cc) or file name (accelerationist/safetyist/skeptic/cross-cutting).`,
+        'Run Update-TaxEmbeddings to refresh the embedding corpus.',
+      ],
+    });
+  }
+  const embeddingCount = Object.keys(deps.taxonomy.nodeEmbeddings).length;
+  const allCampsEmpty = (['acc', 'saf', 'skp', 'cc'] as const).every(
+    c => !grounding.nodesByCamp[c] || grounding.nodesByCamp[c]!.length === 0,
+  );
+  if (embeddingCount > 0 && allCampsEmpty) {
+    throw new ActionableError({
+      goal: `Ground Inquiry for: "${request.question.slice(0, 80)}"`,
+      problem: `buildGroundingEnvelope returned zero nodes across all camps despite ${embeddingCount} entries in the embedding map — every embedding.pov was unrecognized or vectors were degenerate`,
+      location: 'inquiryPipeline.ts › runInquiryPipeline',
+      nextSteps: [
+        'Check that embedding.pov values use a known camp code (acc/saf/skp/cc) or file name (accelerationist/safetyist/skeptic/cross-cutting).',
+        'Run Update-TaxEmbeddings to regenerate the embedding corpus.',
+      ],
+    });
+  }
 
   // ── Stage 3: run debate ────────────────────────────────────────────────────
   deps.onStage?.('debating');
