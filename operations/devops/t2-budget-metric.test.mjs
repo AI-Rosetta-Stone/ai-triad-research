@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { t2BudgetVerdict, topPathsByFrequency, tallyTiers, T2_ALERT_THRESHOLD_PCT } from './t2-budget-metric.mjs';
+import { t2BudgetVerdict, topPathsByFrequency, tallyTiers, filterMainMerges, T2_ALERT_THRESHOLD_PCT } from './t2-budget-metric.mjs';
 
 test('T2_ALERT_THRESHOLD_PCT is co-located and is 10 (t/4103#3 / t/4107)', () => {
   assert.equal(T2_ALERT_THRESHOLD_PCT, 10);
@@ -43,6 +43,28 @@ test('reports t0/t1 shares and the no-tier-declared count alongside t2 (t/4122 "
   assert.equal(v.t1.count, 20);
   assert.equal(v.none.count, 10);
   assert.equal(v.total, 100);
+});
+
+// ── filterMainMerges (t/4122 fix, TL correction t/4122#5/#6: epic-child PRs are not T2 landings) ──
+test('REGRESSION: an epic-child PR (base != main) is excluded from the count', () => {
+  const prs = [
+    { number: 3266, body: 'Tier: T2\n\nReal main landing.', baseRefName: 'main' },
+    { number: 3270, body: 'Tier: T2\n\nEpic-child follow-up.', baseRefName: 't4184-write-conflict-fix' },
+    { number: 3274, body: 'Tier: T2\n\nAnother epic-child follow-up.', baseRefName: 't4184-write-conflict-fix' },
+  ];
+  const filtered = filterMainMerges(prs);
+  assert.deepEqual(filtered.map((p) => p.number), [3266]);
+  assert.deepEqual(tallyTiers(filtered), { t0: 0, t1: 0, t2: 1, none: 0 });
+});
+
+test('filterMainMerges keeps every PR when all are base:main', () => {
+  const prs = [{ number: 1, baseRefName: 'main' }, { number: 2, baseRefName: 'main' }];
+  assert.equal(filterMainMerges(prs).length, 2);
+});
+
+test('filterMainMerges excludes a PR with an unreadable/missing baseRefName (fail toward not counting it)', () => {
+  const prs = [{ number: 1, baseRefName: null }, { number: 2, baseRefName: 'main' }];
+  assert.deepEqual(filterMainMerges(prs).map((p) => p.number), [2]);
 });
 
 // ── tallyTiers (extractTier reuse, not a second hand-maintained regex) ──────────────────────
