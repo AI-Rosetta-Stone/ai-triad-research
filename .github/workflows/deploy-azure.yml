@@ -48,7 +48,10 @@ on:
 
 permissions:
   contents: read
-  packages: write  # t/4170: Set-TaxEditorKnownGood PUTs the known-good tag via the GHCR OCI API
+  packages: read   # t/4170 SO C3 (p/682#28): packages:write is scoped to the tag-known-good job
+                   # only, not granted workflow-wide (every job, including preflight which
+                   # handles dispatch inputs, would otherwise get a token that can push/overwrite
+                   # images).
   id-token: write  # For Azure OIDC login
   actions: read    # t/4194 SO C1: `gh run list` in the cross-workflow wait-gate step
 
@@ -204,6 +207,12 @@ jobs:
                          # workflow for the same window. 45m is generous over this job's observed
                          # real runtime (health checks + smoke + persona matrix all have their own
                          # shorter internal timeouts already).
+    outputs:
+      # t/4170: exposed so the separate tag-known-good job (packages:write, SO C3) can gate on
+      # the same success condition as the in-job post-deploy steps, without needing packages:write
+      # itself or re-running the gates.
+      image_accepted: ${{ steps.acceptance.outputs.accepted }}
+      persona_accepted: ${{ steps.persona.outputs.accepted }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -939,41 +948,6 @@ jobs:
             Write-Host "::warning::Post-deploy smoke had $($Fails.Count) failure(s) — app is live but some endpoints may need attention"
           }
 
-      - name: Set known-good image tag (t/4170 ask 2)
-        if: steps.acceptance.outputs.accepted == 'true' && steps.persona.outputs.accepted == 'true'
-        continue-on-error: true
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          # t/4170: Set-TaxEditorKnownGood was manual-only and never actually run, consistently,
-          # across the org move — so the documented known-good rollback (Restore-TaxEditorKnownGood)
-          # had no target (t/4170 ask 1, confirmed not a cleanup bug: Remove-StaleContainerImages
-          # only deletes UNTAGGED versions). This makes it part of every successful deploy instead
-          # of a manual step nobody remembers to run: after traffic has shifted and both smoke and
-          # persona have passed, tag the now-active digest as known-good and assert the tag
-          # resolves afterward (t/4170's "both arms" requirement).
-          #
-          # WARN-ONLY (continue-on-error): a GHCR tagging hiccup here must never redden an
-          # otherwise-successful deploy. t/4170 ask 3 (Worker, health-monitor.yml) is the liveness
-          # backstop that alerts if known-good goes missing or stale across real deploys — that is
-          # the mechanism that catches a persistent failure of this step, not this step's own exit
-          # code.
-          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
-          try {
-            $Result = Set-TaxEditorKnownGood -ResourceGroup '${{ env.RESOURCE_GROUP }}' -AppName '${{ env.CONTAINER_APP_NAME }}' -Confirm:$false
-            Write-Host "t/4170: known-good set to $($Result.Image) (previous: $($Result.PreviousKnownGood))"
-
-            $Check = @(Get-TaxEditorImage -Last 20 | Where-Object { $_.IsKnownGood })
-            if ($Check.Count -eq 0) {
-              Write-Host "::warning::t/4170: known-good was set but does not resolve on re-check (GHCR propagation lag, or a real failure) — Restore-TaxEditorKnownGood may have no target until the next deploy."
-            } else {
-              Write-Host "t/4170: known-good resolves: $($Check[0].Digest)"
-            }
-          } catch {
-            Write-Host "::warning::t/4170: Set-TaxEditorKnownGood failed: $($_.Exception.Message) — deploy succeeded, but the known-good rollback target was NOT updated this deploy."
-          }
-
       - name: Prod/staging digest parity (warn-only, t/4194 prevention item 3)
         if: always()
         continue-on-error: true
@@ -984,3 +958,72 @@ jobs:
             -StagingApp '${{ env.CONTAINER_APP_NAME }}-staging' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}'
 
+
+  # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────
+  # Set-TaxEditorKnownGood was manual-only and never actually run, consistently, across the org
+  # move — so the documented known-good rollback (Restore-TaxEditorKnownGood) had no target
+  # (t/4170 ask 1, confirmed not a cleanup bug: Remove-StaleContainerImages only deletes
+  # UNTAGGED versions). This job makes it part of every successful deploy instead of a manual
+  # step nobody remembers to run.
+  #
+  # SO C3 (t/4170, p/682#28): a SEPARATE job, not a step in `deploy`, so packages:write (needed
+  # to PUT the known-good tag via the GHCR OCI API) is scoped to only the one job that needs it —
+  # NOT granted workflow-wide to every job, including `preflight`, which handles dispatch inputs.
+  #
+  # Gated on deploy's own success + the same acceptance/persona outputs the in-job post-deploy
+  # steps use (exposed via `deploy`'s `outputs:` block, SO C3), so this never runs on a deploy
+  # that didn't actually promote traffic.
+  tag-known-good:
+    needs: [preflight, deploy]
+    runs-on: ubuntu-latest
+    if: needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true'
+    timeout-minutes: 10
+    permissions:
+      packages: write  # SO C3: scoped to this job only (workflow-level permissions stayed packages:read)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set known-good image tag and assert it resolves to the deployed digest
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYED_IMAGE_REF: ${{ needs.preflight.outputs.image_ref }}
+        run: |
+          # WARN-ONLY (continue-on-error on the job's only real step, via try/catch + exit 0
+          # below): a GHCR tagging hiccup here must never redden an otherwise-successful deploy.
+          # t/4170 ask 3 (Worker, health-monitor.yml) is the liveness backstop that alerts if
+          # known-good goes missing or stale across real deploys — that is the mechanism that
+          # catches a PERSISTENT failure of this step, not this step's own exit code.
+          #
+          # SO C1 (owner: PowerShell, scripts/AITriad/Public/Set-TaxEditorKnownGood.ps1, tracked
+          # separately): the cmdlet must select the 100%-traffic revision (not Active[0], which is
+          # order-dependent across a 0%/100% split) and handle digest refs (prod deploys by
+          # digest, t/3679) by fetching the manifest BY DIGEST rather than treating the raw hex as
+          # a tag name. Until that lands, this step's try/catch below is expected to warn on every
+          # run — tracked on t/4170, not silently masked here.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          $DeployedDigest = ($env:DEPLOYED_IMAGE_REF -split '@')[-1]
+          try {
+            $Result = Set-TaxEditorKnownGood -ResourceGroup '${{ env.RESOURCE_GROUP }}' -AppName '${{ env.CONTAINER_APP_NAME }}' -Confirm:$false
+
+            # SO C2: assert known-good resolves to the digest actually serving traffic — "any
+            # known-good exists" can't fail and proves nothing (e.g. a stale prior tag surviving
+            # a failed PUT would pass that check).
+            $Check = @(Get-TaxEditorImage -Last 20 | Where-Object { $_.IsKnownGood })
+            if ($Check.Count -eq 0) {
+              Write-Host "::warning::t/4170: known-good was set (cmdlet returned $($Result | ConvertTo-Json -Compress)) but no image reports IsKnownGood on re-check (GHCR propagation lag, or a real failure)."
+            } elseif ($Check[0].Digest -ne $DeployedDigest) {
+              Write-Host "::warning::t/4170: known-good resolves to $($Check[0].Digest), which does NOT match the digest serving 100% traffic ($DeployedDigest)."
+            } else {
+              Write-Host "t/4170: known-good resolves to the deployed digest ($DeployedDigest) — confirmed."
+            }
+          } catch {
+            Write-Host "::warning::t/4170: Set-TaxEditorKnownGood failed: $($_.Exception.Message) — deploy succeeded, but the known-good rollback target was NOT updated this deploy."
+          }
