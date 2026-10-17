@@ -42,6 +42,34 @@ const POV_NAME_TO_CAMP: Readonly<Record<string, Camp>> = {
   accelerationist: 'acc', safetyist: 'saf', skeptic: 'skp', 'cross-cutting': 'cc',
 };
 
+function scoreEmbeddingsByCamp(
+  nodeEmbeddings: NodeEmbeddingMap,
+  nodeById: Map<string, PovNode>,
+  questionVec: number[],
+  warnFn: (msg: string) => void,
+): Map<Camp, { score: number; node: PovNode }[]> {
+  const byCamp = new Map<Camp, { score: number; node: PovNode }[]>();
+  const warnedPovs = new Set<string>();
+  for (const [nodeId, embedding] of Object.entries(nodeEmbeddings)) {
+    const camp = POV_NAME_TO_CAMP[embedding.pov];
+    if (!camp) {
+      if (!warnedPovs.has(embedding.pov)) {
+        warnedPovs.add(embedding.pov);
+        warnFn(`buildGroundingEnvelope: unknown embedding.pov "${embedding.pov}" — node "${nodeId}" skipped`);
+      }
+      continue;
+    }
+    const node = nodeById.get(nodeId);
+    if (!node) continue;
+    const vec = embedding.vector;
+    if (!vec || vec.length === 0) continue;
+    const score = cosineSimilarity(questionVec, vec);
+    if (!byCamp.has(camp)) byCamp.set(camp, []);
+    byCamp.get(camp)!.push({ score, node });
+  }
+  return byCamp;
+}
+
 /**
  * Build a GroundingEnvelope for an inquiry question.
  *
@@ -123,28 +151,7 @@ export async function buildGroundingEnvelope(
 
   // ── Score POV nodes by camp ────────────────────────────────────────────────
   const nodeById = new Map(taxonomy.povNodes.map(n => [n.id, n]));
-  const byCamp = new Map<Camp, { score: number; node: PovNode }[]>();
-
-  const warnedPovs = new Set<string>();
-  for (const [nodeId, embedding] of Object.entries(taxonomy.nodeEmbeddings)) {
-    const camp = POV_NAME_TO_CAMP[embedding.pov];
-    if (!camp) {
-      if (!warnedPovs.has(embedding.pov)) {
-        warnedPovs.add(embedding.pov);
-        warn(`buildGroundingEnvelope: unknown embedding.pov "${embedding.pov}" — node "${nodeId}" skipped`);
-      }
-      continue;
-    }
-    const node = nodeById.get(nodeId);
-    if (!node) continue;
-
-    const vec = embedding.vector;
-    if (!vec || vec.length === 0) continue;
-
-    const score = cosineSimilarity(questionVec, vec);
-    if (!byCamp.has(camp)) byCamp.set(camp, []);
-    byCamp.get(camp)!.push({ score, node });
-  }
+  const byCamp = scoreEmbeddingsByCamp(taxonomy.nodeEmbeddings, nodeById, questionVec, warn);
 
   const nodesByCamp: Partial<Record<Camp, NodeRef[]>> = {};
 
