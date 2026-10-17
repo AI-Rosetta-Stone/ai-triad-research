@@ -11,12 +11,12 @@
     "pptxgenjs": "4.0.1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "eslint": "^10.12.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.1",
-    "zod": "^4.6.5"
+    "typescript-eslint": "^8.71.2",
+    "zod": "^4.6.7"
   },
   "scripts": {
     "lint": "eslint . && node eslint-rules/check-complexity-budget-disables.mjs",
