@@ -13,7 +13,7 @@
 // per-request cycle would corrupt both readings. Same cheap libuv primitive, distinct
 // lifecycle → distinct histogram.
 
-import { monitorEventLoopDelay, performance, type EventLoopUtilization } from 'perf_hooks';
+import { monitorEventLoopDelay, performance, PerformanceObserver, type EventLoopUtilization } from 'perf_hooks';
 
 // @types/node dropped the named IntervalHistogram export; derive it from the API so the
 // type survives future typings bumps (Dependabot group, PR #2137).
@@ -39,6 +39,10 @@ export interface EventLoopSample {
   p99Ms: number;
   /** Event-loop utilization over the interval (0..1 — fraction of wall-clock the loop was busy). */
   utilization: number;
+  /** t/4241: sum of GC pause durations (ms) observed over the interval — cheap `PerformanceObserver`
+   *  on the 'gc' entry type, to distinguish "GC is the lag" from "something else is" during the
+   *  t/4241 investigation, without needing a DevOps profiler run. */
+  gcMs: number;
 }
 
 /**
@@ -52,7 +56,7 @@ export function classifyEventLoopSample(
   warnMs: number = EVENT_LOOP_LAG_WARN_MS,
 ): { level: 'warn' | 'info'; message: string } {
   const gauge = `event-loop max ${s.maxMs.toFixed(0)}ms mean ${s.meanMs.toFixed(1)}ms `
-    + `p99 ${s.p99Ms.toFixed(0)}ms ELU ${(s.utilization * 100).toFixed(0)}%`;
+    + `p99 ${s.p99Ms.toFixed(0)}ms ELU ${(s.utilization * 100).toFixed(0)}% gc ${s.gcMs.toFixed(0)}ms`;
   if (s.maxMs >= warnMs) {
     return { level: 'warn', message: `event loop blocked ${s.maxMs.toFixed(0)}ms — ${gauge}` };
   }
@@ -62,6 +66,8 @@ export function classifyEventLoopSample(
 let timer: NodeJS.Timeout | null = null;
 let hist: IntervalHistogram | null = null;
 let lastSample: EventLoopSample | null = null;
+let gcObserver: PerformanceObserver | null = null;
+let gcMsAccum = 0;
 
 /** t/4239/t/4240: the most recent sample, for /health's unauth branch (the t/4180 load-test
  *  harness polls /health anonymously, so this is the only reachable read path during a run).
@@ -80,6 +86,14 @@ export function startEventLoopMonitor(intervalMs: number = SAMPLE_INTERVAL_MS): 
   hist.enable();
   let prevElu: EventLoopUtilization = performance.eventLoopUtilization();
 
+  // t/4241: observing the 'gc' entry type is what makes Node emit GC perf entries at all — cheap,
+  // no --expose-gc flag needed. Accumulated and reset per tick, same shape as the histogram below.
+  gcMsAccum = 0;
+  gcObserver = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) gcMsAccum += entry.duration;
+  });
+  gcObserver.observe({ entryTypes: ['gc'] });
+
   timer = setInterval(() => {
     if (!hist) return;
     // One-arg form: delta utilization since prevElu; then re-baseline for the next tick.
@@ -90,8 +104,10 @@ export function startEventLoopMonitor(intervalMs: number = SAMPLE_INTERVAL_MS): 
       meanMs: (Number.isFinite(hist.mean) ? hist.mean : 0) / NS_PER_MS,
       p99Ms: hist.percentile(99) / NS_PER_MS,
       utilization: delta.utilization,
+      gcMs: gcMsAccum,
     };
     hist.reset();
+    gcMsAccum = 0;
     lastSample = sample;
 
     const { level, message } = classifyEventLoopSample(sample);
@@ -114,5 +130,7 @@ export function startEventLoopMonitor(intervalMs: number = SAMPLE_INTERVAL_MS): 
 export function stopEventLoopMonitor(): void {
   if (timer) { clearInterval(timer); timer = null; }
   if (hist) { hist.disable(); hist = null; }
+  if (gcObserver) { gcObserver.disconnect(); gcObserver = null; }
+  gcMsAccum = 0;
   lastSample = null;
 }

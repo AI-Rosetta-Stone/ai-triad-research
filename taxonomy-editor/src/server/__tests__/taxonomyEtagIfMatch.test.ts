@@ -20,6 +20,9 @@ const { writeTaxonomyFileSpy } = vi.hoisted(() => ({ writeTaxonomyFileSpy: vi.fn
 vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: vi.fn(async () => ({ nodes: [] })),
   readTaxonomyFileWithVersion: vi.fn(async () => ({ data: { nodes: [] }, version: 'abc123' })),
+  // t/4241: the GET handler now reads raw (unparsed) content + version, so its own
+  // parse+stringify-skipping cache can key on the version before paying the parse cost.
+  readTaxonomyFileRawWithVersion: vi.fn(async () => ({ content: JSON.stringify({ nodes: [] }), version: 'abc123' })),
   writeTaxonomyFile: writeTaxonomyFileSpy,
   loadSyntheticEmbeddings: vi.fn(),
   loadSyntheticCorpus: vi.fn(),
