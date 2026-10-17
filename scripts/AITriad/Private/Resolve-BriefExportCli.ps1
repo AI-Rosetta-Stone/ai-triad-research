@@ -37,7 +37,8 @@ function Resolve-BriefExportCli {
                 -NextSteps @(
                     'Run from a full repo checkout (where lib/brief lives)',
                     'Install dependencies (npm ci) — the pipeline needs tsx AND its runtime packages'
-                ))
+                ) `
+                -AsErrorRecord)
     }
 
     return @{ Exe = 'npx'; ArgPrefix = @('--yes', 'tsx', $cliPath) }

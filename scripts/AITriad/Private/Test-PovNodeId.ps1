@@ -45,7 +45,8 @@ function Test-PovNodeId {
                 -Goal "Create taxonomy node with valid BDI ID" `
                 -Problem "Category mismatch: node ID '$Id' has category '$IdCategory' but node.category is '$Category'. Expected ID to contain '-${ExpectedSegment}-'" `
                 -Location 'Test-PovNodeId' `
-                -NextSteps @("Fix the suggested_id to use '-${ExpectedSegment}-' instead of '-$($Matches[2])-'"))
+                -NextSteps @("Fix the suggested_id to use '-${ExpectedSegment}-' instead of '-$($Matches[2])-'") `
+                -AsErrorRecord)
         }
         return $true
     }
@@ -62,5 +63,6 @@ function Test-PovNodeId {
             'Check that the POV prefix is acc, saf, or skp'
             'Check that the category is beliefs, desires, or intentions'
             'Check that the number is 3+ digits, zero-padded'
-        ))
+        ) `
+        -AsErrorRecord)
 }

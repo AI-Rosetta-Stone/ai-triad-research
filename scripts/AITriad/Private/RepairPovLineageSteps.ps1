@@ -417,7 +417,8 @@ function Invoke-LineageRegenerate {
             -Goal 'Regenerate lineage content' `
             -Problem "No API key available for the $($KeyStatus.Backend) backend" `
             -Location 'Repair-PovLineage -RegenerateContent' `
-            -NextSteps @("Set the $($KeyStatus.EnvHint) environment variable", 'Pass -ApiKey parameter'))
+            -NextSteps @("Set the $($KeyStatus.EnvHint) environment variable", 'Pass -ApiKey parameter') `
+            -AsErrorRecord)
     }
 
     $NodesToProcess = Get-LineageRegenNode -TaxDir $TaxDir -PovFiles $PovFiles -FilterNodeIds $FilterNodeIds

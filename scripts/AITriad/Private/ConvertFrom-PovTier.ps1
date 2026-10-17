@@ -38,7 +38,8 @@ function ConvertFrom-PovTier {
                 -Problem "Unknown tier '$Tier' — expected opposes / leans_against / mixed_or_silent / leans_toward / champions" `
                 -Location 'ConvertFrom-PovTier' `
                 -NextSteps @('Verify the pov_alignment.<camp>.tier value on the source org',
-                             'Re-run migrate-t1583-tier-conversion.ps1 to normalize'))
+                             'Re-run migrate-t1583-tier-conversion.ps1 to normalize') `
+                -AsErrorRecord)
         }
     }
 }

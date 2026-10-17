@@ -18,7 +18,8 @@ function Connect-CdpSession {
             -Problem "No page target found on port $Port" `
             -Location 'Connect-CdpSession' `
             -NextSteps @("Ensure the Electron app is running with --remote-debugging-port=$Port",
-                         'Run: npx electron . --remote-debugging-port=9222'))
+                         'Run: npx electron . --remote-debugging-port=9222') `
+            -AsErrorRecord)
     }
 
     $wsUrl = $target.webSocketDebuggerUrl
@@ -31,7 +32,8 @@ function Connect-CdpSession {
             -Problem "WebSocket connect failed: $($_.Exception.Message)" `
             -Location 'Connect-CdpSession' `
             -NextSteps @("Verify the app is still running on port $Port",
-                         "Check that $wsUrl is accessible"))
+                         "Check that $wsUrl is accessible") `
+            -AsErrorRecord)
     }
 
     [PSCustomObject]@{

@@ -54,7 +54,8 @@ function Get-OrganizationsStore {
                 'Verify the data repo is present at ../ai-triad-data/',
                 'Check .aitriad.json or $env:AI_TRIAD_DATA_ROOT for override',
                 'Confirm taxonomy/Origin/organizations.json exists in the data repo'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 
     $mtime = (Get-Item $path).LastWriteTimeUtc
@@ -74,7 +75,8 @@ function Get-OrganizationsStore {
                 'Validate JSON with: Get-Content organizations.json | ConvertFrom-Json',
                 'Check for trailing commas or unbalanced brackets',
                 'Restore from git history if the file was recently modified'
-            ))
+            ) `
+            -AsErrorRecord)
     }
 
     $script:OrganizationsCache = $parsed
