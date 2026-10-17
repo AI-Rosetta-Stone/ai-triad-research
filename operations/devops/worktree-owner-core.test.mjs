@@ -187,13 +187,16 @@ function makeRepoWithOwner(ownerId) {
   return root;
 }
 
-test('evaluateShellCommand: non-owner `cd .worktrees/foo && git stash` WARNS (today\'s real collision)', () => {
+test('evaluateShellCommand: non-owner `cd .worktrees/foo && git stash` WARNS with NO cwd passed at all (t/4212 platform finding, p/156#68/#69)', () => {
+  // The pre-fix evaluateShellCommand depended on `cwd` matching the real shell cwd the agent's `cd`
+  // target is relative to — never actually proven true for this guard's own script invocation
+  // (worktree-owner-guard-shell.mjs's CLI shim never passes one). Omitting `cwd` here entirely is
+  // the regression case: resolveWorktreeFromPathString needs no cwd, so this must still warn.
   const root = makeRepoWithOwner('agent-owner');
   const r = evaluateShellCommand({
     command: 'cd .worktrees/foo && git stash',
     callerId: 'agent-other',
     repoRoot: root,
-    cwd: root,
   });
   assert.equal(r.action, 'warn');
   assert.equal(r.reason, 'mismatch');

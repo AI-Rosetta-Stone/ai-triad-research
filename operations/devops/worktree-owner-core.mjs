@@ -246,14 +246,27 @@ export function extractOverrideTicket(command) {
 
 /**
  * Full evaluation for a Bash/PowerShell command: resolves the target worktree (via `cd`/`-C`/
- * `--git-dir` parsing, falling back to `cwd`), checks for a mutating git op or a worktree-targeted
- * rm, and compares the recorded owner to the caller. Returns:
+ * `--git-dir` parsing), checks for a mutating git op or a worktree-targeted rm, and compares the
+ * recorded owner to the caller. Returns:
  *   { action: 'silent', reason } — not a worktree, no mutating op, override used, or owner matches.
  *   { action: 'warn', reason, op, worktreeName, ownerId, overrideTicket? }
  * `overrideTicket` is present (and action is 'silent') when the bypass was used, so the caller can
  * still log it to telemetry even though no warning is shown.
+ *
+ * Resolves the extracted target via `resolveWorktreeFromPathString` (substring match), NOT
+ * `resolveWorktree` (cwd-relative reconstruction) — same t/4212 platform-finding rationale as
+ * `evaluateFilePath` above (p/156#68/#69, t/4212#13): this guard script's own `process.cwd()` at
+ * invocation time was never actually PROVEN to match the real shell cwd the agent's `cd`/`-C` target
+ * is relative to (the Worker's one successful live-fire used an absolute, forward-slash `cd` target,
+ * which needs no cwd resolution at all — a plain relative `cd .worktrees/<name> && …`, today's real
+ * collision shape per this module's own header, was never actually exercised end-to-end). The
+ * substring match needs no cwd at all, so it's correct whether the agent's target was relative or
+ * absolute. The no-`cd`-at-all fallback (`targetPath = '.'`) is unchanged in effect: `'.'.`
+ * contains no `.worktrees/` substring, so it still (correctly) returns `not-under-worktrees-root` —
+ * matching TL cond. 1's own framing that the real session cwd is always the role's scope dir, never a
+ * worktree, so no finding there is correct either way.
  */
-export function evaluateShellCommand({ command, callerId, repoRoot, cwd }) {
+export function evaluateShellCommand({ command, callerId, repoRoot }) {
   const op = detectMutatingGitOp(command);
   const rmTarget = extractRmTarget(command);
   if (!op && !rmTarget) return { action: 'silent', reason: 'not-a-mutating-command' };
@@ -267,7 +280,7 @@ export function evaluateShellCommand({ command, callerId, repoRoot, cwd }) {
     || (op === 'worktree-remove' ? extractWorktreeRemoveTarget(command) : '')
     || (!op && rmTarget ? rmTarget : '')
     || '.';
-  const wt = resolveWorktree(targetPath, repoRoot, cwd);
+  const wt = resolveWorktreeFromPathString(targetPath);
   if (!wt) return { action: 'silent', reason: 'not-under-worktrees-root' };
 
   const overrideTicket = extractOverrideTicket(command);
