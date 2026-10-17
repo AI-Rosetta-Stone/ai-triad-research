@@ -702,6 +702,10 @@ jobs:
             }
           }
 
+          # t/4249: exit explicitly from the VERDICT, never from whatever $LASTEXITCODE a native
+          # call inside Wait-RevisionActivation happened to leave (39061815653's false failure).
+          exit (Get-HealthCheckExitCode $Verdict.Verdict)
+
       - name: Acceptance tests — full smoke (pre-traffic shift)
         id: acceptance
         if: steps.health_check.outputs.healthy == 'true'
