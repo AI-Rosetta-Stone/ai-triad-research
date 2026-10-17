@@ -53,14 +53,14 @@ function Test-GeminiKeyPool {
 
     $keyFile = if ($Path) { $Path } elseif ($env:GEMINI_FREE_KEYS_FILE) { $env:GEMINI_FREE_KEYS_FILE } else { $null }
     if (-not $keyFile) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal     'Report the Gemini free-key pool' `
             -Problem  'No key-file path given.' `
             -Location 'Test-GeminiKeyPool' `
             -NextSteps @('Pass -Path <file>', 'or set $env:GEMINI_FREE_KEYS_FILE to the key file'))
     }
     if (-not (Test-Path -LiteralPath $keyFile)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal     'Report the Gemini free-key pool' `
             -Problem  "Key file not found: $keyFile" `
             -Location 'Test-GeminiKeyPool' `

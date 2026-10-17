@@ -777,20 +777,26 @@ Describe 'No-mode New-ActionableError throws in scripts/AITriad/ do not grow (t/
         $script:ActVerdict  = script:Get-BareThrowVerdict -Observed $script:ObservedActionableCounts -Baseline $script:ActBaseline -Category 'actionable-no-mode'
     }
 
-    It 'the scan is non-vacuous (offenders found)' {
-        @($script:TreeScan.ActionableOffenders).Count | Should -BeGreaterThan 0 -Because 'a broken classifier would otherwise pass the ratchet on an empty set'
+    # The t/4237 sweep took this category to zero, so the tree scan can no longer prove the
+    # classifier is live. A canary snippet does: if the classifier broke, an empty tree scan
+    # would pass the gate on nothing.
+    It 'the scan is non-vacuous (files scanned, classifier flags a canary)' {
+        $script:TreeScan.FileCount | Should -BeGreaterThan 0
+        $tokens = $null; $errors = $null
+        $canary = [System.Management.Automation.Language.Parser]::ParseInput(
+            "throw (New-ActionableError -Goal 'g' -Problem 'p' -Location 'l' -NextSteps @('n'))", [ref]$tokens, [ref]$errors)
+        @(script:Get-BareThrowOffenders -Ast $canary -File 'canary.ps1' -Category 'actionable-no-mode').Count |
+            Should -Be 1 -Because 'a broken classifier would otherwise pass the gate on an empty set'
     }
 
-    It 'the baseline has a non-empty actionable_no_mode section' {
+    It 'the baseline has an actionable_no_mode section (empty once the sweep is done)' {
         $json = Get-Content -Raw -LiteralPath $script:BaselinePath | ConvertFrom-Json
         $json.PSObject.Properties['actionable_no_mode'] | Should -Not -BeNullOrEmpty
-        @($json.actionable_no_mode.PSObject.Properties).Count | Should -BeGreaterThan 0
         $json.__meta__.actionable_no_mode | Should -BeLike '*t/4237*'
     }
 
     It 'no file exceeds its baseline (respects the Blocking toggle)' {
         script:Assert-BareThrowGate -Verdict $script:ActVerdict -Offenders $script:TreeScan.ActionableOffenders -Blocking $script:BareThrowLintBlocking -Category 'actionable-no-mode'
-        @($script:TreeScan.ActionableOffenders).Count | Should -BeGreaterThan 0
     }
 
     It 'the shipped baseline holds with Blocking forced on (proof arm; BARETHROWLINT_PROVE_BASELINE=1)' {

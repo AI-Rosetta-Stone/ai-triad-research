@@ -79,7 +79,7 @@ function Sync-TaxEditorData {
             $StatusCode = [int]$_.Exception.Response.StatusCode
         }
 
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Trigger server data sync' `
             -Problem "POST $Uri failed$(if ($StatusCode) { " (HTTP $StatusCode)" }): $($_.Exception.Message)" `
             -Location $CallerName `

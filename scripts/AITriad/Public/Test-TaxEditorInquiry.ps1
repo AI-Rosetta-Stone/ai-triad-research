@@ -106,7 +106,7 @@ function Test-TaxEditorInquiry {
         } else {
             "POST /api/inquiry returned $($Post.StatusCode). Check the app is up (Test-TaxEditorHealth) and the request shape."
         }
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Verify the hosted inquiry flow returns real data' `
             -Problem "Could not start an inquiry: POST /api/inquiry did not return 202 (got $($Post.StatusCode)$(if ($Post.Error) { " — $($Post.Error)" }))." `
             -Location "$BaseUrl/api/inquiry" `
@@ -115,7 +115,7 @@ function Test-TaxEditorInquiry {
 
     $JobId = if ($Post.Body -and $Post.Body.PSObject.Properties['jobId']) { [string]$Post.Body.jobId } else { $null }
     if ([string]::IsNullOrWhiteSpace($JobId)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Verify the hosted inquiry flow returns real data' `
             -Problem 'POST /api/inquiry returned 202 but no jobId in the body.' `
             -Location "$BaseUrl/api/inquiry" `
@@ -153,7 +153,7 @@ function Test-TaxEditorInquiry {
     # 3b. Inquiry failed server-side -> loud.
     if ($Status -eq 'failed') {
         $Err = if ($Poll.Body -and $Poll.Body.PSObject.Properties['error']) { [string]$Poll.Body.error } else { '(no error detail)' }
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Verify the hosted inquiry flow returns real data' `
             -Problem "Inquiry $JobId ended status='failed': $Err" `
             -Location "$BaseUrl/api/inquiry/$JobId" `
@@ -165,7 +165,7 @@ function Test-TaxEditorInquiry {
     $Presence = Test-InquiryDataPresence -Result $Result
 
     if (-not $Presence.Pass) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Verify the hosted inquiry flow returns real data' `
             -Problem "Inquiry $JobId reached '$Status' but returned an EMPTY result (ADR-001 graceful-empty — the silent dual-build escape): $($Presence.Reasons -join '; '). campVerdicts=$($Presence.CampVerdicts) calibration=$($Presence.Calibration) groundingNodes=$($Presence.GroundingNodes)." `
             -Location "$BaseUrl/api/inquiry/$JobId" `

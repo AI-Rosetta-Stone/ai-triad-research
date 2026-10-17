@@ -37,11 +37,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'AlertReaderGuardVerdict.ps1')
+. (Join-Path $PSScriptRoot 'StuckPRAlertFilter.ps1')
 
 function script:Get-PrsByLabel([string]$Label) {
     $json = gh pr list -R $Repo --state open --label $Label --limit 50 --json number,title,url,headRefName,labels,body
     if ($LASTEXITCODE -ne 0) { throw "gh pr list (label=$Label) exited $LASTEXITCODE" }
-    @($json | ConvertFrom-Json)
+    # t/4115 noise reduction (TL p/702#59): a T2 PR can clear its SO consult-hold and still
+    # sit in the PI's approval queue -- a known wait, not a stuck PR. Skip anything the TL
+    # has explicitly marked `awaiting-pi`, at every alert tier.
+    @($json | ConvertFrom-Json) | Where-Object { -not (Test-IsAwaitingPi $_.labels) }
 }
 
 function script:Get-TicketHintFromBranch([string]$Ref) {

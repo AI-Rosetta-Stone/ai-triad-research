@@ -214,19 +214,19 @@ function Invoke-TaxEditorLoadTest {
                             --resource-type 'Microsoft.App/containerApps' --metric 'UsageNanoCores' `
                             --start-time $step.startTime --end-time $step.endTime `
                             --interval PT1M --aggregation Average -o json 2>&1
-                        if ($LASTEXITCODE -ne 0) { throw "az exited $LASTEXITCODE`: $cpuRaw" }
+                        if ($LASTEXITCODE -ne 0) { throw [System.Exception]::new("az exited $LASTEXITCODE`: $cpuRaw") }
                         $cpu = $cpuRaw | ConvertFrom-Json
                         $memRaw = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
                             --resource-type 'Microsoft.App/containerApps' --metric 'WorkingSetBytes' `
                             --start-time $step.startTime --end-time $step.endTime `
                             --interval PT1M --aggregation Average -o json 2>&1
-                        if ($LASTEXITCODE -ne 0) { throw "az exited $LASTEXITCODE`: $memRaw" }
+                        if ($LASTEXITCODE -ne 0) { throw [System.Exception]::new("az exited $LASTEXITCODE`: $memRaw") }
                         $mem = $memRaw | ConvertFrom-Json
 
                         $cpuPoints = @($cpu.value[0].timeseries[0].data | Where-Object { $null -ne $_.average })
                         $memPoints = @($mem.value[0].timeseries[0].data | Where-Object { $null -ne $_.average })
                         if ($cpuPoints.Count -eq 0 -or $memPoints.Count -eq 0) {
-                            throw "no datapoints yet (ingestion lag) — cpuPoints=$($cpuPoints.Count) memPoints=$($memPoints.Count)"
+                            throw [System.Exception]::new("no datapoints yet (ingestion lag) — cpuPoints=$($cpuPoints.Count) memPoints=$($memPoints.Count)")
                         }
                         $cpuNano = ($cpuPoints | Select-Object -Last 1).average
                         $memBytes = ($memPoints | Select-Object -Last 1).average

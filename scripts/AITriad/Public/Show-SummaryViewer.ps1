@@ -28,7 +28,7 @@ function Show-SummaryViewer {
     $ErrorActionPreference = 'Stop'
     $CodeRoot = Get-CodeRoot
     if (-not $CodeRoot) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Launch Summary Viewer' `
             -Problem 'Cannot find the ai-triad-research code repository' `
             -Location 'Show-SummaryViewer' `

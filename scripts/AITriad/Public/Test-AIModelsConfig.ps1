@@ -70,7 +70,7 @@ function Test-AIModelsConfig {
     Set-StrictMode -Version Latest
 
     if (-not (Test-Path -Path $Path)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Validate ai-models.json' `
             -Problem "Config file not found: $Path" `
             -Location 'Test-AIModelsConfig' `

@@ -3,7 +3,7 @@
     "ticket": "t/4152",
     "doc": "Bare-throw ratchet baseline: per-file count of bare string/variable throws in scripts/AITriad/ (see tests/BareThrowLint.Tests.ps1 header for what counts). A count may only go down.",
     "regenerate": "$env:BARETHROWLINT_REGEN_BASELINE='1'; Invoke-Pester tests/BareThrowLint.Tests.ps1; Remove-Item Env:BARETHROWLINT_REGEN_BASELINE",
-    "actionable_no_mode": "t/4237: per-file count of throw (New-ActionableError ...) with no -AsErrorRecord / -PassThru / -Throw (throws $null). Same ratchet and regen switch as files."
+    "actionable_no_mode": "t/4237: per-file count of throw (New-ActionableError ...) with no -AsErrorRecord / -PassThru / -Throw (throws $null). Swept to zero by t/4237 PRs 2-4; an empty section is zero tolerance (any site is above baseline)."
   },
   "files": {
     "scripts/AITriad/Private/AIModelValidation.ps1": 1,
@@ -55,38 +55,5 @@
     "scripts/AITriad/Public/Show-TriadDialogue.ps1": 1,
     "scripts/AITriad/Public/Test-AITJudgeModel.ps1": 9
   },
-  "actionable_no_mode": {
-    "scripts/AITriad/Public/New-ContainerAppRevision.ps1": 2,
-    "scripts/AITriad/Public/New-SyntheticCorpus.ps1": 3,
-    "scripts/AITriad/Public/Register-AIBackend.ps1": 1,
-    "scripts/AITriad/Public/Repair-SituationReciprocity.ps1": 2,
-    "scripts/AITriad/Public/Request-FlightRecorderDump.ps1": 3,
-    "scripts/AITriad/Public/Reset-TaxEditorSession.ps1": 1,
-    "scripts/AITriad/Public/Restore-TaxEditorBlob.ps1": 6,
-    "scripts/AITriad/Public/Set-ContainerAppTraffic.ps1": 2,
-    "scripts/AITriad/Public/Set-TriadConfig.ps1": 4,
-    "scripts/AITriad/Public/Show-POViewer.ps1": 1,
-    "scripts/AITriad/Public/Show-SummaryViewer.ps1": 1,
-    "scripts/AITriad/Public/Show-TaxonomyEditor.ps1": 2,
-    "scripts/AITriad/Public/Show-WorkflowRunner.ps1": 4,
-    "scripts/AITriad/Public/Switch-TaxEditorRevision.ps1": 7,
-    "scripts/AITriad/Public/Sync-TaxEditorData.ps1": 1,
-    "scripts/AITriad/Public/Test-AIBackendHealth.ps1": 1,
-    "scripts/AITriad/Public/Test-AIBackendQuota.ps1": 1,
-    "scripts/AITriad/Public/Test-AIModelsConfig.ps1": 1,
-    "scripts/AITriad/Public/Test-AnalyticsBlobHealth.ps1": 3,
-    "scripts/AITriad/Public/Test-AzureHealth.ps1": 1,
-    "scripts/AITriad/Public/Test-DebateIndexIntegrity.ps1": 1,
-    "scripts/AITriad/Public/Test-DebateSession.ps1": 5,
-    "scripts/AITriad/Public/Test-EmbeddingsCacheHealth.ps1": 1,
-    "scripts/AITriad/Public/Test-GeminiKeyPool.ps1": 2,
-    "scripts/AITriad/Public/Test-PreloadHealth.ps1": 1,
-    "scripts/AITriad/Public/Test-RerankerBaseline.ps1": 3,
-    "scripts/AITriad/Public/Test-TaxEditorInfra.ps1": 4,
-    "scripts/AITriad/Public/Test-TaxEditorInquiry.ps1": 4,
-    "scripts/AITriad/Public/Test-TaxonomyDir.ps1": 1,
-    "scripts/AITriad/Public/Test-TaxonomyIntegrity.ps1": 1,
-    "scripts/AITriad/Public/Undo-TaxEditorDataCommit.ps1": 3,
-    "scripts/AITriad/Public/Update-SyntheticCorpus.ps1": 1
-  }
+  "actionable_no_mode": {}
 }

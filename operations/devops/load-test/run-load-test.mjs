@@ -212,6 +212,24 @@ async function getGithubRateLimitRemaining() {
   }
 }
 
+/** t/4239 item 1: one anonymous GET /health per step end, reading the unauth
+ *  eventLoopLagMs field the server now exposes -- the one candidate cause of t/4180's
+ *  reader degradation that CPU/memory/GitHub-budget couldn't rule in or out. A single
+ *  post-step snapshot, same cadence as the GitHub-rate-limit sample above; not a
+ *  continuous trace, so a brief post-step dip/spike can be missed -- good enough to
+ *  tell "elevated throughout this step" from "near-zero throughout", which is the
+ *  question this exists to answer. */
+async function getEventLoopLagMs(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}/health`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    return typeof body.eventLoopLagMs === 'number' ? body.eventLoopLagMs : null;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const steps = [];
@@ -228,16 +246,17 @@ async function main() {
       });
       const endTime = new Date().toISOString();
       const githubRateLimitRemaining = await getGithubRateLimitRemaining();
+      const eventLoopLagMs = await getEventLoopLagMs(args.baseUrl);
       // startTime/endTime (t/4180 Lead review): without these, the PS wrapper's
       // `az monitor metrics list` call had no way to bound its query to this step's
       // actual window — it always queried the metrics API's default ("now") range, so
       // every step's post-hoc sample was really just "whatever the last minute looked
       // like after the entire ramp finished," not that step's real CPU/memory.
-      const step = { level, profile, startTime, endTime, ...summary, githubRateLimitRemaining };
+      const step = { level, profile, startTime, endTime, ...summary, githubRateLimitRemaining, eventLoopLagMs };
       steps.push(step);
       process.stderr.write(`[load-test]   p50=${summary.p50Ms.toFixed(0)}ms p95=${summary.p95Ms.toFixed(0)}ms `
         + `errRate=${summary.errorRatePct.toFixed(2)}% rps=${summary.rps.toFixed(1)} `
-        + `ghRemaining=${githubRateLimitRemaining ?? 'n/a'}\n`);
+        + `ghRemaining=${githubRateLimitRemaining ?? 'n/a'} eventLoopLagMs=${eventLoopLagMs ?? 'n/a'}\n`);
     }
   }
   const breakingPoint = findBreakingPoint(steps);

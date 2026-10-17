@@ -54,7 +54,7 @@ function Test-PreloadHealth {
     if (-not $CodeRoot) {
         $CodeRoot = Get-CodeRoot
         if (-not $CodeRoot) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                     -Goal     'Validate the taxonomy-editor preload artifact' `
                     -Problem  'Cannot resolve the ai-triad-research code root' `
                     -Location 'Test-PreloadHealth' `

@@ -63,7 +63,7 @@ function Test-AIBackendHealth {
     # ── Load ai-models.json defaults ────────────────────────────────────
     $ConfigPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..' '..' '..' 'ai-models.json'))
     if (-not (Test-Path $ConfigPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal     'Load AI backend defaults for health probe' `
             -Problem  "ai-models.json not found at: $ConfigPath" `
             -Location 'Test-AIBackendHealth' `
