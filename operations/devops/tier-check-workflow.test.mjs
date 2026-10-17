@@ -81,14 +81,61 @@ function scriptCodeLines() {
   return workflow.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
 }
 
+// t/4182: the import() check above only ever caught `import()`. A `require(` or a
+// `createRequire(...)(...)` of the head predicate text (e.g. the path read at
+// `GITHUB_WORKSPACE/.../tier-check-predicate.mjs`) would execute the untrusted head code just
+// as surely, and this test previously would not have noticed. Pure, so a fixture string can
+// drive it without a real workflow file.
+function structureIssues(code) {
+  const issues = [];
+  const imports = code.match(/import\([^)]*\)/g) ?? [];
+  if (!(imports.length === 1 && imports[0] === 'import(pathToFileURL(predicatePath)')) {
+    issues.push(`unexpected imports: ${imports.join(' | ')}`);
+  }
+  if (code.includes('headModule')) issues.push('no headModule binding may exist');
+  const headRequires = [...code.matchAll(/require\(([^)]*)\)/g)].filter(([, arg]) => arg.includes('tier-check-predicate'));
+  if (headRequires.length) issues.push(`head predicate must not be require()'d: ${headRequires.map((m) => m[0]).join(', ')}`);
+  if (code.includes('createRequire')) {
+    issues.push("createRequire must not appear (it can dynamically require the head predicate, bypassing the text-read discipline)");
+  }
+  return issues;
+}
+
 test('C1: the whole step imports only the BASE copy (a temp file), never the head predicate', () => {
   const code = scriptCodeLines();
-  const imports = code.match(/import\([^)]*\)/g) ?? [];
-  assert.deepEqual(imports, ['import(pathToFileURL(predicatePath)'], `unexpected imports: ${imports.join(' | ')}`);
-  assert.ok(!code.includes('headModule'), 'no headModule binding may exist');
+  assert.deepEqual(structureIssues(code), []);
   assert.match(code, /readFileSync\(path\.join\(process\.env\.GITHUB_WORKSPACE, 'operations', 'devops', 'tier-check-predicate\.mjs'\), 'utf8'\)/,
     'the head predicate is read as TEXT');
   assert.match(code, /baseModule\.checkApiVersion\(baseModule\.TIER_CHECK_API, headApi\)/, 'the version check runs base code');
+});
+
+test('CONTROL: legitimate require() of node builtins in the step preamble does not false-positive', () => {
+  // require('url'), require('child_process'), require('fs'), require('os'), require('path')
+  // are all present in the real step and must not trip the head-require check.
+  const code = scriptCodeLines();
+  assert.ok(/require\('url'\)/.test(code) && /require\('path'\)/.test(code), 'fixture precondition: builtin requires are present');
+  assert.deepEqual(structureIssues(code), []);
+});
+
+test('RED ARM: a fixture require()-ing the head predicate path fails the structure check', () => {
+  const fixture = `
+    const { pathToFileURL } = require('url');
+    import(pathToFileURL(predicatePath));
+    const headModuleBad = require(path.join(process.env.GITHUB_WORKSPACE, 'operations', 'devops', 'tier-check-predicate.mjs'));
+  `;
+  const issues = structureIssues(fixture);
+  assert.ok(issues.some((i) => i.includes("head predicate must not be require()'d")), `expected a head-require issue, got: ${issues.join(' | ')}`);
+});
+
+test('RED ARM: a fixture using createRequire fails the structure check', () => {
+  const fixture = `
+    const { createRequire } = require('module');
+    const req = createRequire(import.meta.url);
+    import(pathToFileURL(predicatePath));
+    req('operations/devops/tier-check-predicate.mjs');
+  `;
+  const issues = structureIssues(fixture);
+  assert.ok(issues.some((i) => i.includes('createRequire')), `expected a createRequire issue, got: ${issues.join(' | ')}`);
 });
 
 test('C1: the head API is parsed from text; anything malformed reads as null (forces the skew path)', () => {
