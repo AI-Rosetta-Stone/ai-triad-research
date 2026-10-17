@@ -383,11 +383,15 @@ jobs:
           $Info = az containerapp show --name taxonomy-editor-staging -g '${{ env.RESOURCE_GROUP }}' `
             --query '{cpu:properties.template.containers[0].resources.cpu,maxReplicas:properties.template.scale.maxReplicas}' `
             -o json 2>$null | ConvertFrom-Json
-          $Cpu = if ($Info) { [double]$Info.cpu } else { $null }
-          $Drifted = ($null -ne $Cpu) -and ($Cpu -gt 0.25)
-          Write-Host "staging cpu=$Cpu maxReplicas=$($Info.maxReplicas) drifted=$Drifted"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "drifted=$($Drifted.ToString().ToLower())"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "cpu=$Cpu"
+          # t/4203 SO C2b (p/682#46): a $null $Info (query failed) must NOT read as "not drifted" —
+          # that would make the auto-close step below CLOSE a genuinely open drift issue on a
+          # transient Azure error. Tri-state output instead: both the open/escalate step and the
+          # auto-close step are gated on an exact 'true'/'false' match, so 'unknown' naturally
+          # skips both.
+          $Drifted = if ($null -eq $Info) { 'unknown' } elseif ([double]$Info.cpu -gt 0.25) { 'true' } else { 'false' }
+          Write-Host "staging cpu=$($Info.cpu) maxReplicas=$($Info.maxReplicas) drifted=$Drifted"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "drifted=$Drifted"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "cpu=$($Info.cpu)"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "maxReplicas=$($Info.maxReplicas)"
 
       - name: Open or update the drift issue, escalate if it persists
