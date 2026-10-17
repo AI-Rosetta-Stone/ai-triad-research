@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Set-TaxEditorKnownGood {
@@ -50,29 +50,44 @@ function Set-TaxEditorKnownGood {
     Set-StrictMode -Version Latest
     $CallerName = 'Set-TaxEditorKnownGood'
 
-    # ── Get active revision's image tag ──────────────────────────────────
+    # ── Production revision = the one serving traffic ────────────────────
+    # Prod can run two active revisions at once (0% and 100% after a blue-green swap), and their
+    # order isn't guaranteed. Pick by traffic, never by position, and refuse a split (p/682#28).
     $Revisions = @(Get-TaxEditorRevision -ResourceGroup $ResourceGroup -AppName $AppName)
-    $Active = @($Revisions | Where-Object { $_.Active })
+    $Serving = @($Revisions | Where-Object { $_.PSObject.Properties['TrafficWeight'] -and [int]$_.TrafficWeight -gt 0 })
 
-    if (@($Active).Count -eq 0) {
+    if (@($Serving).Count -eq 0) {
         throw (New-ActionableError `
             -Goal 'Tag production image as known-good' `
-            -Problem 'No active revision found — cannot determine production image' `
+            -Problem 'No revision is serving traffic — cannot determine the production image' `
             -Location $CallerName `
             -NextSteps @('Run Get-TaxEditorRevision to inspect current state',
-                         'Deploy an image first with Deploy-TaxEditorImage'))
+                         'Deploy an image first with Deploy-TaxEditorImage') `
+            -AsErrorRecord)
     }
-
-    $ImageRef = $Active[0].ImageTag
-    if (-not $ImageRef -or $ImageRef -notmatch ':') {
+    if (@($Serving).Count -gt 1) {
+        $Split = ($Serving | ForEach-Object { "$($_.Name)=$($_.TrafficWeight)%" }) -join ', '
         throw (New-ActionableError `
             -Goal 'Tag production image as known-good' `
-            -Problem "Active revision image ref is missing or has no tag: '$ImageRef'" `
+            -Problem "Traffic is split across revisions ($Split), so there is no single production image to tag" `
             -Location $CallerName `
-            -NextSteps @('The active revision may be deployed by digest — tag it first'))
+            -NextSteps @('Finish or roll back the traffic shift so one revision serves 100%, then re-run') `
+            -AsErrorRecord)
     }
 
-    $CurrentTag = ($ImageRef -split ':')[-1]
+    $ImageRef = [string]$Serving[0].ImageTag
+    $RefParts = ConvertFrom-TaxEditorImageRef -ImageRef $ImageRef
+    if (-not $RefParts) {
+        throw (New-ActionableError `
+            -Goal 'Tag production image as known-good' `
+            -Problem "The serving revision's image ref is missing or has neither a tag nor a digest: '$ImageRef'" `
+            -Location $CallerName `
+            -NextSteps @('Run Get-TaxEditorRevision to inspect the revision image',
+                         'Expected <registry>/<repo>:<tag> or <registry>/<repo>@sha256:<digest>') `
+            -AsErrorRecord)
+    }
+    $ManifestReference = $RefParts.Reference   # a tag, or sha256:<hex> for a digest ref
+    $CurrentTag = $RefParts.Tag                # $null for a digest ref
 
     # ── Find previous known-good (for reporting) ─────────────────────────
     $PreviousKnownGood = '(none)'
@@ -113,23 +128,34 @@ function Set-TaxEditorKnownGood {
     ) -join ', '
 
     try {
+        # A digest reference (sha256:<hex>) is fetched BY digest; a tag by tag.
         $ManifestResp = Invoke-WebRequest `
-            -Uri "https://ghcr.io/v2/$Package/manifests/$CurrentTag" `
+            -Uri "https://ghcr.io/v2/$Package/manifests/$ManifestReference" `
             -Headers @{ Authorization = "Bearer $GhcrToken"; Accept = $AcceptTypes } `
             -ErrorAction Stop
     }
     catch {
         throw (New-ActionableError `
-            -Goal "Fetch manifest for tag '$CurrentTag'" `
+            -Goal "Fetch manifest for '$ManifestReference'" `
             -Problem "GHCR manifest GET failed: $($_.Exception.Message)" `
             -Location $CallerName `
-            -NextSteps @("Verify image exists: ghcr.io/${Package}:${CurrentTag}",
-                         'Check GITHUB_TOKEN has read:packages scope'))
+            -NextSteps @("Verify image exists: $ImageRef",
+                         'Check GITHUB_TOKEN has read:packages scope') `
+            -AsErrorRecord)
     }
 
     $ManifestContentType = $ManifestResp.Headers['Content-Type']
     if ($ManifestContentType -is [array]) { $ManifestContentType = $ManifestContentType[0] }
     $ManifestBody = $ManifestResp.Content
+    $TaggedDigest = Get-OciManifestDigest -Response $ManifestResp
+    if ($RefParts.Digest -and $TaggedDigest -and $TaggedDigest -ne $RefParts.Digest) {
+        throw (New-ActionableError `
+            -Goal 'Tag production image as known-good' `
+            -Problem "GHCR returned manifest $TaggedDigest for digest $($RefParts.Digest); refusing to tag a different image" `
+            -Location $CallerName `
+            -NextSteps @("Inspect the image: $ImageRef") `
+            -AsErrorRecord)
+    }
 
     # ── PUT manifest with known-good tag ─────────────────────────────────
     try {
@@ -147,7 +173,8 @@ function Set-TaxEditorKnownGood {
             -Problem "GHCR manifest PUT failed: $($_.Exception.Message)" `
             -Location $CallerName `
             -NextSteps @('Verify GITHUB_TOKEN has write:packages scope',
-                         "Package: $Package"))
+                         "Package: $Package") `
+            -AsErrorRecord)
     }
 
     Write-Verbose "Tagged '$ImageRef' as known-good."
@@ -156,7 +183,8 @@ function Set-TaxEditorKnownGood {
     [PSCustomObject]@{
         Action           = 'SetKnownGood'
         Image            = $ImageRef
-        Tag              = $CurrentTag
+        Tag              = $CurrentTag      # $null when production runs a digest ref
+        Digest           = $TaggedDigest    # the manifest digest now carrying known-good
         PreviousKnownGood = $PreviousKnownGood
         Package          = $Package
         Timestamp        = (Get-Date).ToString('o')
