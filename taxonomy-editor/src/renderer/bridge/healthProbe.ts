@@ -8,6 +8,7 @@
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { getClientConfig } from '../lib/clientConfig';
 import { setThrottleFromProbe } from './resilience';
+import { isPollAllowed, onPollAllowedChange } from '../lib/pollGate';
 
 type ProbePhase = 'idle' | 'warmup' | 'steady';
 
@@ -28,6 +29,17 @@ const state = {
   consecutiveFailures: 0,
   consecutiveGoodPolls: 0,
 };
+
+// t/4251: the probe runs only while polling is allowed (tab visible, user active).
+let unsubscribeGate: (() => void) | null = null;
+
+/** Resolves once polling is allowed (immediately if it already is). Used by the warm-up. */
+function whenPollAllowed(): Promise<void> {
+  if (isPollAllowed()) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const unsubscribe = onPollAllowedChange((allowed) => { if (allowed) { unsubscribe(); resolve(); } });
+  });
+}
 
 function computeP95(values: number[]): number {
   if (values.length === 0) return 0;
@@ -78,6 +90,10 @@ async function runWarmUp(): Promise<void> {
   const { warmUpCount, warmUpDiscardCount, warmUpIntervalMs } = cfg();
 
   for (let i = 0; i < warmUpCount; i++) {
+    if (!isPollAllowed()) {
+      await whenPollAllowed(); // only waits when hidden or idle; otherwise the probe starts synchronously, as before
+      if (state.phase !== 'warmup') return; // stopped while waiting
+    }
     const latency = await probe();
     if (latency !== null) {
       state.warmUpSamples.push(latency);
@@ -108,11 +124,30 @@ function nextInterval(): number {
 }
 
 function scheduleSteadyState(): void {
+  let parked = false;
+  let inFlight = false;
   const tick = () => {
+    if (!isPollAllowed()) { parked = true; state.timerId = 0; return; }
+    inFlight = true;
     void steadyProbe().then(() => {
+      inFlight = false;
+      if (state.phase !== 'steady' || parked) return;
       state.timerId = window.setTimeout(tick, nextInterval());
     });
   };
+  // Hidden or idle: clear the pending probe rather than skip it. Allowed again: probe at once, so
+  // the throttle state is fresh before anything reads it, then resume the chain.
+  unsubscribeGate?.();
+  unsubscribeGate = onPollAllowedChange((allowed) => {
+    if (!allowed) {
+      parked = true;
+      if (state.timerId) { clearTimeout(state.timerId); state.timerId = 0; }
+    } else if (parked) {
+      parked = false;
+      // A probe still in flight reschedules the chain itself; starting another would make two chains.
+      if (!inFlight) tick();
+    }
+  });
   state.timerId = window.setTimeout(tick, nextInterval());
 }
 
@@ -171,6 +206,8 @@ export function initHealthProbe(): void {
 }
 
 export function stopHealthProbe(): void {
+  unsubscribeGate?.();
+  unsubscribeGate = null;
   if (state.timerId) {
     clearTimeout(state.timerId);
     state.timerId = 0;
