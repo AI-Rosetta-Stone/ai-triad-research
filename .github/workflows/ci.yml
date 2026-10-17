@@ -1984,6 +1984,98 @@ jobs:
       - name: Lint workflow YAML files
         run: python3 .github/ci/workflow-lint.py
 
+  # ── pov-tag-orphan-check: differential POV-tag orphan scan (t/3987, SO e/253#2/#4) ──
+  # A POV-tag registry change must show what it orphans before it merges. Runs the taxonomy
+  # ../ai-triad-data checkout through lib/schema/pov-tags-cli.ts --scan-data, differentially
+  # against the PR's base (or push's parent) registry: only orphans THIS change INTRODUCES are
+  # actionable; pre-existing orphans and structural problems are visibility-only (one bad data
+  # commit must not turn every unrelated code PR red). Always runs, no path filter — it's a
+  # cheap static scan, and a path-filtered job reports skipped, which ci-gate treats as passing
+  # (the t/3981 lesson this ticket exists to avoid repeating).
+  # WARN-FIRST (t/3987): never fails the job yet. Flip to blocking is a separate ticket needing
+  # a mandatory SO, and must land before the first registry rename/removal (adding tags can't
+  # orphan anything).
+  pov-tag-orphan-check:
+    needs: [changes]
+    if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+
+      - name: Checkout data repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        continue-on-error: true
+        with:
+          repository: AI-Rosetta-Stone/ai-triad-data
+          path: ai-triad-data
+          fetch-depth: 1
+
+      - name: Symlink data repo to expected location
+        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
+        continue-on-error: true
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Fetch base POV-tag registry
+        # PR: the base ref's registry. Push: the parent commit's. If the base file doesn't exist
+        # at that ref (e.g. the registry was just added), warn and skip the scan as non-differential
+        # -- never fail on this; MSYS_NO_PATHCONV=1 per the Shell Quoting Rule (git show on Windows runners).
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+          else
+            BASE_REF="HEAD^"
+          fi
+          if MSYS_NO_PATHCONV=1 git show "$BASE_REF:lib/debate/soul-docs/pov-tags.json" > base-pov-tags.json 2>/tmp/base-registry-err.txt; then
+            echo "have_base=true" >> "$GITHUB_ENV"
+          else
+            echo "::warning::pov-tag-orphan-check: no base registry at $BASE_REF ($(cat /tmp/base-registry-err.txt)) — running non-differential"
+            echo "have_base=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run the orphan scan
+        id: scan
+        # EXPLICIT exit-code capture (Lead spec #4): bash steps run under `set -e` by default, so
+        # a bare non-zero exit would abort the script before $? is ever read -- the `&&`/`||`
+        # compound keeps the script's own exit status 0 regardless, letting us read the REAL
+        # exit code from either branch. Not a pipe (which would mask it a different way).
+        run: |
+          if [ "$have_base" = "true" ]; then
+            npx tsx lib/schema/pov-tags-cli.ts --scan-data ../ai-triad-data/taxonomy/Origin --base-registry base-pov-tags.json > scan-output.txt && EXIT_CODE=0 || EXIT_CODE=$?
+          else
+            npx tsx lib/schema/pov-tags-cli.ts --scan-data ../ai-triad-data/taxonomy/Origin > scan-output.txt && EXIT_CODE=0 || EXIT_CODE=$?
+          fi
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Report outcome (warn-first — never fails the job)
+        run: |
+          EXIT_CODE="${{ steps.scan.outputs.exit_code }}"
+          cat scan-output.txt || true
+          VERDICT_LINE=$(tail -n 1 scan-output.txt 2>/dev/null || echo '{}')
+          if [ "$EXIT_CODE" = "0" ]; then
+            echo "::warning::pov-tag-orphan-check: clean. $VERDICT_LINE"
+            echo "pov-tag-orphan-check: clean (exit 0). $VERDICT_LINE" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$EXIT_CODE" = "1" ]; then
+            echo "::warning::pov-tag-orphan-check: introduced orphans (warn-first, not yet blocking). $VERDICT_LINE"
+            echo "pov-tag-orphan-check: INTRODUCED ORPHANS (exit 1, warn-first). $VERDICT_LINE" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::pov-tag-orphan-check: COULD NOT VERIFY (exit $EXIT_CODE) — never treat this as a pass. $VERDICT_LINE"
+            echo "pov-tag-orphan-check: COULD NOT VERIFY (exit $EXIT_CODE). $VERDICT_LINE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # ── bicep-env-drift: Bicep baseEnv ↔ ExpectedEnvVars sync gate (t/2631) ──
   # Parses literal-string entries from the baseEnv block in deploy/azure/main.bicep
   # and compares them against the ExpectedEnvVars table in deploy-azure.yml.
