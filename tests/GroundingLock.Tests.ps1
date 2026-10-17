@@ -213,6 +213,35 @@ Describe 'Grounding lock protocol v2 (t/4193)' -Tag 'unit' {
         (@($warn) -join ' ') | Should -Match 'could not restore a live lock'
     }
 
+    It 'stat-to-read gap: a FRESH lock judged stale by one bad stat is restored, never deleted (seen == taken == fresh)' {
+        # The lock is live (mtime now). The waiter's FIRST age check is faked stale, as if a stale lock
+        # was broken and replaced by this fresh one between our stat and our read. The moved file's
+        # mtime (a rename keeps it) shows it is fresh, so it must be put back, not deleted (t/4193, #3337).
+        [System.IO.File]::WriteAllText($script:LockPath, 'fresh-X')
+        InModuleScope AITriad -Parameters @{ P = $script:LockPath } {
+            param($P)
+            $script:GlAgeCalls = 0
+            Mock Get-GroundingLockAgeSec {
+                $script:GlAgeCalls++
+                if ($script:GlAgeCalls -eq 1) { return [double]9999 }        # the one bad, stale-looking stat
+                $fi = [System.IO.FileInfo]::new($Path)
+                if (-not $fi.Exists) { return $null }
+                ([DateTime]::UtcNow - $fi.LastWriteTimeUtc).TotalSeconds
+            }
+            $script:GlTestWarn = [System.Collections.Generic.List[string]]::new()
+            $script:GlTestErr = $null
+            try { Enter-GroundingLock -LockPath $P -WaitSec 0.5 -StaleSec 120 -PollSec 0.05 3>&1 | ForEach-Object { $script:GlTestWarn.Add("$_") } }
+            catch { $script:GlTestErr = $_ }
+        }
+        $err = InModuleScope AITriad { $script:GlTestErr }
+        $warn = InModuleScope AITriad { $script:GlTestWarn }
+        $err.Exception.Message | Should -Match 'held by another writer'                 # it stayed held: no takeover
+        [System.IO.File]::ReadAllText($script:LockPath) | Should -BeExactly 'fresh-X'      # the fresh lock survives
+        @(Get-ChildItem -LiteralPath $script:LockDir -Filter '*.breaking.*').Count | Should -Be 0
+        (@($warn) -join ' ') | Should -Match 'is fresh'
+        (@($warn) -join ' ') | Should -Not -Match 'identity confirmed'
+    }
+
     It 'rename-break: a rename that reports success but leaves no moved file (NTFS concurrent-rename quirk) WARNs and retries' {
         [System.IO.File]::WriteAllText($script:LockPath, 'stale-A')
         [System.IO.File]::SetLastWriteTimeUtc($script:LockPath, [DateTime]::UtcNow.AddSeconds(-600))

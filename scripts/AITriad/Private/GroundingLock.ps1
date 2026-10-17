@@ -320,6 +320,18 @@ function Resolve-GroundingLockBreak {
         return
     }
     if ($taken -ceq $Seen) {
+        # Same contents can still be a FRESH lock: a stale lock broken and replaced between our stat
+        # and our read leaves seen == taken == fresh. A rename keeps the mtime, so re-check it on the
+        # moved file. Not older than StaleSec means live: restore it, never delete (t/4193, #3337).
+        $movedAge = Get-GroundingLockAgeSec -Path $Breaking
+        if ($null -ne $movedAge -and $movedAge -le $State.StaleSec) {
+            Write-Warning "Enter-GroundingLock: the lock renamed away from '$($State.Path)' is fresh (mtime age $([int]$movedAge)s <= $($State.StaleSec)s), so it was not stale; restoring it."
+            if (-not (Restore-GroundingLockFile -Breaking $Breaking -Path $State.Path)) {
+                Write-Warning "Enter-GroundingLock: could not restore a live lock at '$($State.Path)' (a newer lock exists); its holder will detect the loss and refuse to write."
+                Remove-GroundingLockBreakingFile -Breaking $Breaking
+            }
+            return
+        }
         Write-Warning "Enter-GroundingLock: breaking stale lock '$($State.Path)' (mtime age $([int]$Age)s > $($State.StaleSec)s; holder presumed dead): renamed away with its identity confirmed. Fallback-path per docs/error-handling.md."
         Remove-GroundingLockBreakingFile -Breaking $Breaking
         return
