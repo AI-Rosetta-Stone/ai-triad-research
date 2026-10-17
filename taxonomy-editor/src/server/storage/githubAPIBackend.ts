@@ -179,7 +179,15 @@ export class GitHubAPIBackend implements StorageBackend {
   // a stale cache (an out-of-band move the server didn't make) is detected
   // within SESSION_READ_CACHE_REVALIDATE_MS, not served indefinitely.
   private sessionReadCache: Map<string, Map<string, string>> = new Map();
-  private sessionReadCacheHeadSha: Map<string, { sha: string; checkedAt: number }> = new Map();
+  private sessionReadCacheHeadSha: Map<string, { sha: string; checkedAt: number; checkedAtActivitySeq: number }> = new Map();
+  // t/4215 budget addendum (TL t/4215#7): monotonic per-user write-activity
+  // counter — gates the plain-read ref-check so an idle/view-only session
+  // never pays it. A counter (not a wall-clock timestamp) deliberately,
+  // since a write and the read checking against it can land in the same
+  // Date.now() millisecond tick; a timestamp-equality comparison would then
+  // wrongly read as "no activity since the last check".
+  private sessionWriteActivitySeq: Map<string, number> = new Map();
+  private sessionWriteActivityCounter = 0;
 
   // Resilient GitHub HTTP transport — rate limit + circuit breaker live here (t/1698).
   private readonly rest: GitHubRestClient;
@@ -419,7 +427,16 @@ export class GitHubAPIBackend implements StorageBackend {
    * read-modify-write flows in community/calibration curation, where the same
    * shared file is appended to multiple times within one request.
    */
-  async readFile(filePath: string, opts?: { ref?: string; optional?: boolean }): Promise<string | null> {
+  /**
+   * `opts.forWrite`: this read precedes a write by the caller (t/4215
+   * budget addendum, TL t/4215#7) — the session-branch revalidation below
+   * always does the live ref-check for it, ignoring both the 30s throttle
+   * and the write-activity gate. A plain display read only revalidates if
+   * the session has written something since the last check (an idle/
+   * view-only session trusts its cache indefinitely instead of paying a ref
+   * call it gets no benefit from) — see revalidateSessionReadCache().
+   */
+  async readFile(filePath: string, opts?: { ref?: string; optional?: boolean; forWrite?: boolean }): Promise<string | null> {
     const repoPath = this.toRepoPath(filePath);
 
     // Check session overlay first
@@ -436,7 +453,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // only, so using it here is exactly the bug this fix closes (a read
     // right after a commit showing pre-commit content).
     if (ref !== this.baseBranch) {
-      return this.readSessionBranchFile(repoPath, ref, opts?.optional);
+      return this.readSessionBranchFile(repoPath, ref, opts?.optional, opts?.forWrite ?? false);
     }
 
     return this.readFileFromMainCache(repoPath, ref, opts?.optional);
@@ -496,11 +513,11 @@ export class GitHubAPIBackend implements StorageBackend {
    * is bounded, not missed entirely. A miss, or a stale-head mismatch, does
    * one live fetch for this path.
    */
-  private async readSessionBranchFile(repoPath: string, ref: string, optional: boolean | undefined): Promise<string | null> {
+  private async readSessionBranchFile(repoPath: string, ref: string, optional: boolean | undefined, forWrite: boolean): Promise<string | null> {
     const userId = this.getEffectiveUserId();
     if (!userId) return this.liveReadSessionBranchFile(repoPath, ref, optional);
 
-    const cacheTrustworthy = await this.revalidateSessionReadCache(userId, ref);
+    const cacheTrustworthy = await this.revalidateSessionReadCache(userId, ref, forWrite);
     if (cacheTrustworthy) {
       const cached = this.sessionReadCache.get(userId)?.get(repoPath);
       if (cached !== undefined) {
@@ -560,11 +577,32 @@ export class GitHubAPIBackend implements StorageBackend {
    * this read (TL: "treat it as a miss, which goes live and fails closed").
    * A genuine head-sha mismatch clears the whole per-user cache rather than
    * guessing which paths changed.
+   *
+   * t/4215 budget addendum (TL t/4215#7): unthrottled, this ref-check can
+   * cost up to 120 calls/hour/session (one per 30s continuously) — close to
+   * the cost of saving, and enough to cut the editor ceiling from ~33 to
+   * ~18 against the shared GitHub budget. Revalidate only when it can
+   * matter:
+   *   - the very first check for a session always goes live, regardless of
+   *     `forWrite`/activity — there's no baseline yet to trust.
+   *   - `forWrite` (a read that precedes a write): always live after that
+   *     too, no throttle — correctness for the write that follows depends
+   *     on it.
+   *   - a plain display read, once a baseline exists: only if the session
+   *     has written something since the LAST check (an idle/view-only
+   *     session trusts its cache indefinitely — nothing it did could have
+   *     gone stale), and even then still no more than once per
+   *     SESSION_READ_CACHE_REVALIDATE_MS.
    */
-  private async revalidateSessionReadCache(userId: string, ref: string): Promise<boolean> {
+  private async revalidateSessionReadCache(userId: string, ref: string, forWrite: boolean): Promise<boolean> {
     const tracked = this.sessionReadCacheHeadSha.get(userId);
-    if (tracked && Date.now() - tracked.checkedAt < SESSION_READ_CACHE_REVALIDATE_MS) {
-      return true;
+
+    if (!forWrite && tracked) {
+      const currentActivitySeq = this.sessionWriteActivitySeq.get(userId) ?? 0;
+      if (currentActivitySeq <= tracked.checkedAtActivitySeq) return true; // nothing written since we last looked — trust the cache
+      if (Date.now() - tracked.checkedAt < SESSION_READ_CACHE_REVALIDATE_MS) {
+        return true; // activity happened, but still within the throttle window
+      }
     }
 
     const liveSha = await this.getBranchHeadSha(ref);
@@ -575,7 +613,9 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!tracked || tracked.sha !== liveSha) {
       this.sessionReadCache.delete(userId);
     }
-    this.sessionReadCacheHeadSha.set(userId, { sha: liveSha, checkedAt: Date.now() });
+    this.sessionReadCacheHeadSha.set(userId, {
+      sha: liveSha, checkedAt: Date.now(), checkedAtActivitySeq: this.sessionWriteActivitySeq.get(userId) ?? 0,
+    });
     return true;
   }
 
@@ -1519,7 +1559,9 @@ export class GitHubAPIBackend implements StorageBackend {
     if (!readCache) { readCache = new Map(); this.sessionReadCache.set(userId, readCache); }
     for (const w of entries.writes) readCache.set(w.path, w.content);
     for (const d of entries.deletes) readCache.set(d, GitHubAPIBackend.TOMBSTONE);
-    this.sessionReadCacheHeadSha.set(userId, { sha: commitSha, checkedAt: Date.now() });
+    this.sessionReadCacheHeadSha.set(userId, {
+      sha: commitSha, checkedAt: Date.now(), checkedAtActivitySeq: this.sessionWriteActivitySeq.get(userId) ?? 0,
+    });
 
     // Clear overlay only on success (Tech Lead note #2)
     this.clearSessionOverlay(userId);
@@ -1674,7 +1716,9 @@ export class GitHubAPIBackend implements StorageBackend {
     const userId = this.getEffectiveUserId();
     if (userId) {
       this.sessionReadCache.delete(userId);
-      this.sessionReadCacheHeadSha.set(userId, { sha: data.sha, checkedAt: Date.now() });
+      this.sessionReadCacheHeadSha.set(userId, {
+        sha: data.sha, checkedAt: Date.now(), checkedAtActivitySeq: this.sessionWriteActivitySeq.get(userId) ?? 0,
+      });
     }
 
     return { ok: true, sha: data.sha, conflicts: false, message: `Merged main into ${branch}` };
@@ -2795,6 +2839,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
     const userId = this.getEffectiveUserId();
     if (!userId) return;
+    this.sessionWriteActivitySeq.set(userId, ++this.sessionWriteActivityCounter); // t/4215 budget addendum
     let overlay = this.sessionOverlays.get(userId);
     if (!overlay) {
       overlay = new Map();
@@ -2859,6 +2904,7 @@ export class GitHubAPIBackend implements StorageBackend {
     const repoPath = this.toRepoPath(filePath);
     const userId = this.getEffectiveUserId();
     if (!userId) return;
+    this.sessionWriteActivitySeq.set(userId, ++this.sessionWriteActivityCounter); // t/4215 budget addendum
     let overlay = this.sessionOverlays.get(userId);
     if (!overlay) {
       overlay = new Map();
@@ -2916,6 +2962,7 @@ export class GitHubAPIBackend implements StorageBackend {
   clearSessionReadCache(userId: string): void {
     this.sessionReadCache.delete(userId);
     this.sessionReadCacheHeadSha.delete(userId);
+    this.sessionWriteActivitySeq.delete(userId);
   }
 }
 
