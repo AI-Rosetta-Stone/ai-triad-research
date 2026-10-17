@@ -70,6 +70,15 @@ param trafficPinRevisionNameStaging string = ''
 @description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation). Apply ONLY after arm-B verification passes with /mnt/shared still RW.')
 param stagingSharedReadOnly bool = false
 
+// ── Staging load-test sizing (t/4203) ──
+// A PARAMETER, not a hand-applied resize: t/4176's own history (t/4242) shows a manual
+// `az containerapp update` resize gets silently reverted by the next ordinary deploy, because
+// the deploy re-applies this template's declared (small) values. Defaulting this to false means
+// every normal deploy-staging run (which never sets it) keeps staging small automatically — the
+// resize can never be "left large" by someone forgetting to revert it (t/4203 AC4).
+@description('Temporarily size staging like prod (2 vCPU/4Gi, maxReplicas 3, concurrentRequests scale rule) for a load test (t/4203). Revert to false for the next ordinary deploy.')
+param stagingLoadTestSize bool = false
+
 // ── Resource Tags ──
 var tags = {
   project: 'ai-triad-research'
@@ -814,10 +823,12 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'taxonomy-editor'
           image: containerImage
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
+          // t/4203: prod-size (2 vCPU/4Gi) only while stagingLoadTestSize=true, for the t/4180
+          // load test to run at a representative size. Defaults back to staging's normal small
+          // footprint on the very next ordinary deploy.
+          resources: stagingLoadTestSize
+            ? { cpu: json('2.0'), memory: '4Gi' }
+            : { cpu: json('0.25'), memory: '0.5Gi' }
           env: stagingContainerEnv
           probes: [
             {
@@ -863,7 +874,19 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       scale: {
         minReplicas: 0
-        maxReplicas: 1
+        // t/4203: max 3 with an HTTP scale rule only while stagingLoadTestSize=true, so the
+        // t/4180 load test can observe real multi-replica behavior (job-poll 404s, limiter
+        // totals, GitHub calls per startup). Reverts to 1/no-rule on the next ordinary deploy —
+        // same parameter, same reasoning as the resources block above.
+        maxReplicas: stagingLoadTestSize ? 3 : 1
+        rules: stagingLoadTestSize
+          ? [
+              {
+                name: 'http-scaler'
+                http: { metadata: { concurrentRequests: '10' } }
+              }
+            ]
+          : []
       }
     }
   }
