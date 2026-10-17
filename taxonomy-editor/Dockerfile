@@ -197,9 +197,9 @@ COPY --chown=aitriad:aitriad scripts/ ./scripts/
 # The op-ed create route resolves promptsDir = getProjectRoot()/lib/oped/prompts
 # (= /app/lib/oped/prompts here); tsc emits no .prompt assets, so copy the source.
 COPY --chown=aitriad:aitriad lib/oped/prompts/ ./lib/oped/prompts/
-# Soul-doc JSON data files for op-ed voice generation (t/2689).
-# soulDocLoader.ts reads these at runtime via fs.readFile from SOUL_DOCS_DIR
-# (= /app/lib/debate/soul-docs/); tsc does not emit .json data files, so copy explicitly.
+# Soul-doc JSON at the repo-root path, for op-ed voice generation (t/2689), which locates
+# soul-docs from getProjectRoot() (= /app/lib/debate/soul-docs/). The compiled loader reads
+# its own copy under dist/server (layer 3 below, t/4245).
 COPY --chown=aitriad:aitriad lib/debate/soul-docs/ ./lib/debate/soul-docs/
 
 # 2b. ONNX model files (baked offline; change only when model contract changes — t/2784)
@@ -213,6 +213,13 @@ COPY --chown=aitriad:aitriad --from=builder /build/taxonomy-editor/dist/server/ 
 COPY --chown=aitriad:aitriad --from=builder /build/taxonomy-editor/dist/renderer/ ./dist/renderer/
 RUN ln -s /app/dist/renderer /app/dist/server/taxonomy-editor/src/renderer \
  && ln -s /app/package.json /app/dist/server/taxonomy-editor/src/package.json
+# Soul-doc JSON for the compiled loader (t/4245). soulDocLoader.ts resolves SOUL_DOCS_DIR from its
+# own compiled location (= /app/dist/server/lib/debate/soul-docs/), and tsc emits only the JSON it
+# imports, so the tag souls were missing there and every tagged run failed on the hosted profile.
+COPY --chown=aitriad:aitriad lib/debate/soul-docs/ ./dist/server/lib/debate/soul-docs/
+# Build-time guard (t/4245): the image build fails if the compiled loader can't load a base soul
+# and a tag soul, so this path can't regress silently again.
+RUN node --input-type=module -e "const m = await import('/app/dist/server/lib/debate/soulDocLoader.js'); m.getSoulDocument('skeptic'); m.getSoulDocument('skeptic', 'critical'); console.log('soul-doc load check: OK (base + tag)');"
 
 # 4. Third-party license notices (generated during build)
 COPY --chown=aitriad:aitriad --from=builder /build/taxonomy-editor/THIRD-PARTY-NOTICES.txt ./taxonomy-editor/THIRD-PARTY-NOTICES.txt
