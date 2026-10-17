@@ -207,3 +207,25 @@ describe('useInquiryStore', () => {
     });
   });
 });
+
+describe('useInquiryStore: POV tag (t/4246)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useInquiryStore.getState().reset();
+    useInquiryStore.setState({ question: 'Is AI hype outrunning evidence?', fidelity: 'quick', tagSelection: undefined });
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-tag' });
+    mockApi.getInquiry.mockResolvedValue(pollView({ jobId: 'job-tag' }));
+  });
+  afterEach(() => { useInquiryStore.getState()._stopPolling(); });
+
+  it('sends the tag selection on the request', async () => {
+    useInquiryStore.getState().setTagSelection({ pov: 'skeptic', tag: 'critical', mode: 'scope' });
+    await useInquiryStore.getState().startInquiry();
+    expect(mockApi.startInquiry.mock.calls[0][0]).toMatchObject({ tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' } });
+  });
+
+  it('an untagged inquiry sends no tagSelection key at all, as before', async () => {
+    await useInquiryStore.getState().startInquiry();
+    expect(mockApi.startInquiry.mock.calls[0][0]).not.toHaveProperty('tagSelection');
+  });
+});

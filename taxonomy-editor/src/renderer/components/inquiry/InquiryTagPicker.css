@@ -1,0 +1,6 @@
+/* POV tag picker in the Ask panel (t/4246). Reuses the model rows' .inquiry-mlab / .inquiry-msel. */
+.inquiry-tag-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.inquiry-tag-mode { display: inline-flex; gap: 10px; }
+.inquiry-tag-mode label { display: inline-flex; align-items: center; gap: 4px; }
+.inquiry-tag-scope { font-size: var(--text-2xs); color: var(--text-muted); }
+.inquiry-tag-scope.insufficient { color: #dc2626; }
