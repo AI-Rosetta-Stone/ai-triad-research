@@ -1244,12 +1244,13 @@ resource rateLimitWarning 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
   tags: tags
   properties: {
     displayName: 'GitHub API Rate Limit Warning'
-    description: 'Rate limit remaining below 1,000 for 5 minutes. At 145 calls/hr typical, this indicates unusual consumption.'
+    description: 'Rate limit remaining below 1,000 within a 15-minute window. At 145 calls/hr typical, this indicates unusual consumption.'
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1282,7 +1283,8 @@ resource rateLimitCritical 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pr
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1310,12 +1312,13 @@ resource apiErrorSpike 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
   tags: tags
   properties: {
     displayName: 'GitHub API Error Spike'
-    description: 'More than 5 GitHub API errors in 5 minutes. May indicate GitHub outage or auth failure.'
+    description: 'More than 15 GitHub API errors in 15 minutes (same rate as the former 5 in 5 min). May indicate GitHub outage or auth failure.'
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1323,7 +1326,7 @@ resource apiErrorSpike 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
             ContainerAppConsoleLogs_CL
             | where Log_s contains "github.api.error"
             | summarize ErrorCount = count()
-            | where ErrorCount > 5
+            | where ErrorCount > 15
           '''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
@@ -1343,12 +1346,13 @@ resource cacheDegraded 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
   tags: tags
   properties: {
     displayName: 'Cache Hit Rate Degraded'
-    description: 'Cache hit rate below 85% over 5 minutes. Indicates excessive cache misses — possible invalidation storm or cache corruption.'
+    description: 'Cache hit rate below 85% over 15 minutes. Indicates excessive cache misses — possible invalidation storm or cache corruption.'
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1356,7 +1360,7 @@ resource cacheDegraded 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
             ContainerAppConsoleLogs_CL
             | where Log_s contains "cache.miss"
             | summarize Misses = count()
-            | where Misses > 50
+            | where Misses > 150
           '''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
@@ -1376,12 +1380,13 @@ resource fallbackActive 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previ
   tags: tags
   properties: {
     displayName: 'Fallback Data Active'
-    description: 'App serving from baked fallback data for more than 5 minutes. GitHub API is likely unreachable.'
+    description: 'App served from baked fallback data within the last 15 minutes. GitHub API is likely unreachable.'
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1426,7 +1431,8 @@ resource workerQueueSaturation 'Microsoft.Insights/scheduledQueryRules@2023-03-1
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
     windowSize: 'PT15M'
     criteria: {
       allOf: [
@@ -1467,7 +1473,8 @@ resource workerQueueNearCap 'Microsoft.Insights/scheduledQueryRules@2023-03-15-p
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
     windowSize: 'PT15M'
     criteria: {
       allOf: [
@@ -1673,7 +1680,7 @@ resource branchDivergence 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
 }
 
 // ── Staging ContainerBackOff Alert (t/2659) ──
-// Fires within 2 min on any ContainerBackOff or ContainerCrashing event on
+// Fires within ~5 min (PT5M eval since t/4248) on any ContainerBackOff or ContainerCrashing event on
 // taxonomy-editor-staging. Staging-specific so it can be distinguished from
 // the generic restartLoopAlert (all apps, 5+ threshold, 5-min eval).
 // Historical proof: staging-151d3e7 incident produced ContainerBackOff rows
@@ -1691,7 +1698,8 @@ resource stagingBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1717,7 +1725,7 @@ resource stagingBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-
 // Same query as staging alert but scoped to taxonomy-editor (prod).
 // Severity 0 (Critical) because a prod restart loop means users cannot load the app.
 // Complements the generic restartLoopAlert (all apps, 5-restart threshold)
-// with faster per-minute detection and no restart-count threshold.
+// with no restart-count threshold (PT5M eval since t/4248; was per-minute).
 
 resource prodBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-prod-container-backoff'
@@ -1729,7 +1737,8 @@ resource prodBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     severity: 0
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1776,7 +1785,8 @@ Structured fields: component="event-loop", level=warn(40). Primary detector for 
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1902,8 +1912,9 @@ resource circuitOpenAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
