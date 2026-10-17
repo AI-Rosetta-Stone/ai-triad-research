@@ -21,7 +21,7 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { POV_KEYS } from '../../../../lib/debate/types.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
-import { getBackend, assertSafeId, resolveTaxonomyFilePath, getConflictsDir } from './fileIO.js';
+import { getBackend, assertSafeId, resolveTaxonomyFilePath, getConflictsDir, readFileWithVersionOrFallback } from './fileIO.js';
 
 const MAX_HARVEST_CONFLICT_RETRIES = 2; // + the initial attempt = 3 total
 
@@ -58,16 +58,20 @@ export async function harvestAddDebateRef(nodeId: string, debateId: string): Pro
     let conflictAttempts = 0;
     for (;;) {
       try {
-        const raw = await getBackend().readFile(filePath);
-        if (raw === null) break; // this pov file doesn't exist — try next pov
-        const data = JSON.parse(raw);
+        // t/4217: readFileWithVersion is always-live (t/4203) — the plain
+        // readFile() path's per-session cache can be up to 30s stale for a
+        // head move this server didn't make, which is exactly the window an
+        // RMW must not silently write through.
+        const result = await readFileWithVersionOrFallback(filePath);
+        if (result === null) break; // this pov file doesn't exist — try next pov
+        const data = JSON.parse(result.content);
         const nodes = data.nodes || data;
         const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
         if (!node) break; // not in this pov — try next pov
         if (!node.debate_refs) node.debate_refs = [];
         if (!node.debate_refs.includes(debateId)) {
           node.debate_refs.push(debateId);
-          await getBackend().writeFile(filePath, JSON.stringify(data, null, 2));
+          await getBackend().writeFile(filePath, JSON.stringify(data, null, 2), { baseSha: result.version });
         }
         return true;
       } catch (err) {
@@ -76,7 +80,7 @@ export async function harvestAddDebateRef(nodeId: string, debateId: string): Pro
           conflictAttempts++;
           log.server.warn({ filePath, nodeId, debateId, attempt: conflictAttempts },
             'harvestAddDebateRef: write conflict — re-reading and retrying (not a not-found)');
-          continue; // re-read: the backend evicted its stale cache entry on the conflict
+          continue; // re-read: the version changed since we loaded it (another writer, a merge, a resync) — re-apply against current content
         }
         if (outcome === 'exhausted') {
           getGlobalRecorder()?.record({
@@ -100,9 +104,10 @@ export async function harvestUpdateSteelman(nodeId: string, attackerPov: string,
     let conflictAttempts = 0;
     for (;;) {
       try {
-        const raw = await getBackend().readFile(filePath);
-        if (raw === null) break; // this pov file doesn't exist — try next pov
-        const data = JSON.parse(raw);
+        // t/4217: always-live read (t/4203) — see harvestAddDebateRef above.
+        const result = await readFileWithVersionOrFallback(filePath);
+        if (result === null) break; // this pov file doesn't exist — try next pov
+        const data = JSON.parse(result.content);
         const nodes = data.nodes || data;
         const node = Array.isArray(nodes) ? nodes.find((n: Record<string, unknown>) => n.id === nodeId) : null;
         if (!node) break; // not in this pov — try next pov
@@ -113,7 +118,7 @@ export async function harvestUpdateSteelman(nodeId: string, attackerPov: string,
         } else {
           node.steelman_vulnerability = { [attackerPov]: newText };
         }
-        await getBackend().writeFile(filePath, JSON.stringify(data, null, 2));
+        await getBackend().writeFile(filePath, JSON.stringify(data, null, 2), { baseSha: result.version });
         return true;
       } catch (err) {
         const outcome = classifyHarvestError(err, conflictAttempts);
@@ -121,7 +126,7 @@ export async function harvestUpdateSteelman(nodeId: string, attackerPov: string,
           conflictAttempts++;
           log.server.warn({ filePath, nodeId, attackerPov, attempt: conflictAttempts },
             'harvestUpdateSteelman: write conflict — re-reading and retrying (not a not-found)');
-          continue; // re-read: the backend evicted its stale cache entry on the conflict
+          continue; // re-read: the version changed since we loaded it — re-apply against current content
         }
         if (outcome === 'exhausted') {
           getGlobalRecorder()?.record({
@@ -144,12 +149,13 @@ export async function harvestAddVerdict(conflictId: string, verdict: Record<stri
   const filePath = path.join(getConflictsDir(), `${conflictId}.json`);
   let conflictAttempts = 0;
   for (;;) {
-    const raw = await getBackend().readFile(filePath);
-    if (raw === null) return false;
-    const data = JSON.parse(raw);
+    // t/4217: always-live read (t/4203) — see harvestAddDebateRef above.
+    const result = await readFileWithVersionOrFallback(filePath);
+    if (result === null) return false;
+    const data = JSON.parse(result.content);
     data.verdict = verdict;
     try {
-      await getBackend().writeFile(filePath, JSON.stringify(data, null, 2));
+      await getBackend().writeFile(filePath, JSON.stringify(data, null, 2), { baseSha: result.version });
       return true;
     } catch (err) {
       // t/4184 (SO C4, e/300#5): RMW like harvestAddDebateRef/harvestUpdateSteelman
@@ -160,7 +166,7 @@ export async function harvestAddVerdict(conflictId: string, verdict: Record<stri
         conflictAttempts++;
         log.server.warn({ filePath, conflictId, attempt: conflictAttempts },
           'harvestAddVerdict: write conflict — re-reading and retrying (not a not-found)');
-        continue; // re-read: the backend evicted its stale cache entry on the conflict
+        continue; // re-read: the version changed since we loaded it — re-apply against current content
       }
       if (outcome === 'exhausted') {
         getGlobalRecorder()?.record({
