@@ -69,10 +69,54 @@ $inBlock  = $false
 $cpu      = $null
 $memory   = $null
 $pairs    = [System.Collections.Generic.List[PSCustomObject]]::new()
+$unresolved = [System.Collections.Generic.List[string]]::new()
 
+# Top-level string-literal vars (e.g. var prodCpu = '1.0', t/4263), so `cpu: json(prodCpu)` and
+# `memory: prodMemory` resolve. Without this, a block referencing a var silently dropped out of
+# the check (the pair count fell from 2 to 1 with no error).
+$stringVars = @{}
 foreach ($line in $lines) {
+    if ($line -match "^\s*var\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'([^']*)'\s*(//.*)?$") {
+        $stringVars[$Matches[1]] = $Matches[2]
+    }
+}
+
+# cpu value: json('N') | json(varName) | bare number. memory value: 'NGi' | varName.
+$cpuValueRx = 'json\s*\(\s*(?:''(?<lit>[^'']+)''|(?<var>[A-Za-z_][A-Za-z0-9_]*))\s*\)|(?<num>[0-9]+(?:\.[0-9]+)?)'
+$memValueRx = '''(?<lit>[^'']+)''|(?<var>[A-Za-z_][A-Za-z0-9_]*)'
+
+function Resolve-PairValue([System.Text.RegularExpressions.Match]$M, [string]$Kind) {
+    foreach ($g in 'lit', 'num') { if ($M.Groups[$g].Success) { return $M.Groups[$g].Value } }
+    $name = $M.Groups['var'].Value
+    if ($stringVars.ContainsKey($name)) { return $stringVars[$name] }
+    $unresolved.Add("${Kind}: $name")
+    return '?'
+}
+
+function Add-Pair([string]$Cpu, [string]$Memory) {
+    # [string] params coerce $null to '' — test for empty, not $null, or an unparsed site sneaks in as cpu=''.
+    if (-not [string]::IsNullOrEmpty($Cpu) -and -not [string]::IsNullOrEmpty($Memory) -and $Cpu -ne '?' -and $Memory -ne '?') {
+        $pairs.Add([PSCustomObject]@{ Cpu = $Cpu; Memory = $Memory })
+    }
+}
+
+$cpuSites = 0   # every non-comment `cpu:` occurrence — each must end up in exactly one pair
+foreach ($line in $lines) {
+    $code = ($line -replace '//.*$', '')
+    $cpuSites += ([regex]::Matches($code, '\bcpu\s*:')).Count
+
+    # Inline objects, e.g. the staging ternary `? { cpu: json(prodCpu), memory: prodMemory } : {...}` (t/4203)
+    $inlineRx = "\{\s*cpu\s*:\s*(?:$cpuValueRx)\s*,\s*memory\s*:\s*(?:$memValueRx)\s*\}"
+    foreach ($m in [regex]::Matches($code, "\{\s*cpu\s*:\s*(?<c>[^,}]+?)\s*,\s*memory\s*:\s*(?<mem>[^}]+?)\s*\}")) {
+        $cm = [regex]::Match($m.Groups['c'].Value, "^(?:$cpuValueRx)$")
+        $mm = [regex]::Match($m.Groups['mem'].Value, "^(?:$memValueRx)$")
+        if (-not $cm.Success -or -not $mm.Success) { $unresolved.Add("inline: $($m.Value)"); continue }
+        Add-Pair (Resolve-PairValue $cm 'cpu') (Resolve-PairValue $mm 'memory')
+    }
+    if ($code -match $inlineRx) { continue }   # a one-line object is complete; never opens a block
+
     if (-not $inBlock) {
-        if ($line -match 'resources\s*:\s*\{') {
+        if ($code -match 'resources\s*:\s*\{') {
             $inBlock = $true
             $cpu     = $null
             $memory  = $null
@@ -80,27 +124,28 @@ foreach ($line in $lines) {
         continue
     }
 
-    # Extract cpu — handles both json('N') and bare numeric forms
-    if ($line -match 'cpu\s*:\s*json\s*\(\s*''([^'']+)''\s*\)') {
-        $cpu = $Matches[1]
-    } elseif ($line -match "cpu\s*:\s*([0-9]+(?:\.[0-9]+)?)") {
-        $cpu = $Matches[1]
-    }
-
-    # Extract memory — e.g. memory: '4Gi'
-    if ($line -match "memory\s*:\s*'([^']+)'") {
-        $memory = $Matches[1]
-    }
+    if ($code -match "cpu\s*:\s*(?:$cpuValueRx)\s*$") { $cpu = Resolve-PairValue ([regex]::Match($code, "cpu\s*:\s*(?:$cpuValueRx)")) 'cpu' }
+    if ($code -match "memory\s*:\s*(?:$memValueRx)\s*$") { $memory = Resolve-PairValue ([regex]::Match($code, "memory\s*:\s*(?:$memValueRx)")) 'memory' }
 
     # Closing brace — end of resources block
-    if ($line -match '^\s*\}\s*$') {
-        if ($null -ne $cpu -and $null -ne $memory) {
-            $pairs.Add([PSCustomObject]@{ Cpu = $cpu; Memory = $memory })
-        }
+    if ($code -match '^\s*\}\s*$') {
+        Add-Pair $cpu $memory
         $inBlock = $false
         $cpu     = $null
         $memory  = $null
     }
+}
+
+# ── Fail closed on references the parser cannot resolve to a literal ─────────
+if ($unresolved.Count -gt 0) {
+    Write-CIError "Unresolvable cpu/memory reference(s) in main.bicep: $($unresolved -join ', '). Use a literal or a top-level string var (var x = '...')."
+    exit 1
+}
+
+# ── Every cpu: site must be accounted for (no silent skip of an unparsed form) ─
+if ($cpuSites -ne $pairs.Count) {
+    Write-CIError "Found $cpuSites cpu: site(s) in main.bicep but parsed only $($pairs.Count) cpu:memory pair(s) — a resources form this gate does not understand. Extend the parser rather than let a pair go unchecked."
+    exit 1
 }
 
 # ── No-silent-skip guard ──────────────────────────────────────────────────────
