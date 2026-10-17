@@ -250,18 +250,18 @@ export async function readFileWithVersionOrFallback(
   return content === null ? null : { content, version: '' };
 }
 
-/** t/4187: like readTaxonomyFile, but also returns the version for the save
- *  route to hand back to the client as its write precondition (ETag). */
-export async function readTaxonomyFileWithVersion(pov: string, opts?: { ref?: string }): Promise<{ data: unknown; version: string }> {
+/** t/4241: version available before JSON.parse, so a content-hash-keyed cache can skip parsing on a hit (t/4241#4). */
+export async function readTaxonomyFileRawWithVersion(pov: string, opts?: { ref?: string }): Promise<{ content: string; version: string }> {
   const filePath = await resolveTaxonomyFilePath(pov);
   const result = await readFileWithVersionOrFallback(filePath, opts);
-  if (result === null) throw new ActionableError({
-    goal: 'Read taxonomy file',
-    problem: `Taxonomy file not found: ${filePath}`,
-    location: 'server/fileIO.ts -> readTaxonomyFileWithVersion',
-    nextSteps: ['Verify the POV file exists in the active taxonomy directory'],
-  });
-  return { data: JSON.parse(result.content.replace(/^\uFEFF/, '')), version: result.version };
+  if (result === null) throw new ActionableError({ goal: 'Read taxonomy file', problem: `Taxonomy file not found: ${filePath}`, location: 'server/fileIO.ts -> readTaxonomyFileRawWithVersion', nextSteps: ['Verify the POV file exists in the active taxonomy directory'] });
+  return { content: result.content.replace(/^\uFEFF/, ''), version: result.version };
+}
+
+/** t/4187: like readTaxonomyFile, but also returns the version for the save route's write precondition (ETag). */
+export async function readTaxonomyFileWithVersion(pov: string, opts?: { ref?: string }): Promise<{ data: unknown; version: string }> {
+  const raw = await readTaxonomyFileRawWithVersion(pov, opts);
+  return { data: JSON.parse(raw.content), version: raw.version };
 }
 
 const SYNTHETIC_POV_KEYS = new Set(['acc', 'saf', 'skp']);
