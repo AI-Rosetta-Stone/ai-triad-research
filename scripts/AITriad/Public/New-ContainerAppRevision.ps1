@@ -69,7 +69,7 @@ function New-ContainerAppRevision {
 
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Create new Container App revision with suffix '$RevisionSuffix'" `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location 'New-ContainerAppRevision' `
@@ -106,7 +106,7 @@ function New-ContainerAppRevision {
     }
 
     if ([string]::IsNullOrWhiteSpace($RevisionName)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Create new Container App revision with suffix '$RevisionSuffix'" `
             -Problem 'az containerapp update returned empty latestRevisionName — cannot confirm revision was created' `
             -Location 'New-ContainerAppRevision' `

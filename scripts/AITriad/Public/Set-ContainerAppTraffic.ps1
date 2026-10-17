@@ -75,7 +75,7 @@ function Set-ContainerAppTraffic {
 
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Set traffic weight $Weight% on revision '$RevisionName'" `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location 'Set-ContainerAppTraffic' `
@@ -113,7 +113,7 @@ function Set-ContainerAppTraffic {
         }
     }
 
-    throw (New-ActionableError `
+    throw (New-ActionableError -AsErrorRecord `
         -Goal "Set traffic weight $Weight% on revision '$RevisionName'" `
         -Problem "All $MaxAttempts attempts failed. Last error: $LastError" `
         -Location 'Set-ContainerAppTraffic' `

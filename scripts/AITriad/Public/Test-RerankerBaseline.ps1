@@ -54,7 +54,7 @@ function Test-RerankerBaseline {
         $GoldenSetPath = Join-Path $script:RepoRoot 'research/comp-linguist/_golden_test_set.json'
     }
     if (-not (Test-Path $GoldenSetPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Run reranker baseline evaluation' `
             -Problem "Golden test set not found: $GoldenSetPath" `
             -Location 'Test-RerankerBaseline' `
@@ -63,7 +63,7 @@ function Test-RerankerBaseline {
 
     $EvalScript = Join-Path $script:RepoRoot 'scripts/evaluate_embeddings.py'
     if (-not (Test-Path $EvalScript)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Run reranker baseline evaluation' `
             -Problem "evaluate_embeddings.py not found at $EvalScript" `
             -Location 'Test-RerankerBaseline' `
@@ -92,7 +92,7 @@ function Test-RerankerBaseline {
     if ($StdErr) { $StdErr | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray } }
 
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Run reranker baseline evaluation' `
             -Problem "evaluate_embeddings.py failed (exit code $LASTEXITCODE)" `
             -Location 'Test-RerankerBaseline' `

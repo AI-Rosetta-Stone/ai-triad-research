@@ -400,7 +400,7 @@ function Test-TaxonomyIntegrity {
                 [System.IO.File]::WriteAllText($AuditPath, $AuditJson + "`n", [System.Text.UTF8Encoding]::new($false))
             }
             catch {
-                throw (New-ActionableError -Goal 'Record the integrity-repair audit before pruning taxonomy references' `
+                throw (New-ActionableError -AsErrorRecord -Goal 'Record the integrity-repair audit before pruning taxonomy references' `
                     -Problem "Could not write the repair audit file: $($_.Exception.Message)" `
                     -Location "Test-TaxonomyIntegrity -Repair → $AuditPath" `
                     -NextSteps @(

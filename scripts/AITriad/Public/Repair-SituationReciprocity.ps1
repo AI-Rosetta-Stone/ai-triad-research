@@ -61,7 +61,7 @@ function Repair-SituationReciprocity {
     $SitPath = Join-Path $TaxDir 'situations.json'
 
     if (-not (Test-Path -LiteralPath $SitPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Reconcile situation <-> POV reciprocity' `
             -Problem "situations.json not found at $SitPath" `
             -Location 'Repair-SituationReciprocity' `
@@ -173,7 +173,7 @@ function Repair-SituationReciprocity {
             }
         }
         if ($DirtyTargets.Count -gt 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Reconcile situation <-> POV reciprocity' `
                 -Problem "target file(s) already have uncommitted changes: $($DirtyTargets -join ', '). A whole-file rewrite would sweep that concurrent state into your commit (situations.json is BLOCK-tier); nothing was written." `
                 -Location 'Repair-SituationReciprocity' `

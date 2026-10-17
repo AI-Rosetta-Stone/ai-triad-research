@@ -52,7 +52,7 @@ function Undo-TaxEditorDataCommit {
 
     $Parents = @($Commit.parents)
     if ($Parents.Count -ne 1) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Revert commit '$Sha'" `
             -Problem "Cannot revert merge commits ($($Parents.Count) parents)" `
             -Location $CallerName `
@@ -65,7 +65,7 @@ function Undo-TaxEditorDataCommit {
     $ChangedFiles = @($Commit.files)
 
     if ($ChangedFiles.Count -eq 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Revert commit '$Sha'" `
             -Problem 'Commit has no file changes to revert' `
             -Location $CallerName `
@@ -88,7 +88,7 @@ function Undo-TaxEditorDataCommit {
         $Conflicts = @($RevertFiles | Where-Object { $_ -in $SubsequentFiles })
 
         if (@($Conflicts).Count -gt 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Revert commit '$Sha'" `
                 -Problem "Conflict: files modified in both the target and later commits: $($Conflicts -join ', ')" `
                 -Location $CallerName `

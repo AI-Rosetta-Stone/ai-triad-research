@@ -305,7 +305,7 @@ function Show-TaxonomyEditor {
                 return
             }
 
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Launch Taxonomy Editor' `
                 -Problem 'Docker is not available' `
                 -Location 'Show-TaxonomyEditor' `
@@ -362,7 +362,7 @@ function Start-LegacyElectronMode {
 
     $CodeRoot = Get-CodeRoot
     if (-not $CodeRoot) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Launch Taxonomy Editor (dev mode)' `
             -Problem 'Cannot find the ai-triad-research code repository' `
             -Location 'Start-LegacyElectronMode' `

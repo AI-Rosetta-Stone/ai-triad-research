@@ -352,7 +352,7 @@ function Test-AzureHealth {
             if ($CheckFirewall) {
                 if ([string]::IsNullOrWhiteSpace($StorageAccountName) -or
                     [string]::IsNullOrWhiteSpace($KeyVaultName)) {
-                    throw (New-ActionableError `
+                    throw (New-ActionableError -AsErrorRecord `
                         -Goal      'Verify Storage + Key Vault firewall defaultAction' `
                         -Problem   '-CheckFirewall specified but StorageAccountName or KeyVaultName is empty' `
                         -Location  'Test-AzureHealth -CheckFirewall' `

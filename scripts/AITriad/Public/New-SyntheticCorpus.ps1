@@ -82,7 +82,7 @@ function New-SyntheticCorpus {
     # ── Resolve paths ───────────────────────────────────────────────────
     $CorpusScript = Join-Path $script:RepoRoot 'scripts/generate_corpus.py'
     if (-not (Test-Path $CorpusScript)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Generate synthetic corpus' `
             -Problem "generate_corpus.py not found at $CorpusScript" `
             -Location 'New-SyntheticCorpus' `
@@ -106,7 +106,7 @@ function New-SyntheticCorpus {
         Write-Host "`nSynthetic Corpus — FULL mode (pov=$Pov)" -ForegroundColor Cyan
     }
     else {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Generate synthetic corpus' `
             -Problem 'Must specify -PilotNodes or -Full' `
             -Location 'New-SyntheticCorpus' `
@@ -126,7 +126,7 @@ function New-SyntheticCorpus {
     if ($StdErr) { $StdErr | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray } }
 
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Generate synthetic corpus' `
             -Problem "generate_corpus.py get-prompts failed (exit $LASTEXITCODE)" `
             -Location 'New-SyntheticCorpus' `
