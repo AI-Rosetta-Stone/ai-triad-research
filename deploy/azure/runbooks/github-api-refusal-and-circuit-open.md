@@ -75,3 +75,5 @@ hits during the outage window vs. 0 in a clean window)
   there, not as a second ad-hoc branch.
 - Both alerts' `evaluationFrequency`/`windowSize` are tuned for the $30/month Azure budget
   (PT15M refusal, PT5M circuit-open) — don't tighten them without checking the cost margin.
+  Circuit-open stays at PT5M even under cost pressure: since #3266 an open circuit returns
+  503 on hosted saves, so it is a user-facing outage signal (t/4248, SO C1).
