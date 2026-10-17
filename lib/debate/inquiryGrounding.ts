@@ -33,11 +33,41 @@ export interface GroundingOptions {
   tagSelection?: TagSelection;
 }
 
-const VALID_CAMPS = new Set<string>(['acc', 'saf', 'skp', 'cc']);
 const DEFAULT_TOP_PER_CAMP = 3;
 
-function isCamp(value: string): value is Camp {
-  return VALID_CAMPS.has(value);
+// Maps both file-name stamps (what embedding producers write, e.g. "skeptic") and
+// camp codes (pass-through, e.g. "skp") to the canonical Camp type (t/4255).
+const POV_NAME_TO_CAMP: Readonly<Record<string, Camp>> = {
+  acc: 'acc', saf: 'saf', skp: 'skp', cc: 'cc',
+  accelerationist: 'acc', safetyist: 'saf', skeptic: 'skp', 'cross-cutting': 'cc',
+};
+
+function scoreEmbeddingsByCamp(
+  nodeEmbeddings: NodeEmbeddingMap,
+  nodeById: Map<string, PovNode>,
+  questionVec: number[],
+  warnFn: (msg: string) => void,
+): Map<Camp, { score: number; node: PovNode }[]> {
+  const byCamp = new Map<Camp, { score: number; node: PovNode }[]>();
+  const warnedPovs = new Set<string>();
+  for (const [nodeId, embedding] of Object.entries(nodeEmbeddings)) {
+    const camp = POV_NAME_TO_CAMP[embedding.pov];
+    if (!camp) {
+      if (!warnedPovs.has(embedding.pov)) {
+        warnedPovs.add(embedding.pov);
+        warnFn(`buildGroundingEnvelope: unknown embedding.pov "${embedding.pov}" — node "${nodeId}" skipped`);
+      }
+      continue;
+    }
+    const node = nodeById.get(nodeId);
+    if (!node) continue;
+    const vec = embedding.vector;
+    if (!vec || vec.length === 0) continue;
+    const score = cosineSimilarity(questionVec, vec);
+    if (!byCamp.has(camp)) byCamp.set(camp, []);
+    byCamp.get(camp)!.push({ score, node });
+  }
+  return byCamp;
 }
 
 /**
@@ -121,27 +151,12 @@ export async function buildGroundingEnvelope(
 
   // ── Score POV nodes by camp ────────────────────────────────────────────────
   const nodeById = new Map(taxonomy.povNodes.map(n => [n.id, n]));
-  const byCamp = new Map<Camp, { score: number; node: PovNode }[]>();
-
-  for (const [nodeId, embedding] of Object.entries(taxonomy.nodeEmbeddings)) {
-    if (!isCamp(embedding.pov)) continue;
-    const node = nodeById.get(nodeId);
-    if (!node) continue;
-
-    const vec = embedding.vector;
-    if (!vec || vec.length === 0) continue;
-
-    const score = cosineSimilarity(questionVec, vec);
-    const camp = embedding.pov as Camp;
-    if (!byCamp.has(camp)) byCamp.set(camp, []);
-    byCamp.get(camp)!.push({ score, node });
-  }
+  const byCamp = scoreEmbeddingsByCamp(taxonomy.nodeEmbeddings, nodeById, questionVec, warn);
 
   const nodesByCamp: Partial<Record<Camp, NodeRef[]>> = {};
 
-  // POV-to-camp mapping for tag scoping (t/3965). Tag applies ONLY inside the named camp's loop.
-  const POV_TO_CAMP: Record<string, Camp> = { accelerationist: 'acc', safetyist: 'saf', skeptic: 'skp' };
-  const tagCamp = opts.tagSelection ? POV_TO_CAMP[opts.tagSelection.pov] : undefined;
+  // Tag scoping uses the same normalization table (t/3965 / t/4255).
+  const tagCamp = opts.tagSelection ? POV_NAME_TO_CAMP[opts.tagSelection.pov] : undefined;
   let appliedTag: AppliedTag | undefined;
 
   // Pre-flight: refuse before the embedding loop so a tagged camp with no embeddings still refuses
