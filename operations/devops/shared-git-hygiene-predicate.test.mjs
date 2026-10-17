@@ -47,6 +47,25 @@ test('`git -C .worktrees/foo stash` (no leading cd) stays SILENT', () => {
   assert.equal(r.action, 'silent');
 });
 
+// Quality review gap 2 (p/432#13): the `-C <dir>` skip inside headMovingGitVerb/
+// isCommitDashAOrAddAll was previously unexercised by any test — the one `-C` test above hits the
+// pre-tokenize whole-command exemption before the tokenizer ever runs, so a `-C` target that is
+// NOT a worktree never reached that skip-two-words branch. Prove it's the right amount of skip,
+// not an accidental "any -C anywhere" bypass.
+test('`git -C operations/devops reset --hard` (a non-worktree -C target) WARNS — the -C skip only '
+  + 'skips the TWO WORDS `-C <dir>`, it is not a blanket -C exemption', () => {
+  const r = evaluateSharedGitHygiene({ command: 'git -C operations/devops reset --hard' });
+  assert.equal(r.action, 'warn');
+  assert.equal(r.reason, 'head-moving-verb');
+  assert.equal(r.op, 'reset');
+});
+
+test('`git -C operations/devops commit -a -m "x"` (a non-worktree -C target) WARNS', () => {
+  const r = evaluateSharedGitHygiene({ command: 'git -C operations/devops commit -a -m "x"' });
+  assert.equal(r.action, 'warn');
+  assert.equal(r.reason, 'commit-a-or-add-all');
+});
+
 test('a Windows backslash worktree target stays SILENT (t/4212 lesson applied here too)', () => {
   const r = evaluateSharedGitHygiene({ command: 'cd .worktrees\\foo && git reset --hard' });
   assert.equal(r.action, 'silent');
