@@ -62,7 +62,7 @@
     },
     {
       "name": "@azure/identity",
-      "version": "4.13.3",
+      "version": "4.14.0",
       "license": "MIT"
     },
     {
@@ -82,12 +82,17 @@
     },
     {
       "name": "@azure/msal-browser",
-      "version": "5.22.0",
+      "version": "5.25.1",
       "license": "MIT"
     },
     {
       "name": "@azure/msal-common",
       "version": "16.14.1",
+      "license": "MIT"
+    },
+    {
+      "name": "@azure/msal-common",
+      "version": "16.14.2",
       "license": "MIT"
     },
     {
@@ -117,7 +122,7 @@
     },
     {
       "name": "@fontsource/source-serif-4",
-      "version": "5.3.0",
+      "version": "5.3.1",
       "license": "Google Inc."
     },
     {
@@ -371,6 +376,11 @@
       "license": "MIT"
     },
     {
+      "name": "@types/node",
+      "version": "26.6.5",
+      "license": "MIT"
+    },
+    {
       "name": "@types/react",
       "version": "19.3.0",
       "license": "MIT"
@@ -467,7 +477,7 @@
     },
     {
       "name": "bundle-name",
-      "version": "4.1.0",
+      "version": "4.1.1",
       "license": "MIT"
     },
     {
@@ -776,6 +786,11 @@
       "license": "MIT"
     },
     {
+      "name": "is-in-ssh",
+      "version": "1.0.0",
+      "license": "MIT"
+    },
+    {
       "name": "is-inside-container",
       "version": "1.0.0",
       "license": "MIT"
@@ -892,7 +907,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.52.0",
+      "version": "1.57.0",
       "license": "ISC"
     },
     {
@@ -1167,7 +1182,7 @@
     },
     {
       "name": "open",
-      "version": "10.2.0",
+      "version": "11.0.4",
       "license": "MIT"
     },
     {
@@ -1231,6 +1246,11 @@
       "license": "MIT"
     },
     {
+      "name": "powershell-utils",
+      "version": "0.2.1",
+      "license": "MIT"
+    },
+    {
       "name": "pptxgenjs",
       "version": "4.0.1",
       "license": "MIT"
@@ -1267,12 +1287,12 @@
     },
     {
       "name": "react",
-      "version": "19.3.0",
+      "version": "19.3.1",
       "license": "MIT"
     },
     {
       "name": "react-dom",
-      "version": "19.3.0",
+      "version": "19.3.1",
       "license": "MIT"
     },
     {
@@ -1537,7 +1557,7 @@
     },
     {
       "name": "wsl-utils",
-      "version": "0.1.0",
+      "version": "1.0.1",
       "license": "MIT"
     },
     {
@@ -1562,7 +1582,7 @@
     },
     {
       "name": "zod",
-      "version": "4.6.5",
+      "version": "4.6.7",
       "license": "MIT"
     },
     {
@@ -1621,7 +1641,7 @@
         },
         {
           "name": "@azure/identity",
-          "version": "4.13.3"
+          "version": "4.14.0"
         },
         {
           "name": "@azure/keyvault-common",
@@ -1679,11 +1699,15 @@
       "packages": [
         {
           "name": "@azure/msal-browser",
-          "version": "5.22.0"
+          "version": "5.25.1"
         },
         {
           "name": "@azure/msal-common",
           "version": "16.14.1"
+        },
+        {
+          "name": "@azure/msal-common",
+          "version": "16.14.2"
         }
       ],
       "licenseType": "MIT",
@@ -1723,7 +1747,7 @@
       "packages": [
         {
           "name": "@fontsource/source-serif-4",
-          "version": "5.3.0"
+          "version": "5.3.1"
         }
       ],
       "licenseType": "Google Inc.",
@@ -2006,6 +2030,10 @@
           "version": "26.6.4"
         },
         {
+          "name": "@types/node",
+          "version": "26.6.5"
+        },
+        {
           "name": "@types/react",
           "version": "19.3.0"
         },
@@ -2249,7 +2277,7 @@
       "packages": [
         {
           "name": "bundle-name",
-          "version": "4.1.0"
+          "version": "4.1.1"
         },
         {
           "name": "default-browser-id",
@@ -2276,6 +2304,10 @@
           "version": "3.0.0"
         },
         {
+          "name": "is-in-ssh",
+          "version": "1.0.0"
+        },
+        {
           "name": "is-inside-container",
           "version": "1.0.0"
         },
@@ -2293,7 +2325,11 @@
         },
         {
           "name": "open",
-          "version": "10.2.0"
+          "version": "11.0.4"
+        },
+        {
+          "name": "powershell-utils",
+          "version": "0.2.1"
         },
         {
           "name": "run-applescript",
@@ -2309,7 +2345,7 @@
         },
         {
           "name": "wsl-utils",
-          "version": "0.1.0"
+          "version": "1.0.1"
         }
       ],
       "licenseType": "MIT",
@@ -3003,7 +3039,7 @@
       "packages": [
         {
           "name": "lucide-react",
-          "version": "1.52.0"
+          "version": "1.57.0"
         }
       ],
       "licenseType": "ISC",
@@ -3231,11 +3267,11 @@
       "packages": [
         {
           "name": "react-dom",
-          "version": "19.3.0"
+          "version": "19.3.1"
         },
         {
           "name": "react",
-          "version": "19.3.0"
+          "version": "19.3.1"
         },
         {
           "name": "scheduler",
@@ -3565,7 +3601,7 @@
       "packages": [
         {
           "name": "zod",
-          "version": "4.6.5"
+          "version": "4.6.7"
         }
       ],
       "licenseType": "MIT",
