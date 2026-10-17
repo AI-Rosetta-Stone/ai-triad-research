@@ -34,12 +34,13 @@ function Enter-PolicyRegistryLock {
         mechanism (atomic create, 120s staleness break, bounded 60s wait, ActionableError on timeout).
         It closes the window between Assert-PolicyIdsUnminted and the write. It does NOT let a second
         writer through a dirty registry: that is the BLOCK-tier guard's job, and the preflight in
-        Update-PolicyRegistry refuses it before any node file is written.
+        Update-PolicyRegistry refuses it before any node file is written. Returns the protocol-v2 lock
+        object (t/4193); Invoke-PolicyRegistryUpdate calls Assert-GroundingLockHeld before each write.
     #>
     [CmdletBinding()]
-    [OutputType([System.IO.FileStream])]
+    [OutputType('AITriad.GroundingLockV2.LockHandle')]
     param([Parameter(Mandatory)][string]$LockPath)
-    return Enter-GroundingLock -LockPath $LockPath `
+    return Enter-GroundingLock -LockPath $LockPath -Holder 'Update-PolicyRegistry' `
         -Purpose 'policy id minting and registration (policy_actions.json and the POV files)' `
         -OtherWriters 'another Update-PolicyRegistry -Fix, Invoke-AttributeExtraction or Find-PolicyAction'
 }
