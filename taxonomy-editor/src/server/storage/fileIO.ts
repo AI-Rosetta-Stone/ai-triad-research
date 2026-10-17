@@ -241,8 +241,8 @@ export async function readTaxonomyFile(pov: string, opts?: { ref?: string }): Pr
 /** t/4187: `backend.readFileWithVersion` is optional (test-double backends
  *  needn't stub it); every production backend implements it. Falls back to a
  *  plain `readFile` + empty version \u2014 a real, never-stale "no precondition
- *  support" marker \u2014 for any backend that doesn't. */
-async function readFileWithVersionOrFallback(
+ *  support" marker \u2014 for any backend that doesn't. Exported (t/4217) for harvestStore.ts's RMW writers. */
+export async function readFileWithVersionOrFallback(
   filePath: string, opts?: { ref?: string },
 ): Promise<{ content: string; version: string } | null> {
   if (backend.readFileWithVersion) return backend.readFileWithVersion(filePath, opts);
