@@ -296,10 +296,18 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — single-holder poll coordi
     // to take over, and for its own first poll tick to actually publish
     // (acquiring the lease alone only seeds an empty blob — the real state
     // write happens on its next pollAsHolder() tick).
-    await waitUntil(() => priv(successor).blobLease.isHolder(), 20000);
+    //
+    // Worst-case budget (p/783#4: flaked at 20064ms under CI load — the
+    // original 20000ms had ~5s of margin past the mechanics' own worst case,
+    // not CI slowness): the lease (duration 15s) must fully expire before
+    // the successor's OWN renewal timer (duration/3 = 5s) next fires and
+    // notices it's free, so up to ~20s can elapse before the successor even
+    // attempts acquireOrRenew — before any CI/Azurite latency on top. 45s
+    // leaves real margin instead of racing the mechanics' own floor.
+    await waitUntil(() => priv(successor).blobLease.isHolder(), 45000);
     expect(priv(successor).blobLease.getLeaseId()).not.toBe(staleLeaseId);
 
-    const stateBeforeStalePublish = await waitForPublishedState(successor, 5000);
+    const stateBeforeStalePublish = await waitForPublishedState(successor, 10000);
     expect(stateBeforeStalePublish.holderId).toBe(priv(successor).holderId);
 
     // The paused holder, if it woke up and tried to publish with its now-
@@ -317,5 +325,5 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — single-holder poll coordi
     // pausedHolder's timers are already cleared; nothing left to shut down
     // there except releasing whatever lease belief it still holds locally.
     await priv(pausedHolder).blobLease.release().catch(() => {});
-  }, 30000);
+  }, 60000);
 });
