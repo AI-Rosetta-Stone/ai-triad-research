@@ -549,9 +549,10 @@ var baseEnv = [
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
   // ONNX embedding compute to the off-thread worker (t/3183) so a large novel-text batch can't starve
-  // the event loop past ACA's liveness deadline — the t/3165 fabricated-500 root cause. Requires the
-  // 2 vCPU worker floor above (t/3182). Proven: staging storm-canary GREEN + prod staged-flip AC-1/AC-3
-  // green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
+  // the event loop past ACA's liveness deadline — the t/3165 fabricated-500 root cause. Designed for
+  // a 2 vCPU worker floor (t/3182); prod now runs 1 vCPU by PI decision (t/4263), so the worker shares
+  // the loop's core — see the resources comment below. Proven at 2 vCPU only: staging storm-canary
+  // GREEN + prod staged-flip AC-1/AC-3 green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
   // ExpectedEnvVars config-drift gate (Gate Co-Location — the gate verifies this value is deployed).
   { name: 'EMBEDDING_WORKER_OFFLOAD', value: '1' }
   // t/3163 G8a (STAGED enable, TL GO): enable inline grounding reconcile on the write path.
@@ -666,21 +667,20 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           name: 'taxonomy-editor'
           image: containerImage
           resources: {
-            // 2 vCPU is the CORRECTNESS FLOOR for the embedding worker-offload
-            // (t/3182 / t/2977 C1). The off-thread ONNX worker (EMBEDDING_WORKER_OFFLOAD)
-            // needs a REAL second core: on 1 vCPU the worker time-slices the same core
-            // as the event loop, so a big embed still starves liveness (defeats the
-            // offload). 2 vCPU keeps the loop responsive while the worker computes.
-            // Stays within the ACA Consumption plan (0.25-4 vCPU) - one-line resources
-            // edit, no workload-profile/topology migration. Cost ~$0 (free grant, t/2977#4).
-            // Memory MUST be 4Gi: ACA Consumption only permits FIXED cpu:memory pairs, and
-            // 2.0 vCPU is valid ONLY with 4.0Gi. ARM rejects 2.0/2Gi with
-            // ContainerAppInvalidResourceTotal (the #1771 bug — a deploy would fail the ARM
-            // step; t/3182). Headroom is ample regardless: incident RSS ~650MB/2048 + ~250MB
-            // worker model copy ~= 900MB (embeddings.json is NOT copied to the worker — the
-            // cache resolve stays main-thread, only miss-texts marshal).
-            cpu: json('2.0')
-            memory: '4Gi'
+            // 1 vCPU / 2Gi by PI decision (t/4263, 2026-10-17), overriding the 2 vCPU
+            // worker floor of t/3182 / t/2977 C1. That floor was justified as "Cost ~$0
+            // (free grant)"; in fact always-on 2 vCPU / 4Gi cost ~$75/mo more than this,
+            // against a $30 budget (deploy/azure/runbooks/cost-investigation-2026-10.md).
+            // KNOWN TRADE-OFF: EMBEDDING_WORKER_OFFLOAD stays on, but the worker now
+            // time-slices the event loop's core, so a large novel-embed batch slows the
+            // loop instead of freezing it (better than offload off at the same cost). The
+            // 2 vCPU storm-canary proof (loop max 39.6ms) does NOT carry over. Before
+            // raising back to 2.0, check alert-event-loop-blocked / ingress-5xx history.
+            // Memory MUST match the fixed ACA Consumption pair: 1.0 vCPU is valid ONLY
+            // with 2.0Gi (Test-BicepAcaResourcePairs.ps1; the #1771 ARM-rejection bug).
+            // Headroom: incident RSS ~650MB + ~250MB worker model copy ~= 900MB of 2048.
+            cpu: json('1.0')
+            memory: '2Gi'
           }
           env: containerEnv
           probes: [
