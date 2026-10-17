@@ -6,6 +6,7 @@ import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { MODELS_BY_BACKEND } from '../../hooks/useTaxonomyStore/slices/settingsSlice';
 import type { Fidelity } from '@lib/inquiry';
 import { FIDELITY_LABELS, FIDELITY_DESCRIPTIONS } from './inquiryDisplay';
+import { InquiryTagPicker, inquiryTagBlocked } from './InquiryTagPicker';
 import './InquiryTab.css';
 
 const FIDELITIES: Fidelity[] = ['quick', 'standard', 'deep'];
@@ -17,11 +18,13 @@ const ALL_MODEL_OPTIONS = Object.entries(MODELS_BY_BACKEND)
   .sort((a, b) => a.label.localeCompare(b.label));
 
 export function InquiryAskPanel() {
-  const { question, fidelity, debaterModel, evaluatorModel, error, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, resolvedModels, startInquiry, openList } = useInquiryStore();
+  const { question, fidelity, debaterModel, evaluatorModel, error, setQuestion, setFidelity, setDebaterModel, setEvaluatorModel, tagSelection, setTagSelection, resolvedModels, startInquiry, openList } = useInquiryStore();
   const [submitting, setSubmitting] = useState(false);
 
   const resolved = resolvedModels();
-  const canSubmit = question.trim().length > 0 && !submitting;
+  // t/4246: a tag whose scope is too small blocks the run here, as it does in chat setup.
+  const tagBlocked = inquiryTagBlocked(tagSelection);
+  const canSubmit = question.trim().length > 0 && !submitting && !tagBlocked;
 
   // startInquiry() never rejects — it catches + records + sets `error` internally (single error
   // path shared with the poll loop), so this only needs to track the in-flight spinner state.
@@ -90,6 +93,7 @@ export function InquiryAskPanel() {
             {ALL_MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </div>
+        <InquiryTagPicker value={tagSelection} onChange={setTagSelection} />
         <p className="inquiry-mnote">Both default from the fidelity you picked. Change them when the model
           <em> is</em> the variable you're testing — the answer records what actually ran.</p>
       </div>
