@@ -288,6 +288,14 @@ def grounding_lock(holder="reconciler", path=LOCKFILE, wait_sec=LOCK_WAIT_SEC,
             sys.stderr.write(f"WARN grounding_lock: rename of {path} reported success but the moved file "
                              f"is missing (concurrent break); retrying acquire\n")
             return
+        try:
+            # rename keeps mtime, so a lock that was broken and replaced between our stat and our read
+            # (seen == taken == a FRESH lock) still shows a fresh mtime here (PowerShell, t/4193 #3344)
+            moved_age = time.time() - os.path.getmtime(breaking)
+        except OSError:
+            moved_age = 0.0
+        if taken == seen and moved_age <= stale_sec:
+            taken = None  # not the stale lock we judged: fall through to the restore below
         if taken == seen:
             sys.stderr.write(f"WARN grounding_lock: broke stale lock (mtime age {age:.0f}s > "
                              f"{stale_sec}s) at {path}; prior holder presumed dead\n")
@@ -748,6 +756,28 @@ def selftest():
     os.unlink(lp)
     assert _lock_restore(breaking, lp) is True and _lock_read(lp) == "old-holder", "FAIL: restore to a free path"
     assert not os.path.exists(breaking), "FAIL: restore left the breaking file behind"
+    os.unlink(lp)
+    # t/4193 (#3344 review): a lock that LOOKED stale at the stat but is fresh by the time we move it
+    # (broken and replaced in between) must be restored, never deleted. Fake the stale stat once.
+    with open(lp, "w", encoding="utf-8") as f:
+        f.write('{"nonce": "fresh-holder"}')  # fresh mtime
+    real_getmtime, calls = os.path.getmtime, {"n": 0}
+
+    def stale_once(p):
+        calls["n"] += 1
+        return real_getmtime(p) - 10000 if calls["n"] == 1 else real_getmtime(p)
+
+    os.path.getmtime = stale_once
+    try:
+        with grounding_lock("t", path=lp, wait_sec=0.5, stale_sec=120, poll_sec=0.05):
+            assert False, "FAIL: acquired over a fresh lock that only looked stale"
+    except RuntimeError:
+        pass  # expected: the fresh lock was restored, so we waited and timed out
+    finally:
+        os.path.getmtime = real_getmtime
+    assert _lock_read(lp) == '{"nonce": "fresh-holder"}', "FAIL: a fresh lock that looked stale was deleted"
+    assert not [n for n in os.listdir(os.path.dirname(lp)) if n.startswith(os.path.basename(lp) + ".breaking")], \
+        "FAIL: breaking file left behind"
     os.unlink(lp)
     # t/4193 condition 2: a holder whose lock is replaced or deleted refuses its write.
     for takeover in ("replace", "delete"):
