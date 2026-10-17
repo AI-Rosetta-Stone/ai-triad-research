@@ -360,3 +360,105 @@ jobs:
                 issue_number: issue.number, state: 'closed',
               });
             }
+
+  staging-load-test-size-drift:
+    # t/4203 SO C2 (p/682#44): stagingLoadTestSize's "auto-revert" claim doesn't hold — ordinary
+    # deploy-staging runs never apply Bicep, so staging stays prod-sized (2 vCPU/4Gi x up to 3
+    # replicas, mounting the RO shared volume) until the next PROD Bicep apply, which can be days
+    # away while a deploy hold is active. This detects that drift directly against live Azure and
+    # escalates if it persists, since nothing actually reverts it automatically.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check staging's live size against its small-footprint default
+        id: sizecheck
+        shell: pwsh
+        run: |
+          $Info = az containerapp show --name taxonomy-editor-staging -g '${{ env.RESOURCE_GROUP }}' `
+            --query '{cpu:properties.template.containers[0].resources.cpu,maxReplicas:properties.template.scale.maxReplicas}' `
+            -o json 2>$null | ConvertFrom-Json
+          $Cpu = if ($Info) { [double]$Info.cpu } else { $null }
+          $Drifted = ($null -ne $Cpu) -and ($Cpu -gt 0.25)
+          Write-Host "staging cpu=$Cpu maxReplicas=$($Info.maxReplicas) drifted=$Drifted"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "drifted=$($Drifted.ToString().ToLower())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "cpu=$Cpu"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "maxReplicas=$($Info.maxReplicas)"
+
+      - name: Open or update the drift issue, escalate if it persists
+        if: steps.sizecheck.outputs.drifted == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const LABEL = 'staging-load-test-size-drift';
+            const ESCALATE_AFTER_HOURS = 6;
+            const cpu = `${{ steps.sizecheck.outputs.cpu }}`;
+            const maxReplicas = `${{ steps.sizecheck.outputs.maxReplicas }}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: LABEL, per_page: 1,
+            });
+            if (existing.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: 'Staging is prod-sized (t/4203 load-test sizing left on)',
+                body: [
+                  '## Staging load-test-size drift (t/4203)',
+                  '',
+                  `Detected at ${new Date().toISOString()}: cpu=${cpu}, maxReplicas=${maxReplicas} (small footprint is cpu=0.25, maxReplicas=1).`,
+                  '',
+                  'Ordinary `deploy-staging` runs never apply Bicep, so this does NOT revert on its own — it reverts only on the next `deploy-azure.yml` run (prod Bicep apply).',
+                  '',
+                  '**To revert explicitly now:** dispatch `deploy-azure.yml` with `staging_load_test_size: false` (same input used to turn it on). This still re-applies the full template — check for an active prod deploy hold first.',
+                  '',
+                  `This issue stays open and is escalated (\`alert-escalated\`) if it persists past ${ESCALATE_AFTER_HOURS}h.`,
+                ].join('\n'),
+                labels: [LABEL],
+              });
+              return;
+            }
+            const issue = existing.data[0];
+            const ageHours = (Date.now() - new Date(issue.created_at).getTime()) / 3600000;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `Still drifted at ${new Date().toISOString()} (${ageHours.toFixed(1)}h since first detected): cpu=${cpu}, maxReplicas=${maxReplicas}.`,
+            });
+            const hasEscalated = (issue.labels || []).some((l) => (l.name || l) === 'alert-escalated');
+            if (ageHours > ESCALATE_AFTER_HOURS && !hasEscalated) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, labels: ['alert-escalated'],
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `🔺 **ESCALATED** — staging has been prod-sized for over ${ESCALATE_AFTER_HOURS}h with no revert.`,
+              });
+            }
+
+      - name: Auto-close resolved drift issues
+        if: steps.sizecheck.outputs.drifted == 'false'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'staging-load-test-size-drift', per_page: 5,
+            });
+            for (const issue of existing.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Resolved at ${new Date().toISOString()} — staging is back to its small footprint.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed',
+              });
+            }

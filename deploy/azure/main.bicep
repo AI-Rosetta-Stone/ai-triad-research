@@ -863,7 +863,13 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
           // (ReadOnly accessMode) makes the hard boundary live: any missed write site
           // fails with EACCES rather than silently mutating prod (t/2643#3 cond 3,
           // t/2643#5 binding correction — RO must come last, never before getStateRoot).
-          storageName: stagingSharedReadOnly ? 'taxonomy-data-ro' : 'taxonomy-data'
+          //
+          // t/4203 SO C3 (p/682#44): coupled to stagingLoadTestSize too — without this,
+          // 3 load-test replicas mount PROD's own taxonomy-data share RW, making the load
+          // test itself a write load against production storage. Confirming staging runs
+          // correctly against RO shared data is exactly the open t/2643 arm-B question, so
+          // this also doubles as that verification once a load test actually runs.
+          storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'
         }
         {
           // Staging-isolated RW share for class-A state (t/2643).
