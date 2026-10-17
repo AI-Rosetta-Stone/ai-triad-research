@@ -138,6 +138,40 @@ Describe 'Get-RevisionActivationVerdict' {
         }
     }
 
+    Context 't/4249: the step''s exit code comes from the verdict, never a leftover $LASTEXITCODE' {
+        BeforeAll { Mock Start-Sleep {} }
+
+        It 'FIRE ARM (the real incident, 39061815653): GetLogTail''s native call leaves $LASTEXITCODE=1 even though the verdict is healthy -> Wait-RevisionActivation resets it, so the step would exit 0' {
+            $global:LASTEXITCODE = $null
+            # GetLogTail below simulates `az containerapp logs show` racing a not-yet-streaming revision.
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { [pscustomobject]@{ r = 'Running'; h = 'Healthy' } } `
+                -GetLogTail { $global:LASTEXITCODE = 1; '' } `
+                -Probe      { [pscustomobject]@{ Healthy = $true; Checks = @() } }
+            $w.Verdict | Should -Be 'healthy'
+            $global:LASTEXITCODE | Should -Be 0
+            Get-HealthCheckExitCode $w.Verdict | Should -Be 0
+        }
+
+        It 'the reverse case: $LASTEXITCODE happens to be 0 but the verdict is failed -> the exit code is still 1' {
+            $global:LASTEXITCODE = 0
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { [pscustomobject]@{ r = 'ActivationFailed'; h = 'Unhealthy' } } `
+                -GetLogTail { 'nothing useful' } `
+                -Probe      { [pscustomobject]@{ Healthy = $false; Checks = @() } }
+            $w.Verdict | Should -Be 'failed'
+            Get-HealthCheckExitCode $w.Verdict | Should -Be 1
+        }
+
+        It 'Get-HealthCheckExitCode: healthy -> 0, anything else -> 1' {
+            Get-HealthCheckExitCode 'healthy' | Should -Be 0
+            Get-HealthCheckExitCode 'failed'  | Should -Be 1
+            Get-HealthCheckExitCode 'timeout' | Should -Be 1
+            Get-HealthCheckExitCode ''        | Should -Be 1
+            Get-HealthCheckExitCode $null     | Should -Be 1
+        }
+    }
+
     Context 'SO C2: the last GitHub refusal is reported, never fatal on its own' {
         It 'circuit open keeps waiting and is named' {
             $log = '{"level":50,"msg":"readiness: data-load failed: github-api circuit open"}'
