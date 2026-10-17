@@ -4,6 +4,8 @@
 /**
  * Polls /api/sync/status so the status bar can surface unsynced-change counts.
  *
+ * Polls only while the tab is visible and the user is active (pollGate, t/4251), every 45 s.
+ *
  * When the server reports `enabled: false` (i.e. GIT_SYNC_ENABLED is off or the
  * data root is not a git working tree) polling stops after the first response —
  * there's nothing to show and no reason to keep hitting the server.
@@ -11,8 +13,10 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getSyncStatus, type SyncStatus } from '../utils/syncApi';
+import { gatedInterval } from '../lib/pollGate';
 
-const POLL_INTERVAL_MS = 10_000;
+/** t/4251: was 10 s. The status bar count tolerates 45 s, and a visible-again refresh is immediate. */
+export const SYNC_POLL_MS = 45_000;
 
 const DISABLED: SyncStatus = {
   enabled: false,
@@ -37,19 +41,19 @@ export function useSyncStatus(): { status: SyncStatus; refresh: () => Promise<vo
 
   useEffect(() => {
     mountedRef.current = true;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let stopPolling: (() => void) | null = null;
 
     void (async () => {
       const first = await getSyncStatus();
       if (!mountedRef.current) return;
       setStatus(first);
       if (!first.enabled) return; // don't start polling if the feature is off
-      timer = setInterval(() => { void refresh(); }, POLL_INTERVAL_MS);
+      stopPolling = gatedInterval(() => { void refresh(); }, SYNC_POLL_MS);
     })();
 
     return () => {
       mountedRef.current = false;
-      if (timer) clearInterval(timer);
+      stopPolling?.();
     };
   }, [refresh]);
 

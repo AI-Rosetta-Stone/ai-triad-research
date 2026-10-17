@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { bridgeGet } from '../bridge/web-bridge';
+import { gatedInterval } from '../lib/pollGate';
 
 export interface TierInfo {
   level: string;
@@ -60,8 +61,8 @@ export function useTierInfo(): { tier: TierInfo | null; usage: TierUsage | null;
     fetchTier();
     fetchUsage();
     if (!isWeb) return;
-    const id = setInterval(fetchUsage, USAGE_POLL_MS);
-    return () => clearInterval(id);
+    // t/4251: only while the tab is visible and the user is active.
+    return gatedInterval(fetchUsage, USAGE_POLL_MS);
   }, [fetchTier, fetchUsage, isWeb]);
 
   const refresh = useCallback(() => { fetchTier(); fetchUsage(); }, [fetchTier, fetchUsage]);
