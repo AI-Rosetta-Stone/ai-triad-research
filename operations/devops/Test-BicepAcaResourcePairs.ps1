@@ -69,6 +69,17 @@ $inBlock  = $false
 $cpu      = $null
 $memory   = $null
 $pairs    = [System.Collections.Generic.List[PSCustomObject]]::new()
+$unresolved = [System.Collections.Generic.List[string]]::new()
+
+# Top-level string-literal vars (e.g. var prodCpu = '1.0', t/4263), so `cpu: json(prodCpu)` and
+# `memory: prodMemory` resolve. Without this, a block referencing a var silently dropped out of
+# the check (the pair count fell from 2 to 1 with no error).
+$stringVars = @{}
+foreach ($line in $lines) {
+    if ($line -match "^\s*var\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'([^']*)'\s*(//.*)?$") {
+        $stringVars[$Matches[1]] = $Matches[2]
+    }
+}
 
 foreach ($line in $lines) {
     if (-not $inBlock) {
@@ -80,27 +91,39 @@ foreach ($line in $lines) {
         continue
     }
 
-    # Extract cpu — handles both json('N') and bare numeric forms
+    # Extract cpu — json('N'), json(varName) or bare numeric
     if ($line -match 'cpu\s*:\s*json\s*\(\s*''([^'']+)''\s*\)') {
         $cpu = $Matches[1]
+    } elseif ($line -match 'cpu\s*:\s*json\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)') {
+        $name = $Matches[1]
+        if ($stringVars.ContainsKey($name)) { $cpu = $stringVars[$name] } else { $unresolved.Add("cpu: json($name)") ; $cpu = '?' }
     } elseif ($line -match "cpu\s*:\s*([0-9]+(?:\.[0-9]+)?)") {
         $cpu = $Matches[1]
     }
 
-    # Extract memory — e.g. memory: '4Gi'
+    # Extract memory — '4Gi' literal or varName
     if ($line -match "memory\s*:\s*'([^']+)'") {
         $memory = $Matches[1]
+    } elseif ($line -match 'memory\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(//.*)?$') {
+        $name = $Matches[1]
+        if ($stringVars.ContainsKey($name)) { $memory = $stringVars[$name] } else { $unresolved.Add("memory: $name"); $memory = '?' }
     }
 
     # Closing brace — end of resources block
     if ($line -match '^\s*\}\s*$') {
-        if ($null -ne $cpu -and $null -ne $memory) {
+        if ($null -ne $cpu -and $null -ne $memory -and $cpu -ne '?' -and $memory -ne '?') {
             $pairs.Add([PSCustomObject]@{ Cpu = $cpu; Memory = $memory })
         }
         $inBlock = $false
         $cpu     = $null
         $memory  = $null
     }
+}
+
+# ── Fail closed on references the parser cannot resolve to a literal ─────────
+if ($unresolved.Count -gt 0) {
+    Write-CIError "Unresolvable cpu/memory reference(s) in main.bicep: $($unresolved -join ', '). Use a literal or a top-level string var (var x = '...')."
+    exit 1
 }
 
 # ── No-silent-skip guard ──────────────────────────────────────────────────────

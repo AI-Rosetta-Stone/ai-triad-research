@@ -504,6 +504,12 @@ resource envStorageSharedRO 'Microsoft.App/managedEnvironments/storages@2024-03-
 
 // ── Container App ──
 
+// Prod container size, single source of truth (t/4263, SO C1 e/307#2). Reference these, not
+// literals, from anything that must track prod's size (e.g. the staging load-test sizing, t/4203),
+// so a load test can never silently measure a size prod no longer runs.
+var prodCpu = '1.0'
+var prodMemory = '2Gi'
+
 var baseEnv = [
   // t/2602: repoint data root from ephemeral /tmp to durable Azure Files mount.
   // Fixes class-A durability (admin flags, runtime-config, calibration logs) and
@@ -555,6 +561,11 @@ var baseEnv = [
   // GREEN + prod staged-flip AC-1/AC-3 green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
   // ExpectedEnvVars config-drift gate (Gate Co-Location — the gate verifies this value is deployed).
   { name: 'EMBEDDING_WORKER_OFFLOAD', value: '1' }
+  // t/4263 SO C3: pin the worker pool to ONE worker at 1 vCPU. configureEmbeddingWorkerPool clamps
+  // to availableParallelism()-1, which counts VISIBLE cores, not the cgroup CPU quota, so a raised
+  // size could oversubscribe the 1-vCPU quota. Raise only together with prodCpu (or after the
+  // cgroup-aware clamp lands in lib/embeddings/offThreadEmbedding.ts). Gate-verified in deploy-azure.yml.
+  { name: 'EMBEDDING_WORKER_POOL_SIZE', value: '1' }
   // t/3163 G8a (STAGED enable, TL GO): enable inline grounding reconcile on the write path.
   // Deployed AHEAD of G8b (GROUNDING_SWEEP_ENABLED), which TL holds until this deploy's real
   // write-cycle lock telemetry is clean (grounding_lock held ≤~2s, zero stale-break/contention).
@@ -679,8 +690,8 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
             // Memory MUST match the fixed ACA Consumption pair: 1.0 vCPU is valid ONLY
             // with 2.0Gi (Test-BicepAcaResourcePairs.ps1; the #1771 ARM-rejection bug).
             // Headroom: incident RSS ~650MB + ~250MB worker model copy ~= 900MB of 2048.
-            cpu: json('1.0')
-            memory: '2Gi'
+            cpu: json(prodCpu)
+            memory: prodMemory
           }
           env: containerEnv
           probes: [
