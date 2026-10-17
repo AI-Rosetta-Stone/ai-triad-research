@@ -203,6 +203,24 @@ test('evaluateShellCommand: non-owner `cd .worktrees/foo && git stash` WARNS wit
   assert.equal(r.worktreeName, 'foo');
 });
 
+test('evaluateShellCommand: non-owner `cd .worktrees\\foo && git stash` (Windows BACKSLASH cd target) WARNS', () => {
+  // Quality review finding (p/331#2060): the shell arm's hidden backslash bug — the exact class
+  // this PR exists to close — needs a REAL test, not just a PR-body claim. A Windows agent can
+  // type a backslash path in `cd` just as easily as a forward-slash one; extractCdTarget captures
+  // it unchanged (backslash isn't excluded by its token regex), and resolveWorktreeFromPathString
+  // must normalize it (via `toSlash`) before the `.worktrees/` substring match, or this silently
+  // fails exactly like the pre-fix relative-path case did.
+  const root = makeRepoWithOwner('agent-owner');
+  const r = evaluateShellCommand({
+    command: 'cd .worktrees\\foo && git stash',
+    callerId: 'agent-other',
+    repoRoot: root,
+  });
+  assert.equal(r.action, 'warn');
+  assert.equal(r.reason, 'mismatch');
+  assert.equal(r.worktreeName, 'foo');
+});
+
 test('evaluateShellCommand: the OWNER\'s own `cd .worktrees/foo && git stash` is SILENT', () => {
   const root = makeRepoWithOwner('agent-owner');
   const r = evaluateShellCommand({
