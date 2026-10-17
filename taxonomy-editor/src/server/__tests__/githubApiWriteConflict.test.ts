@@ -674,7 +674,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     backend.shutdown();
   });
 
-  it('an out-of-band head change is detected after the revalidation window, and the next read returns the new content', async () => {
+  it('an out-of-band head change is detected after the revalidation window, for a session that has written something (t/4215 budget addendum)', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
@@ -693,6 +693,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
 
     const first = await backend.readFile('/taxonomy/nodes.json');
     expect(first).toBe(JSON.stringify({ v: 'original' }));
+
+    // t/4215 budget addendum (TL t/4215#7): a plain read only revalidates if
+    // the session has written something since the last check. writeToOverlay
+    // (via a write elsewhere) marks this session as active — without this,
+    // the ref-check below would never fire at all, by design.
+    backend.writeToOverlay('/some/other/path.json', '{}');
 
     // Something outside the server (a resync conflict resolved on GitHub,
     // another replica) pushes new content onto the branch.
@@ -715,6 +721,73 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — plain readFile on a sessi
     } finally {
       vi.useRealTimers();
     }
+
+    backend.shutdown();
+  });
+
+  it('t/4215 budget addendum (TL t/4215#7): an idle (read-only) session re-checks the ref once to seed a baseline, then never again — caps it at 1 per session, well under 1 per 30s', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    let refCalls = 0;
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        refCalls++;
+        return { status: 200, body: { object: { sha: 'head-sha' } } };
+      }
+      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+        return { status: 200, body: { content: Buffer.from('{"v": 1}').toString('base64'), encoding: 'base64', sha: 'some-sha' } };
+      }
+      return null;
+    });
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now());
+      await backend.readFile('/taxonomy/nodes.json'); // first-ever check for this session — no baseline yet, always live
+
+      // Many more reads, spanning many revalidation windows, with NO write
+      // activity in between — the session is purely viewing.
+      for (let i = 0; i < 5; i++) {
+        vi.setSystemTime(Date.now() + 31_000);
+        await backend.readFile('/taxonomy/nodes.json');
+      }
+
+      // No activity recorded since the baseline was seeded, so every
+      // subsequent check trusts the cache — the ref endpoint is called once
+      // total, not once per 30s window.
+      expect(refCalls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    backend.shutdown();
+  });
+
+  it('t/4215 budget addendum (TL t/4215#7): a read that feeds a write (forWrite) always revalidates, ignoring both the throttle and the activity gate', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    let refCalls = 0;
+    apiHandlers.push((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('/git/refs/heads/api-session/alice')) {
+        refCalls++;
+        return { status: 200, body: { object: { sha: 'head-sha' } } };
+      }
+      if (method === 'GET' && url.includes('/contents/taxonomy/nodes.json')) {
+        return { status: 200, body: { content: Buffer.from('{"v": 1}').toString('base64'), encoding: 'base64', sha: 'some-sha' } };
+      }
+      return null;
+    });
+
+    // No write activity at all, and both calls happen well inside any
+    // throttle window — forWrite must check every time regardless.
+    await backend.readFile('/taxonomy/nodes.json', { forWrite: true });
+    await backend.readFile('/taxonomy/nodes.json', { forWrite: true });
+
+    expect(refCalls).toBe(2);
 
     backend.shutdown();
   });
