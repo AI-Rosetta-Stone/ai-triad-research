@@ -338,9 +338,35 @@ export class GitHubAPIBackend implements StorageBackend {
       clearInterval(this.leaseRenewTimer);
       this.leaseRenewTimer = null;
     }
+    // t/4258: warn about overlay entries that will be lost — best-effort,
+    // logging must never be able to break shutdown itself.
+    try {
+      this.warnUncommittedOverlay(this.uncommittedOverlaySummary());
+    } catch { /* telemetry — silent by design; never let logging break shutdown */ }
     // Best-effort — so a graceful shutdown hands the lease off immediately
     // rather than making the next holder wait out the full lease duration.
     if (this.blobLease) void this.blobLease.release();
+  }
+
+  /** t/4258: pure summary of uncommitted overlay state — no content, paths capped per user. */
+  private uncommittedOverlaySummary(): { userId: string; entryCount: number; paths: string[] }[] {
+    const summary: { userId: string; entryCount: number; paths: string[] }[] = [];
+    for (const [userId, overlay] of this.sessionOverlays) {
+      if (overlay.size === 0) continue;
+      summary.push({ userId, entryCount: overlay.size, paths: [...overlay.keys()].slice(0, 20) });
+    }
+    return summary;
+  }
+
+  /** t/4258: log + flight-record a non-empty uncommitted-overlay summary. No-op when empty. */
+  private warnUncommittedOverlay(summary: { userId: string; entryCount: number; paths: string[] }[], context = 'shutdown'): void {
+    if (summary.length === 0) return;
+    const totalEntries = summary.reduce((sum, s) => sum + s.entryCount, 0);
+    const message = `${totalEntries} uncommitted overlay entries across ${summary.length} user(s) at ${context} (t/4258) — will be lost`;
+    log.storage.warn({ context, summary }, message);
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'storage', level: 'warn', message, data: { context, summary },
+    });
   }
 
   // ── Session context ────────────────────────────────────────────────────
@@ -1443,6 +1469,25 @@ export class GitHubAPIBackend implements StorageBackend {
    * Returns { commitSha, filesCommitted } or null if no pending changes.
    */
   async commitOverlay(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null> {
+    try {
+      return await this.commitOverlayImpl(userId, message);
+    } catch (err) {
+      const summary = this.uncommittedOverlaySummary().filter(s => s.userId === userId);
+      const warnMsg = `commitOverlay failed for ${userId} — overlay entries remain uncommitted (t/4258)`;
+      log.storage.warn({ summary }, warnMsg);
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'storage',
+        level: 'warn',
+        message: warnMsg,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        data: { summary },
+      });
+      throw err;
+    }
+  }
+
+  private async commitOverlayImpl(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null> {
     const entries = this.getOverlayEntries(userId);
     if (!entries) return null;
 
