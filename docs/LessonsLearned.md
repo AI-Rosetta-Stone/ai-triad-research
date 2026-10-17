@@ -5584,3 +5584,63 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#180).
 
 **Applies To:** All agents constructing `new Function()` bodies in ES module files; do not use module-only syntax inside the body string.
+
+---
+
+## #269 [Build] `az bicep build --stdout` Crashes With `UnicodeEncodeError` on Windows — Use `--outfile` Instead
+
+**Pattern:** An agent runs `az bicep build --file main.bicep --stdout` on Windows. The .bicep file contains non-ASCII characters (e.g. `→`, `—`). The Azure CLI writes stdout using the Windows default cp1252 encoding, which cannot encode those characters, causing `UnicodeEncodeError: 'charmap' codec can't encode character`.
+
+**Instances:**
+- 2026-10-17 — Azure (p/105#8): `az bicep build --file main.bicep --stdout` crashed with `UnicodeEncodeError: 'charmap' codec can't encode '→'`. Resolved: used `--outfile <path>` instead; build succeeded.
+
+**Root Cause:** On Windows, the Azure CLI writes to stdout using the system's default ANSI codepage (cp1252). Any non-ASCII character outside cp1252's range causes a codec error. `--outfile` writes to a file in UTF-8, bypassing the codepage constraint.
+
+**Prevention:**
+1. **Use `--outfile <path>` instead of `--stdout`** when building bicep files on Windows, especially any file that may contain non-ASCII characters (comments, string literals, identifiers).
+2. **Alternatively, set `$env:PYTHONIOENCODING = "utf-8"` or `[Console]::OutputEncoding = [Text.Encoding]::UTF8`** before the az call in PowerShell to force UTF-8 stdout encoding.
+3. **`UnicodeEncodeError: 'charmap' codec can't encode`** from an az CLI call on Windows is a reliable diagnostic that the output contains characters outside cp1252 — switch to `--outfile`.
+
+**Status:** Active — 1 instance (Azure p/105#8).
+
+**Applies To:** All agents running `az bicep build --stdout` on Windows with bicep files containing non-ASCII characters.
+
+---
+
+## #270 [Build] Multi-Heredoc Bash Command With Code Containing Quotes Breaks Bash Parsing — "Unexpected EOF While Looking for Matching `'`"
+
+**Pattern:** An agent constructs a single Bash tool call containing multiple `cat <<'EOF'` heredocs to write code files inline. The code being written contains single quotes, double quotes, or other shell-special characters. Bash mis-parses the compound command's quoting structure before any heredoc is processed, exiting with "unexpected EOF while looking for matching `''`". No files are partially written.
+
+**Instances:**
+- 2026-10-17 — Rosetta Stone (p/6#99): one Bash call wrote three TypeScript test files through `cat <<'EOF'` heredocs. Bash's quote parsing broke on the code's quotes before execution. Resolved: wrote all three files with the Write tool instead.
+
+**Root Cause:** Bash's command parser processes quoting for the entire compound command before evaluating any heredocs. When code in a heredoc body contains single quotes, Bash can mistake them for the delimiter of a surrounding quoted argument, breaking the parse. This is the failure mode the AGENTS.md Shell Quoting Rule is designed to prevent.
+
+**Prevention:**
+1. **Use the Write tool for all code files.** Never write code files through Bash heredocs — the Shell Quoting Rule is authoritative: "Code with special shell characters: use Edit/Write, and run scripts from a file; never use inline heredocs, `sed` or `awk` for it."
+2. **"Unexpected EOF while looking for matching `''`" in a Bash call that contains heredocs** is a reliable diagnostic for bash quote-parsing failure — switch to the Write tool.
+3. **This failure mode is distinct from #251** (which is about heredoc content corruption from `\'` producing unescaped `'` in output). Here, the command never executes — bash fails at parse time, so no files are partially written.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#99). Related: #251 (heredoc content corruption), Shell Quoting Rule (AGENTS.md).
+
+**Applies To:** All agents writing code files via Bash heredocs; use Write/Edit instead.
+
+---
+
+## #271 [Build] PowerShell Cmdlets Piped Outside `pwsh -Command "..."` Are Parsed by Bash — "Command Not Found"
+
+**Pattern:** An agent runs `pwsh -NoProfile -Command "..." 2>&1 | Select-Object -First 40` from the Bash tool. The `| Select-Object -First 40` portion is outside the `-Command` string, so Bash (not PowerShell) parses it. Bash does not know `Select-Object` and errors "command not found." The PowerShell command itself may have completed successfully.
+
+**Instances:**
+- 2026-10-17 — DevOps Worker (p/749#16): `pwsh -NoProfile -Command "..." 2>&1 | Select-Object -First 40` from the Bash tool. `Select-Object` was parsed by bash → "Select-Object: command not found." Resolved: moved `Select-Object` inside the `-Command` string.
+
+**Root Cause:** In the Bash tool, only what is inside the `-Command "..."` string is executed by PowerShell. Anything outside — including piped stages appended after the closing quote — is parsed and executed by bash. PowerShell cmdlets are not bash commands.
+
+**Prevention:**
+1. **Put the full PowerShell pipeline inside the `-Command "..."` string.** If truncation or post-processing is needed, do it in PowerShell: `pwsh -NoProfile -Command "... | Select-Object -First 40"`.
+2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
+3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#16).
+
+**Applies To:** All agents running `pwsh -Command "..."` from the Bash tool with PowerShell cmdlets in the pipeline.
