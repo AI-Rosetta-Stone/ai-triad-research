@@ -976,10 +976,21 @@ jobs:
   tag-known-good:
     needs: [preflight, deploy]
     runs-on: ubuntu-latest
-    if: needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true'
+    # SO delta (p/682#29): gated off (`false &&`) until C1 (the cmdlet fix, PowerShell,
+    # p/169#202) lands — merged live today, this job is GUARANTEED to warn on every prod
+    # deploy, training everyone to ignore t/4170 warnings before the real ones start. The real
+    # condition is written out below so flipping it on is a one-line removal once C1 lands.
+    if: false && needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true'
     timeout-minutes: 10
+    continue-on-error: true  # SO C3: a checkout/login/module-import failure must not fail the
+                              # job and turn an otherwise-successful deploy run red.
     permissions:
-      packages: write  # SO C3: scoped to this job only (workflow-level permissions stayed packages:read)
+      # SO C3: job-level `permissions:` REPLACES the workflow-level set, it does not merge with
+      # it — `packages: write` alone would leave this job with no `id-token`/`contents`, and
+      # azure/login (OIDC) would fail. All three are required here.
+      contents: read
+      id-token: write
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
