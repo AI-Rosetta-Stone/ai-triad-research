@@ -6,8 +6,12 @@
 // classification (which sample is a starvation WARN vs a routine gauge) is the pure,
 // testable core. Both arms + the threshold boundary.
 
-import { describe, it, expect } from 'vitest';
-import { classifyEventLoopSample, EVENT_LOOP_LAG_WARN_MS, type EventLoopSample } from '../eventLoopMonitor.js';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import {
+  classifyEventLoopSample, EVENT_LOOP_LAG_WARN_MS,
+  startEventLoopMonitor, stopEventLoopMonitor, getLastEventLoopSample,
+  type EventLoopSample,
+} from '../eventLoopMonitor.js';
 
 const sample = (maxMs: number, overrides: Partial<EventLoopSample> = {}): EventLoopSample => ({
   maxMs, meanMs: 5, p99Ms: 20, utilization: 0.3, ...overrides,
@@ -42,5 +46,36 @@ describe('classifyEventLoopSample (t/3166)', () => {
     expect(message).toContain('mean 3.2ms');
     expect(message).toContain('p99 12ms');
     expect(message).toContain('ELU 55%');
+  });
+});
+
+// t/4239/t/4240 — /health's unauth branch needs the last sample retained, not discarded after
+// logging (the original gap this handoff closes).
+describe('getLastEventLoopSample (t/4240)', () => {
+  afterEach(() => {
+    stopEventLoopMonitor();
+    vi.useRealTimers();
+  });
+
+  it('is null before the first tick', () => {
+    expect(getLastEventLoopSample()).toBeNull();
+  });
+
+  it('is set to the tick\'s sample once the interval fires', () => {
+    vi.useFakeTimers();
+    startEventLoopMonitor(1000);
+    vi.advanceTimersByTime(1000);
+    const sample = getLastEventLoopSample();
+    expect(sample).not.toBeNull();
+    expect(typeof sample!.maxMs).toBe('number');
+  });
+
+  it('is cleared back to null by stopEventLoopMonitor()', () => {
+    vi.useFakeTimers();
+    startEventLoopMonitor(1000);
+    vi.advanceTimersByTime(1000);
+    expect(getLastEventLoopSample()).not.toBeNull();
+    stopEventLoopMonitor();
+    expect(getLastEventLoopSample()).toBeNull();
   });
 });

@@ -25,6 +25,7 @@ import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
 import { log } from '../logger.js';
 import { LLMS_TXT } from '../llmsTxt.js';
+import { getLastEventLoopSample } from '../eventLoopMonitor.js';
 
 // t/2059: throttle the readiness log to state transitions. ACA probes /healthz
 // every few seconds, so logging every not-ready probe would spam the log. Emit
@@ -166,7 +167,10 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // to compare the running image's SHA against origin/main HEAD. Public repo → the commit SHA is not
     // secret. `?? null` so a build that didn't bake BUILD_SHA is a visible null (a vacuous compare the
     // checker treats as sha-unavailable), never a crash.
-    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize } }); return; }
+    // t/4239/t/4240: eventLoopLagMs in the same unauth branch — the t/4180 load-test harness polls
+    // /health anonymously (same as every VU), so an admin-gated field would be invisible to it.
+    // Lead-approved minor info disclosure (current load state, not data, p/648#240).
+    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize }, eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null }); return; }
     const base: Record<string, unknown> = {
       status: 'ok',
       version: ctx.serverVersion,
