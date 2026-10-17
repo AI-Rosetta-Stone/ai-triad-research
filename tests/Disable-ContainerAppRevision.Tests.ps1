@@ -64,14 +64,13 @@ Describe 'Disable-ContainerAppRevision (t/1500)' -Tag 'taxonomy' {
         }
     }
 
-    It 'ActionableError when az not on PATH: throws (message is ScriptHalted, that is expected)' {
+    It 'ActionableError when az not on PATH: throws with the actionable message' {
         InModuleScope AITriad {
             Mock Get-Command -ParameterFilter { $Name -eq 'az' } -MockWith { $null }
 
-            # New-ActionableError calls Write-Error then throws 'ScriptHalted'.
-            # We just verify it throws — the Write-Error output contains 'not found'.
+            # -AsErrorRecord (t/4237): the thrown record carries the Goal/Error text.
             { Disable-ContainerAppRevision -RevisionName 'taxonomy-editor--rev-bad' -Confirm:$false -ErrorAction Stop } |
-                Should -Throw
+                Should -Throw -ExpectedMessage '*Azure CLI (az) not found on PATH*'
         }
     }
 }

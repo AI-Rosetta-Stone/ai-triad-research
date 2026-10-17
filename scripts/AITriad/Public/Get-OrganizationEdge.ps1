@@ -60,7 +60,7 @@ function Get-OrganizationEdge {
     if ($Type) {
         $res = Resolve-OrganizationEdgeType -Type $Type
         if ($res.Action -ne 'accept') {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Filter organization edges by type' `
                 -Problem "-Type '$Type' is not in the organization edge registry: $($res.Reason)" `
                 -Location 'Get-OrganizationEdge' `

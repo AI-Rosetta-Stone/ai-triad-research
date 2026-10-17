@@ -58,7 +58,7 @@ function Deploy-TaxEditorInfra {
     # ── Validate az CLI ──────────────────────────────────────────────────
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Deploy Bicep infrastructure' `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location $CallerName `
@@ -67,7 +67,7 @@ function Deploy-TaxEditorInfra {
 
     $AccountJson = & az account show --output json 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $AccountJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Deploy Bicep infrastructure' `
             -Problem 'Azure CLI is not logged in' `
             -Location $CallerName `
@@ -77,7 +77,7 @@ function Deploy-TaxEditorInfra {
     # ── Validate git and resolve commit ──────────────────────────────────
     $GitCmd = Get-Command git -ErrorAction SilentlyContinue
     if (-not $GitCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Retrieve Bicep from commit' `
             -Problem 'git not found on PATH' `
             -Location $CallerName `
@@ -86,7 +86,7 @@ function Deploy-TaxEditorInfra {
 
     $FullSha = & git rev-parse --verify "$Commit" 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $FullSha) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Retrieve Bicep from commit' `
             -Problem "Commit '$Commit' not found in repository" `
             -Location $CallerName `
@@ -98,7 +98,7 @@ function Deploy-TaxEditorInfra {
     # ── Extract Bicep from commit ────────────────────────────────────────
     $BicepContent = & git show "${FullSha}:deploy/azure/main.bicep" 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $BicepContent) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Retrieve Bicep from commit' `
             -Problem "deploy/azure/main.bicep not found at commit $ShortSha" `
             -Location $CallerName `
@@ -184,7 +184,7 @@ function Deploy-TaxEditorInfra {
         $DeployOutput = & az @AzDeployArgs 2>$null | Out-String
 
         if ($LASTEXITCODE -ne 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Deploy Bicep from commit $ShortSha" `
                 -Problem "az deployment group create failed (exit code $LASTEXITCODE)" `
                 -Location $CallerName `

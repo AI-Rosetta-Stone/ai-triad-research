@@ -66,7 +66,7 @@ function Invoke-TriadConfigReload {
                elseif ($StatusCode) { "HTTP $StatusCode" }
                else { $_.Exception.Message }
 
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Reload runtime config on taxonomy-editor' `
             -Problem "Config reload error: $Msg" `
             -Location 'Invoke-TriadConfigReload' `

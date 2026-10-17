@@ -75,7 +75,7 @@ function Deploy-TaxEditorImage {
     # ── Validate az CLI ──────────────────────────────────────────────────
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Deploy container image' `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location $CallerName `
@@ -84,7 +84,7 @@ function Deploy-TaxEditorImage {
 
     $AccountJson = & az account show --output json 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $AccountJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Deploy container image' `
             -Problem 'Azure CLI is not logged in' `
             -Location $CallerName `
@@ -110,7 +110,7 @@ function Deploy-TaxEditorImage {
         --image $ImageRef --output json 2>$null
 
     if ($LASTEXITCODE -ne 0 -or -not $RawJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Deploy image '$ImageRef'" `
             -Problem "az containerapp update failed (exit code $LASTEXITCODE)" `
             -Location $CallerName `
@@ -122,7 +122,7 @@ function Deploy-TaxEditorImage {
     $NewRevName = $UpdateResult.properties.latestRevisionName
 
     if (-not $NewRevName) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Deploy image '$ImageRef'" `
             -Problem 'Could not determine new revision name from update result' `
             -Location $CallerName `
@@ -137,7 +137,7 @@ function Deploy-TaxEditorImage {
         --revision-weight "${NewRevName}=100" 2>$null
 
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Shift traffic to new revision '$NewRevName'" `
             -Problem "az containerapp ingress traffic set failed (exit code $LASTEXITCODE)" `
             -Location $CallerName `

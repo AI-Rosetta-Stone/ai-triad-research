@@ -101,7 +101,7 @@ function Get-TaxEditorServerLogs {
         $toUtc   = if ($PSBoundParameters.ContainsKey('To'))   { $To.ToUniversalTime() }   else { [datetime]::UtcNow }
         $fromUtc = if ($PSBoundParameters.ContainsKey('From')) { $From.ToUniversalTime() } else { $toUtc.AddMinutes(-15) }
         if ($fromUtc -gt $toUtc) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal     'Query server logs over a time window' `
                 -Problem  "-From ($fromUtc) is after -To ($toUtc)." `
                 -Location 'Get-TaxEditorServerLogs' `
@@ -123,7 +123,7 @@ function Get-TaxEditorServerLogs {
                 '--output', 'tsv')
             $wsId = if ($wsRaw) { ([string]$wsRaw).Trim() } else { $null }
             if ([string]::IsNullOrWhiteSpace($wsId)) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal     'Resolve the Log Analytics workspace for the container app' `
                     -Problem  "No workspace named 'log-aitriad*' found in resource group '$ResourceGroup'." `
                     -Location 'Get-TaxEditorServerLogs' `
@@ -156,7 +156,7 @@ function Get-TaxEditorServerLogs {
                 Write-Warning '-RequestId is ignored with -System (system logs are not per-request).'
             } else {
                 if ($RequestId -notmatch '^[\w.:\-]+$') {
-                    throw (New-ActionableError `
+                    throw (New-ActionableError -AsErrorRecord `
                         -Goal     'Filter server logs by requestId' `
                         -Problem  "RequestId '$RequestId' contains characters outside the allowed set [A-Za-z0-9._:-]." `
                         -Location 'Get-TaxEditorServerLogs' `

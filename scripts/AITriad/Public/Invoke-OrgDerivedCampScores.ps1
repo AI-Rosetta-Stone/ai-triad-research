@@ -99,7 +99,7 @@ function Invoke-OrgDerivedCampScores {
     $taxDir = Get-TaxonomyDir
     if (-not $OrgEdgesPath) { $OrgEdgesPath = Join-Path $taxDir 'organization_edges.json' }
     if (-not (Test-Path $OrgEdgesPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Compute derived camp scores' `
             -Problem "Organization edges file not found: $OrgEdgesPath" `
             -Location 'Invoke-OrgDerivedCampScores' `

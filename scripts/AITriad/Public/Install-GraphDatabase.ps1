@@ -123,7 +123,7 @@ function Install-GraphDatabase {
         # t/3857: this used to Write-Fail + bare `return` -- never rethrow, so a missing/stopped
         # Docker daemon was indistinguishable from a successful (silent no-op) install. No internal
         # caller relies on this today, but a silent $null on failure is a trap for the next one.
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Install Neo4j via Docker' `
                 -Problem 'Docker is not installed or not running.' `
                 -Location 'Install-GraphDatabase' `

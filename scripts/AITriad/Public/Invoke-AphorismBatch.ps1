@@ -66,7 +66,7 @@ function Invoke-AphorismBatch {
     if (-not $TaxonomyPath) { $TaxonomyPath = Get-TaxonomyDir }
 
     if (-not (Test-Path $TaxonomyPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Generate POV node aphorisms' `
             -Problem "Taxonomy directory not found: $TaxonomyPath" `
             -Location 'Invoke-AphorismBatch' `

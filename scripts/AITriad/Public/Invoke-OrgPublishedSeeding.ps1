@@ -69,7 +69,7 @@ function Invoke-OrgPublishedSeeding {
 
     if (-not $SourcesPath) { $SourcesPath = Get-SourcesDir }
     if (-not (Test-Path $SourcesPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Seed PUBLISHED edges' `
             -Problem "Sources directory not found: $SourcesPath" `
             -Location 'Invoke-OrgPublishedSeeding' `

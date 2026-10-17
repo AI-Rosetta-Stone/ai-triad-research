@@ -45,7 +45,7 @@ function Get-TaxEditorRevision {
 
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'List ACA revisions' `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location 'Get-TaxEditorRevision' `
@@ -54,7 +54,7 @@ function Get-TaxEditorRevision {
 
     $AccountJson = & az account show --output json 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $AccountJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'List ACA revisions' `
             -Problem 'Azure CLI is not logged in' `
             -Location 'Get-TaxEditorRevision' `
@@ -63,7 +63,7 @@ function Get-TaxEditorRevision {
 
     $RevisionJson = & az containerapp revision list -g $ResourceGroup -n $AppName --output json 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $RevisionJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'List ACA revisions' `
             -Problem "Failed to query revisions for '$AppName' in resource group '$ResourceGroup'" `
             -Location 'Get-TaxEditorRevision' `

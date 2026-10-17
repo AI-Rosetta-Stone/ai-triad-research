@@ -84,7 +84,7 @@ function Get-SyntheticStatement {
                 $doc = Get-Content -Raw -LiteralPath $file | ConvertFrom-Json
             }
             catch {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                         -Goal     'Read synthetic statements for a BDI element' `
                         -Problem  "Synthetic corpus is not valid JSON: $file — $($_.Exception.Message)" `
                         -Location 'Get-SyntheticStatement' `

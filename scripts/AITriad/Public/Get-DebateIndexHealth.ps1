@@ -65,7 +65,7 @@ function Get-DebateIndexHealth {
     if (-not $DebatesDir) {
         $DataRoot = Get-DataRoot
         if (-not $DataRoot) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal     'Locate debates index' `
                 -Problem  'Could not resolve data root — .aitriad.json not found' `
                 -Location 'Get-DebateIndexHealth' `
@@ -92,7 +92,7 @@ function Get-DebateIndexHealth {
     try {
         $Index = Get-Content -Raw -Path $IndexPath | ConvertFrom-Json
     } catch {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal     'Scan the debates index' `
             -Problem  "Index is not valid JSON: $($_.Exception.Message)" `
             -Location 'Get-DebateIndexHealth' `

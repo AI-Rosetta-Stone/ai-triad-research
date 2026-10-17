@@ -57,7 +57,7 @@ function Get-TaxEditorBlob {
     # ── Validate az CLI ──────────────────────────────────────────────────
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'List storage blobs' `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location $CallerName `
@@ -66,7 +66,7 @@ function Get-TaxEditorBlob {
 
     $AccountJson = & az account show --output json 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $AccountJson) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'List storage blobs' `
             -Problem 'Azure CLI is not logged in' `
             -Location $CallerName `
@@ -77,7 +77,7 @@ function Get-TaxEditorBlob {
     if (-not $StorageAccount) {
         $AccountListJson = & az storage account list -g $ResourceGroup --query "[?starts_with(name,'staitriad')].name" -o json 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $AccountListJson) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Resolve storage account' `
                 -Problem "No storage accounts found in resource group '$ResourceGroup'" `
                 -Location $CallerName `
@@ -86,7 +86,7 @@ function Get-TaxEditorBlob {
         }
         $Accounts = $AccountListJson | ConvertFrom-Json
         if (@($Accounts).Count -eq 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Resolve storage account' `
                 -Problem "No 'staitriad*' storage accounts found in '$ResourceGroup'" `
                 -Location $CallerName `

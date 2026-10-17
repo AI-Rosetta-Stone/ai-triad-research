@@ -64,7 +64,7 @@ function Invoke-CypherQuery {
         $Pair = "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)"
     } else {
         if (-not $env:NEO4J_PASSWORD) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Run Cypher query' `
                 -Problem 'NEO4J_PASSWORD environment variable is not set and no -Credential was provided' `
                 -Location 'Invoke-CypherQuery' `
@@ -101,7 +101,7 @@ function Invoke-CypherQuery {
         # failures) has no .Response property at all -- check PSObject.Properties before access.
         $Resp = if ($_.Exception.PSObject.Properties['Response']) { $_.Exception.Response } else { $null }
         if ($Resp -and [int]$Resp.StatusCode -eq 401) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Run Cypher query' `
                     -Problem "Neo4j rejected the credential (HTTP 401) at $HttpUri." `
                     -Location 'Invoke-CypherQuery' `
@@ -109,7 +109,7 @@ function Invoke-CypherQuery {
                         'Confirm -Credential or $env:NEO4J_PASSWORD matches the running database.',
                         'Re-run Install-GraphDatabase -Force if the credential was lost or the database was recreated.'))
         }
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Run Cypher query' `
                 -Problem "Could not reach Neo4j at ${HttpUri}: $($_.Exception.Message)" `
                 -Location 'Invoke-CypherQuery' `
@@ -123,7 +123,7 @@ function Invoke-CypherQuery {
         # a THIRD failure mode -- Neo4j returns HTTP 200 with an `errors` array, so it never reaches
         # the catch above. Distinct from unauthorized/unreachable: the remedy here is "fix the query."
         $Messages = @($Response.errors | ForEach-Object { $_.message })
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Run Cypher query' `
                 -Problem "Neo4j returned a Cypher error: $($Messages -join '; ')" `
                 -Location 'Invoke-CypherQuery' `

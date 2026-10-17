@@ -57,7 +57,7 @@ function Get-FlightRecorderReport {
 
     process {
         if (-not (Test-Path $Path)) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Generate flight recorder report' `
                 -Problem "File not found: $Path" `
                 -Location 'Get-FlightRecorderReport' `

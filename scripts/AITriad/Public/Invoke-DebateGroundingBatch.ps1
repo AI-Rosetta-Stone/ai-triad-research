@@ -81,7 +81,7 @@ function Invoke-DebateGroundingBatch {
 
     if (-not $TaxonomyPath) { $TaxonomyPath = Get-TaxonomyDir }
     if (-not (Test-Path $TaxonomyPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Generate debate-grounding statements' `
                 -Problem "Taxonomy directory not found: $TaxonomyPath" `
                 -Location 'Invoke-DebateGroundingBatch' `

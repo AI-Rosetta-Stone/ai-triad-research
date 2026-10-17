@@ -290,7 +290,7 @@ $SchemaPrompt
             # AI returned that couldn't be parsed even after repair was indistinguishable from a
             # successful query. No internal caller relies on this today, but a silent $null on
             # failure is a trap for the next one.
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Answer the graph query' `
                     -Problem "The AI response could not be parsed as JSON, even after repair: $($_.Exception.Message)" `
                     -Location 'Invoke-GraphQuery' `

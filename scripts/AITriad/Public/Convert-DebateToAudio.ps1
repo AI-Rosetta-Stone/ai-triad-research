@@ -74,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 # ── Resolve API key ──────────────────────────────────────────────────────────
 if (-not $ApiKey) { $ApiKey = $env:OPENAI_API_KEY }
 if (-not $ApiKey) {
-    throw (New-ActionableError -Goal 'Generate debate audio' `
+    throw (New-ActionableError -AsErrorRecord -Goal 'Generate debate audio' `
         -Problem 'No OpenAI API key provided' `
         -Location 'Convert-DebateToAudio' `
         -NextSteps @('Set $env:OPENAI_API_KEY', 'Pass -ApiKey parameter'))
@@ -82,7 +82,7 @@ if (-not $ApiKey) {
 
 # ── Verify ffmpeg ────────────────────────────────────────────────────────────
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-    throw (New-ActionableError -Goal 'Concatenate audio clips' `
+    throw (New-ActionableError -AsErrorRecord -Goal 'Concatenate audio clips' `
         -Problem 'ffmpeg not found on PATH' `
         -Location 'Convert-DebateToAudio' `
         -NextSteps @('Install ffmpeg: winget install ffmpeg', 'Add ffmpeg to PATH'))
@@ -106,7 +106,7 @@ if ($VoiceMap) {
 # ── Load debate session ──────────────────────────────────────────────────────
 $Session = Get-Content -Raw -Path $Path | ConvertFrom-Json
 if (-not $Session.transcript -or $Session.transcript.Count -eq 0) {
-    throw (New-ActionableError -Goal 'Convert debate to audio' `
+    throw (New-ActionableError -AsErrorRecord -Goal 'Convert debate to audio' `
         -Problem 'Debate session has no transcript entries' `
         -Location $Path `
         -NextSteps @('Ensure the debate has been run and has transcript entries'))
@@ -244,7 +244,7 @@ if (Test-Path $OutputPath) {
     $Size = [math]::Round((Get-Item $OutputPath).Length / 1MB, 1)
     Write-Host "  Output: $OutputPath ($Size MB)" -ForegroundColor Green
 } else {
-    throw (New-ActionableError -Goal 'Produce final audio file' `
+    throw (New-ActionableError -AsErrorRecord -Goal 'Produce final audio file' `
         -Problem 'ffmpeg concatenation failed' `
         -Location 'Convert-DebateToAudio' `
         -NextSteps @('Check ffmpeg output', "Clips are in: $TempDir"))
