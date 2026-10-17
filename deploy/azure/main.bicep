@@ -177,6 +177,14 @@ param githubRunnerPat string = ''
 @description('HMAC secret for verifying GitHub runner webhook signatures')
 param githubRunnerWebhookSecret string = ''
 
+// Prod's own resources, as a single source of truth (t/4203 SO C1, p/682#44 / e/307#2):
+// stagingLoadTestSize below reads these instead of a hardcoded literal, so the load test
+// always measures whatever prod's CURRENT size actually is, not a stale snapshot of it — the
+// exact gap that made the first version of stagingLoadTestSize "prove it at the size you're
+// moving away from" when t/4263 proposed changing prod's own cpu/memory.
+var prodCpu = '2.0'
+var prodMemory = '4Gi'
+
 var googleEnabled = !empty(googleClientId) && !empty(googleClientSecret)
 var githubEnabled = !empty(githubClientId) && !empty(githubClientSecret)
 var aadEnabled = !empty(aadClientId) && !empty(aadClientSecret)
@@ -612,6 +620,10 @@ var stagingEnvOverrides = [
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount
   { name: 'AI_TRIAD_STATE_ROOT', value: '/mnt/staging-state' }
+  // t/4264 / t/2643 SO (e/307#6): without this, AnonymousSessionStore.defaultBaseDir()
+  // falls back to /mnt/shared/anon-sessions and staging's own TTL/maxSessions eviction
+  // runs over PROD's anonymous session files. Isolates it like the two overrides above.
+  { name: 'ANON_SESSION_DIR',    value: '/mnt/staging-state/anon-sessions' }
   // github-api writes go to the staging branch, not main (t/2650 class-B isolation)
   { name: 'GITHUB_BRANCH',       value: 'staging' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
@@ -687,8 +699,12 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             // step; t/3182). Headroom is ample regardless: incident RSS ~650MB/2048 + ~250MB
             // worker model copy ~= 900MB (embeddings.json is NOT copied to the worker — the
             // cache resolve stays main-thread, only miss-texts marshal).
-            cpu: json('2.0')
-            memory: '4Gi'
+            //
+            // t/4203 SO C1: these are now the prodCpu/prodMemory vars (single source of truth),
+            // not independent literals — whoever changes prod's size (e.g. t/4263) edits the var
+            // near the top of this file, not this line, so stagingLoadTestSize stays correct.
+            cpu: json(prodCpu)
+            memory: prodMemory
           }
           env: containerEnv
           probes: [
@@ -823,11 +839,13 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'taxonomy-editor'
           image: containerImage
-          // t/4203: prod-size (2 vCPU/4Gi) only while stagingLoadTestSize=true, for the t/4180
-          // load test to run at a representative size. Defaults back to staging's normal small
-          // footprint on the very next ordinary deploy.
+          // t/4203: prod-size only while stagingLoadTestSize=true, for the t/4180 load test to
+          // run at a representative size. Defaults back to staging's normal small footprint on
+          // the very next ordinary deploy. SO C1 (p/682#44, e/307#2): reads prodCpu/prodMemory
+          // rather than a hardcoded 2.0/4Gi, so the load test always matches prod's CURRENT
+          // size — if prod's own resources change (e.g. t/4263), this follows automatically.
           resources: stagingLoadTestSize
-            ? { cpu: json('2.0'), memory: '4Gi' }
+            ? { cpu: json(prodCpu), memory: prodMemory }
             : { cpu: json('0.25'), memory: '0.5Gi' }
           env: stagingContainerEnv
           probes: [
