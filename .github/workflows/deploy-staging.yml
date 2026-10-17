@@ -282,9 +282,14 @@ jobs:
             }
             if ($Gate.LastRefusal) { Write-Host "::error::Last GitHub refusal seen in the revision log: $($Gate.LastRefusal)" }
             if ($Gate.Result) { $Gate.Result.Checks | Format-Table -AutoSize }
-            exit 1
+            # t/4249: explicit from the verdict, not an ambient $LASTEXITCODE — belt-and-suspenders,
+            # Wait-RevisionActivation itself already resets $LASTEXITCODE=0 before returning.
+            exit (Get-HealthCheckExitCode $Gate.Verdict)
           }
           Write-Host "Health gate passed"
+          # t/4249: reset explicitly here too — the smoke test below runs more native calls, and a
+          # reader should never have to trace whether $LASTEXITCODE is clean at this point.
+          $global:LASTEXITCODE = 0
 
           # Full smoke: all 6 endpoint categories (mandatory pre-traffic gate, t/2376).
           Write-Host "=== Full smoke test against 0%-traffic revision: $BaseUrl ==="
