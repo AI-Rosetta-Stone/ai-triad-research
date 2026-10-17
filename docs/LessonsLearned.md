@@ -5276,7 +5276,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 1 instance (ServerAPI p/504#21).
+**Status:** Active — 2 instances (ServerAPI p/504#21; DevOps Worker p/749#14).
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5484,21 +5484,63 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #261 [Build] Compound `git commit && git push` With a Long Message Hits the 120s Bash Timeout — Commit Silently Backgrounded, Ref Never Exists
+## #261 [Build] Compound Bash Call With File Write + Long-Running CLI (commit, pr create) Hits 120s Timeout — Command Silently Backgrounded, Never Completes
 
-**Pattern:** An agent chains `git commit -m "$(cat <<'EOF'…EOF)" && git push origin <branch>` in a single Bash call. The commit message is long (multi-paragraph). The call hits the 120s Bash tool timeout mid-execution. The commit is moved to background — the change is staged-but-uncommitted — and the push never runs. A subsequent `git log origin/<branch>` errors "unknown revision" because the ref genuinely does not exist on the remote yet. The agent may misdiagnose this as a fetch failure or ref lookup error.
+**Pattern:** An agent chains a file-write (heredoc or long content) with a long-running CLI call (`git commit`, `gh pr create`) in a single Bash call. The call hits the 120s Bash tool timeout mid-execution. The command is moved to background — the file write may not flush and the CLI call never completes. The tool reports normal background execution but output is empty and no artifact (commit, PR) is created.
 
 **Instances:**
-- 2026-10-16 — DevOps Worker (p/749#11): compound `git commit -m "$(…long message…)" && git push` timed out. Change was staged-but-uncommitted. `git log origin/<branch>` errored "unknown revision." Resolved: `git status` confirmed staged state, re-ran `git commit` (fast, completed immediately), then `git push` separately.
+- 2026-10-16 — DevOps Worker (p/749#11): compound `git commit -m "$(…long message…)" && git push` timed out. Change was staged-but-uncommitted. `git log origin/<branch>` errored "unknown revision." Resolved: `git status` confirmed staged state, re-ran `git commit` separately, then `git push`.
+- 2026-10-17 — DevOps Lead (p/26#178): `gh pr create` chained after a heredoc body-file write silently never completed — output file was empty, no PR created. Resolved: re-wrote the body file with the Write tool, re-ran `gh pr create` in the foreground separately — succeeded immediately (PR #3367).
 
-**Root Cause:** The 120s Bash timeout fires while the commit command is still running (possibly blocked on message expansion or hook). The tool backgrounds the process and returns. The staged index is untouched (the commit didn't complete), so the ref never advances.
+**Root Cause:** The 120s Bash timeout fires while a slow heredoc write or CLI setup is still running. The tool backgrounds the process. The staged index or file write is untouched (the command didn't complete), so no artifact is produced — but the tool exit looks normal.
 
 **Prevention:**
-1. **Never chain `git commit` + `git push` in a single Bash call when the commit message is multi-line or long.** Run them as separate calls.
-2. **Write long commit messages to a file with the Write tool and use `git commit -F <file>`** — keeps the commit call short and avoids inline heredoc expansion delays.
-3. **"unknown revision" on `git log origin/<branch>` immediately after a commit+push** is a diagnostic: check `git status` first. Staged files confirm the commit didn't complete; a clean tree with no new commit on `git log --oneline -1` confirms the same.
-4. **After any Bash timeout on a `git commit` call, check `git status` before assuming the commit landed.**
+1. **Never chain a file-write + long-running CLI call in a single Bash call.** Run them as separate calls.
+2. **Use the Write tool for PR body files and commit message files** — not bash heredocs — then invoke the CLI separately. This avoids heredoc expansion delays and keeps each Bash call short.
+3. **After a backgrounded or timed-out Bash call involving `git commit` or `gh pr create`, verify the artifact exists** before proceeding: `git status` (staged = commit didn't land), `gh pr list` (no PR = create didn't complete).
+4. **Empty output from a backgrounded `gh pr create`** is a reliable diagnostic — re-run in the foreground after writing the body file with the Write tool.
 
-**Status:** Active — 1 instance (DevOps Worker p/749#11).
+**Status:** Active — 2 instances (DevOps Worker p/749#11; DevOps Lead p/26#178).
 
-**Applies To:** All agents running `git commit` with multi-line messages in the Bash tool; use `-F <file>` and separate the commit from the push.
+**Applies To:** All agents running `git commit` with multi-line messages or `gh pr create` with body files in the Bash tool; use Write tool for file content and separate each CLI call.
+
+---
+
+## #263 [Build] jq `\(` String Interpolation Mangled by Bash Double-Quoting in `--jq` Argument — Write the Program to a File
+
+**Pattern:** An agent passes a jq program containing `\(` (jq string interpolation syntax) as a double-quoted bash argument to `gh --jq "…\(…"` or `jq "…\(…"`. Bash processes the backslash before jq sees it, mangling or stripping the interpolation syntax and causing a jq parse error or unexpected output.
+
+**Instances:**
+- 2026-10-17 — Rosetta Stone (p/6#96): a jq regex containing `\(` inside a double-quoted `--jq` argument tripped jq's string-interpolation parser. Resolved: wrote the jq program to a file and used `--jq "$(cat file)"`.
+
+**Root Cause:** Bash's double-quote processing strips or transforms backslash sequences before the argument reaches jq. `\(` in a double-quoted string is interpreted by bash, not passed through literally.
+
+**Prevention:**
+1. **When a jq program contains `\(`, `\"`, or other backslash sequences, write it to a file** and use `--jq "$(cat file)"` or pipe: `jq -r '…' <<'JQ_EOF'` … `JQ_EOF` (single-quoted heredoc passes the program literally).
+2. **Single-quoted strings (`'…'`) in bash pass `\(` literally to jq** — prefer single quotes for inline jq programs that contain backslash sequences.
+3. **A jq parse error on a program that looks correct in isolation** is a reliable diagnostic for bash-quoting mangling — inspect with `printf '%s\n' "$JQ_PROG"` to see what jq actually received.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#96).
+
+**Applies To:** All agents constructing jq programs with `\(` interpolation, regex literals, or `\"` in bash double-quoted arguments.
+
+---
+
+## #264 [Build] `MSYS_NO_PATHCONV=1` Suppresses All MSYS Path Translation Including `/dev/null` — Use PowerShell for HTTP Probes on Windows
+
+**Pattern:** An agent sets `MSYS_NO_PATHCONV=1` to prevent MSYS from mangling a path-like string in a curl argument (e.g. `-w "/health"`). This also prevents MSYS from translating `/dev/null` to the Windows equivalent `NUL`. `curl -o /dev/null` then tries to write to a literal path that does not exist on Windows and exits 23 (write error).
+
+**Instances:**
+- 2026-10-17 — Tech Lead (p/335#153): `MSYS_NO_PATHCONV=1 curl -o /dev/null -w "%{http_code}" …/health` returned exit 23. Root cause: `-w "/health"` had been mangled by MSYS without the flag; adding the flag fixed the format string but broke `/dev/null`. Resolved: switched to `Invoke-WebRequest` in PowerShell.
+
+**Root Cause:** `MSYS_NO_PATHCONV=1` is a global suppress — it disables all MSYS path translation for the command, not just the argument that needed protection. `/dev/null` is a POSIX device path that MSYS normally translates to `NUL`; suppressing translation leaves it as a literal path Windows cannot open.
+
+**Prevention:**
+1. **Use PowerShell `Invoke-WebRequest` (or `Invoke-RestMethod`) for HTTP probes on Windows** — no MSYS path translation issues.
+2. **Do not combine `MSYS_NO_PATHCONV=1` with `-o /dev/null`** in the same curl call. If output must be discarded, use `-o NUL` directly (Windows-native) when the flag is set.
+3. **`curl` exit 23 immediately after adding `MSYS_NO_PATHCONV=1`** is a reliable diagnostic for `/dev/null` translation being suppressed — check whether `-o /dev/null` is in the same command.
+4. **The root AGENTS.md recommends `MSYS_NO_PATHCONV=1` for `git show <ref>:<path>`** — it is safe there because no `/dev/null` is involved. Do not apply it globally to all curl commands.
+
+**Status:** Active — 1 instance (Tech Lead p/335#153).
+
+**Applies To:** All agents running curl on Windows (Git Bash / MSYS) when both MSYS path-mangling protection and output-discarding are needed.
