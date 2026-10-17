@@ -48,6 +48,31 @@
 
     WARN-only does NOT silence the logic: the classifier, verdict and gate-arm unit tests
     below always fail on wrong logic. Only the real-tree scan respects the Blocking toggle.
+
+    SECOND CATEGORY: actionable-no-mode (t/4237)
+    New-ActionableError with none of -AsErrorRecord / -PassThru / -Throw only calls Write-Error
+    and returns NOTHING, so `throw (New-ActionableError ...)` throws $null: a bare ScriptHalted
+    with no Goal / Problem / Next Steps, unless the caller happens to run with
+    $ErrorActionPreference = 'Stop' (then the inner Write-Error carries the message). This
+    category counts those throws, per file, against a SEPARATE section of the same baseline
+    JSON (`actionable_no_mode`), with the same ratchet, verdict, regen switch, empty-scan guard,
+    Blocking toggle and proof arm. The `files` section is the bare-throw category, unchanged.
+
+    Counted (an "offender" of this category):
+      * throw (New-ActionableError ...)   -- ParenExpressionAst holding one CommandAst
+      * throw $(New-ActionableError ...)  -- SubExpressionAst holding one such statement
+      with no -AsErrorRecord, -PassThru or -Throw (an explicit `-Switch:$false` counts as
+      absent). A splatted call (@params) with no explicit switch is counted too: the lint cannot
+      see inside the splat, so spell the mode switch at the call site.
+    Not counted:
+      * the same with any mode switch; a standalone New-ActionableError with no throw (its
+        documented Write-Error default, which callers rely on).
+      * `$e = New-ActionableError ...; throw $e` -- out of scope HERE: `throw $var` is already
+        the bare-throw `variable` kind above (allow-list it when $e holds -AsErrorRecord).
+      * string / variable throws -- they belong to the bare-throw category; the two classifiers
+        are disjoint by construction, so no throw is counted twice.
+    Mode-switch names are matched exactly (case-insensitive); an abbreviated switch
+    (e.g. -AsErr) would be counted. None exist today -- spell the switch out.
 #>
 
 BeforeAll {
@@ -119,16 +144,76 @@ BeforeAll {
         return $null
     }
 
+    # ── Category table (t/4237) ─────────────────────────────────────────────────
+    # One row per category: the baseline JSON section it ratchets against, and the words the
+    # verdict, report and gate use. 'bare' keeps the original t/4152 wording byte-for-byte.
+    $script:ThrowLintCategories = @{
+        'bare' = [pscustomobject]@{
+            Section = 'files'
+            Ticket  = 't/4152'
+            Noun    = 'bare throw(s)'
+            Lint    = 'bare-throw-lint'
+            Remedy  = 'Use New-ActionableError (Goal / Problem / Location / Next Steps), e.g. throw (New-ActionableError ... -AsErrorRecord) or New-ActionableError ... -Throw; see docs/error-handling.md.'
+        }
+        'actionable-no-mode' = [pscustomobject]@{
+            Section = 'actionable_no_mode'
+            Ticket  = 't/4237'
+            Noun    = 'no-mode New-ActionableError throw(s)'
+            Lint    = 'actionable-no-mode-lint'
+            Remedy  = 'Add -AsErrorRecord: throw (New-ActionableError ... -AsErrorRecord). Without a mode switch New-ActionableError returns nothing, so the throw throws $null and the message is lost; see docs/error-handling.md.'
+        }
+    }
+
+    # ── Pure classifier, actionable-no-mode (t/4237) ────────────────────────────
+    # Returns 'actionable-no-mode' for `throw (New-ActionableError ...)` / `throw $(...)` with
+    # no -AsErrorRecord / -PassThru / -Throw, else $null. Disjoint from Get-BareThrowKind:
+    # that one only counts string and variable expressions, this one only paren/sub-expressions.
+    function script:Get-ActionableNoModeKind {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.ThrowStatementAst]$Throw)
+        $pipe = $Throw.Pipeline
+        if ($null -eq $pipe -or $pipe -isnot [System.Management.Automation.Language.PipelineAst]) { return $null }
+        if (@($pipe.PipelineElements).Count -ne 1) { return $null }
+        $element = $pipe.PipelineElements[0]
+        if ($element -isnot [System.Management.Automation.Language.CommandExpressionAst]) { return $null }
+        $expr = $element.Expression
+        $inner = $null
+        if ($expr -is [System.Management.Automation.Language.ParenExpressionAst]) {
+            $inner = $expr.Pipeline
+        } elseif ($expr -is [System.Management.Automation.Language.SubExpressionAst]) {
+            $stmts = @($expr.SubExpression.Statements)
+            if ($stmts.Count -eq 1) { $inner = $stmts[0] }
+        }
+        if ($null -eq $inner -or $inner -isnot [System.Management.Automation.Language.PipelineAst]) { return $null }
+        if (@($inner.PipelineElements).Count -ne 1) { return $null }
+        $cmd = $inner.PipelineElements[0]
+        if ($cmd -isnot [System.Management.Automation.Language.CommandAst]) { return $null }
+        if ($cmd.GetCommandName() -ne 'New-ActionableError') { return $null }
+        foreach ($p in @($cmd.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] })) {
+            if ($p.ParameterName -notin @('AsErrorRecord', 'PassThru', 'Throw')) { continue }
+            # `-AsErrorRecord:$false` is present in the text but switches the mode off.
+            $arg = $p.Argument
+            if ($arg -is [System.Management.Automation.Language.VariableExpressionAst] -and $arg.VariablePath.UserPath -eq 'false') { continue }
+            return $null
+        }
+        'actionable-no-mode'
+    }
+
     # Pure: every counted throw in one AST, as {File, Line, Kind, Text} records.
+    # -Category 'bare' (default, t/4152) or 'actionable-no-mode' (t/4237).
     function script:Get-BareThrowOffenders {
         param(
             [Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast,
             [string]$File = '',
-            [object[]]$AllowList = @()
+            [object[]]$AllowList = @(),
+            [ValidateSet('bare', 'actionable-no-mode')][string]$Category = 'bare'
         )
         $throws = $Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst] }, $true)
         foreach ($t in $throws) {
-            $kind = script:Get-BareThrowKind -Throw $t -File $File -AllowList $AllowList
+            $kind = if ($Category -eq 'bare') {
+                script:Get-BareThrowKind -Throw $t -File $File -AllowList $AllowList
+            } else {
+                script:Get-ActionableNoModeKind -Throw $t
+            }
             if ($kind) {
                 [pscustomobject]@{
                     File = $File
@@ -154,8 +239,10 @@ BeforeAll {
     function script:Get-BareThrowVerdict {
         param(
             [Parameter(Mandatory)][hashtable]$Observed,
-            [Parameter(Mandatory)][hashtable]$Baseline
+            [Parameter(Mandatory)][hashtable]$Baseline,
+            [ValidateSet('bare', 'actionable-no-mode')][string]$Category = 'bare'
         )
+        $cat = $script:ThrowLintCategories[$Category]
         $violations = [System.Collections.Generic.List[object]]::new()
         $notes      = [System.Collections.Generic.List[object]]::new()
         foreach ($file in @($Observed.Keys | Sort-Object)) {
@@ -176,7 +263,7 @@ BeforeAll {
             if ($obs -lt $base) {
                 $notes.Add([pscustomobject]@{
                     File = $file; Observed = $obs; Baseline = $base
-                    Message = "ratchet down: $file has $obs bare throw(s), baseline $base -- update the baseline (tests/fixtures/bare-throw-baseline.json; BARETHROWLINT_REGEN_BASELINE=1)"
+                    Message = "ratchet down: $file has $obs $($cat.Noun), baseline $base -- update the baseline (tests/fixtures/bare-throw-baseline.json$(if ($cat.Section -ne 'files') { " section '$($cat.Section)'" }); BARETHROWLINT_REGEN_BASELINE=1)"
                 })
             }
         }
@@ -189,10 +276,15 @@ BeforeAll {
 
     # Pure: human report of the violations, one line per offending throw.
     function script:Format-BareThrowReport {
-        param([Parameter(Mandatory)]$Verdict, [object[]]$Offenders = @())
+        param(
+            [Parameter(Mandatory)]$Verdict,
+            [object[]]$Offenders = @(),
+            [ValidateSet('bare', 'actionable-no-mode')][string]$Category = 'bare'
+        )
+        $cat = $script:ThrowLintCategories[$Category]
         $lines = foreach ($v in $Verdict.Violations) {
             $why = if ($v.Kind -eq 'new-file') { 'not in the baseline' } else { "baseline $($v.Baseline)" }
-            "$($v.File): $($v.Observed) bare throw(s), $why"
+            "$($v.File): $($v.Observed) $($cat.Noun), $why"
             foreach ($o in @($Offenders | Where-Object { $_.File -eq $v.File } | Sort-Object Line)) {
                 "    $($o.File):$($o.Line)  $($o.Text)"
             }
@@ -208,17 +300,20 @@ BeforeAll {
             [object[]]$Offenders = @(),
             [Parameter(Mandatory)][bool]$Blocking,
             # Synthetic tests and the proof arm pass this so CI logs carry each real note once.
-            [switch]$SkipNotes
+            [switch]$SkipNotes,
+            [ValidateSet('bare', 'actionable-no-mode')][string]$Category = 'bare'
         )
+        $cat = $script:ThrowLintCategories[$Category]
         if (-not $SkipNotes) {
-            foreach ($n in $Verdict.Notes) { Write-Host "bare-throw-lint NOTE: $($n.Message)" }
+            foreach ($n in $Verdict.Notes) { Write-Host "$($cat.Lint) NOTE: $($n.Message)" }
         }
-        $remedy = 'Use New-ActionableError (Goal / Problem / Location / Next Steps), e.g. throw (New-ActionableError ... -AsErrorRecord) or New-ActionableError ... -Throw; see docs/error-handling.md.'
-        $report = script:Format-BareThrowReport -Verdict $Verdict -Offenders $Offenders
+        $remedy = $cat.Remedy
+        $report = script:Format-BareThrowReport -Verdict $Verdict -Offenders $Offenders -Category $Category
+        $where  = if ($cat.Section -eq 'files') { 'tests/fixtures/bare-throw-baseline.json' } else { "tests/fixtures/bare-throw-baseline.json section '$($cat.Section)'" }
         if ($Blocking) {
-            @($Verdict.Violations).Count | Should -Be 0 -Because "bare throws rose above tests/fixtures/bare-throw-baseline.json (t/4152). $remedy`n$report"
+            @($Verdict.Violations).Count | Should -Be 0 -Because "$($cat.Noun) rose above $where ($($cat.Ticket)). $remedy`n$report"
         } elseif (@($Verdict.Violations).Count -gt 0) {
-            Write-Warning "bare-throw-lint (WARN-only, t/4152): $(@($Verdict.Violations).Count) file(s) above baseline. $remedy`n$report"
+            Write-Warning "$($cat.Lint) (WARN-only, $($cat.Ticket)): $(@($Verdict.Violations).Count) file(s) above baseline. $remedy`n$report"
         }
     }
 
@@ -235,59 +330,107 @@ BeforeAll {
                 Write-Warning "bare-throw-lint: $rel has $(@($errors).Count) parse error(s); scanning the partial AST, so its count may be low."
             }
             script:Get-BareThrowOffenders -Ast $ast -File $rel -AllowList $AllowList
+            # One parse feeds both categories; the actionable-no-mode records carry their own Kind.
+            script:Get-BareThrowOffenders -Ast $ast -File $rel -Category 'actionable-no-mode'
         }
-        [pscustomobject]@{ FileCount = $files.Count; Offenders = @($offenders) }
+        $all = @($offenders)
+        [pscustomobject]@{
+            FileCount           = $files.Count
+            Offenders           = @($all | Where-Object { $_.Kind -ne 'actionable-no-mode' })
+            ActionableOffenders = @($all | Where-Object { $_.Kind -eq 'actionable-no-mode' })
+        }
     }
 
+    # -Section 'files' (bare, default) or 'actionable_no_mode' (t/4237). A missing section reads
+    # as an empty table, so a baseline written before t/4237 still loads.
     function script:Read-BareThrowBaseline {
-        param([Parameter(Mandatory)][string]$Path)
+        param([Parameter(Mandatory)][string]$Path, [string]$Section = 'files')
         $json = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
         $table = @{}
-        foreach ($p in $json.files.PSObject.Properties) { $table[$p.Name] = [int]$p.Value }
+        if ($json.PSObject.Properties[$Section]) {
+            foreach ($p in $json.$Section.PSObject.Properties) { $table[$p.Name] = [int]$p.Value }
+        }
         $table
     }
 
-    # Regenerate helper (BARETHROWLINT_REGEN_BASELINE=1); no public cmdlet needed.
-    function script:Write-BareThrowBaseline {
-        param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][hashtable]$Counts, [hashtable]$Previous = @{})
-        # A first-ever generation (no previous baseline) seeds every file; only warn on a re-generation.
+    # Pure: warn on every file whose count rose (regen only). A first-ever generation of a
+    # section (no previous entries) seeds every file, so it only warns on a re-generation.
+    function script:Test-BareThrowRegenRises {
+        param([Parameter(Mandatory)][hashtable]$Counts, [hashtable]$Previous = @{}, [string]$Lint = 'bare-throw-lint')
         foreach ($k in @($Counts.Keys | Where-Object { $Previous.Count -gt 0 } | Sort-Object)) {
             $before = if ($Previous.ContainsKey($k)) { [int]$Previous[$k] } else { 0 }
             if ($Counts[$k] -gt $before) {
-                Write-Warning "bare-throw-lint regen: $k RISES $before -> $($Counts[$k]); a raise needs a reason in the PR -- convert the throw instead."
+                Write-Warning "$Lint regen: $k RISES $before -> $($Counts[$k]); a raise needs a reason in the PR -- convert the throw instead."
             }
         }
+    }
+
+    # Regenerate helper (BARETHROWLINT_REGEN_BASELINE=1); no public cmdlet needed. Writes BOTH
+    # sections: `files` (bare, t/4152) and `actionable_no_mode` (t/4237).
+    function script:Write-BareThrowBaseline {
+        param(
+            [Parameter(Mandatory)][string]$Path,
+            [Parameter(Mandatory)][hashtable]$Counts,
+            [hashtable]$Previous = @{},
+            [hashtable]$ActionableCounts = @{},
+            [hashtable]$PreviousActionable = @{}
+        )
+        script:Test-BareThrowRegenRises -Counts $Counts -Previous $Previous -Lint 'bare-throw-lint'
+        script:Test-BareThrowRegenRises -Counts $ActionableCounts -Previous $PreviousActionable -Lint 'actionable-no-mode-lint'
         $files = [ordered]@{}
         foreach ($k in @($Counts.Keys | Sort-Object)) { $files[$k] = [int]$Counts[$k] }
+        $actionable = [ordered]@{}
+        foreach ($k in @($ActionableCounts.Keys | Sort-Object)) { $actionable[$k] = [int]$ActionableCounts[$k] }
         $doc = [ordered]@{
             __meta__ = [ordered]@{
                 ticket     = 't/4152'
                 doc        = 'Bare-throw ratchet baseline: per-file count of bare string/variable throws in scripts/AITriad/ (see tests/BareThrowLint.Tests.ps1 header for what counts). A count may only go down.'
                 regenerate = "`$env:BARETHROWLINT_REGEN_BASELINE='1'; Invoke-Pester tests/BareThrowLint.Tests.ps1; Remove-Item Env:BARETHROWLINT_REGEN_BASELINE"
+                actionable_no_mode = 't/4237: per-file count of throw (New-ActionableError ...) with no -AsErrorRecord / -PassThru / -Throw (throws $null). Same ratchet and regen switch as files.'
             }
-            files = $files
+            files              = $files
+            actionable_no_mode = $actionable
         }
         ($doc | ConvertTo-Json -Depth 5) + "`n" | Set-Content -LiteralPath $Path -NoNewline -Encoding utf8NoBOM
+    }
+
+    # Pure (t/4146 lesson #247, extended to t/4237): $true when a regen must REFUSE to write,
+    # because the scan saw no files, or a category saw no offenders while its baseline has some.
+    function script:Test-BareThrowRegenEmptyScan {
+        param(
+            [Parameter(Mandatory)][int]$FileCount,
+            [Parameter(Mandatory)][hashtable]$Observed,
+            [Parameter(Mandatory)][hashtable]$Previous,
+            [Parameter(Mandatory)][hashtable]$ObservedActionable,
+            [Parameter(Mandatory)][hashtable]$PreviousActionable
+        )
+        ($FileCount -eq 0) -or
+            ($Observed.Count -eq 0 -and $Previous.Count -gt 0) -or
+            ($ObservedActionable.Count -eq 0 -and $PreviousActionable.Count -gt 0)
     }
 
     # ── Real-tree scan (once) ───────────────────────────────────────────────────
     $script:TreeScan = script:Get-BareThrowTreeScan -RepoRoot $script:RepoRoot -AllowList $script:BareThrowAllowList
     $script:ObservedCounts = script:Measure-BareThrowCounts -Offenders $script:TreeScan.Offenders
+    $script:ObservedActionableCounts = script:Measure-BareThrowCounts -Offenders $script:TreeScan.ActionableOffenders
 
     if ($env:BARETHROWLINT_REGEN_BASELINE -eq '1') {
-        $prev = if (Test-Path -LiteralPath $script:BaselinePath) { script:Read-BareThrowBaseline -Path $script:BaselinePath } else { @{} }
+        $hasBaseline = Test-Path -LiteralPath $script:BaselinePath
+        $prev      = if ($hasBaseline) { script:Read-BareThrowBaseline -Path $script:BaselinePath } else { @{} }
+        $prevAct = if ($hasBaseline) { script:Read-BareThrowBaseline -Path $script:BaselinePath -Section 'actionable_no_mode' } else { @{} }
         # Lesson #247 (t/4146): a regenerate step must never write an empty scan over the source
-        # of truth. Refuse when the scan saw no files, or saw no offenders while the baseline has some.
-        if ($script:TreeScan.FileCount -eq 0 -or ($script:ObservedCounts.Count -eq 0 -and $prev.Count -gt 0)) {
+        # of truth. Refuse when the scan saw no files, or either category saw no offenders while
+        # its baseline section has some.
+        if (script:Test-BareThrowRegenEmptyScan -FileCount $script:TreeScan.FileCount -Observed $script:ObservedCounts -Previous $prev -ObservedActionable $script:ObservedActionableCounts -PreviousActionable $prevAct) {
             # New-ActionableError is AITriad-private and this file does not import the module, so
             # the rendered labels are written out directly.
             throw [System.InvalidOperationException]::new(
                 "Goal: Regenerate the bare-throw baseline`n" +
-                "Error: The scan found $($script:TreeScan.FileCount) file(s) and $($script:ObservedCounts.Count) offending file(s); the baseline has $($prev.Count). NOT written, because an empty scan would wipe it`n" +
+                "Error: The scan found $($script:TreeScan.FileCount) file(s), $($script:ObservedCounts.Count) bare-throw offending file(s) (baseline $($prev.Count)) and $($script:ObservedActionableCounts.Count) actionable-no-mode offending file(s) (baseline $($prevAct.Count)). NOT written, because an empty scan would wipe it`n" +
                 "Location: tests/BareThrowLint.Tests.ps1 (BARETHROWLINT_REGEN_BASELINE)`n" +
-                "Resolve: Check the scan root ($script:RepoRoot/scripts/AITriad). If every bare throw really was removed, delete the baseline entries by hand and commit that deliberately.")
+                "Resolve: Check the scan root ($script:RepoRoot/scripts/AITriad). If every offender of a category really was removed, delete that section's entries by hand and commit that deliberately.")
         }
-        script:Write-BareThrowBaseline -Path $script:BaselinePath -Counts $script:ObservedCounts -Previous $prev
+        script:Write-BareThrowBaseline -Path $script:BaselinePath -Counts $script:ObservedCounts -Previous $prev -ActionableCounts $script:ObservedActionableCounts -PreviousActionable $prevAct
         Write-Warning "bare-throw-lint: REGENERATED $script:BaselinePath from the current tree (BARETHROWLINT_REGEN_BASELINE=1). Review the diff before committing."
     }
 }
@@ -494,5 +637,169 @@ Describe 'Bare throws in scripts/AITriad/ do not grow (t/4152, WARN-only)' -Tag 
             return
         }
         script:Assert-BareThrowGate -Verdict $script:Verdict -Offenders $script:TreeScan.Offenders -Blocking $true -SkipNotes
+    }
+}
+
+Describe 'Actionable-no-mode classifier (t/4237)' -Tag 'error-handling' {
+
+    BeforeAll {
+        function script:Get-SnippetActionable {
+            param([string]$Code, [string]$File = 'scripts/AITriad/Public/Seed.ps1')
+            $tokens = $null; $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseInput($Code, [ref]$tokens, [ref]$errors)
+            @($errors).Count | Should -Be 0 -Because "the snippet must parse: $Code"
+            @(script:Get-BareThrowOffenders -Ast $ast -File $File -Category 'actionable-no-mode')
+        }
+    }
+
+    It 'flags <code>' -TestCases @(
+        @{ code = "throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'))" }
+        @{ code = "throw `$(New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'))" }
+        @{ code = "throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -ErrorType T -InnerError `$_)" }
+        @{ code = "throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -AsErrorRecord:`$false)" }
+        @{ code = "throw (new-actionableerror -Goal g -Problem p -Location l -NextSteps @('x'))" }
+        @{ code = "throw (New-ActionableError @splat)" }
+        @{ code = "throw (New-ActionableError ``\n    -Goal g ``\n    -Problem p ``\n    -Location l ``\n    -NextSteps @('x'))".Replace('\n', "`n") }
+    ) {
+        $hits = script:Get-SnippetActionable -Code $code
+        $hits.Count   | Should -Be 1
+        $hits[0].Kind | Should -Be 'actionable-no-mode'
+    }
+
+    It 'does not flag <code>' -TestCases @(
+        @{ code = "throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -AsErrorRecord)" }
+        @{ code = "throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -PassThru)" }
+        @{ code = "throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -Throw)" }
+        @{ code = "throw `$(New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -AsErrorRecord)" }
+        @{ code = "throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -asErrorRecord:`$true)" }
+        @{ code = "New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x')" }
+        @{ code = "New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x') -Throw" }
+        @{ code = 'try { 1 } catch { throw $_ }' }
+        @{ code = 'try { 1 } catch { throw }' }
+        @{ code = 'throw "x"' }
+        @{ code = 'throw $msg' }
+        @{ code = "`$e = New-ActionableError -Goal g -Problem p -Location l -NextSteps @('x'); throw `$e" }
+        @{ code = 'throw (Get-Thing)' }
+        @{ code = 'throw [System.Exception]::new("x")' }
+    ) {
+        @(script:Get-SnippetActionable -Code $code).Count | Should -Be 0
+    }
+
+    It 'reports file, line and the first line of the throw text' {
+        $code = "function f {`n  `$a = 1`n  throw (New-ActionableError ```n    -Goal g -Problem p -Location l -NextSteps @('x'))`n}"
+        $hits = script:Get-SnippetActionable -Code $code -File 'scripts/AITriad/Private/X.ps1'
+        $hits.Count   | Should -Be 1
+        $hits[0].File | Should -Be 'scripts/AITriad/Private/X.ps1'
+        $hits[0].Line | Should -Be 3
+        $hits[0].Text | Should -Be 'throw (New-ActionableError `'
+    }
+
+    It 'the two categories are disjoint: no throw is counted by both' {
+        $code = @'
+function f {
+    if ($a) { throw "one" }
+    if ($b) { throw $two }
+    if ($c) { throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('n')) }
+    if ($d) { throw $(New-ActionableError -Goal g -Problem p -Location l -NextSteps @('n')) }
+    throw (New-ActionableError -Goal g -Problem p -Location l -NextSteps @('n') -AsErrorRecord)
+}
+'@
+        $tokens = $null; $errors = $null
+        $ast  = [System.Management.Automation.Language.Parser]::ParseInput($code, [ref]$tokens, [ref]$errors)
+        $bare = @(script:Get-BareThrowOffenders -Ast $ast -File 'f.ps1')
+        $act  = @(script:Get-BareThrowOffenders -Ast $ast -File 'f.ps1' -Category 'actionable-no-mode')
+        @($bare.Line) | Should -Be @(2, 3)
+        @($act.Line)  | Should -Be @(4, 5)
+        @($bare.Line | Where-Object { $_ -in @($act.Line) }).Count | Should -Be 0
+    }
+}
+
+Describe 'Actionable-no-mode verdict and gate (t/4237)' -Tag 'error-handling' {
+
+    It 'a count ABOVE baseline is a violation' {
+        $v = script:Get-BareThrowVerdict -Observed @{ 'a.ps1' = 4 } -Baseline @{ 'a.ps1' = 3 } -Category 'actionable-no-mode'
+        $v.Pass | Should -BeFalse
+        $v.Violations[0].Kind | Should -Be 'increase'
+    }
+
+    It 'an unlisted file with offenders is a violation' {
+        $v = script:Get-BareThrowVerdict -Observed @{ 'a.ps1' = 3; 'new.ps1' = 1 } -Baseline @{ 'a.ps1' = 3 } -Category 'actionable-no-mode'
+        $v.Pass | Should -BeFalse
+        @($v.Violations).Count | Should -Be 1
+        $v.Violations[0].Kind | Should -Be 'new-file'
+        $v.Violations[0].File | Should -Be 'new.ps1'
+    }
+
+    It 'a count BELOW baseline passes with a ratchet-down note naming the section' {
+        $v = script:Get-BareThrowVerdict -Observed @{ 'a.ps1' = 2 } -Baseline @{ 'a.ps1' = 3 } -Category 'actionable-no-mode'
+        $v.Pass | Should -BeTrue
+        @($v.Notes).Count | Should -Be 1
+        $v.Notes[0].Message | Should -BeLike "*ratchet down*a.ps1*no-mode New-ActionableError*update the baseline*section 'actionable_no_mode'*"
+    }
+
+    It 'BLOCKING arm fails naming file, line and throw text; WARN arm warns instead' {
+        $bad  = script:Get-BareThrowVerdict -Observed @{ 'x.ps1' = 2 } -Baseline @{ 'x.ps1' = 1 } -Category 'actionable-no-mode'
+        $offs = @(
+            [pscustomobject]@{ File = 'x.ps1'; Line = 7;  Kind = 'actionable-no-mode'; Text = 'throw (New-ActionableError -Goal old' }
+            [pscustomobject]@{ File = 'x.ps1'; Line = 12; Kind = 'actionable-no-mode'; Text = 'throw (New-ActionableError -Goal new' }
+        )
+        { script:Assert-BareThrowGate -Verdict $bad -Offenders $offs -Blocking $true -SkipNotes -Category 'actionable-no-mode' } |
+            Should -Throw -ExpectedMessage '*-AsErrorRecord*x.ps1:12  throw (New-ActionableError -Goal new*'
+        $w = $null
+        script:Assert-BareThrowGate -Verdict $bad -Offenders $offs -Blocking $false -SkipNotes -Category 'actionable-no-mode' -WarningVariable w -WarningAction SilentlyContinue
+        @($w).Count | Should -Be 1
+        ($w -join "`n") | Should -BeLike '*actionable-no-mode-lint (WARN-only, t/4237)*x.ps1:12*'
+    }
+
+    It 'BLOCKING arm passes a ratchet-down (note only)' {
+        $down = script:Get-BareThrowVerdict -Observed @{} -Baseline @{ 'x.ps1' = 1 } -Category 'actionable-no-mode'
+        { script:Assert-BareThrowGate -Verdict $down -Blocking $true -SkipNotes -Category 'actionable-no-mode' } | Should -Not -Throw
+    }
+
+    It 'the regen empty-scan guard (#3237) refuses an empty scan of EITHER category over a non-empty baseline' {
+        $some = @{ 'a.ps1' = 1 }
+        # no files at all
+        script:Test-BareThrowRegenEmptyScan -FileCount 0 -Observed $some -Previous $some -ObservedActionable $some -PreviousActionable $some | Should -BeTrue
+        # bare category empty over a non-empty baseline
+        script:Test-BareThrowRegenEmptyScan -FileCount 5 -Observed @{} -Previous $some -ObservedActionable $some -PreviousActionable $some | Should -BeTrue
+        # actionable category empty over a non-empty baseline
+        script:Test-BareThrowRegenEmptyScan -FileCount 5 -Observed $some -Previous $some -ObservedActionable @{} -PreviousActionable $some | Should -BeTrue
+        # both populated, or a first-ever seed of the new section
+        script:Test-BareThrowRegenEmptyScan -FileCount 5 -Observed $some -Previous $some -ObservedActionable $some -PreviousActionable $some | Should -BeFalse
+        script:Test-BareThrowRegenEmptyScan -FileCount 5 -Observed $some -Previous $some -ObservedActionable $some -PreviousActionable @{} | Should -BeFalse
+    }
+}
+
+Describe 'No-mode New-ActionableError throws in scripts/AITriad/ do not grow (t/4237, WARN-only)' -Tag 'error-handling' {
+
+    BeforeAll {
+        $script:ActBaseline = script:Read-BareThrowBaseline -Path $script:BaselinePath -Section 'actionable_no_mode'
+        $script:ActVerdict  = script:Get-BareThrowVerdict -Observed $script:ObservedActionableCounts -Baseline $script:ActBaseline -Category 'actionable-no-mode'
+    }
+
+    It 'the scan is non-vacuous (offenders found)' {
+        @($script:TreeScan.ActionableOffenders).Count | Should -BeGreaterThan 0 -Because 'a broken classifier would otherwise pass the ratchet on an empty set'
+    }
+
+    It 'the baseline has a non-empty actionable_no_mode section' {
+        $json = Get-Content -Raw -LiteralPath $script:BaselinePath | ConvertFrom-Json
+        $json.PSObject.Properties['actionable_no_mode'] | Should -Not -BeNullOrEmpty
+        @($json.actionable_no_mode.PSObject.Properties).Count | Should -BeGreaterThan 0
+        $json.__meta__.actionable_no_mode | Should -BeLike '*t/4237*'
+    }
+
+    It 'no file exceeds its baseline (respects the Blocking toggle)' {
+        script:Assert-BareThrowGate -Verdict $script:ActVerdict -Offenders $script:TreeScan.ActionableOffenders -Blocking $script:BareThrowLintBlocking -Category 'actionable-no-mode'
+        @($script:TreeScan.ActionableOffenders).Count | Should -BeGreaterThan 0
+    }
+
+    It 'the shipped baseline holds with Blocking forced on (proof arm; BARETHROWLINT_PROVE_BASELINE=1)' {
+        # Same gating as the bare-throw proof arm: a CI-run forced-blocking assertion would make
+        # the gate blocking in effect, which is T2 (t/4092).
+        if ($env:BARETHROWLINT_PROVE_BASELINE -ne '1' -and -not $script:BareThrowLintBlocking) {
+            Set-ItResult -Skipped -Because 'proof arm runs only with BARETHROWLINT_PROVE_BASELINE=1 while the lint is WARN-only'
+            return
+        }
+        script:Assert-BareThrowGate -Verdict $script:ActVerdict -Offenders $script:TreeScan.ActionableOffenders -Blocking $true -SkipNotes -Category 'actionable-no-mode'
     }
 }
