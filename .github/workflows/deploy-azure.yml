@@ -702,9 +702,15 @@ jobs:
             }
           }
 
-          # t/4249: exit explicitly from the VERDICT, never from whatever $LASTEXITCODE a native
-          # call inside Wait-RevisionActivation happened to leave (39061815653's false failure).
-          exit (Get-HealthCheckExitCode $Verdict.Verdict)
+          # t/4249: exit 0 UNCONDITIONALLY — SO C1 (p/682#40): this step is designed to always
+          # report step-success and carry the real signal through steps.health_check.outputs.healthy
+          # only. "Collect failure diagnostics" (below) has no always(), so if THIS step reports
+          # failure, GitHub's implicit success() ANDs into that condition and skips it — losing the
+          # diagnostics on exactly the runs that need them. Get-HealthCheckExitCode (returns 1 on a
+          # non-healthy verdict) belongs to the staging step, which has no such downstream step to
+          # break. Never call it here. The fix for 39061815653 is `exit 0` always reaching this
+          # line cleanly — never a leftover $LASTEXITCODE from a native call made above.
+          exit 0
 
       - name: Acceptance tests — full smoke (pre-traffic shift)
         id: acceptance
