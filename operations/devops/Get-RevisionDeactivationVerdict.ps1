@@ -83,7 +83,13 @@ function Get-IngressTrafficWeightForRevision {
     foreach ($e in $latestEntries) {
         if ($e.PSObject.Properties['weight']) { $latestWeight += [int]$e.weight }
     }
-    $isLatestWithTraffic = ($latestWeight -gt 0) -and $LatestRevisionName -and ($RevisionName -eq $LatestRevisionName)
+    # SO C1b (p/682#36): a latestRevision:true entry WITH traffic, but an unknown LatestRevisionName
+    # (couldn't be read), must NOT fall through to "not protected" — we cannot rule out that THIS
+    # candidate is the one it targets, so conservatively flag it as protected too.
+    $isLatestWithTraffic = $false
+    if ($latestWeight -gt 0) {
+        $isLatestWithTraffic = if ([string]::IsNullOrWhiteSpace($LatestRevisionName)) { $true } else { $RevisionName -eq $LatestRevisionName }
+    }
 
     return [PSCustomObject]@{ IngressWeight = $namedWeight; IsLatestRevisionWithTraffic = $isLatestWithTraffic }
 }

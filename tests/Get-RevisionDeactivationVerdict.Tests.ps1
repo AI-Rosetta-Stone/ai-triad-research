@@ -128,6 +128,14 @@ Describe 'Get-IngressTrafficWeightForRevision' {
         $r.IsLatestRevisionWithTraffic | Should -Be $false
     }
 
+    It 'SO C1b FIRE ARM: a latestRevision:true entry WITH traffic, but LatestRevisionName is unknown (null/blank) -> IsLatestRevisionWithTraffic TRUE (conservatively protect — cannot rule out this candidate is the target)' {
+        $entries = @(
+            [PSCustomObject]@{ weight = 100; latestRevision = $true }
+        )
+        $r = Get-IngressTrafficWeightForRevision -RevisionName 'rev-either' -TrafficEntries $entries -LatestRevisionName $null
+        $r.IsLatestRevisionWithTraffic | Should -Be $true
+    }
+
     It 'a latestRevision:true entry with weight 0 -> IsLatestRevisionWithTraffic false (no traffic to carry)' {
         $entries = @(
             [PSCustomObject]@{ weight = 0; latestRevision = $true }

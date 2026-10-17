@@ -1017,11 +1017,24 @@ jobs:
           REASON: ${{ steps.ac2.outputs.reason }}
         run: |
           set -uo pipefail
+          # SO C2b (p/682#36): a standalone label isn't routed anywhere. Reuse `alert-escalated` —
+          # the label DevOps' existing hourly r/23 bridge (Get-CiAlertEscalations.ps1) already
+          # polls (`gh issue list --state open --label alert-escalated`) — so this actually reaches
+          # someone instead of sitting unrouted. `prod-ac2-alert` stays as a specific sub-label for
+          # filtering/history. Dedup like deploy-drift-check.yml: comment on an existing open one
+          # instead of opening a duplicate per run.
           gh label create "prod-ac2-alert" --color B60205 --description 'Prod post-deploy serving-revision check failed (t/4242 AC2)' --force >/dev/null 2>&1 || true
           TITLE="🚨 Prod AC2 failed: serving revision $REV is not healthy after deploy"
           BODY=$(printf '**t/4242 AC2 check failed after this deploy run.**\n\n- Revision: `%s`\n- Reason: %s\n- Run: %s/%s/actions/runs/%s\n\nThe deploy run is RED, but this ran after the existing rollback gates (which key off earlier step outputs, not this check), so prod may still be serving this revision. Verify prod state directly and roll back manually if needed (production-release.md).' "$REV" "$REASON" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
-          gh issue create --title "$TITLE" --label "prod-ac2-alert" --body "$BODY"
-          echo "::error::t/4242 AC2 failed — ops-alert issue opened: $REASON"
+          EXISTING=$(gh issue list --label "prod-ac2-alert" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "Updated existing prod-ac2-alert issue #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --label "prod-ac2-alert,alert-escalated" --body "$BODY"
+            echo "Opened new prod-ac2-alert issue (labelled alert-escalated for the r/23 bridge)"
+          fi
+          echo "::error::t/4242 AC2 failed — ops-alert issue opened/updated: $REASON"
           exit 1
 
       - name: Post-deploy verification (traffic shifted)
