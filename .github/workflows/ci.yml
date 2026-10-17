@@ -1984,6 +1984,22 @@ jobs:
       - name: Lint workflow YAML files
         run: python3 .github/ci/workflow-lint.py
 
+  # ── ci-filter-coverage: each paths-filtered job's test read-set covered by its own filter
+  # (t/4140, third occurrence of the class: t/2025, t/3189, t/4029). NO path filter of its own —
+  # a self-check about filters must never itself be skippable (same reasoning as workflow-lint
+  # above). Warn-only (continue-on-error): promotion to blocking is T2.
+  ci-filter-coverage:
+    needs: [changes]
+    if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Check paths-filter coverage of declared test read-sets
+        run: |
+          node --test .github/scripts/check-filter-coverage.test.mjs
+          node .github/scripts/check-filter-coverage.mjs
+
   # ── pov-tag-orphan-check: differential POV-tag orphan scan (t/3987, SO e/253#2/#4) ──
   # A POV-tag registry change must show what it orphans before it merges. Runs the taxonomy
   # ../ai-triad-data checkout through lib/schema/pov-tags-cli.ts --scan-data, differentially

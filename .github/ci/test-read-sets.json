@@ -1,0 +1,61 @@
+{
+  "_comment": "t/4140: declared, per changes-job filter name, the input roots that job's TESTS actually read. Checked by .github/scripts/check-filter-coverage.mjs against the job's own paths-filter glob list in ci.yml -- the filter must cover every root here, or a change to that root silently skips the test (ci-gate treats a skip as satisfied; the t/2025/t/3189/t/4029 class). Update this file whenever a test starts reading a new path, independent of remembering to touch the filter -- the whole point is to decouple the two so a mismatch is caught, not silently trusted.",
+  "python": [
+    "scripts/**",
+    ".github/ci/**",
+    "research/comp-linguist/scripts/**",
+    "research/comp-linguist/tools/**",
+    "lib/debate/soul-docs/**"
+  ],
+  "container": [
+    "taxonomy-editor/**",
+    "research/comp-linguist/scripts/**",
+    ".dockerignore",
+    "lib/**",
+    "scripts/**",
+    "taxonomy/schemas/**",
+    "ai-models.json",
+    "ai-usages.json",
+    ".aitriad.json",
+    "CHANGELOG.md",
+    "deploy/azure/Dockerfile.base",
+    "deploy/azure/smoke-healthz.sh"
+  ],
+  "electron": [
+    "taxonomy-editor/**",
+    "poviewer/**",
+    "summary-viewer/**",
+    "workflow-app/**",
+    "lib/**",
+    "ai-models.json",
+    "scripts/AITriad/Prompts/**",
+    "pnpm-lock.yaml"
+  ],
+  "powershell": [
+    "scripts/**",
+    "tests/**",
+    "operations/devops/**",
+    ".githooks/**",
+    "lib/**",
+    "ai-models.json",
+    "deploy/azure/main.bicep",
+    "taxonomy-editor/src/server/briefExportJobs.ts",
+    ".github/workflows/**"
+  ],
+  "debate": [
+    "lib/debate/**",
+    "evals/**",
+    "ai-usages.json",
+    "ai-models.json",
+    "taxonomy-editor/src/renderer/hooks/useDebateStore/shared/modelConfig.ts"
+  ],
+  "lib": [
+    "lib/**",
+    "pnpm-lock.yaml"
+  ],
+  "embeddings": [
+    "lib/embeddings/**",
+    "taxonomy-editor/package.json",
+    "taxonomy-editor/pnpm-lock.yaml"
+  ]
+}
