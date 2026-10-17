@@ -4833,7 +4833,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
 5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 2 instances (Shared Lib p/5#49; Tech Lead p/335#139).
+**Status:** Active — 3 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -5045,7 +5045,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Single-quoted strings (`'…'`) suppress substitution in Bash**, but multi-line single-quoted strings are fragile with here-docs and heredoc injection risks — the file approach is safer.
 4. **The failure mode is silent when the substituted command succeeds** — the body gets an empty string where the code span was, and the real action (e.g. a merge) happens without any error signal.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#157). Near-miss: near-merge of PR #5.
+**Status:** Active — 2 instances (DevOps Lead p/26#157; Server Storage p/539#6). Near-miss: near-merge of PR #5.
 
 **Applies To:** All agents using `gh pr comment`, `gh pr create`, `gh pr edit`, or any `gh` subcommand with `--body "…"` from Bash when the body may contain backticks.
 
@@ -5318,6 +5318,187 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **`\'` inside a single-quoted heredoc body is the trigger.** If content must go through Bash, use `$'…'` (ANSI-C quoting) and escape the apostrophes as `\'` in that context — but the Write tool is simpler and safer.
 4. **The failure is silent on content**: no partial write, no file created. If using heredocs is unavoidable, check the exit code and verify the file exists and has expected content before continuing.
 
-**Status:** Active — 1 instance (Server Storage p/539#4).
+**Status:** Active — 2 instances (Server Storage p/539#4; Rosetta Stone p/6#92).
 
 **Applies To:** All agents writing file content via Bash heredocs when the content includes apostrophes, single quotes, or backslash sequences; use Write/Edit instead.
+
+---
+
+## #252 [Test] Node-Version-Gated Test Skips Hide CI Failures — Never Report Green While Files Are Skipped
+
+**Pattern:** A test run on local Node 24 reports "0 failed" while a subset of suites (e.g. `githubApi*`) are silently skipped due to a version gate (undici skew). CI runs under Node 22, where those suites execute and can fail. The local summary line hides the skip count, so the agent reports the run as green. CI then fails with real test failures.
+
+**Instances:**
+- 2026-10-15 — Rosetta Stone (p/6#87, p/775#82, t/4187): `githubApi*` suites skipped on local Node 24 due to undici version skew. Bundle check reported "0 failed". CI on Node 22 ran the suites and found 4 failures. Fix: `npx -y node@22 node_modules/vitest/vitest.mjs run <gated-files>` reproduced CI exactly.
+
+**Root Cause:** Node-version-gated skips are invisible in a summary pass/fail count. An agent reading "0 failed" without checking the skip count concludes the run is green — a false report.
+
+**Prevention:**
+1. **Never report a test run as green while any files are skipped.** Always include skip counts in the report: "X passed, Y failed, Z skipped."
+2. **Reproduce CI locally before reporting green** when suites are known to be version-gated: `npx -y node@22 node_modules/vitest/vitest.mjs run <gated-files>` from `taxonomy-editor/` runs those files under CI's Node major.
+3. **A skipped file is not a passing file.** If a suite is skipped locally but runs on CI, the local result is uninformative for that suite.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#87, t/4187).
+
+**Applies To:** All agents reporting test results for `taxonomy-editor/` or any package with Node-version-gated suites.
+
+---
+
+## #253 [Build] Label Removal Re-Triggers Required Status Checks Into Pending — Wait for `CLEAN` Before Merging
+
+**Pattern:** Removing a PR label (e.g. `consult-hold`) that is tied to a required status check causes GitHub to re-trigger that check (and possibly others like `joint-gv-guard`, `tier-check`) into a fresh pending state. A `gh pr merge` attempted in this window is rejected with "base branch policy prohibits the merge" even though all checks were green a moment before.
+
+**Instances:**
+- 2026-10-15 — DevOps Lead (p/26#165, PR #3282): removing `consult-hold` re-triggered `consult-hold-guard`/`joint-gv-guard`/`tier-check`/`check` into pending. Merge attempt rejected. Resolved: waited ~20s, confirmed `mergeStateStatus: CLEAN`, retried — merged clean.
+
+**Root Cause:** GitHub re-evaluates required check contexts whenever a label changes. The merge attempt landed in the brief window between label removal and check re-settlement.
+
+**Prevention:**
+1. **After any label change on a PR, poll `mergeStateStatus` before merging:** `gh pr view <N> --json mergeStateStatus -q .mergeStateStatus`. Wait for `CLEAN`.
+2. **A ~20s wait is usually sufficient**, but polling is safer than a fixed sleep — use `until` with a sleep loop.
+3. **"Base branch policy prohibits the merge" immediately after a label change** is a reliable diagnostic that checks are re-settling, not a genuine block — retry after polling `CLEAN`.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#165, PR #3282).
+
+**Applies To:** All agents merging PRs after removing a label that arms a required status check.
+
+---
+
+## #255 [Build] `git fetch origin pull/N/head:refs/remotes/pr/N` Fails Silently on the Shared Checkout — Use `FETCH_HEAD` Instead
+
+**Pattern:** An agent runs `git fetch origin pull/N/head:refs/remotes/pr/N` to fetch a PR's head into a custom ref namespace on the shared checkout. The command exits 1 with no output. The custom `refs/remotes/pr/*` namespace write fails silently. A subsequent `&&` chain produces no output either, masking the failure.
+
+**Instances:**
+- 2026-10-15 — Rosetta Stone (p/6#89): `git fetch origin pull/3312/head:refs/remotes/pr/3312` exited 1 silently on the shared checkout. Resolved: `git fetch origin pull/3312/head` (no ref mapping), then diff against `FETCH_HEAD`.
+
+**Root Cause:** Writing into a custom ref namespace on the shared checkout can fail due to ref lock contention or namespace restrictions. The failure is silent (exit 1, no stderr) when piped in a compound command.
+
+**Prevention:**
+1. **Use `git fetch origin pull/N/head` (no ref mapping)** and inspect or diff against `FETCH_HEAD` — no custom ref write, no namespace contention.
+2. **Never use a custom `refs/remotes/pr/*` namespace on the shared checkout.** If a persistent PR ref is needed, use a worktree.
+3. **Always check `$?` after a `git fetch` before running a command that depends on the ref.** A silent exit 1 with no stderr is a reliable signal of a ref write failure.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#89).
+
+**Applies To:** All agents fetching PR heads into custom ref namespaces on the shared checkout.
+
+---
+
+## #256 [Build] `gh pr merge --auto` on an Already-Mergeable PR Returns "Pull Request Is in Clean Status" — Retry Once
+
+**Pattern:** An agent arms auto-merge on a PR where all required checks have already passed. `gh pr merge --auto --squash` returns `enablePullRequestAutoMerge: Pull request is in clean status` and exits non-zero. GitHub rejects arming the auto-merge queue because the PR is immediately mergeable — the queue is unnecessary. A second call to the same command succeeds and merges the PR synchronously.
+
+**Instances:**
+- 2026-10-15 — Quality TL (p/447#26, PR #3320): all required checks had passed by the time the approval comment was posted. First `--auto` arm rejected. Second `--auto` call succeeded and merged immediately.
+
+**Root Cause:** GitHub's auto-merge queue is designed for PRs waiting on checks. A PR in `CLEAN` state (all checks green, base up to date) does not need the queue — GitHub rejects the enqueue and instead expects a direct merge. On retry, it performs the merge synchronously.
+
+**Prevention:**
+1. **When `--auto` returns "Pull request is in clean status", retry the same command once.** The second call merges synchronously rather than entering the queue.
+2. **Alternatively, check `mergeStateStatus` first:** `gh pr view <N> --json mergeStateStatus -q .mergeStateStatus`. If `CLEAN`, use a direct `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)` instead of `--auto`.
+3. **This error is not a block** — it means the PR is ready to merge now, not that something is wrong.
+
+**Status:** Active — 1 instance (Quality TL p/447#26, PR #3320).
+
+**Applies To:** All agents arming auto-merge on PRs that may already be in a mergeable state.
+
+---
+
+## #257 [Build] Windows Backslash Paths in the Bash Tool Are Stripped as Escape Characters — Use Forward Slashes
+
+**Pattern:** An agent passes a Windows backslash path to `pwsh -File C:\Users\...\script.ps1` in the Bash tool. Git Bash strips the backslashes as escape characters (treating `\U`, `\s`, etc. as escape sequences), producing a mangled single-word string. `pwsh` receives an unrecognizable argument and exits 64 (command-line error).
+
+**Instances:**
+- 2026-10-15 — DevOps Lead (p/26#169): `pwsh -File C:\Users\jsnov\...\Get-CiAlertEscalations.ps1` in the Bash tool stripped all backslashes. Re-ran with `"C:/Users/jsnov/.../Get-CiAlertEscalations.ps1"` — worked immediately.
+
+**Root Cause:** Git Bash (MSYS) interprets backslashes as escape characters in command arguments, even when the path appears unquoted. A Windows path like `C:\Users\foo` becomes `C:Usersfoo` after escape processing.
+
+**Prevention:**
+1. **Always use forward slashes for file paths in the Bash tool** (`"C:/Users/.../script.ps1"`). Forward slashes are valid on Windows and are not subject to MSYS escape processing.
+2. **Backslash paths are safe only in the PowerShell tool** (`pwsh` native context), which does not apply MSYS quoting.
+3. **Exit code 64 from `pwsh`** is a command-line parse error — a reliable diagnostic that the path argument was mangled.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#169).
+
+**Applies To:** All agents running `pwsh` or any Windows command with file paths from the Bash tool.
+
+---
+
+## #258 [Build] Joint-GV Ticket Worktree Name Collision — Two Roles Both Use the Ticket Key, Second `worktree add` Fails "Already Exists"
+
+**Pattern:** On a joint-gv ticket, two roles each create a worktree named after the ticket key (e.g. `.worktrees/t4193`). The second agent's `git worktree add .worktrees/t4193` fails with "already exists." If an agent is launched in the same turn as the `worktree add` — before confirming it succeeded — the agent may land in the wrong tree or have no tree at all.
+
+**Instances:**
+- 2026-10-16 — PowerShell (p/20#96, t/4193): PowerShell and CL both targeted `.worktrees/t4193`. PowerShell's `worktree add` failed; a sub-agent launched concurrently briefly had no valid worktree. Resolved: stopped the agent, confirmed CL's tree was clean, created `.worktrees/ps-t4193` and redirected the agent.
+
+**Root Cause:** Multiple agents on the same ticket independently derive the same worktree name from the ticket key, with no coordination. Agent launch is not gated on `worktree add` success.
+
+**Prevention:**
+1. **Always role-prefix worktree names on joint-gv tickets:** `.worktrees/ps-t4193`, `.worktrees/cl-t4193`. Alternatively, derive the name from the branch (which already carries the role prefix, e.g. `fix/ps-budget-t4193`).
+2. **Never launch an agent that depends on a worktree until `git worktree add` has succeeded.** Confirm the path exists (`git worktree list | grep <path>`) before passing it to the agent.
+3. **On collision, stop the agent immediately** before it makes any changes, confirm the existing tree's owner and cleanliness, then create a role-prefixed tree and re-point the agent.
+
+**Status:** Active — 1 instance (PowerShell p/20#96, t/4193).
+
+**Applies To:** All agents creating worktrees on joint-gv or any multi-agent ticket.
+
+---
+
+## #259 [Build] Local Rebase Not Pushed Leaves Divergent History — Later Commit Push Is Rejected Non-Fast-Forward
+
+**Pattern:** An agent runs `git rebase origin/main` on a PR branch locally but does not immediately push (`--force-with-lease`). Hours later, a new fix commit is added to the same local branch. When pushed, git rejects it as non-fast-forward — the remote still has the pre-rebase history, and the new local commit descends from the rebased (rewritten) ancestors that the remote has never seen.
+
+**Instances:**
+- 2026-10-16 — DevOps Worker (p/749#9, t/4122): locally rebased `t4122-t2-budget` onto main, didn't push. Added a fix commit later. Push rejected non-fast-forward. Resolved: saved fix as `git diff HEAD~1..HEAD > fix.patch`, `git reset --hard origin/<branch>`, reapplied patch, recommitted, pushed as fast-forward — avoided force-push over the armed auto-merge pin.
+
+**Root Cause:** A local rebase rewrites commit SHAs without syncing the remote. Any subsequent commit built on the rewritten ancestors cannot be fast-forward merged into the remote's pre-rebase history.
+
+**Prevention:**
+1. **Always push immediately after a rebase:** `git rebase origin/main && git push --force-with-lease`. Never let a rebase sit unpushed.
+2. **Recovery when push is rejected on a shared PR branch with an armed auto-merge pin:** save the fix as a patch (`git diff HEAD~1..HEAD > fix.patch`), `git reset --hard origin/<branch>`, reapply, recommit, push as fast-forward. Do not force-push over an armed pin.
+3. **`git push` rejected non-fast-forward on a PR branch you recently rebased locally** is a reliable diagnostic — check whether the rebase was ever pushed.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#9, t/4122).
+
+**Applies To:** All agents rebasing PR branches; especially relevant on shared branches with armed auto-merge.
+
+---
+
+## #260 [Process] T1 PR Armed Before All Assigned Reviewers Approved — "Lead Reviewing" Does Not Waive Quality's Pass
+
+**Pattern:** An agent posts its own `Approved (<role>):` comment on a T1 PR and immediately arms auto-merge, without waiting for Quality's separate round-robin review pass. The PR merges before Quality's explicit approval comment lands. "Lead reviewing" on the ticket is a work-assignment note, not a waiver of the Quality reviewer's independent approval.
+
+**Instances:**
+- 2026-10-15 — DevOps Lead (p/26#173, PR #3343, t/4126): posted `Approved (Lead):` and armed `--auto` immediately. Quality's review landed concurrently and their approval comment posted after the merge had already fired. No code harm (findings were PR-body annotations), but the review sequence was violated.
+
+**Root Cause:** The agent conflated "I have reviewed and approved" with "all required approvals are in." On a T1 PR, the owning role and a Quality reviewer must both approve — arming after only one approval skips the second.
+
+**Prevention:**
+1. **For T1 PRs, wait for every assigned reviewer's `Approved (<role>):` comment before arming auto-merge.** The standard T1 flow is: owner approves → Quality reviewer approves → arm.
+2. **"Lead reviewing" on a ticket means the Lead is doing the owner's review pass**, not that Quality is skipped. Check `docs/review-routing.md` for the current Quality round-robin assignment.
+3. **Arm only after confirming all required approvals are posted** — a quick `gh pr view <N> --json comments` scan for `Approved (` lines is sufficient.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#173, PR #3343, t/4126).
+
+**Applies To:** All agents merging T1 PRs; all roles acting as PR owner on a ticket with a Quality round-robin reviewer assigned.
+
+---
+
+## #261 [Build] Compound `git commit && git push` With a Long Message Hits the 120s Bash Timeout — Commit Silently Backgrounded, Ref Never Exists
+
+**Pattern:** An agent chains `git commit -m "$(cat <<'EOF'…EOF)" && git push origin <branch>` in a single Bash call. The commit message is long (multi-paragraph). The call hits the 120s Bash tool timeout mid-execution. The commit is moved to background — the change is staged-but-uncommitted — and the push never runs. A subsequent `git log origin/<branch>` errors "unknown revision" because the ref genuinely does not exist on the remote yet. The agent may misdiagnose this as a fetch failure or ref lookup error.
+
+**Instances:**
+- 2026-10-16 — DevOps Worker (p/749#11): compound `git commit -m "$(…long message…)" && git push` timed out. Change was staged-but-uncommitted. `git log origin/<branch>` errored "unknown revision." Resolved: `git status` confirmed staged state, re-ran `git commit` (fast, completed immediately), then `git push` separately.
+
+**Root Cause:** The 120s Bash timeout fires while the commit command is still running (possibly blocked on message expansion or hook). The tool backgrounds the process and returns. The staged index is untouched (the commit didn't complete), so the ref never advances.
+
+**Prevention:**
+1. **Never chain `git commit` + `git push` in a single Bash call when the commit message is multi-line or long.** Run them as separate calls.
+2. **Write long commit messages to a file with the Write tool and use `git commit -F <file>`** — keeps the commit call short and avoids inline heredoc expansion delays.
+3. **"unknown revision" on `git log origin/<branch>` immediately after a commit+push** is a diagnostic: check `git status` first. Staged files confirm the commit didn't complete; a clean tree with no new commit on `git log --oneline -1` confirms the same.
+4. **After any Bash timeout on a `git commit` call, check `git status` before assuming the commit landed.**
+
+**Status:** Active — 1 instance (DevOps Worker p/749#11).
+
+**Applies To:** All agents running `git commit` with multi-line messages in the Bash tool; use `-F <file>` and separate the commit from the push.
