@@ -43,7 +43,7 @@ function Get-CIFailureSummary {
     Set-StrictMode -Version Latest
 
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Summarize a CI failure' `
             -Problem 'GitHub CLI (gh) was not found on PATH.' `
             -Location 'Get-CIFailureSummary' `
@@ -57,7 +57,7 @@ function Get-CIFailureSummary {
         $ListRaw = & gh @ListArgs 2>$null
         $Runs = if ($ListRaw) { @($ListRaw | ConvertFrom-Json) } else { @() }
         if ($Runs.Count -eq 0) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Summarize a CI failure' `
                 -Problem "No failed run found$(if ($WorkflowFile) { " for workflow '$WorkflowFile'" })." `
                 -Location 'Get-CIFailureSummary' `
@@ -88,7 +88,7 @@ function Get-CIFailureSummary {
         $Log = (& gh run view $RunId --log 2>$null) -join "`n"
     }
     if ([string]::IsNullOrWhiteSpace($Log)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Summarize a CI failure' `
             -Problem "Could not retrieve any log for run $RunId (empty output from gh run view)." `
             -Location 'Get-CIFailureSummary' `

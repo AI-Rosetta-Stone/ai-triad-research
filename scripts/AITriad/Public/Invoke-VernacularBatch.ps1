@@ -64,7 +64,7 @@ function Invoke-VernacularBatch {
     if (-not $TaxonomyPath) { $TaxonomyPath = Get-TaxonomyDir }
 
     if (-not (Test-Path $TaxonomyPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Generate plain-language node descriptions' `
             -Problem "Taxonomy directory not found: $TaxonomyPath" `
             -Location 'Invoke-VernacularBatch' `

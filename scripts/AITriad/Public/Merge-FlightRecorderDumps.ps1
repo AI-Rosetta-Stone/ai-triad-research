@@ -99,7 +99,7 @@ function Merge-FlightRecorderDumps {
         }
 
         if (-not (Test-Path $DumpDir)) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Merge flight recorder dumps' `
                 -Problem "Dump directory not found: $DumpDir" `
                 -Location 'Merge-FlightRecorderDumps' `
@@ -126,7 +126,7 @@ function Merge-FlightRecorderDumps {
         }
     } else {
         if (-not $ClientPath -and -not $ServerPath) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Merge flight recorder dumps' `
                 -Problem 'At least one of -ClientPath or -ServerPath must be provided' `
                 -Location 'Merge-FlightRecorderDumps' `
@@ -151,7 +151,7 @@ function Merge-FlightRecorderDumps {
     $hasServer = $ServerPath -and (Test-Path $ServerPath)
 
     if (-not $hasClient -and -not $hasServer) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Merge flight recorder dumps' `
             -Problem 'No dump files found' `
             -Location 'Merge-FlightRecorderDumps' `

@@ -58,7 +58,7 @@ function Get-DebateSessionState {
         $FilePath = Join-Path $DebatesDir "debate-$CleanId.json"
 
         if (-not (Test-Path $FilePath)) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal        "Read debate session state for '$CleanId'" `
                 -Problem     "Debate file not found: $FilePath" `
                 -Location    "Get-DebateSessionState" `

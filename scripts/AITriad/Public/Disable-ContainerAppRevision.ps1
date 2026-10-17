@@ -53,7 +53,7 @@ function Disable-ContainerAppRevision {
 
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Deactivate revision '$RevisionName'" `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location 'Disable-ContainerAppRevision' `

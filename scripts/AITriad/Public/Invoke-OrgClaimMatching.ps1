@@ -146,7 +146,7 @@ function Invoke-OrgClaimMatching {
         $ClaimsPath = Join-Path (Get-TaxonomyDir) 'organization_stance_claims.json'
     }
     if (-not (Test-Path $ClaimsPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Match org claims to nodes' `
             -Problem "Claims file not found: $ClaimsPath" `
             -Location 'Invoke-OrgClaimMatching' `
@@ -169,7 +169,7 @@ function Invoke-OrgClaimMatching {
 
     # ── Load embeddings (nodes only — skip policies/conflicts) ───────────
     if (-not (Test-Path $EmbeddingsPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Load embeddings' `
             -Problem "Embeddings file not found: $EmbeddingsPath" `
             -Location 'Invoke-OrgClaimMatching' `
@@ -211,7 +211,7 @@ function Invoke-OrgClaimMatching {
     $encoded = $stdin | & python $embScript batch-encode 2>$null
     $exit = if (Test-Path variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
     if ($exit -ne 0 -or -not $encoded) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Batch-encode claim propositions' `
             -Problem 'embed_taxonomy.py batch-encode failed' `
             -Location 'Invoke-OrgClaimMatching' `

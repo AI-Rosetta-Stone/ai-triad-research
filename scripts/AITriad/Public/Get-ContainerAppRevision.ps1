@@ -65,7 +65,7 @@ function Get-ContainerAppRevision {
     Set-StrictMode -Version Latest
 
     if ($Mode -eq 'Fqdn' -and -not $RevisionName) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Get revision-specific FQDN" `
             -Problem '-RevisionName is required when -Mode Fqdn is specified' `
             -Location 'Get-ContainerAppRevision' `
@@ -75,7 +75,7 @@ function Get-ContainerAppRevision {
 
     $AzCmd = Get-Command az -ErrorAction SilentlyContinue
     if (-not $AzCmd) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal "Query $Mode revision" `
             -Problem 'Azure CLI (az) not found on PATH' `
             -Location 'Get-ContainerAppRevision' `

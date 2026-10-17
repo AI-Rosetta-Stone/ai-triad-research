@@ -120,8 +120,9 @@ Describe 'Get-ContainerAppRevision (t/1498)' -Tag 'health' {
 
     It 'Fqdn mode without -RevisionName throws' {
         InModuleScope AITriad {
-            # New-ActionableError writes its own record then throws; message is 'ScriptHalted' at the outer catch.
-            { Get-ContainerAppRevision -Mode Fqdn -ErrorAction Stop } | Should -Throw
+            # -AsErrorRecord (t/4237): the thrown record carries the Goal/Error text.
+            { Get-ContainerAppRevision -Mode Fqdn -ErrorAction Stop } |
+                Should -Throw -ExpectedMessage '*-RevisionName is required when -Mode Fqdn*'
         }
     }
 

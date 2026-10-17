@@ -82,7 +82,7 @@ function Import-Organization {
     if ($PSCmdlet.ParameterSetName -eq 'InputObject') {
         $incoming = $InputObject
         if (-not $incoming.PSObject.Properties['id']) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Import organization' `
                 -Problem '-InputObject is missing required field: id' `
                 -Location 'Import-Organization' `
@@ -174,7 +174,7 @@ function Import-Organization {
         [System.IO.File]::Move($temp, $path, $true)
     } catch {
         if (Test-Path $temp) { Remove-Item $temp -Force -ErrorAction SilentlyContinue }
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Write organizations.json' `
             -Problem "Failed to write registry: $($_.Exception.Message)" `
             -Location 'Import-Organization' `

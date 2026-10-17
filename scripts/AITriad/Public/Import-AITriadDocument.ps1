@@ -161,7 +161,7 @@ function Import-AITriadDocument {
             $ExistingDocId = Find-ExistingSource -Url $SourceUrl -FilePath $SourceFile
             if ($ExistingDocId) {
                 $MatchType = if (-not [string]::IsNullOrWhiteSpace($SourceUrl)) { "URL '$SourceUrl'" } else { "file '$(Split-Path $SourceFile -Leaf)'" }
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal     "Ingest document" `
                     -Problem  "Duplicate source: $MatchType already ingested as '$ExistingDocId'" `
                     -Location 'Import-AITriadDocument' `
@@ -539,7 +539,7 @@ function Import-AITriadDocument {
 
         'ByInbox' {
             if (-not (Test-Path $InboxDir)) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal      'Process inbox documents' `
                     -Problem   "Inbox directory not found: $InboxDir" `
                     -Location  'Import-AITriadDocument -Inbox' `

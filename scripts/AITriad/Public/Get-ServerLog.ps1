@@ -243,7 +243,7 @@ function Get-ServerLog {
             $rawLines = & az @azArgs 2>&1
             if ($LASTEXITCODE -ne 0) {
                 $tailText = @($rawLines) | Select-Object -Last 3 | Out-String -Width 200
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                         -Goal     "Retrieve server logs from '$AppName' in '$ResourceGroup'" `
                         -Problem  "az containerapp logs show exited $LASTEXITCODE. $($tailText.TrimEnd())" `
                         -Location 'Get-ServerLog' `

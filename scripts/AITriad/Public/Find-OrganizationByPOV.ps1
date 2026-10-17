@@ -53,7 +53,7 @@ function Find-OrganizationByPOV {
     Set-StrictMode -Version Latest
 
     if ($MinScore -gt $MaxScore) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Filter organizations by POV alignment' `
             -Problem "-MinScore ($MinScore) exceeds -MaxScore ($MaxScore)" `
             -Location 'Find-OrganizationByPOV' `

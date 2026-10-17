@@ -129,7 +129,7 @@ function Get-AzureFlightRecorder {
     # ── Verify gh CLI is available ──
     function Assert-GhCli {
         if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Read flight recorder dumps from GitHub' `
                 -Problem 'The GitHub CLI (gh) is not installed or not in PATH' `
                 -Location 'Get-AzureFlightRecorder' `
@@ -151,7 +151,7 @@ function Get-AzureFlightRecorder {
                 Write-Warning 'Dumps appear after the server persists them (requires latest container image).'
                 return @()
             }
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'List flight recorder dumps from GitHub' `
                 -Problem "gh api failed: $raw" `
                 -Location 'Get-AzureFlightRecorder:Get-GitHubDumpList' `
@@ -183,7 +183,7 @@ function Get-AzureFlightRecorder {
         if ($LASTEXITCODE -ne 0) {
             $errContent = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
             Remove-Item $outFile -ErrorAction SilentlyContinue
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Download flight recorder dump $Name" `
                 -Problem "gh api download failed: $errContent" `
                 -Location 'Get-AzureFlightRecorder:Save-GitHubDumpFile' `
@@ -220,7 +220,7 @@ function Get-AzureFlightRecorder {
         param([string]$Method, [string]$Endpoint, [switch]$Raw)
         $cookie = if ($SessionCookie) { $SessionCookie } else { $env:TAXONOMY_SESSION_COOKIE }
         if (-not $cookie) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Authenticate with Azure Taxonomy Editor' `
                 -Problem 'No session cookie provided. -TriggerDump requires Azure Easy Auth.' `
                 -Location 'Get-AzureFlightRecorder' `
@@ -250,7 +250,7 @@ function Get-AzureFlightRecorder {
             $ct = $response.Headers['Content-Type']
             if ($ct -and $ct -notmatch 'application/json') {
                 if ($response.Content -match '<title>Sign In') {
-                    throw (New-ActionableError `
+                    throw (New-ActionableError -AsErrorRecord `
                         -Goal 'Authenticate with Azure Taxonomy Editor' `
                         -Problem 'Session cookie is expired or invalid' `
                         -Location 'Get-AzureFlightRecorder:Invoke-FRApi' `
@@ -265,7 +265,7 @@ function Get-AzureFlightRecorder {
             return $response.Content | ConvertFrom-Json
         } catch [Microsoft.PowerShell.Commands.HttpResponseException] {
             $status = [int]$_.Exception.Response.StatusCode
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal "Call flight recorder API" `
                 -Problem "HTTP $status from $Method $url" `
                 -Location 'Get-AzureFlightRecorder:Invoke-FRApi' `
@@ -283,7 +283,7 @@ function Get-AzureFlightRecorder {
         $result = Invoke-FRApi -Method POST -Endpoint '/api/flight-recorder/server-dump'
         $fname = if ($result.PSObject.Properties['filename']) { $result.filename } else { $null }
         if (-not $fname) {
-            throw (New-ActionableError `
+            throw (New-ActionableError -AsErrorRecord `
                 -Goal 'Trigger server flight recorder dump' `
                 -Problem 'Server returned OK but no filename in response' `
                 -Location 'Get-AzureFlightRecorder' `

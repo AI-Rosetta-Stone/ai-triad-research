@@ -74,7 +74,7 @@ function Get-AnalyticsEventTypes {
         if ($Env -eq 'staging') {
             $BaseUrl = $env:TAXEDITOR_STAGING_URL
             if (-not $BaseUrl) {
-                throw (New-ActionableError `
+                throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Query analytics event types on staging' `
                     -Problem 'No staging URL configured (-Env staging)' `
                     -Location $CallerName `
@@ -104,7 +104,7 @@ function Get-AnalyticsEventTypes {
     $Check = Invoke-RemoteCheck @Params
 
     if (-not $Check.Success) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Query analytics event types' `
             -Problem "GET /api/analytics/query failed (status=$($Check.StatusCode))$(if ($Check.Error) { ": $($Check.Error)" })" `
             -Location $CallerName `
@@ -114,7 +114,7 @@ function Get-AnalyticsEventTypes {
 
     if (-not ($Check.Body -and $Check.Body.PSObject.Properties['eventTypes'])) {
         # A 200 with no eventTypes is the auth interstitial or an unexpected shape.
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Query analytics event types' `
             -Problem 'Response had no eventTypes field (likely the auth Sign-In interstitial or an unexpected payload)' `
             -Location $CallerName `
