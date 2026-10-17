@@ -1,4 +1,4 @@
-# Tag: health (t/1186)
+﻿# Tag: health (t/1186)
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
@@ -52,21 +52,21 @@ Describe 'Set-TaxEditorKnownGood' -Tag 'health' {
         { Set-TaxEditorKnownGood -Confirm:$false 2>$null } | Should -Throw
     }
 
-    It 'Throws when active revision has no tag (digest-only deploy)' {
-        $DigestOnlyRevision = @(
+    It 'Throws when the serving revision has neither a tag nor a digest' {
+        $NoRefRevision = @(
             [PSCustomObject]@{
                 PSTypeName    = 'AcaRevision'
                 Name          = 'taxonomy-editor--rev-xyz'
                 Active        = $true
                 TrafficWeight = 100
                 RunningState  = 'Running'
-                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:abc123'
+                ImageTag      = 'ghcr.io/ai-rosetta-stone/taxonomy-editor'
                 CreatedAt     = '2026-06-22T10:00:00Z'
             }
         )
-        Mock Get-TaxEditorRevision { $DigestOnlyRevision } -ModuleName AITriad
+        Mock Get-TaxEditorRevision { $NoRefRevision } -ModuleName AITriad
 
-        { Set-TaxEditorKnownGood -Confirm:$false 2>$null } | Should -Throw
+        { Set-TaxEditorKnownGood -Confirm:$false 2>$null } | Should -Throw '*neither a tag nor a digest*'
     }
 
     It 'WhatIf shows action without tagging' {
@@ -291,5 +291,98 @@ Describe 'Restore-TaxEditorKnownGood' -Tag 'health' {
         finally {
             $env:GITHUB_TOKEN = $OrigToken
         }
+    }
+}
+
+Describe 'Set-TaxEditorKnownGood: serving revision and digest refs (p/682#28)' -Tag 'health' {
+    BeforeAll {
+        $script:Hex = 'a' * 64
+        $script:Digest = "sha256:$($script:Hex)"
+        function script:New-Rev([string]$Name, [int]$Weight, [string]$Image) {
+            [pscustomobject]@{ PSTypeName = 'AcaRevision'; Name = $Name; Active = $true   # ACA reports a 0% revision as active (provisioned) too
+                TrafficWeight = $Weight; RunningState = 'Running'; ImageTag = $Image; CreatedAt = '2026-10-16T00:00:00Z' }
+        }
+        $script:NoKnownGood = @() | ConvertTo-Json | ConvertFrom-Json
+    }
+    BeforeEach {
+        Mock Invoke-RestMethod -ModuleName AITriad -MockWith { if ($Uri -like '*/orgs/*/packages/*') { return @() } }
+        Mock Get-GhcrAuthToken { 'fake-ghcr-token' } -ModuleName AITriad
+        Mock Invoke-WebRequest -ModuleName AITriad -MockWith {
+            [pscustomobject]@{ Content = '{"schemaVersion":2}'
+                Headers = @{ 'Content-Type' = 'application/vnd.oci.image.index.v1+json'; 'Docker-Content-Digest' = "sha256:$('a' * 64)" } }
+        }
+    }
+
+    It 'tags the 100% revision when a 0% revision is listed FIRST' {
+        Mock Get-TaxEditorRevision -ModuleName AITriad -MockWith {
+            @((New-Rev 'old' 0 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.9.0'), (New-Rev 'new' 100 'ghcr.io/ai-rosetta-stone/taxonomy-editor:1.0.0'))
+        }
+        $r = Set-TaxEditorKnownGood -Confirm:$false
+        $r.Image | Should -Be 'ghcr.io/ai-rosetta-stone/taxonomy-editor:1.0.0'
+        Should -Invoke Invoke-WebRequest -ModuleName AITriad -Times 1 -ParameterFilter { $Uri -like '*/manifests/1.0.0' }
+    }
+
+    It 'tags the 100% revision when a 0% revision is listed SECOND' {
+        Mock Get-TaxEditorRevision -ModuleName AITriad -MockWith {
+            @((New-Rev 'new' 100 'ghcr.io/ai-rosetta-stone/taxonomy-editor:1.0.0'), (New-Rev 'old' 0 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.9.0'))
+        }
+        $r = Set-TaxEditorKnownGood -Confirm:$false
+        $r.Image | Should -Be 'ghcr.io/ai-rosetta-stone/taxonomy-editor:1.0.0'
+    }
+
+    It 'refuses with an actionable error when traffic is split' {
+        Mock Get-TaxEditorRevision -ModuleName AITriad -MockWith {
+            @((New-Rev 'a' 50 'ghcr.io/ai-rosetta-stone/taxonomy-editor:1.0.0'), (New-Rev 'b' 50 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.9.0'))
+        }
+        { Set-TaxEditorKnownGood -Confirm:$false 2>$null } | Should -Throw '*Traffic is split*'
+        Should -Invoke Invoke-WebRequest -ModuleName AITriad -Times 0
+    }
+
+    It 'a digest ref is fetched BY digest, PUT as known-good, and the digest is returned' {
+        Mock Get-TaxEditorRevision -ModuleName AITriad -MockWith {
+            @((New-Rev 'old' 0 'ghcr.io/ai-rosetta-stone/taxonomy-editor:0.9.0'),
+              (New-Rev 'new' 100 "ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:$('a' * 64)"))
+        }
+        $r = Set-TaxEditorKnownGood -Confirm:$false
+        $r.Digest | Should -Be $script:Digest
+        $r.Tag | Should -BeNullOrEmpty
+        Should -Invoke Invoke-WebRequest -ModuleName AITriad -Times 1 -ParameterFilter { $Uri -like "*/manifests/sha256:$('a' * 64)" }
+        Should -Invoke Invoke-RestMethod -ModuleName AITriad -Times 1 -ParameterFilter { $Method -eq 'PUT' -and $Uri -like '*/manifests/known-good' }
+    }
+
+    It 'a tag ref returns the manifest digest from Docker-Content-Digest' {
+        Mock Get-TaxEditorRevision -ModuleName AITriad -MockWith { @(New-Rev 'new' 100 'ghcr.io/ai-rosetta-stone/taxonomy-editor:1.0.0') }
+        $r = Set-TaxEditorKnownGood -Confirm:$false
+        $r.Tag | Should -Be '1.0.0'
+        $r.Digest | Should -Be $script:Digest
+    }
+
+    It 'refuses when GHCR returns a different manifest than the pinned digest' {
+        Mock Get-TaxEditorRevision -ModuleName AITriad -MockWith {
+            @(New-Rev 'new' 100 "ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:$('b' * 64)")
+        }
+        { Set-TaxEditorKnownGood -Confirm:$false 2>$null } | Should -Throw '*refusing to tag a different image*'
+        Should -Invoke Invoke-RestMethod -ModuleName AITriad -Times 0 -ParameterFilter { $Method -eq 'PUT' }
+    }
+}
+
+Describe 'ConvertFrom-TaxEditorImageRef / Get-OciManifestDigest' -Tag 'health' {
+    It 'parses <Ref>' -ForEach @(
+        @{ Ref = "ghcr.io/o/r@sha256:$('c' * 64)"; Reference = "sha256:$('c' * 64)"; Tag = $null }
+        @{ Ref = "ghcr.io/o/r:1.2@sha256:$('c' * 64)"; Reference = "sha256:$('c' * 64)"; Tag = '1.2' }
+        @{ Ref = 'ghcr.io/o/r:1.2'; Reference = '1.2'; Tag = '1.2' }
+        @{ Ref = 'localhost:5000/o/r:dev'; Reference = 'dev'; Tag = 'dev' }
+    ) {
+        $p = & (Get-Module AITriad) { param($x) ConvertFrom-TaxEditorImageRef -ImageRef $x } $Ref
+        $p.Reference | Should -Be $Reference
+        $p.Tag | Should -Be $Tag
+    }
+    It 'returns $null for a ref with neither tag nor digest, including a registry port alone' {
+        & (Get-Module AITriad) { ConvertFrom-TaxEditorImageRef -ImageRef 'localhost:5000/o/r' } | Should -BeNullOrEmpty
+        & (Get-Module AITriad) { ConvertFrom-TaxEditorImageRef -ImageRef '' } | Should -BeNullOrEmpty
+    }
+    It 'computes sha256 over the body when the digest header is absent' {
+        $d = & (Get-Module AITriad) { Get-OciManifestDigest -Response ([pscustomobject]@{ Content = 'abc'; Headers = @{} }) }
+        $d | Should -Be 'sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
     }
 }

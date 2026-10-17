@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Restore-TaxEditorKnownGood {
@@ -75,7 +75,8 @@ function Restore-TaxEditorKnownGood {
             -Problem 'No image tagged known-good found in GHCR' `
             -Location $CallerName `
             -NextSteps @('Run Set-TaxEditorKnownGood to tag an image first',
-                         'Run Get-TaxEditorImage to inspect available images'))
+                         'Run Get-TaxEditorImage to inspect available images') `
+            -AsErrorRecord)
     }
 
     $KgImage = $KnownGoodImages[0]
