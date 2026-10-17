@@ -1903,6 +1903,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Lint workflow YAML files
         run: python3 .github/ci/workflow-lint.py
+      - name: Fault tests for test-electron-matrix-membership.mjs (t/4236)
+        run: node --test .github/scripts/test-electron-matrix-membership.test.mjs
 
   # ── bicep-env-drift: Bicep baseEnv ↔ ExpectedEnvVars sync gate (t/2631) ──
   # Parses literal-string entries from the baseEnv block in deploy/azure/main.bicep
