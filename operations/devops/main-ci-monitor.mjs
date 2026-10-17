@@ -192,6 +192,76 @@ export function heartbeatGap({ priorMs, nowMs, staleMs = HEARTBEAT_STALE_MS } = 
   return { stale: nowMs - priorMs > staleMs, gapMin };
 }
 
+// ── PUSH LIVENESS (t/4126) ───────────────────────────────────────────────────────────────────
+// 2026-10-08: four pushes to main (e5b347fb 14:41Z, dae9a5c6 14:57, 309c7ff5 15:00, e9bf9e98
+// 15:05) produced NO push workflow runs for ~35-40 minutes — GitHub didn't even list the
+// PushEvents. classifyMainCI's case 5 (CI absent) is BY DESIGN silent for this shape (a docs-only
+// push is indistinguishable from this at the single-head level, t/3737#11's accepted blank: "the
+// known remedy if we ever want it is a cron-triggered always-fires canary — NOT now"). This is
+// that canary: it walks a WINDOW of recent commits, not just the head, so a commit that is still
+// uncovered once it's older than the deadline is flagged — a docs-only commit never counts
+// (correctly mirrors ci.yml's own push.paths-ignore), and a later commit's run COVERS every
+// earlier commit in the same push batch (GitHub does not create one run per commit; a run on a
+// later SHA already tested the accumulated diff through that point).
+//
+// DEADLINE: ticket-suggested N=20min. MEASURED (t/4126): 10 recent push→ci.yml-run latencies
+// (2026-10-15/17 sample) were all 3-4s. 20min is >300x that — generous headroom against a
+// transient GitHub delivery hiccup, while still catching the 2026-10-08 ~40min gap near its
+// midpoint rather than only after it compounds further.
+export const PUSH_LIVENESS_DEADLINE_MS = 20 * 60 * 1000;
+
+// Mirrors ci.yml's `on.push.paths-ignore` (t/4126). SSOT risk: if that list changes, this drifts
+// silently — same class the filter-coverage check (t/4140) exists for, not re-solved here.
+export const CI_PATHS_IGNORE = ['**.md', 'docs/**', 'deploy/azure/runbooks/**'];
+
+function globMatchIgnore(file, glob) {
+  if (glob.startsWith('**')) return String(file).endsWith(glob.slice(2));
+  if (glob.endsWith('/**')) return String(file).startsWith(glob.slice(0, -2));
+  return file === glob;
+}
+
+/**
+ * PURE. True only if EVERY changed file matches at least one paths-ignore glob (mirrors GitHub's
+ * ALL-must-match semantics — a docs commit that sneaks in one code file is NOT docs-only).
+ * An empty/unreadable file list is treated as NOT docs-only (fail toward checking it, not toward
+ * silently excusing it).
+ */
+export function isDocsOnlyPush(files, pathsIgnore = CI_PATHS_IGNORE) {
+  const list = Array.isArray(files) ? files : [];
+  if (list.length === 0) return false;
+  return list.every((f) => pathsIgnore.some((g) => globMatchIgnore(f, g)));
+}
+
+/**
+ * PURE core. commits: oldest→newest, each
+ *   { sha, committedAtMs, docsOnly, hasRun, pushEventListed }
+ * hasRun: a push-event ci.yml run exists with this exact head_sha.
+ * pushEventListed: GitHub's events/activity API listed a PushEvent for this SHA at all —
+ *   separates "GitHub didn't deliver the event" from "our trigger/filter didn't match" (the
+ *   ticket's observability ask), surfaced per-violation, not folded into the pass/fail decision.
+ * Returns { alert, violations: [{sha, ageMin, pushEventListed}] }.
+ */
+export function pushLivenessVerdict({ commits, nowMs, deadlineMs = PUSH_LIVENESS_DEADLINE_MS } = {}) {
+  const list = Array.isArray(commits) ? commits : [];
+  const covered = new Array(list.length);
+  let anyLaterRun = false;
+  for (let i = list.length - 1; i >= 0; i--) {
+    covered[i] = !!list[i].hasRun || anyLaterRun;
+    anyLaterRun = anyLaterRun || !!list[i].hasRun;
+  }
+  const violations = [];
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (c.docsOnly) continue;
+    if (covered[i]) continue;
+    const ageMs = Number(nowMs) - Number(c.committedAtMs);
+    if (ageMs > deadlineMs) {
+      violations.push({ sha: c.sha, ageMin: Math.round(ageMs / 60000), pushEventListed: !!c.pushEventListed });
+    }
+  }
+  return { alert: violations.length > 0, violations };
+}
+
 // ── CLI shim (impure — the ONLY part that touches gh). Prints a JSON verdict to stdout.
 //    node main-ci-monitor.mjs <owner/repo>
 //    The workflow reads the JSON and does the issue open/update/close + graded role notification.

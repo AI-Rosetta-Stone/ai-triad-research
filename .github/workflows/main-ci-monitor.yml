@@ -265,6 +265,67 @@ jobs:
               console.log(`no alert: ${vd.state} — ${vd.reason}`);
             }
 
+      # ── PUSH LIVENESS (t/4126) ───────────────────────────────────────────────────────────────
+      # 2026-10-08: four pushes to main produced NO push workflow runs for ~35-40 minutes — the
+      # case-5 "CI absent" branch above is BY DESIGN silent for this (indistinguishable from a
+      # docs-only push at a single head). This walks a window of recent commits instead of just
+      # the head, so an uncovered, non-docs-only commit older than the deadline is caught. Uses
+      # the SAME ESCALATED_LABEL + openOrUpdate/closeIfOpen plumbing as the alerts above, so it
+      # surfaces through the existing r/23 bridge with no new reminder (t/4126 acceptance).
+      # Scheduled/dispatch only, same cadence reasoning as the other secondary checks below.
+      - name: Push liveness — fetch + classify recent main commits (t/4126)
+        if: github.event_name != 'workflow_run'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node operations/devops/push-liveness-check.mjs "${{ github.repository }}" > /tmp/push-liveness-verdict.json || true
+          echo "----- push-liveness-verdict.json -----"; cat /tmp/push-liveness-verdict.json
+
+      - name: Push liveness — route verdict (t/4126)
+        if: github.event_name != 'workflow_run'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const fs = require('fs');
+            const { pathToFileURL } = require('url');
+            const { ESCALATED_LABEL } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/main-ci-monitor.mjs`).href);
+            let v;
+            try { v = JSON.parse(fs.readFileSync('/tmp/push-liveness-verdict.json', 'utf8')); }
+            catch { v = { ok: false, error: 'push-liveness-verdict.json missing/empty' }; }
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const LABEL = 'main-push-liveness';
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: LABEL, per_page: 1 });
+
+            if (!v.ok) {
+              console.log(`push-liveness: CANNOT EVALUATE — ${v.error}`);
+              return; // advisory-only: an eval failure here is not itself alert-worthy.
+            }
+            const { alert = false, violations = [] } = v.verdict || {};
+            console.log(`push-liveness: ${v.commitsChecked} commit(s) checked, ${violations.length} violation(s)`);
+            if (!alert) {
+              if (open.data.length) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `Resolved — all recent main commits are covered by a ci.yml run. ${runUrl}` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, state: 'closed' });
+              }
+              return;
+            }
+            // Per-SHA observability (t/4126 ask): distinguish "GitHub never listed the PushEvent"
+            // from "a run should have fired but didn't" (trigger/filter mismatch).
+            const rows = violations.map(x => `- \`${x.sha}\` — ${x.ageMin}m with no ci.yml run; GitHub PushEvent ${x.pushEventListed ? 'WAS listed (trigger/filter mismatch)' : 'was NOT listed (delivery gap)'}`).join('\n');
+            const body = `## main push-liveness alert (t/4126)\n\nOne or more recent commits on \`main\` have no \`ci.yml\` run (direct or via a later covering commit) ${violations[0]?.ageMin ?? '?'}+ minutes after landing:\n\n${rows}\n\n**Remedy:** wait ~15 minutes for GitHub to catch up. If it doesn't, \`workflow_dispatch\` \`ci.yml\` on main's tip — one run covers the whole range.\n\n- **Run:** ${runUrl}`;
+            if (open.data.length) {
+              const issue = open.data[0];
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, body });
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Still present at ${new Date().toISOString()}.` });
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title: `main push-liveness: ${violations.length} uncovered commit(s)`, body, labels: [LABEL, ESCALATED_LABEL, 'bug'] });
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+              catch (e) { core.warning(`could not assign ${owner}: ${e.message}`); }
+            }
+
       # ── FLAKE-HEAL TRIPWIRE (t/4085, advisory) ───────────────────────────────────────────────
       # t/4080's rerun verdict heals a test when its own file reruns clean in isolation — the
       # surviving vector (t/4080 GV, #3093) is an ORDER-DEPENDENT failure: state leaked by an

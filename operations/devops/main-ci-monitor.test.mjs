@@ -9,7 +9,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyMainCI, runState, dedupeLatestByWorkflow, DEADLINE_MS, HEALTH_WORKFLOW,
-  escalationDecision, heartbeatGap, ESCALATED_LABEL, HEARTBEAT_STALE_MS } from './main-ci-monitor.mjs';
+  escalationDecision, heartbeatGap, ESCALATED_LABEL, HEARTBEAT_STALE_MS,
+  isDocsOnlyPush, pushLivenessVerdict, PUSH_LIVENESS_DEADLINE_MS, CI_PATHS_IGNORE } from './main-ci-monitor.mjs';
 
 // A push-event run: {name, status, conclusion}. Helpers for the common shapes.
 const passed = (name) => ({ name, status: 'completed', conclusion: 'success' });
@@ -149,4 +150,110 @@ test('heartbeat — a gap past the recalibrated threshold IS stale', () => {
 
 test('heartbeat — unreadable prior stamp is not stale (fresh heartbeat issue)', () => {
   assert.deepEqual(heartbeatGap({ priorMs: NaN, nowMs: NOW }), { stale: false, gapMin: null });
+});
+
+// ── PUSH LIVENESS (t/4126) ───────────────────────────────────────────────────────────────────
+test('isDocsOnlyPush: all-markdown/docs change is docs-only', () => {
+  assert.equal(isDocsOnlyPush(['README.md', 'docs/guide.md']), true);
+});
+
+test('isDocsOnlyPush: a docs commit that sneaks in one code file is NOT docs-only', () => {
+  assert.equal(isDocsOnlyPush(['docs/guide.md', 'lib/foo.ts']), false);
+});
+
+test('isDocsOnlyPush: empty/unreadable file list fails toward checking it, not excusing it', () => {
+  assert.equal(isDocsOnlyPush([]), false);
+  assert.equal(isDocsOnlyPush(undefined), false);
+});
+
+test('isDocsOnlyPush: covers all three real ci.yml paths-ignore globs', () => {
+  assert.equal(isDocsOnlyPush(['CHANGELOG.md', 'docs/x/y.md', 'deploy/azure/runbooks/ops.md'], CI_PATHS_IGNORE), true);
+});
+
+const commit = (sha, ageMs, extra = {}) => ({ sha, committedAtMs: NOW - ageMs, docsOnly: false, hasRun: false, ...extra });
+
+test('push liveness — a push with a run within the deadline passes (no violation)', () => {
+  const v = pushLivenessVerdict({ commits: [commit('a', 5 * 60000, { hasRun: true })], nowMs: NOW });
+  assert.equal(v.alert, false);
+  assert.deepEqual(v.violations, []);
+});
+
+test('push liveness — a push with NO run, past the deadline, alerts', () => {
+  const v = pushLivenessVerdict({ commits: [commit('a', PUSH_LIVENESS_DEADLINE_MS + 60000)], nowMs: NOW });
+  assert.equal(v.alert, true);
+  assert.equal(v.violations.length, 1);
+  assert.equal(v.violations[0].sha, 'a');
+});
+
+test('push liveness — a docs-only push never alerts, even with no run past the deadline', () => {
+  const v = pushLivenessVerdict({ commits: [commit('a', PUSH_LIVENESS_DEADLINE_MS + 60000, { docsOnly: true })], nowMs: NOW });
+  assert.equal(v.alert, false);
+  assert.deepEqual(v.violations, []);
+});
+
+test('push liveness — a LATER descendant run covers an earlier commit with no run of its own', () => {
+  const commits = [
+    commit('older', PUSH_LIVENESS_DEADLINE_MS + 5 * 60000),                       // no run of its own
+    commit('newer', PUSH_LIVENESS_DEADLINE_MS - 60000, { hasRun: true }),          // later, has a run
+  ];
+  const v = pushLivenessVerdict({ commits, nowMs: NOW });
+  assert.equal(v.alert, false, 'the newer commit\'s run covers the older, uncovered commit');
+  assert.deepEqual(v.violations, []);
+});
+
+test('push liveness — surfaces pushEventListed per violation for the observability ask', () => {
+  const v = pushLivenessVerdict({
+    commits: [commit('a', PUSH_LIVENESS_DEADLINE_MS + 60000, { pushEventListed: false })],
+    nowMs: NOW,
+  });
+  assert.equal(v.violations[0].pushEventListed, false);
+});
+
+// ── REPLAY: the actual 2026-10-08 14:30-15:30Z incident (t/4126 acceptance criteria) ─────────
+test('REPLAY: at ~15:01Z, e5b347fb (14:41Z, no run yet) alerts; dae9a5c6/309c7ff5/e9bf9e98 are too fresh', () => {
+  // 15:02Z (not exactly 15:01Z) so e5b347fb's age (21m) is unambiguously past the 20m deadline,
+  // not sitting exactly on the boundary.
+  const base = new Date('2026-10-08T15:02:00Z').getTime();
+  const commits = [
+    { sha: 'e5b347fb', committedAtMs: new Date('2026-10-08T14:41:00Z').getTime(), docsOnly: false, hasRun: false, pushEventListed: false },
+    { sha: 'dae9a5c6', committedAtMs: new Date('2026-10-08T14:57:00Z').getTime(), docsOnly: false, hasRun: false, pushEventListed: false },
+    { sha: '309c7ff5', committedAtMs: new Date('2026-10-08T15:00:00Z').getTime(), docsOnly: false, hasRun: false, pushEventListed: false },
+  ];
+  const v = pushLivenessVerdict({ commits, nowMs: base });
+  assert.equal(v.alert, true);
+  assert.equal(v.violations.length, 1, 'only e5b347fb is past the 20min deadline at 15:01Z');
+  assert.equal(v.violations[0].sha, 'e5b347fb');
+});
+
+test('REPLAY: at 15:21Z, all four are covered by e9bf9e98\'s late run (arrived 15:16Z) — clears', () => {
+  const base = new Date('2026-10-08T15:21:00Z').getTime();
+  const commits = [
+    { sha: 'e5b347fb', committedAtMs: new Date('2026-10-08T14:41:00Z').getTime(), docsOnly: false, hasRun: false, pushEventListed: false },
+    { sha: 'dae9a5c6', committedAtMs: new Date('2026-10-08T14:57:00Z').getTime(), docsOnly: false, hasRun: false, pushEventListed: false },
+    { sha: '309c7ff5', committedAtMs: new Date('2026-10-08T15:00:00Z').getTime(), docsOnly: false, hasRun: false, pushEventListed: false },
+    { sha: 'e9bf9e98', committedAtMs: new Date('2026-10-08T15:05:00Z').getTime(), docsOnly: false, hasRun: true, pushEventListed: true },
+  ];
+  const v = pushLivenessVerdict({ commits, nowMs: base });
+  assert.equal(v.alert, false, 'e9bf9e98\'s run (15:16Z) covers all three earlier commits in the same gap');
+  assert.deepEqual(v.violations, []);
+});
+
+// ── FAULT-ARM: prove a stubbed-out verdict is distinguishable from the real one ──────────────
+test('FAULT-ARM: a pushLivenessVerdict that ignores coverage entirely always alerts — distinguishable', () => {
+  function brokenVerdict({ commits, nowMs, deadlineMs = PUSH_LIVENESS_DEADLINE_MS }) {
+    // t/3897#6-shaped: forgets the "covered by a later run" rule entirely.
+    const violations = (commits ?? [])
+      .filter((c) => !c.docsOnly && Number(nowMs) - Number(c.committedAtMs) > deadlineMs)
+      .map((c) => ({ sha: c.sha }));
+    return { alert: violations.length > 0, violations };
+  }
+  const commits = [
+    commit('older', PUSH_LIVENESS_DEADLINE_MS + 5 * 60000),
+    commit('newer', PUSH_LIVENESS_DEADLINE_MS - 60000, { hasRun: true }),
+  ];
+  const real = pushLivenessVerdict({ commits, nowMs: NOW });
+  assert.equal(real.alert, false, 'the real implementation correctly honors descendant-run coverage');
+
+  const broken = brokenVerdict({ commits, nowMs: NOW });
+  assert.equal(broken.alert, true, 'the broken implementation would have false-alerted on a covered commit');
 });
