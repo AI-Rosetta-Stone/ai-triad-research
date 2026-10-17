@@ -1912,9 +1912,10 @@ resource circuitOpenAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
-    evaluationFrequency: 'PT15M'
-    windowSize: 'PT15M'
+    // Kept at PT5M by t/4248 SO C1 (e/306#3): since #3266 an open circuit fails hosted saves
+    // closed (503), so this is a user-facing outage signal. Do not slow it for cost (~$1/mo).
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT5M'
     criteria: {
       allOf: [
         {
