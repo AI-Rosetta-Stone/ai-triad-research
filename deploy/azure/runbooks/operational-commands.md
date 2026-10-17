@@ -22,6 +22,24 @@ az containerapp show --name taxonomy-editor -g ai-triad --query "properties.runn
 az containerapp logs show --name taxonomy-editor -g ai-triad --type console
 ```
 
+## Traffic Pinning During an Active Deploy Window (t/4242)
+
+**Never pin traffic with a bare `az containerapp ingress traffic set` (prod or staging) while a
+`deploy-azure.yml` / `deploy-staging.yml` run is in flight, or in the window right before one.**
+t/4242: an out-of-band traffic pin to `taxonomy-editor-staging--0000220` (for a load test) raced
+the next `deploy-staging` run's revision cleanup, which deactivated `--0000220` while it still
+held 100% of traffic — staging returned 404 on every path until someone noticed.
+
+- If you need to pin traffic for a load test or manual investigation, do it through
+  `Set-ContainerAppTraffic` (same safety wrapper the workflows use), not a raw `az` call, and
+  **finish and release the pin before the next scheduled/triggered deploy run**, or hold the
+  deploy (`gh workflow disable`/skip the trigger) until you're done.
+- Both deploy workflows' revision-cleanup steps now re-verify each candidate's traffic weight
+  with a fresh `revision show` immediately before deactivating it (t/4242 fix) — this closes the
+  read-after-write propagation-lag vector, but an out-of-band pin held for the full duration of a
+  deploy run is still a real race against whichever revision the workflow decides is "current" at
+  its own pre-apply capture step. Avoid creating the race in the first place.
+
 ## Auth & Access
 
 ```bash

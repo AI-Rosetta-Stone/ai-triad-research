@@ -51,6 +51,7 @@ permissions:
   packages: read
   id-token: write  # For Azure OIDC login
   actions: read    # t/4194 SO C1: `gh run list` in the cross-workflow wait-gate step
+  issues: write    # t/4242 SO C2: ops-alert issue when the post-deploy AC2 check fails after the existing rollback gates
 
 # t/4194: SO C1 (p/682#16) — a SHARED concurrency group across both workflows was tried first, but
 # a GitHub Actions concurrency group only holds ONE pending run: a third arrival (prod running,
@@ -508,18 +509,65 @@ jobs:
         shell: pwsh
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          . ./operations/devops/Get-RevisionDeactivationVerdict.ps1
           Write-Host "Deactivating stale revisions to free resources..."
           # t/2050: NEVER deactivate the captured rollback target. With the t/2049
           # pin it stays at 100% (not stale) so it should never appear here, but we
           # guard explicitly so no reorder or transient split can strand the
           # rollback target the way t/2047 did.
+          #
+          # t/4242: a sibling bug in deploy-staging.yml deactivated the revision traffic was
+          # pinned to. Get-ContainerAppRevision -Mode Stale already filters trafficWeight==0, but
+          # that's exactly the single live read t/4242 showed can be stale (Azure read-after-write
+          # propagation lag, t/4242#1) — a revision's `trafficWeight` is itself DERIVED from the
+          # app's ingress traffic config, so re-reading the same derived field alone (SO review,
+          # p/682#33) isn't enough. Every candidate that survives the cheap name-based exclusion
+          # below gets a fresh re-check against BOTH independently-sourced inputs — `revision
+          # show`'s own trafficWeight AND a fresh read of the ingress traffic config (the routing
+          # source) — immediately before the actual deactivate call. (No -ServingRevisionName
+          # here, unlike staging: this step runs BEFORE this run's own new revision is deployed —
+          # steps.new_revision hasn't executed yet — so there is no "this run's serving revision"
+          # to exclude by name yet. $Protected, the already-serving rollback target, is the only
+          # name-based guard that applies here.)
           $Protected = @('${{ steps.current_revision.outputs.revision }}') | Where-Object { $_ }
           $Stale = @(Get-ContainerAppRevision -Mode Stale `
             -AppName '${{ env.CONTAINER_APP_NAME }}' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}')
           foreach ($Rev in $Stale) {
             if ($Protected -contains $Rev.Name) {
-              Write-Host "Skipping protected rollback target: $($Rev.Name)"
+              Write-Host "Skipping $($Rev.Name): name-excluded (protected rollback target), no Azure call needed"
+              continue
+            }
+            # Raw `az` call, NOT Get-ContainerAppRevision -Mode Fqdn: that cmdlet initialises
+            # TrafficWeight=0 when the field is absent (SO review key risk #3) — exactly what C3
+            # must NOT do. Read the raw JSON and apply our own null-safe extraction instead.
+            $FreshRaw = az containerapp revision show `
+              --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Rev.Name `
+              -o json | ConvertFrom-Json
+            $App = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' -o json `
+              | ConvertFrom-Json
+            $TrafficEntries = $null
+            $LatestRevisionName = $null
+            if ($App.PSObject.Properties['properties']) {
+              if ($App.properties.PSObject.Properties['configuration'] -and
+                  $App.properties.configuration.PSObject.Properties['ingress'] -and
+                  $App.properties.configuration.ingress.PSObject.Properties['traffic']) {
+                $TrafficEntries = @($App.properties.configuration.ingress.traffic)
+              }
+              if ($App.properties.PSObject.Properties['latestRevisionName']) {
+                $LatestRevisionName = $App.properties.latestRevisionName
+              }
+            }
+            $Ingress = Get-IngressTrafficWeightForRevision -RevisionName $Rev.Name `
+              -TrafficEntries $TrafficEntries -LatestRevisionName $LatestRevisionName
+            $FreshWeight = if ($FreshRaw.properties.PSObject.Properties['trafficWeight']) { $FreshRaw.properties.trafficWeight } else { $null }
+            $FreshActive = if ($FreshRaw.properties.PSObject.Properties['active']) { [bool]$FreshRaw.properties.active } else { $false }
+            $FreshVerdict = Get-RevisionDeactivationVerdict -RevisionName $Rev.Name `
+              -TrafficWeight $FreshWeight -Active $FreshActive `
+              -IngressWeight $Ingress.IngressWeight -IsLatestRevisionWithTraffic $Ingress.IsLatestRevisionWithTraffic `
+              -ProtectedNames $Protected
+            if ($FreshVerdict.Action -ne 'deactivate') {
+              Write-Host "Skipping $($Rev.Name) on fresh re-check: $($FreshVerdict.Reason)"
               continue
             }
             Disable-ContainerAppRevision -RevisionName $Rev.Name `
@@ -920,6 +968,73 @@ jobs:
         if: (steps.health_check.outputs.healthy != 'true' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision == ''
         run: |
           echo "::error::Health check failed and no previous revision exists for rollback"
+          exit 1
+
+      - name: Post-deploy verification — serving revision active + /health 200 (t/4242 AC2)
+        id: ac2
+        if: steps.acceptance.outputs.accepted == 'true' && steps.persona.outputs.accepted == 'true'
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $Rev = '${{ steps.new_revision.outputs.revision }}'
+          $Info = az containerapp revision show `
+            --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Rev `
+            --query '{active:properties.active,weight:properties.trafficWeight}' -o json | ConvertFrom-Json
+          $Reason = $null
+          if (-not [bool]$Info.active) {
+            $Reason = "serving revision '$Rev' is NOT active after deploy"
+          } elseif ([int]$Info.weight -ne 100) {
+            # SO C4: 100 assumes no canary split (two revisions both > 0% at once) — true today.
+            # If canary deploys are introduced, this check needs to change to "the expected split",
+            # not a flat 100.
+            $Reason = "serving revision '$Rev' traffic weight is $($Info.weight), not 100"
+          } else {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+            $Health = Test-TaxEditorHealth -BaseUrl '${{ steps.deploy.outputs.appUrl }}' -TimeoutSec 15 -MaxAttempts 3 -RetryIntervalSec 10
+            if (-not $Health.Healthy) {
+              $Reason = "/health did not return a healthy 200 after deploy. Detail: $($Health | ConvertTo-Json -Depth 3 -Compress)"
+            }
+          }
+          if ($Reason) {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "failed=true"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "reason=$Reason"
+            Write-Host "::error::t/4242 AC2 FAILED: $Reason"
+          } else {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "failed=false"
+            Write-Host "t/4242 AC2 verified: '$Rev' active at weight 100, /health 200"
+          }
+
+      - name: Ops-alert on AC2 failure (t/4242 SO C2)
+        # SO review (p/682#33, key risk #2): AC2 runs after the existing rollback steps, which
+        # trigger on specific earlier step outputs, not a generic "a later step failed" signal —
+        # reordering AC2 above them would NOT actually route its failure into that machinery. This
+        # step is the agreed alternative: detect, red the run, AND open a named, actionable issue
+        # rather than leaving prod broken until someone reads the run log.
+        if: always() && steps.ac2.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REV: ${{ steps.new_revision.outputs.revision }}
+          REASON: ${{ steps.ac2.outputs.reason }}
+        run: |
+          set -uo pipefail
+          # SO C2b (p/682#36): a standalone label isn't routed anywhere. Reuse `alert-escalated` —
+          # the label DevOps' existing hourly r/23 bridge (Get-CiAlertEscalations.ps1) already
+          # polls (`gh issue list --state open --label alert-escalated`) — so this actually reaches
+          # someone instead of sitting unrouted. `prod-ac2-alert` stays as a specific sub-label for
+          # filtering/history. Dedup like deploy-drift-check.yml: comment on an existing open one
+          # instead of opening a duplicate per run.
+          gh label create "prod-ac2-alert" --color B60205 --description 'Prod post-deploy serving-revision check failed (t/4242 AC2)' --force >/dev/null 2>&1 || true
+          TITLE="🚨 Prod AC2 failed: serving revision $REV is not healthy after deploy"
+          BODY=$(printf '**t/4242 AC2 check failed after this deploy run.**\n\n- Revision: `%s`\n- Reason: %s\n- Run: %s/%s/actions/runs/%s\n\nThe deploy run is RED, but this ran after the existing rollback gates (which key off earlier step outputs, not this check), so prod may still be serving this revision. Verify prod state directly and roll back manually if needed (production-release.md).' "$REV" "$REASON" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          EXISTING=$(gh issue list --label "prod-ac2-alert" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "Updated existing prod-ac2-alert issue #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --label "prod-ac2-alert,alert-escalated" --body "$BODY"
+            echo "Opened new prod-ac2-alert issue (labelled alert-escalated for the r/23 bridge)"
+          fi
+          echo "::error::t/4242 AC2 failed — ops-alert issue opened/updated: $REASON"
           exit 1
 
       - name: Post-deploy verification (traffic shifted)

@@ -349,23 +349,65 @@ jobs:
             -RetryIntervalSec 10
           Write-Host "Staging traffic promoted to ${{ steps.new_revision.outputs.revision }}"
 
-      - name: Deactivate stale revisions (keep serving + prior rollback) (t/2660)
+      - name: Deactivate stale revisions (keep serving + prior rollback) (t/2660, t/4242)
         if: steps.smoke.outputs.passed == 'true'
         continue-on-error: true  # cosmetic GC — must not red a successful deploy
         shell: pwsh
         run: |
           # 30s drain window: prior revision may still be draining long-lived connections
           Start-Sleep -Seconds 30
+          . ./operations/devops/Get-RevisionDeactivationVerdict.ps1
           $serving = '${{ steps.new_revision.outputs.revision }}'
           $prior   = '${{ steps.current_revision.outputs.revision }}'
-          $stale = az containerapp revision list `
+          # t/4242 + SO review (p/682#33): a revision's own `trafficWeight` is a value Azure
+          # DERIVES from the app's ingress traffic config — if the read-after-write lag is in that
+          # derivation, re-reading the same derived field alone can still be stale. Every candidate
+          # that survives the cheap name-based exclusion below gets a FRESH re-check against BOTH
+          # independently-sourced inputs — `revision show`'s own trafficWeight AND a fresh read of
+          # `properties.configuration.ingress.traffic` (the routing source) — immediately before
+          # the actual deactivate call, never an earlier list read.
+          $candidates = az containerapp revision list `
             --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-            --query '[?properties.trafficWeight==`0` && properties.active==`true`].name' `
-            -o json | ConvertFrom-Json | Where-Object { $_ -ne $prior }
-          foreach ($rev in $stale) {
+            -o json | ConvertFrom-Json
+          foreach ($c in $candidates) {
+            if ($c.name -eq $serving -or @($prior) -contains $c.name) {
+              Write-Host "Skipping $($c.name): name-excluded (serving or protected rollback target), no Azure call needed"
+              continue
+            }
+            # Fresh re-check immediately before the destructive call, on BOTH independent sources —
+            # the earlier list read above is never trusted for the actual decision.
+            $fresh = az containerapp revision show `
+              --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $c.name `
+              -o json | ConvertFrom-Json
+            $app = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' -o json `
+              | ConvertFrom-Json
+            $trafficEntries = $null
+            $latestRevisionName = $null
+            if ($app.PSObject.Properties['properties']) {
+              if ($app.properties.PSObject.Properties['configuration'] -and
+                  $app.properties.configuration.PSObject.Properties['ingress'] -and
+                  $app.properties.configuration.ingress.PSObject.Properties['traffic']) {
+                $trafficEntries = @($app.properties.configuration.ingress.traffic)
+              }
+              if ($app.properties.PSObject.Properties['latestRevisionName']) {
+                $latestRevisionName = $app.properties.latestRevisionName
+              }
+            }
+            $ingress = Get-IngressTrafficWeightForRevision -RevisionName $c.name `
+              -TrafficEntries $trafficEntries -LatestRevisionName $latestRevisionName
+            $freshWeight = if ($fresh.properties.PSObject.Properties['trafficWeight']) { $fresh.properties.trafficWeight } else { $null }
+            $freshActive = if ($fresh.properties.PSObject.Properties['active']) { [bool]$fresh.properties.active } else { $false }
+            $freshVerdict = Get-RevisionDeactivationVerdict -RevisionName $c.name `
+              -TrafficWeight $freshWeight -Active $freshActive `
+              -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic `
+              -ServingRevisionName $serving -ProtectedNames @($prior)
+            if ($freshVerdict.Action -ne 'deactivate') {
+              Write-Host "Skipping $($c.name) on fresh re-check: $($freshVerdict.Reason)"
+              continue
+            }
             az containerapp revision deactivate `
-              --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $rev
-            Write-Host "Deactivated: $rev"
+              --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $c.name
+            Write-Host "Deactivated: $($c.name)"
           }
           Write-Host "Active: $serving (serving)$(if ($prior) { ', ' + $prior + ' (rollback)' })"
 
@@ -398,6 +440,35 @@ jobs:
             exit 1
           }
           Write-Host "Staging serving revision '${{ steps.new_revision.outputs.revision }}' baseEnv verified OK"
+
+      - name: Post-deploy verification — serving revision active + /health 200 (t/4242 AC2)
+        if: steps.smoke.outputs.passed == 'true'
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $Rev = '${{ steps.new_revision.outputs.revision }}'
+          $Info = az containerapp revision show `
+            --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Rev `
+            --query '{active:properties.active,weight:properties.trafficWeight}' -o json | ConvertFrom-Json
+          if (-not [bool]$Info.active) {
+            Write-Error "t/4242 AC2: serving revision '$Rev' is NOT active after deploy — the exact t/4242 incident shape (a revision holding traffic but deactivated). Failing the run."
+            exit 1
+          }
+          # SO C4: 100 assumes no canary split (two revisions both > 0% at once) — true today. If
+          # canary deploys are introduced, this check needs to change to "the expected split".
+          if ([int]$Info.weight -ne 100) {
+            Write-Error "t/4242 AC2: serving revision '$Rev' traffic weight is $($Info.weight), not 100 — traffic did not land where expected. Failing the run."
+            exit 1
+          }
+          $Fqdn = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+            --query 'properties.configuration.ingress.fqdn' -o tsv
+          $Health = Test-TaxEditorHealth -BaseUrl "https://$Fqdn" -TimeoutSec 15 -MaxAttempts 3 -RetryIntervalSec 10
+          if (-not $Health.Healthy) {
+            Write-Error "t/4242 AC2: /health on the app URL (https://$Fqdn) did not return a healthy 200 after deploy. Failing the run. Detail: $($Health | ConvertTo-Json -Depth 3 -Compress)"
+            exit 1
+          }
+          Write-Host "t/4242 AC2 verified: '$Rev' active at weight 100, /health 200 on https://$Fqdn"
 
       - name: Re-authenticate before rollback
         if: always() && failure() && steps.current_revision.outputs.revision != ''
