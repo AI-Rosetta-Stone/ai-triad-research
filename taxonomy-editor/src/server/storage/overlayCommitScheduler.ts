@@ -37,6 +37,11 @@ const OVERLAY_COMMIT_MAX_RETRIES = 2;
 export type OverlayCommitStatus = { state: 'pending' | 'committed' | 'failed'; at: number; error?: string };
 const overlayCommitStatus = new Map<string, OverlayCommitStatus>();
 const pendingOverlayCommits = new Map<string, { debounceTimer: ReturnType<typeof setTimeout>; maxWaitTimer: ReturnType<typeof setTimeout> }>();
+// A user whose commit just failed and is waiting out its retry backoff is in
+// neither map above (clearPendingOverlayCommit already ran) — tracked here so
+// flushPendingOverlayCommits() can find them too, not just freshly-debounced
+// writes (ServerAPI, p/541#71/#69).
+const retryingOverlayCommits = new Map<string, { timer: ReturnType<typeof setTimeout>; attempt: number }>();
 
 /** Surfaced by the sync-status route so the UI can show "not yet saved to GitHub". */
 export function getOverlayCommitStatus(userId: string): OverlayCommitStatus | undefined {
@@ -53,6 +58,7 @@ function clearPendingOverlayCommit(userId: string): void {
 
 async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<void> {
   clearPendingOverlayCommit(userId);
+  retryingOverlayCommits.delete(userId); // this invocation IS the retry firing (or the first attempt — a no-op delete either way)
   const backend = getBackend();
   if (!supportsOverlayCommit(backend)) return;
   try {
@@ -76,7 +82,9 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     overlayCommitStatus.set(userId, { state: 'failed', at: Date.now(), error: message });
     if (attempt < OVERLAY_COMMIT_MAX_RETRIES) {
       const backoffMs = 1_000 * 2 ** attempt;
-      setTimeout(() => { void runScheduledOverlayCommit(userId, attempt + 1); }, backoffMs);
+      const nextAttempt = attempt + 1;
+      const timer = setTimeout(() => { void runScheduledOverlayCommit(userId, nextAttempt); }, backoffMs);
+      retryingOverlayCommits.set(userId, { timer, attempt: nextAttempt });
     }
   }
 }
@@ -113,15 +121,28 @@ export function scheduleOverlayCommit(userId: string): void {
  * Users with no pending scheduled commit (nothing written since the last
  * commit, or committed via an explicit save already) are untouched.
  *
+ * Also covers a user currently waiting out a retry backoff after a failed
+ * attempt (ServerAPI, p/541#71): that user isn't in the debounce/max-wait map
+ * above — clearPendingOverlayCommit already ran when the failure happened —
+ * so without this they'd be invisible to flush entirely, not just absent
+ * from its return. Their backoff timer is cancelled and the retry runs now,
+ * at its original attempt number (not reset to 0, so a flush can't push a
+ * user past OVERLAY_COMMIT_MAX_RETRIES).
+ *
  * Returns each flushed user's terminal status so the SIGTERM deadline WARN
  * (t/4276 AC2) can name who/what stayed uncommitted — runScheduledOverlayCommit
  * always sets 'committed' or 'failed' before resolving, never leaves 'pending'.
  */
 export function flushPendingOverlayCommits(): Promise<{ userId: string; status: OverlayCommitStatus }[]> {
-  const userIds = [...pendingOverlayCommits.keys()];
-  return Promise.all(userIds.map(async (userId) => {
+  const userIds = new Set([...pendingOverlayCommits.keys(), ...retryingOverlayCommits.keys()]);
+  return Promise.all([...userIds].map(async (userId) => {
+    const retrying = retryingOverlayCommits.get(userId);
+    if (retrying) {
+      clearTimeout(retrying.timer);
+      retryingOverlayCommits.delete(userId);
+    }
     clearPendingOverlayCommit(userId);
-    await runScheduledOverlayCommit(userId);
+    await runScheduledOverlayCommit(userId, retrying?.attempt ?? 0);
     return { userId, status: overlayCommitStatus.get(userId)! };
   }));
 }

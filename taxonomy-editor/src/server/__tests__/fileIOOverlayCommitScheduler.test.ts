@@ -56,7 +56,13 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
   afterEach(async () => {
     // pendingOverlayCommits/overlayCommitStatus are module-level singletons —
     // drain anything a test left scheduled so it can't leak into the next one.
-    await fileIO.flushPendingOverlayCommits();
+    // A single flush can leave a user re-queued for another retry attempt
+    // (a persistently-failing commitImpl reschedules on every attempt), so
+    // flush repeatedly — bounded by the retry ceiling, since each call either
+    // finishes a user or advances their attempt count strictly closer to it.
+    for (let i = 0; i <= 3; i++) {
+      await fileIO.flushPendingOverlayCommits();
+    }
     vi.useRealTimers();
   });
 
@@ -107,6 +113,29 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
     await vi.advanceTimersByTimeAsync(1_000); // first backoff (1s)
     expect(calls).toBe(2);
     expect(fileIO.getOverlayCommitStatus('dave')?.state).toBe('committed');
+  });
+
+  it('flushPendingOverlayCommits finds and accelerates a user mid retry-backoff (ServerAPI, p/541#71)', async () => {
+    let calls = 0;
+    backend.commitImpl = async () => {
+      calls++;
+      if (calls === 1) throw new Error('simulated GitHub failure');
+      return { commitSha: 'sha', filesCommitted: 1 };
+    };
+    fileIO.scheduleOverlayCommit('ivan');
+    await vi.advanceTimersByTimeAsync(2_000); // debounce fires; first attempt fails, 1s backoff scheduled
+    expect(fileIO.getOverlayCommitStatus('ivan')?.state).toBe('failed');
+
+    // Not in the debounce/max-wait map anymore — flush must still find 'ivan'
+    // via the retry-backoff tracking, cancel the 1s wait, and run attempt 2 now.
+    const results = await fileIO.flushPendingOverlayCommits();
+
+    expect(calls).toBe(2); // exactly the retry, not a reset-to-0 extra attempt
+    expect(results).toEqual([{ userId: 'ivan', status: { state: 'committed', at: expect.any(Number) } }]);
+
+    // The backoff timer was actually cancelled, not left to also fire later.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toBe(2);
   });
 
   it('flushPendingOverlayCommits runs all pending commits immediately, bypassing the debounce', async () => {
