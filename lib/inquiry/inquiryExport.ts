@@ -20,6 +20,7 @@ import type {
   CalibrationEntry,
 } from './schema.js';
 import { deriveTruncation } from './jobStatus.js';
+import { loadPovTagRegistry, type PovName } from '../schema/povTags.js';
 
 export interface InquiryExportOptions {
   /** Display title; defaults to the inquiry question. */
@@ -83,13 +84,19 @@ function calibrationLine(entry: CalibrationEntry): string {
   return `${entry.metric}: ${val} (${entry.trust.verdict}${tr})`;
 }
 
+/** The registry label for a tag ("Critical"), or the id itself for a retired tag, matching the share page. */
+function tagLabel(pov: PovName, tag: string): string {
+  return loadPovTagRegistry().povs[pov]?.find((e) => e.id === tag)?.label ?? tag;
+}
+
 /** The POV-tag scope of the run, or undefined when untagged (t/3965, SO e/252). An exported tagged answer
  *  must say so: a Scope run grounds one camp on a single wing. Prefers what ran (`derivation.tag`, with
  *  counts) over what was asked (`request.tagSelection`). */
 function tagScopeLine(result: InquiryResult): string | undefined {
   const applied = result.derivation.tag;
   if (applied) {
-    const excluded = applied.mode === 'scope' ? `, ${applied.excludedUntagged} untagged excluded` : '';
+    // The count is every camp node WITHOUT this tag, including nodes tagged with another wing (t/4275).
+    const excluded = applied.mode === 'scope' ? `, ${applied.excludedUntagged} not tagged ${tagLabel(applied.pov, applied.tag)} excluded` : '';
     return `Tag: ${applied.pov}/${applied.tag} (${applied.mode}) · ${applied.included} tagged included${excluded}`;
   }
   const asked = result.request.tagSelection;
