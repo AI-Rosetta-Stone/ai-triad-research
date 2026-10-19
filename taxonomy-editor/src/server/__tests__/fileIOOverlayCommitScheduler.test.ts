@@ -14,6 +14,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import * as fileIO from '../storage/fileIO.js';
 
+const recordedEvents: { type: string; data?: Record<string, unknown> }[] = [];
+vi.mock('../../../../lib/flight-recorder/index.js', () => ({
+  getGlobalRecorder: vi.fn().mockReturnValue({
+    record: (e: { type: string; data?: Record<string, unknown> }) => recordedEvents.push(e),
+  }),
+}));
+
 class FakeOverlayBackend implements StorageBackend {
   commitCalls: { userId: string; branchName?: string }[] = [];
   commitImpl: (userId: string) => Promise<{ commitSha: string; filesCommitted: number } | null> =
@@ -52,6 +59,7 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
     vi.useFakeTimers();
     backend = new FakeOverlayBackend();
     fileIO.setBackend(backend);
+    recordedEvents.length = 0;
   });
   afterEach(async () => {
     // pendingOverlayCommits/overlayCommitStatus are module-level singletons —
@@ -98,6 +106,16 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
     expect(fileIO.getOverlayCommitStatus('carol')?.state).toBe('pending');
     await vi.advanceTimersByTimeAsync(2_000);
     expect(fileIO.getOverlayCommitStatus('carol')?.state).toBe('committed');
+  });
+
+  it('records a commits-per-user-per-hour rate metric on each successful commit (t/4258/t/4281)', async () => {
+    fileIO.scheduleOverlayCommit('judy');
+    await vi.advanceTimersByTimeAsync(2_000);
+    fileIO.scheduleOverlayCommit('judy');
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const rateEvents = recordedEvents.filter((e) => e.type === 'overlay.commit.rate' && e.data?.userId === 'judy');
+    expect(rateEvents.map((e) => e.data?.commitsInLastHour)).toEqual([1, 2]);
   });
 
   it('retries with backoff on failure, surfaces failed status, then commits on the retry', async () => {

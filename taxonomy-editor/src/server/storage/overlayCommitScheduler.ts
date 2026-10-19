@@ -43,6 +43,22 @@ const pendingOverlayCommits = new Map<string, { debounceTimer: ReturnType<typeof
 // writes (ServerAPI, p/541#71/#69).
 const retryingOverlayCommits = new Map<string, { timer: ReturnType<typeof setTimeout>; attempt: number }>();
 
+// t/4258/t/4281 (TL, e/310#2): a sustained-burst user doing out-of-save()
+// writes can drive ~6 scheduled commits/min (~4 GitHub calls each) — measure
+// it before it becomes a real budget problem, rather than finding out from
+// the shared App's rate limit. Per-user timestamps, pruned to the trailing
+// hour on each successful commit (self-bounding; no separate cleanup pass).
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const recentCommitTimestamps = new Map<string, number[]>();
+
+function recordCommitRate(userId: string): number {
+  const now = Date.now();
+  const recent = (recentCommitTimestamps.get(userId) ?? []).filter((t) => t > now - ONE_HOUR_MS);
+  recent.push(now);
+  recentCommitTimestamps.set(userId, recent);
+  return recent.length;
+}
+
 /** Surfaced by the sync-status route so the UI can show "not yet saved to GitHub". */
 export function getOverlayCommitStatus(userId: string): OverlayCommitStatus | undefined {
   return overlayCommitStatus.get(userId);
@@ -68,6 +84,14 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     // baseBranch and commitOverlayImpl would throw on every scheduled commit.
     await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
     overlayCommitStatus.set(userId, { state: 'committed', at: Date.now() });
+    const commitsInLastHour = recordCommitRate(userId);
+    getGlobalRecorder()?.record({
+      type: 'overlay.commit.rate',
+      component: 'file-io',
+      level: 'info',
+      message: `Scheduled overlay commit for ${userId}: ${commitsInLastHour} commit(s) in the last hour`,
+      data: { userId, commitsInLastHour },
+    });
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
     const warnMsg = `Scheduled overlay commit failed for ${userId} (attempt ${attempt + 1}) — will retry (t/4258)`;
