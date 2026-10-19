@@ -896,7 +896,9 @@ jobs:
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
               GROUNDING_RECONCILE_INLINE         = '1'  # t/3163 G8a — gate verifies the staged inline-reconcile flag is deployed
-              GROUNDING_SWEEP_ENABLED            = '1'  # t/3163 G8b — gate verifies the staged sweep-enable flag is deployed
+              # GROUNDING_SWEEP_ENABLED removed (t/4298): the sweep is unconditionally refused on
+              # hosted (t/3333 guard, decideSweepArm -> 'blocked-github-api'), so this gate was
+              # certifying a flag that could only ever no-op. See main.bicep's baseEnv comment.
               # DATA_ROOT_VALIDATION_ENFORCE retired in t/3309 step-3 — /readyz warm-gate replaces the boot hard-fail (co-landed with the server.ts exit(1) removal).
             } `
             -CheckFirewall `
