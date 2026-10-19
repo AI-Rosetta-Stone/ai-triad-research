@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computeEmbeddingsChunked, EMBEDDINGS_MAX_BATCH } from '../embeddingsBatch';
+import { computeEmbeddingsChunked, EMBEDDINGS_MAX_BATCH, EMBEDDINGS_COMPUTE_TIMEOUT_MS } from '../embeddingsBatch';
 
 const mockRecord = vi.fn();
 vi.mock('@lib/flight-recorder/index', () => ({
@@ -37,8 +37,15 @@ describe('computeEmbeddingsChunked', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(calls[0].texts).toHaveLength(EMBEDDINGS_MAX_BATCH);
     expect(res.vectors).toHaveLength(EMBEDDINGS_MAX_BATCH);
-    // idempotent flag preserved on the single-batch path
-    expect(post).toHaveBeenCalledWith('/api/embeddings/compute', { texts, ids: undefined }, { idempotent: true });
+    // idempotent flag preserved on the single-batch path, with the batch-sized client timeout (t/4287)
+    expect(post).toHaveBeenCalledWith('/api/embeddings/compute', { texts, ids: undefined }, { idempotent: true, timeoutMs: EMBEDDINGS_COMPUTE_TIMEOUT_MS });
+  });
+
+  it('t/4287: the client timeout outlasts the server ceiling for a full batch and fits under ACA ingress', () => {
+    // Server: ceil(n/128) × 45s + 5s margin. A max batch must not be aborted client-side first.
+    const serverCeilingMs = Math.ceil(EMBEDDINGS_MAX_BATCH / 128) * 45_000 + 5_000;
+    expect(EMBEDDINGS_COMPUTE_TIMEOUT_MS).toBeGreaterThan(serverCeilingMs);
+    expect(EMBEDDINGS_COMPUTE_TIMEOUT_MS).toBeLessThan(240_000); // ACA ingress timeout
   });
 
   it('splits an oversized batch into ceil(n/cap) sequential POSTs, each within the cap', async () => {
