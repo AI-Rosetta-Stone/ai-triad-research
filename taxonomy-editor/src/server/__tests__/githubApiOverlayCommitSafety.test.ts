@@ -10,6 +10,24 @@
  * one follow-up — never two PATCH /git/refs/heads/<branch> calls in flight
  * for the same user). Harness mirrors githubApiShutdownWarn.test.ts.
  *
+ * Interleaving is forced with deferred signals (onRequestStarted/gateRequest)
+ * tied to real control-flow checkpoints in the code under test — not timers
+ * or microtask-count assumptions (e/310#10: an earlier version of this file
+ * relied on implicit microtask ordering between a scheduled `.then()` and a
+ * subsequent `await`, which was wrong under CI's Node 22 and produced flaky
+ * false failures; `onRequestStarted('GET', '/git/refs/heads/')` instead
+ * awaits the actual first network call a commit makes, which — by
+ * commitOverlayImpl's own control flow — cannot fire before its synchronous
+ * pre-commit snapshot has already been taken).
+ *
+ * Each [SAFE] test is paired with a [FAULT ARM] test proving the defect
+ * class it guards against is real: C1's fault arm reproduces exactly what
+ * `commitOverlayImpl` used to do (full clear-all via the still-present
+ * `clearSessionOverlay`, now used only for session teardown) and shows it
+ * loses the write; C2's calls the unguarded `commitOverlayImpl` directly,
+ * bypassing the public `commitOverlay()`'s serialization, and shows two
+ * PATCH calls run concurrently.
+ *
  * LOCAL-ONLY FAILURE MODE (t/2281/t/3444): gated on isUndiciMajorAlignedWithRuntime
  * for the same reason as the other githubApi* test files.
  */
@@ -121,35 +139,62 @@ function mockSessionBranchLookup(branch: string, sha: string, content = '{"test"
   });
 }
 
-/** Delays every PATCH /git/refs/heads/<branch> until `release()` is called. */
-function delayPatchRef(): { release: () => void } {
+/**
+ * Deferred signal that resolves the instant a matching request is made (the
+ * handler returns null, so it never blocks anything — purely an observation
+ * point). `commitOverlayImpl`'s pre-commit snapshot (getOverlayEntries) is
+ * synchronous and runs before any awaited call, including the first GET ref —
+ * so awaiting this signal is a hard proof the snapshot has already happened,
+ * not a guess about how many microtask ticks that takes.
+ */
+function onRequestStarted(method: string, urlSubstr: string): Promise<void> {
+  let resolveFn!: () => void;
+  const started = new Promise<void>((res) => { resolveFn = res; });
+  apiHandlers.push((url, init) => {
+    if ((init?.method ?? 'GET') === method && url.includes(urlSubstr)) resolveFn();
+    return null;
+  });
+  return started;
+}
+
+/** Real gate on a matching request — blocks until release() is called. Tracks concurrency/total calls. */
+function gateRequest(method: string, urlSubstr: string) {
   let release!: () => void;
   const gate = new Promise<void>((res) => { release = res; });
+  let inFlight = 0;
+  let maxConcurrent = 0;
+  let total = 0;
   apiHandlers.push(async (url, init) => {
-    if ((init?.method ?? 'GET') === 'PATCH' && url.includes('/git/refs/heads/')) {
+    if ((init?.method ?? 'GET') === method && url.includes(urlSubstr)) {
+      total++;
+      inFlight++;
+      maxConcurrent = Math.max(maxConcurrent, inFlight);
       await gate;
+      inFlight--;
       return { status: 200, body: { object: { sha: MAIN_SHA } } };
     }
     return null;
   });
-  return { release };
+  return { release: () => release(), get total() { return total; }, get maxConcurrent() { return maxConcurrent; } };
 }
 
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay commit safety', () => {
-  it('C1: a write that lands during a commit is NOT cleared, and a later commit persists it', async () => {
+  it('[SAFE] C1: a write that lands during a commit is NOT cleared, and a later commit persists it', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    const first = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-    const gate = delayPatchRef();
+    const getRefStarted = onRequestStarted('GET', '/git/refs/heads/');
+    const patch = gateRequest('PATCH', '/git/refs/heads/');
     const commitPromise = backend.commitOverlay('alice');
+    await getRefStarted; // proof: the pre-commit snapshot has already been taken
 
-    // Lands while the first commit's PATCH ref is in flight.
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: first.version });
+    // Lands while the commit is blocked on the gated PATCH.
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
     backend.writeToOverlay('/taxonomy/other.json', '{"new": true}');
 
-    gate.release();
+    patch.release();
     await commitPromise;
 
     // Neither the overwritten path nor the new path were part of what got
@@ -164,39 +209,67 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     expect(backend.getSessionOverlay('alice')).toBeUndefined();
   });
 
-  it('C2: concurrent commitOverlay() calls for one user never run two PATCH ref calls in parallel', async () => {
+  it('[FAULT ARM] C1: the same scenario WOULD lose the write under clear-all semantics', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
+    const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    // A write landing "during" a commit, same as the SAFE case above.
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
+
+    // clearSessionOverlay() (still present, used for real session teardown)
+    // is the full clear-all commitOverlayImpl used to call at this point,
+    // before C1. Calling it here reproduces that exact pre-fix behavior.
+    backend.clearSessionOverlay('alice');
+
+    expect(backend.getSessionOverlay('alice')).toBeUndefined(); // the write is gone — the bug C1 fixes
+  });
+
+  it('[SAFE] C2: concurrent commitOverlay() calls for one user never run two PATCH ref calls in parallel', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
     mockSessionBranchLookup('api-session/bob', 'blob1');
     const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-    let inFlightPatches = 0;
-    let maxConcurrentPatches = 0;
-    let totalPatches = 0;
-    apiHandlers.push(async (url, init) => {
-      if ((init?.method ?? 'GET') === 'PATCH' && url.includes('/git/refs/heads/')) {
-        totalPatches++;
-        inFlightPatches++;
-        maxConcurrentPatches = Math.max(maxConcurrentPatches, inFlightPatches);
-        await new Promise((r) => setTimeout(r, 5));
-        inFlightPatches--;
-        return { status: 200, body: { object: { sha: MAIN_SHA } } };
-      }
-      return null;
-    });
+    const getRefStarted = onRequestStarted('GET', '/git/refs/heads/');
+    const patch = gateRequest('PATCH', '/git/refs/heads/');
+
+    const first = backend.commitOverlay('bob');
+    await getRefStarted; // proof: commitPending was cleared — first is genuinely running, blocked at the gated PATCH
 
     // Second write + two triggers land while the first commit is still
-    // running. `second`/`third` arrive close enough together that they must
-    // coalesce into exactly one follow-up commit, not two.
-    const first = backend.commitOverlay('bob');
+    // running (provably — not assumed from timing).
     await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
     const second = backend.commitOverlay('bob');
     const third = backend.commitOverlay('bob');
 
+    patch.release();
     await Promise.all([first, second, third]);
 
-    expect(maxConcurrentPatches).toBe(1); // never two PATCH ref calls for 'bob' at once
-    expect(totalPatches).toBe(2); // the original commit + exactly one coalesced follow-up
+    expect(patch.maxConcurrent).toBe(1); // never two PATCH ref calls for 'bob' at once
+    expect(patch.total).toBe(2); // the original commit + exactly one coalesced follow-up
     expect(backend.getSessionOverlay('bob')).toBeUndefined();
+  });
+
+  it('[FAULT ARM] C2: without the serialization lock, two concurrent commits DO run PATCH in parallel', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'carol', branchName: 'api-session/carol' });
+    mockSessionBranchLookup('api-session/carol', 'blob1');
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    const patch = gateRequest('PATCH', '/git/refs/heads/');
+    // commitOverlayImpl is the unguarded inner method the public
+    // commitOverlay() serializes access to via commitChain/commitPending.
+    // Calling it directly, twice, bypasses that lock — reproducing exactly
+    // the race C2 exists to prevent.
+    // Deliberate backdoor for the fault-arm test.
+    const callDirect = (backend as any).commitOverlayImpl.bind(backend);
+    const p1 = callDirect('carol');
+    const p2 = callDirect('carol');
+
+    patch.release();
+    await Promise.allSettled([p1, p2]);
+
+    expect(patch.maxConcurrent).toBe(2); // the exact race C2's lock prevents
   });
 });
