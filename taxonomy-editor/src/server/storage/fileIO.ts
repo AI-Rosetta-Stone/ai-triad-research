@@ -1270,7 +1270,7 @@ export async function readSourceDocumentPdf(docId: string): Promise<Buffer | nul
 }
 
 // ── Data-root validation (t/3296) — extracted to dataRootValidator.ts ──
-export { validateDataRoot } from './dataRootValidator.js';
+export { validateDataRoot, validateCacheDirDisjoint } from './dataRootValidator.js';
 
 // ── Dictionary ──
 
