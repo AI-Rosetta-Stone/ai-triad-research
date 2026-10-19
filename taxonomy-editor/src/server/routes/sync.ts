@@ -25,6 +25,7 @@ import { setRuntimeCredentials, clearRuntimeCredentials, getCredentials } from '
 import { diffNodes, changedFields } from '../storage/editMeta.js';
 import { computeNodeConflicts } from '../community/nodeConflicts.js';
 import type { TaxNode, NodeConflict } from '../community/nodeConflicts.js';
+import { getOverlayCommitStatus } from '../storage/overlayCommitScheduler.js';
 
 type RawBodyReq = IncomingMessage & { __rawBody?: string };
 
@@ -130,7 +131,7 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
     const sessionManager = ctx.getSessionManager();
     try {
       if (!githubBackend || !sessionManager) {
-        json(res, { enabled: false, unsynced_count: 0, session_branch: null, pr_number: null, pr_url: null, push_pending: false, github_configured: false, main_updated_available: false, rebase_in_progress: false });
+        json(res, { enabled: false, unsynced_count: 0, session_branch: null, pr_number: null, pr_url: null, push_pending: false, github_configured: false, main_updated_available: false, rebase_in_progress: false, overlay_commit: null });
         return;
       }
       const userId = getCurrentUserId();
@@ -147,6 +148,12 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
         hasConflicts = cmp.status === 'diverged' && cmp.behind_by > 0;
       }
 
+      // t/4258/t/4276 (C3 wiring): a write outside taxonomyDataSlice.save() (edges status/
+      // swap/bulk, conflicts, cruxes evidence, policy-registry recount) schedules a debounced
+      // overlay commit rather than awaiting one inline — surface its state here so the UI can
+      // show "not yet saved to GitHub" instead of implying the write is already durable.
+      const overlayCommit = getOverlayCommitStatus(userId) ?? null;
+
       const full = {
         enabled: true,
         mode: 'github-api' as const,
@@ -158,6 +165,7 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
         github_configured: true,
         main_updated_available: behindBy > 0,
         rebase_in_progress: false,
+        overlay_commit: overlayCommit,
         main_sha: githubBackend.getMainSha(),
         behind_by: behindBy,
         has_conflicts: hasConflicts,
