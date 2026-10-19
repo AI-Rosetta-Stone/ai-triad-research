@@ -1356,7 +1356,12 @@ function ConvertFrom-AIGeminiEnvelope {
             return $null
         }
         $Truncated = ($FinishReason -eq 'MAX_TOKENS')
-        $Text = $Candidate.content.parts[0].text
+        # t/4270: a candidate with no content.parts (a thinking model that spent maxOutputTokens before
+        # any text, finishReason MAX_TOKENS) has no text; it is not an unexpected shape. Text stays $null
+        # so ConvertFrom-AIResponseEnvelope WARNs "response had no text" with the finish reason.
+        $Content = if ($Candidate.PSObject.Properties['content']) { $Candidate.content } else { $null }
+        $Parts = if ($Content -and $Content.PSObject.Properties['parts']) { @($Content.parts) } else { @() }
+        $Text = if ($Parts.Count -gt 0) { $Parts[0].text } else { $null }
         $um = $Response.usageMetadata
         if ($um) {
             $CachedCount = if ($um.PSObject.Properties['cachedContentTokenCount']) { [int]($um.cachedContentTokenCount) } else { 0 }
