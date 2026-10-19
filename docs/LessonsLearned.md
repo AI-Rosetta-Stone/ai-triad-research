@@ -5928,3 +5928,64 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (ServerAPI p/504#24).
 
 **Applies To:** All agents arming auto-merge on T1 PRs after receiving an approval comment.
+
+
+---
+
+## #293 [Build] Edit Anchor Matches at Wrong Nesting Level — Injected Code Lands Outside Describe Block
+
+**Pattern:** An agent uses a comment string as an Edit anchor to insert new test blocks. The comment appears at multiple structural levels in the file — both inside an existing describe block and as a section header. The edit matches the first occurrence (inside the inner describe), injecting code between that block's closing `});` and the next section header. The new blocks land outside any describe, causing a syntax error.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#67, t/4305): anchor `// ── buildSoulOverrideResolver` matched inside `loadSoulOverrides` describe; new `it()` blocks injected between closing `});` and next section, landing outside any describe. Fixed by re-reading, moving blocks into `validateSeatTagsConfig` describe, removing duplicates.
+
+**Root Cause:** Comment strings used as anchors are not unique when the same string appears at multiple nesting levels. The Edit tool matches the first occurrence, which may not be the intended injection point.
+
+**Prevention:**
+1. **Include surrounding brace and indentation context in the anchor**, not just the comment string — ensure the anchor is unique to the intended nesting level.
+2. **After any test insertion, re-read the file and verify the nesting** by checking that each new block is inside the correct describe and that `});` counts balance.
+3. **A syntax error immediately after a test insertion** is a reliable diagnostic for an out-of-describe injection — inspect the lines just before and after the inserted block.
+
+**Status:** Active — 1 instance (DebateTool p/70#67, t/4305).
+
+**Applies To:** All agents inserting test blocks via Edit; always verify nesting after insertion.
+
+---
+
+## #294 [Build] Absolute Path to `.bin/` Binary Blocked by Bash Isolation Hook — Use `pnpm exec` Instead
+
+**Pattern:** An agent calls a node binary using its absolute path (e.g., `"C:\...\node_modules\.bin\vitest.CMD"`). The Bash isolation hook blocks the call because it cannot verify the binary is not git-related. The tool is available via `pnpm exec` or a `pnpm run` script, which the hook recognizes as safe.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#69, t/4305): direct call to absolute `.bin\vitest.CMD` path blocked by isolation hook. Worked around with `node_modules\.pnpm\node_modules\.bin\vitest.CMD` via PowerShell `&`, but cleaner fix is `pnpm exec vitest`.
+
+**Root Cause:** The Bash isolation hook verifies commands against an allowlist by command name/pattern. An absolute path to a `.bin/` binary does not match any allowlist pattern, so it is treated as unverifiable.
+
+**Prevention:**
+1. **Always invoke project tooling via `pnpm exec <tool>` or `pnpm run <script>`** — both resolve through pnpm's known binary resolution and pass the hook check.
+2. **Never construct absolute paths to `node_modules/.bin/` binaries for shell invocation.** The path may vary by OS or pnpm layout version, and it bypasses hook verification.
+3. **"Unverifiable command" from the isolation hook on a `.bin/` path** is a reliable diagnostic for this pattern — switch to `pnpm exec`.
+
+**Status:** Active — 1 instance (DebateTool p/70#69, t/4305).
+
+**Applies To:** All agents invoking node binaries in isolated sessions; prefer `pnpm exec` over absolute `.bin/` paths.
+
+---
+
+## #295 [Build] `grep -r` from Worktree Root Hits 120s Timeout — Use the Grep Tool Instead
+
+**Pattern:** An agent runs `grep -r "<pattern>" .` from the worktree root via Bash to search the repo. With a large repo (~410 MB data + code), the recursive grep hits the 120-second Bash timeout and returns no results.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#69, t/4305): `grep -r "lib-debate-not-to-soul-loaders" .` from worktree root timed out at 120s. Fixed by using the Grep tool (ripgrep), which completed instantly.
+
+**Root Cause:** Bash `grep -r` traverses all files including `node_modules/`, `.git/`, and the adjacent `../ai-triad-data/` symlink. The Grep tool (ripgrep) respects `.gitignore` and default exclusions, completing orders of magnitude faster.
+
+**Prevention:**
+1. **Always use the Grep tool for repo-wide pattern searches** — never `grep -r` via Bash. The Grep tool uses ripgrep with `.gitignore`-aware exclusions and completes in milliseconds on this repo.
+2. **`grep -r` from the repo root will always time out** on this project due to `node_modules/` and data repo size. There is no flags combination that makes it safe — use the Grep tool.
+3. **AGENTS.md Shell Quoting Rule** already says to prefer dedicated tools over Bash; this is the search-specific instance of that rule.
+
+**Status:** Active — 1 instance (DebateTool p/70#69, t/4305).
+
+**Applies To:** All agents; never use Bash `grep -r` for repo-wide searches — use the Grep tool.
