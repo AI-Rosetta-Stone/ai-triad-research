@@ -12,11 +12,18 @@
  * [SAFE]: a write scheduled via the real scheduler, flushed before its debounce fires, lands in
  * the committed tree with the PATCH targeting the user's session branch.
  *
- * [FAULT ARM] vs [SAFE]: the SAME retry-backoff user (first commit attempt fails, scheduler
- * enters backoff) is put through BOTH flushPendingOverlayCommits() (the scheduler's own bulk
- * flush — the fault arm: it only drains its pending-commit map, which a backoff retry isn't in,
- * so the user stays dirty) and this file's flushOverlaysWithDeadline() (the safe arm: it sweeps
- * the backend's actual overlay contents, so it still commits them).
+ * [FAULT ARM] vs [SAFE]: NOTE — the SO's original ask (e/315#2) was to put a retry-backoff user
+ * through flushPendingOverlayCommits() and assert they're still dirty. By the time this test was
+ * written, Server Storage had already closed that exact gap in overlayCommitScheduler.ts
+ * (retryingOverlayCommits tracking, #3412) — flushPendingOverlayCommits() now finds and commits
+ * a backoff-pending user too, so that premise no longer produces a fault. Verified directly:
+ * running the retry-backoff scenario through flushPendingOverlayCommits() now empties the
+ * overlay. Substituting a still-real fault: a write whose overlay entry exists but for which
+ * scheduleOverlayCommit() was NEVER called at all (the historical bug class this ticket exists
+ * for — e.g. routes/policyRegistry.ts's direct getBackend().writeFile() before t/4276 added the
+ * scheduling call). flushPendingOverlayCommits() has nothing to find for such a user (empty
+ * pending/retrying maps) and leaves them dirty; this file's flushOverlaysWithDeadline() still
+ * commits them because it sweeps the backend's actual overlay contents, not scheduler state.
  *
  * LOCAL-ONLY FAILURE MODE (t/2281/t/3444): gated on isUndiciMajorAlignedWithRuntime for the same
  * reason as the other githubApi* test files.
@@ -58,8 +65,13 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({
   FlightRecorder: vi.fn(),
 }));
 
-vi.mock('../security/userContext.js', () => ({ getCurrentUserId: () => 'alice' }));
-vi.mock('../config.js', () => ({ getMaxReplicas: () => 1, getStateRoot: () => '/var/cache/taxonomy-test' }));
+// security/userContext.js and config.js are left UNMOCKED (matches githubApiOverlayCommitSafety.
+// test.ts) — backend.setSessionContext({userId, branchName}) is the test-compatibility fallback
+// getEffectiveRef()/getEffectiveUserId() use once the real (unmocked) AsyncLocalStorage lookup
+// finds no active request scope, and toRepoPath() needs the real getDataRoot() (resolves from
+// AI_TRIAD_DATA_ROOT, stubbed below). A partial mock of either previously broke the real backend
+// with a missing-export error — this file never calls getCurrentUserId() itself (every user id
+// is a literal test string), so there's nothing of userContext.js's surface to mock anyway.
 
 const defaultRateLimitHeaders = {
   'x-ratelimit-remaining': '4999', 'x-ratelimit-limit': '5000',
@@ -144,18 +156,6 @@ function observeRequests(method: string, urlSubstr: string): { calls: { url: str
   return { calls };
 }
 
-/** One PATCH attempt fails (simulating a transient GitHub error), every later one succeeds. */
-function failFirstPatchThenSucceed(): { attempts: number } {
-  const state = { attempts: 0 };
-  apiHandlers.push((url, init) => {
-    if ((init?.method ?? 'GET') !== 'PATCH' || !url.includes('/git/refs/heads/')) return null;
-    state.attempts++;
-    if (state.attempts === 1) return { status: 500, body: { message: 'Internal Server Error' } };
-    return null; // fall through to the default success handler
-  });
-  return state;
-}
-
 /** Points overlayCommitScheduler.ts's getBackend() at `backend`, then imports the real scheduler
  *  + flushOverlaysWithDeadline fresh so they bind to it. Must run AFTER `backend` is constructed. */
 async function wireSchedulerTo(backend: Awaited<ReturnType<typeof createBackend>>) {
@@ -189,34 +189,26 @@ describe.skipIf(!UNDICI_ALIGNED)('flushOverlaysWithDeadline — real backend + r
     expect(patchCalls.calls[0].url).toContain('api-session/alice');
   });
 
-  it('[FAULT ARM vs SAFE] a retry-backoff user stays dirty through flushPendingOverlayCommits(), but this flush still commits them', async () => {
-    vi.useFakeTimers();
-    try {
-      const backend = await createBackend();
-      backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-      mockSessionBranchLookup('api-session/alice', 'blob1');
-      await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+  it('[FAULT ARM vs SAFE] a write whose overlay entry exists but was never scheduled stays dirty through flushPendingOverlayCommits(), but this flush still commits it', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
+    // Deliberately no scheduleOverlayCommit('alice') call — reproduces the historical bug class
+    // (e.g. routes/policyRegistry.ts's direct getBackend().writeFile() before t/4276 added the
+    // scheduling call): the overlay is dirty, but the scheduler has never heard of this user.
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
-      const patchState = failFirstPatchThenSucceed();
-      const { scheduleOverlayCommit, flushPendingOverlayCommits, flushOverlaysWithDeadline } = await wireSchedulerTo(backend);
+    const { flushPendingOverlayCommits, flushOverlaysWithDeadline } = await wireSchedulerTo(backend);
 
-      scheduleOverlayCommit('alice');
-      await vi.advanceTimersByTimeAsync(2_001); // debounce fires → first attempt → PATCH 500 → retry backoff scheduled
-      expect(patchState.attempts).toBe(1);
-      expect(backend.getUncommittedOverlaySummary()).toHaveLength(1); // still dirty — the backoff hasn't retried yet
+    // [FAULT ARM]: the scheduler's bulk flush only drains users it knows about (its pending +
+    // retrying maps) — empty here, since scheduleOverlayCommit was never called — so it does
+    // nothing for alice, who stays dirty.
+    await flushPendingOverlayCommits();
+    expect(backend.getUncommittedOverlaySummary()).toHaveLength(1); // still dirty — the fault this arm proves
 
-      // [FAULT ARM]: the scheduler's own bulk flush only drains pendingOverlayCommits — a
-      // backoff retry (a bare setTimeout) isn't registered there, so this misses the user.
-      await flushPendingOverlayCommits();
-      expect(backend.getUncommittedOverlaySummary()).toHaveLength(1); // still dirty — the fault this arm proves
-
-      // [SAFE]: this flush sweeps the backend's actual overlay contents instead, independent of
-      // the scheduler's retry bookkeeping, so it still finds and commits the user.
-      await flushOverlaysWithDeadline(backend, Promise.resolve());
-      expect(patchState.attempts).toBeGreaterThanOrEqual(2);
-      expect(backend.getUncommittedOverlaySummary()).toEqual([]);
-    } finally {
-      vi.useRealTimers();
-    }
+    // [SAFE]: this flush sweeps the backend's actual overlay contents instead, independent of
+    // whether the scheduler was ever invoked, so it still finds and commits alice.
+    await flushOverlaysWithDeadline(backend, Promise.resolve());
+    expect(backend.getUncommittedOverlaySummary()).toEqual([]);
   });
 });
