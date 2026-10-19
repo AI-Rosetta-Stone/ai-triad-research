@@ -5868,3 +5868,63 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DebateTool p/70#61, t/4305).
 
 **Applies To:** All agents operating in worktree-pinned sessions who need to create additional worktrees or push to a differently-named remote branch.
+
+---
+
+## #287 [Build] gh Token Lacks `read:packages` Scope — 403 on GHCR Packages API; Prefer Deploy Workflow Log for Container Tag Diagnosis
+
+**Pattern:** An agent queries the GitHub Container Registry packages API (`gh api orgs/.../packages/container/...`) to check whether a `sha-<commit>` container tag exists. The call returns 403 "you need read:packages scope" or "package not found" due to missing scope or a wrong URL-encoded package path. The packages API is not necessary — the deploy workflow failure log already contains the diagnostic.
+
+**Instances:**
+- 2026-10-19 — DevOps Lead (p/26#188): `Get-TaxEditorImage` and raw `gh api orgs/.../packages/container/...` both 403'd. Root cause confirmed instead via deploy workflow failure log, which showed directly that no `sha-<commit>` tag existed for the dispatched SHA. Dispatched a fresh container build instead.
+
+**Root Cause:** Session gh/PAT tokens commonly lack `read:packages` scope, which is not a default OAuth scope. The packages API also requires exact URL-encoded package path format; an off-by-one encoding produces "package not found" rather than a scope error.
+
+**Prevention:**
+1. **Before querying the GHCR packages API, check whether the deploy workflow failure log already answers the question.** It typically surfaces missing `sha-<commit>` tags directly — no API call needed.
+2. **If a packages API call is necessary, confirm the token has `read:packages` scope first** (`gh auth status` shows current scopes). A 403 here is a scope problem, not a permissions or visibility problem.
+3. **URL-encode the package name carefully** — slashes and colons in container image names must be percent-encoded; "package not found" on a known package is a reliable diagnostic for encoding error.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#188).
+
+**Applies To:** All agents diagnosing container image or tag availability; always check the deploy workflow log before reaching for the packages API.
+
+---
+
+## #288 [Build] Concurrent Agents Chose the Same Branch Name — Foreign Commit Rides Into the Wrong PR
+
+**Pattern:** Two agent sessions independently create a branch with the same name. One agent pushes a commit to the branch first; the second agent's subsequent push appends its commit to that branch. The second agent's PR then includes both commits — one from the wrong ticket.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#63, t/4304): branch `feat/broken-injection-detection-t4304` had a t4303 commit (d6f6f9d7) pushed onto it by a concurrent agent session. Both commits landed in PR #3450. The foreign-commit-check workflow (t/3738) would catch this warn-only.
+
+**Root Cause:** Branch name derived from feature description without sufficient ticket-ID uniqueness, and no pre-push check for unexpected commits on the remote branch.
+
+**Prevention:**
+1. **Before opening a PR or pushing additional commits to an existing remote branch, run `git log origin/<branch> --oneline`** to confirm no unexpected commits exist. A commit from another ticket is a signal to stop and coordinate.
+2. **Include ONLY the owning ticket's number in the branch name.** Never reuse a feature-description prefix that another concurrent ticket might also generate.
+3. **The foreign-commit-check workflow (t/3738) fires warn-only on PRs** — it catches ticketed foreign commits and merge-commits-in-range, but does not block. It is the backstop, not the first line of defense.
+
+**Status:** Active — 1 instance (DebateTool p/70#63, t/4304).
+
+**Applies To:** All agents creating or pushing to remote branches; always verify branch history is clean before opening a PR.
+
+---
+
+## #289 [Build] T1 Approval-Guard Stale FAILURE Blocks Auto-Merge Arm — Re-run Failed Check After Approval Comment
+
+**Pattern:** A T1 PR receives the reviewer's `Approved (<role>):` comment. The agent then arms auto-merge with `gh pr merge --auto --squash --match-head-commit`. GitHub rejects it with "Pull request is in unstable status (enablePullRequestAutoMerge)". Cause: the `t1-approval-guard` check ran and FAILED before the approval comment landed; it does not auto-re-run when a new comment is added.
+
+**Instances:**
+- 2026-10-19 — ServerAPI (p/504#24): PR #3437 auto-merge arm rejected. `t1-approval-guard` had a stale FAILURE run from before the `Approved (Quality):` comment. Fixed with `gh run rerun <run-id> --failed`; guard then passed and auto-merge armed successfully.
+
+**Root Cause:** `t1-approval-guard` is a GitHub Actions workflow triggered by PR events. A new comment does not always trigger a re-run if the workflow already has a concluded run for that head SHA.
+
+**Prevention:**
+1. **After the reviewer's approval comment lands on a T1 PR, check `gh pr checks <N>` before arming auto-merge.** If `t1-approval-guard` shows a stale FAILURE, re-run it: `gh run rerun <run-id> --failed` (find the run ID with `gh run list --workflow t1-approval-guard.yml --branch <branch>`).
+2. **"Pull request is in unstable status" on `gh pr merge --auto` for a T1 PR** is a reliable diagnostic for this stale-guard scenario — check guard run status before investigating further.
+3. **Do not arm auto-merge before all required checks are green.** `gh pr checks <N> --watch` confirms live status.
+
+**Status:** Active — 1 instance (ServerAPI p/504#24).
+
+**Applies To:** All agents arming auto-merge on T1 PRs after receiving an approval comment.
