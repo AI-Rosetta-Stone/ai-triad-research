@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+// STAGING ONLY. Needs a test revision with ENABLE_TEST_PERSONA_HEADER=1 and TEST_PERSONA_SECRET set
+// (Set-StagingTestRevision.ps1 -SetEnv); prod ignores the persona header entirely.
 // t/4258 staging kill test, run INSIDE the container: additive crux-evidence write, then signal
 // node (PID 7) immediately — well inside the 2s overlay-commit debounce. Usage: node t.js <arm> <SIG>
 const [arm, sig] = process.argv.slice(2);
