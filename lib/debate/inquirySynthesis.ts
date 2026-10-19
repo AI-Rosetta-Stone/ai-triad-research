@@ -72,18 +72,30 @@ interface LlmSynthesisOutput {
 
 // ── Figure token post-check (t/4303) ─────────────────────────────────────────
 // Stipulated magnitude lexicon — entry in metric-provenance-register §1 (t/4303).
-const MAGNITUDE_LEXICON_RE = /\b(hundreds?|thousands?|millions?|billions?|dozens?)\b/gi;
-// Digit run: consecutive digits optionally with comma separators, optional trailing %.
-const DIGIT_RUN_RE = /\d[\d,]*%?/g;
+// Compound phrases ("hundreds of thousands") match first and normalise to
+// hyphenated form ("hundreds-of-thousands"), so individual transcript words
+// do not cancel a compound phrase in the headline.
+const FIGURE_MAGNITUDE_RE =
+  /\b(?:(?:hundreds?|thousands?|millions?|billions?|dozens?)(?:\s+of\s+(?:hundreds?|thousands?|millions?|billions?))+|hundreds?|thousands?|millions?|billions?|dozens?)\b/gi;
+// Digit run: digits with optional comma separators, optional decimal, optional %.
+const DIGIT_RUN_RE = /\d[\d,]*(?:\.\d+)?%?/g;
+// Node-ID citations like [saf-beliefs-206] produce bare digit tokens that are never
+// in the transcript corpus. Strip them before extracting so they don't false-warn.
+const NODE_ID_CITATION_RE = /\[?(?:acc|saf|skp|cc|sit|pol)-[a-z]+-\d+\]?/gi;
 
-/** Extract normalised figure tokens from text: digit runs + magnitude words. */
+function stripNodeIds(text: string): string {
+  return text.replace(new RegExp(NODE_ID_CITATION_RE.source, 'gi'), ' ');
+}
+
+/** Extract normalised figure tokens from text: compound/single magnitude phrases and digit runs. */
 function extractFigureTokens(text: string): Set<string> {
+  const stripped = stripNodeIds(text);
   const tokens = new Set<string>();
-  for (const m of text.matchAll(new RegExp(MAGNITUDE_LEXICON_RE.source, 'gi'))) {
-    tokens.add(m[0].toLowerCase());
+  for (const m of stripped.matchAll(new RegExp(FIGURE_MAGNITUDE_RE.source, 'gi'))) {
+    // Normalise compound: "hundreds of thousands" → "hundreds-of-thousands"
+    tokens.add(m[0].toLowerCase().replace(/\s+of\s+/g, '-of-'));
   }
-  for (const m of text.matchAll(new RegExp(DIGIT_RUN_RE.source, 'g'))) {
-    // Normalise: strip commas (and spaces would be stripped if included)
+  for (const m of stripped.matchAll(new RegExp(DIGIT_RUN_RE.source, 'g'))) {
     tokens.add(m[0].replace(/,/g, ''));
   }
   return tokens;
@@ -130,6 +142,7 @@ function checkUnsupportedFigures(
           component: 'inquiry-synthesis',
           level: 'warn',
           message: `synthesizeInquiry: unsupported figure in '${fieldName}': '${tok}' not in question/transcript/grounding`,
+          data: { debate_id: session.id, field: fieldName, token: tok },
         });
       }
     }
