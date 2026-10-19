@@ -5644,3 +5644,64 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Worker p/749#16).
 
 **Applies To:** All agents running `pwsh -Command "..."` from the Bash tool with PowerShell cmdlets in the pipeline.
+
+---
+
+## #273 [Build] `-WhatIf` Propagates Through `SupportsShouldProcess` to All Cmdlets — Writes Are Silently Skipped
+
+**Pattern:** A script decorated with `SupportsShouldProcess` is invoked with `-WhatIf`. The flag propagates automatically to every `SupportsShouldProcess` cmdlet called inside the script (`Set-Content`, `New-Item`, `Remove-Item`, etc.), silently skipping all writes. An agent that reads an output file written by the script after a `-WhatIf` dry run gets `FileNotFoundError` — the file was never created.
+
+**Instances:**
+- 2026-10-19 — Azure (p/105#12): checked a script's `-WhatIf` dry run by reading the spec file it writes; got `FileNotFoundError`. `-WhatIf` had propagated to `Set-Content`, preventing the write. Resolved: added `-WhatIf:$false` on that specific `Set-Content` call.
+
+**Root Cause:** PowerShell's `ShouldProcess` mechanism propagates `-WhatIf` down the call stack to all cmdlets that support it. This is by design — but it means a dry run cannot produce inspectable file output unless the specific write is explicitly opted out with `-WhatIf:$false`.
+
+**Prevention:**
+1. **If a dry run must still write an inspectable output file** (spec, report, log), add `-WhatIf:$false` on that specific `Set-Content`/`Out-File`/`New-Item` call.
+2. **Never read a file produced inside a `SupportsShouldProcess` script after a `-WhatIf` invocation** and expect it to exist — the write was suppressed.
+3. **`FileNotFoundError` on a file a script "should have written"** after a `-WhatIf` call is a reliable diagnostic for `-WhatIf` propagation.
+
+**Status:** Active — 1 instance (Azure p/105#12).
+
+**Applies To:** All agents invoking or testing `-WhatIf` dry runs of `SupportsShouldProcess` scripts that produce output files.
+
+---
+
+## #274 [Build] Stale Deployment Resource Name in AGENTS.md Causes `ResourceNotFound` — Always Query Live Names
+
+**Pattern:** An agent reads a deployment resource name (e.g. an Azure Container App name) from a role's AGENTS.md "Current Deployment" section and uses it in an `az` CLI call. The live name has drifted from what the doc says. The CLI returns `ResourceNotFound`.
+
+**Instances:**
+- 2026-10-19 — Azure (p/105#14, t/1735): `az containerapp show -n ai-triad-taxonomy-editor-staging` returned `ResourceNotFound`. The name came from Azure's AGENTS.md "Current Deployment" section; the live name is `taxonomy-editor-staging`. Resolved: listed apps with `az containerapp list -g ai-triad`.
+
+**Root Cause:** Inline resource names in AGENTS.md drift silently as deployments are renamed or redeployed. The authoritative source is the Azure API, not the context doc.
+
+**Prevention:**
+1. **Always query live names before using them:** `az containerapp list -g ai-triad --query "[].name" -o tsv`. Never rely on a name from a context doc.
+2. **The root AGENTS.md rule is authoritative:** "Infrastructure: query the registry or cloud API, not the workflow YAML." This applies equally to AGENTS.md deployment sections.
+3. **`ResourceNotFound` on an Azure resource whose name came from a context doc** is a reliable diagnostic for name drift — list the resource group to find the live name.
+4. **The durable fix is to have AGENTS.md reference `deployment-facts.md`** (or equivalent live source) rather than restate names inline.
+
+**Status:** Active — 1 instance (Azure p/105#14, t/1735).
+
+**Applies To:** All agents reading Azure resource names from AGENTS.md or any context doc before making API calls.
+
+---
+
+## #275 [Build] `git branch -d` Blocked After Merge — Stale Worktree Still Checked Out on the Branch
+
+**Pattern:** After a PR merges, an agent runs `git branch -d <merged-branch>` for routine cleanup. Git rejects it with "error: Cannot delete branch '<branch>' used by worktree at '<path>'." A stale local worktree is still checked out on that branch, even though the PR has merged and the remote branch has been deleted.
+
+**Instances:**
+- 2026-10-19 — Server Storage (p/539#8, t/4258): `git branch -d feat/t4258-shutdown-warn` blocked after merge — a local worktree at `.worktrees/t4258-shutdown-warn` was still on that branch. Resolved: skipped cleanup (out of scope for the task).
+
+**Root Cause:** `git branch -d` refuses to delete a branch that any local worktree currently has checked out, regardless of merge status. The worktree must be removed or detached first.
+
+**Prevention:**
+1. **Before `git branch -d <branch>`, check if any worktree holds it:** `git worktree list | grep <branch>`. If one does, `git worktree remove <path>` first, then `git branch -d <branch>`.
+2. **The land-from-worktree skill step 8** covers this: `git worktree remove ../wt-<ticket>` before cleanup. If the worktree was not removed post-land, it will block branch deletion.
+3. **"used by worktree" on a `git branch -d` call** is a clean diagnostic — find the worktree path in the error message and remove it.
+
+**Status:** Active — 1 instance (Server Storage p/539#8, t/4258).
+
+**Applies To:** All agents performing post-merge branch cleanup when local worktrees may still reference the branch.
