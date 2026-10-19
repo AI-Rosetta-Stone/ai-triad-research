@@ -1,0 +1,22 @@
+name: pull-request-target-sha-probe
+
+# t/4266 P1 probe (throwaway — titled "probe", closed after observation). Tests whether a
+# pull_request_target-triggered job's check-run attaches to the PR's HEAD sha (the sha branch
+# protection evaluates for required-context satisfaction) or the BASE sha. Never execute PR code
+# here; this step runs no checkout of PR content at all, by design.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report the SHAs this run sees
+        run: |
+          echo "event.pull_request.head.sha = ${{ github.event.pull_request.head.sha }}"
+          echo "github.sha (checkout default) = ${{ github.sha }}"
