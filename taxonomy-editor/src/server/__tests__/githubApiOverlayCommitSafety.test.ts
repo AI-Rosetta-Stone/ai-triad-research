@@ -21,11 +21,18 @@
  * pre-commit snapshot has already been taken).
  *
  * Each [SAFE] test is paired with a [FAULT ARM] test proving the defect
- * class it guards against is real: C1's fault arm reproduces exactly what
- * `commitOverlayImpl` used to do (full clear-all via the still-present
- * `clearSessionOverlay`, now used only for session teardown) and shows it
- * loses the write; C2's calls the unguarded `commitOverlayImpl` directly,
- * bypassing the public `commitOverlay()`'s serialization, and shows two
+ * class it guards against is real — and that it's real against the actual
+ * commitOverlayImpl, under the actual forced interleaving, not a standalone
+ * demonstration (e/308#14 — an earlier version of C1's arm never called
+ * commitOverlayImpl at all, so a pass there proved nothing about this file's
+ * code): C1's arm monkey-patches the private clearing step to delegate to
+ * the still-present `clearSessionOverlay` (now teardown-only) — reproducing
+ * exactly what `commitOverlayImpl` called at that point before C1 — and
+ * runs the identical [SAFE] C1 scenario, showing the write is lost. C2's arm
+ * calls the unguarded `commitOverlayImpl` directly, twice, bypassing the
+ * public `commitOverlay()`'s serialization, and — using `gateRequest(...).
+ * reached(2)` to deterministically wait until both calls are inside the gate
+ * before releasing it (not a guess about which arrives first) — shows two
  * PATCH calls run concurrently.
  *
  * LOCAL-ONLY FAILURE MODE (t/2281/t/3444): gated on isUndiciMajorAlignedWithRuntime
@@ -157,25 +164,41 @@ function onRequestStarted(method: string, urlSubstr: string): Promise<void> {
   return started;
 }
 
-/** Real gate on a matching request — blocks until release() is called. Tracks concurrency/total calls. */
+/**
+ * Real gate on a matching request — blocks until release() is called. Tracks
+ * concurrency/total calls, and `reached(n)` resolves once `n` calls are
+ * simultaneously inside the gate — the deterministic way to know a fault-arm
+ * scenario's concurrent calls have actually arrived before releasing them,
+ * instead of guessing from call order (e/308#14).
+ */
 function gateRequest(method: string, urlSubstr: string) {
   let release!: () => void;
   const gate = new Promise<void>((res) => { release = res; });
   let inFlight = 0;
   let maxConcurrent = 0;
   let total = 0;
+  const reachedResolvers = new Map<number, () => void>();
   apiHandlers.push(async (url, init) => {
     if ((init?.method ?? 'GET') === method && url.includes(urlSubstr)) {
       total++;
       inFlight++;
       maxConcurrent = Math.max(maxConcurrent, inFlight);
+      reachedResolvers.get(inFlight)?.();
       await gate;
       inFlight--;
       return { status: 200, body: { object: { sha: MAIN_SHA } } };
     }
     return null;
   });
-  return { release: () => release(), get total() { return total; }, get maxConcurrent() { return maxConcurrent; } };
+  return {
+    release: () => release(),
+    get total() { return total; },
+    get maxConcurrent() { return maxConcurrent; },
+    reached(n: number): Promise<void> {
+      if (inFlight >= n) return Promise.resolve();
+      return new Promise((res) => { reachedResolvers.set(n, res); });
+    },
+  };
 }
 
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay commit safety', () => {
@@ -209,20 +232,33 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     expect(backend.getSessionOverlay('alice')).toBeUndefined();
   });
 
-  it('[FAULT ARM] C1: the same scenario WOULD lose the write under clear-all semantics', async () => {
+  it('[FAULT ARM] C1: with the clearing step patched to clear-all, the same interleaving loses the write', async () => {
     const backend = await createBackend();
-    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
-    mockSessionBranchLookup('api-session/alice', 'blob1');
+    backend.setSessionContext({ userId: 'dave', branchName: 'api-session/dave' });
+    mockSessionBranchLookup('api-session/dave', 'blob1');
     const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
-    // A write landing "during" a commit, same as the SAFE case above.
+
+    // Patch the private clearing step to reproduce exactly what
+    // commitOverlayImpl called at this point before C1 — clearSessionOverlay's
+    // full clear-all, still present today for real session teardown. This
+    // still runs the real commitOverlayImpl, under the same forced
+    // interleaving as [SAFE] C1 above — only the clearing behavior changes,
+    // so a pass here is not tautological (e/308#14).
+    (backend as unknown as { clearCommittedOverlayEntries: (userId: string) => void }).clearCommittedOverlayEntries =
+      (userId: string) => backend.clearSessionOverlay(userId);
+
+    const getRefStarted = onRequestStarted('GET', '/git/refs/heads/');
+    const patch = gateRequest('PATCH', '/git/refs/heads/');
+    const commitPromise = backend.commitOverlay('dave');
+    await getRefStarted;
+
     await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
+    backend.writeToOverlay('/taxonomy/other.json', '{"new": true}');
 
-    // clearSessionOverlay() (still present, used for real session teardown)
-    // is the full clear-all commitOverlayImpl used to call at this point,
-    // before C1. Calling it here reproduces that exact pre-fix behavior.
-    backend.clearSessionOverlay('alice');
+    patch.release();
+    await commitPromise;
 
-    expect(backend.getSessionOverlay('alice')).toBeUndefined(); // the write is gone — the bug C1 fixes
+    expect(backend.getSessionOverlay('dave')).toBeUndefined(); // lost — the bug C1 fixes
   });
 
   it('[SAFE] C2: concurrent commitOverlay() calls for one user never run two PATCH ref calls in parallel', async () => {
@@ -267,6 +303,9 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const p1 = callDirect('carol');
     const p2 = callDirect('carol');
 
+    // Deterministic: release only once BOTH calls are inside the gate, not
+    // on the hope that neither has reached it yet (e/308#14).
+    await patch.reached(2);
     patch.release();
     await Promise.allSettled([p1, p2]);
 
