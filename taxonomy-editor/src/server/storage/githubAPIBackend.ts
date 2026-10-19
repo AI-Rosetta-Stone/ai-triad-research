@@ -361,10 +361,14 @@ export class GitHubAPIBackend implements StorageBackend {
       clearInterval(this.leaseRenewTimer);
       this.leaseRenewTimer = null;
     }
-    // t/4258: warn about overlay entries that will be lost — best-effort,
-    // logging must never be able to break shutdown itself.
+    // t/4258/t/4302: this runs BEFORE server.ts's SIGTERM flush
+    // (flushOverlaysWithDeadline) even starts, so a non-empty overlay here
+    // isn't data loss yet — it's about to be flushed. INFO, not WARN;
+    // shutdownOverlayFlush.ts's own post-flush WARN (t/4276) is the one that
+    // correctly reports what's still uncommitted after the flush actually
+    // ran. Best-effort — logging must never be able to break shutdown itself.
     try {
-      this.warnUncommittedOverlay(this.uncommittedOverlaySummary());
+      this.logUncommittedOverlay(this.uncommittedOverlaySummary(), 'info');
     } catch { /* telemetry — silent by design; never let logging break shutdown */ }
     // Best-effort — so a graceful shutdown hands the lease off immediately
     // rather than making the next holder wait out the full lease duration.
@@ -393,14 +397,24 @@ export class GitHubAPIBackend implements StorageBackend {
     return summary;
   }
 
-  /** t/4258: log + flight-record a non-empty uncommitted-overlay summary. No-op when empty. */
-  private warnUncommittedOverlay(summary: { userId: string; entryCount: number; paths: string[] }[], context = 'shutdown'): void {
+  /**
+   * t/4258/t/4302: log + flight-record a non-empty uncommitted-overlay
+   * summary. No-op when empty. `level: 'info'` is for a pre-flush notice
+   * (nothing lost yet — a flush is about to run); `level: 'warn'` is for a
+   * genuine loss (e.g. a failed commitOverlay with no further flush coming).
+   */
+  private logUncommittedOverlay(
+    summary: { userId: string; entryCount: number; paths: string[] }[],
+    level: 'info' | 'warn',
+    context = 'shutdown',
+  ): void {
     if (summary.length === 0) return;
     const totalEntries = summary.reduce((sum, s) => sum + s.entryCount, 0);
-    const message = `${totalEntries} uncommitted overlay entries across ${summary.length} user(s) at ${context} (t/4258) — will be lost`;
-    log.storage.warn({ context, summary }, message);
+    const outcome = level === 'warn' ? '— will be lost' : '— flushing';
+    const message = `${totalEntries} uncommitted overlay entries across ${summary.length} user(s) at ${context} (t/4258/t/4302) ${outcome}`;
+    log.storage[level]({ context, summary }, message);
     getGlobalRecorder()?.record({
-      type: 'system.error', component: 'storage', level: 'warn', message, data: { context, summary },
+      type: level === 'warn' ? 'system.error' : 'storage.mode', component: 'storage', level, message, data: { context, summary },
     });
   }
 
