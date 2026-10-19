@@ -360,6 +360,18 @@ export class GitHubAPIBackend implements StorageBackend {
     if (this.blobLease) void this.blobLease.release();
   }
 
+  /**
+   * t/4258/t/4276: public access to the uncommitted-overlay summary, for the
+   * SIGTERM flush (ServerAPI, p/541#75) to sweep actual overlay contents
+   * directly instead of the fileIO.ts scheduler's own pending-commit
+   * bookkeeping — and to re-check after the flush, so the deadline WARN
+   * reflects what's really still uncommitted (a dirty overlay with no
+   * scheduler status would otherwise produce no WARN).
+   */
+  getUncommittedOverlaySummary(): { userId: string; entryCount: number; paths: string[] }[] {
+    return this.uncommittedOverlaySummary();
+  }
+
   /** t/4258: pure summary of uncommitted overlay state — no content, paths capped per user. */
   private uncommittedOverlaySummary(): { userId: string; entryCount: number; paths: string[] }[] {
     const summary: { userId: string; entryCount: number; paths: string[] }[] = [];
