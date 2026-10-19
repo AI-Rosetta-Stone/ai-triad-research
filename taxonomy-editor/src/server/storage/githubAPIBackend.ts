@@ -1480,7 +1480,9 @@ export class GitHubAPIBackend implements StorageBackend {
    * Handles both writes and deletes (tombstones). Clears the overlay only on success.
    * Returns { commitSha, filesCommitted } or null if no pending changes.
    */
-  async commitOverlay(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null> {
+  async commitOverlay(
+    userId: string, message?: string, opts?: { branchName?: string },
+  ): Promise<{ commitSha: string; filesCommitted: number } | null> {
     // t/4258/t/4277 (C2): a commit already queued-but-not-started for this
     // user absorbs this trigger — join its promise instead of racing a
     // second PATCH /git/refs/heads/<branch> against it. A commit already
@@ -1503,7 +1505,7 @@ export class GitHubAPIBackend implements StorageBackend {
       // separately-queued follow-up rather than joining this one.
       this.commitPending.delete(userId);
       try {
-        resolve(await this.commitOverlayGuarded(userId, message));
+        resolve(await this.commitOverlayGuarded(userId, message, opts?.branchName));
       } catch (err) {
         reject(err);
       }
@@ -1513,9 +1515,11 @@ export class GitHubAPIBackend implements StorageBackend {
     return promise;
   }
 
-  private async commitOverlayGuarded(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null> {
+  private async commitOverlayGuarded(
+    userId: string, message?: string, branchName?: string,
+  ): Promise<{ commitSha: string; filesCommitted: number } | null> {
     try {
-      return await this.commitOverlayImpl(userId, message);
+      return await this.commitOverlayImpl(userId, message, branchName);
     } catch (err) {
       const summary = this.uncommittedOverlaySummary().filter(s => s.userId === userId);
       const warnMsg = `commitOverlay failed for ${userId} — overlay entries remain uncommitted (t/4258)`;
@@ -1532,11 +1536,19 @@ export class GitHubAPIBackend implements StorageBackend {
     }
   }
 
-  private async commitOverlayImpl(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null> {
+  private async commitOverlayImpl(
+    userId: string, message?: string, branchName?: string,
+  ): Promise<{ commitSha: string; filesCommitted: number } | null> {
     const entries = this.getOverlayEntries(userId);
     if (!entries) return null;
 
-    const branch = this.getEffectiveRef();
+    // t/4258/t/4277 (C3a): an explicit branchName is required for callers
+    // running outside request scope (a debounced commit timer, a SIGTERM
+    // flush) — getEffectiveRef()'s AsyncLocalStorage lookup only resolves
+    // inside the request that set it, so a setTimeout callback would
+    // silently fall back to baseBranch and hit the guard below on every
+    // scheduled commit in production.
+    const branch = branchName ?? this.getEffectiveRef();
     if (branch === this.baseBranch) {
       throw new ActionableError({
         goal: 'Commit overlay to GitHub',

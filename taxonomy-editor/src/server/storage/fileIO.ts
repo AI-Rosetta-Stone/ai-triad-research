@@ -27,6 +27,7 @@ import type { EntityMentionsFile, ContainerMentions } from '../../../../lib/enti
 import { serializeEdgesJson } from '../../../../lib/edges/serializeEdges.js';
 import { ABSENT_BASELINE, type EdgesData } from '../../../../lib/edges/mergeEdgesPreservingRationale.js';
 import { getCurrentUserId } from '../security/userContext.js';
+import { sessionBranchNameFor } from './sessionBranchManager.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
 // barrel: importers keep importing these symbols from './fileIO.js'. Each module
@@ -95,7 +96,9 @@ export function getBriefExportBackend(): StorageBackend { return briefExportBack
 // (filesystem/Electron mode) or once no session user is active.
 
 interface OverlayCommittable {
-  commitOverlay(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null>;
+  commitOverlay(
+    userId: string, message?: string, opts?: { branchName?: string },
+  ): Promise<{ commitSha: string; filesCommitted: number } | null>;
 }
 function supportsOverlayCommit(b: StorageBackend): b is StorageBackend & OverlayCommittable {
   return typeof (b as unknown as { commitOverlay?: unknown }).commitOverlay === 'function';
@@ -126,7 +129,11 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
   clearPendingOverlayCommit(userId);
   if (!supportsOverlayCommit(backend)) return;
   try {
-    await backend.commitOverlay(userId);
+    // t/4258/t/4277 (C3a): pass the branch explicitly — this runs from a
+    // setTimeout, outside any request's AsyncLocalStorage scope, so
+    // GitHubAPIBackend.getEffectiveRef() would otherwise fall back to
+    // baseBranch and commitOverlayImpl would throw on every scheduled commit.
+    await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
     overlayCommitStatus.set(userId, { state: 'committed', at: Date.now() });
   } catch (err) {
     const message = String((err as Error)?.message ?? err);
@@ -169,6 +176,22 @@ export function scheduleOverlayCommit(userId: string): void {
     debounceTimer: setTimeout(() => { void runScheduledOverlayCommit(userId); }, OVERLAY_COMMIT_DEBOUNCE_MS),
     maxWaitTimer: setTimeout(() => { void runScheduledOverlayCommit(userId); }, OVERLAY_COMMIT_MAX_WAIT_MS),
   });
+}
+
+/**
+ * t/4258/t/4277 (C3c): immediately run (not wait out the debounce for) every
+ * currently-scheduled overlay commit, and wait for them all to settle. For
+ * t/4276's SIGTERM flush — called once per non-empty overlay at shutdown
+ * instead of relying on the debounce timer to fire before the process exits.
+ * Users with no pending scheduled commit (nothing written since the last
+ * commit, or committed via an explicit save already) are untouched.
+ */
+export function flushPendingOverlayCommits(): Promise<void[]> {
+  const userIds = [...pendingOverlayCommits.keys()];
+  return Promise.all(userIds.map((userId) => {
+    clearPendingOverlayCommit(userId);
+    return runScheduledOverlayCommit(userId);
+  }));
 }
 
 // ── Path safety ──
