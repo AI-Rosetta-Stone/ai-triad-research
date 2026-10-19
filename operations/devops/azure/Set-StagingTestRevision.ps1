@@ -119,6 +119,10 @@ if ($PSCmdlet.ParameterSetName -eq 'Restore') {
         }
         Invoke-Az @('containerapp', 'revision', 'deactivate', '-n', $App, '-g', $ResourceGroup, '--revision', $TestRevision) "Deactivate $TestRevision" | Out-Null
         Write-Host "Restored: $RestoreTo serves 100%; $TestRevision deactivated."
+        # Traffic moved, but the app's LATEST template is still the test revision's (test env vars,
+        # size, volumes). Deploys and `az containerapp update` build from it — on 2026-10-19 that
+        # tripped deploy-staging's orphan cap. Re-create a clean copy of the serving revision.
+        Write-Warning "The app template still holds $TestRevision's settings. Reset it now with: ./Set-StagingTestRevision.ps1 -Suffix <name>  (copies $RestoreTo's template, then moves traffic to the copy)"
     }
     return
 }
