@@ -147,6 +147,26 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258 uncommitted-overla
     expect((recordedEvents[0] as { level: string }).level).toBe('warn');
   });
 
+  it('getUncommittedOverlaySummary() exposes the same summary used by the shutdown WARN (t/4276)', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    expect(backend.getUncommittedOverlaySummary()).toEqual([
+      { userId: 'alice', entryCount: 1, paths: ['taxonomy/nodes.json'] },
+    ]);
+
+    backend.shutdown();
+  });
+
+  it('getUncommittedOverlaySummary() returns [] when no overlay is dirty', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    expect(backend.getUncommittedOverlaySummary()).toEqual([]);
+    backend.shutdown();
+  });
+
   it('shutdown() with no pending overlay entries logs nothing', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
