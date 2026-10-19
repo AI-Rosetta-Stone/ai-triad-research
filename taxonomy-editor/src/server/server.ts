@@ -41,6 +41,7 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
+import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
@@ -1253,7 +1254,7 @@ function shutdown(signal: string) {
     fs.writeFileSync(path.join(dumpDir, `server-shutdown-${Date.now()}.jsonl`), ndjson);
   } catch { /* telemetry — silent by design;  best effort */ }
 
-  // 1a. Stop GitHubAPIBackend polling
+  // 1a. Stop GitHubAPIBackend polling (also logs the immediate uncommitted-overlay snapshot, t/4258 Part 1)
   if (githubBackend) {
     githubBackend.shutdown();
   }
@@ -1272,16 +1273,30 @@ function shutdown(signal: string) {
   eventClients.clear();
 
   // 3. Stop accepting new connections and wait for in-flight requests
-  server.close(() => {
-    log.server.info('All connections closed, exiting');
+  const closeDone = new Promise<void>((resolve) => {
+    server.close(() => { log.server.info('All connections closed'); resolve(); });
+  });
+
+  // 2a. Flush debounced overlay commits concurrently with closing connections (t/4258/t/4276 C4).
+  // closeDone is passed through so the flush can catch a write that lands after its first
+  // snapshot but before its connection actually drains (SO e/315#2).
+  const flushDone = flushOverlaysWithDeadline(githubBackend, closeDone).catch((err) => {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'server', level: 'warn', message: 'Overlay flush at shutdown threw',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  });
+
+  void Promise.all([closeDone, flushDone]).then(() => {
+    log.server.info('Graceful shutdown complete, exiting');
     process.exit(0);
   });
 
-  // 4. Force exit after 10s if graceful shutdown stalls
+  // 4. Force exit if graceful shutdown stalls
   setTimeout(() => {
-    log.server.error('Graceful shutdown timed out after 10s, forcing exit');
+    log.server.error(`Graceful shutdown timed out after ${FORCE_EXIT_TIMEOUT_MS / 1000}s, forcing exit`);
     process.exit(1);
-  }, 10_000).unref();
+  }, FORCE_EXIT_TIMEOUT_MS).unref();
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -22,6 +22,7 @@ const {
   fsOpenMock,
   fsUnlinkMock,
   fsStatMock,
+  scheduleOverlayCommitMock,
 } = vi.hoisted(() => ({
   readFileMock: vi.fn<[string, ({ optional?: boolean } | undefined)?], Promise<string | null>>(),
   writeFileMock: vi.fn<[string, string], Promise<void>>(),
@@ -32,6 +33,7 @@ const {
   fsOpenMock: vi.fn(),
   fsUnlinkMock: vi.fn<[string], Promise<void>>(),
   fsStatMock: vi.fn(),
+  scheduleOverlayCommitMock: vi.fn<[string], void>(),
 }));
 
 vi.mock('../storage/fileIO.js', () => ({
@@ -39,7 +41,8 @@ vi.mock('../storage/fileIO.js', () => ({
   getBackend: () => ({ readFile: readFileMock, writeFile: writeFileMock }),
   readTaxonomyFile: readTaxonomyFileMock,
 }));
-vi.mock('../security/userContext.js', () => ({ isAnonymousUser: isAnonymousMock }));
+vi.mock('../storage/overlayCommitScheduler.js', () => ({ scheduleOverlayCommit: scheduleOverlayCommitMock }));
+vi.mock('../security/userContext.js', () => ({ isAnonymousUser: isAnonymousMock, getCurrentUserId: () => 'tester' }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
 vi.mock('fs/promises', () => ({
   default: { open: fsOpenMock, stat: fsStatMock, unlink: fsUnlinkMock },
@@ -106,6 +109,7 @@ beforeEach(() => {
   fsOpenMock.mockReset();
   fsUnlinkMock.mockReset();
   fsStatMock.mockReset();
+  scheduleOverlayCommitMock.mockReset();
 
   // Defaults: authenticated, session branch ok, lock acquires immediately
   isAnonymousMock.mockReturnValue(false);
@@ -159,6 +163,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
     expect(status).toBe(200);
     expect((body as { status: string }).status).toBe('unchanged');
     expect(writeFileMock).not.toHaveBeenCalled();
+    expect(scheduleOverlayCommitMock).not.toHaveBeenCalled();
   });
 
   it('returns { status: written, updated } and writes the file when counts change', async () => {
@@ -181,6 +186,31 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
     // Written content must end with a trailing LF (serializePolicyRegistry contract)
     const written = writeFileMock.mock.calls[0][1] as string;
     expect(written.endsWith('\n')).toBe(true);
+  });
+
+  it('schedules an overlay commit after a successful write (t/4258/t/4276 C3: no commit otherwise)', async () => {
+    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readTaxonomyFileMock.mockImplementation(async (pov: string) =>
+      pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
+    );
+    writeFileMock.mockResolvedValue(undefined);
+
+    await invoke({ body: { ids: ['pol-001'] } });
+
+    expect(scheduleOverlayCommitMock).toHaveBeenCalledWith('tester');
+    expect(scheduleOverlayCommitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not schedule an overlay commit when the write throws', async () => {
+    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readTaxonomyFileMock.mockImplementation(async (pov: string) =>
+      pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
+    );
+    writeFileMock.mockRejectedValue(new Error('disk full'));
+
+    await invoke({ body: { ids: ['pol-001'] } });
+
+    expect(scheduleOverlayCommitMock).not.toHaveBeenCalled();
   });
 
   it('releases the lock (unlinks the lock file) after a successful write', async () => {
