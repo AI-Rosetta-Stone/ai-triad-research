@@ -435,18 +435,40 @@ export const STORAGE_MODE: StorageMode =
     ? process.env.STORAGE_MODE
     : (process.env.NODE_ENV === 'production' ? 'github-api' : 'filesystem');
 
-// t/2061: fall back to AI_TRIAD_DATA_ROOT (the same data root getDataRoot() uses)
-// before the homedir default. The container sets AI_TRIAD_DATA_ROOT but not
-// TAXONOMY_CACHE_DIR, so CACHE_DIR was defaulting to ~/.cache/taxonomy while the
+// t/2061: in FILESYSTEM mode, fall back to AI_TRIAD_DATA_ROOT (the same data root
+// getDataRoot() uses) before the homedir default. The container sets AI_TRIAD_DATA_ROOT
+// but not TAXONOMY_CACHE_DIR, so CACHE_DIR was defaulting to ~/.cache/taxonomy while the
 // data lived at AI_TRIAD_DATA_ROOT — toRepoPath() then couldn't strip the prefix,
 // listDirectory returned empty, and isDataAvailable was always false. Keying the
 // cache off the data root keeps the two aligned even if the Dockerfile drifts.
+//
+// t/4299/t/4300: that same fallback is wrong for GITHUB-API mode specifically — it put
+// the disk cache ON the shared data root (`/mnt/shared`), so any direct writer to that
+// root (reconcile_grounding.py --apply, PS cmdlets) silently became what prod serves,
+// with no check against GitHub (t/4298). github-api's own unset-TAXONOMY_CACHE_DIR
+// default is now a dedicated homedir subdir — never the data root — so the cache can
+// only ever be populated by this process's own GitHub reads.
+//
+// TL-approved (t/4299, p/538#77): the cache is now EPHEMERAL on a cold start (new
+// revision / scale-from-zero) in github-api mode — every manifest-known path re-fetches
+// from GitHub instead of reading a warm local cache. Cost arithmetic at the point of
+// use, per the TL's condition #1: ~110 GitHub API calls per cold start (the manifest's
+// typical file count), against a ~5000/hr authenticated rate-limit budget — about 2%
+// of the budget per cold start. At prod's observed ~1 cold start/hour (t/4258's
+// scale-to-zero cooldown), that's a steady ~2% of the budget, not a multiplying cost.
+// RECHECK TRIGGER: if the scale-to-zero cooldown or polling cadence changes (t/4258's
+// work), or cold-start frequency measurably increases, re-verify this math still holds
+// before assuming it's still ~2%.
+//
 // The final homedir default stays a user-private dir (not world-writable /tmp) to
 // avoid symlink-race vulns (CodeQL js/insecure-temporary-file); AI_TRIAD_DATA_ROOT
 // is an explicit operator-set env var (already resolved at line 80), not a
 // hardcoded tmp default, so this fallback does not reintroduce that concern.
-export const CACHE_DIR =
-  process.env.TAXONOMY_CACHE_DIR || process.env.AI_TRIAD_DATA_ROOT || path.join(os.homedir(), '.cache', 'taxonomy');
+export const CACHE_DIR = process.env.TAXONOMY_CACHE_DIR || (
+  STORAGE_MODE === 'github-api'
+    ? path.join(os.homedir(), '.cache', 'taxonomy-github-api')
+    : (process.env.AI_TRIAD_DATA_ROOT || path.join(os.homedir(), '.cache', 'taxonomy'))
+);
 
 // ── Server settings ──
 
