@@ -432,6 +432,16 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   if (testingSelection) engine._lastInjectionManifest.testing_selection = testingSelection;
   engine._lastRelevanceScores = scores;
 
+  // t/4304 broken-injection detector: accumulate per-turn scoring mode counters on the overview diagnostics.
+  if (engine.session.diagnostics?.overview) {
+    const ov = engine.session.diagnostics.overview;
+    if (scoringMode === 'lexical') {
+      ov.lexical_turn_count = (ov.lexical_turn_count ?? 0) + 1;
+    } else {
+      ov.embedding_turn_count = (ov.embedding_turn_count ?? 0) + 1;
+    }
+  }
+
   // Flight recorder: taxonomy injection details
   getGlobalRecorder()?.record({
     type: 'turn.taxonomy_inject', component: 'debate-engine', level: 'info',

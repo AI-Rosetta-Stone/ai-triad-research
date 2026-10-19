@@ -235,6 +235,14 @@ export interface DebateOverviewDiagnostics {
     /** All unique sit- IDs cited across the debate. */
     unique_sit_ids_cited: string[];
   };
+  /**
+   * Feeds the t/4304 broken-injection detector. NO consumer branches on `lexical_turn_count`
+   * or `embedding_turn_count` outside lib/debate — T0-exempt while that holds.
+   */
+  /** Number of debate turns that scored taxonomy nodes via lexical fallback. */
+  lexical_turn_count?: number;
+  /** Number of debate turns that scored taxonomy nodes via embedding similarity. */
+  embedding_turn_count?: number;
 }
 
 export interface DebateDiagnostics {
