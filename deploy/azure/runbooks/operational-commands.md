@@ -61,9 +61,20 @@ order, caused a second ~15-minute outage the same day.
 
 Use `operations/devops/Rotate-SignInSecret.ps1` instead. It enforces the correct order by
 construction:
-1. Writes the GitHub Actions secret, then the container secret, then restarts — never one alone.
+1. Writes the GitHub Actions secret, then the container secret on **both** `taxonomy-editor` and
+   `taxonomy-editor-staging` (they share the same secret names and Entra app registration), then
+   restarts every revision with traffic on both — never one copy alone.
 2. **Refuses to delete the old credential** until `az ad app credential list` shows the new one
    AND you've typed an explicit confirmation that a live sign-in actually worked.
+
+> **DO NOT use this script for a real rotation until R5 is recorded on t/4288** (SO review,
+> e/318): a dry run against a throwaway Entra app registration, with the credential lists
+> before/after recorded on the ticket — **and** proof that the GitHub-secret copy (not just the
+> container copies) actually works, by running a real deploy that re-applies
+> `AAD_CLIENT_SECRET`/etc. and confirming sign-in, before Phase 2 (deletion). The sign-in check in
+> Phase 2 alone only proves the container copies; the GitHub copy is first exercised at the next
+> deploy, and `$plainValue | gh secret set`'s CRLF-trimming behavior hasn't been independently
+> verified yet.
 
 ```powershell
 # Warns you to notify the CL before the restart (kills in-flight inquiries, t/4288)

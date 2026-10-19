@@ -1,6 +1,11 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+# DO NOT USE FOR A REAL ROTATION until R5 is recorded on t/4288 (SO review, e/318): a dry run
+# against a throwaway Entra app registration, credential lists before/after recorded on the
+# ticket, AND proof that the GitHub-secret copy works (not just the container copies) — run a
+# real deploy that re-applies AAD_CLIENT_SECRET/etc. and confirm sign-in, before Phase 2.
+
 <#
 .SYNOPSIS
     Rotates one sign-in client secret (Microsoft/AAD, Google, or GitHub), writing the GitHub
