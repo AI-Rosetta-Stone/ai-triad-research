@@ -70,6 +70,15 @@ param trafficPinRevisionNameStaging string = ''
 @description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation). Apply ONLY after arm-B verification passes with /mnt/shared still RW.')
 param stagingSharedReadOnly bool = false
 
+// ── Staging load-test sizing (t/4203) ──
+// A PARAMETER, not a hand-applied resize: t/4176's own history (t/4242) shows a manual
+// `az containerapp update` resize gets silently reverted by the next ordinary deploy, because
+// the deploy re-applies this template's declared (small) values. Defaulting this to false means
+// every normal deploy-staging run (which never sets it) keeps staging small automatically — the
+// resize can never be "left large" by someone forgetting to revert it (t/4203 AC4).
+@description('Temporarily size staging like prod (2 vCPU/4Gi, maxReplicas 3, concurrentRequests scale rule) for a load test (t/4203). Revert to false for the next ordinary deploy.')
+param stagingLoadTestSize bool = false
+
 // ── Resource Tags ──
 var tags = {
   project: 'ai-triad-research'
@@ -167,6 +176,14 @@ param githubRunnerPat string = ''
 @secure()
 @description('HMAC secret for verifying GitHub runner webhook signatures')
 param githubRunnerWebhookSecret string = ''
+
+// Prod's own resources, as a single source of truth (t/4203 SO C1, p/682#44 / e/307#2):
+// stagingLoadTestSize below reads these instead of a hardcoded literal, so the load test
+// always measures whatever prod's CURRENT size actually is, not a stale snapshot of it — the
+// exact gap that made the first version of stagingLoadTestSize "prove it at the size you're
+// moving away from" when t/4263 proposed changing prod's own cpu/memory.
+var prodCpu = '2.0'
+var prodMemory = '4Gi'
 
 var googleEnabled = !empty(googleClientId) && !empty(googleClientSecret)
 var githubEnabled = !empty(githubClientId) && !empty(githubClientSecret)
@@ -603,6 +620,10 @@ var stagingEnvOverrides = [
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount
   { name: 'AI_TRIAD_STATE_ROOT', value: '/mnt/staging-state' }
+  // t/4264 / t/2643 SO (e/307#6): without this, AnonymousSessionStore.defaultBaseDir()
+  // falls back to /mnt/shared/anon-sessions and staging's own TTL/maxSessions eviction
+  // runs over PROD's anonymous session files. Isolates it like the two overrides above.
+  { name: 'ANON_SESSION_DIR',    value: '/mnt/staging-state/anon-sessions' }
   // github-api writes go to the staging branch, not main (t/2650 class-B isolation)
   { name: 'GITHUB_BRANCH',       value: 'staging' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
@@ -678,8 +699,12 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             // step; t/3182). Headroom is ample regardless: incident RSS ~650MB/2048 + ~250MB
             // worker model copy ~= 900MB (embeddings.json is NOT copied to the worker — the
             // cache resolve stays main-thread, only miss-texts marshal).
-            cpu: json('2.0')
-            memory: '4Gi'
+            //
+            // t/4203 SO C1: these are now the prodCpu/prodMemory vars (single source of truth),
+            // not independent literals — whoever changes prod's size (e.g. t/4263) edits the var
+            // near the top of this file, not this line, so stagingLoadTestSize stays correct.
+            cpu: json(prodCpu)
+            memory: prodMemory
           }
           env: containerEnv
           probes: [
@@ -814,10 +839,14 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'taxonomy-editor'
           image: containerImage
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
+          // t/4203: prod-size only while stagingLoadTestSize=true, for the t/4180 load test to
+          // run at a representative size. Defaults back to staging's normal small footprint on
+          // the very next ordinary deploy. SO C1 (p/682#44, e/307#2): reads prodCpu/prodMemory
+          // rather than a hardcoded 2.0/4Gi, so the load test always matches prod's CURRENT
+          // size — if prod's own resources change (e.g. t/4263), this follows automatically.
+          resources: stagingLoadTestSize
+            ? { cpu: json(prodCpu), memory: prodMemory }
+            : { cpu: json('0.25'), memory: '0.5Gi' }
           env: stagingContainerEnv
           probes: [
             {
@@ -852,7 +881,13 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
           // (ReadOnly accessMode) makes the hard boundary live: any missed write site
           // fails with EACCES rather than silently mutating prod (t/2643#3 cond 3,
           // t/2643#5 binding correction — RO must come last, never before getStateRoot).
-          storageName: stagingSharedReadOnly ? 'taxonomy-data-ro' : 'taxonomy-data'
+          //
+          // t/4203 SO C3 (p/682#44): coupled to stagingLoadTestSize too — without this,
+          // 3 load-test replicas mount PROD's own taxonomy-data share RW, making the load
+          // test itself a write load against production storage. Confirming staging runs
+          // correctly against RO shared data is exactly the open t/2643 arm-B question, so
+          // this also doubles as that verification once a load test actually runs.
+          storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'
         }
         {
           // Staging-isolated RW share for class-A state (t/2643).
@@ -863,7 +898,19 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       scale: {
         minReplicas: 0
-        maxReplicas: 1
+        // t/4203: max 3 with an HTTP scale rule only while stagingLoadTestSize=true, so the
+        // t/4180 load test can observe real multi-replica behavior (job-poll 404s, limiter
+        // totals, GitHub calls per startup). Reverts to 1/no-rule on the next ordinary deploy —
+        // same parameter, same reasoning as the resources block above.
+        maxReplicas: stagingLoadTestSize ? 3 : 1
+        rules: stagingLoadTestSize
+          ? [
+              {
+                name: 'http-scaler'
+                http: { metadata: { concurrentRequests: '10' } }
+              }
+            ]
+          : []
       }
     }
   }

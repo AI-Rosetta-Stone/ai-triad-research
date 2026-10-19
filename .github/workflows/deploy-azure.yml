@@ -44,6 +44,14 @@ on:
         options:
           - 'false'
           - 'true'
+      staging_load_test_size:
+        description: 'Prod-size staging (2 vCPU/4Gi, maxReplicas 3, HTTP scale rule) for the t/4180 load test (t/4203). Forces the RO shared-volume mount. Set back to false to revert — see t/4203 runbook note.'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
       # enable_git_sync removed — GitHub API-first mode is always on (STORAGE_MODE=github-api)
 
 permissions:
@@ -428,6 +436,7 @@ jobs:
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
               budgetAlertEmail=${{ vars.ALERT_EMAIL }} \
               stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }} \
+              stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }} \
             --no-pretty-print 2>&1) || true
           echo "$RESULT"
 
@@ -474,6 +483,7 @@ jobs:
             trafficPinRevisionName=${{ steps.current_revision.outputs.revision }}
             trafficPinRevisionNameStaging=${{ steps.current_revision.outputs.staging_revision }}
             stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }}
+            stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }}
 
       # NOTE: the current active revision is now captured BEFORE the Bicep apply
       # (see "Capture current active revisions" above) so it can be passed as the
