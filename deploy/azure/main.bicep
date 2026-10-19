@@ -1387,46 +1387,6 @@ resource apiErrorSpike 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
   }
 }
 
-resource aadstsErrorAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
-  name: 'alert-aadsts-error'
-  location: location
-  tags: tags
-  properties: {
-    displayName: 'AADSTS Sign-In Error'
-    description: 'Any AADSTS error in the Easy Auth sidecar (http-auth) logs within 10 minutes — e.g. an invalid/expired client secret (t/4288, 2026-10-19). This would have surfaced that incident immediately.'
-    severity: 1
-    enabled: true
-    scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT10M'
-    windowSize: 'PT10M'
-    criteria: {
-      allOf: [
-        {
-          // NOT `has "AADSTS"`: the real 10-19 incident's error_codes are embedded as e.g.
-          // "AADSTS7000215" with no delimiter, which KQL's `has` tokenizer treats as ONE token
-          // that does not equal the bare word "AADSTS" — `has "AADSTS"` found ZERO of the real
-          // incident's log lines (p/331#2118/#2119). A regex anchored on the numeric code avoids
-          // both that gap and any coincidental word-boundary match on unrelated text containing
-          // the bare substring "AADSTS". Verified both arms directly against
-          // ContainerAppConsoleLogs_CL: 14 matches in the real incident window
-          // (2026-10-19 12:45-12:56Z), 0 in a quiet window (2026-10-19 14:00-14:10Z).
-          query: '''
-            ContainerAppConsoleLogs_CL
-            | where ContainerName_s == "http-auth"
-            | where Log_s matches regex @"AADSTS\d+"
-          '''
-          timeAggregation: 'Count'
-          operator: 'GreaterThan'
-          threshold: 0
-        }
-      ]
-    }
-    actions: {
-      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
-    }
-  }
-}
-
 resource cacheDegraded 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-cache-degraded'
   location: location
