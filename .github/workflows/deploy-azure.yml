@@ -327,6 +327,10 @@ jobs:
         # last deploy (the 2026-10-19 incident), this deploy would silently revert it. Never
         # reads a value to a log — reads the live secret, masks it immediately, compares SHA-256
         # hashes only. Warn-only: promotion to blocking is a separate T2 decision.
+        # SO C1 (e/320): checks BOTH taxonomy-editor and taxonomy-editor-staging by default — a
+        # single main.bicep apply writes both (same secret names, same Entra app registration;
+        # this is exactly what broke staging on 2026-10-19), regardless of which environment this
+        # job run targets.
         shell: pwsh
         continue-on-error: true
         env:
@@ -335,8 +339,7 @@ jobs:
           GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
         run: |
           ./operations/devops/Test-SignInSecretDrift.ps1 `
-            -ContainerAppName '${{ env.CONTAINER_APP_NAME }}' `
-            -ResourceGroup    '${{ env.RESOURCE_GROUP }}' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
             -DeploySourceValues @{
               'aad-client-secret'    = $env:AAD_CLIENT_SECRET
               'google-client-secret' = $env:GOOGLE_CLIENT_SECRET
