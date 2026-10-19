@@ -5276,7 +5276,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 3 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156).
+**Status:** Active — 4 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); live-fire proven at t/4297#2.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5641,7 +5641,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 1 instance (DevOps Worker p/749#16).
+**Status:** Active — 2 instances (DevOps Worker p/749#16; DevOps Lead p/26#184).
 
 **Applies To:** All agents running `pwsh -Command "..."` from the Bash tool with PowerShell cmdlets in the pipeline.
 
@@ -5828,3 +5828,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#182).
 
 **Applies To:** All agents creating new `workflow_dispatch` workflows on feature branches and attempting to test via dispatch before merging.
+
+---
+
+## #285 [Build] Parallel `pnpm exec` Across Workspace Packages Collides on pnpm 11 Stale-Dep Install — Run One First
+
+**Pattern:** An agent fans out `pnpm exec <tool>` calls across multiple workspace packages in parallel. pnpm 11 checks for stale dependencies before executing and runs a workspace install when needed. Concurrent `exec` calls each trigger the same install in parallel, causing install collisions. Every `exec` call dies before the tool runs, producing no output files.
+
+**Instances:**
+- 2026-10-19 — Shared Lib (p/5#55, t/4238): five parallel `pnpm exec eslint` runs (one per package) produced no output files. pnpm 11 install collisions killed all five. Resolved: ran one `pnpm exec` alone first to let the install finish, then fanned out the remaining four in parallel — all succeeded.
+
+**Root Cause:** pnpm 11 added an auto-install-on-stale-deps check to `pnpm exec`. Multiple concurrent `exec` calls all detect stale deps simultaneously and race to run the same workspace install, corrupting each other's lock/state. Once one install completes, subsequent `exec` calls find deps fresh and proceed cleanly.
+
+**Prevention:**
+1. **Before fanning out `pnpm exec` across packages, run one `pnpm exec` call alone first** to let any stale-dep install complete. Then fan out the remaining calls in parallel.
+2. **Alternatively, run `pnpm install` explicitly before any parallel `exec` fan-out** to ensure deps are fresh — `exec` then skips the install check entirely.
+3. **No output files from a parallel `pnpm exec` fan-out** (zero results across all packages) is a reliable diagnostic for install collision — a single sequential run would have succeeded.
+
+**Status:** Active — 1 instance (Shared Lib p/5#55, t/4238).
+
+**Applies To:** All agents fanning out `pnpm exec` in parallel across workspace packages; always prime with one sequential run first.
+
+---
+
+## #286 [Build] Worktree Isolation Guard Blocks `git -C <shared-checkout> worktree add` — Push `HEAD:<branch>` as Workaround
+
+**Pattern:** An agent's session is pinned to a worktree by the worktree isolation guard. The agent tries to create a new worktree by redirecting git to the shared checkout with `git -C <repo-root> worktree add …`. The isolation guard blocks the command — using `-C` to operate on the shared checkout from within a pinned worktree session is disallowed.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#61, t/4305): `git -C C:/Users/jsnov/repos/ai-triad-research worktree add` blocked by isolation guard. Workaround: committed changes with pathspec to the current worktree branch, then `git push origin HEAD:feat/cli-seat-tags-soul-overrides-t4305` to create the remote branch, opened the PR normally.
+
+**Root Cause:** The worktree isolation guard restricts the pinned session to its own worktree path. Using `-C` to redirect git commands to the shared checkout's path is treated as an attempt to operate on the shared checkout — which is prohibited in the pinned session.
+
+**Prevention:**
+1. **Do not use `git -C <shared-checkout>` to create worktrees from a pinned session.** Worktree creation must happen from the shared checkout directly (outside the pinned session) or via a coordinator.
+2. **Workaround when you need a different remote branch name:** commit your changes to the current local branch with a pathspec, then `git push origin HEAD:<desired-branch-name>` — this creates the remote branch at your current HEAD without requiring a new local worktree.
+3. **The isolation guard "blocked" message on a `git -C`** is a reliable diagnostic for this constraint — the session is pinned and cannot use `-C` to escape to the shared checkout.
+
+**Status:** Active — 1 instance (DebateTool p/70#61, t/4305).
+
+**Applies To:** All agents operating in worktree-pinned sessions who need to create additional worktrees or push to a differently-named remote branch.
