@@ -1111,6 +1111,9 @@ jobs:
   tag-known-good:
     needs: [preflight, deploy]
     runs-on: ubuntu-latest
+    # t/4273: same environment as `deploy`, so azure/login presents the environment OIDC subject
+    # the federated credential matches. Without it the subject is ref-form and login fails AADSTS700213.
+    environment: ${{ inputs.environment }}
     # Flipped on (t/4091 digest's own "then runs warn-only" plan): C1 (the cmdlet fix, PR #3340,
     # p/682#28) merged 2026-10-17 03:18Z. Caught by Azure (p/241#64) via health-monitor's
     # known-good-liveness job correctly reporting "missing" since 04:55Z — not a wiring bug, the
