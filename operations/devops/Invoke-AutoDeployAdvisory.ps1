@@ -54,39 +54,60 @@ try {
     throw
 }
 
-# ── 2. Required-context results, from the combined commit status (TL condition 1) ──
-$requiredContextsPath = Join-Path $PSScriptRoot '../../.github/ci/required-contexts.json'
-$requiredContextsConfig = Get-Content $requiredContextsPath -Raw | ConvertFrom-Json
-$wantedContexts = @($requiredContextsConfig.required_contexts | ForEach-Object { $_.context })
-
-$statusJson = gh api "repos/$Repo/commits/$HeadSha/status" 2>&1
+# ── 2. ci-gate / CodeQL, from check-runs (TL ruling p/331#2106, after the p/343#125 correction
+#        and the p/331#2104 finding that joint-gv-guard/consult-hold-guard never run on push) ──
+# ci-gate is a GitHub Actions job, which posts as a CHECK RUN (matched by `.name`), never a legacy
+# commit status (matched by `.context`) — the combined `/commits/{sha}/status` endpoint would
+# never see it. CodeQL posts as a check run too (named "CodeQL", the app's own aggregate —
+# required-contexts.json's "posts": "app-aggregate" distinguishes it from a job-name lookup, not
+# from check-runs vs statuses). Same endpoint/match-by-name Invoke-ContextSwapRetrigger.ps1
+# already uses. joint-gv-guard/consult-hold-guard are deliberately NOT read here — they only
+# trigger on pull_request and never appear on a push-triggered SHA; the commit-PR-association
+# check below (step 3) is what stands in for them.
+$checkRunsJson = gh api "repos/$Repo/commits/$HeadSha/check-runs" --paginate 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "gh api commits/.../status failed for $HeadSha`: $statusJson"
-    throw "Cannot read commit status — treating as UNREADABLE"
+    Write-Error "gh api commits/.../check-runs failed for $HeadSha`: $checkRunsJson"
+    throw "Cannot read check-runs — treating as UNREADABLE"
 }
-$status = $statusJson | ConvertFrom-Json
-$liveByContext = @{}
-foreach ($s in @($status.statuses)) { $liveByContext[$s.context] = $s.state }
+$checkRuns = $checkRunsJson | ConvertFrom-Json
+$liveByName = ConvertFrom-CheckRunsResponse -CheckRunsResponse $checkRuns
 
-$requiredContextResults = @()
-foreach ($ctx in $wantedContexts) {
-    $state = if ($liveByContext.ContainsKey($ctx)) { $liveByContext[$ctx] } else { 'missing' }
-    $requiredContextResults += [PSCustomObject]@{ Context = $ctx; Conclusion = $state }
+$ciGateConclusion = if ($liveByName.ContainsKey('ci-gate')) { $liveByName['ci-gate'].Conclusion } else { 'missing' }
+$codeQlConclusion = if ($liveByName.ContainsKey('CodeQL')) { $liveByName['CodeQL'].Conclusion } else { $null }
+
+# ── 3. Every commit since the last deployed SHA must come from a merged PR (TL ruling p/331#2106) ──
+# joint-gv-guard/consult-hold-guard gated the PR before merge; a commit with no PR association
+# (e.g. pushed straight to main) skipped those gates entirely, so it can't be waved through here.
+$commitShas = @(git log --format='%H' "$lastDeployedSha..$HeadSha" 2>&1)
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "git log failed between $lastDeployedSha and $HeadSha — treating as UNREADABLE"
+    throw
+}
+$commitsWithoutMergedPR = @()
+foreach ($sha in $commitShas) {
+    $pullsJson = gh api "repos/$Repo/commits/$sha/pulls" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "gh api commits/.../pulls failed for $sha`: $pullsJson"
+        throw "Cannot read PR association for $sha — treating as UNREADABLE, never as 'has a PR'"
+    }
+    $pulls = @($pullsJson | ConvertFrom-Json)
+    $hasMergedPR = @($pulls | Where-Object { $null -ne $_.merged_at }).Count -gt 0
+    if (-not $hasMergedPR) { $commitsWithoutMergedPR += $sha }
 }
 
-# ── 3. Changed paths since the last deployed SHA (TL condition 3 feeds off this) ──
+# ── 4. Changed paths since the last deployed SHA (TL condition 3 feeds off this) ──
 $changedPaths = @(git diff --name-only "$lastDeployedSha..$HeadSha" 2>&1)
 if ($LASTEXITCODE -ne 0) {
     Write-Error "git diff failed between $lastDeployedSha and $HeadSha — treating as UNREADABLE (never silently 'no infra change')"
     throw
 }
 
-# ── 4. Infra paths, from tier-paths.json — the tier check's own source (TL condition 3) ──
+# ── 5. Infra paths, from tier-paths.json — the tier check's own source (TL condition 3) ──
 $tierPathsPath = Join-Path $PSScriptRoot '../../.github/ci/tier-paths.json'
 $tierPaths = Get-Content $tierPathsPath -Raw | ConvertFrom-Json
 $infraPaths = @($tierPaths.r1Paths) + @($tierPaths.r1Globs)
 
-# ── 5. Simulated rate-cap clock: the most recent WouldDeploy verdict this workflow itself posted ──
+# ── 6. Simulated rate-cap clock: the most recent WouldDeploy verdict this workflow itself posted ──
 # Read-only — no state is written. The run name carries the verdict (see the workflow YAML),
 # e.g. "auto-deploy-advisory: would-deploy abc1234" vs "auto-deploy-advisory: skip (hold) abc1234".
 $lastAutoDeployAt = $null
@@ -104,16 +125,23 @@ try {
 }
 
 # ── Evaluate ──
-$verdict = Get-AutoDeployAdvisoryVerdict `
-    -HeadSha $HeadSha `
-    -LastDeployedSha $lastDeployedSha `
-    -RequiredContextResults $requiredContextResults `
-    -HoldActive $HoldActive `
-    -ChangedPaths $changedPaths `
-    -InfraPaths $infraPaths `
-    -LastAutoDeployAt $lastAutoDeployAt `
-    -MinIntervalMinutes $MinIntervalMinutes `
-    -Now (Get-Date).ToUniversalTime()
+# [datetime] (non-nullable) rejects an explicit -LastAutoDeployAt $null even though the parameter
+# itself is optional, so it's only added to the splat when there IS a prior verdict to compare.
+$verdictArgs = @{
+    HeadSha                = $HeadSha
+    LastDeployedSha        = $lastDeployedSha
+    CiGateConclusion       = $ciGateConclusion
+    CodeQlConclusion       = $codeQlConclusion
+    HoldActive             = $HoldActive
+    CommitsWithoutMergedPR = $commitsWithoutMergedPR
+    ChangedPaths           = $changedPaths
+    InfraPaths             = $infraPaths
+    MinIntervalMinutes     = $MinIntervalMinutes
+    Now                    = (Get-Date).ToUniversalTime()
+}
+if ($lastAutoDeployAt) { $verdictArgs['LastAutoDeployAt'] = $lastAutoDeployAt }
+
+$verdict = Get-AutoDeployAdvisoryVerdict @verdictArgs
 
 $verdict | ConvertTo-Json -Depth 5
 

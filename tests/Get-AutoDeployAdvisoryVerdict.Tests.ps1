@@ -2,12 +2,6 @@ BeforeAll {
     . "$PSScriptRoot/../operations/devops/Get-AutoDeployAdvisoryVerdict.ps1"
 
     $script:Now = [datetime]'2026-10-20T12:00:00Z'
-    $script:GreenContexts = @(
-        [PSCustomObject]@{ Context = 'ci-gate'; Conclusion = 'success' }
-        [PSCustomObject]@{ Context = 'joint-gv-guard'; Conclusion = 'success' }
-        [PSCustomObject]@{ Context = 'CodeQL'; Conclusion = 'success' }
-        [PSCustomObject]@{ Context = 'consult-hold-guard'; Conclusion = 'success' }
-    )
     $script:InfraPaths = @(
         'deploy/azure/main.bicep'
         'deploy/azure/deploy.ps1'
@@ -17,15 +11,51 @@ BeforeAll {
 
     function New-BaseParams {
         @{
-            HeadSha                 = 'head1234567'
+            HeadSha                = 'head1234567'
             LastDeployedSha         = 'deployed0001'
-            RequiredContextResults  = $script:GreenContexts
+            CiGateConclusion        = 'success'
+            CodeQlConclusion        = $null
             HoldActive              = $false
+            CommitsWithoutMergedPR  = @()
             ChangedPaths            = @('taxonomy-editor/src/renderer/App.tsx')
             InfraPaths              = $script:InfraPaths
             MinIntervalMinutes      = 120
             Now                     = $script:Now
         }
+    }
+}
+
+Describe 'ConvertFrom-CheckRunsResponse' {
+    It 'parses a recorded real check-runs response for a known-green SHA (f55a0ead, #3386)' {
+        # TL finding (p/331#2104): ci-gate/CodeQL are check runs, not commit statuses — this
+        # fixture is the real `gh api repos/.../commits/f55a0ead/check-runs` response, trimmed to
+        # a handful of runs, not hand-written, so it can't silently drift from the real API shape.
+        $fixture = Get-Content "$PSScriptRoot/fixtures/check-runs-f55a0ead.json" -Raw | ConvertFrom-Json
+        $byName = ConvertFrom-CheckRunsResponse -CheckRunsResponse $fixture
+
+        $byName['ci-gate'].Conclusion | Should -Be 'success'
+        $byName.ContainsKey('CodeQL') | Should -Be $false  # legitimately absent (push path-filtered) — not an error
+    }
+
+    It 'keeps only the most-recently-started run when a name appears twice' {
+        $fixture = [PSCustomObject]@{
+            check_runs = @(
+                [PSCustomObject]@{ name = 'ci-gate'; status = 'completed'; conclusion = 'failure'; started_at = '2026-10-19T10:00:00Z' }
+                [PSCustomObject]@{ name = 'ci-gate'; status = 'completed'; conclusion = 'success'; started_at = '2026-10-19T10:19:41Z' }
+            )
+        }
+        $byName = ConvertFrom-CheckRunsResponse -CheckRunsResponse $fixture
+        $byName['ci-gate'].Conclusion | Should -Be 'success'
+    }
+
+    It 'reports status (not conclusion) for a still-running check' {
+        $fixture = [PSCustomObject]@{
+            check_runs = @(
+                [PSCustomObject]@{ name = 'ci-gate'; status = 'in_progress'; conclusion = $null; started_at = '2026-10-19T10:19:41Z' }
+            )
+        }
+        $byName = ConvertFrom-CheckRunsResponse -CheckRunsResponse $fixture
+        $byName['ci-gate'].Conclusion | Should -Be 'in_progress'
     }
 }
 
@@ -56,26 +86,61 @@ Describe 'Get-AutoDeployAdvisoryVerdict' {
         }
     }
 
-    Context 'Required contexts (condition 1)' {
-        It 'skips when a required context is not success' {
+    Context 'Commit-without-PR association (TL ruling p/331#2106)' {
+        It 'skips when a commit in range has no associated merged PR' {
             $p = New-BaseParams
-            $p.RequiredContextResults = @(
-                [PSCustomObject]@{ Context = 'ci-gate'; Conclusion = 'success' }
-                [PSCustomObject]@{ Context = 'CodeQL'; Conclusion = 'failure' }
-            )
+            $p.CommitsWithoutMergedPR = @('abc1234')
             $v = Get-AutoDeployAdvisoryVerdict @p
             $v.Verdict | Should -Be 'Skip'
-            $v.SkipReason | Should -Be 'red-required-context'
-            $v.Detail | Should -Match 'CodeQL=failure'
+            $v.SkipReason | Should -Be 'no-pr-association'
+            $v.Detail | Should -Match 'abc1234'
         }
-        It 'would deploy when every required context is success' {
+        It 'would deploy when every commit in range has a merged PR' {
             $p = New-BaseParams
             $v = Get-AutoDeployAdvisoryVerdict @p
             $v.Verdict | Should -Be 'WouldDeploy'
         }
     }
 
-    Context 'Infra-path skip (condition 3)' {
+    Context 'ci-gate / CodeQL green check (TL ruling p/331#2106)' {
+        It 'skips when ci-gate is not success' {
+            $p = New-BaseParams
+            $p.CiGateConclusion = 'failure'
+            $v = Get-AutoDeployAdvisoryVerdict @p
+            $v.Verdict | Should -Be 'Skip'
+            $v.SkipReason | Should -Be 'red-required-context'
+            $v.Detail | Should -Match 'ci-gate'
+        }
+        It 'would deploy when CodeQL is absent (push-path-filtered, legitimately did not run)' {
+            $p = New-BaseParams
+            $p.CodeQlConclusion = $null
+            $v = Get-AutoDeployAdvisoryVerdict @p
+            $v.Verdict | Should -Be 'WouldDeploy'
+        }
+        It 'skips when CodeQL ran and failed' {
+            $p = New-BaseParams
+            $p.CodeQlConclusion = 'failure'
+            $v = Get-AutoDeployAdvisoryVerdict @p
+            $v.Verdict | Should -Be 'Skip'
+            $v.SkipReason | Should -Be 'red-required-context'
+            $v.Detail | Should -Match 'CodeQL'
+        }
+        It 'skips when CodeQL ran and is still pending' {
+            $p = New-BaseParams
+            $p.CodeQlConclusion = 'pending'
+            $v = Get-AutoDeployAdvisoryVerdict @p
+            $v.Verdict | Should -Be 'Skip'
+            $v.SkipReason | Should -Be 'red-required-context'
+        }
+        It 'would deploy when CodeQL ran and succeeded' {
+            $p = New-BaseParams
+            $p.CodeQlConclusion = 'success'
+            $v = Get-AutoDeployAdvisoryVerdict @p
+            $v.Verdict | Should -Be 'WouldDeploy'
+        }
+    }
+
+    Context 'Infra-path skip' {
         It 'skips when the diff touches deploy/azure/main.bicep' {
             $p = New-BaseParams
             $p.ChangedPaths = @('taxonomy-editor/src/renderer/App.tsx', 'deploy/azure/main.bicep')
@@ -99,7 +164,7 @@ Describe 'Get-AutoDeployAdvisoryVerdict' {
         }
     }
 
-    Context 'Rate cap (condition 5)' {
+    Context 'Rate cap' {
         It 'skips when the minimum interval has not elapsed' {
             $p = New-BaseParams
             $p.LastAutoDeployAt = $script:Now.AddMinutes(-30)
@@ -125,11 +190,16 @@ Describe 'Get-AutoDeployAdvisoryVerdict' {
         It 'reports hold even when a required context is also red' {
             $p = New-BaseParams
             $p.HoldActive = $true
-            $p.RequiredContextResults = @(
-                [PSCustomObject]@{ Context = 'ci-gate'; Conclusion = 'failure' }
-            )
+            $p.CiGateConclusion = 'failure'
             $v = Get-AutoDeployAdvisoryVerdict @p
             $v.SkipReason | Should -Be 'hold'
+        }
+        It 'reports no-pr-association even when ci-gate is also red' {
+            $p = New-BaseParams
+            $p.CommitsWithoutMergedPR = @('abc1234')
+            $p.CiGateConclusion = 'failure'
+            $v = Get-AutoDeployAdvisoryVerdict @p
+            $v.SkipReason | Should -Be 'no-pr-association'
         }
     }
 }
