@@ -37,13 +37,13 @@ on:
           - required
           - disabled
       staging_shared_read_only:
-        description: 'Mount staging shared volume read-only (true = RO flip for arm-A verification, t/2643)'
+        description: 'Mount staging shared volume read-only (false = documented override back to RW; RO is now the default, t/2643/t/4298)'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
-          - 'false'
           - 'true'
+          - 'false'
       staging_load_test_size:
         description: 'Prod-size staging (2 vCPU/4Gi, maxReplicas 3, HTTP scale rule) for the t/4180 load test (t/4203). Forces the RO shared-volume mount. Set back to false to revert — see t/4203 runbook note.'
         required: false
