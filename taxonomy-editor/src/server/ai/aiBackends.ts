@@ -742,7 +742,8 @@ export function _resetPythonAvailableForTest(): void {
   _pythonAvailable = null;
 }
 
-const EMBEDDINGS_REQUEST_TIMEOUT_MS = 45_000;
+// Exported (t/4287) so routes/ai.ts can size its endpoint timeout per chunk count — see below.
+export const EMBEDDINGS_REQUEST_TIMEOUT_MS = 45_000;
 
 // Chunk-and-yield ceiling for a single computeEmbeddings call (t/2914 item 2). One large
 // in-process ONNX batch blocks the event loop for the whole compute — a real prod 2389-text
@@ -754,7 +755,10 @@ const EMBEDDINGS_REQUEST_TIMEOUT_MS = 45_000;
 // (~200/792) still blocked the loop enough to trip ACA liveness 503s at chunk=256; halving the
 // chunk yields the loop 2× as often between ONNX passes → fewer liveness 503s. Interim only
 // (reduces, doesn't eliminate — the durable fix is worker-offload, t/2977 Item B / t/3183).
-const EMBEDDING_COMPUTE_CHUNK = 128;
+// t/4287: chunks run SEQUENTIALLY (resolveEmbeddingsChunked) — a smaller chunk size does NOT
+// cut a batch's total compute time, only yields more often. routes/ai.ts scales its endpoint
+// timeout by chunk count instead of lowering this constant.
+export const EMBEDDING_COMPUTE_CHUNK = 128;
 
 // t/3183 C6 (t/2977#6) — PROVISIONAL demand baseline for the novel-text class's 3rd recurrence.
 // The worker (Item B) raises the compute CEILING (a big batch no longer blocks the loop) but does
