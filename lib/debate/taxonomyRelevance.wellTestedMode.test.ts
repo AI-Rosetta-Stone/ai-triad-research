@@ -4,7 +4,7 @@
 // Exclude-well-tested mode (the `exclude_greatest_hits` flag): well-tested hard exclusion wired into
 // both selection paths, the under-tested boost, and the `testing_selection` manifest summary.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   selectRelevantNodes,
   excludeWellTestedModeOptions,
@@ -129,6 +129,11 @@ describe('selectRelevantNodes — exclude-well-tested mode options', () => {
 });
 
 describe('selectRelevantTaxonomy — exclude-well-tested mode (app/server path)', () => {
+  // selectRelevantTaxonomy calls excludeWellTestedModeOptions() with no `now`, falling back to
+  // new Date(). Pin the clock to NOW so the well_tested fixture never ages past re-eligibility.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });
+  afterEach(() => vi.useRealTimers());
+
   const povNodes = [
     makeNode('acc-beliefs-001', 'Beliefs', 'well_tested'),
     makeNode('acc-beliefs-002', 'Beliefs', 'contested'),
