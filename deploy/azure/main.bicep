@@ -63,12 +63,17 @@ param trafficPinRevisionName string = ''
 param trafficPinRevisionNameStaging string = ''
 
 // ── Staging write-isolation (t/2643) ──
-// Set stagingSharedReadOnly=true as the FINAL step of the isolation deployment,
-// AFTER arm-B verification confirms class-A writes route to /mnt/staging-state.
-// The RO flip makes the hard boundary live: missed write sites EROFS instead of
-// silently mutating prod. Deploy order matters — see t/2643#5/#6.
-@description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation). Apply ONLY after arm-B verification passes with /mnt/shared still RW.')
-param stagingSharedReadOnly bool = false
+// FLIPPED TO true (t/4298 escalation, 2026-10-19): staging was still RW on prod's own
+// `taxonomy-data` share — any staging writer to the data root (e.g. G8a inline grounding
+// reconcile, confirmed live on staging today, independent of GROUNDING_SWEEP_ENABLED) wrote
+// directly to the same share prod reads, which also holds authorized-users.json and
+// taxonomy/Origin/embeddings.json. arm-B verification is satisfied: Azure's test revisions
+// already ran successfully against `taxonomy-data-ro` via `-ReadOnlyShared`, no boot problems
+// (p/241#90) — confirming class-A writes already route to /mnt/staging-state, not /mnt/shared.
+// The RO flip makes the hard boundary live: missed write sites EROFS instead of silently
+// mutating prod. Lands with the first deploy after the t/4258 hold, with the PI's go.
+@description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation).')
+param stagingSharedReadOnly bool = true
 
 // ── Staging load-test sizing (t/4203) ──
 // A PARAMETER, not a hand-applied resize: t/4176's own history (t/4242) shows a manual
