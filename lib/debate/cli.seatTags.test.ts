@@ -14,6 +14,7 @@ import {
   validateSeatTagsConfig,
   loadSoulOverrides,
   buildSoulOverrideResolver,
+  validateNoSeatConflict,
   compareSoulProvenance,
   type CLISeatTags,
   type CLISoulOverrides,
@@ -121,6 +122,40 @@ describe('validateSeatTagsConfig', () => {
     const result = validateSeatTagsConfig({}, testRegistry());
     expect(result).toEqual({});
   });
+
+  it('rejects an unknown seat key with ActionableError (fix 5)', () => {
+    const seatTags = { badSeat: { pov_tag: 'techno-optimist', tag_mode: 'scope' } } as unknown as CLISeatTags;
+    expect(() => validateSeatTagsConfig(seatTags, testRegistry())).toThrow(ActionableError);
+
+    try {
+      validateSeatTagsConfig(seatTags, testRegistry());
+    } catch (err) {
+      expect(err).toBeInstanceOf(ActionableError);
+      const ae = err as ActionableError;
+      expect(ae.problem).toMatch(/badSeat/);
+    }
+  });
+
+  it('rejects an invalid tag_mode with ActionableError (fix 3)', () => {
+    const seatTags = {
+      accelerationist: { pov_tag: 'techno-optimist', tag_mode: 'fuzzy' as 'scope' },
+    };
+    expect(() => validateSeatTagsConfig(seatTags, testRegistry())).toThrow(ActionableError);
+
+    try {
+      validateSeatTagsConfig(seatTags, testRegistry());
+    } catch (err) {
+      expect(err).toBeInstanceOf(ActionableError);
+      const ae = err as ActionableError;
+      expect(ae.problem).toMatch(/fuzzy/);
+      expect(ae.problem).toMatch(/tag_mode/);
+    }
+  });
+
+  it('accepts "prioritize" tag_mode without throwing (fix 3)', () => {
+    const seatTags: CLISeatTags = { safetyist: { pov_tag: 'cautious', tag_mode: 'prioritize' } };
+    expect(() => validateSeatTagsConfig(seatTags, testRegistry())).not.toThrow();
+  });
 });
 
 // ── loadSoulOverrides ─────────────────────────────────────────────────────────
@@ -191,6 +226,77 @@ describe('loadSoulOverrides', () => {
     const soulOverrides: CLISoulOverrides = { safetyist: basename };
     const overrides = loadSoulOverrides(soulOverrides, dir);
     expect(overrides.safetyist).toBeDefined();
+  });
+});
+
+// Extra loadSoulOverrides guard tests
+describe('loadSoulOverrides — guards (fix 2, fix 5)', () => {
+  it('rejects an unknown seat key with ActionableError (fix 5)', () => {
+    const doc = minimalSoulDoc('accelerationist');
+    const filePath = writeTmpSoulFile(doc);
+    const soulOverrides = { unknownSeat: filePath } as unknown as CLISoulOverrides;
+    expect(() => loadSoulOverrides(soulOverrides, repoRoot)).toThrow(ActionableError);
+
+    try {
+      loadSoulOverrides(soulOverrides, repoRoot);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ActionableError);
+      const ae = err as ActionableError;
+      expect(ae.problem).toMatch(/unknownSeat/);
+    }
+  });
+
+  it('rejects a soul override whose content is identical to the default soul (fix 2)', () => {
+    // Read the actual default soul file and write its raw bytes to a temp file —
+    // identical content means identical hash, which the guard must catch regardless of path.
+    const defaultSoulPath = path.resolve(repoRoot, 'lib/debate/soul-docs/safetyist.soul.json');
+    const defaultRaw = fs.readFileSync(defaultSoulPath, 'utf-8');
+    const tmpPath = path.join(os.tmpdir(), `test-soul-dup-${Date.now()}.json`);
+    fs.writeFileSync(tmpPath, defaultRaw, 'utf-8');
+    tmpFiles.push(tmpPath);
+
+    clearSoulDocCache();
+    const soulOverrides: CLISoulOverrides = { safetyist: tmpPath };
+    expect(() => loadSoulOverrides(soulOverrides, repoRoot)).toThrow(ActionableError);
+
+    try {
+      loadSoulOverrides(soulOverrides, repoRoot);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ActionableError);
+      const ae = err as ActionableError;
+      expect(ae.problem).toMatch(/identical/i);
+    }
+  });
+});
+
+// ── validateNoSeatConflict ────────────────────────────────────────────────────
+
+describe('validateNoSeatConflict', () => {
+  it('throws ActionableError when a seat appears in both maps (fix 1)', () => {
+    const seatTags: CLISeatTags = { accelerationist: { pov_tag: 'techno-optimist', tag_mode: 'scope' } };
+    const soulOverrides: CLISoulOverrides = { accelerationist: '/some/file.json' };
+
+    expect(() => validateNoSeatConflict(seatTags, soulOverrides)).toThrow(ActionableError);
+
+    try {
+      validateNoSeatConflict(seatTags, soulOverrides);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ActionableError);
+      const ae = err as ActionableError;
+      expect(ae.problem).toMatch(/accelerationist/);
+    }
+  });
+
+  it('does not throw when there is no overlap (fix 1)', () => {
+    const seatTags: CLISeatTags = { accelerationist: { pov_tag: 'techno-optimist', tag_mode: 'scope' } };
+    const soulOverrides: CLISoulOverrides = { safetyist: '/some/file.json' };
+    expect(() => validateNoSeatConflict(seatTags, soulOverrides)).not.toThrow();
+  });
+
+  it('does not throw with empty maps (fix 1)', () => {
+    expect(() => validateNoSeatConflict({}, {})).not.toThrow();
+    expect(() => validateNoSeatConflict({ accelerationist: { pov_tag: 'x', tag_mode: 'scope' } }, {})).not.toThrow();
+    expect(() => validateNoSeatConflict({}, { safetyist: '/f.json' })).not.toThrow();
   });
 });
 

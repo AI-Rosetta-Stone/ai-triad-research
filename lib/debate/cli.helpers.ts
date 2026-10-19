@@ -25,6 +25,25 @@ export type CLISeatTagEntry = { pov_tag: string; tag_mode: 'scope' | 'prioritize
 export type CLISeatTags = Partial<Record<Exclude<SpeakerId, 'user'>, CLISeatTagEntry>>;
 export type CLISoulOverrides = Partial<Record<Exclude<SpeakerId, 'user'>, string>>;
 
+// ── Guards ───────────────────────────────────────────────────────────────────
+
+const VALID_SPEAKERS = new Set<string>(['accelerationist', 'safetyist', 'skeptic']);
+const VALID_TAG_MODES = new Set<string>(['scope', 'prioritize']);
+
+function assertValidSpeaker(speaker: string, location: string): void {
+  if (!VALID_SPEAKERS.has(speaker)) {
+    throw new ActionableError({
+      goal: `Validate seat key "${speaker}"`,
+      problem: `Unknown seat key "${speaker}" — valid seats are: accelerationist, safetyist, skeptic`,
+      location,
+      nextSteps: [
+        `Remove or correct the key "${speaker}"`,
+        `Valid seats match SpeakerId excluding "user"`,
+      ],
+    });
+  }
+}
+
 // ── Seat-tag validation ──────────────────────────────────────────────────────
 
 /**
@@ -41,6 +60,18 @@ export function validateSeatTagsConfig(
 ): Partial<Record<Exclude<SpeakerId, 'user'>, SeatTag>> {
   const result: Partial<Record<Exclude<SpeakerId, 'user'>, SeatTag>> = {};
   for (const [speaker, entry] of Object.entries(seatTags) as [Exclude<SpeakerId, 'user'>, CLISeatTagEntry][]) {
+    assertValidSpeaker(speaker, 'cli.helpers.validateSeatTagsConfig');
+
+    // Validate tag_mode before the registry lookup so the error is clear.
+    if (!VALID_TAG_MODES.has(entry.tag_mode)) {
+      throw new ActionableError({
+        goal: `Validate seatTags for seat "${speaker}"`,
+        problem: `Invalid tag_mode "${entry.tag_mode}" for seat "${speaker}" — must be "scope" or "prioritize"`,
+        location: 'cli.helpers.validateSeatTagsConfig',
+        nextSteps: [`Set tag_mode to "scope" or "prioritize" for seat "${speaker}"`],
+      });
+    }
+
     const pov = speaker as PovName; // speaker ids match pov names (accelerationist/safetyist/skeptic)
     const problems = validatePovTagSelection(pov, entry.pov_tag, registry);
     if (problems.length > 0) {
@@ -50,7 +81,6 @@ export function validateSeatTagsConfig(
         location: 'cli.helpers.validateSeatTagsConfig',
         nextSteps: [
           `Use a tag registered for ${speaker} in lib/debate/soul-docs/pov-tags.json`,
-          `Valid tag modes are "scope" and "prioritize"`,
           `Run: jq '.povs.${speaker}[].id' lib/debate/soul-docs/pov-tags.json to list valid tags`,
         ],
       });
@@ -81,6 +111,8 @@ export function loadSoulOverrides(
   const overrides: Partial<Record<Exclude<SpeakerId, 'user'>, SoulOverrideEntry>> = {};
 
   for (const [speaker, filePath] of Object.entries(soulOverrides) as [Exclude<SpeakerId, 'user'>, string][]) {
+    assertValidSpeaker(speaker, 'cli.helpers.loadSoulOverrides');
+
     const resolvedPath = path.isAbsolute(filePath)
       ? path.resolve(filePath)
       : path.resolve(repoRoot, filePath);
@@ -147,7 +179,34 @@ export function loadSoulOverrides(
       });
     }
 
-    const provenance = buildSoulProvenance(path.basename(resolvedPath), raw);
+    // Record repo-relative path so the override's provenance is distinguishable from
+    // the default soul even if the basename happens to match (e.g., skeptic.soul.json).
+    const provenancePath = path.relative(repoRoot, resolvedPath);
+    const provenance = buildSoulProvenance(provenancePath, raw);
+
+    // Verify the override differs from the current default so the pilot arm is not
+    // silently identical to the baseline. Compare content hashes only — file names
+    // differ by definition (override is a user-supplied path, not the soul-docs path).
+    const { soulProvenance: defaultProvenance } = resolvePoverInfo(speaker);
+    if (defaultProvenance?.hash) {
+      if (provenance.hash === defaultProvenance.hash) {
+        throw new ActionableError({
+          goal: `Load soul override for seat "${speaker}"`,
+          problem: `Override file "${resolvedPath}" has identical content to the current default ${speaker} soul — the pilot arm would be indistinguishable from the baseline`,
+          location: 'cli.helpers.loadSoulOverrides',
+          nextSteps: [`Use a soul document that differs from the default ${speaker}.soul.json`],
+        });
+      }
+    } else if (defaultProvenance !== undefined) {
+      // Default provenance exists but has no parseable hash — can't verify.
+      getGlobalRecorder()?.record({
+        type: 'system.info',
+        component: 'cli-helpers',
+        level: 'warn',
+        message: `Soul override for seat "${speaker}": default provenance has no hash — cannot verify the override differs from the default. Proceeding.`,
+      });
+    }
+
     const soul = applyBaseIdentity(parseResult.data, speaker);
     overrides[speaker] = { soul, soulProvenance: provenance };
   }
@@ -173,6 +232,26 @@ export function buildSoulOverrideResolver(
     }
     return baseResolver(speaker, tagSelection);
   };
+}
+
+/**
+ * Assert that no seat appears in both seatTags and soulOverrides.
+ * A seat cannot have both a tag soul and an override soul — the override would silently
+ * ignore the tag while seat_tags would record it as applied.
+ */
+export function validateNoSeatConflict(seatTags: CLISeatTags, soulOverrides: CLISoulOverrides): void {
+  const conflictSeats = Object.keys(seatTags).filter(s => s in soulOverrides);
+  if (conflictSeats.length > 0) {
+    throw new ActionableError({
+      goal: 'Configure debate seats',
+      problem: `Seat(s) [${conflictSeats.join(', ')}] appear in both seatTags and soulOverrides — a seat cannot have both`,
+      location: 'cli.helpers.validateNoSeatConflict',
+      nextSteps: [
+        'Remove the seat from seatTags if you want soulOverrides to take effect',
+        'Remove the seat from soulOverrides if you want the POV tag to apply',
+      ],
+    });
+  }
 }
 
 // ── Re-export compareSoulProvenance for test convenience ────────────────────

@@ -24,7 +24,7 @@ import { generateSlug, formatDebateMarkdown, buildDiagnosticsOutput, buildHarves
 import { ActionableError } from './errors.js';
 import { runExploreFirstPipeline } from './explorationPreset.js';
 import { resolvePoverInfo } from './soulDocLoader.js';
-import { validateSeatTagsConfig, loadSoulOverrides, buildSoulOverrideResolver, type CLISeatTags, type CLISoulOverrides } from './cli.helpers.js';
+import { validateSeatTagsConfig, loadSoulOverrides, buildSoulOverrideResolver, validateNoSeatConflict, type CLISeatTags, type CLISoulOverrides } from './cli.helpers.js';
 import { safeSerialize, atomicWriteSync, sweepOrphanedTempFiles } from './persistence.js';
 import { recordLockHolder } from './lockHolder.js';
 import { computeQualityScore } from './qualityScore.js';
@@ -432,6 +432,11 @@ async function main(): Promise<void> {
   const resolvedSeatTags = config.seatTags
     ? validateSeatTagsConfig(config.seatTags)
     : undefined;
+
+  // A seat cannot have both a tag soul and an override soul.
+  if (config.seatTags && config.soulOverrides) {
+    validateNoSeatConflict(config.seatTags, config.soulOverrides);
+  }
 
   // Load soul overrides and build a wrapped soulResolver if any overrides are present
   const soulOverrideMap = config.soulOverrides
