@@ -631,18 +631,16 @@ var stagingEnvOverrides = [
   { name: 'ANON_SESSION_DIR',    value: '/mnt/staging-state/anon-sessions' }
   // github-api writes go to the staging branch, not main (t/2650 class-B isolation)
   { name: 'GITHUB_BRANCH',       value: 'staging' }
-  // t/4298 (SO e/327#2 S2): with shared-data now RO on staging (stagingSharedReadOnly=true),
-  // G8a inline reconcile would otherwise log write failures against a read-only mount on every
-  // trigger. Forced off here so the CLI value matches Bicep and staging deploys keep passing
-  // their "Verify Bicep baseEnv" check.
-  { name: 'GROUNDING_RECONCILE_INLINE', value: '0' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
   // /readyz warm-gate replaces the boot hard-fail. Nothing to override here.
+  // NOTE: S2 (GROUNDING_RECONCILE_INLINE=0 override) DROPPED per TL (e/327#5) — G8a is gated by
+  // the grounding_reconcile_inline feature flag, OFF, and has never run; the env var is inert and
+  // is being removed entirely from hosted baseEnv/the deploy gate in #3431 instead.
 ]
 // stagingBaseEnv = baseEnv with the isolation overrides applied.
 // filter() removes the baseEnv entries that stagingEnvOverrides supersedes.
 var stagingBaseEnv = concat(
-  filter(baseEnv, e => e.name != 'TAXONOMY_CACHE_DIR' && e.name != 'GIT_SYNC_ENABLED' && e.name != 'GROUNDING_RECONCILE_INLINE'),
+  filter(baseEnv, e => e.name != 'TAXONOMY_CACHE_DIR' && e.name != 'GIT_SYNC_ENABLED'),
   stagingEnvOverrides
 )
 // Rebuild the secret chain for staging — mirrors the prod chain so staging
