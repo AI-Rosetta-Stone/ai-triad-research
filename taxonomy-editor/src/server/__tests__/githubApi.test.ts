@@ -325,6 +325,36 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     backend.shutdown();
   });
 
+  // t/4298/t/4299/t/4300: ServerAPI's per-boot cold-start-cache-miss log
+  // (TL condition #2, p/538#77) reads this counter — it must increment
+  // exactly once per main-cache miss, never on a hit. This suite's fs/promises
+  // mock always ENOENTs reads (line 39), so a real disk-cache hit can't be
+  // observed through readFile() here — stub readFromDiskCache directly to
+  // control hit/miss instead of fighting that global mock.
+  it('getColdCacheMissCount increments once per main-cache miss, not on a hit', async () => {
+    const backend = await createBackend();
+    expect(backend.getColdCacheMissCount()).toBe(0);
+
+    const readSpy = vi.spyOn(
+      backend as unknown as { readFromDiskCache(p: string): Promise<string | null> },
+      'readFromDiskCache',
+    );
+
+    readSpy.mockResolvedValueOnce(null); // miss
+    await backend.readFile('/taxonomy/nodes.json');
+    expect(backend.getColdCacheMissCount()).toBe(1);
+
+    readSpy.mockResolvedValueOnce('{"cached": true}'); // hit
+    await backend.readFile('/taxonomy/nodes.json');
+    expect(backend.getColdCacheMissCount()).toBe(1);
+
+    readSpy.mockResolvedValueOnce(null); // another miss
+    await backend.readFile('/dictionary/terms.json');
+    expect(backend.getColdCacheMissCount()).toBe(2);
+
+    backend.shutdown();
+  });
+
   it('writes to overlay only when session branch is active (no API call)', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });

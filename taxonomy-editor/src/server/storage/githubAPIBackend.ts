@@ -227,6 +227,10 @@ export class GitHubAPIBackend implements StorageBackend {
   // Coherency probe stats
   private coherencyViolations = 0;
 
+  // t/4298/t/4299/t/4300: counts main-cache misses this process has paid
+  // GitHub for since boot — never reset, so it reads as "since cold start".
+  private coldCacheMissCount = 0;
+
   // Manifest write mutex — serializes all manifest mutations to prevent
   // concurrent read-modify-write races (see t/479). Without this, parallel
   // readFile() cache misses each call writeToDiskCache() → saveManifest()
@@ -530,6 +534,7 @@ export class GitHubAPIBackend implements StorageBackend {
     }
 
     // Cache miss — fetch from GitHub
+    this.coldCacheMissCount++;
     this.recordEvent({
       type: 'cache.miss',
       component: 'cache',
@@ -2956,6 +2961,14 @@ export class GitHubAPIBackend implements StorageBackend {
   getCoherencyViolations(): number { return this.coherencyViolations; }
   getErrorBuffer(): Array<RecordInput & { _wall: number }> { return [...this.errorBuffer]; }
   getActiveBranchCount(): number { return this.sessionOverlays.size; }
+  /**
+   * t/4298/t/4299/t/4300: per-boot count of main-cache misses that hit
+   * GitHub (readFileFromMainCache's cache-miss branch) — each is one of the
+   * ~110-call/cold-start budget this process's ephemeral CACHE_DIR costs
+   * (t/4299#4: 109 prod paths, ~2% of the 5,000/hr GitHub App budget per
+   * cold start). ServerAPI logs this once at boot-settle via server.ts.
+   */
+  getColdCacheMissCount(): number { return this.coldCacheMissCount; }
   getCacheHitRate(): number {
     // Approximation from tree + manifest coverage
     if (this.repoTree.size === 0) return 0;
