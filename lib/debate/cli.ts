@@ -188,6 +188,30 @@ function resolvePerturbationConfig(
     : undefined;
 }
 
+// Extracted from `main` to keep `main` within the complexity baseline (t/4305).
+function resolveSessionSouls(config: CLIConfig, repoRoot: string) {
+  const resolvedSeatTags = config.seatTags
+    ? validateSeatTagsConfig(config.seatTags)
+    : undefined;
+
+  if (config.seatTags && config.soulOverrides) {
+    validateNoSeatConflict(config.seatTags, config.soulOverrides);
+  }
+
+  const soulOverrideMap = config.soulOverrides
+    ? loadSoulOverrides(config.soulOverrides, repoRoot)
+    : undefined;
+  const effectiveSoulResolver = soulOverrideMap && Object.keys(soulOverrideMap).length > 0
+    ? buildSoulOverrideResolver(soulOverrideMap, resolvePoverInfo)
+    : resolvePoverInfo;
+
+  if (soulOverrideMap) {
+    log(`Soul overrides loaded for seats: ${Object.keys(soulOverrideMap).join(', ')}`);
+  }
+
+  return { resolvedSeatTags, effectiveSoulResolver };
+}
+
 async function main(): Promise<void> {
   const { configPath, disableTurnValidation, maxTurnRetries, perturbationPrompt, perturbationTurn, exploreFirst: cliExploreFirst, exploreModel: cliExploreModel, resumePath } = parseArgs();
   let configText: string;
@@ -428,27 +452,8 @@ async function main(): Promise<void> {
     log('Talmudic references: method-only');
   }
 
-  // Validate seatTags against the POV-tag registry
-  const resolvedSeatTags = config.seatTags
-    ? validateSeatTagsConfig(config.seatTags)
-    : undefined;
-
-  // A seat cannot have both a tag soul and an override soul.
-  if (config.seatTags && config.soulOverrides) {
-    validateNoSeatConflict(config.seatTags, config.soulOverrides);
-  }
-
-  // Load soul overrides and build a wrapped soulResolver if any overrides are present
-  const soulOverrideMap = config.soulOverrides
-    ? loadSoulOverrides(config.soulOverrides, repoRoot)
-    : undefined;
-  const effectiveSoulResolver = soulOverrideMap && Object.keys(soulOverrideMap).length > 0
-    ? buildSoulOverrideResolver(soulOverrideMap, resolvePoverInfo)
-    : resolvePoverInfo;
-  if (soulOverrideMap) {
-    const overriddenSeats = Object.keys(soulOverrideMap).join(', ');
-    log(`Soul overrides loaded for seats: ${overriddenSeats}`);
-  }
+  // Validate seatTags and load soul overrides (extracted to resolveSessionSouls for complexity budget).
+  const { resolvedSeatTags, effectiveSoulResolver } = resolveSessionSouls(config, repoRoot);
 
   // Build engine config
   const engineConfig: DebateConfig = {
