@@ -21,6 +21,11 @@ export function taggedPovs(): PovName[] {
   return (Object.keys(POV_LABELS) as PovName[]).filter(p => (povs[p] ?? []).length > 0);
 }
 
+/** The wing's registry label, or the tag id for a tag the registry no longer lists. */
+function tagLabelOf(entries: { id: string; label: string }[], tag: string): string {
+  return entries.find(t => t.id === tag)?.label ?? tag;
+}
+
 /** The scope a selection would have, or null when the camp's nodes aren't loaded (nothing to count). */
 function scopeOf(sel: TagSelection) {
   const nodes = useTaxonomyStore.getState()[sel.pov]?.nodes ?? [];
@@ -71,7 +76,8 @@ export function InquiryTagPicker({ value, onChange }: { value: TagSelection | un
       )}
       {scope && (
         <span className={`inquiry-tag-scope${blocked ? ' insufficient' : ''}`}>
-          {scope.inScope.length} in scope, {scope.excluded.length} untagged{blocked && `: ${blocked}`}
+          {/* `excluded` is every node without the selected tag, other wings' included (t/4275). */}
+          {scope.inScope.length} in scope, {scope.excluded.length} not tagged {tagLabelOf(entries, value!.tag)}{blocked && `: ${blocked}`}
         </span>
       )}
     </div>

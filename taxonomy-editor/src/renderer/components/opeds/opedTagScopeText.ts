@@ -14,12 +14,13 @@ export function tagLabelFor(pov: string, tag: string, registry: PovTagRegistry |
 }
 
 /**
- * The reader's scope line, e.g. "Skeptic · Critical wing (scope; 31 untagged excluded)". The exclusion
- * count shows only for Scope: in Prioritize `excludedUntagged` is 0 by construction and would read as
- * "full coverage" (SO e/254#6 cond 3; APPLIED_TAG_COUNT_MEANING).
+ * The reader's scope line, e.g. "Skeptic · Critical wing (scope; 31 not tagged Critical excluded)". The
+ * exclusion count shows only for Scope: in Prioritize `excludedUntagged` is 0 by construction and would
+ * read as "full coverage" (SO e/254#6 cond 3; APPLIED_TAG_COUNT_MEANING). The count includes nodes that
+ * carry another wing's tag, so it never says "untagged" (t/4275).
  */
 export function opedTagScopeText(campLabel: string, tagLabel: string, applied: { mode: TagMode; excludedUntagged: number }): string {
-  const detail = applied.mode === 'scope' ? `scope; ${applied.excludedUntagged} untagged excluded` : 'prioritized';
+  const detail = applied.mode === 'scope' ? `scope; ${applied.excludedUntagged} not tagged ${tagLabel} excluded` : 'prioritized';
   return `${campLabel} · ${tagLabel} wing (${detail})`;
 }
 

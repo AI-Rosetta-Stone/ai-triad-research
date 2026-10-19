@@ -9,7 +9,7 @@ const REGISTRY = { version: 1, povs: { skeptic: [{ id: 'critical', label: 'Criti
 
 describe('opedTagScopeText (t/3992)', () => {
   it('Scope names the wing and the excluded count', () => {
-    expect(opedTagScopeText('Skeptic', 'Critical', { mode: 'scope', excludedUntagged: 31 })).toBe('Skeptic · Critical wing (scope; 31 untagged excluded)');
+    expect(opedTagScopeText('Skeptic', 'Critical', { mode: 'scope', excludedUntagged: 31 })).toBe('Skeptic · Critical wing (scope; 31 not tagged Critical excluded)');
   });
 
   it('Prioritize never shows a count (SO e/254#6 cond 3)', () => {
