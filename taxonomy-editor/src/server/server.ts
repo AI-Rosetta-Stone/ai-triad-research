@@ -1462,6 +1462,11 @@ server.listen(PORT, BIND_HOST, () => {
       }
     }).catch((err) => {
       log.storage.error({ err }, 'GitHubAPIBackend initialization failed');
+      // t/4258/t/4281 (Server Storage): serverRecorder.record() alone never
+      // reaches console; alert-fallback-active needs "storage.fallback" in
+      // ContainerAppConsoleLogs_CL. Trivial addition mirroring the storage/
+      // sub-role's fix for the same gap — flagged there, not a design change.
+      log.storage.warn({ err }, 'storage.fallback: GitHubAPIBackend initialization failed');
       serverRecorder.record({
         type: 'storage.fallback', component: 'storage', level: 'warn',
         message: `GitHubAPIBackend init failed: ${err instanceof Error ? err.message : String(err)}`,

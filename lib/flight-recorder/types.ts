@@ -109,6 +109,7 @@ export type EventType =
   | 'sync.conflict'
   // Overlay operations
   | 'overlay.commit'
+  | 'overlay.commit.rate' // t/4258/t/4281: commits-per-user-per-hour for the C3 scheduler, so a sustained-burst user is measurable before it exhausts the GitHub call budget
   // Storage / IO
   | 'storage.mode'
   | 'storage.fallback'

@@ -305,6 +305,9 @@ export class GitHubAPIBackend implements StorageBackend {
         level: 'warn',
         message: 'No GitHub credentials available — running in fallback mode',
       });
+      // t/4258/t/4281: AGENTS.md mandates a console WARN on every fallback path;
+      // recordEvent() alone never reached one. Also feeds alert-fallback-active.
+      log.github.warn({}, 'storage.fallback: no GitHub credentials available — running in fallback mode');
       return;
     }
 
@@ -333,6 +336,10 @@ export class GitHubAPIBackend implements StorageBackend {
           message: 'initialize: data load failed — /healthz will report 503 until recovery',
           data: { sha: mainSha },
         });
+        // t/4258/t/4281: recordEvent() alone is console-invisible (FlightRecorder-only);
+        // alert-github-api-error-spike (main.bicep) needs "github.api.error" in
+        // ContainerAppConsoleLogs_CL to count this as a GitHub-outage/auth-failure signal.
+        log.github.error({ sha: mainSha }, 'github.api.error: initialize data load failed — /healthz will report 503 until recovery');
       }
       if (this.manifest && mainSha) {
         await this.invalidateChangedFiles(this.manifest.lastCommitSha, mainSha);
@@ -542,6 +549,13 @@ export class GitHubAPIBackend implements StorageBackend {
       message: `Cache miss: ${repoPath}`,
       data: { path: repoPath, reason: 'missing' },
     });
+    // t/4258/t/4281: recordEvent() alone is console-invisible; alert-cache-degraded
+    // needs "cache.miss" in Log_s. Info-level, one line per miss — matches this
+    // call's own existing level choice. Flagged to TL/DevOps: this is the one fix
+    // in this batch with a real log-volume question (every cache miss, not just a
+    // degraded state), unlike the other five which only fire in already-abnormal
+    // conditions. Revisit sampling/throttling here if ingestion volume proves material.
+    log.cache.info({ path: repoPath }, `cache.miss: ${repoPath}`);
 
     if (this.rest.isTripped()) {
       return null; // Circuit open — serve null (file not available)
@@ -857,6 +871,8 @@ export class GitHubAPIBackend implements StorageBackend {
         message: `writeFile(${repoPath}): no baseSha supplied — falling back to the server's cache-derived SHA (direct fileIO caller, not the save route)`,
         data: { path: repoPath, ref },
       });
+      log.github.warn({ path: repoPath, ref },
+        `storage.fallback: writeFile(${repoPath}) had no baseSha — using the cache-derived SHA`);
     }
 
     const creds = await this.getCredsCached();
@@ -983,6 +999,8 @@ export class GitHubAPIBackend implements StorageBackend {
         message: `writeFile(${repoPath}): no baseSha supplied on overlay write — falling back to no precondition (direct fileIO caller, not the save route)`,
         data: { path: repoPath, ref },
       });
+      log.github.warn({ path: repoPath, ref },
+        `storage.fallback: writeFile(${repoPath}) overlay write had no baseSha — no precondition`);
     } else {
       let currentVersion: string | null;
       if (existing !== undefined && existing !== GitHubAPIBackend.TOMBSTONE) {
@@ -2351,6 +2369,10 @@ export class GitHubAPIBackend implements StorageBackend {
         message: 'fetchRepoTree: 0 blobs loaded — data-load failed (check GitHub API response and undici version)',
         data: { commitSha, treeSha },
       });
+      // t/4258/t/4281: the comment above says "log at error-level so ops has a
+      // signal" but recordEvent() alone never reached console — this was the
+      // signal that never fired. Also feeds alert-github-api-error-spike.
+      log.github.error({ commitSha, treeSha }, 'github.api.error: fetchRepoTree 0 blobs loaded — data-load failed');
       return false;
     }
 

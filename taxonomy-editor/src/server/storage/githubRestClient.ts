@@ -330,6 +330,13 @@ export class GitHubRestClient {
         message: 'Rate limited by GitHub API',
         data: { remaining: this.rateLimit.remaining, resetsAt: this.rateLimit.resetsAt },
       });
+      // t/4258/t/4281: see updateRateLimit — deps.record() alone is console-invisible.
+      // alert-github-rate-limit-critical's second OR-clause matches "github.api.rate_limit"
+      // + "degraded"; this is the primary-429 arm of that alert.
+      log.github.warn(
+        { remaining: this.rateLimit.remaining, resetsAt: this.rateLimit.resetsAt },
+        'github.api.rate_limit: degraded (429 rate limited by GitHub API)',
+      );
       const retryAfter = res.headers.get('retry-after');
       if (retryAfter && attempt < MAX_RETRIES) {
         return { action: 'retry', delayMs: parseInt(retryAfter, 10) * 1000 };
@@ -456,14 +463,25 @@ export class GitHubRestClient {
     if (limit !== null) this.rateLimit.limit = parseInt(limit, 10);
     if (reset !== null) this.rateLimit.resetsAt = parseInt(reset, 10) * 1000;
 
-    if (this.rateLimit.remaining < 500) {
+    if (this.rateLimit.remaining < 1000) {
+      // t/4258/t/4281: deps.record() alone writes only to FlightRecorder's
+      // in-memory ring buffer — never console. alert-github-rate-limit-warning/
+      // -critical (main.bicep) query ContainerAppConsoleLogs_CL for exactly
+      // "github.api.rate_limit"/"remaining"/"degraded", so without the matching
+      // log.github.warn below those alerts silently never fire (same class as
+      // handleGithubRefusal's github-api-refused-403, which already does both).
+      const degraded = this.rateLimit.remaining < 500;
       this.deps.record({
         type: 'github.api.rate_limit',
         component: 'github-api',
-        level: this.rateLimit.remaining < 500 ? 'warn' : 'info',
+        level: degraded ? 'warn' : 'info',
         message: `Rate limit: ${this.rateLimit.remaining}/${this.rateLimit.limit} remaining`,
         data: { ...this.rateLimit },
       });
+      log.github.warn(
+        { ...this.rateLimit, degraded },
+        `github.api.rate_limit: ${this.rateLimit.remaining}/${this.rateLimit.limit} remaining${degraded ? ' (degraded)' : ''}`,
+      );
     }
   }
 
