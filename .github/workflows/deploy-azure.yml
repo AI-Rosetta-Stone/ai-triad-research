@@ -321,6 +321,28 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Check sign-in secret drift (warn-only — t/4288)
+        # t/4288: this deploy is about to re-apply AAD/Google/GitHub client secrets from these
+        # GitHub Actions secrets. If the live container-app copy was changed by hand since the
+        # last deploy (the 2026-10-19 incident), this deploy would silently revert it. Never
+        # reads a value to a log — reads the live secret, masks it immediately, compares SHA-256
+        # hashes only. Warn-only: promotion to blocking is a separate T2 decision.
+        shell: pwsh
+        continue-on-error: true
+        env:
+          AAD_CLIENT_SECRET: ${{ secrets.AAD_CLIENT_SECRET }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+        run: |
+          ./operations/devops/Test-SignInSecretDrift.ps1 `
+            -ContainerAppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup    '${{ env.RESOURCE_GROUP }}' `
+            -DeploySourceValues @{
+              'aad-client-secret'    = $env:AAD_CLIENT_SECRET
+              'google-client-secret' = $env:GOOGLE_CLIENT_SECRET
+              'github-client-secret' = $env:GITHUB_CLIENT_SECRET
+            }
+
       - name: Validate auth config — tokenStore safety (warn-only — t/4133)
         # t/4133: tokenStore.enabled=true with no blob backing causes HTTP 500 for all signed-in
         # users on replica recycle or platform roll (t/4132 incident). Checks live Azure state
