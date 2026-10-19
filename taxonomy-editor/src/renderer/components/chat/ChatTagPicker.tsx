@@ -95,9 +95,10 @@ export function ChatTagPicker({ pov, seatTag, onChange }: ChatTagPickerProps) {
       )}
       {scope && seatTag && (() => {
         const blocked = tagBlockedReason(scope, seatTag.tag_mode);
+        const tagLabel = entries.find((t) => t.id === seatTag.pov_tag)?.label ?? seatTag.pov_tag;
         return (
           <div className={`chat-tag-picker-scope${blocked ? ' insufficient' : ''}`}>
-            {scope.inScope.length} in scope, {scope.excluded.length} untagged
+            {scope.inScope.length} in scope, {scope.excluded.length} not tagged {tagLabel}
             {blocked && ` — ${blocked}`}
           </div>
         );
