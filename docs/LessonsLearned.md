@@ -4833,7 +4833,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
 5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 3 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149).
+**Status:** Active — 4 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -5767,3 +5767,64 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Azure p/105#18).
 
 **Applies To:** All agents diagnosing `ResourceNotFound` on storage paths that may be lazily initialized; verify initialization semantics before concluding misconfiguration.
+
+---
+
+## #281 [Build] `statusCheckRollup` Mixes Check Runs and Status Contexts — `.name` Is Null on Status Context Entries
+
+**Pattern:** An agent iterates over `gh pr view --json statusCheckRollup` entries and applies `.name | startswith(…)` or another string operation. Some entries have a null `.name` — these are status contexts (e.g. CI systems posting statuses rather than GitHub Actions check runs). Status contexts use `.context` for their name, not `.name`. The null `.name` causes the string operation to error.
+
+**Instances:**
+- 2026-10-19 — Tech Lead (p/335#161): `.name|startswith()` errored on a `statusCheckRollup` entry whose `.name` was null. The entry was a status context (`.context` was present). Resolved: used `(.name // .context // "") as $n` before string ops.
+
+**Root Cause:** GitHub's PR check rollup contains two kinds of entries: check runs (GitHub Actions, expose `.name`) and status contexts (external CI systems, expose `.context`). Neither field is always present; a consumer that reads only `.name` will see null on status context entries.
+
+**Prevention:**
+1. **Always normalize status rollup entries before string operations:** `(.name // .context // "") as $n | $n | startswith(…)`.
+2. **Check both fields when filtering or matching:** a check run has `.name`; a status context has `.context`. Neither is guaranteed on every entry.
+3. **`.name` null on a rollup entry** is a reliable diagnostic for a status context entry — check whether `.context` is the intended field.
+
+**Status:** Active — 1 instance (Tech Lead p/335#161).
+
+**Applies To:** All agents processing `gh pr view --json statusCheckRollup` entries with string operations on the name field.
+
+---
+
+## #282 [Build] KQL `has` Matches Whole Terms Only — Use `contains` for Codes Embedded in a Larger Token
+
+**Pattern:** An agent writes a KQL alert or query using `Log_s has 'AADSTS'` to match log lines containing Azure AD error codes like `AADSTS7000215`. The query fires zero times because KQL `has` performs whole-term matching — `AADSTS7000215` is one term, and `AADSTS` does not match any whole term. The alert silently misses all real incidents.
+
+**Instances:**
+- 2026-10-19 — Tech Lead (p/335#163, t/4288): KQL alert written with `Log_s has 'AADSTS'` would have fired zero times against real 10-19 incident logs. Caught by DevOps before deployment. Fixed: use `contains` or `matches regex @"AADSTS\d+"`.
+
+**Root Cause:** KQL `has` is a term-index operator — it checks whether the search term appears as a complete whitespace- or punctuation-delimited token in the column. A code like `AADSTS7000215` is a single token; `has 'AADSTS'` does not match it. `contains` performs substring search; `matches regex` allows pattern matching.
+
+**Prevention:**
+1. **Use `contains` for substring matching in KQL:** `Log_s contains 'AADSTS'` matches `AADSTS7000215`.
+2. **Use `matches regex @"AADSTS\d+"` for structured code patterns** when an exact prefix is needed without matching unrelated strings.
+3. **Always prove alert KQL against real incident log lines** before deploying — use `Log_s | where … | take 10` against actual log data, not hand-written examples.
+4. **`has` is only appropriate when the search term is itself a complete token** (e.g. a standalone word or exact field value). When in doubt, use `contains`.
+
+**Status:** Active — 1 instance (Tech Lead p/335#163, t/4288).
+
+**Applies To:** All agents writing KQL queries or alerts that match log lines containing error codes, identifiers, or any string that may be embedded within a larger token.
+
+---
+
+## #283 [Build] GitHub Only Discovers `workflow_dispatch` Definitions From the Default Branch — New Workflows Not Dispatchable Until Merged
+
+**Pattern:** An agent adds a new `workflow_dispatch` workflow file on a feature branch and immediately tries to trigger it: `gh workflow run <new-workflow>.yml --ref <feature-branch>`. GitHub returns HTTP 404 "workflow not found on the default branch." The workflow file exists on the feature branch but GitHub only registers `workflow_dispatch` triggers from the default branch (`main`). The dispatch is impossible until the PR merges.
+
+**Instances:**
+- 2026-10-19 — DevOps Lead (p/26#182): `gh workflow run <new-workflow>.yml --ref <feature-branch>` returned 404. New workflow file existed only on the feature branch. Resolution: dispatch must wait until PR merges to `main`.
+
+**Root Cause:** GitHub's workflow dispatch discovery is scoped to the repository's default branch. A workflow file that exists only on a non-default branch is invisible to the dispatch API, regardless of the `--ref` value. This is a GitHub platform constraint, not a configuration error.
+
+**Prevention:**
+1. **New `workflow_dispatch` workflows cannot be tested via `gh workflow run` until merged to `main`.** Plan for this constraint when designing pre-merge workflow testing.
+2. **For pre-merge testing of a new workflow, alternative approaches:** (a) merge to `main` first and test from there; (b) temporarily add the workflow to a test branch that is `main` (not recommended for production workflows); (c) use `act` or a local runner for pre-merge testing.
+3. **HTTP 404 "workflow not found on the default branch"** from `gh workflow run` is a reliable diagnostic that the workflow file has not yet been merged to the default branch.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#182).
+
+**Applies To:** All agents creating new `workflow_dispatch` workflows on feature branches and attempting to test via dispatch before merging.
