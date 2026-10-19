@@ -1353,6 +1353,90 @@ resource rateLimitCritical 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pr
   }
 }
 
+resource aadstsConfigErrorAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-aadsts-config-error'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'AADSTS Config Error (sev-1)'
+    description: 'A config-class AADSTS error (bad/expired client secret, app not found, app disabled, reply-URL mismatch) in the Easy Auth sidecar logs within 10 minutes — e.g. the 2026-10-19 invalid-client-secret incident (t/4288). These codes are ops-caused, never user-caused, so this is sev-1. Split by ContainerAppName_s (t/4288 SO review, e/318 A1) so prod and staging page independently — a staging-only config error should not look like a prod sev-1, or vice versa.'
+    severity: 1
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT10M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          // Config-class error_codes only (SO e/318 A1): 7000215 (invalid client secret),
+          // 7000222 (expired secret), 700016 (app not found in tenant), 7000112 (app disabled),
+          // 50011/500113 (reply URL mismatch). Deliberately narrower than the broad \d+ regex
+          // below — these are the codes an operator caused and must act on immediately.
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where ContainerName_s == "http-auth"
+            | where Log_s matches regex @"AADSTS(7000215|7000222|700016|7000112|50011|500113)\b"
+            | summarize Count = count() by ContainerAppName_s
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          dimensions: [
+            {
+              name: 'ContainerAppName_s'
+              operator: 'Include'
+              values: [ '*' ]
+            }
+          ]
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+resource aadstsAnyErrorAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-aadsts-any-error'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'AADSTS Any Error (sev-3)'
+    description: 'Any AADSTS error at all in the Easy Auth sidecar logs within 10 minutes, including user-caused codes (e.g. 50020 account issue, 65001 consent required, 50126 bad credentials). Sev-3 (not sev-1): these are routine and often user-side, not an operator page — kept as a broader backstop/trend signal. Split by ContainerAppName_s, same rationale as alert-aadsts-config-error.'
+    severity: 3
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT10M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where ContainerName_s == "http-auth"
+            | where Log_s matches regex @"AADSTS\d+"
+            | summarize Count = count() by ContainerAppName_s
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          dimensions: [
+            {
+              name: 'ContainerAppName_s'
+              operator: 'Include'
+              values: [ '*' ]
+            }
+          ]
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
 resource apiErrorSpike 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-github-api-error-spike'
   location: location
