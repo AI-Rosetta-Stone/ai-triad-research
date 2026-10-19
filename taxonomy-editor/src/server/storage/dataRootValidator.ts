@@ -16,8 +16,10 @@
  * Re-exported from fileIO.ts barrel.
  */
 
-import { resolveDataPath, getDataRoot, STORAGE_MODE } from '../config.js';
+import path from 'path';
+import { resolveDataPath, getDataRoot, STORAGE_MODE, CACHE_DIR } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
+import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getBackend } from './fileIO.js';
 
@@ -102,4 +104,45 @@ export async function validateDataRoot(): Promise<void> {
       }
     }
   }
+}
+
+/**
+ * t/4298/t/4299 — on github-api mode, CACHE_DIR must never equal or sit
+ * inside AI_TRIAD_DATA_ROOT (or vice versa): any process that writes the
+ * data root (reconcile_grounding.py --apply, the PS cmdlets, a mount shared
+ * with staging) would otherwise silently change what the github-api disk
+ * cache serves, with no check against GitHub at all.
+ *
+ * WARN-only for now (TL, t/4299#2): making this blocking is a separate T2
+ * gate-promotion, done after >=1 green prod deploy has run with the WARN
+ * live and shown the predicate never fires under real traffic. Point-of-use
+ * note: THIS EXEMPTION LAPSES once that promotion lands — a WARN here must
+ * not be treated as acceptable indefinitely.
+ *
+ * No-op on filesystem mode: that mode's CACHE_DIR == AI_TRIAD_DATA_ROOT
+ * alignment is intentional (t/2061) and this check must never flag it.
+ */
+export function validateCacheDirDisjoint(): void {
+  if (STORAGE_MODE !== 'github-api') return;
+  const dataRoot = process.env.AI_TRIAD_DATA_ROOT;
+  if (!dataRoot) return; // nothing to collide with
+
+  const cacheDir = path.resolve(CACHE_DIR);
+  const resolvedDataRoot = path.resolve(dataRoot);
+  const relFromDataRoot = path.relative(resolvedDataRoot, cacheDir);
+  const cacheInsideDataRoot = relFromDataRoot === '' || (!relFromDataRoot.startsWith('..') && !path.isAbsolute(relFromDataRoot));
+  const relFromCache = path.relative(cacheDir, resolvedDataRoot);
+  const dataRootInsideCache = relFromCache === '' || (!relFromCache.startsWith('..') && !path.isAbsolute(relFromCache));
+
+  if (!cacheInsideDataRoot && !dataRootInsideCache) return;
+
+  const message = `github-api disk cache (CACHE_DIR=${cacheDir}) is not disjoint from the data root (AI_TRIAD_DATA_ROOT=${resolvedDataRoot}) — any data-root writer can change what this server serves with no check against GitHub (t/4298/t/4299)`;
+  log.storage.warn({ cacheDir, dataRoot: resolvedDataRoot }, message);
+  getGlobalRecorder()?.record({
+    type: 'storage.fallback',
+    component: 'storage',
+    level: 'warn',
+    message,
+    data: { cacheDir, dataRoot: resolvedDataRoot },
+  });
 }

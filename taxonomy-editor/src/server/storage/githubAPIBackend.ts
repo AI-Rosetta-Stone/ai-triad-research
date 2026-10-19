@@ -2020,65 +2020,97 @@ export class GitHubAPIBackend implements StorageBackend {
   private async writeToDiskCache(
     repoPath: string, content: string, sha: string, etag: string,
   ): Promise<void> {
-    const diskPath = path.join(this.cacheDir, repoPath);
-    await fs.mkdir(path.dirname(diskPath), { recursive: true });
+    try {
+      const diskPath = path.join(this.cacheDir, repoPath);
+      await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
-    const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
-    await fs.writeFile(tmpPath, content, 'utf-8');
-    await this.renameWithRetry(tmpPath, diskPath);
+      const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
+      await fs.writeFile(tmpPath, content, 'utf-8');
+      await this.renameWithRetry(tmpPath, diskPath);
 
-    await this.withManifestLock(async () => {
-      if (!this.manifest) {
-        this.manifest = {
-          version: 1,
-          generation: 1,
-          lastCommitSha: '',
-          lastUpdated: new Date().toISOString(),
-          files: {},
+      await this.withManifestLock(async () => {
+        if (!this.manifest) {
+          this.manifest = {
+            version: 1,
+            generation: 1,
+            lastCommitSha: '',
+            lastUpdated: new Date().toISOString(),
+            files: {},
+          };
+        }
+
+        this.manifest.files[repoPath] = {
+          sha,
+          etag,
+          cachedAt: new Date().toISOString(),
         };
-      }
-
-      this.manifest.files[repoPath] = {
-        sha,
-        etag,
-        cachedAt: new Date().toISOString(),
-      };
-      this.manifest.generation++;
-      this.manifest.lastUpdated = new Date().toISOString();
-      await this.saveManifest();
-    });
+        this.manifest.generation++;
+        this.manifest.lastUpdated = new Date().toISOString();
+        await this.saveManifest();
+      });
+    } catch (err) {
+      // t/4298/t/4299: a disk-cache write-through is an optimization, not
+      // the read it follows — staging's share went read-only (taxonomy-data-ro)
+      // and this would otherwise crash a read that had already succeeded.
+      // Warn and move on; the next read just misses the cache again.
+      const message = `Disk cache write-through failed for ${repoPath} — serving the fetched content, but it won't be cached (t/4298/t/4299)`;
+      log.storage.warn({ repoPath, error: String(err) }, message);
+      this.recordEvent({
+        type: 'storage.fallback',
+        component: 'storage',
+        level: 'warn',
+        message,
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+        data: { repoPath },
+      });
+    }
   }
 
   private async writeBinaryToDiskCache(
     repoPath: string, content: Buffer, sha: string, etag: string,
   ): Promise<void> {
-    const diskPath = path.join(this.cacheDir, repoPath);
-    await fs.mkdir(path.dirname(diskPath), { recursive: true });
+    try {
+      const diskPath = path.join(this.cacheDir, repoPath);
+      await fs.mkdir(path.dirname(diskPath), { recursive: true });
 
-    const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
-    await fs.writeFile(tmpPath, content);
-    await this.renameWithRetry(tmpPath, diskPath);
+      const tmpPath = diskPath + '.tmp.' + crypto.randomBytes(8).toString('hex');
+      await fs.writeFile(tmpPath, content);
+      await this.renameWithRetry(tmpPath, diskPath);
 
-    await this.withManifestLock(async () => {
-      if (!this.manifest) {
-        this.manifest = {
-          version: 1,
-          generation: 1,
-          lastCommitSha: '',
-          lastUpdated: new Date().toISOString(),
-          files: {},
+      await this.withManifestLock(async () => {
+        if (!this.manifest) {
+          this.manifest = {
+            version: 1,
+            generation: 1,
+            lastCommitSha: '',
+            lastUpdated: new Date().toISOString(),
+            files: {},
+          };
+        }
+
+        this.manifest.files[repoPath] = {
+          sha,
+          etag,
+          cachedAt: new Date().toISOString(),
         };
-      }
-
-      this.manifest.files[repoPath] = {
-        sha,
-        etag,
-        cachedAt: new Date().toISOString(),
-      };
-      this.manifest.generation++;
-      this.manifest.lastUpdated = new Date().toISOString();
-      await this.saveManifest();
-    });
+        this.manifest.generation++;
+        this.manifest.lastUpdated = new Date().toISOString();
+        await this.saveManifest();
+      });
+    } catch (err) {
+      // t/4298/t/4299: see writeToDiskCache's catch — a write-through cache
+      // failure must never crash the read it follows.
+      const message = `Disk cache write-through failed for ${repoPath} — serving the fetched content, but it won't be cached (t/4298/t/4299)`;
+      log.storage.warn({ repoPath, error: String(err) }, message);
+      this.recordEvent({
+        type: 'storage.fallback',
+        component: 'storage',
+        level: 'warn',
+        message,
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+        data: { repoPath },
+      });
+    }
   }
 
   private async removeFromDiskCache(repoPath: string): Promise<void> {
