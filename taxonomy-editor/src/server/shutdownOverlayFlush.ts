@@ -48,9 +48,13 @@ async function runWithConcurrencyCap<T>(items: T[], concurrency: number, worker:
  * Sweep every user with a non-empty overlay and commit it directly, capped at
  * `OVERLAY_FLUSH_CONCURRENCY` concurrent commits, racing the whole sweep against the deadline
  * budget still remaining. A user whose commit throws is recorded in `failedUserIds` so a later
- * sweep (the late-write pass below) skips them rather than retrying.
+ * sweep (the late-write pass below) skips them rather than retrying. A user whose commit
+ * succeeds is recorded in `committedUserIds` (t/4302) — keyed off the real outcome, not a
+ * pre-flush snapshot, so a late-write-pass success is captured too.
  */
-async function sweepOnce(backend: GitHubAPIBackend, budgetMs: number, failedUserIds: Set<string>): Promise<boolean> {
+async function sweepOnce(
+  backend: GitHubAPIBackend, budgetMs: number, failedUserIds: Set<string>, committedUserIds: Set<string>,
+): Promise<boolean> {
   const userIds = backend.getUncommittedOverlaySummary().map(s => s.userId).filter(id => !failedUserIds.has(id));
   if (userIds.length === 0) return false;
   let timedOut = false;
@@ -59,6 +63,7 @@ async function sweepOnce(backend: GitHubAPIBackend, budgetMs: number, failedUser
       // C3a (t/4277): an explicit branchName is required outside request scope — the SIGTERM
       // handler has no AsyncLocalStorage context for getEffectiveRef() to resolve.
       await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
+      committedUserIds.add(userId);
     } catch {
       failedUserIds.add(userId);
       /* telemetry — silent by design; already logged + flight-recorded by commitOverlayGuarded, don't double-log, and don't let one user's failure abort the other lanes' sweep */
@@ -79,25 +84,46 @@ async function sweepOnce(backend: GitHubAPIBackend, budgetMs: number, failedUser
  * before its connection drains is only caught by this second pass (t/4276, SO e/315#2). Users
  * who already failed the first sweep are skipped on the second, not retried. Finally, re-check
  * the overlay contents (not any scheduler bookkeeping) and WARN naming whoever is still dirty.
+ *
+ * t/4302: Azure's staging kill test found the SIGTERM commit couldn't be attributed to this
+ * flush rather than the 2s debounce timer firing during the grace period. One INFO summary line
+ * (committed/still-dirty/duration) closes that gap — logged whenever there was anything dirty to
+ * report, silent on a true no-op shutdown (matching the existing no-dirty-overlay tests).
  */
 export async function flushOverlaysWithDeadline(backend: GitHubAPIBackend | null, closeDone: Promise<void>): Promise<void> {
   if (!backend) return; // filesystem/Electron mode — no overlay semantics
-  const deadlineAt = Date.now() + OVERLAY_FLUSH_DEADLINE_MS;
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + OVERLAY_FLUSH_DEADLINE_MS;
   const remainingMs = (): number => deadlineAt - Date.now();
   const failedUserIds = new Set<string>();
+  const committedUserIds = new Set<string>();
 
-  let timedOut = await sweepOnce(backend, remainingMs(), failedUserIds);
+  let timedOut = await sweepOnce(backend, remainingMs(), failedUserIds, committedUserIds);
 
   if (!timedOut && remainingMs() > 0) {
     await Promise.race([
       closeDone,
       new Promise<void>((resolve) => { setTimeout(resolve, remainingMs()); }),
     ]);
-    if (remainingMs() > 0) timedOut = await sweepOnce(backend, remainingMs(), failedUserIds);
+    if (remainingMs() > 0) timedOut = await sweepOnce(backend, remainingMs(), failedUserIds, committedUserIds);
     else timedOut = true;
   }
 
   const stillDirty = backend.getUncommittedOverlaySummary();
+  const durationMs = Date.now() - startedAt;
+
+  if (committedUserIds.size > 0 || stillDirty.length > 0) {
+    log.server.info(
+      { committedUsers: [...committedUserIds], stillDirtyUsers: stillDirty, durationMs, timedOut },
+      `shutdown flush: committed ${committedUserIds.size} user(s) in ${durationMs}ms`,
+    );
+    getGlobalRecorder()?.record({
+      type: 'lifecycle', component: 'server', level: 'info',
+      message: `shutdown flush: committed ${committedUserIds.size} user(s) in ${durationMs}ms`,
+      data: { committedUsers: [...committedUserIds], stillDirtyUsers: stillDirty, durationMs, timedOut },
+    });
+  }
+
   if (stillDirty.length > 0) {
     const totalEntries = stillDirty.reduce((sum, s) => sum + s.entryCount, 0);
     const message = `${totalEntries} uncommitted overlay entries across ${stillDirty.length} user(s) still dirty after the shutdown flush${timedOut ? ' (flush deadline hit)' : ''} (t/4258) — will be lost`;
