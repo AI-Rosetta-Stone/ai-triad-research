@@ -27,7 +27,7 @@ import type { EntityMentionsFile, ContainerMentions } from '../../../../lib/enti
 import { serializeEdgesJson } from '../../../../lib/edges/serializeEdges.js';
 import { ABSENT_BASELINE, type EdgesData } from '../../../../lib/edges/mergeEdgesPreservingRationale.js';
 import { getCurrentUserId } from '../security/userContext.js';
-import { sessionBranchNameFor } from './sessionBranchManager.js';
+import { scheduleOverlayCommit } from './overlayCommitScheduler.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
 // barrel: importers keep importing these symbols from './fileIO.js'. Each module
@@ -36,6 +36,8 @@ import { sessionBranchNameFor } from './sessionBranchManager.js';
 export * from './debateStore.js';
 export * from './calibrationStore.js';
 export * from './urlFetch.js';
+export * from './overlayCommitScheduler.js';
+export * from './conflictsFileIO.js';
 export type { OpEdSetSummary } from '../../../../lib/oped/types.js';
 export { listOpedSets, loadOpedSet, saveOpedSetInProgress, loadOpedSetInProgress, finalizeOpedSet, deleteOpedSet, getOpedSetsQuotaStatus } from './opedStore.js';
 export { upsertOpedRun, countRunningOpedRuns, getOpedRun } from './opedRunStore.js';
@@ -84,115 +86,6 @@ export function getUserContentBackend(): StorageBackend { return userContentBack
 export function setBriefExportBackend(b: StorageBackend): void { briefExportBackend = b; }
 /** Brief-export backend; falls back to user-content backend when unset. */
 export function getBriefExportBackend(): StorageBackend { return briefExportBackend ?? getUserContentBackend(); }
-
-// ── Overlay commit scheduling (t/4258/t/4277 C3) ──
-//
-// Writes outside taxonomyDataSlice.save() (edges status/swap/bulk, conflicts,
-// cruxes evidence) land in the GitHub-backend session overlay but have no
-// following commit — any restart/deploy/scale-to-zero drops them (t/4258).
-// scheduleOverlayCommit() debounces a commit after such a write instead of
-// awaiting one inside the request: the response still returns right after
-// the overlay write, as today. No-op on backends without overlay semantics
-// (filesystem/Electron mode) or once no session user is active.
-
-interface OverlayCommittable {
-  commitOverlay(
-    userId: string, message?: string, opts?: { branchName?: string },
-  ): Promise<{ commitSha: string; filesCommitted: number } | null>;
-}
-function supportsOverlayCommit(b: StorageBackend): b is StorageBackend & OverlayCommittable {
-  return typeof (b as unknown as { commitOverlay?: unknown }).commitOverlay === 'function';
-}
-
-const OVERLAY_COMMIT_DEBOUNCE_MS = 2_000;
-const OVERLAY_COMMIT_MAX_WAIT_MS = 10_000;
-const OVERLAY_COMMIT_MAX_RETRIES = 2;
-
-export type OverlayCommitStatus = { state: 'pending' | 'committed' | 'failed'; at: number; error?: string };
-const overlayCommitStatus = new Map<string, OverlayCommitStatus>();
-const pendingOverlayCommits = new Map<string, { debounceTimer: ReturnType<typeof setTimeout>; maxWaitTimer: ReturnType<typeof setTimeout> }>();
-
-/** Surfaced by the sync-status route so the UI can show "not yet saved to GitHub". */
-export function getOverlayCommitStatus(userId: string): OverlayCommitStatus | undefined {
-  return overlayCommitStatus.get(userId);
-}
-
-function clearPendingOverlayCommit(userId: string): void {
-  const pending = pendingOverlayCommits.get(userId);
-  if (!pending) return;
-  clearTimeout(pending.debounceTimer);
-  clearTimeout(pending.maxWaitTimer);
-  pendingOverlayCommits.delete(userId);
-}
-
-async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<void> {
-  clearPendingOverlayCommit(userId);
-  if (!supportsOverlayCommit(backend)) return;
-  try {
-    // t/4258/t/4277 (C3a): pass the branch explicitly — this runs from a
-    // setTimeout, outside any request's AsyncLocalStorage scope, so
-    // GitHubAPIBackend.getEffectiveRef() would otherwise fall back to
-    // baseBranch and commitOverlayImpl would throw on every scheduled commit.
-    await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
-    overlayCommitStatus.set(userId, { state: 'committed', at: Date.now() });
-  } catch (err) {
-    const message = String((err as Error)?.message ?? err);
-    const warnMsg = `Scheduled overlay commit failed for ${userId} (attempt ${attempt + 1}) — will retry (t/4258)`;
-    log.storage.warn({ userId, attempt }, warnMsg);
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'file-io',
-      level: 'warn',
-      message: warnMsg,
-      error: { name: (err as Error).name ?? 'Error', message, stack: (err as Error).stack },
-    });
-    overlayCommitStatus.set(userId, { state: 'failed', at: Date.now(), error: message });
-    if (attempt < OVERLAY_COMMIT_MAX_RETRIES) {
-      const backoffMs = 1_000 * 2 ** attempt;
-      setTimeout(() => { void runScheduledOverlayCommit(userId, attempt + 1); }, backoffMs);
-    }
-  }
-}
-
-/**
- * Schedule a debounced commit of `userId`'s overlay. Call after any overlay
- * write made outside `taxonomyDataSlice.save()` (which already calls
- * `syncCommit()` itself right after its PUT, t/4258). A trailing debounce
- * (`OVERLAY_COMMIT_DEBOUNCE_MS`) coalesces a burst of writes into one commit;
- * `OVERLAY_COMMIT_MAX_WAIT_MS` caps how long a sustained burst can keep
- * pushing the commit out.
- */
-export function scheduleOverlayCommit(userId: string): void {
-  if (!supportsOverlayCommit(backend)) return;
-  overlayCommitStatus.set(userId, { state: 'pending', at: Date.now() });
-
-  const existing = pendingOverlayCommits.get(userId);
-  if (existing) {
-    clearTimeout(existing.debounceTimer);
-    existing.debounceTimer = setTimeout(() => { void runScheduledOverlayCommit(userId); }, OVERLAY_COMMIT_DEBOUNCE_MS);
-    return;
-  }
-  pendingOverlayCommits.set(userId, {
-    debounceTimer: setTimeout(() => { void runScheduledOverlayCommit(userId); }, OVERLAY_COMMIT_DEBOUNCE_MS),
-    maxWaitTimer: setTimeout(() => { void runScheduledOverlayCommit(userId); }, OVERLAY_COMMIT_MAX_WAIT_MS),
-  });
-}
-
-/**
- * t/4258/t/4277 (C3c): immediately run (not wait out the debounce for) every
- * currently-scheduled overlay commit, and wait for them all to settle. For
- * t/4276's SIGTERM flush — called once per non-empty overlay at shutdown
- * instead of relying on the debounce timer to fire before the process exits.
- * Users with no pending scheduled commit (nothing written since the last
- * commit, or committed via an explicit save already) are untouched.
- */
-export function flushPendingOverlayCommits(): Promise<void[]> {
-  const userIds = [...pendingOverlayCommits.keys()];
-  return Promise.all(userIds.map((userId) => {
-    clearPendingOverlayCommit(userId);
-    return runScheduledOverlayCommit(userId);
-  }));
-}
 
 // ── Path safety ──
 
@@ -502,8 +395,7 @@ export async function readAggregatedCruxes(): Promise<unknown | null> {
 export async function writeAggregatedCruxes(data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   const filePath = path.join(getTaxonomyDir(), 'aggregated-cruxes.json');
   const result = await backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
-  // t/4258/t/4277 C3: crux evidence edits have no following commit of their own.
-  scheduleOverlayCommit(getCurrentUserId());
+  scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3: no following commit otherwise
   return result;
 }
 
@@ -530,130 +422,6 @@ export async function readConflictClustersWithVersion(): Promise<{ data: unknown
     if (result === null) return null;
     return { data: JSON.parse(result.content), version: result.version };
   } catch (err: unknown) { getGlobalRecorder()?.record({ type: 'system.error', component: 'file-io', level: 'warn', message: 'readConflictClustersWithVersion: read/parse failed, returning null', data: { error: String(err) } }); return null; }
-}
-
-// Conflicts are stored in a single wrapper file (t/689 / t/693) instead of
-// ~1,244 individual {claimId}.json files (which cost 62 batched API reads to
-// list). The 5-minute response cache lives in server.ts and is invalidated by
-// the route handlers on create/write/delete — unchanged by this layer.
-const CONFLICTS_FILE = 'conflicts.json';
-const CONFLICTS_SCHEMA_VERSION = '2.0';
-
-interface ConflictsWrapper {
-  _schema_version: string;
-  last_modified: string;
-  conflict_count: number;
-  conflicts: Record<string, unknown>[];
-}
-
-function conflictsFilePath(): string {
-  return path.join(getConflictsDir(), CONFLICTS_FILE);
-}
-
-function claimIdOf(entry: unknown): string | undefined {
-  return (entry as { claim_id?: string })?.claim_id;
-}
-
-/** Read the conflicts wrapper, tolerating a missing or malformed file (→ empty).
- *  t/4190: version is the on-disk wrapper's own git blob SHA (empty string for
- *  a missing/malformed file — no precondition to check against, same marker
- *  convention as readFileWithVersionOrFallback). */
-async function readConflictsWrapper(): Promise<{ wrapper: ConflictsWrapper; version: string }> {
-  const empty: ConflictsWrapper = {
-    _schema_version: CONFLICTS_SCHEMA_VERSION,
-    last_modified: new Date().toISOString(),
-    conflict_count: 0,
-    conflicts: [],
-  };
-  const result = await readFileWithVersionOrFallback(conflictsFilePath());
-  if (result === null) return { wrapper: empty, version: '' };
-  try {
-    const parsed = JSON.parse(result.content) as Partial<ConflictsWrapper>;
-    const conflicts = Array.isArray(parsed.conflicts) ? parsed.conflicts as Record<string, unknown>[] : [];
-    return {
-      wrapper: {
-        _schema_version: parsed._schema_version ?? CONFLICTS_SCHEMA_VERSION,
-        last_modified: parsed.last_modified ?? empty.last_modified,
-        conflict_count: conflicts.length,
-        conflicts,
-      },
-      version: result.version,
-    };
-  } catch {
-    /* telemetry — silent by design; treat an unreadable conflicts file as empty */
-    return { wrapper: empty, version: '' };
-  }
-}
-
-/** Persist the conflicts array, refreshing conflict_count + last_modified. */
-async function writeConflictsWrapper(conflicts: Record<string, unknown>[], opts?: { baseSha?: string }): Promise<{ version: string }> {
-  const wrapper: ConflictsWrapper = {
-    _schema_version: CONFLICTS_SCHEMA_VERSION,
-    last_modified: new Date().toISOString(),
-    conflict_count: conflicts.length,
-    conflicts,
-  };
-  const result = await backend.writeFile(conflictsFilePath(), JSON.stringify(wrapper, null, 2), opts);
-  // t/4258/t/4277 C3: conflicts writes (write/create/delete) have no following
-  // commit of their own — schedule one instead of leaving it to the next save().
-  scheduleOverlayCommit(getCurrentUserId());
-  return result;
-}
-
-export async function readAllConflictFiles(): Promise<unknown[]> {
-  return (await readConflictsWrapper()).wrapper.conflicts;
-}
-
-/** t/4190: like readAllConflictFiles, but also returns the wrapper file's
- *  version for the save route to hand back to the client as its write
- *  precondition (ETag). */
-export async function readAllConflictFilesWithVersion(): Promise<{ conflicts: unknown[]; version: string }> {
-  const { wrapper, version } = await readConflictsWrapper();
-  return { conflicts: wrapper.conflicts, version };
-}
-
-export async function writeConflictFile(claimId: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
-  assertSafeId(claimId, 'claimId');
-  const { wrapper } = await readConflictsWrapper();
-  const idx = wrapper.conflicts.findIndex(c => claimIdOf(c) === claimId);
-  if (idx === -1) throw new ActionableError({
-    goal: 'Update conflict definition',
-    problem: `Conflict not found: ${claimId}`,
-    location: 'server/fileIO.ts → writeConflictFile',
-    nextSteps: [
-      `Verify that a conflict with claim_id "${claimId}" exists in ${CONFLICTS_FILE}`,
-      'Use createConflictFile() to create a new conflict instead of writeConflictFile()',
-      'Call readAllConflictFiles() to list available conflicts',
-    ],
-  });
-  wrapper.conflicts[idx] = data as Record<string, unknown>;
-  return writeConflictsWrapper(wrapper.conflicts, opts);
-}
-
-export async function createConflictFile(claimId: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
-  assertSafeId(claimId, 'claimId');
-  const { wrapper } = await readConflictsWrapper();
-  if (wrapper.conflicts.some(c => claimIdOf(c) === claimId)) throw new ActionableError({
-    goal: 'Create conflict definition',
-    problem: `Conflict already exists: ${claimId}`,
-    location: 'server/fileIO.ts → createConflictFile',
-    nextSteps: [
-      `Use writeConflictFile() to update the existing conflict "${claimId}"`,
-      'Delete the existing conflict first if you intend to replace it',
-    ],
-  });
-  wrapper.conflicts.push(data as Record<string, unknown>);
-  return writeConflictsWrapper(wrapper.conflicts, opts);
-}
-
-export async function deleteConflictFile(claimId: string): Promise<void> {
-  assertSafeId(claimId, 'claimId');
-  const { wrapper } = await readConflictsWrapper();
-  const filtered = wrapper.conflicts.filter(c => claimIdOf(c) !== claimId);
-  // No-op if the claim wasn't present (mirrors the prior delete-missing behavior).
-  if (filtered.length !== wrapper.conflicts.length) {
-    await writeConflictsWrapper(filtered);
-  }
 }
 
 // ── Lineage categories ──
@@ -945,9 +713,7 @@ export async function updateEdgeStatus(
       delete arr.edges[index].direction_flag;
     }
     const result = await writeEdgesFile(arr, opts);
-    // t/4258/t/4277 C3: this quick-action write (unlike the base PUT /api/edges
-    // route) has no following commit of its own.
-    scheduleOverlayCommit(getCurrentUserId());
+    scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3: unlike PUT /api/edges, no following commit
     return { data: arr, version: result.version };
   }
   return { data: arr, version: opts?.baseSha ?? '' };
@@ -962,8 +728,7 @@ export async function bulkUpdateEdges(
       if (arr.edges[i]) arr.edges[i].status = status;
     }
     const result = await writeEdgesFile(arr, opts);
-    // t/4258/t/4277 C3: see updateEdgeStatus above.
-    scheduleOverlayCommit(getCurrentUserId());
+    scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3
     return { data: arr, version: result.version };
   }
   return { data: arr, version: opts?.baseSha ?? '' };
@@ -980,8 +745,7 @@ export async function swapEdgeDirection(
     edge.target = tmp;
     delete edge.direction_flag;
     const result = await writeEdgesFile(arr, opts);
-    // t/4258/t/4277 C3: see updateEdgeStatus above.
-    scheduleOverlayCommit(getCurrentUserId());
+    scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3
     return { data: arr, version: result.version };
   }
   return { data: arr, version: opts?.baseSha ?? '' };

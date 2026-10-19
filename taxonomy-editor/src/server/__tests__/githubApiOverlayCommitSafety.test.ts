@@ -140,13 +140,13 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const first = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     const gate = delayPatchRef();
     const commitPromise = backend.commitOverlay('alice');
 
     // Lands while the first commit's PATCH ref is in flight.
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: 'blob1' });
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: first.version });
     backend.writeToOverlay('/taxonomy/other.json', '{"new": true}');
 
     gate.release();
@@ -168,7 +168,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'bob', branchName: 'api-session/bob' });
     mockSessionBranchLookup('api-session/bob', 'blob1');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+    const firstWrite = await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
 
     let inFlightPatches = 0;
     let maxConcurrentPatches = 0;
@@ -189,7 +189,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4277 overlay com
     // running. `second`/`third` arrive close enough together that they must
     // coalesce into exactly one follow-up commit, not two.
     const first = backend.commitOverlay('bob');
-    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: 'blob1' });
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 2}', { baseSha: firstWrite.version });
     const second = backend.commitOverlay('bob');
     const third = backend.commitOverlay('bob');
 

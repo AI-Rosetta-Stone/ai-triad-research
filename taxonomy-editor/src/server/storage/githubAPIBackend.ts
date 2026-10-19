@@ -1500,15 +1500,14 @@ export class GitHubAPIBackend implements StorageBackend {
     this.commitPending.set(userId, { promise, resolve, reject });
 
     const prevChain = this.commitChain.get(userId) ?? Promise.resolve();
-    const nextChain = prevChain.then(async () => {
+    const nextChain = prevChain.then(() => {
       // This run now owns the batch — any call from here on starts a new,
-      // separately-queued follow-up rather than joining this one.
+      // separately-queued follow-up rather than joining this one. No try/catch
+      // here: commitOverlayGuarded already records its own failure (ADR-003)
+      // before rethrowing — this is pure promise-settlement plumbing for the
+      // manual Promise wrapper above, not a new error path to record.
       this.commitPending.delete(userId);
-      try {
-        resolve(await this.commitOverlayGuarded(userId, message, opts?.branchName));
-      } catch (err) {
-        reject(err);
-      }
+      return this.commitOverlayGuarded(userId, message, opts?.branchName).then(resolve, reject);
     });
     this.commitChain.set(userId, nextChain);
 
