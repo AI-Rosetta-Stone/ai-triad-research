@@ -171,6 +171,18 @@ export class GitHubAPIBackend implements StorageBackend {
   private sessionOverlays: Map<string, Map<string, string>> = new Map();
   private maxOverlayBytesPerUser: number = DEFAULT_MAX_OVERLAY_BYTES_PER_USER;
 
+  // t/4258/t/4277 (C2): per-user commit serialization. A commit already
+  // queued-but-not-started for a user is shared (`commitPending`); the chain
+  // (`commitChain`) makes any later call wait for the current run to finish
+  // before starting its own — so two PATCH /git/refs/heads/<branch> calls for
+  // one user are never in flight at once, and no trigger is silently dropped.
+  private commitChain: Map<string, Promise<void>> = new Map();
+  private commitPending: Map<string, {
+    promise: Promise<{ commitSha: string; filesCommitted: number } | null>;
+    resolve: (result: { commitSha: string; filesCommitted: number } | null) => void;
+    reject: (err: unknown) => void;
+  }> = new Map();
+
   // t/4215 (TL design, t/4215#2): userId → (repoPath → content) for a plain
   // readFile() on a session branch, once the overlay has no entry for that
   // path. Unlike readFileWithVersion's always-live read (t/4224), this is
@@ -1469,6 +1481,39 @@ export class GitHubAPIBackend implements StorageBackend {
    * Returns { commitSha, filesCommitted } or null if no pending changes.
    */
   async commitOverlay(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null> {
+    // t/4258/t/4277 (C2): a commit already queued-but-not-started for this
+    // user absorbs this trigger — join its promise instead of racing a
+    // second PATCH /git/refs/heads/<branch> against it. A commit already
+    // *running* gets its follow-up queued on commitChain, so this trigger's
+    // own pending writes still get committed, just serialized after it.
+    const pending = this.commitPending.get(userId);
+    if (pending) return pending.promise;
+
+    let resolve!: (result: { commitSha: string; filesCommitted: number } | null) => void;
+    let reject!: (err: unknown) => void;
+    const promise = new Promise<{ commitSha: string; filesCommitted: number } | null>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.commitPending.set(userId, { promise, resolve, reject });
+
+    const prevChain = this.commitChain.get(userId) ?? Promise.resolve();
+    const nextChain = prevChain.then(async () => {
+      // This run now owns the batch — any call from here on starts a new,
+      // separately-queued follow-up rather than joining this one.
+      this.commitPending.delete(userId);
+      try {
+        resolve(await this.commitOverlayGuarded(userId, message));
+      } catch (err) {
+        reject(err);
+      }
+    });
+    this.commitChain.set(userId, nextChain);
+
+    return promise;
+  }
+
+  private async commitOverlayGuarded(userId: string, message?: string): Promise<{ commitSha: string; filesCommitted: number } | null> {
     try {
       return await this.commitOverlayImpl(userId, message);
     } catch (err) {
@@ -1608,8 +1653,10 @@ export class GitHubAPIBackend implements StorageBackend {
       sha: commitSha, checkedAt: Date.now(), checkedAtActivitySeq: this.sessionWriteActivitySeq.get(userId) ?? 0,
     });
 
-    // Clear overlay only on success (Tech Lead note #2)
-    this.clearSessionOverlay(userId);
+    // Clear overlay only on success (Tech Lead note #2), and only the
+    // entries this commit actually captured (t/4258/t/4277 C1) — anything
+    // written during the awaits above stays staged for the next commit.
+    this.clearCommittedOverlayEntries(userId, entries);
 
     return { commitSha, filesCommitted };
   }
@@ -3001,6 +3048,30 @@ export class GitHubAPIBackend implements StorageBackend {
       message: `Session overlay cleared for ${userId}`,
       data: { userId },
     });
+  }
+
+  /**
+   * t/4258/t/4277 (C1): remove only the overlay entries a commit actually
+   * committed, and only if they're unchanged since the pre-commit snapshot.
+   * A write (or delete) that landed on a path while the commit's GitHub
+   * calls were in flight must survive — it wasn't part of what got
+   * committed, so clearing it would silently drop it. Unlike
+   * clearSessionOverlay() (full wipe, used for session teardown), this is
+   * commitOverlayImpl's post-commit cleanup only.
+   */
+  private clearCommittedOverlayEntries(
+    userId: string,
+    committed: { writes: { path: string; content: string }[]; deletes: string[] },
+  ): void {
+    const overlay = this.sessionOverlays.get(userId);
+    if (!overlay) return;
+    for (const w of committed.writes) {
+      if (overlay.get(w.path) === w.content) overlay.delete(w.path);
+    }
+    for (const path of committed.deletes) {
+      if (overlay.get(path) === GitHubAPIBackend.TOMBSTONE) overlay.delete(path);
+    }
+    if (overlay.size === 0) this.sessionOverlays.delete(userId);
   }
 
   /** t/4215: wipe the plain-readFile session cache at true session end. */
