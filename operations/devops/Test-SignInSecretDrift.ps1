@@ -81,7 +81,7 @@ foreach ($containerAppName in $ContainerAppNames) {
         if ($liveHash -eq $deployHash) {
             Write-Host "$label`: match"
         } elseif ($liveTrimmedHash -eq $deployTrimmedHash) {
-            $msg = "$label`: match-after-trim — exact bytes differ (likely a trailing CRLF from a PowerShell pipe, e.g. \`gh secret set\`). The NEXT DEPLOY WOULD APPLY THE UNTRIMMED VALUE, not the trimmed one — fix the GitHub copy before deploying, the same as a full MISMATCH."
+            $msg = "$label`: match-after-trim — exact bytes differ (likely a trailing CRLF from a PowerShell pipe, e.g. ``gh secret set``). The NEXT DEPLOY WOULD APPLY THE UNTRIMMED VALUE, not the trimmed one — fix the GitHub copy before deploying, the same as a full MISMATCH."
             Write-Host "::warning::$msg"
             $summaryLines.Add("- $msg")
             $anyNonMatch = $true
