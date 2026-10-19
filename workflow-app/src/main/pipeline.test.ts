@@ -41,7 +41,7 @@ describe('runGitCommit — C+D in a real repo (t/3894)', () => {
   let repo: string;
   let out: string;
   let err: string;
-  const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', windowsHide: true });
   const write = (rel: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
     fs.writeFileSync(path.join(repo, rel), text);

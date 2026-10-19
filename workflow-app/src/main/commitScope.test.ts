@@ -26,7 +26,7 @@ const { execFileSync } = await import('child_process');
 const { snapshotDirty, planCommit, executeCommit, parsePorcelainZ, underSurface } = await import('./commitScope');
 
 let repo: string;
-const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', windowsHide: true });
 const write = (rel: string, text: string) => {
   fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
   fs.writeFileSync(path.join(repo, rel), text);
