@@ -20,7 +20,7 @@ import type { StorageBackend } from './storageBackend.js';
 import { log } from '../logger.js';
 import { FilesystemBackend } from './filesystemBackend.js';
 import { getGlobalRecorder, redactRecord } from '../../../../lib/flight-recorder/index.js';
-import { parseNpy, extractNodeVectors } from '../../../../lib/npy.js';
+import { parseNpy, extractNodeVectorsAsync } from '../../../../lib/npy.js';
 import type { OrganizationEdge } from '../../../../lib/organizations/types.js';
 import type { Entity } from '../../../../lib/entities/types.js';
 import type { EntityMentionsFile, ContainerMentions } from '../../../../lib/entities/mentionTypes.js';
@@ -362,7 +362,12 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
 
     const parsed = parseNpy(npyBuf);
     const index = JSON.parse(idxRaw.replace(/^﻿/, '')) as Record<string, { start: number; count: number }>;
-    Object.assign(result, extractNodeVectors(parsed, index, pov));
+    // t/4286: extractNodeVectorsAsync yields internally every 256 nodes, but
+    // that alone doesn't help this loop's own back-to-back calls — the
+    // explicit yield below ensures the event loop gets a turn between each
+    // synthetic POV file too, not just within one (ServerAPI/Shared Lib).
+    Object.assign(result, await extractNodeVectorsAsync(parsed, index, pov));
+    await new Promise<void>((r) => setImmediate(r));
     found = true;
   }
 
