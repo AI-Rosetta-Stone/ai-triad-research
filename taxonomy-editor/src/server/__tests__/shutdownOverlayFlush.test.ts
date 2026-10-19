@@ -2,16 +2,21 @@
 //
 // t/4258/t/4276 (C4) — flushOverlaysWithDeadline sweeps the backend's ACTUAL non-empty overlays
 // (GitHubAPIBackend.getUncommittedOverlaySummary) and commits each directly, capped at 4
-// concurrent, racing the sweep against a deadline. The WARN after is based on the same
-// overlay-contents re-check, not any fileIO.ts scheduler bookkeeping — this is the SO's exact
-// fix shape (e/311#2) after an earlier version of this file only flushed the scheduler's pending
-// map and missed a user mid-retry-backoff, who exhausted retries, or who was never scheduled.
+// concurrent, racing the sweep against a deadline, then waits for closeDone (bounded by whatever
+// deadline remains) and sweeps once more to catch a late write. The WARN after is based on the
+// same overlay-contents re-check, not any fileIO.ts scheduler bookkeeping. This is the SO's exact
+// fix shape (e/311#2, e/315#2) after earlier versions of this file (1) only flushed the
+// scheduler's pending map, missing a user mid-retry-backoff/who exhausted retries/who was never
+// scheduled, (2) WARNed from scheduler status instead of overlay contents, and (3) took a single
+// snapshot-and-sweep alongside server.close(), missing a write that landed after that snapshot.
 //
-// C5 (e/308, e/312#2): the real-backend/real-scheduler flush test and the retry-backoff fault
-// arm live in this file (gate the merge); the staging SIGTERM/SIGKILL check is recorded
-// separately on t/4258 (gates the TL's prod-hold lift, not this merge).
+// The real-backend/real-scheduler C5 tests (write → flush before debounce → committed tree;
+// retry-backoff fault arm vs. this flush's safe arm) live in
+// shutdownOverlayFlushRealBackend.test.ts, using the githubApiOverlayCommitSafety harness per
+// the SO's ask (a fake backend never exercises the real commit path). The staging SIGTERM/SIGKILL
+// check is recorded separately on t/4258 (gates the TL's prod-hold lift, not this merge).
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { GitHubAPIBackend } from '../storage/githubAPIBackend.js';
 
 const { warnMock, recordMock } = vi.hoisted(() => ({ warnMock: vi.fn(), recordMock: vi.fn() }));
@@ -25,11 +30,13 @@ type OverlaySummaryEntry = { userId: string; entryCount: number; paths: string[]
 
 /** A fake GitHubAPIBackend exposing only what flushOverlaysWithDeadline uses, backed by a real
  *  in-memory overlay map so getUncommittedOverlaySummary() reflects what commitOverlay() actually
- *  clears — not independent mock state that could drift from the real contract. */
+ *  clears — not independent mock state that could drift from the real contract. `lateWrite` lets
+ *  a test inject a new dirty entry partway through, simulating a request that writes after the
+ *  first sweep's snapshot. */
 function fakeBackend(opts: {
   overlays: Record<string, number>; // userId -> entry count
   commitOverlayImpl?: (userId: string) => Promise<void>;
-}): GitHubAPIBackend {
+}) {
   const overlays = new Map(Object.entries(opts.overlays));
   const commitOverlay = vi.fn(async (userId: string) => {
     if (opts.commitOverlayImpl) await opts.commitOverlayImpl(userId); // may throw
@@ -38,28 +45,31 @@ function fakeBackend(opts: {
   });
   const getUncommittedOverlaySummary = vi.fn((): OverlaySummaryEntry[] =>
     [...overlays.entries()].map(([userId, entryCount]) => ({ userId, entryCount, paths: [`${userId}/path.json`] })));
-  return { commitOverlay, getUncommittedOverlaySummary } as unknown as GitHubAPIBackend;
+  return {
+    commitOverlay, getUncommittedOverlaySummary,
+    writeOverlay: (userId: string, entryCount = 1) => overlays.set(userId, entryCount),
+  } as unknown as GitHubAPIBackend & { writeOverlay: (userId: string, entryCount?: number) => void };
 }
 
 beforeEach(() => { warnMock.mockReset(); recordMock.mockReset(); });
 
 describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
   it('no-ops when backend is null (filesystem/Electron mode)', async () => {
-    await flushOverlaysWithDeadline(null);
+    await flushOverlaysWithDeadline(null, Promise.resolve());
     expect(warnMock).not.toHaveBeenCalled();
     expect(recordMock).not.toHaveBeenCalled();
   });
 
   it('no-ops with no WARN when no overlay is dirty', async () => {
     const backend = fakeBackend({ overlays: {} });
-    await flushOverlaysWithDeadline(backend);
+    await flushOverlaysWithDeadline(backend, Promise.resolve());
     expect(backend.commitOverlay).not.toHaveBeenCalled();
     expect(warnMock).not.toHaveBeenCalled();
   });
 
   it('commits every dirty user and does not WARN once the sweep empties all overlays', async () => {
     const backend = fakeBackend({ overlays: { alice: 2, bob: 1 } });
-    await flushOverlaysWithDeadline(backend);
+    await flushOverlaysWithDeadline(backend, Promise.resolve());
     expect(backend.commitOverlay).toHaveBeenCalledWith('alice', undefined, { branchName: expect.stringContaining('alice') });
     expect(backend.commitOverlay).toHaveBeenCalledWith('bob', undefined, { branchName: expect.stringContaining('bob') });
     expect(backend.getUncommittedOverlaySummary()).toEqual([]);
@@ -71,13 +81,44 @@ describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
       overlays: { alice: 3, bob: 1 },
       commitOverlayImpl: async (userId) => { if (userId === 'alice') throw new Error('GitHub 500'); },
     });
-    await flushOverlaysWithDeadline(backend);
+    await flushOverlaysWithDeadline(backend, Promise.resolve());
     expect(backend.getUncommittedOverlaySummary()).toEqual([{ userId: 'alice', entryCount: 3, paths: ['alice/path.json'] }]);
     expect(warnMock).toHaveBeenCalledTimes(1);
     expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({
       level: 'warn',
       data: expect.objectContaining({ timedOut: false, users: [{ userId: 'alice', entryCount: 3, paths: ['alice/path.json'] }] }),
     }));
+  });
+
+  it('skips a user who already failed the first sweep, rather than retrying them, on the late-write pass', async () => {
+    let aliceAttempts = 0;
+    const backend = fakeBackend({
+      overlays: { alice: 1, bob: 1 },
+      commitOverlayImpl: async (userId) => {
+        if (userId === 'alice') { aliceAttempts++; throw new Error('persistent failure'); }
+      },
+    });
+    await flushOverlaysWithDeadline(backend, Promise.resolve()); // closeDone resolves immediately → late-write pass runs
+    expect(aliceAttempts).toBe(1); // not retried on the second pass
+    expect(backend.getUncommittedOverlaySummary()).toEqual([{ userId: 'alice', entryCount: 1, paths: ['alice/path.json'] }]);
+  });
+
+  it('a write landing after the first snapshot but before closeDone resolves is still caught by the second sweep (SO e/315#2)', async () => {
+    const backend = fakeBackend({ overlays: { alice: 1 } });
+    let resolveCloseDone!: () => void;
+    const closeDone = new Promise<void>((resolve) => { resolveCloseDone = resolve; });
+
+    const done = flushOverlaysWithDeadline(backend, closeDone);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); // let the first sweep (alice) settle
+
+    // A request's write lands here — after the first snapshot, before the connection drains.
+    backend.writeOverlay('carol', 1);
+    resolveCloseDone();
+    await done;
+
+    expect(backend.commitOverlay).toHaveBeenCalledWith('carol', undefined, { branchName: expect.stringContaining('carol') });
+    expect(backend.getUncommittedOverlaySummary()).toEqual([]);
+    expect(warnMock).not.toHaveBeenCalled();
   });
 
   it('caps concurrency at 4 — a 6-user sweep never runs more than 4 commits at once', async () => {
@@ -95,7 +136,7 @@ describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
       }),
     });
 
-    const done = flushOverlaysWithDeadline(backend);
+    const done = flushOverlaysWithDeadline(backend, Promise.resolve());
     // Let the first lane batch start (microtask flush), then release in pairs to let more in.
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(peak).toBeLessThanOrEqual(4);
@@ -116,7 +157,7 @@ describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
         overlays: { alice: 1 },
         commitOverlayImpl: () => new Promise(() => { /* never resolves */ }),
       });
-      const p = flushOverlaysWithDeadline(backend);
+      const p = flushOverlaysWithDeadline(backend, new Promise<void>(() => { /* never resolves — not relevant to this test */ }));
       await vi.advanceTimersByTimeAsync(OVERLAY_FLUSH_DEADLINE_MS + 1);
       await p;
       expect(warnMock).toHaveBeenCalledTimes(1);
@@ -124,51 +165,5 @@ describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  // C5 (SO, e/312#2): real backend + real scheduler, retry-backoff fault arm. A write scheduled
-  // via the REAL overlayCommitScheduler.ts fails its first commit attempt and enters retry
-  // backoff — at that moment it is NOT in the scheduler's pending-commit map (confirmed by
-  // reading overlayCommitScheduler.ts: a failed attempt's retry is a bare setTimeout, not
-  // re-registered in pendingOverlayCommits). The OLD design (flushing only
-  // flushPendingOverlayCommits()'s pending map) would have found nothing to flush for this user
-  // and WARNed them as lost. This flush sweeps the backend's actual overlay contents instead, so
-  // it's independent of the scheduler's retry bookkeeping and still commits the user.
-  describe('retry-backoff fault arm — real scheduler (t/4258 C5)', () => {
-    beforeEach(() => { vi.useFakeTimers(); });
-    afterEach(() => { vi.useRealTimers(); vi.resetModules(); });
-
-    it('flushes a user mid-retry-backoff, which the scheduler-pending-map approach would miss', async () => {
-      let attempt = 0;
-      const backend = fakeBackend({
-        overlays: { alice: 1 },
-        commitOverlayImpl: async () => {
-          attempt++;
-          if (attempt === 1) throw new Error('transient GitHub 503'); // scheduler's first attempt fails → retry backoff
-        },
-      });
-
-      vi.doMock('../logger.js', () => ({ log: { server: { warn: vi.fn(), error: warnMock, info: vi.fn() }, storage: { warn: vi.fn() } } }));
-      vi.doMock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
-      vi.doMock('../config.js', () => ({ getMaxReplicas: () => 1 }));
-      vi.doMock('../security/userContext.js', () => ({ getCurrentUserId: () => 'alice' }));
-      // getBackend() is imported by overlayCommitScheduler.ts from fileIO.js — stub it to our fake
-      // so the REAL scheduler's debounced commit runs against the same backend the flush sweeps.
-      vi.doMock('../storage/fileIO.js', () => ({ getBackend: () => backend }));
-      vi.resetModules();
-      const { scheduleOverlayCommit } = await import('../storage/overlayCommitScheduler.js');
-      const { flushOverlaysWithDeadline: flush } = await import('../shutdownOverlayFlush.js');
-
-      scheduleOverlayCommit('alice');
-      await vi.advanceTimersByTimeAsync(2_001); // debounce fires → first (failing) attempt runs
-      expect(attempt).toBe(1);
-      expect(backend.getUncommittedOverlaySummary()).toHaveLength(1); // still dirty — confirms the fault arm's premise
-
-      // SIGTERM lands here: the user is in retry backoff (a bare setTimeout, not the pending map).
-      await flush(backend);
-
-      expect(attempt).toBeGreaterThanOrEqual(2); // the sweep's own commitOverlay call is attempt #2, which succeeds
-      expect(backend.getUncommittedOverlaySummary()).toEqual([]); // flushed despite the scheduler's own retry state
-    });
   });
 });

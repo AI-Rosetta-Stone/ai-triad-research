@@ -1272,17 +1272,19 @@ function shutdown(signal: string) {
   }
   eventClients.clear();
 
-  // 2a. Flush debounced overlay commits concurrently with closing connections (t/4258/t/4276 C4)
-  const flushDone = flushOverlaysWithDeadline(githubBackend).catch((err) => {
+  // 3. Stop accepting new connections and wait for in-flight requests
+  const closeDone = new Promise<void>((resolve) => {
+    server.close(() => { log.server.info('All connections closed'); resolve(); });
+  });
+
+  // 2a. Flush debounced overlay commits concurrently with closing connections (t/4258/t/4276 C4).
+  // closeDone is passed through so the flush can catch a write that lands after its first
+  // snapshot but before its connection actually drains (SO e/315#2).
+  const flushDone = flushOverlaysWithDeadline(githubBackend, closeDone).catch((err) => {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'server', level: 'warn', message: 'Overlay flush at shutdown threw',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
-  });
-
-  // 3. Stop accepting new connections and wait for in-flight requests
-  const closeDone = new Promise<void>((resolve) => {
-    server.close(() => { log.server.info('All connections closed'); resolve(); });
   });
 
   void Promise.all([closeDone, flushDone]).then(() => {
