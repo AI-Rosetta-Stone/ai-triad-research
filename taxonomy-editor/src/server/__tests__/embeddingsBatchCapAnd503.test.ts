@@ -10,7 +10,7 @@
 //   4. computeEmbeddings throws error with .timeout=true → 503 retryable (NOT 500)
 //   5. computeEmbeddings throws error WITHOUT .timeout → 500 (deterministic, non-retryable)
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 // ── Hoisted mocks (vi.fn() refs shared between factory and test body) ─────────
@@ -83,6 +83,8 @@ vi.mock('../ai/aiBackends.js', () => ({
   updateNodeEmbeddings: vi.fn(),
   setDebateTemperature: vi.fn(),
   resolveEmbeddingsChunked: vi.fn(),
+  EMBEDDING_COMPUTE_CHUNK: 128, // t/4287: routes/ai.ts scales its endpoint timeout by this
+  EMBEDDINGS_REQUEST_TIMEOUT_MS: 45_000,
 }));
 
 vi.mock('./generationContext.js', () => ({
@@ -215,5 +217,58 @@ describe('POST /api/embeddings/compute — batch cap + typed-timeout 503 (t/3074
     await computeHandler({} as IncomingMessage, res, { texts: ['hello'] });
     expect(res._statusCode).toBe(500);
     expect(res._body).not.toMatchObject({ retryable: true });
+  });
+});
+
+// t/4287 — chunks run SEQUENTIALLY inside resolveEmbeddingsChunked, so a batch needing N
+// EMBEDDING_COMPUTE_CHUNK-sized chunks can legitimately take up to N×EMBEDDINGS_REQUEST_TIMEOUT_MS.
+// A flat endpoint timeout sized for ONE chunk guarantees a 504 for any multi-chunk batch whose
+// chunks run anywhere near their own per-chunk budget under load — these tests prove the route's
+// own endpoint-timeout guard is sized to the batch's chunk count, not a flat constant, by making
+// compute hang past the OLD flat budget but within the scaled one.
+describe('POST /api/embeddings/compute — endpoint timeout scales with chunk count (t/4287)', () => {
+  let computeHandler: Handler;
+  const EMBEDDING_COMPUTE_CHUNK = 128;
+  const EMBEDDINGS_REQUEST_TIMEOUT_MS = 45_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    evaluateEmbeddingLoadShed.mockReturnValue({ shed: false });
+    const { router, handlers } = makeRouter();
+    registerAiRoutes(router as never, makeCtx());
+    computeHandler = handlers['POST /api/embeddings/compute'];
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a 2-chunk batch (129-256 texts) is NOT killed by the OLD flat 50s budget', async () => {
+    const texts = Array.from({ length: EMBEDDING_COMPUTE_CHUNK + 1 }, (_, i) => `text-${i}`);
+    computeEmbeddings.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ vectors: texts.map(() => [0.1]), cacheHits: 0, cacheMisses: texts.length }), 60_000);
+    }));
+    const res = fakeRes();
+    const p = computeHandler({} as IncomingMessage, res, { texts });
+
+    await vi.advanceTimersByTimeAsync(55_000); // past the OLD flat 50s guard
+    expect(res._statusCode).not.toBe(504); // the 2-chunk-scaled guard (≥95s) hasn't fired
+
+    await vi.advanceTimersByTimeAsync(10_000); // compute's own 60s resolves
+    await p;
+    expect(res._statusCode).toBe(200);
+  });
+
+  it('a single-chunk batch (≤128 texts) keeps the original 50s guard (no regression)', async () => {
+    const texts = Array.from({ length: EMBEDDING_COMPUTE_CHUNK }, (_, i) => `text-${i}`);
+    computeEmbeddings.mockImplementation(() => new Promise(() => { /* never resolves */ }));
+    const res = fakeRes();
+    // Fire-and-forget: withEndpointTimeout's returned promise only settles when `fn()` does, which
+    // never happens here by design (compute never resolves) — the endpoint-timeout guard answers
+    // the response directly via its own setTimeout without that promise ever settling. Don't await it.
+    void computeHandler({} as IncomingMessage, res, { texts });
+
+    await vi.advanceTimersByTimeAsync(EMBEDDINGS_REQUEST_TIMEOUT_MS + 5_001); // just past the original 50s
+    expect(res._statusCode).toBe(504);
   });
 });
