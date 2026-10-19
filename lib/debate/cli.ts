@@ -24,6 +24,7 @@ import { generateSlug, formatDebateMarkdown, buildDiagnosticsOutput, buildHarves
 import { ActionableError } from './errors.js';
 import { runExploreFirstPipeline } from './explorationPreset.js';
 import { resolvePoverInfo } from './soulDocLoader.js';
+import { validateSeatTagsConfig, loadSoulOverrides, buildSoulOverrideResolver, type CLISeatTags, type CLISoulOverrides } from './cli.helpers.js';
 import { safeSerialize, atomicWriteSync, sweepOrphanedTempFiles } from './persistence.js';
 import { recordLockHolder } from './lockHolder.js';
 import { computeQualityScore } from './qualityScore.js';
@@ -80,6 +81,21 @@ interface CLIConfig {
   breadthAwareSituationSelection?: boolean;
   /** Moderator voices each camp's story before the openings (h3 experiment). */
   narrativeVoicing?: boolean;
+  /**
+   * Per-seat POV-tag assignment for the tag pilot (t/3963).
+   * Keys are speaker ids (accelerationist / safetyist / skeptic).
+   * Each entry is validated against the POV-tag registry at load time.
+   * Wired to engineConfig.seat_tags.
+   */
+  seatTags?: CLISeatTags;
+  /**
+   * Per-seat soul document overrides (t/4305).
+   * Values are file paths (repo-relative or absolute) to JSON soul files.
+   * Each file is read, validated against SoulDocumentSchema, and loaded at startup.
+   * When present, the CLI wraps the default soulResolver so overridden seats return the
+   * pre-loaded soul; non-overridden seats call through to resolvePoverInfo.
+   */
+  soulOverrides?: CLISoulOverrides;
 }
 
 interface GoldenFixtureConfig extends CLIConfig {
@@ -412,9 +428,26 @@ async function main(): Promise<void> {
     log('Talmudic references: method-only');
   }
 
+  // Validate seatTags against the POV-tag registry
+  const resolvedSeatTags = config.seatTags
+    ? validateSeatTagsConfig(config.seatTags)
+    : undefined;
+
+  // Load soul overrides and build a wrapped soulResolver if any overrides are present
+  const soulOverrideMap = config.soulOverrides
+    ? loadSoulOverrides(config.soulOverrides, repoRoot)
+    : undefined;
+  const effectiveSoulResolver = soulOverrideMap && Object.keys(soulOverrideMap).length > 0
+    ? buildSoulOverrideResolver(soulOverrideMap, resolvePoverInfo)
+    : resolvePoverInfo;
+  if (soulOverrideMap) {
+    const overriddenSeats = Object.keys(soulOverrideMap).join(', ');
+    log(`Soul overrides loaded for seats: ${overriddenSeats}`);
+  }
+
   // Build engine config
   const engineConfig: DebateConfig = {
-    soulResolver: resolvePoverInfo,
+    soulResolver: effectiveSoulResolver,
     topic,
     name: config.name,
     sourceType,
@@ -455,6 +488,7 @@ async function main(): Promise<void> {
     excludeGreatestHits: config.excludeGreatestHits,
     breadthAwareSituationSelection: config.breadthAwareSituationSelection,
     narrativeVoicing: config.narrativeVoicing,
+    seat_tags: resolvedSeatTags,
   };
 
   // Prepare output paths early so the snapshot callback can write partial files
