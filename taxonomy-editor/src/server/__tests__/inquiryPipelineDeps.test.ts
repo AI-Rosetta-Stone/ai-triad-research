@@ -22,9 +22,11 @@ vi.mock('../routes/corpusAssemblyCache.js', () => ({
     return h.corpora.get(pov) ?? { povNodes: [], situationNodes: [], nodeEmbeddings: {}, allNodeIds: [] };
   },
 }));
+const computeQueryEmbeddingSpy = vi.fn(async (_text: string) => Array.from({ length: 384 }, (_, i) => i / 384));
 vi.mock('../ai/aiBackends.js', () => ({
   getModelRegistry: () => ({ backends: [], models: [] }),
   computeEmbeddings: async () => ({ vectors: [] }),
+  computeQueryEmbedding: (text: string) => computeQueryEmbeddingSpy(text),
   generateText: vi.fn(),
 }));
 vi.mock('../../../../lib/debate/headlessRunner.js', () => ({ runHeadlessDebate: vi.fn() }));
@@ -45,6 +47,7 @@ const CTX = { onStage: ctxOnStage };
 beforeEach(() => {
   h.corpora.clear(); h.fail.clear(); h.capturedDeps = null;
   h.warnSpy.mockClear(); h.recordSpy.mockClear(); ctxOnStage.mockClear();
+  computeQueryEmbeddingSpy.mockClear();
   // Each camp's pov file contributes one distinct node + embedding; situations are shared.
   for (const pov of ['accelerationist', 'safetyist', 'skeptic', 'cross-cutting']) {
     h.corpora.set(pov, { povNodes: [{ id: `${pov}-n1` }], situationNodes: [{ id: 'sit-1' }], nodeEmbeddings: { [`${pov}-n1`]: { pov, vector: [0] } } });
@@ -85,5 +88,28 @@ describe('t/3581 — stage mapping (pipeline 5-stage → job 4-stage)', () => {
     const onStage = h.capturedDeps!.onStage!;
     onStage('deriving'); onStage('grounding'); onStage('debating'); onStage('projecting'); onStage('synthesizing');
     expect(ctxOnStage.mock.calls.map(c => c[0])).toEqual(['grounding', 'grounding', 'debating', 'judging', 'synthesizing']);
+  });
+});
+
+// t/4289/t/4290: without computeQueryEmbedding on the server inquiry adapter, every run fell back
+// to lexical relevance, skipped claim attribution, and skipped turn embeddings for convergence —
+// all three gate on this adapter member being present. Exercises the REAL createInquiryAdapter()
+// (via buildInquiryRunPipeline()'s captured deps.adapter), not a fixture — must fail on main
+// before the fix (deps.adapter.computeQueryEmbedding undefined) and pass after.
+describe('t/4289/t/4290 — server inquiry adapter wires computeQueryEmbedding', () => {
+  it('deps.adapter.computeQueryEmbedding is defined and returns a 384-dim vector', async () => {
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const adapter = h.capturedDeps!.adapter;
+    expect(adapter.computeQueryEmbedding).toBeDefined();
+    const { vector } = await adapter.computeQueryEmbedding!('what is the risk?');
+    expect(vector).toHaveLength(384);
+    expect(computeQueryEmbeddingSpy).toHaveBeenCalledWith('what is the risk?');
+  });
+
+  it('does not swallow a computeQueryEmbedding failure — propagates so the engine\'s own fallback+WARN can handle it', async () => {
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const adapter = h.capturedDeps!.adapter;
+    computeQueryEmbeddingSpy.mockRejectedValueOnce(new Error('ONNX runtime unavailable'));
+    await expect(adapter.computeQueryEmbedding!('q')).rejects.toThrow('ONNX runtime unavailable');
   });
 });
