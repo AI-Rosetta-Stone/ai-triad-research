@@ -37,9 +37,9 @@ on:
           - required
           - disabled
       staging_shared_read_only:
-        description: 'Mount staging shared volume read-only (true = RO flip for arm-A verification, t/2643)'
+        description: 'Mount staging shared volume read-only (default true, t/2643/t/4298; false only for a deliberate RW test)'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
           - 'false'
@@ -460,7 +460,7 @@ jobs:
               freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
               budgetAlertEmail=${{ vars.ALERT_EMAIL }} \
-              stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }} \
+              stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'false' && 'false' || 'true' }} \
               stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }} \
             --no-pretty-print 2>&1) || true
           echo "$RESULT"
@@ -507,7 +507,7 @@ jobs:
             budgetAlertEmail=${{ vars.ALERT_EMAIL }}
             trafficPinRevisionName=${{ steps.current_revision.outputs.revision }}
             trafficPinRevisionNameStaging=${{ steps.current_revision.outputs.staging_revision }}
-            stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }}
+            stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'false' && 'false' || 'true' }}
             stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }}
 
       # NOTE: the current active revision is now captured BEFORE the Bicep apply

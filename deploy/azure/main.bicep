@@ -67,8 +67,12 @@ param trafficPinRevisionNameStaging string = ''
 // AFTER arm-B verification confirms class-A writes route to /mnt/staging-state.
 // The RO flip makes the hard boundary live: missed write sites EROFS instead of
 // silently mutating prod. Deploy order matters — see t/2643#5/#6.
-@description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation). Apply ONLY after arm-B verification passes with /mnt/shared still RW.')
-param stagingSharedReadOnly bool = false
+// Default ON (t/4298, TL p/404#51): staging mounted PROD's taxonomy-data share RW, so any staging
+// data-root writer could mutate prod. Arm-B evidence: 5 staging revisions ran 2026-10-19 with
+// /mnt/shared on taxonomy-data-ro (readers, novel embeds, serialize, persona write) with 0
+// EROFS/EACCES across ~481k log lines (t/4298#8). Opt out only for a deliberate RW test.
+@description('Mount /mnt/shared read-only on staging (t/2643 step 3). Default true; false only for a deliberate RW test.')
+param stagingSharedReadOnly bool = true
 
 // ── Staging load-test sizing (t/4203) ──
 // A PARAMETER, not a hand-applied resize: t/4176's own history (t/4242) shows a manual
