@@ -103,7 +103,8 @@ describe('exports state the scope', () => {
   it('Markdown and print HTML show the applied tag with counts; untagged exports do not', () => {
     for (const out of [inquiryToMarkdown(result(true)), inquiryToPrintHtml(result(true))]) {
       expect(out).toContain('Tag: skeptic/critical (scope)');
-      expect(out).toContain('31 untagged excluded');
+      expect(out).toContain('31 not tagged critical excluded');
+      expect(out).not.toContain('untagged excluded'); // t/4275: the count includes nodes carrying another tag
     }
     expect(inquiryToMarkdown(result(false))).not.toContain('Tag');
   });

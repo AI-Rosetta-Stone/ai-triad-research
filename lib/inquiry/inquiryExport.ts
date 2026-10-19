@@ -89,7 +89,7 @@ function calibrationLine(entry: CalibrationEntry): string {
 function tagScopeLine(result: InquiryResult): string | undefined {
   const applied = result.derivation.tag;
   if (applied) {
-    const excluded = applied.mode === 'scope' ? `, ${applied.excludedUntagged} untagged excluded` : '';
+    const excluded = applied.mode === 'scope' ? `, ${applied.excludedUntagged} not tagged ${applied.tag} excluded` : '';
     return `Tag: ${applied.pov}/${applied.tag} (${applied.mode}) · ${applied.included} tagged included${excluded}`;
   }
   const asked = result.request.tagSelection;
