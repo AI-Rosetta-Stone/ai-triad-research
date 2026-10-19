@@ -82,9 +82,22 @@ function mockFetchResponse(status: number, body: unknown, headers: Record<string
 type MockHandler = (url: string, init: RequestInit) => { status: number; body?: unknown; headers?: Record<string, string> } | null;
 let apiHandlers: MockHandler[] = [];
 
+const MAIN_SHA = 'abc123def456789000000000000000000000dead';
+const TREE_SHA = 'tree-sha-000000000000000000000000000dead';
+
 function handleDefaultGithubApi(url: string, method: string): Response {
   const path = url.replace('https://api.github.com', '');
-  if (method === 'GET' && path.includes('/commits/main')) return mockFetchResponse(200, { sha: 'main-sha-0000000000000000000000000000dead' });
+  if (method === 'GET' && path.endsWith('/commits/main')) return mockFetchResponse(200, { sha: MAIN_SHA });
+  if (method === 'GET' && path.match(/\/git\/commits\/[a-f0-9]/)) return mockFetchResponse(200, { sha: MAIN_SHA, tree: { sha: TREE_SHA } });
+  if (method === 'GET' && path.includes('/git/trees/')) {
+    return mockFetchResponse(200, {
+      sha: TREE_SHA, truncated: false,
+      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
+    });
+  }
+  if (method === 'GET' && path.includes('/contents/')) {
+    return mockFetchResponse(200, { content: Buffer.from('{"test": true}').toString('base64'), encoding: 'base64', sha: 'blob-sha' });
+  }
   return mockFetchResponse(404, { message: 'Not Found' });
 }
 
@@ -121,7 +134,7 @@ async function createBackend() {
 describe.skipIf(!UNDICI_ALIGNED)('GitHubRestClient — t/4258/t/4281 rate-limit alert emitters', () => {
   it('remaining < 1000 (warning tier): logs github.api.rate_limit with "remaining" but not "degraded"', async () => {
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') === 'GET' && url.includes('/commits/main')) {
+      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/commits/main')) {
         return { status: 200, body: { sha: 'main-sha-0000000000000000000000000000dead' },
           headers: { ...defaultRateLimitHeaders, 'x-ratelimit-remaining': '800' } };
       }
@@ -140,7 +153,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubRestClient — t/4258/t/4281 rate-limit 
 
   it('remaining < 500 (critical tier): logs github.api.rate_limit with "degraded"', async () => {
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') === 'GET' && url.includes('/commits/main')) {
+      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/commits/main')) {
         return { status: 200, body: { sha: 'main-sha-0000000000000000000000000000dead' },
           headers: { ...defaultRateLimitHeaders, 'x-ratelimit-remaining': '450' } };
       }
@@ -158,7 +171,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubRestClient — t/4258/t/4281 rate-limit 
 
   it('remaining >= 1000: no rate-limit log at all', async () => {
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') === 'GET' && url.includes('/commits/main')) {
+      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/commits/main')) {
         return { status: 200, body: { sha: 'main-sha-0000000000000000000000000000dead' },
           headers: { ...defaultRateLimitHeaders, 'x-ratelimit-remaining': '4999' } };
       }
@@ -170,7 +183,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubRestClient — t/4258/t/4281 rate-limit 
 
   it('a 429 response: logs github.api.rate_limit with "degraded" (the primary-429 arm of the critical alert)', async () => {
     apiHandlers.push((url, init) => {
-      if ((init?.method ?? 'GET') === 'GET' && url.includes('/commits/main')) {
+      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/commits/main')) {
         return { status: 429, body: { message: 'rate limited' },
           headers: { ...defaultRateLimitHeaders, 'x-ratelimit-remaining': '0' } };
       }
