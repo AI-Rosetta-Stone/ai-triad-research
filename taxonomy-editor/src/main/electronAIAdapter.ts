@@ -5,7 +5,7 @@
 // as the shared AIAdapter interface used by lib/oped and lib/debate cores.
 
 import path from 'path';
-import { generateText, resolveAiCallLogContext } from './embeddings.js';
+import { generateText, resolveAiCallLogContext, computeQueryEmbedding } from './embeddings.js';
 import type { AIAdapter, GenerateOptions } from '../../../lib/debate/aiAdapter.js';
 import { writeAICallLogEntry } from './aiCallLog.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
@@ -52,5 +52,10 @@ export function makeElectronAIAdapter(scenario: string, voiceTimeoutMs?: number)
     // t/3614: registry is a required AIAdapter member (getModelMinTimeout removed from the
     // interface). Cached across calls via modelConfigCache's mtime-guarded loader.
     registry: getMainRegistry(path.join(PROJECT_ROOT, 'ai-models.json')),
+    // t/4291: without this, every debate-engine run through this adapter (Inquiry, OpEd
+    // Generation, Brief Export) falls back to lexical relevance with 0% claim attribution and
+    // no turn embeddings — mirrors the CLI adapter (lib/debate/aiAdapter.ts createCLIAdapter).
+    // Errors propagate; the engine catches and falls back with a WARN, so no catch here.
+    computeQueryEmbedding: async (text: string): Promise<{ vector: number[] }> => ({ vector: await computeQueryEmbedding(text) }),
   };
 }
