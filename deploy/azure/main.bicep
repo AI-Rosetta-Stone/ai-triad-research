@@ -587,8 +587,14 @@ var baseEnv = [
   // the flag just certified a no-op at every boot (~25 error lines/day in prod) and let the
   // deploy gate pass a check that never corresponded to anything running. Hosted grounding via a
   // CI-committed sweep (t/3333 Option A) is unfiled — not asked for; re-add this flag only if
-  // that lands. G8a inline reconcile (GROUNDING_RECONCILE_INLINE, above) is unaffected: it's the
-  // write-path mechanism and still runs on hosted.
+  // that lands.
+  //
+  // CORRECTION (SO review, e/326#2): G8a inline reconcile (GROUNDING_RECONCILE_INLINE, above) is
+  // NOT confirmed unaffected — groundingReconcileHook.ts runs the SAME reconcile_grounding.py
+  // --apply with no STORAGE_MODE guard, so the sweep guard's own reasoning may apply to it too.
+  // Whether G8a's hosted output is actually read anywhere is being verified separately (t/4298
+  // C2, ServerAPI answering the prod-read question) before this PR merges. Out of scope for THIS
+  // PR either way — G8a's flag/behavior is untouched here, only G8b's is removed.
   // t/3309 step-3: DATA_ROOT_VALIDATION_ENFORCE (t/3305 boot hard-fail) RETIRED. The boot-time
   // exit(1) in server.ts is superseded by the /readyz warm-gate: a misprovisioned data root now
   // makes /readyz report failed → the deploy warm-gate blocks the traffic-shift and rolls back
@@ -1653,12 +1659,16 @@ resource sweepStallAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-prev
     displayName: 'G8b Grounding Sweep Stalled (failed inline reconcile un-swept > N)'
     description: 'A G8a inline grounding reconcile FAILED and no G8b sweep drained the backlog within N hours — grounding may be silently stale (the failed-inline-then-cold edge, t/3279).'
     severity: 2
-    // DISABLED (t/4298): this query reads ContainerAppConsoleLogs_CL exclusively, which is
-    // Azure-only — it can never see a desktop/local sweep, so it only ever covered the hosted
-    // (github-api profile) sweep. That sweep is unconditionally refused on hosted (t/3333 guard,
-    // GROUNDING_SWEEP_ENABLED removed from hosted profiles in the same change), so this alert can
-    // now never fire meaningfully either way: no sweep ever runs to stall. Re-enable only if
-    // hosted grounding via a CI-committed sweep (t/3333 Option A) lands.
+    // DISABLED (t/4298). CORRECTED rationale (SO review, e/326#2 — my first version was wrong):
+    // this query reads ContainerAppConsoleLogs_CL exclusively (Azure-only), so it only ever
+    // covered the hosted (github-api profile) sweep. That sweep is unconditionally refused on
+    // hosted (t/3333 guard), so the query's "no sweep complete within N hours of the failure"
+    // condition can NEVER be satisfied there — meaning this does NOT "never fire": it fires on
+    // EVERY inline-reconcile-failure log line on hosted, unconditionally. That's not a "sweep
+    // stalled" signal (there's never a backstop to have stalled); it's a relabeled, always-firing
+    // copy of "an inline failure happened," which is misleading under this alert's name/severity.
+    // Disabling it is still correct, but for THIS reason, not the originally-stated one.
+    // Re-enable only if hosted grounding via a CI-committed sweep (t/3333 Option A) lands.
     enabled: false
     scopes: [ logAnalytics.id ]
     evaluationFrequency: 'PT30M'
