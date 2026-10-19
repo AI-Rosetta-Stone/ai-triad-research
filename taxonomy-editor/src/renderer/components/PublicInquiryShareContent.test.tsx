@@ -61,7 +61,7 @@ describe('PublicInquiryShareContent POV-tag scope (t/3983)', () => {
     const scope = screen.getByLabelText('Tag scope');
     // 'critical' is registered (t/3956), so its registry label renders; the raw-id fallback is the retired-tag arm below.
     expect(scope.textContent).toContain('Scoped to Skeptic · Critical (Scope mode)');
-    expect(scope.textContent).toContain('Grounded on 12 tagged Skeptic nodes; 31 untagged Skeptic nodes excluded.');
+    expect(scope.textContent).toContain('Grounded on 12 Skeptic nodes tagged Critical; 31 Skeptic nodes not tagged Critical excluded.');
   });
 
   it('(b) an untagged share renders byte-identical to origin/main before this change', () => {

@@ -46,8 +46,16 @@ describe('InquiryTagPicker (t/4246)', () => {
     taxState.value = { skeptic: { nodes: nodes(3, 10) } };
     const sel: TagSelection = { pov: 'skeptic', tag: 'critical', mode: 'scope' };
     render(<InquiryTagPicker value={sel} onChange={vi.fn()} />);
-    expect(screen.getByText(/3 in scope, 10 untagged/)).toBeInTheDocument();
+    expect(screen.getByText(/3 in scope, 10 not tagged Critical/)).toBeInTheDocument();
     expect(inquiryTagBlocked(sel)).toMatch(/below the minimum/);
+  });
+
+  it('t/4275: nodes carrying another wing\'s tag count as "not tagged <wing>", not "untagged"', () => {
+    const otherWing = Array.from({ length: 4 }, (_, i) => ({ id: `skp-intentions-${i}`, pov_tags: ['institutional'] }));
+    taxState.value = { skeptic: { nodes: [...nodes(3, 1), ...otherWing] } };
+    render(<InquiryTagPicker value={{ pov: 'skeptic', tag: 'critical', mode: 'scope' }} onChange={vi.fn()} />);
+    const count = screen.getByText(/3 in scope, 5 not tagged Critical/);
+    expect(count.textContent).not.toMatch(/untagged/);
   });
 
   it('a scope at or above the floor is not blocked', () => {
