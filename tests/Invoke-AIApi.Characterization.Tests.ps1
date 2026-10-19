@@ -1014,6 +1014,18 @@ Describe 'Invoke-AIApi characterization (t/4135)' -Tag 'enrichment' {
             $out.Warnings -join "`n" | Should -BeExactly "$($name): response had no text (backend $Backend, model $ModelId, $reason). Returning `$null so a fallback can be tried."
         }
 
+        It 'Gemini: a MAX_TOKENS candidate with <Case> WARNs "response had no text", not a shape warning (t/4270)' -ForEach @(
+            @{ Case = 'no content';            Candidate = [pscustomobject]@{ finishReason = 'MAX_TOKENS' } }
+            @{ Case = 'content without parts'; Candidate = [pscustomobject]@{ finishReason = 'MAX_TOKENS'; content = [pscustomobject]@{ role = 'model' } } }
+        ) {
+            # A thinking model (gemini-3.1-pro-preview under the probe's -MaxTokens 5) spends the budget before any text.
+            $env = [pscustomobject]@{ candidates = @($Candidate)
+                usageMetadata = [pscustomobject]@{ promptTokenCount = 3; totalTokenCount = 8 }; modelVersion = 'm'; responseId = 'r' }
+            $out = script:Invoke-Envelope 'gemini-2.5-flash' $env
+            $out.Result | Should -BeNullOrEmpty
+            $out.Warnings -join "`n" | Should -BeExactly "Google Gemini: response had no text (backend gemini, model gemini-2.5-flash, finishReason=MAX_TOKENS). Returning `$null so a fallback can be tried."
+        }
+
         It 'Gemini: a blocking finishReason (<Reason>) returns $null with a warning' -ForEach @(@{ Reason = 'SAFETY' }, @{ Reason = 'RECITATION' }, @{ Reason = 'OTHER' }) {
             $env = [pscustomobject]@{ candidates = @([pscustomobject]@{ finishReason = $Reason; content = [pscustomobject]@{ parts = @([pscustomobject]@{ text = 'x' }) } }) }
             $out = script:Invoke-Envelope 'gemini-2.5-flash' $env
