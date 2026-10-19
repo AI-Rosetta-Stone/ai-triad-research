@@ -2102,9 +2102,18 @@ export class GitHubAPIBackend implements StorageBackend {
 
   private getCachedEtag(pathAndQuery: string): string | null {
     if (!this.manifest) return null;
-    // Extract repo path from the API endpoint
+    // Extract repo path and an explicit ?ref= from the API endpoint.
     const match = pathAndQuery.match(/\/contents\/(.+?)(\?|$)/);
     if (!match) return null;
+    // t/4258/t/4295: the manifest/disk cache this etag was recorded from is
+    // main-only (writeToDiskCache/writeBinaryToDiskCache) — reusing it for a
+    // session-branch GET on the same path is wrong whenever the branch's
+    // content happens to equal main's (the common case right after a branch
+    // is created). GitHub legitimately 304s, and nothing downstream has a
+    // branch-scoped body to fall back on, so scope the cache to main/no ref.
+    const refMatch = pathAndQuery.match(/[?&]ref=([^&]*)/);
+    const ref = refMatch ? decodeURIComponent(refMatch[1]) : this.baseBranch;
+    if (ref !== this.baseBranch) return null;
     const entry = this.manifest.files[match[1]];
     return entry?.etag || null;
   }
@@ -2124,7 +2133,10 @@ export class GitHubAPIBackend implements StorageBackend {
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`,
       undefined, undefined, optional ? { optional: true } : undefined);
 
-    if (!resp.ok) return null;
+    // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
+    // from a cached etag — getCachedEtag() no longer sends one for a non-main
+    // ref, but treat it as a miss defensively rather than crash on null data.
+    if (!resp.ok || resp.status === 304) return null;
 
     const data = resp.data as {
       content?: string;
@@ -2178,7 +2190,8 @@ export class GitHubAPIBackend implements StorageBackend {
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
 
-    if (!resp.ok) return null;
+    // t/4258/t/4295: see fetchFileFromGitHub — a 304 carries no data.
+    if (!resp.ok || resp.status === 304) return null;
 
     const data = resp.data as {
       content?: string;
@@ -2235,7 +2248,8 @@ export class GitHubAPIBackend implements StorageBackend {
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
-    if (!resp.ok) return null;
+    // t/4258/t/4295: see fetchFileFromGitHub — a 304 carries no data.
+    if (!resp.ok || resp.status === 304) return null;
     return (resp.data as { sha: string }).sha;
   }
 
@@ -2872,7 +2886,11 @@ export class GitHubAPIBackend implements StorageBackend {
       undefined, undefined, { optional: true });
 
     if (resp.status === 404) return { kind: 'absent' };
-    if (!resp.ok) return { kind: 'unavailable' };
+    // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
+    // from a cached etag — getCachedEtag() no longer sends one for a non-main
+    // ref, but treat it as unavailable defensively rather than crash reading
+    // `.type` off null data.
+    if (!resp.ok || resp.status === 304) return { kind: 'unavailable' };
 
     const data = resp.data as { content?: string; encoding?: string; sha: string; size?: number; type?: string };
     if (data.type === 'dir') return { kind: 'unavailable' }; // not a valid target for a file precondition/edit-load
