@@ -895,7 +895,8 @@ jobs:
               AZURE_KEYVAULT_URL                 = '${{ steps.deploy.outputs.keyVaultUri }}'
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
-              GROUNDING_RECONCILE_INLINE         = '1'  # t/3163 G8a — gate verifies the staged inline-reconcile flag is deployed
+              # GROUNDING_RECONCILE_INLINE removed (t/4298): gated on the grounding_reconcile_inline
+              # feature flag, which is OFF — G8a has never run, the env var is read by nothing.
               # GROUNDING_SWEEP_ENABLED removed (t/4298): the sweep is unconditionally refused on
               # hosted (t/3333 guard, decideSweepArm -> 'blocked-github-api'), so this gate was
               # certifying a flag that could only ever no-op. See main.bicep's baseEnv comment.

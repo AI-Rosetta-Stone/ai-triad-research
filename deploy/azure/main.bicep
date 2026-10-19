@@ -571,30 +571,22 @@ var baseEnv = [
   // green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
   // ExpectedEnvVars config-drift gate (Gate Co-Location — the gate verifies this value is deployed).
   { name: 'EMBEDDING_WORKER_OFFLOAD', value: '1' }
-  // t/3163 G8a (STAGED enable, TL GO): enable inline grounding reconcile on the write path.
-  // Deployed AHEAD of G8b (GROUNDING_SWEEP_ENABLED), which TL holds until this deploy's real
-  // write-cycle lock telemetry is clean (grounding_lock held ≤~2s, zero stale-break/contention).
-  // baseEnv — never a CLI --set-env-vars (wiped by the next template apply). MUST stay in sync with
-  // deploy-azure.yml ExpectedEnvVars (Gate Co-Location — the config-drift gate verifies it's deployed).
-  { name: 'GROUNDING_RECONCILE_INLINE', value: '1' }
-  // t/4298: GROUNDING_SWEEP_ENABLED removed from hosted profiles (was '1' here, t/3163 G8b).
-  // groundingSweepScheduler.ts's decideSweepArm returns 'blocked-github-api' on the hosted
-  // github-api profile unconditionally (the t/3333 guard — the sweep shells
-  // `reconcile_grounding.py --apply`, which writes the local filesystem, and the github-api read
-  // path never sees that write). So the flag could only ever mean "silently no-op" on
-  // taxonomy-editor / taxonomy-editor-staging — confirmed via Log Analytics: 351/351 prod boots
-  // and 89/89 staging boots over 14 days logged the refusal, 0 "Grounding sweep started". Kept
-  // the flag just certified a no-op at every boot (~25 error lines/day in prod) and let the
-  // deploy gate pass a check that never corresponded to anything running. Hosted grounding via a
-  // CI-committed sweep (t/3333 Option A) is unfiled — not asked for; re-add this flag only if
-  // that lands.
-  //
-  // CORRECTION (SO review, e/326#2): G8a inline reconcile (GROUNDING_RECONCILE_INLINE, above) is
-  // NOT confirmed unaffected — groundingReconcileHook.ts runs the SAME reconcile_grounding.py
-  // --apply with no STORAGE_MODE guard, so the sweep guard's own reasoning may apply to it too.
-  // Whether G8a's hosted output is actually read anywhere is being verified separately (t/4298
-  // C2, ServerAPI answering the prod-read question) before this PR merges. Out of scope for THIS
-  // PR either way — G8a's flag/behavior is untouched here, only G8b's is removed.
+  // t/4298: both GROUNDING_RECONCILE_INLINE (G8a, was '1') and GROUNDING_SWEEP_ENABLED (G8b, was
+  // '1') removed from hosted profiles.
+  // - G8b: groundingSweepScheduler.ts's decideSweepArm returns 'blocked-github-api' on the hosted
+  //   github-api profile unconditionally (the t/3333 guard — the sweep shells
+  //   `reconcile_grounding.py --apply`, which writes the local filesystem, and the github-api read
+  //   path never sees that write). Confirmed via Log Analytics: 351/351 prod boots and 89/89
+  //   staging boots over 14 days logged the refusal, 0 "Grounding sweep started".
+  // - G8a: SO review (e/326#2) first flagged that groundingReconcileHook.ts runs the SAME
+  //   reconcile_grounding.py --apply with no STORAGE_MODE guard, so it was suspected to have the
+  //   same no-op problem as G8b. **Resolved, C2 answer (TL, t/4298#8/e/327#5): G8a is gated by the
+  //   `grounding_reconcile_inline` feature flag, which is OFF — G8a has never run at all.
+  //   GROUNDING_RECONCILE_INLINE is an env var nothing reads.**
+  // Kept certifying/enabling two things that never ran: ~25 boot error lines/day in prod from G8b,
+  // plus a deploy gate that passed a check corresponding to nothing. Hosted grounding via a
+  // CI-committed sweep (t/3333 Option A) is unfiled — not asked for; re-add either flag only if
+  // that or an equivalent fix lands.
   // t/3309 step-3: DATA_ROOT_VALIDATION_ENFORCE (t/3305 boot hard-fail) RETIRED. The boot-time
   // exit(1) in server.ts is superseded by the /readyz warm-gate: a misprovisioned data root now
   // makes /readyz report failed → the deploy warm-gate blocks the traffic-shift and rolls back
