@@ -112,8 +112,24 @@ describe('fileIO overlay commit scheduler (t/4258/t/4277 C3b)', () => {
   it('flushPendingOverlayCommits runs all pending commits immediately, bypassing the debounce', async () => {
     fileIO.scheduleOverlayCommit('erin');
     fileIO.scheduleOverlayCommit('frank');
-    await fileIO.flushPendingOverlayCommits();
+    const results = await fileIO.flushPendingOverlayCommits();
     expect(backend.commitCalls.map((c) => c.userId).sort()).toEqual(['erin', 'frank']);
+
+    // t/4276 AC2: the SIGTERM deadline WARN needs to name who stayed
+    // uncommitted — flush must report each user's terminal status.
+    expect(results.sort((a, b) => a.userId.localeCompare(b.userId))).toEqual([
+      { userId: 'erin', status: { state: 'committed', at: expect.any(Number) } },
+      { userId: 'frank', status: { state: 'committed', at: expect.any(Number) } },
+    ]);
+  });
+
+  it('flushPendingOverlayCommits reports a failed status for a user whose commit errors', async () => {
+    backend.commitImpl = async () => { throw new Error('simulated GitHub failure'); };
+    fileIO.scheduleOverlayCommit('heidi');
+    const results = await fileIO.flushPendingOverlayCommits();
+    expect(results).toEqual([
+      { userId: 'heidi', status: { state: 'failed', at: expect.any(Number), error: 'simulated GitHub failure' } },
+    ]);
   });
 
   it('is a no-op on a backend without overlay semantics (filesystem/Electron mode)', async () => {

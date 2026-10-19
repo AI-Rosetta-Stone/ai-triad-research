@@ -112,11 +112,16 @@ export function scheduleOverlayCommit(userId: string): void {
  * instead of relying on the debounce timer to fire before the process exits.
  * Users with no pending scheduled commit (nothing written since the last
  * commit, or committed via an explicit save already) are untouched.
+ *
+ * Returns each flushed user's terminal status so the SIGTERM deadline WARN
+ * (t/4276 AC2) can name who/what stayed uncommitted — runScheduledOverlayCommit
+ * always sets 'committed' or 'failed' before resolving, never leaves 'pending'.
  */
-export function flushPendingOverlayCommits(): Promise<void[]> {
+export function flushPendingOverlayCommits(): Promise<{ userId: string; status: OverlayCommitStatus }[]> {
   const userIds = [...pendingOverlayCommits.keys()];
-  return Promise.all(userIds.map((userId) => {
+  return Promise.all(userIds.map(async (userId) => {
     clearPendingOverlayCommit(userId);
-    return runScheduledOverlayCommit(userId);
+    await runScheduledOverlayCommit(userId);
+    return { userId, status: overlayCommitStatus.get(userId)! };
   }));
 }
