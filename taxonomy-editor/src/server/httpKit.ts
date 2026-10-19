@@ -27,12 +27,26 @@ export function json(res: ServerResponse, data: unknown, status = 200): void {
   res.end(JSON.stringify(data));
 }
 
-/** t/3165: serialize a large array or plain object to a JSON Buffer WITHOUT a single un-yielded
- *  JSON.stringify. A ~4144-entry synthetic-embeddings map (or a big number[][]) stringified at once
- *  blocked the prod event loop ~3s. This builds the JSON incrementally, yielding to the loop every
- *  `yieldEvery` top-level items. Output is byte-identical to JSON.stringify for arrays / plain objects
- *  of JSON-safe values (same key order, no whitespace, undefined/function-valued keys omitted, array
- *  holes → null). Non-array/non-object values fall back to a direct stringify.
+const OPEN_BRACKET = Buffer.from('[');
+const CLOSE_BRACKET = Buffer.from(']');
+const OPEN_BRACE = Buffer.from('{');
+const CLOSE_BRACE = Buffer.from('}');
+const COMMA = Buffer.from(',');
+const COLON = Buffer.from(':');
+
+/** t/3165/t/4286: serialize a large array or plain object to a JSON Buffer WITHOUT a single
+ *  un-yielded JSON.stringify OR a single un-yielded string-join. A ~4144-entry synthetic-
+ *  embeddings map (or a big number[][]) stringified at once blocked the prod event loop ~3s —
+ *  t/3165 fixed that by chunk-yielding the per-item JSON.stringify calls, but still assembled
+ *  the final payload with ONE synchronous `parts.join(',')` + string concatenation over the
+ *  full ~400MB result. V8 string concatenation at that size is itself a multi-second, un-
+ *  yieldable block (t/4286: canary found 1.7-3.8s depending on vCPU) — chunking the stringify
+ *  loop did nothing to shrink it. Fix: convert each item straight to a UTF-8 Buffer as it's
+ *  built (already inside the yielding loop) and assemble the result with `Buffer.concat` — a
+ *  native byte copy, not a JS string operation, so there's no second un-yielded pass. Output is
+ *  byte-identical to JSON.stringify for arrays / plain objects of JSON-safe values (same key
+ *  order, no whitespace, undefined/function-valued keys omitted, array holes → null). Non-array/
+ *  non-object values fall back to a direct stringify.
  *  CAVEAT (t/3237): assumes a PLAIN top-level array/object — a top-level `toJSON()` is NOT honored
  *  (the top level is iterated by entries/elements directly). Nested `toJSON()` IS honored (handled by
  *  the inner JSON.stringify of each value). Callers with a custom top-level toJSON should use json(). */
@@ -40,23 +54,29 @@ export async function jsonStringifyChunked(value: unknown, yieldEvery = 256): Pr
   const yieldToLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
   if (Array.isArray(value)) {
     if (value.length === 0) return Buffer.from('[]');
-    const parts: string[] = new Array(value.length);
+    const chunks: Buffer[] = [OPEN_BRACKET];
     for (let i = 0; i < value.length; i++) {
-      parts[i] = JSON.stringify(value[i]) ?? 'null'; // array slot of undefined/function → null
+      if (i > 0) chunks.push(COMMA);
+      chunks.push(Buffer.from(JSON.stringify(value[i]) ?? 'null', 'utf-8')); // array slot of undefined/function → null
       if ((i + 1) % yieldEvery === 0) await yieldToLoop();
     }
-    return Buffer.from('[' + parts.join(',') + ']');
+    chunks.push(CLOSE_BRACKET);
+    return Buffer.concat(chunks);
   }
   if (value !== null && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
-    const parts: string[] = [];
+    const chunks: Buffer[] = [OPEN_BRACE];
+    let emitted = 0;
     for (let i = 0; i < entries.length; i++) {
       const sv = JSON.stringify(entries[i][1]);
       if (sv === undefined) continue; // undefined/function/symbol values are omitted, like JSON.stringify
-      parts.push(JSON.stringify(entries[i][0]) + ':' + sv);
+      if (emitted > 0) chunks.push(COMMA);
+      chunks.push(Buffer.from(JSON.stringify(entries[i][0]), 'utf-8'), COLON, Buffer.from(sv, 'utf-8'));
+      emitted++;
       if ((i + 1) % yieldEvery === 0) await yieldToLoop();
     }
-    return Buffer.from('{' + parts.join(',') + '}');
+    chunks.push(CLOSE_BRACE);
+    return Buffer.concat(chunks);
   }
   return Buffer.from(JSON.stringify(value) ?? 'null');
 }

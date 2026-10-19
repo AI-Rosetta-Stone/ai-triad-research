@@ -49,6 +49,20 @@ describe('jsonStringifyChunked — byte-identical to JSON.stringify (t/3165)', (
     expect(buf.toString('utf-8')).toBe(JSON.stringify(big));
     expect(JSON.parse(buf.toString('utf-8'))).toEqual(big);
   });
+
+  // t/4286: the per-item stringify loop already yielded every `yieldEvery` items (t/3165), but
+  // the OLD implementation's final assembly — `parts.join(',')` then `Buffer.from(hugeString)` —
+  // was one synchronous pass over the ENTIRE result, outside any yield. Manually benchmarked at
+  // the real synthetic-embeddings corpus scale (4144 nodes, ~400MB JSON-equivalent): the old
+  // join+Buffer.from took ~519ms in one block; building per-item Buffers during the already-
+  // yielding loop and assembling with Buffer.concat took ~149ms (numbers + methodology on
+  // t/4286#1). Not asserted here as a timing test — wall-clock thresholds are too CI-variance-
+  // prone at this scale to be a reliable regression guard — but the correctness tests above
+  // (byte-identical output, including this larger map) cover the Buffer.concat rewrite directly.
+  // NOTE (t/4286#1): this fix is real but modest; the dominant contributor to the canary's
+  // 1.7-3.8s event-loop block is diagnosed as `extractNodeVectors()` (lib/npy.ts) called from
+  // `loadSyntheticEmbeddings()` (storage/fileIO.ts) — both outside this file's scope, routed to
+  // their owners separately.
 });
 
 describe('synthetic-embeddings serialize-once cache (t/3165)', () => {
