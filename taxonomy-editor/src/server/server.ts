@@ -1273,7 +1273,7 @@ function shutdown(signal: string) {
   eventClients.clear();
 
   // 2a. Flush debounced overlay commits concurrently with closing connections (t/4258/t/4276 C4)
-  const flushDone = flushOverlaysWithDeadline(sessionManager).catch((err) => {
+  const flushDone = flushOverlaysWithDeadline(githubBackend).catch((err) => {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'server', level: 'warn', message: 'Overlay flush at shutdown threw',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
