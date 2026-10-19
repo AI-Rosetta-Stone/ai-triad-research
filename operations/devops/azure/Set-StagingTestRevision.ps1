@@ -43,6 +43,10 @@
     Image to run instead of the serving revision's, e.g. prod's current digest. Must be an
     immutable digest reference (...@sha256:...).
 
+.PARAMETER TerminationGracePeriodSeconds
+    Grace between SIGTERM and SIGKILL for the test revision. Staging's template sets none (ACA
+    default); prod's main.bicep sets 60, so use 60 to test shutdown behaviour as prod sees it.
+
 .PARAMETER Suffix
     Revision suffix (lowercase letters, digits, hyphens). Default: 'test-<yyyyMMddHHmm>'.
 
@@ -66,6 +70,7 @@ param(
     [Parameter(ParameterSetName = 'Apply')][switch]$ReadOnlyShared,
     [Parameter(ParameterSetName = 'Apply')][hashtable]$SetEnv = @{},
     [Parameter(ParameterSetName = 'Apply')][ValidatePattern('^[^@\s]+@sha256:[0-9a-f]{64}$')][string]$Image,
+    [Parameter(ParameterSetName = 'Apply')][ValidateRange(0, 600)][int]$TerminationGracePeriodSeconds,
     [Parameter(ParameterSetName = 'Apply')][ValidatePattern('^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$')][string]$Suffix,
     [Parameter(ParameterSetName = 'Apply')][int]$ReadyTimeoutSec = 420,
 
@@ -145,6 +150,9 @@ $template | Add-Member -NotePropertyName revisionSuffix -NotePropertyValue $Suff
 $container = $template.containers[0]
 
 if ($Image) { $container.image = $Image }
+if ($PSBoundParameters.ContainsKey('TerminationGracePeriodSeconds')) {
+    $template | Add-Member -NotePropertyName terminationGracePeriodSeconds -NotePropertyValue $TerminationGracePeriodSeconds -Force
+}
 
 if ($PSBoundParameters.ContainsKey('Cpu')) {
     # Drop ephemeralStorage: its allowed size is tied to the cpu/memory pair, so the platform sets it.
@@ -183,6 +191,7 @@ $newRevision = "$App--$Suffix"
 Write-Host "Copying $fromRevision -> $newRevision (spec: $specPath)"
 Write-Host "  image:     $($container.image)"
 Write-Host "  resources: $($container.resources | ConvertTo-Json -Compress)"
+Write-Host "  grace:     $(if ($template.PSObject.Properties['terminationGracePeriodSeconds']) { "$($template.terminationGracePeriodSeconds)s" } else { 'platform default' })"
 Write-Host "  volumes:   $(($template.volumes | ForEach-Object { "$($_.name)->$($_.storageName)" }) -join ', ')"
 Write-Host "  env set:   $(($SetEnv.GetEnumerator() | ForEach-Object { if ($_.Key -match 'SECRET|KEY|TOKEN|PASSWORD') { "$($_.Key)=***" } else { "$($_.Key)=$($_.Value)" } }) -join ', ')"
 
