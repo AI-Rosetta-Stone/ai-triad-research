@@ -5705,3 +5705,65 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Server Storage p/539#8, t/4258).
 
 **Applies To:** All agents performing post-merge branch cleanup when local worktrees may still reference the branch.
+
+---
+
+## #277 [Build] Backtick Inside a Double-Quoted Shell Argument Triggers Command Substitution — Use Single Quotes
+
+**Pattern:** An agent writes a shell argument (e.g. a `grep -E` pattern) in double quotes and includes a literal backtick character. Bash treats the backtick as the start of command substitution inside double quotes, causing "unexpected EOF while looking for matching backtick" when the closing backtick is absent or the balance is wrong.
+
+**Instances:**
+- 2026-10-17 — Azure (p/105#10): `grep -vE "…\`…"` pattern exited 2 with "unexpected EOF while looking for matching backtick." Resolved: saved log to a file and used simple patterns without backticks.
+- 2026-10-19 — Second Opinion (p/691#9): `grep -E "…\`…"` same error. Resolved: rewrote the pattern in single quotes.
+
+**Root Cause:** Inside double quotes, bash recognizes backtick as a command substitution delimiter. A literal backtick in a pattern is not possible in double-quoted context — it must be either single-quoted or avoided.
+
+**Prevention:**
+1. **Use single quotes for shell patterns containing backticks:** `grep -E '…`…'`. Single-quoted strings pass every character literally, including backtick.
+2. **"Unexpected EOF while looking for matching backtick"** in a command containing a `grep` or `awk` pattern is a reliable diagnostic for a backtick inside a double-quoted argument.
+3. This is an instance of the Shell Quoting Rule — double-quoted arguments process `\`, `$`, and `` ` `` specially. When in doubt, use single quotes for patterns.
+
+**Status:** Active — 2 instances (Azure p/105#10; Second Opinion p/691#9).
+
+**Applies To:** All agents writing shell patterns (`grep`, `awk`, `sed`) in double-quoted arguments that may contain backticks; use single quotes.
+
+---
+
+## #278 [Process] `--match-head-commit` Pin Checked Only at Arming — Subsequent Push Leaves Auto-Merge Armed on Unapproved Head
+
+**Pattern:** An agent arms auto-merge with `gh pr merge --auto --match-head-commit <sha>`. The pin is checked only at that moment. A later push to the same branch (by any agent — all share the `jpsnover` identity) updates the head. GitHub's auto-merge queue sees the same identity and does not re-validate the pin; when checks pass, it merges the new, unapproved head. The pin's intent — "merge only this reviewed commit" — is silently defeated.
+
+**Instances:**
+- 2026-10-19 — Tech Lead (p/335#159, PR #3402, t/4266): T2 PR had auto-merge armed with `--match-head-commit`. A subsequent push updated the head. Auto-merge remained armed and merged the new unapproved head. Caught by the Second Opinion before landing consequences.
+
+**Root Cause:** `--match-head-commit` is a point-in-time check at enablement, not a persistent invariant. GitHub's auto-merge re-evaluates when checks pass, merging the current live head — not the pinned one. The shared `jpsnover` identity means GitHub has no way to distinguish "authorized push" from "unauthorized push."
+
+**Prevention:**
+1. **Disarm auto-merge before pushing any additional commits to an armed PR:** `gh pr merge <N> --disable-auto -R AI-Rosetta-Stone/ai-triad-research`. This is the existing root AGENTS.md rule: "Arming means 'done', so disarm before pushing more."
+2. **For T2 PRs specifically, re-verify `headRefOid` right before merge:** `gh pr view <N> --json headRefOid -q .headRefOid`. Confirm it matches the reviewed commit. If it has changed, stop and re-review.
+3. **`--match-head-commit` does not protect against post-arming pushes** — it only prevents a race at the moment of arming. Its protection window ends the instant a new commit is pushed.
+4. The mechanical fix for this class is tracked at t/4266 (P2).
+
+**Status:** Active — 1 instance (Tech Lead p/335#159, PR #3402, t/4266). High severity on T2 PRs.
+
+**Applies To:** All agents arming auto-merge; all agents who push additional commits to any PR — check for armed auto-merge first and disarm before pushing.
+
+---
+
+## #279 [Build] `ResourceNotFound` on a Lazy-Initialized Storage Directory Is Not a Misconfiguration Signal
+
+**Pattern:** An agent checks for the existence of a storage directory (e.g. `az storage file list --path anon-sessions`) as a health or configuration check. The directory does not exist and the command returns `ResourceNotFound`. The agent incorrectly diagnoses this as a misconfiguration of `ANON_SESSION_DIR` or equivalent config. In fact, the directory is created lazily on the first write — it is expected to be absent on a fresh or idle deployment.
+
+**Instances:**
+- 2026-10-19 — Azure (p/105#18): `az storage file list --path anon-sessions` on the staging share returned `ResourceNotFound`. Diagnosed as possible misconfiguration of `ANON_SESSION_DIR`. Actual cause: `anonymousSessionStore` creates the directory on first write; no write had occurred yet. Resolved: listed share root and read `defaultBaseDir()`.
+
+**Root Cause:** Lazy-initialization is a common storage pattern — the directory is created on demand rather than at startup. A missing directory only means "nothing has been written yet," not "the config is wrong."
+
+**Prevention:**
+1. **Before diagnosing `ResourceNotFound` on a storage path as misconfiguration, check whether the directory is lazily initialized.** Read the store's initialization code (`defaultBaseDir()`, `ensureDir()`, or equivalent) to understand when the directory is created.
+2. **List the share root** (`az storage file list` without `--path`) to confirm the share itself exists and the credentials work — ruling out genuine misconfiguration.
+3. **A missing lazy-init directory on a fresh or idle deployment is expected.** Trigger the first write (a test chat, comment, or synthetic event) and verify the directory appears.
+
+**Status:** Active — 1 instance (Azure p/105#18).
+
+**Applies To:** All agents diagnosing `ResourceNotFound` on storage paths that may be lazily initialized; verify initialization semantics before concluding misconfiguration.
