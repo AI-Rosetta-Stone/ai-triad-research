@@ -39,6 +39,10 @@
 .PARAMETER SetEnv
     Env vars to add or replace, e.g. @{ ANON_SESSION_DIR = '/mnt/staging-state/anon-sessions' }.
 
+.PARAMETER Image
+    Image to run instead of the serving revision's, e.g. prod's current digest. Must be an
+    immutable digest reference (...@sha256:...).
+
 .PARAMETER Suffix
     Revision suffix (lowercase letters, digits, hyphens). Default: 'test-<yyyyMMddHHmm>'.
 
@@ -61,6 +65,7 @@ param(
     [Parameter(ParameterSetName = 'Apply')][string]$Memory,
     [Parameter(ParameterSetName = 'Apply')][switch]$ReadOnlyShared,
     [Parameter(ParameterSetName = 'Apply')][hashtable]$SetEnv = @{},
+    [Parameter(ParameterSetName = 'Apply')][ValidatePattern('^[^@\s]+@sha256:[0-9a-f]{64}$')][string]$Image,
     [Parameter(ParameterSetName = 'Apply')][ValidatePattern('^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$')][string]$Suffix,
     [Parameter(ParameterSetName = 'Apply')][int]$ReadyTimeoutSec = 420,
 
@@ -139,6 +144,8 @@ if (-not $Suffix) { $Suffix = 'test-' + (Get-Date -AsUTC -Format 'yyyyMMddHHmm')
 $template | Add-Member -NotePropertyName revisionSuffix -NotePropertyValue $Suffix -Force
 $container = $template.containers[0]
 
+if ($Image) { $container.image = $Image }
+
 if ($PSBoundParameters.ContainsKey('Cpu')) {
     # Drop ephemeralStorage: its allowed size is tied to the cpu/memory pair, so the platform sets it.
     $container.resources = [pscustomobject]@{ cpu = $Cpu; memory = $Memory }
@@ -177,11 +184,15 @@ Write-Host "Copying $fromRevision -> $newRevision (spec: $specPath)"
 Write-Host "  image:     $($container.image)"
 Write-Host "  resources: $($container.resources | ConvertTo-Json -Compress)"
 Write-Host "  volumes:   $(($template.volumes | ForEach-Object { "$($_.name)->$($_.storageName)" }) -join ', ')"
-Write-Host "  env set:   $(($SetEnv.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', ')"
+Write-Host "  env set:   $(($SetEnv.GetEnumerator() | ForEach-Object { if ($_.Key -match 'SECRET|KEY|TOKEN|PASSWORD') { "$($_.Key)=***" } else { "$($_.Key)=$($_.Value)" } }) -join ', ')"
 
 if (-not $PSCmdlet.ShouldProcess($App, "create revision $newRevision and move traffic to it")) { return }
 
-Invoke-Az @('containerapp', 'update', '-n', $App, '-g', $ResourceGroup, '--yaml', $specPath) "Create test revision $newRevision" | Out-Null
+try {
+    Invoke-Az @('containerapp', 'update', '-n', $App, '-g', $ResourceGroup, '--yaml', $specPath) "Create test revision $newRevision" | Out-Null
+} finally {
+    if (@($SetEnv.Keys | Where-Object { $_ -match 'SECRET|KEY|TOKEN|PASSWORD' }).Count -gt 0) { Remove-Item -LiteralPath $specPath -ErrorAction SilentlyContinue }
+}
 
 # Wait for the new revision to be provisioned and running.
 $deadline = (Get-Date).AddSeconds($ReadyTimeoutSec)
