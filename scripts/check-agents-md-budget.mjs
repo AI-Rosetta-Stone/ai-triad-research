@@ -47,9 +47,15 @@ export function countLinesAndWords(text) {
 
 export function checkBudgets(budgetEntries, readFile = (p) => readFileSync(p, 'utf8'), fileExists = (p) => existsSync(p)) {
   const violations = [];
+  const missing = [];
   for (const entry of budgetEntries) {
     const abs = resolve(ROOT, entry.path);
-    if (!fileExists(abs)) continue; // not in this checkout (e.g. overlay-tracked) — no-op, not a crash
+    if (!fileExists(abs)) {
+      // Not in this checkout (e.g. overlay-tracked) — visible, not a silent skip, but NOT a
+      // budget violation: exit code is driven by `violations` only (C2, t/4323 SO condition).
+      missing.push({ path: entry.path });
+      continue;
+    }
     const { lines, words } = countLinesAndWords(readFile(abs));
     const overLines = lines - entry.max_lines;
     const overWords = words - entry.max_words;
@@ -65,12 +71,18 @@ export function checkBudgets(budgetEntries, readFile = (p) => readFileSync(p, 'u
       });
     }
   }
-  return violations;
+  return { violations, missing };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { files } = JSON.parse(readFileSync(BUDGET_FILE, 'utf8'));
-  const violations = checkBudgets(files);
+  const { violations, missing } = checkBudgets(files);
+
+  for (const m of missing) {
+    // Visible, not silent — but does NOT fail the check: a budget-listed file absent from this
+    // checkout (overlay-tracked, or a stale/renamed entry) still exits 0 (C2, t/4323 SO condition).
+    console.log(`::warning file=${m.path}::${m.path} is listed in docs/agent-instruction-budgets.json but was not found in this checkout.`);
+  }
 
   if (violations.length === 0) {
     console.log('Instruction-file size ratchet: all tracked files within budget. ✓');

@@ -2179,9 +2179,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
-        with:
-          node-version: '22'
+      # No setup-node: ubuntu-latest ships a current Node already (SO review recommendation,
+      # e/337#2 — not a condition, dropped to match sibling warn-first jobs' convention).
+
+      - name: agents-md-budget checker test suite (BLOCKING — t/4323 SO condition C1, e/337#2)
+        # Unlike the budget CHECK itself (warn-only business output, below), the TESTS PROVING the
+        # checker works must actually gate CI — a `.test.mjs` wired into no workflow is
+        # authoring-time evidence only, never re-checked on the next edit (t/3871 lesson). No
+        # `continue-on-error` here: a broken/shrunk suite fails this job and ci-gate.
+        run: bash scripts/run-agents-md-budget-tests.sh
 
       - name: Instruction-file size ratchet (WARN-FIRST — t/4323)
         # WARN-FIRST, same Gate Promotion discipline as complexity-budget (t/3829):
