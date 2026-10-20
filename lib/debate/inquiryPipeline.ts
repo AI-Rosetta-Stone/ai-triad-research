@@ -182,7 +182,8 @@ export async function runInquiryPipeline(
 
   // ── Stage 2: build grounding envelope ─────────────────────────────────────
   // ADR-001: empty envelope on zero-hit / empty-corpus inputs — WARN logged in
-  // buildGroundingEnvelope itself; pipeline continues.
+  // buildGroundingEnvelope itself. An empty envelope is valid at the grounding layer
+  // but fatal here when an embedding corpus exists (assertGroundingNonEmpty below).
   deps.onStage?.('grounding');
   const { envelope: grounding, appliedTag } = await buildGroundingEnvelope(
     request.question,
