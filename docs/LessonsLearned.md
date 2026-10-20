@@ -6452,3 +6452,83 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#225).
 
 **Applies To:** All agents running PowerShell through the Bash tool; complex PS syntax goes in a `.ps1` file, not a `-Command` string.
+
+---
+
+## #319 [Research] Independent Cross-Check of Measurement Output Catches Instrument Bugs, Not Just System Bugs
+
+**Pattern:** An agent measures a system's behavior (e.g. embedding similarity, selection ranking) and computes a cross-check assertion ("my selector output should match the independent top-3"). The assertion fails. The failure leads to the discovery of a bug in the measuring code itself (a wrong field name), not in the system being measured. Without the cross-check, the bug would have appeared as a system disagreement rather than a measurement error.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#123, t/4292): offline measurement compared node selection against cosine top-3. Cross-check assertion "selection == independent top-3" came back false. Root cause: measuring code read `NodeRef.id` instead of `nodeId`. Without the assertion, the bug read as "the selector disagrees with cosine" — a misleading system-level finding. Fixed the field name; assertion passed.
+
+**Root Cause:** Measurement code is code — it has bugs. A single pipeline (measure → report) cannot distinguish between "system is wrong" and "measurement is wrong." An independent cross-check from a different code path catches measurement errors before they propagate to conclusions.
+
+**Prevention:**
+1. **Before drawing conclusions from a measurement run, include at least one assertion that the measurement itself is internally consistent.** "My selection output agrees with an independent reference computation on the same input" is enough to catch field-name errors, wrong data, and off-by-one index bugs.
+2. **A failed cross-check assertion is not a system bug until the measurement code is verified.** Rule out instrument error first — check field names, data shapes, and index assumptions.
+3. **Paid or otherwise expensive measurement runs deserve a cheap debug-mode cross-check first** — a single probe run with the assertion active costs little and validates the instrument before the full spend.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#123, t/4292).
+
+**Applies To:** All agents writing measurement or analysis scripts; include independent cross-check assertions to validate the instrument, not only the system.
+
+---
+
+## #320 [Build] `__dirname` Undefined in ESM/tsx Scripts — Use `fileURLToPath(import.meta.url)`
+
+**Pattern:** An agent runs a TypeScript script with `tsx` (or another ESM-mode runner). The script uses `__dirname` to resolve file paths. The script throws `ReferenceError: __dirname is not defined`. `tsx` executes scripts as ES modules where `__dirname` is a CommonJS-only global.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#123, t/4292): `tsx` script used `__dirname`; threw `ReferenceError`. Fixed with `import { fileURLToPath } from 'url'; import { dirname } from 'path'; const __dirname = dirname(fileURLToPath(import.meta.url));`.
+
+**Root Cause:** `__dirname` and `__filename` are CommonJS-only globals injected by Node's module wrapper. ES modules (including tsx-run scripts) do not have them. The ESM equivalent uses `import.meta.url`.
+
+**Prevention:**
+1. **In any tsx/ESM script, replace `__dirname` with `dirname(fileURLToPath(import.meta.url))`.** Add the two-line shim at the top: `import { fileURLToPath } from 'url'; import { dirname } from 'path';`.
+2. **`ReferenceError: __dirname is not defined` in a tsx script** is always this CommonJS/ESM mismatch — the fix is the `import.meta.url` shim.
+3. **`__filename` has the same problem** — replace with `fileURLToPath(import.meta.url)` directly.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#123).
+
+**Applies To:** All agents writing TypeScript scripts run via tsx or another ESM runner; use `import.meta.url` instead of `__dirname`/`__filename`.
+
+---
+
+## #321 [Build] ONNX Embedder Writes `[onnxEmbedding]` Log Lines to stdout Before JSON — Strip at Exact `[` Line, Not First `\n[`
+
+**Pattern:** A script runs an ONNX-based embedding model and captures its stdout. The output starts with one or more `[onnxEmbedding] ...` log lines, followed by the JSON result (which also starts with `[`). Code that strips the prefix by finding the first `\n[` captures a log line rather than the JSON, because log lines also start with `[`. The JSON parse then fails on the log line text.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#123, t/4292): stdout had `[onnxEmbedding]` log lines before the JSON array. Strip logic cut at first `\n[`, but that matched a log line. Fixed by cutting at the line that is exactly `[` (the JSON array opening line) rather than any line starting with `[`.
+
+**Root Cause:** Both log lines and the JSON output start with `[`. Stripping at "first line starting with `[`" is ambiguous; the JSON array's opening is specifically a line containing only `[`.
+
+**Prevention:**
+1. **When stripping ONNX embedder log prefix from stdout, find the line that is exactly `[`** (the JSON array opening), not the first line starting with `[`.
+2. **Alternatively, redirect stderr** (`2>/dev/null` or a dedicated stderr handle) if the embedder writes logs to stderr — verify with a test run before assuming stdout is clean JSON.
+3. **A JSON parse error immediately after an ONNX embedding call** is a reliable diagnostic for log-line contamination — inspect the raw stdout before parsing.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#123).
+
+**Applies To:** All agents capturing ONNX embedder output; strip log prefix at exact `[` line, not first `\n[`.
+
+---
+
+## #322 [Build] `gh pr merge --auto` on All-Green PR Completes Immediately — No Window to `--disable-auto`
+
+**Pattern:** An agent arms auto-merge on a PR with `gh pr merge --auto`. The PR's required checks are already all green at the time of arming. GitHub merges the PR immediately (within seconds). A subsequent `gh pr merge --disable-auto` returns "Can't disable auto-merge for this pull request" because the merge has already completed.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#32): probe PR had all checks green; `--auto` arm triggered an immediate merge. `--disable-auto` returned "Can't disable." Resolved by opening a follow-up PR to revert the probe's file rather than attempting to undo the merge.
+
+**Root Cause:** Auto-merge is a "merge as soon as checks pass" gate. When all checks are already green, "as soon as" is "now." There is no staging delay between arming and merging when the PR is already mergeable.
+
+**Prevention:**
+1. **Before arming `--auto`, check `gh pr view <N> --json mergeStateStatus -q .mergeStateStatus`.** If the result is `CLEAN`, the PR will merge immediately on arming — confirm this is intended before proceeding. (See also #311: if `CLEAN`, merge directly without `--auto`.)
+2. **On a probe or test PR, do not arm `--auto` if the checks are already green and merging to `main` is not desired.** Use a draft PR or a separate test repo for live-fire experiments.
+3. **There is no undo for a completed merge.** If an unintended merge lands, open a follow-up PR to revert; do not attempt a force-reset or direct push to `main`.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#32).
+
+**Applies To:** All agents arming auto-merge; when mergeStateStatus is CLEAN, arming --auto merges immediately — verify intent first.
