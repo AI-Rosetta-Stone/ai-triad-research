@@ -28,6 +28,20 @@
  * and lowercasing) is rejected as self-approval. This is an approximation, not an exact identity
  * check — documented here so a reviewer can propose a better one if this heuristic misfires on a
  * real role name.
+ *
+ * t/4096 Reviewer switch-over: during the transition, a T1 PR can be approved EITHER way --
+ * the legacy `Approved (<role>):` comment, OR a real GitHub review left by the reviewer App
+ * (`state: 'APPROVED'`, submitted after the latest push).
+ *
+ * TL correction (PR #3487 review): arm 5 proved GitHub refuses an App's approval of a PR **the
+ * App itself authored** -- it does NOT prove a human-authored PR is self-approval-safe. Every PR
+ * in this fleet is authored by `jpsnover` (the author-App switch-over hasn't happened yet), and
+ * any agent can run `Invoke-AsAgentApp -Role reviewer` -- so an author approving their own PR
+ * through the reviewer App would otherwise pass. The bot-review arm therefore reuses the EXACT
+ * SAME owner-slug self-approval check as the comment arm: the review body must still start with
+ * `Approved (<role>):`, and that role must not match the head branch's owner slug. It is also
+ * restricted to the configured reviewer App's own login (`reviewerAppLogin`) -- a human's review
+ * or any other App's review must not silently satisfy this gate.
  */
 
 function parseTier(body) {
@@ -45,7 +59,17 @@ function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
-export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approvalComments }) {
+// Shared by both arms: an "Approved (<role>):" body, past the owner-slug self-approval check.
+// Returns the matched role string, or null if the text doesn't match or it's a self-approval.
+function matchApprovalBody(rawBody, ownerSlug) {
+  const m = /^Approved \(([^)]+)\):/.exec(String(rawBody ?? '').trim());
+  if (!m) return null;
+  const role = normalizeRole(m[1]);
+  if (ownerSlug && role.startsWith(ownerSlug)) return null; // self-approval by the PR's own owning role
+  return m[1];
+}
+
+export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approvalComments, botReviews, reviewerAppLogin }) {
   const tier = parseTier(body);
   if (tier !== 'T1') {
     return { pass: true, tier, reason: 'not-t1' };
@@ -56,14 +80,28 @@ export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approva
 
   const matches = [];
   for (const c of approvalComments || []) {
-    const m = /^Approved \(([^)]+)\):/.exec(String(c?.body ?? '').trim());
-    if (!m) continue;
-    const role = normalizeRole(m[1]);
-    if (ownerSlug && role.startsWith(ownerSlug)) continue; // self-approval by the PR's own owning role
+    const role = matchApprovalBody(c?.body, ownerSlug);
+    if (!role) continue;
     const effective = c.updatedAt ?? c.createdAt;
     if (!effective) continue;
     if (new Date(effective).getTime() <= pushTime) continue; // approval predates the latest push
-    matches.push({ role: m[1], at: effective });
+    matches.push({ role, at: effective });
+  }
+
+  // t/4096 Reviewer switch-over: a real bot APPROVED review after the latest push also satisfies
+  // the gate, but ONLY from the configured reviewer App's own login, and ONLY when its review
+  // body still passes the SAME owner-slug self-approval check as a comment -- every PR here is
+  // authored by `jpsnover`, so GitHub's own App-self-approval refusal (t/4096 arm 5) does not
+  // apply to a human-authored PR reviewed by any agent running as the reviewer App.
+  for (const r of botReviews || []) {
+    if (String(r?.state ?? '').toUpperCase() !== 'APPROVED') continue;
+    if (!reviewerAppLogin || r?.login !== reviewerAppLogin) continue;
+    const role = matchApprovalBody(r?.body, ownerSlug);
+    if (!role) continue;
+    const effective = r.submittedAt;
+    if (!effective) continue;
+    if (new Date(effective).getTime() <= pushTime) continue; // review predates the latest push
+    matches.push({ role, at: effective });
   }
 
   if (matches.length > 0) {

@@ -70,6 +70,10 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
  *
  * @param {object} pr
  * @param {string} pr.mergeableState - GitHub's mergeable_state, e.g. 'behind'|'clean'|'dirty'|'blocked'|'unknown'.
+ * @param {string|undefined} pr.mergeableStateRecheck - a SECOND, later re-fetch of mergeableState,
+ *   done by the caller only for a PR that already looks armed-but-blocked (allGreen + 'blocked'),
+ *   to confirm the read wasn't a transient staleness artifact (t/4096 arm 1). Undefined if the
+ *   caller didn't perform the recheck.
  * @param {boolean} pr.isConflicting - true iff mergeable === false / mergeable_state === 'dirty' (GitHub's CONFLICTING).
  * @param {boolean} pr.autoMergeEnabled
  * @param {string[]} pr.labels
@@ -150,12 +154,22 @@ export function classifyBlocker(pr, nowMs) {
   }
 
   // 5. armed-but-blocked
+  //
+  // t/4096 arm 1 finding (p/331#2203): `mergeable_state` can read 'blocked' for several seconds
+  // after a PR becomes genuinely mergeable (a real GitHub API staleness quirk -- a live merge
+  // attempt succeeded while the field still said 'blocked'). A single 'blocked' read is not
+  // proof of a real block, so this class requires it to persist: `pr.mergeableStateRecheck` is a
+  // SECOND, later re-fetch of the same field, done by the caller only when the first read already
+  // looked like armed-but-blocked. Fire only when BOTH reads agree; a stale-then-clean sequence,
+  // or a recheck the caller never performed (undefined), does NOT escalate this pass -- the next
+  // scheduled run re-observes it, so a genuinely stuck PR is still caught, just not on a transient
+  // single read.
   if (pr.autoMergeEnabled) {
     const allGreen = REQUIRED_CONTEXTS.every((name) => {
       const run = runFor(name);
       return run && run.status === 'completed' && run.conclusion === 'success';
     });
-    if (allGreen && pr.mergeableState === 'blocked') {
+    if (allGreen && pr.mergeableState === 'blocked' && pr.mergeableStateRecheck === 'blocked') {
       return { class: 'armed-but-blocked', detail: { mergeRefusalText: pr.mergeRefusalText ?? '(not captured)' } };
     }
   }
