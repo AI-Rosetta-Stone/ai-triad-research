@@ -1,10 +1,9 @@
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
-# DO NOT USE FOR A REAL ROTATION until R5 is recorded on t/4288 (SO review, e/318): a dry run
-# against a throwaway Entra app registration, credential lists before/after recorded on the
-# ticket, AND proof that the GitHub-secret copy works (not just the container copies) — run a
-# real deploy that re-applies AAD_CLIENT_SECRET/etc. and confirm sign-in, before Phase 2.
+# R5 gate (t/4288, SO e/318): a code comment here is invisible to someone who runs the script
+# directly, so the warning is emitted at runtime instead (see Write-Warning below). Remove both
+# once R5 is recorded on t/4288.
 
 <#
 .SYNOPSIS
@@ -79,6 +78,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+Write-Warning "DO NOT use this script for a real rotation until R5 is recorded on t/4288 (SO review, e/318): a dry run against a throwaway Entra app registration, with credential lists before/after recorded on the ticket, AND proof that the GitHub-secret copy works (not just the container copies) — run a real deploy that re-applies AAD_CLIENT_SECRET/etc. and confirm sign-in, before Phase 2. Remove this warning once R5 is recorded on t/4288."
 
 function New-ActionableError {
     param([string]$Goal, [string]$Problem, [string]$Location, [string]$NextSteps)
