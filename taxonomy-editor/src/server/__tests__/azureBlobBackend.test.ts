@@ -13,8 +13,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { BlobServiceClient } from '@azure/storage-blob';
+import { BlobServiceClient, RestError } from '@azure/storage-blob';
 import { AzureBlobBackend } from '../storage/azureBlobBackend.js';
+import { gitBlobSha } from '../storage/gitBlobSha.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AZURITE_MAIN = path.resolve(here, '../../../node_modules/azurite/dist/src/blob/main.js');
@@ -139,9 +140,8 @@ describe('AzureBlobBackend (Azurite)', () => {
     await expect(backend.readFile('.git/config')).rejects.toThrow(/unsafe path/i);
   });
 
-  // t/4201 (p/775#31): versions by gitBlobSha(content); writeFile's baseSha is a
-  // check-then-write precondition (not atomic, but sufficient for this single-node
-  // local-web path — see the comment on AzureBlobBackend.writeFile).
+  // t/4201 (p/775#31)/t/4191: writeFile's baseSha precondition is now atomic —
+  // one download() supplies both the hash check and the If-Match ETag.
   it('writeFile with a matching baseSha (If-Match) succeeds', async () => {
     const v1 = await backend.writeFile('taxonomy/conflict.json', '{"v":1}');
     const v2 = await backend.writeFile('taxonomy/conflict.json', '{"v":2}', { baseSha: v1.version });
@@ -169,6 +169,93 @@ describe('AzureBlobBackend (Azurite)', () => {
 
     expect(got?.content).toBe('{"v":1}');
     expect(got?.version).toBe(written.version);
+  });
+
+  // t/4191 condition 2 (decision site: missing blob while baseSha is supplied).
+  it('writeFile with a non-empty baseSha against a missing blob throws WRITE_CONFLICT, never a silent create', async () => {
+    const err = await backend.writeFile('taxonomy/never-existed.json', '{"v":1}', { baseSha: 'deadbeef' })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+    expect(await backend.fileExists('taxonomy/never-existed.json')).toBe(false);
+  });
+
+  // t/4191 condition 2 (decision site: baseSha === '' is "I expect no file yet" —
+  // enforced via If-None-Match: '*', not an existence check-then-create).
+  it('writeFile with baseSha "" creates atomically when the blob is absent', async () => {
+    const result = await backend.writeFile('taxonomy/fresh.json', '{"v":1}', { baseSha: '' });
+    expect(await backend.readFile('taxonomy/fresh.json')).toBe('{"v":1}');
+    expect(result.version).toBeTruthy();
+  });
+
+  it('writeFile with baseSha "" throws WRITE_CONFLICT when the blob already exists', async () => {
+    await backend.writeFile('taxonomy/already-there.json', '{"v":1}');
+    const err = await backend.writeFile('taxonomy/already-there.json', '{"v":2}', { baseSha: '' })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+    expect(await backend.readFile('taxonomy/already-there.json')).toBe('{"v":1}');
+  });
+
+  // t/4191 condition 2's core case: a write that lands strictly BETWEEN this
+  // backend's download() and its own upload() — the race a sequencing-only
+  // (two parallel promises) test can't reliably force on Azurite, and the race
+  // the old check-then-write design (separate read, then unconditional upload)
+  // could not detect at all. Instruments the blob client so the first download()
+  // of the target path injects a concurrent write before returning, simulating
+  // a second tab/replica that commits in the gap. Fails on pre-t/4191 code
+  // (which read, hashed, matched, then uploaded unconditionally — silently
+  // clobbering the injected write); passes once If-Match is drawn from that
+  // same download() response, because the ETag it captured is already stale
+  // by the time the real upload reaches the service.
+  it('writeFile detects a write injected between its own read and its own upload (t/4191)', async () => {
+    const blobPath = 'taxonomy/injected-race.json';
+    const v1 = await backend.writeFile(blobPath, '{"v":1}');
+
+    const realContainer = service.getContainerClient(USER_CONTENT);
+    let injectedOnce = false;
+    const instrumentedService = {
+      getContainerClient: (name: string) => {
+        if (name !== USER_CONTENT) return service.getContainerClient(name);
+        return {
+          getBlobClient: (p: string) => {
+            const real = realContainer.getBlobClient(p);
+            if (p !== blobPath) return real;
+            return {
+              ...real,
+              download: async (...args: unknown[]) => {
+                if (!injectedOnce) {
+                  injectedOnce = true;
+                  // The "other actor": lands a real, unconditional write to the
+                  // same blob before this backend's own download() resolves.
+                  const data = Buffer.from('{"v":2,"from":"other-actor"}', 'utf-8');
+                  await realContainer.getBlockBlobClient(blobPath).upload(data, data.byteLength);
+                }
+                return real.download(...args);
+              },
+            };
+          },
+          getBlockBlobClient: (p: string) => realContainer.getBlockBlobClient(p),
+          listBlobsByHierarchy: realContainer.listBlobsByHierarchy.bind(realContainer),
+        };
+      },
+    } as unknown as BlobServiceClient;
+
+    const racing = new AzureBlobBackend({
+      accountUrl: 'http://127.0.0.1:10000/devstoreaccount1',
+      userContentContainer: USER_CONTENT,
+      communityContainer: COMMUNITY,
+      serviceClient: instrumentedService,
+    });
+
+    const err = await racing.writeFile(blobPath, '{"stale-tab-write":true}', { baseSha: v1.version })
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+    expect(await backend.readFile(blobPath)).toBe('{"v":2,"from":"other-actor"}'); // the injected write survived
   });
 });
 
@@ -228,4 +315,51 @@ describe('AzureBlobBackend — upload timeout (t/1469)', () => {
     expect((err as { statusCode?: number }).statusCode).toBe(503);
     expect(err.message).toMatch(/timed out/i);
   }, 5000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WRITE PRECONDITIONS (t/4191) — non-412 passthrough, mocked client
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('AzureBlobBackend — writeFile precondition error mapping (t/4191)', () => {
+  // t/4191 condition 2 (decision site: non-412 error is rethrown unmapped, not
+  // folded into WRITE_CONFLICT). A download() returning real content (so the
+  // baseSha check passes and the upload is attempted) followed by an upload
+  // rejecting with an unrelated 503 must surface as the ordinary wrapped error,
+  // not a 409.
+  it('a non-412 RestError from upload is rethrown, not mapped to WRITE_CONFLICT', async () => {
+    const content = '{"v":1}';
+    const serverErr = Object.assign(new RestError('service unavailable'), { statusCode: 503, code: 'ServerBusy' });
+    const mockBlockBlob = {
+      upload: () => Promise.reject(serverErr),
+    };
+    const mockBlobClient = {
+      download: () => Promise.resolve({
+        readableStreamBody: undefined, // streamToBuffer(undefined) -> empty; content below is irrelevant to this test
+        etag: '"mock-etag"',
+      }),
+    };
+    const mockContainer = {
+      getBlockBlobClient: () => mockBlockBlob,
+      getBlobClient: () => mockBlobClient,
+    };
+    const mockService = { getContainerClient: () => mockContainer } as unknown as BlobServiceClient;
+    const be = new AzureBlobBackend({
+      accountUrl: 'http://localhost:10000/devstoreaccount1',
+      userContentContainer: 'user-content',
+      communityContainer: 'community',
+      serviceClient: mockService,
+    });
+
+    // The mocked download() returns no body, so its hashed content is ''
+    // (streamToBuffer(undefined) -> empty). Passing that as baseSha makes the
+    // pre-upload hash check pass, so the upload is actually attempted — what's
+    // under test is the upload-time error mapping below, not the hash check.
+    const err = await be.writeFile('taxonomy/x.json', content, { baseSha: gitBlobSha('') })
+      .then(() => null, (e: unknown) => e) as { name?: string; code?: string; httpStatus?: number } | null;
+
+    expect(err?.code).not.toBe('WRITE_CONFLICT');
+    expect(err?.httpStatus).not.toBe(409);
+    expect(err?.name).toBe('ActionableError');
+  });
 });
