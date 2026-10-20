@@ -22,7 +22,7 @@ import { log } from '../logger.js';
 import { findSituationBdiViolations } from '../../../../lib/debate/taxonomyTypes.js';
 import type { SituationNode } from '../../../../lib/debate/taxonomyTypes.js';
 import { isAdmin } from '../community/community.js';
-import { STORAGE_MODE } from '../config.js';
+import { isLocalDeployment } from '../config.js';
 
 // ── t/3165: serialize-once cache for /api/taxonomy/synthetic-embeddings ───────────────────────────
 // The synthetic corpus (~4144 vectors, ~400MB) is STATIC, but loadSyntheticEmbeddings() rebuilds it on
@@ -177,8 +177,10 @@ function situationsBdiGate(
 // t/4229 (t/4167 part B): the hosted web app writes go through github-api; a prod rollback runbook
 // can set STORAGE_MODE=filesystem on hosted prod, so mode alone would fail OPEN there. NODE_ENV
 // pins this to genuine desktop/local-server use (TL review, p/522#390).
+// t/4316: delegates to config.ts's isLocalDeployment() — same predicate, converged rather than
+// re-derived, per t/4234's own callers-should-converge note.
 function isPovTagsGateExempt(): boolean {
-  return STORAGE_MODE === 'filesystem' && process.env.NODE_ENV !== 'production';
+  return isLocalDeployment();
 }
 
 type PovTaggedNode = { id: string; pov_tags?: string[] };
