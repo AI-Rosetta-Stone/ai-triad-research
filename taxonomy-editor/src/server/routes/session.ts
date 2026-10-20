@@ -23,6 +23,7 @@ import { log } from '../logger.js';
 import { deriveStorageUserId } from '../security/userContext.js';
 import { isSafeId } from '../storage/fileIO.js';
 import { getQuotaLimits } from '../security/quotas.js';
+import { resolveReadOnlyFlag } from '../readOnlyGuard.js';
 import { requireAdmin } from '../community/admin/reviewRegistry.js';
 import { isAdmin } from '../community/community.js';
 import * as analytics from '../community/analytics.js';
@@ -115,14 +116,20 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
       sessionCreatedAt = new Date(createdMs).toISOString();
     }
 
+    // t/4296: a read-only account (e.g. ai-triad-smoke) still passes every other
+    // capability check above — this is an orthogonal axis the smoke test asserts
+    // directly. Shared with server.ts's enforceReadOnlyGuard (same fail-open+WARN default).
+    const readOnly = resolveReadOnlyFlag(principalName, idp);
+
     json(res, {
       user: principalName || resolveAnonSessionKey(req),
       idp: idp || '',
       anonymous: isAnon,
+      readOnly,
       ...(sessionCreatedAt ? { session_created_at: sessionCreatedAt } : {}),
       capabilities: {
         ai: !isAnon || !authOpt,
-        write: !isAnon || !authOpt,
+        write: (!isAnon || !authOpt) && !readOnly,
       },
     });
   });

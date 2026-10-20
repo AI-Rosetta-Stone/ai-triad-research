@@ -24,6 +24,7 @@ import { prewarmEmbeddingsCache, getEmbeddingsCacheStatus } from './ai/aiBackend
 import { startEventLoopMonitor } from './eventLoopMonitor.js';
 import { startEmbedQueueDepthMonitor } from './embedQueueDepthMonitor.js';
 import { startGroundingSweep } from './groundingSweepScheduler.js';
+import { enforceReadOnlyGuard } from './readOnlyGuard.js';
 
 const require = createRequire(import.meta.url);
 
@@ -623,6 +624,7 @@ async function handleRequestInner(
     const route = matchRoute(req.method!, reqPath);
 
     if (enforceWriteRateLimit(req, res, route, reqPath)) return;
+    if (enforceReadOnlyGuard(req, res, !!route, reqPath, principalName, idp)) return;
 
     if (route) {
       await dispatchMatchedRoute(req, res, route, reqPath);
