@@ -44,6 +44,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
       - name: Log in to Azure
+        id: azlogin
+        continue-on-error: true  # t/4340: a login failure must not take down the HTTP probe below
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -57,24 +59,42 @@ jobs:
           # Cold-start skip: read the ARM-reported replica count BEFORE touching the app's own
           # HTTP endpoints. A revision not found (app fully scaled to 0, no active revision at
           # all) is the same "cold" case as a revision with 0 replicas — both skip the probe.
-          $ActiveRevision = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-            --query 'properties.latestReadyRevisionName' -o tsv 2>$null
+          # t/4340: the Azure login above is continue-on-error, so a login failure must NOT be
+          # read as "0 replicas" (that would silently report a down app as healthy-and-cold). A
+          # query that fails for any reason (not logged in, ARM error, etc.) is UNKNOWN, not cold
+          # — it WARNs and falls through to the HTTP probe, same as if the login had never run.
+          $QueryOk = $false
+          $ActiveRevision = $null
           $ReplicaCount = 0
-          if ($LASTEXITCODE -eq 0 -and $ActiveRevision) {
-            $ReplicaJson = az containerapp replica list --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
-              --revision $ActiveRevision -o json 2>$null
-            if ($LASTEXITCODE -eq 0 -and $ReplicaJson) {
-              $ReplicaCount = @($ReplicaJson | ConvertFrom-Json).Count
+          if ('${{ steps.azlogin.outcome }}' -eq 'success') {
+            $ActiveRevision = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+              --query 'properties.latestReadyRevisionName' -o tsv 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              if ($ActiveRevision) {
+                $ReplicaJson = az containerapp replica list --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+                  --revision $ActiveRevision -o json 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                  $ReplicaCount = @($ReplicaJson | ConvertFrom-Json).Count
+                  $QueryOk = $true
+                }
+              } else {
+                # confirmed: no active revision at all — genuinely cold, not a query failure
+                $QueryOk = $true
+              }
             }
           }
-          Write-Host "Active revision: $ActiveRevision — replica count: $ReplicaCount"
 
-          if ($ReplicaCount -eq 0) {
-            Write-Host "App is scaled to 0 (cold) — this is healthy, not down. Skipping the HTTP probe."
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "failures=0"
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "healthy=true"
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "cold=true"
-            exit 0
+          if (-not $QueryOk) {
+            Write-Warning "t/4340: cold-replica check skipped (Azure login outcome: ${{ steps.azlogin.outcome }}, or ARM query failed) — running the HTTP probe anyway rather than assuming healthy."
+          } else {
+            Write-Host "Active revision: $ActiveRevision — replica count: $ReplicaCount"
+            if ($ReplicaCount -eq 0) {
+              Write-Host "App is scaled to 0 (cold) — this is healthy, not down. Skipping the HTTP probe."
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "failures=0"
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "healthy=true"
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "cold=true"
+              exit 0
+            }
           }
 
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
