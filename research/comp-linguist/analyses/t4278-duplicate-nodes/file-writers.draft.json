@@ -6,39 +6,58 @@
     "taxonomy/Origin/accelerationist.json": {
       "format": "pretty2-lf-nl",
       "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
-      "writers": ["ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)"],
-      "measured": {"ts-pretty2-lf-nl": "byte-identical"}
+      "writers": [
+        "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)"
+      ],
+      "measured": {
+        "ts-pretty2-lf-nl": "byte-identical"
+      }
     },
     "taxonomy/Origin/safetyist.json": {
       "format": "pretty2-lf-nl",
       "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
-      "writers": ["ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)"],
-      "measured": {"ts-pretty2-lf-nl": "byte-identical"}
+      "writers": [
+        "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)"
+      ],
+      "measured": {
+        "ts-pretty2-lf-nl": "byte-identical"
+      }
     },
     "taxonomy/Origin/skeptic.json": {
       "format": "pretty2-lf-nl",
       "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
-      "writers": ["ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)"],
-      "measured": {"ts-pretty2-lf-nl": "NOT identical at 7dc19c88: inline pov_tags prefix from the t/3962 write; this is the one file to normalise (t/4353)"}
+      "writers": [
+        "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)"
+      ],
+      "measured": {
+        "ts-pretty2-lf-nl": "NOT identical at 7dc19c88: inline pov_tags prefix from the t/3962 write; this is the one file to normalise (t/4353)"
+      }
     },
     "taxonomy/Origin/edges.json": {
       "format": "edges-hybrid",
       "definition": "lib/edges/serializeEdges.ts serializeEdgesJson; docs/edges-json-format.md",
       "writers": [
         "ts:lib/edges/serializeEdges.ts serializeEdgesJson (writeEdgesFile, modulateEdgeWeights)",
-        "ps:scripts/AITriad/Private/Write-EdgesFile.ps1"
+        "ps:scripts/AITriad/Private/ConvertFrom-EdgesJson.ps1 Read-EdgesFile -> scripts/AITriad/Private/Write-EdgesFile.ps1 (read/write PAIR; a bare ConvertFrom-Json read is NOT a valid reader)"
       ],
       "measured": {
         "ts-serializeEdgesJson": "byte-identical",
-        "ps-Write-EdgesFile": "NOT identical: the format matches, but the READ side changes values. On PS 7.4.21 (no ConvertFrom-Json -DateKind) ISO strings are parsed to DateTime and re-emitted without trailing millisecond zeros (e.g. ...33.440Z -> ...33.44Z): 28 of 34,321 edges' discovered_at changed. The fix is in t/4356: a non-date-parsing read (PS 7.5+ -DateKind String, raw pass-through to Node, or System.Text.Json)."
+        "ps-Read-EdgesFile+Write-EdgesFile": "byte-identical (PS 7.4.21, 16,577,960 bytes)",
+        "ps-bare-ConvertFrom-Json+Write-EdgesFile": "NOT identical: the known bare-cmdlet timestamp defect (28 discovered_at values), which Read-EdgesFile (t/2974) fixes. Not a production path."
       }
     },
     "taxonomy/Origin/embeddings.json": {
       "format": "producer-python",
       "definition": "the scheduled 'refresh conflict clusters and embeddings' producer's Python json output (floats such as 1.0 kept); not a TS format",
-      "writers": ["py:<scheduled embeddings producer, name to be confirmed by its owner>"],
-      "retired_writers": ["py:research/comp-linguist/analyses/coverage-gap-candidates/splice_embeddings.py (in-place writes refused, e/343#19)"],
-      "measured": {"ts-pretty2-lf-nl": "NOT identical (number format), as expected: TS is not this file's writer"}
+      "writers": [
+        "py:<scheduled embeddings producer, name to be confirmed by its owner>"
+      ],
+      "retired_writers": [
+        "py:research/comp-linguist/analyses/coverage-gap-candidates/splice_embeddings.py (in-place writes refused, e/343#19)"
+      ],
+      "measured": {
+        "ts-pretty2-lf-nl": "NOT identical (number format), as expected: TS is not this file's writer"
+      }
     }
   }
 }
