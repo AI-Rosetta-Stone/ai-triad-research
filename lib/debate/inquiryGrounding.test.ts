@@ -464,3 +464,41 @@ describe('buildGroundingEnvelope — pov file-name normalization (t/4255)', () =
     expect(appliedTag!.included).toBe(5);
   });
 });
+
+// ── Label deduplication in buildGroundingEnvelope (t/4352) ───────────────────
+
+describe('buildGroundingEnvelope — label deduplication', () => {
+  function makeDedupTaxonomy(): GroundingTaxonomy {
+    // acc camp: 001 and 002 share the same label; 003 has a unique label.
+    // With distinctEmbed, questionVec = unitVec(8, 0).
+    // Scores: 001 → 1.0, 002 → 0.0, 003 → 0.0 (tie broken by insertion order: 002 < 003).
+    // Sort order: [001, 002, 003]. Dedup skips 002 (dup of 001) and backfills with 003.
+    const povNodes: PovNode[] = [
+      makeNode('acc-beliefs-001', 'Dup'),
+      makeNode('acc-beliefs-002', 'Dup'),
+      makeNode('acc-beliefs-003', 'U3'),
+    ];
+    const nodeEmbeddings: NodeEmbeddingMap = {
+      'acc-beliefs-001': { pov: 'acc', vector: unitVec(8, 0) },
+      'acc-beliefs-002': { pov: 'acc', vector: unitVec(8, 1) },
+      'acc-beliefs-003': { pov: 'acc', vector: unitVec(8, 2) },
+    };
+    return { povNodes, situationNodes: [], nodeEmbeddings };
+  }
+
+  it('skips the duplicate-label node and backfills with the next unique one', async () => {
+    const { envelope } = await buildGroundingEnvelope('q', makeDedupTaxonomy(), distinctEmbed);
+    const refs = envelope.nodesByCamp['acc'] ?? [];
+    const ids = refs.map(r => r.nodeId);
+    expect(ids).toContain('acc-beliefs-001');
+    expect(ids).not.toContain('acc-beliefs-002');
+    expect(ids).toContain('acc-beliefs-003');
+  });
+
+  it('leaves selection unchanged when no label duplicates exist', async () => {
+    const { envelope } = await buildGroundingEnvelope('q', makeTaxonomy(), flatEmbed);
+    const allLabels = Object.values(envelope.nodesByCamp).flat().map(r => r.label);
+    const uniqueLabels = new Set(allLabels.map(l => l.trim().toLowerCase()));
+    expect(uniqueLabels.size).toBe(allLabels.length);
+  });
+});
