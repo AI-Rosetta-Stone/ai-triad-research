@@ -8,12 +8,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 import path from 'path';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 
 const FAKE_TAX_DIR = '/fake/taxonomy';
 const REGISTRY_PATH = path.join(FAKE_TAX_DIR, 'policy_actions.json');
 
 const {
-  readFileMock,
+  readFileWithVersionMock,
   writeFileMock,
   readTaxonomyFileMock,
   recordMock,
@@ -24,8 +25,8 @@ const {
   fsStatMock,
   scheduleOverlayCommitMock,
 } = vi.hoisted(() => ({
-  readFileMock: vi.fn<[string, ({ optional?: boolean } | undefined)?], Promise<string | null>>(),
-  writeFileMock: vi.fn<[string, string], Promise<void>>(),
+  readFileWithVersionMock: vi.fn<[string], Promise<{ content: string; version: string } | null>>(),
+  writeFileMock: vi.fn<[string, string, ({ baseSha?: string } | undefined)?], Promise<void>>(),
   readTaxonomyFileMock: vi.fn<[string], Promise<unknown>>(),
   recordMock: vi.fn(),
   isAnonymousMock: vi.fn<[], boolean>(),
@@ -38,8 +39,9 @@ const {
 
 vi.mock('../storage/fileIO.js', () => ({
   getTaxonomyDir: () => FAKE_TAX_DIR,
-  getBackend: () => ({ readFile: readFileMock, writeFile: writeFileMock }),
+  getBackend: () => ({ writeFile: writeFileMock }),
   readTaxonomyFile: readTaxonomyFileMock,
+  readFileWithVersionOrFallback: readFileWithVersionMock,
 }));
 vi.mock('../storage/overlayCommitScheduler.js', () => ({ scheduleOverlayCommit: scheduleOverlayCommitMock }));
 vi.mock('../security/userContext.js', () => ({ isAnonymousUser: isAnonymousMock, getCurrentUserId: () => 'tester' }));
@@ -100,7 +102,7 @@ async function invoke(opts: InvokeOpts = {}): Promise<{ status: number; body: un
 // ── setup ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  readFileMock.mockReset();
+  readFileWithVersionMock.mockReset();
   writeFileMock.mockReset();
   readTaxonomyFileMock.mockReset();
   recordMock.mockReset();
@@ -127,7 +129,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
     isAnonymousMock.mockReturnValue(true);
     const { status } = await invoke({ body: { ids: ['pol-001'] } });
     expect(status).toBe(403);
-    expect(readFileMock).not.toHaveBeenCalled();
+    expect(readFileWithVersionMock).not.toHaveBeenCalled();
   });
 
   it('returns 400 when ids is not an array', async () => {
@@ -146,7 +148,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   });
 
   it('returns 404 when policy_actions.json is absent', async () => {
-    readFileMock.mockResolvedValue(null);
+    readFileWithVersionMock.mockResolvedValue(null);
     const { status } = await invoke({ body: { ids: ['pol-001'] } });
     expect(status).toBe(404);
     expect(writeFileMock).not.toHaveBeenCalled();
@@ -155,7 +157,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   it('returns { status: unchanged } when recount changes nothing', async () => {
     // pol-002 has member_count:1, source_povs:['acc'] — feed it the same data
     const acc = { nodes: [{ id: 'acc-001', graph_attributes: { policy_actions: [{ policy_id: 'pol-002' }] } }] };
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) => pov === 'accelerationist' ? acc : { nodes: [{ id: 'fixture-filler' }] });
 
     const { status, body } = await invoke({ body: { ids: ['pol-002'] } });
@@ -167,7 +169,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   });
 
   it('returns { status: written, updated } and writes the file when counts change', async () => {
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) =>
       pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
     );
@@ -182,14 +184,14 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
     expect(b.updated[0].id).toBe('pol-001');
     expect(b.updated[0].member_count).toBe(1);
     expect(b.updated[0].source_povs).toEqual(['accelerationist']);
-    expect(writeFileMock).toHaveBeenCalledWith(REGISTRY_PATH, expect.stringMatching(/^\{/));
+    expect(writeFileMock).toHaveBeenCalledWith(REGISTRY_PATH, expect.stringMatching(/^\{/), { baseSha: 'v1' });
     // Written content must end with a trailing LF (serializePolicyRegistry contract)
     const written = writeFileMock.mock.calls[0][1] as string;
     expect(written.endsWith('\n')).toBe(true);
   });
 
   it('schedules an overlay commit after a successful write (t/4258/t/4276 C3: no commit otherwise)', async () => {
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) =>
       pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
     );
@@ -202,7 +204,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   });
 
   it('does not schedule an overlay commit when the write throws', async () => {
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) =>
       pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
     );
@@ -214,7 +216,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   });
 
   it('releases the lock (unlinks the lock file) after a successful write', async () => {
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) =>
       pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
     );
@@ -226,7 +228,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   });
 
   it('releases the lock even when the write throws', async () => {
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) =>
       pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
     );
@@ -241,7 +243,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   it('proceeds without a lock when the lock directory is not writable (ENOENT)', async () => {
     const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     fsOpenMock.mockRejectedValue(enoent);
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) =>
       pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
     );
@@ -257,7 +259,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
 
   it('returns 500 (fail closed) when a POV file read throws', async () => {
     // A transient error (GitHub 5xx, rate limit) must not silently produce zeroed counts (p/575#47)
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockRejectedValue(new Error('GitHub 503'));
     writeFileMock.mockResolvedValue(undefined);
 
@@ -270,7 +272,7 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
   it('returns 500 (fail closed) when a POV file reads successfully but is empty (#3050 guard)', async () => {
     // SO e/274#2, #7: a fallback that substitutes { nodes: [] } for a failed read must be refused
     // by the lib's completeness guard, never written as member_count: 0 (the #3048 defect).
-    readFileMock.mockResolvedValue(REGISTRY_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
     readTaxonomyFileMock.mockImplementation(async (pov: string) =>
       pov === 'safetyist' ? { nodes: [] } : pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] });
     writeFileMock.mockResolvedValue(undefined);
@@ -300,6 +302,21 @@ describe('POST /api/policy-registry/recount (t/4039)', () => {
     expect(b.status).toBe('refused');
     expect(b.reason).toBe('locked');
     expect(b.updated).toEqual([]);
-    expect(readFileMock).not.toHaveBeenCalled(); // no lock-free read
+    expect(readFileWithVersionMock).not.toHaveBeenCalled(); // no lock-free read
+  });
+
+  it('a storage WRITE_CONFLICT surfaces as 409 with its code, not a generic 500 (t/4332)', async () => {
+    readFileWithVersionMock.mockResolvedValue({ content: REGISTRY_RAW, version: 'v1' });
+    readTaxonomyFileMock.mockImplementation(async (pov: string) =>
+      pov === 'accelerationist' ? ACC_FILE : { nodes: [{ id: 'fixture-filler' }] },
+    );
+    writeFileMock.mockRejectedValue(new ActionableError({
+      goal: 'g', problem: 'p', location: 'l', nextSteps: [], httpStatus: 409, code: 'WRITE_CONFLICT',
+    }));
+
+    const { status, body } = await invoke({ body: { ids: ['pol-001'] } });
+
+    expect(status).toBe(409);
+    expect((body as { code?: string } | undefined)?.code).toBe('WRITE_CONFLICT');
   });
 });

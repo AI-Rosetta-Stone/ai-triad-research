@@ -8,13 +8,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 import path from 'path';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 
 const FAKE_TAX_DIR = '/fake/taxonomy';
 const PROPOSALS_PATH = path.join(FAKE_TAX_DIR, 'pov-tag-proposals.json');
 
-const { readFileMock, writeFileMock, recordMock, getCurrentUserIdMock } = vi.hoisted(() => ({
+const { readFileMock, readFileWithVersionMock, writeFileMock, recordMock, getCurrentUserIdMock } = vi.hoisted(() => ({
   readFileMock: vi.fn<[string, ({ optional?: boolean } | undefined)?], Promise<string | null>>(),
-  writeFileMock: vi.fn<[string, string], Promise<void>>(),
+  readFileWithVersionMock: vi.fn<[string], Promise<{ content: string; version: string } | null>>(),
+  writeFileMock: vi.fn<[string, string, ({ baseSha?: string } | undefined)?], Promise<void>>(),
   recordMock: vi.fn(),
   getCurrentUserIdMock: vi.fn<[], string>(),
 }));
@@ -22,6 +24,7 @@ const { readFileMock, writeFileMock, recordMock, getCurrentUserIdMock } = vi.hoi
 vi.mock('../storage/fileIO.js', () => ({
   getTaxonomyDir: () => FAKE_TAX_DIR,
   getBackend: () => ({ readFile: readFileMock, writeFile: writeFileMock }),
+  readFileWithVersionOrFallback: readFileWithVersionMock,
 }));
 vi.mock('../security/userContext.js', () => ({ getCurrentUserId: getCurrentUserIdMock }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
@@ -98,7 +101,7 @@ describe('GET /api/pov-tag-proposals (t/4055)', () => {
 
 describe('POST /api/pov-tag-proposals/review (t/4055)', () => {
   beforeEach(() => {
-    readFileMock.mockReset();
+    readFileWithVersionMock.mockReset();
     writeFileMock.mockReset();
     recordMock.mockReset();
     getCurrentUserIdMock.mockReturnValue('test-reviewer');
@@ -109,7 +112,7 @@ describe('POST /api/pov-tag-proposals/review (t/4055)', () => {
     const { status, body } = await invoke({ method: 'POST', githubBackend: {}, body: {} });
     expect(status).toBe(405);
     expect(JSON.stringify(body)).toContain('desktop app');
-    expect(readFileMock).not.toHaveBeenCalled();
+    expect(readFileWithVersionMock).not.toHaveBeenCalled();
   });
 
   it('returns 400 when nodeId is missing', async () => {
@@ -128,13 +131,13 @@ describe('POST /api/pov-tag-proposals/review (t/4055)', () => {
   });
 
   it('returns 404 when file is absent', async () => {
-    readFileMock.mockResolvedValue(null);
+    readFileWithVersionMock.mockResolvedValue(null);
     const { status } = await invoke({ method: 'POST', body: { nodeId: 'acc-001', decision: { status: 'rejected' }, expectedStatus: 'pending' } });
     expect(status).toBe(404);
   });
 
   it('returns 409 with refused:conflict on stale expectedStatus', async () => {
-    readFileMock.mockResolvedValue(VALID_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: VALID_RAW, version: 'v1' });
     const { status, body } = await invoke({
       method: 'POST',
       body: { nodeId: 'acc-001', decision: { status: 'rejected' }, expectedStatus: 'accepted' }, // stale
@@ -144,7 +147,7 @@ describe('POST /api/pov-tag-proposals/review (t/4055)', () => {
   });
 
   it('returns 409 with refused:invalid for unknown nodeId', async () => {
-    readFileMock.mockResolvedValue(VALID_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: VALID_RAW, version: 'v1' });
     const { status, body } = await invoke({
       method: 'POST',
       body: { nodeId: 'does-not-exist', decision: { status: 'rejected' }, expectedStatus: 'pending' },
@@ -153,8 +156,8 @@ describe('POST /api/pov-tag-proposals/review (t/4055)', () => {
     expect((body as { refused: string }).refused).toBe('invalid');
   });
 
-  it('returns 200 with { file, item } on a valid reject, and writes the file', async () => {
-    readFileMock.mockResolvedValue(VALID_RAW);
+  it('returns 200 with { file, item } on a valid reject, and writes the file with the read baseSha (t/4332)', async () => {
+    readFileWithVersionMock.mockResolvedValue({ content: VALID_RAW, version: 'v1' });
     const { status, body } = await invoke({
       method: 'POST',
       body: { nodeId: 'acc-001', decision: { status: 'rejected' }, expectedStatus: 'pending' },
@@ -165,11 +168,26 @@ describe('POST /api/pov-tag-proposals/review (t/4055)', () => {
     expect(b.item.status).toBe('rejected');
     expect(b.item.final).toEqual([]);
     expect(b.item.reviewed_by).toBe('test-reviewer');
-    expect(writeFileMock).toHaveBeenCalledWith(PROPOSALS_PATH, expect.any(String));
+    expect(writeFileMock).toHaveBeenCalledWith(PROPOSALS_PATH, expect.any(String), { baseSha: 'v1' });
+  });
+
+  it('a storage WRITE_CONFLICT surfaces as 409 with its code, not a generic 500 (t/4332)', async () => {
+    readFileWithVersionMock.mockResolvedValue({ content: VALID_RAW, version: 'v1' });
+    writeFileMock.mockRejectedValue(new ActionableError({
+      goal: 'g', problem: 'p', location: 'l', nextSteps: [], httpStatus: 409, code: 'WRITE_CONFLICT',
+    }));
+
+    const { status, body } = await invoke({
+      method: 'POST',
+      body: { nodeId: 'acc-001', decision: { status: 'rejected' }, expectedStatus: 'pending' },
+    });
+
+    expect(status).toBe(409);
+    expect((body as { code?: string } | undefined)?.code).toBe('WRITE_CONFLICT');
   });
 
   it('un-reviewed item is structurally identical after a decision', async () => {
-    readFileMock.mockResolvedValue(VALID_RAW);
+    readFileWithVersionMock.mockResolvedValue({ content: VALID_RAW, version: 'v1' });
     let writtenContent = '';
     writeFileMock.mockImplementation(async (_p, content) => { writtenContent = content; });
 

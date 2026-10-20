@@ -16,9 +16,9 @@ import path from 'path';
 import fs from 'fs/promises';
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error } from '../httpKit.js';
+import { json, error, statusForError, codeForError } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
-import { getTaxonomyDir, getBackend, readTaxonomyFile } from '../storage/fileIO.js';
+import { getTaxonomyDir, getBackend, readTaxonomyFile, readFileWithVersionOrFallback } from '../storage/fileIO.js';
 import { scheduleOverlayCommit } from '../storage/overlayCommitScheduler.js';
 import { isAnonymousUser, getCurrentUserId } from '../security/userContext.js';
 import {
@@ -139,9 +139,9 @@ export function registerPolicyRegistryRoutes(router: Router, ctx: ServerCtx): vo
       }
 
       // All I/O inside the lock (e/264#11 point 1)
-      const registryRaw = await getBackend().readFile(registryPath);
-      if (registryRaw === null) { error(res, 'policy_actions.json not found', 404); return; }
-      const registry = JSON.parse(registryRaw) as PolicyRegistry;
+      const read = await readFileWithVersionOrFallback(registryPath);
+      if (read === null) { error(res, 'policy_actions.json not found', 404); return; }
+      const registry = JSON.parse(read.content) as PolicyRegistry;
 
       // Fail closed: any POV-read failure propagates to the outer catch → 500. (p/575#47)
       const povFiles = await readAllPovFiles();
@@ -160,7 +160,7 @@ export function registerPolicyRegistryRoutes(router: Router, ctx: ServerCtx): vo
       // following commit on the GitHub backend (t/4258/t/4276 C3): this is a write outside
       // taxonomyDataSlice.save(), so it lands in the session overlay with nothing to commit it
       // unless scheduled here, same as the conflicts/cruxes/edges write paths (t/4277 C3).
-      await getBackend().writeFile(registryPath, serializePolicyRegistry(updatedRegistry));
+      await getBackend().writeFile(registryPath, serializePolicyRegistry(updatedRegistry), { baseSha: read.version });
       scheduleOverlayCommit(getCurrentUserId());
       const result: RecountPolicyMembersResult = { status: 'written', updated: updatedItems };
       json(res, result);
@@ -170,7 +170,7 @@ export function registerPolicyRegistryRoutes(router: Router, ctx: ServerCtx): vo
         message: 'Failed to recount policy member counts',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      error(res, String(err), 500, err);
+      error(res, (err as Error).message, statusForError(err), err, codeForError(err));
     } finally {
       if (onDisk) await fs.unlink(lockPath).catch(() => undefined);
     }
