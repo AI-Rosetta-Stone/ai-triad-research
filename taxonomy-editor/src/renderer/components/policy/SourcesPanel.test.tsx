@@ -36,11 +36,32 @@ vi.mock('@bridge', () => ({
   },
 }));
 
+const mockRecord = vi.hoisted(() => vi.fn());
 vi.mock('@lib/flight-recorder/index', () => ({
-  getGlobalRecorder: () => ({ record: vi.fn() }),
+  getGlobalRecorder: () => ({ record: mockRecord }),
 }));
 
 import { SourcesPanel } from './SourcesPanel';
+
+describe('SourcesPanel first-render timing (t/4336 step 0)', () => {
+  const firstRenders = () => mockRecord.mock.calls.map(c => c[0]).filter(e => e.message === 'sources-panel.first-render');
+
+  it('records time to data with the cache state and the counts, once per open', async () => {
+    mockRecord.mockClear();
+    const { unmount } = render(<SourcesPanel nodeId="acc-B-001" />);
+    await waitFor(() => expect(firstRenders()).toHaveLength(1));
+    const e = firstRenders()[0];
+    expect(e).toMatchObject({ component: 'sources-panel', level: 'info', data: { nodeId: 'acc-B-001', refs: 2, rows: 1 } });
+    expect(['hit', 'miss']).toContain(e.data.cache);
+    expect(typeof e.data.ms).toBe('number');
+    unmount();
+
+    // A second open reuses the loaded index, so it reports a cache hit.
+    render(<SourcesPanel nodeId="acc-B-001" />);
+    await waitFor(() => expect(firstRenders()).toHaveLength(2));
+    expect(firstRenders()[1].data.cache).toBe('hit');
+  });
+});
 
 describe('SourcesPanel', () => {
   it('shows empty state when no sources match the nodeId', async () => {
