@@ -464,13 +464,17 @@ export function isLocalDeployment(): boolean {
 // TL-approved (t/4299, p/538#77): the cache is now EPHEMERAL on a cold start (new
 // revision / scale-from-zero) in github-api mode — every manifest-known path re-fetches
 // from GitHub instead of reading a warm local cache. Cost arithmetic at the point of
-// use, per the TL's condition #1: ~110 GitHub API calls per cold start (the manifest's
-// typical file count), against a ~5000/hr authenticated rate-limit budget — about 2%
-// of the budget per cold start. At prod's observed ~1 cold start/hour (t/4258's
-// scale-to-zero cooldown), that's a steady ~2% of the budget, not a multiplying cost.
+// use, re-done (t/4300#19, #25) from a real prod measurement after this was live: the
+// ~110-calls-per-cold-start estimate (the manifest's typical file count) assumed every
+// manifest path re-fetches on boot, but most reads go through session-branch or
+// uninstrumented paths that don't round-trip GitHub per file — the observed boot cost
+// was 21 GitHub calls (getRequestMetrics(), prod revision ...6qtd6, t/4300#25), against
+// a ~5000/hr authenticated rate-limit budget — about 0.4% of the budget per cold start.
+// At prod's observed ~1 cold start/hour (t/4258's scale-to-zero cooldown), that's a
+// steady ~0.4% of the budget, not a multiplying cost.
 // RECHECK TRIGGER: if the scale-to-zero cooldown or polling cadence changes (t/4258's
 // work), or cold-start frequency measurably increases, re-verify this math still holds
-// before assuming it's still ~2%.
+// before assuming it's still ~0.4%.
 //
 // The final homedir default stays a user-private dir (not world-writable /tmp) to
 // avoid symlink-race vulns (CodeQL js/insecure-temporary-file); AI_TRIAD_DATA_ROOT
