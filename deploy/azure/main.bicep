@@ -593,6 +593,11 @@ var baseEnv = [
   // green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
   // ExpectedEnvVars config-drift gate (Gate Co-Location — the gate verifies this value is deployed).
   { name: 'EMBEDDING_WORKER_OFFLOAD', value: '1' }
+  // t/4312/#3467: PI-approved overlay-commit conflict fence (p/331#2174). Lands ON for both
+  // prod and staging with #3469/#3470's server code, which reads this flag from the
+  // environment and defaults OFF when unset — this entry is what actually arms it. MUST stay
+  // in sync with deploy-azure.yml's ExpectedEnvVars config-drift gate (Gate Co-Location).
+  { name: 'OVERLAY_CONFLICT_STATE_ENABLED', value: '1' }
   // t/4298: both GROUNDING_RECONCILE_INLINE (G8a, was '1') and GROUNDING_SWEEP_ENABLED (G8b, was
   // '1') removed from hosted profiles.
   // - G8b: groundingSweepScheduler.ts's decideSweepArm returns 'blocked-github-api' on the hosted
