@@ -175,6 +175,15 @@ export async function listDebateSessions(): Promise<unknown[]> {
   return summaries.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
 }
 
+/** t/4338: quota-exempt sessions (`saveDebateSession(..., {excludeFromQuota: true})`)
+ *  are stored under this prefix instead of `debate-`, so the quota count
+ *  (`getDebatesQuotaStatus`, filters `startsWith('debate-')`) and the listing
+ *  scan (`listDebateSessions`, same filter plus `-debate.json`) both skip them
+ *  structurally — no per-file `origin` read on every quota check or list. */
+function quotaExemptDebatePath(id: string): string {
+  return path.join(getDebatesDir(), `inquiry-debate-${id}.json`);
+}
+
 export async function loadDebateSession(id: string): Promise<unknown> {
   assertSafeId(id, 'debate id');
   if (isAnonymousUser()) {
@@ -186,16 +195,20 @@ export async function loadDebateSession(id: string): Promise<unknown> {
   const backend = getUserContentBackend();
   const filePath = path.join(getDebatesDir(), `debate-${id}.json`);
   const raw = await backend.readFile(filePath);
-  if (raw === null) {
-    log.server.info({ backendName: backend.backendName, debateId: id, blobKey: filePath, result: 'not-found' }, 'Debate session not found on backend');
-    throw new ActionableError({
-      goal: 'Load debate session',
-      problem: `Debate session not found: ${id}`,
-      location: 'server/fileIO.ts → loadDebateSession',
-      nextSteps: ['Verify the debate ID exists via listDebateSessions()'],
-    });
-  }
-  return JSON.parse(raw);
+  if (raw !== null) return JSON.parse(raw);
+
+  // t/4338: not found under the normal key — try the quota-exempt key before
+  // reporting not-found, so a quota-exempt (e.g. inquiry) session still loads.
+  const exemptRaw = await backend.readFile(quotaExemptDebatePath(id));
+  if (exemptRaw !== null) return JSON.parse(exemptRaw);
+
+  log.server.info({ backendName: backend.backendName, debateId: id, blobKey: filePath, result: 'not-found' }, 'Debate session not found on backend');
+  throw new ActionableError({
+    goal: 'Load debate session',
+    problem: `Debate session not found: ${id}`,
+    location: 'server/fileIO.ts → loadDebateSession',
+    nextSteps: ['Verify the debate ID exists via listDebateSessions()'],
+  });
 }
 
 /** Debate quota status for the current (non-anonymous) user — the exact count +
@@ -206,6 +219,31 @@ export async function getDebatesQuotaStatus(): Promise<QuotaCheckResult> {
   const files = (await getUserContentBackend().listDirectory(getDebatesDir()))
     .filter(f => f.startsWith('debate-') && f.endsWith('.json'));
   return checkQuota('debates', files.length);
+}
+
+/** Shared write-then-map-conflict tail for every versioned save in this
+ *  module — one backend.writeFile under baseSha, WRITE_CONFLICT recorded and
+ *  mapped to the same typed 409 everywhere, any other error rethrown as-is. */
+async function writeVersionedOrThrowConflict(
+  backend: StorageBackend, filePath: string, json: string, baseSha: string | undefined, entityId: string, currentVersion: number,
+): Promise<void> {
+  try {
+    await backend.writeFile(filePath, json, { baseSha });
+  } catch (err) {
+    if (!isWriteConflict(err)) throw err;
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'debate-store', level: 'warn',
+      message: `Save hit a backend WRITE_CONFLICT (concurrent write detected): ${entityId}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    throw debateVersionConflict(entityId, currentVersion);
+  }
+}
+
+async function enforceDebateQuota(): Promise<void> {
+  const q = await getDebatesQuotaStatus();
+  if (q.allowed) return;
+  throw Object.assign(new ActionableError({ goal: 'Save debate session', problem: `Debate quota exceeded (${q.current}/${q.limit})`, location: 'server/fileIO.ts → saveDebateSession', nextSteps: ['Delete existing debates to free space'] }), { statusCode: 429, quotaInfo: q });
 }
 
 /**
@@ -226,9 +264,19 @@ export async function getDebatesQuotaStatus(): Promise<QuotaCheckResult> {
  * behavior for back-compat, logging a once-per-user WARN so renderer
  * adoption is visible (condition 3; follow-up ticket makes it mandatory once
  * the WARN count is zero for 7 days).
+ *
+ * `opts.excludeFromQuota` (t/4338, CL review on #3511): stores the session
+ * under `inquiry-debate-<id>.json` instead of `debate-<id>.json`. Neither the
+ * quota count (`getDebatesQuotaStatus`) nor the listing scan
+ * (`listDebateSessions`) match that prefix, so an excluded session never
+ * consumes a debate slot and never appears in the user's debate list —
+ * structurally, not via a per-file read. It also skips the lightweight index
+ * (which backs the list), for the same reason. `loadDebateSession` still
+ * finds it via a fallback, so a direct-by-id load (e.g. "View raw run")
+ * works unchanged.
  */
 export async function saveDebateSession(
-  session: unknown, caller: string, opts?: { expectedVersion?: number; mustNotExist?: boolean },
+  session: unknown, caller: string, opts?: { expectedVersion?: number; mustNotExist?: boolean; excludeFromQuota?: boolean },
 ): Promise<{ newVersion: number }> {
   const s = session as { id: string; title?: string; topic?: { final?: string; original?: string }; created_at?: string; updated_at?: string; phase?: string; _saveVersion?: number };
   assertSafeId(s.id, 'debate id');
@@ -238,37 +286,23 @@ export async function saveDebateSession(
     return { newVersion: (s._saveVersion ?? 0) + 1 };
   }
   const backend = getUserContentBackend();
-  const debatePath = path.join(getDebatesDir(), `debate-${s.id}.json`);
+  const debatePath = opts?.excludeFromQuota ? quotaExemptDebatePath(s.id) : path.join(getDebatesDir(), `debate-${s.id}.json`);
   const { existing, currentVersion } = await resolveVersionedWrite(backend, debatePath, s.id, 'debate', opts);
-  if (existing === null) {
-    const q = await getDebatesQuotaStatus();
-    if (!q.allowed) {
-      throw Object.assign(new ActionableError({ goal: 'Save debate session', problem: `Debate quota exceeded (${q.current}/${q.limit})`, location: 'server/fileIO.ts → saveDebateSession', nextSteps: ['Delete existing debates to free space'] }), { statusCode: 429, quotaInfo: q });
-    }
-  }
+  if (existing === null && !opts?.excludeFromQuota) await enforceDebateQuota();
   const newVersion = resolveSaveVersion(session as Record<string, unknown>, currentVersion, opts !== undefined);
   const bodyToWrite = opts !== undefined ? { ...(session as object), _saveVersion: newVersion } : session;
   const { json, hadError, errorMessage } = safeSerialize(bodyToWrite, 2);
   if (hadError) {
     log.server.warn({ debateId: s.id, errorMessage }, 'Debate session serialized with sanitizing replacer — non-serializable fields stripped');
   }
-  try {
-    await backend.writeFile(debatePath, json, { baseSha: existing ? existing.version : '' });
-  } catch (err) {
-    if (isWriteConflict(err)) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'debate-store', level: 'warn',
-        message: `Debate session save hit a backend WRITE_CONFLICT (concurrent write detected): ${s.id}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      throw debateVersionConflict(s.id, currentVersion);
-    }
-    throw err;
-  }
+  await writeVersionedOrThrowConflict(backend, debatePath, json, existing ? existing.version : '', s.id, currentVersion);
   log.server.info({ caller, debateId: s.id, backendName: backend.backendName, blobKey: debatePath, bytes: json.length, writeAck: true }, 'Debate session saved');
-  // Maintain the lightweight index
-  void upsertDebateIndex(buildDebateIndexEntry(s.id, { ...(session as DebateSession), _saveVersion: newVersion }))
-    .catch((err) => { log.server.warn({ err }, 'Debate index upsert failed (best-effort)'); });
+  // Maintain the lightweight index — skipped for quota-exempt sessions, which
+  // must not surface in the user's debate list (t/4338).
+  if (!opts?.excludeFromQuota) {
+    void upsertDebateIndex(buildDebateIndexEntry(s.id, { ...(session as DebateSession), _saveVersion: newVersion }))
+      .catch((err) => { log.server.warn({ err }, 'Debate index upsert failed (best-effort)'); });
+  }
   return { newVersion };
 }
 
@@ -433,19 +467,7 @@ export async function applyDebateDeltaToStorage(delta: DebateDelta): Promise<{ n
   if (hadError) {
     log.server.warn({ debateId: delta.debateId, errorMessage }, 'Delta-merged debate session serialized with sanitizing replacer — non-serializable fields stripped');
   }
-  try {
-    await backend.writeFile(debatePath, json, { baseSha: existingWithVersion.version });
-  } catch (err) {
-    if (isWriteConflict(err)) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'debate-store', level: 'warn',
-        message: `Delta-merged debate save hit a backend WRITE_CONFLICT (concurrent write detected): ${delta.debateId}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      throw debateVersionConflict(delta.debateId, currentVersion);
-    }
-    throw err;
-  }
+  await writeVersionedOrThrowConflict(backend, debatePath, json, existingWithVersion.version, delta.debateId, currentVersion);
   void upsertDebateIndex(buildDebateIndexEntry(delta.debateId, merged))
     .catch((err) => { log.server.warn({ err }, 'Debate index upsert failed (best-effort)'); });
 
@@ -493,19 +515,7 @@ export async function saveDebateComments(
   const newVersion = resolveSaveVersion(data as Record<string, unknown>, currentVersion, opts !== undefined);
   const bodyToWrite = opts !== undefined ? { ...(data as object), _saveVersion: newVersion } : data;
   const json = JSON.stringify(bodyToWrite, null, 2);
-  try {
-    await backend.writeFile(filePath, json, { baseSha: existing ? existing.version : '' });
-  } catch (err) {
-    if (isWriteConflict(err)) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'debate-store', level: 'warn',
-        message: `Debate comments save hit a backend WRITE_CONFLICT (concurrent write detected): ${debateId}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      throw debateVersionConflict(debateId, currentVersion);
-    }
-    throw err;
-  }
+  await writeVersionedOrThrowConflict(backend, filePath, json, existing ? existing.version : '', debateId, currentVersion);
   return { newVersion };
 }
 
@@ -582,19 +592,7 @@ export async function saveChatSession(session: unknown, opts?: { expectedVersion
   const newVersion = resolveSaveVersion(session as Record<string, unknown>, currentVersion, opts !== undefined);
   const bodyToWrite = opts !== undefined ? { ...(session as object), _saveVersion: newVersion } : session;
   const json = JSON.stringify(bodyToWrite, null, 2);
-  try {
-    await backend.writeFile(chatPath, json, { baseSha: existing ? existing.version : '' });
-  } catch (err) {
-    if (isWriteConflict(err)) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'debate-store', level: 'warn',
-        message: `Chat session save hit a backend WRITE_CONFLICT (concurrent write detected): ${s.id}`,
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      throw debateVersionConflict(s.id, currentVersion);
-    }
-    throw err;
-  }
+  await writeVersionedOrThrowConflict(backend, chatPath, json, existing ? existing.version : '', s.id, currentVersion);
   return { newVersion };
 }
 
