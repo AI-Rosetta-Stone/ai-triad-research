@@ -35,6 +35,9 @@ const OVERLAY_COMMIT_MAX_WAIT_MS = 10_000;
 const OVERLAY_COMMIT_MAX_RETRIES = 2;
 
 export type OverlayCommitStatus = { state: 'pending' | 'committed' | 'failed'; at: number; error?: string };
+// @INMEMORY_CACHE_SINGLE_REPLICA (t/4181, Server Storage ruling t/4181#9): these per-user pending-commit
+// maps are process-local. With >1 replica and no affinity a read on another replica is up to ~10s stale,
+// and concurrent same-file commits lose an update on retry. Remove only once this state is replica-safe.
 const overlayCommitStatus = new Map<string, OverlayCommitStatus>();
 const pendingOverlayCommits = new Map<string, { debounceTimer: ReturnType<typeof setTimeout>; maxWaitTimer: ReturnType<typeof setTimeout> }>();
 // A user whose commit just failed and is waiting out its retry backoff is in
