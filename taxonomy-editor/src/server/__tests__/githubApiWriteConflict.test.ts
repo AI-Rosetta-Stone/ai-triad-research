@@ -528,8 +528,12 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
 
   // t/4224 (p/538#43, TL): collapsing 'absent' (404 — a genuinely missing
   // file) into 'unavailable' made every session-branch write that CREATES a
-  // path 503. A writer with no baseSha must skip the live lookup entirely.
-  it('a new path with no baseSha succeeds and makes no Contents lookup', async () => {
+  // path 503. A writer with no baseSha must skip the PRECONDITION check (a
+  // 404 here is never the conflict it would be with one). t/4312 (TL's
+  // condition 1) adds a *separate* lookup regardless of precondition, to
+  // record a base for the commit-time fence — this test now expects exactly
+  // one Contents call for that, not zero.
+  it('a new path with no baseSha succeeds — skips the precondition check, but t/4312 still does one Contents lookup to record a base for the commit-time fence', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
 
@@ -542,7 +546,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — session-branch version re
     const result = await backend.writeFile('/taxonomy/new-node.json', '{"new": true}');
 
     expect(result.version).toBeTruthy();
-    expect(contentsLookups).toBe(0);
+    expect(contentsLookups).toBe(1);
 
     backend.shutdown();
   });

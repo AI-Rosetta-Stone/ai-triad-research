@@ -24,7 +24,7 @@ import { getBackend } from './fileIO.js';
 interface OverlayCommittable {
   commitOverlay(
     userId: string, message?: string, opts?: { branchName?: string },
-  ): Promise<{ commitSha: string; filesCommitted: number } | null>;
+  ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null>;
 }
 function supportsOverlayCommit(b: StorageBackend): b is StorageBackend & OverlayCommittable {
   return typeof (b as unknown as { commitOverlay?: unknown }).commitOverlay === 'function';
@@ -34,7 +34,7 @@ const OVERLAY_COMMIT_DEBOUNCE_MS = 2_000;
 const OVERLAY_COMMIT_MAX_WAIT_MS = 10_000;
 const OVERLAY_COMMIT_MAX_RETRIES = 2;
 
-export type OverlayCommitStatus = { state: 'pending' | 'committed' | 'failed'; at: number; error?: string };
+export type OverlayCommitStatus = { state: 'pending' | 'committed' | 'failed'; at: number; error?: string; conflictedPaths?: string[] };
 const overlayCommitStatus = new Map<string, OverlayCommitStatus>();
 const pendingOverlayCommits = new Map<string, { debounceTimer: ReturnType<typeof setTimeout>; maxWaitTimer: ReturnType<typeof setTimeout> }>();
 // A user whose commit just failed and is waiting out its retry backoff is in
@@ -82,8 +82,11 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     // setTimeout, outside any request's AsyncLocalStorage scope, so
     // GitHubAPIBackend.getEffectiveRef() would otherwise fall back to
     // baseBranch and commitOverlayImpl would throw on every scheduled commit.
-    await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
-    overlayCommitStatus.set(userId, { state: 'committed', at: Date.now() });
+    const result = await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
+    overlayCommitStatus.set(userId, {
+      state: 'committed', at: Date.now(),
+      ...(result?.conflictedPaths?.length ? { conflictedPaths: result.conflictedPaths } : {}),
+    });
     const commitsInLastHour = recordCommitRate(userId);
     getGlobalRecorder()?.record({
       type: 'overlay.commit.rate',
