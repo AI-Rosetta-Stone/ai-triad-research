@@ -37,6 +37,7 @@ import { registerSupportRoutes } from './support.js';
 import { registerHarvestRoutes } from './harvest.js';
 import { registerSourcesRoutes } from './sources.js';
 import { registerSyncRoutes } from './sync.js';
+import { registerOverlayConflictsRoutes } from './overlayConflicts.js';
 import { registerSessionRoutes } from './session.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerCanaryRoutes } from './canary.js';
@@ -73,6 +74,7 @@ export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   registerHarvestRoutes(router, ctx);
   registerSourcesRoutes(router, ctx);
   registerSyncRoutes(router, ctx);
+  registerOverlayConflictsRoutes(router, ctx); // t/4312/t/4315 — /api/sync/overlay-conflicts/{use-theirs,keep-mine}; unique prefix, order-independent
   registerSessionRoutes(router, ctx);
   registerPreferencesRoutes(router, ctx);
   registerNodeDeleteLogRoutes(router, ctx); // t/3860 — POST /api/node-delete-log (node-deletion audit log)
