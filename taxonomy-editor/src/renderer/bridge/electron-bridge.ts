@@ -138,9 +138,17 @@ export const api: AppAPI = {
   bulkUpdateEdges: (indices, s) => window.electronAPI.bulkUpdateEdges(indices, s),
   buildNodeSourceIndex: () => window.electronAPI.buildNodeSourceIndex(),
   buildPolicySourceIndex: () => window.electronAPI.buildPolicySourceIndex(),
-  // t/4335: optional-chaining fallback until ElectronMain's IPC handler lands (child ticket
-  // filed) — an empty-but-valid shape, not null, so a caller doesn't need its own null guard.
-  getNodeSources: (nodeId) => window.electronAPI.getNodeSources?.(nodeId) ?? Promise.resolve({ sources: [], cards: {}, indexVersion: 0 }),
+  // t/4335: ElectronMain's IPC handler is tracked separately (t/4342) and not installed yet.
+  // Reject loudly (not an empty-but-valid fallback) — an empty Sources tab would otherwise
+  // look like "no sources" instead of "transport missing" (Rosetta review, p/528#145).
+  getNodeSources: (nodeId) => window.electronAPI.getNodeSources
+    ? window.electronAPI.getNodeSources(nodeId)
+    : Promise.reject(new ActionableError({
+      goal: 'Load sources for this node',
+      problem: 'The desktop IPC handler for getNodeSources is not installed in this build (t/4342).',
+      location: 'electron-bridge.getNodeSources',
+      nextSteps: ['Update to a desktop build that includes the node-source-index IPC handler (t/4342).'],
+    })),
 
   // Conflict CRUD
   loadConflictFiles: () => window.electronAPI.loadConflictFiles(),
