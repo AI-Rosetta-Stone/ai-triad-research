@@ -50,6 +50,13 @@ jobs:
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
 
+            // t/4351: since the author-App switch-over, pr.user.login is a bot handle and no
+            // longer names a notifiable human -- the nudge below uses this to say WHICH role's
+            // branch is green, while still @-mentioning the one shared human account.
+            const { pathToFileURL } = require('url');
+            const { ownerSlugFromBranch } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/t1-approval-guard-predicate.mjs`).href);
+            const HUMAN_LOGIN = 'jpsnover'; // the one shared GitHub account across the fleet (docs/agent-pr-approval.md)
+
             // ── 1. Semver helpers ──────────────────────────────────────────────────
             // Numeric comparison — "9.0.0" < "10.0.0" correctly.
             function parseSemver(v) {
@@ -74,7 +81,9 @@ jobs:
             // github-actions[bot] is only used as a git commit identity in this
             // repo (cluster-conflicts.yml commits directly; it does NOT open PRs).
             // Keeping it in BOT_LOGINS as a safe guard in case that changes.
-            const BOT_LOGINS = new Set(['dependabot[bot]', 'github-actions[bot]']);
+            // ai-triad-author-jpsnover[bot] (t/4351, t/4096 step 2): the author App now opens
+            // every agent PR. Without this entry those PRs misclassify as human "fleet" PRs.
+            const BOT_LOGINS = new Set(['dependabot[bot]', 'github-actions[bot]', 'ai-triad-author-jpsnover[bot]']);
             const botPRs   = allPRs.filter(pr => BOT_LOGINS.has(pr.user.login));
             const fleetPRs = allPRs.filter(pr => !BOT_LOGINS.has(pr.user.login));
             core.info(`Bot: ${botPRs.length}, Fleet: ${fleetPRs.length}`);
@@ -353,8 +362,9 @@ jobs:
 
               // Post nudge comment
               const elapsedMin = Math.round((nowMs - greenAt) / 60000);
+              const ownerSlug = ownerSlugFromBranch(pr.head.ref);
               const nudgeBody = [
-                `@${pr.user.login} CI has been green for ${elapsedMin} min — merge when ready,`,
+                `@${HUMAN_LOGIN} CI has been green for ${elapsedMin} min on the \`${ownerSlug || pr.head.ref}\` PR — merge when ready,`,
                 `or add a comment starting with \`HOLD: <reason>\` to suppress this nudge.`,
                 nudgeMarker,
               ].join('\n');
@@ -365,7 +375,7 @@ jobs:
                 });
               }
               nudgedPRs.push({ pr, elapsedMin });
-              core.info(`${dryRun ? '[DRY]' : '[LIVE]'} Nudge #${pr.number} (green ${elapsedMin} min, @${pr.user.login})`);
+              core.info(`${dryRun ? '[DRY]' : '[LIVE]'} Nudge #${pr.number} (green ${elapsedMin} min, owner=${ownerSlug || pr.head.ref})`);
             }
 
             // ── 8. Job summary ────────────────────────────────────────────────────
