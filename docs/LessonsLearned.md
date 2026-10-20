@@ -2394,6 +2394,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 
 **Facet 5 (2026-09-29, DebateTool p/70#29):** `gh pr close` exits 1 "already merged" when GitHub auto-marked the PR merged via a local `git merge` of its branch. No action needed — PR is correctly merged. Prevention: `gh pr view --json state` before `gh pr close`; skip if MERGED.
 
+**8th instance (DevOps Worker p/749#30, 2026-10-20):** `gh pr close <n> --delete-branch` — same Facet 1 (checkout-main blocked by worktree). Resolved: `git worktree remove .worktrees/<name>` first, then `git push origin --delete <branch>` for the remote side. Confirms `--delete-branch` on `gh pr close` triggers the same local-checkout-main failure as `gh pr merge --delete-branch`.
+
 **Gate (2026-08-15):** Feedback rule `worktree-delete-branch-guard` (workspace scope, PreToolUse Bash|PowerShell) now intercepts `--delete-branch` invocations and prompts `git worktree list` → `git worktree remove` before proceeding, with a pointer to /land-from-worktree. AGENTS.md pre-merge checklist update pending human approval (TL p/447#4).
 
 **Applies To:** Every worktree PR-flow lander — i.e. everyone using `/land-from-worktree` step 5.
@@ -5276,7 +5278,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 5 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 6 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5885,7 +5887,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **If a packages API call is necessary, confirm the token has `read:packages` scope first** (`gh auth status` shows current scopes). A 403 here is a scope problem, not a permissions or visibility problem.
 3. **URL-encode the package name carefully** — slashes and colons in container image names must be percent-encoded; "package not found" on a known package is a reliable diagnostic for encoding error.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#188).
+**Status:** Active — 2 instances (DevOps Lead p/26#188; DevOps Lead p/26#218 — `gh api orgs/.../packages/container/taxonomy-editor/versions` 403; confirmed build success via `gh run view --json conclusion` instead).
 
 **Applies To:** All agents diagnosing container image or tag availability; always check the deploy workflow log before reaching for the packages API.
 
@@ -6310,3 +6312,42 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#212).
 
 **Applies To:** All agents arming auto-merge; check mergeStateStatus first and merge directly when already CLEAN.
+---
+
+## #312 [Build] `git push` Rejected Non-Fast-Forward After Rebase — Use `--force-with-lease` on Own Unshared PR Branch
+
+**Pattern:** An agent rebases a feature branch onto a newer `origin/main` mid-session. A subsequent `git push origin <branch>` is rejected with "non-fast-forward" because the remote branch still holds the pre-rebase history. The plain push cannot reconcile the rewritten history.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#28): feature branch rebased onto newer `origin/main`; plain `git push` rejected. Resolved with `git push --force-with-lease origin <branch>` — safe because the branch was unshared (own PR branch) and the lease verified the remote tip matched the last fetch.
+
+**Root Cause:** A rebase rewrites commit history; the remote branch diverges from the new local history after rebasing. Plain push cannot overwrite without a force flag.
+
+**Prevention:**
+1. **After rebasing an own PR branch, use `git push --force-with-lease`** (not `--force`). The lease verifies the remote tip matches what you last fetched, so a concurrent push by another agent is caught and rejected rather than silently overwritten.
+2. **Only use force-push on branches you own and that are unshared** — a branch with only your commits, no collaborators directly pushing to it.
+3. **A non-fast-forward rejection after a rebase is expected** — it is not a sign the rebase failed. Use `--force-with-lease` to proceed safely.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#28).
+
+**Applies To:** All agents rebasing feature/PR branches; use `--force-with-lease` to push after rebase on own unshared branches.
+
+---
+
+## #313 [Build] `git commit -- <pathspec> -m "msg"` Treats `-m` as Pathspec — Always Put Options Before `--`
+
+**Pattern:** An agent runs `git commit -- docs/LessonsLearned.md -m "commit message"`. Git returns: "pathspec '-m' did not match any file(s) known to git." The `--` separator ends option parsing; every argument after it — including `-m` and the message — is interpreted as a pathspec, not a flag.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#216): `git commit -- docs/... -m "msg"` failed with "pathspec '-m' did not match any file(s)". Resolved by reordering: `git commit -m "msg" -- docs/...`.
+
+**Root Cause:** POSIX convention: `--` signals the end of options. Git honours this strictly — anything after `--` is a positional argument (pathspec), never an option flag.
+
+**Prevention:**
+1. **Always place all options before the `--` separator:** `git commit -m "msg" -F <file> -- <pathspec>`, never `git commit -- <pathspec> -m "msg"`.
+2. **"pathspec '-m' did not match any file(s)"** is the diagnostic for this mistake — `-m` was parsed as a pathspec, not a flag.
+3. **Same rule applies to other git subcommands** (`git log`, `git diff`, `git show`) that accept `--` as a pathspec separator.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#216).
+
+**Applies To:** All agents constructing git commands with pathspec separators; options must precede `--`.
