@@ -85,7 +85,7 @@ jobs:
           }
 
           if (-not $QueryOk) {
-            Write-Warning "t/4340: cold-replica check skipped (Azure login outcome: ${{ steps.azlogin.outcome }}, or ARM query failed) — running the HTTP probe anyway rather than assuming healthy."
+            Write-Host "::warning title=t/4340 cold-check skipped::Azure login outcome=${{ steps.azlogin.outcome }}; cold-replica check skipped, HTTP probe ran"
           } else {
             Write-Host "Active revision: $ActiveRevision — replica count: $ReplicaCount"
             if ($ReplicaCount -eq 0) {
