@@ -107,7 +107,7 @@ function Get-AgentAppToken {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][ValidateSet('author', 'reviewer', 'maintainer')][string] $Role,
-        [ValidateSet('ai-triad-research', 'ai-triad-data')][string] $Repository = 'ai-triad-research',
+        [ValidateSet('ai-triad-research', 'ai-triad-data', 'app-scratch')][string] $Repository = 'ai-triad-research',
         [switch] $AsPlainText,
         [string] $Vault = $script:AgentAppVault
     )
@@ -116,13 +116,43 @@ function Get-AgentAppToken {
     ConvertTo-SecureString -String $token -AsPlainText -Force
 }
 
+function Get-AgentAppAccessibleRepoNames {
+    # PRIVATE: mints a throwaway UNRESTRICTED token (no repositories/repository_ids field,
+    # so GitHub grants every repo the installation is actually configured for), lists
+    # /installation/repositories, then revokes it. Used only to build an honest error message
+    # naming the installation's real repos (t/4096#56-59) -- never returned to a caller.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string] $Jwt, [Parameter(Mandatory)] $App)
+    $uri = "https://api.github.com/app/installations/$($App.InstallationId)/access_tokens"
+    $headers = @{ Authorization = "Bearer $Jwt"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+    $body = @{ permissions = $App.Permissions } | ConvertTo-Json -Compress -Depth 3
+    $probeToken = $null
+    try {
+        $resp = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $body -ContentType 'application/json'
+        $probeToken = $resp.token
+        $listHeaders = @{ Authorization = "Bearer $probeToken"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+        $repos = Invoke-RestMethod -Uri 'https://api.github.com/installation/repositories?per_page=100' -Headers $listHeaders -Method Get
+        @($repos.repositories | ForEach-Object { $_.name })
+    } catch {
+        @()
+    } finally {
+        if ($probeToken) {
+            try {
+                Invoke-RestMethod -Method Delete -Uri 'https://api.github.com/installation/token' -Headers @{
+                    Authorization = "Bearer $probeToken"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28'
+                } | Out-Null
+            } catch { Write-Warning "AgentAppToken: could not revoke the repo-listing probe token ($($_.Exception.Message)); it expires on its own within 1 hour." }
+        }
+    }
+}
+
 function New-AgentAppInstallationToken {
     # PRIVATE: returns the plaintext token. Called only by Get-AgentAppToken and
     # Invoke-AsAgentApp, which keep it out of the output stream.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][ValidateSet('author', 'reviewer', 'maintainer')][string] $Role,
-        [Parameter(Mandatory)][ValidateSet('ai-triad-research', 'ai-triad-data')][string] $Repository,
+        [Parameter(Mandatory)][ValidateSet('ai-triad-research', 'ai-triad-data', 'app-scratch')][string] $Repository,
         [string] $Vault = $script:AgentAppVault
     )
     $ErrorActionPreference = 'Stop'
@@ -143,8 +173,23 @@ function New-AgentAppInstallationToken {
     try {
         $resp = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $body -ContentType 'application/json'
     } catch {
-        throw (New-AgentAppTokenError -Problem "GitHub refused to mint an installation token for $($app.Slug): $($_.Exception.Message)" `
-            -NextSteps 'Check the App ID and Installation ID match the installed App, and that the private key is the current one for that App.')
+        $actual = Get-AgentAppAccessibleRepoNames -Jwt $jwt -App $app
+        $named = if ($actual.Count) { "Its actual repos: $($actual -join ', ')." } else { 'Could not list its actual repos either -- check the private key and installation ID.' }
+        throw (New-AgentAppTokenError -Problem "GitHub refused to mint a token for $($app.Slug) scoped to '$Repository': $($_.Exception.Message)" `
+            -NextSteps "'$Repository' is likely not in this installation's repository access. $named Add it under org Settings -> GitHub Apps -> $($app.Slug) -> Configure -> Repository access, or request one of the listed repos.")
+    }
+    # t/4096#56-59: GitHub can silently DROP an unrecognized repo name from `repositories`
+    # instead of erroring (observed live -- the request succeeded, but the installation
+    # had not actually been granted the requested repo, and the symptom was a token quietly
+    # scoped to nothing useful rather than a clear failure). Verify the response actually
+    # granted the repo we asked for; never hand back a token whose real scope silently
+    # differs from what the caller requested.
+    $granted = @($resp.repositories | ForEach-Object { $_.name })
+    if ($Repository -notin $granted) {
+        $actual = Get-AgentAppAccessibleRepoNames -Jwt $jwt -App $app
+        $named = if ($actual.Count) { "Its actual repos: $($actual -join ', ')." } else { 'Listing its actual repos also returned nothing -- check the installation.' }
+        throw (New-AgentAppTokenError -Problem "GitHub minted a token for $($app.Slug) but did not grant '$Repository' -- it is not in this installation's repository access (silently dropped, not a hard failure)." `
+            -NextSteps "$named Add '$Repository' under org Settings -> GitHub Apps -> $($app.Slug) -> Configure -> Repository access, or request one of the listed repos.")
     }
     $resp.token
 }
@@ -159,7 +204,7 @@ function Invoke-AsAgentApp {
     param(
         [Parameter(Mandatory)][ValidateSet('author', 'reviewer', 'maintainer')][string] $Role,
         [Parameter(Mandatory)][scriptblock] $ScriptBlock,
-        [ValidateSet('ai-triad-research', 'ai-triad-data')][string] $Repository = 'ai-triad-research'
+        [ValidateSet('ai-triad-research', 'ai-triad-data', 'app-scratch')][string] $Repository = 'ai-triad-research'
     )
     $previous = $env:GH_TOKEN
     $token = $null

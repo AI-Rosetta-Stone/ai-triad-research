@@ -28,6 +28,12 @@ export interface ResolvedTier {
    */
   serverProvidedKey?: boolean;
   pinnedModel?: string;
+  /**
+   * t/4296: orthogonal to `level` (AI quota/backend access) — a read-only user still
+   * gets their normal AI tier, but every mutating `/api/*` route rejects them (server.ts
+   * enforceReadOnlyGuard). Absent/false for everyone except explicitly configured entries.
+   */
+  readOnly?: boolean;
 }
 
 interface TierDefaults {
@@ -42,6 +48,8 @@ interface TierUserEntry {
   github?: string;
   tier: 'platform' | 'byok';
   overrides?: Partial<TierLimits>;
+  /** t/4296: see ResolvedTier.readOnly. */
+  readOnly?: boolean;
 }
 
 interface TierConfig {
@@ -241,5 +249,6 @@ export function resolveTier(principalName: string, idp: string): ResolvedTier {
       tokensPerDay: user?.overrides?.tokensPerDay ?? d.tokensPerDay,
     },
     allowedBackends: d.allowedBackends,
+    readOnly: user?.readOnly ?? false,
   };
 }

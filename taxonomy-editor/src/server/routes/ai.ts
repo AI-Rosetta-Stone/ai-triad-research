@@ -21,7 +21,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { callerTierIdentity, missingApiKeyError, expiredAuthCookies } from '../security/accessControl.js';
 import { getCurrentUser, getCurrentUserId, getStorageUserId } from '../security/userContext.js';
 import * as allowlistStore from '../storage/allowlistStore.js';
-import type { GenerateTextProgress } from '../ai/aiBackends.js';
+import { EMBEDDING_COMPUTE_CHUNK, EMBEDDINGS_REQUEST_TIMEOUT_MS, type GenerateTextProgress } from '../ai/aiBackends.js';
 import { log, getRequestContext, getRequestId } from '../logger.js';
 import { DEFAULT_MODEL } from '../../../../lib/ai-client/index.js';
 import { hasApiKey, getPaidGeminiFallbackKey, type AIBackend } from '../config.js';
@@ -632,7 +632,19 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
   // mode). Two rungs of the same ladder, different meanings.
   const LARGE_RECOMPUTE_WARN_ITEMS = 64;
 
-  post('/api/embeddings/compute', (req, res, body) => withEndpointTimeout(res, 50_000, 'embeddings-compute', async () => {
+  post('/api/embeddings/compute', (req, res, body) => {
+    // t/4287: chunks run SEQUENTIALLY inside resolveEmbeddingsChunked, not in parallel — a
+    // flat single-chunk endpoint timeout guarantees a 504 for any batch needing more than one
+    // EMBEDDING_COMPUTE_CHUNK-sized chunk once a chunk's wall time approaches its own
+    // EMBEDDINGS_REQUEST_TIMEOUT_MS budget under concurrent load (canary finding: a 128-text
+    // chunk took ~45s at 2 vCPU). Scale the endpoint guard by the chunk count this batch will
+    // need instead. For itemCount within one chunk this is exactly today's flat 50_000
+    // (1×45_000 + 5_000 margin) — no behavior change for the common case.
+    const preview = (body as { texts?: unknown } | null)?.texts;
+    const itemCount = Array.isArray(preview) ? preview.length : 0;
+    const numChunks = Math.max(1, Math.ceil(itemCount / EMBEDDING_COMPUTE_CHUNK));
+    const endpointTimeoutMs = numChunks * EMBEDDINGS_REQUEST_TIMEOUT_MS + 5_000;
+    return withEndpointTimeout(res, endpointTimeoutMs, 'embeddings-compute', async () => {
     const { texts, ids } = body as { texts: string[]; ids?: string[] };
     // t/3074 Gap 1: reject oversized batches before they enter the compute path.
     // Client (t/3072) chunks to ≤MAX_EMBED_BATCH; this is the server-side backstop.
@@ -738,7 +750,8 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       }
       error(res, String(err), 500, err);
     }
-  }));
+    });
+  });
 
   // t/1171: same free-tier exemption + rate limiting + key as /compute, so anonymous
   // semantic search finishes the cheap query-embedding step (not just the corpus one).

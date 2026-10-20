@@ -90,14 +90,30 @@ async function buildGroundingTaxonomy(): Promise<GroundingTaxonomy> {
 // rationale as corpusAssemblyCache), so memoize it process-wide rather than re-reading per inquiry.
 let _loadedTaxonomy: LoadedTaxonomy | null = null;
 function getLoadedTaxonomy(): LoadedTaxonomy {
-  if (_loadedTaxonomy === null) _loadedTaxonomy = loadTaxonomy(getProjectRoot());
+  if (_loadedTaxonomy === null) {
+    _loadedTaxonomy = loadTaxonomy(getProjectRoot());
+    // t/4289/t/4290 AC3: embeddings.json is a precomputed deploy asset (corpusAssemblyCache.ts) —
+    // whether it actually shipped non-empty in a given container image is an infra fact, not
+    // something this process can assert, only report. hasEmbeddings also gates relevance scoring
+    // (per the ticket), so a 0 here degrades the SAME way a missing computeQueryEmbedding did.
+    const embeddingCount = Object.keys(_loadedTaxonomy.embeddings).length;
+    if (embeddingCount === 0) {
+      log.server.warn({ embeddingCount }, 'getLoadedTaxonomy: embeddings.json loaded with zero entries — relevance scoring will degrade (t/4289/t/4290)');
+    } else {
+      log.server.info({ embeddingCount }, 'getLoadedTaxonomy: taxonomy loaded');
+    }
+  }
   return _loadedTaxonomy;
 }
 
 /** The server inquiry AIAdapter — generateText over the key-managed, fallback-chained provider path,
- *  so the container never holds a raw key (mirrors createWebOpEdAdapter). generateText is the only
- *  method the debate engine requires for an inquiry run; native fact-check search (ExtendedAIAdapter)
- *  is not wired for v1. */
+ *  so the container never holds a raw key (mirrors createWebOpEdAdapter). native fact-check search
+ *  (ExtendedAIAdapter) is not wired for v1.
+ *  t/4289/t/4290: computeQueryEmbedding was missing, so every inquiry run fell back to lexical
+ *  relevance (taxonomyContext.ts), skipped claim attribution, and skipped turn embeddings for
+ *  convergence — all three gate on this adapter member being present, not just generateText. Wired
+ *  to the same cached query-embedding path routes/relevantNodes.ts already uses (384-dim MiniLM).
+ *  Errors are NOT swallowed here — the engine already catches and falls back with a WARN. */
 function createInquiryAdapter(): AIAdapter {
   return {
     async generateText(prompt: string, model: string, options?: GenerateOptions): Promise<string> {
@@ -108,6 +124,9 @@ function createInquiryAdapter(): AIAdapter {
         maxTokens: options?.maxTokens,
       });
       return result.text;
+    },
+    async computeQueryEmbedding(text: string): Promise<{ vector: number[] }> {
+      return { vector: await ai.computeQueryEmbedding(text) };
     },
     // t/3614: required AIAdapter member — host-loaded registry data (cached via getModelRegistry),
     // the same source buildInquiryRunPipeline uses for deps.registry below.

@@ -64,6 +64,94 @@ function Invoke-TokenStoreCheck {
     return [PSCustomObject]@{ Safe = $true; Skipped = $false; Reason = "enabled=$enabled backed=$backed" }
 }
 
+# ── Static Bicep source (t/4169): the pre-merge layer for the t/4132 template vector ──
+function Get-BicepCodeMask {
+    # Returns the text with comments blanked and single-quoted string CONTENTS replaced by spaces
+    # (same length, so indexes line up), so brace matching and key regexes never see comment or
+    # string text — main.bicep's own tokenStore comment says "enabled:true", and its URLs hold "//".
+    param([Parameter(Mandatory)][string]$Text)
+    $sb = [System.Text.StringBuilder]::new($Text.Length)
+    $i = 0; $n = $Text.Length
+    while ($i -lt $n) {
+        $c = $Text[$i]
+        if ($c -eq "'") {
+            [void]$sb.Append("'"); $i++
+            while ($i -lt $n -and $Text[$i] -ne "'") {
+                if ($Text[$i] -eq '\' -and $i + 1 -lt $n) { [void]$sb.Append('  '); $i += 2; continue }
+                [void]$sb.Append($(if ($Text[$i] -eq "`n") { "`n" } else { ' ' })); $i++
+            }
+            if ($i -lt $n) { [void]$sb.Append("'"); $i++ }
+        } elseif ($c -eq '/' -and $i + 1 -lt $n -and $Text[$i + 1] -eq '/') {
+            while ($i -lt $n -and $Text[$i] -ne "`n") { [void]$sb.Append(' '); $i++ }
+        } elseif ($c -eq '/' -and $i + 1 -lt $n -and $Text[$i + 1] -eq '*') {
+            while ($i -lt $n -and -not ($Text[$i] -eq '*' -and $i + 1 -lt $n -and $Text[$i + 1] -eq '/')) {
+                [void]$sb.Append($(if ($Text[$i] -eq "`n") { "`n" } else { ' ' })); $i++
+            }
+            if ($i -lt $n) { [void]$sb.Append('  '); $i += 2 }
+        } else { [void]$sb.Append($c); $i++ }
+    }
+    return $sb.ToString()
+}
+
+function Get-BicepBlockEnd {
+    # Index of the '}' matching the '{' at $OpenIndex in masked text, or -1.
+    param([Parameter(Mandatory)][string]$Masked, [Parameter(Mandatory)][int]$OpenIndex)
+    $depth = 0
+    for ($j = $OpenIndex; $j -lt $Masked.Length; $j++) {
+        if ($Masked[$j] -eq '{') { $depth++ }
+        elseif ($Masked[$j] -eq '}') { $depth--; if ($depth -eq 0) { return $j } }
+    }
+    return -1
+}
+
+function Get-BicepTokenStoreConfigs {
+    <#
+    .SYNOPSIS
+        Pure parser: every Microsoft.App/containerApps/authConfigs resource in a Bicep source, with
+        its login.tokenStore as the same shape Invoke-TokenStoreCheck takes. FAILS CLOSED: a missing
+        tokenStore block or a non-literal `enabled` is reported as ParseError, never as safe.
+    .OUTPUTS
+        PSObject per resource: Resource, TokenStore ($null on ParseError), ParseError ($null if parsed)
+    #>
+    param([Parameter(Mandatory)][string]$BicepText)
+    $masked = Get-BicepCodeMask -Text $BicepText
+    $results = @()
+    foreach ($m in [regex]::Matches($masked, "resource\s+(\w+)\s+'")) {
+        $declEnd = $BicepText.IndexOf("'", $m.Index + $m.Length)
+        $type = $BicepText.Substring($m.Index + $m.Length, [Math]::Max(0, $declEnd - ($m.Index + $m.Length)))
+        if ($type -notmatch '^Microsoft\.App/containerApps/authConfigs@') { continue }
+        $name = $m.Groups[1].Value
+        $open = $masked.IndexOf('{', $declEnd)
+        $close = if ($open -ge 0) { Get-BicepBlockEnd -Masked $masked -OpenIndex $open } else { -1 }
+        if ($close -lt 0) { $results += [PSCustomObject]@{ Resource = $name; TokenStore = $null; ParseError = 'resource body not found' }; continue }
+        $body = $masked.Substring($open, $close - $open + 1)
+        $raw  = $BicepText.Substring($open, $close - $open + 1)
+        $ts = [regex]::Match($body, '\btokenStore\s*:\s*\{')
+        if (-not $ts.Success) { $results += [PSCustomObject]@{ Resource = $name; TokenStore = $null; ParseError = 'no tokenStore block (must be explicit)' }; continue }
+        $tsOpen = $ts.Index + $ts.Length - 1
+        $tsClose = Get-BicepBlockEnd -Masked $body -OpenIndex $tsOpen
+        $tsBody = $body.Substring($tsOpen, $tsClose - $tsOpen + 1)
+        $tsRaw  = $raw.Substring($tsOpen, $tsClose - $tsOpen + 1)
+        $en = [regex]::Match($tsBody, '\benabled\s*:\s*([^\s,}]+)')
+        if (-not $en.Success -or $en.Groups[1].Value -notin @('true', 'false')) {
+            $results += [PSCustomObject]@{ Resource = $name; TokenStore = $null; ParseError = "tokenStore.enabled is not a literal true/false ('$($en.Groups[1].Value)')" }; continue
+        }
+        $blob = [ordered]@{}
+        foreach ($k in 'sasUrlSettingName', 'blobContainerUri') {
+            $km = [regex]::Match($tsBody, "\b$k\s*:\s*")
+            if ($km.Success) {
+                $vStart = $km.Index + $km.Length
+                $vEnd = $tsBody.IndexOfAny([char[]]"`n,}", $vStart)
+                $val = $tsRaw.Substring($vStart, $vEnd - $vStart).Trim().Trim("'")
+                if (-not [string]::IsNullOrWhiteSpace($val)) { $blob[$k] = $val }
+            }
+        }
+        $obj = [PSCustomObject]@{ enabled = ($en.Groups[1].Value -eq 'true'); azureBlobStorage = [PSCustomObject]$blob }
+        $results += [PSCustomObject]@{ Resource = $name; TokenStore = $obj; ParseError = $null }
+    }
+    return , $results
+}
+
 # ── Main body (only when run as a script, not dot-sourced for tests) ──────────
 if ($MyInvocation.InvocationName -ne '.') {
     if ([string]::IsNullOrWhiteSpace($ContainerAppName) -or [string]::IsNullOrWhiteSpace($ResourceGroup)) {

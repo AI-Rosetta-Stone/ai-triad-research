@@ -1,0 +1,910 @@
+{
+  "budget": 15.0,
+  "max_debates": 56,
+  "debates": [
+    {
+      "plan": "t3963-stage1",
+      "slug": "t3963s1-m01-a0",
+      "usd": 0.25,
+      "status": "failed",
+      "note": "first attempt, 2026-10-20 ~01:27Z: the runner crashed on the price table after the CLI exited; no flight recorder; partial total_ai_calls=0. Spend unmeasurable, so booked at the worst case.",
+      "counts_toward_cap": false
+    },
+    {
+      "plan": "t3963-stage1",
+      "slug": "t3963s1-m01-a0",
+      "usd": 0.1998,
+      "calls": 79,
+      "in": 359755,
+      "out": 36977,
+      "secs": 358,
+      "rc": 0,
+      "at": "2026-10-20T01:36:30+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3963-stage1",
+      "slug": "t3963s1-m01-a1",
+      "usd": 0.1971,
+      "calls": 74,
+      "in": 341621,
+      "out": 38005,
+      "secs": 370,
+      "rc": 0,
+      "at": "2026-10-20T01:43:08+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3963-stage1",
+      "slug": "t3963s1-m01-a2",
+      "usd": 0.2035,
+      "calls": 76,
+      "in": 359012,
+      "out": 38493,
+      "secs": 366,
+      "rc": 0,
+      "at": "2026-10-20T01:49:21+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3963-stage1",
+      "slug": "t3963s1-m01-a3",
+      "usd": 0.2246,
+      "calls": 82,
+      "in": 391326,
+      "out": 43095,
+      "secs": 371,
+      "rc": 0,
+      "at": "2026-10-20T01:55:53+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3963-stage1",
+      "slug": "t3963s1-m01-a4",
+      "usd": 0.2219,
+      "calls": 78,
+      "in": 370749,
+      "out": 44519,
+      "secs": 364,
+      "rc": 0,
+      "at": "2026-10-20T02:02:04+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3963-stage1",
+      "slug": "t3963s1-m01-a5",
+      "usd": 0.2079,
+      "calls": 75,
+      "in": 374444,
+      "out": 38482,
+      "secs": 523,
+      "rc": 0,
+      "at": "2026-10-20T02:10:53+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c01",
+      "usd": 0.1975,
+      "calls": 74,
+      "in": 338154,
+      "out": 38576,
+      "secs": 370,
+      "rc": 0,
+      "at": "2026-10-20T02:18:23+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c02",
+      "usd": 0.1874,
+      "calls": 73,
+      "in": 335453,
+      "out": 34911,
+      "secs": 425,
+      "rc": 0,
+      "at": "2026-10-20T02:25:36+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c03",
+      "usd": 0.2209,
+      "calls": 78,
+      "in": 393632,
+      "out": 41404,
+      "secs": 392,
+      "rc": 0,
+      "at": "2026-10-20T02:32:16+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c04",
+      "usd": 0.2078,
+      "calls": 80,
+      "in": 357514,
+      "out": 40425,
+      "secs": 365,
+      "rc": 0,
+      "at": "2026-10-20T02:38:28+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c05",
+      "usd": 0.2164,
+      "calls": 76,
+      "in": 374933,
+      "out": 41839,
+      "secs": 374,
+      "rc": 0,
+      "at": "2026-10-20T02:44:48+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c06",
+      "usd": 0.1761,
+      "calls": 73,
+      "in": 304414,
+      "out": 34011,
+      "secs": 360,
+      "rc": 0,
+      "at": "2026-10-20T02:50:54+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c07",
+      "usd": 0.2195,
+      "calls": 83,
+      "in": 393668,
+      "out": 40767,
+      "secs": 356,
+      "rc": 0,
+      "at": "2026-10-20T02:56:55+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c08",
+      "usd": 0.1969,
+      "calls": 74,
+      "in": 352817,
+      "out": 36649,
+      "secs": 345,
+      "rc": 0,
+      "at": "2026-10-20T03:02:56+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c09",
+      "usd": 0.1866,
+      "calls": 76,
+      "in": 320199,
+      "out": 36423,
+      "secs": 343,
+      "rc": 0,
+      "at": "2026-10-20T03:08:45+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c10",
+      "usd": 0.2002,
+      "calls": 77,
+      "in": 351397,
+      "out": 38077,
+      "secs": 344,
+      "rc": 0,
+      "at": "2026-10-20T03:14:35+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c11",
+      "usd": 0.197,
+      "calls": 77,
+      "in": 335603,
+      "out": 38697,
+      "secs": 341,
+      "rc": 0,
+      "at": "2026-10-20T03:21:17+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c12",
+      "usd": 0.1961,
+      "calls": 77,
+      "in": 322674,
+      "out": 39937,
+      "secs": 345,
+      "rc": 0,
+      "at": "2026-10-20T03:27:08+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c13",
+      "usd": 0.2125,
+      "calls": 81,
+      "in": 369133,
+      "out": 40876,
+      "secs": 370,
+      "rc": 0,
+      "at": "2026-10-20T03:33:37+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c14",
+      "usd": 0.2124,
+      "calls": 79,
+      "in": 367959,
+      "out": 41065,
+      "secs": 355,
+      "rc": 0,
+      "at": "2026-10-20T03:39:37+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c15",
+      "usd": 0.2124,
+      "calls": 82,
+      "in": 374868,
+      "out": 40232,
+      "secs": 353,
+      "rc": 0,
+      "at": "2026-10-20T03:45:36+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c16",
+      "usd": 0.2022,
+      "calls": 77,
+      "in": 355819,
+      "out": 38412,
+      "secs": 347,
+      "rc": 0,
+      "at": "2026-10-20T03:51:31+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c17",
+      "usd": 0.2043,
+      "calls": 78,
+      "in": 330156,
+      "out": 42245,
+      "secs": 360,
+      "rc": 0,
+      "at": "2026-10-20T03:57:47+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c18",
+      "usd": 0.184,
+      "calls": 76,
+      "in": 306564,
+      "out": 36921,
+      "secs": 348,
+      "rc": 0,
+      "at": "2026-10-20T04:03:47+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c19",
+      "usd": 0.2017,
+      "calls": 77,
+      "in": 354382,
+      "out": 38414,
+      "secs": 344,
+      "rc": 0,
+      "at": "2026-10-20T04:09:39+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c20",
+      "usd": 0.1827,
+      "calls": 74,
+      "in": 305418,
+      "out": 36614,
+      "secs": 339,
+      "rc": 0,
+      "at": "2026-10-20T04:15:25+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c21",
+      "usd": 0.197,
+      "calls": 74,
+      "in": 338536,
+      "out": 38412,
+      "secs": 341,
+      "rc": 0,
+      "at": "2026-10-20T04:21:28+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c22",
+      "usd": 0.2117,
+      "calls": 82,
+      "in": 359545,
+      "out": 41757,
+      "secs": 454,
+      "rc": 0,
+      "at": "2026-10-20T04:29:10+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c23",
+      "usd": 0.1761,
+      "calls": 66,
+      "in": 303347,
+      "out": 34153,
+      "secs": 340,
+      "rc": 0,
+      "at": "2026-10-20T04:34:59+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c24",
+      "usd": 0.193,
+      "calls": 73,
+      "in": 318082,
+      "out": 39202,
+      "secs": 368,
+      "rc": 0,
+      "at": "2026-10-20T04:42:24+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c25",
+      "usd": 0.1974,
+      "calls": 78,
+      "in": 342170,
+      "out": 38080,
+      "secs": 349,
+      "rc": 0,
+      "at": "2026-10-20T04:48:25+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c26",
+      "usd": 0.2019,
+      "calls": 79,
+      "in": 350510,
+      "out": 38875,
+      "secs": 346,
+      "rc": 0,
+      "at": "2026-10-20T04:54:28+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c27",
+      "usd": 0.1927,
+      "calls": 74,
+      "in": 324985,
+      "out": 38237,
+      "secs": 342,
+      "rc": 0,
+      "at": "2026-10-20T05:00:16+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c28",
+      "usd": 0.2192,
+      "calls": 89,
+      "in": 383035,
+      "out": 41995,
+      "secs": 359,
+      "rc": 0,
+      "at": "2026-10-20T05:06:21+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c29",
+      "usd": 0.1981,
+      "calls": 82,
+      "in": 341962,
+      "out": 38419,
+      "secs": 357,
+      "rc": 0,
+      "at": "2026-10-20T05:12:24+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c30",
+      "usd": 0.183,
+      "calls": 74,
+      "in": 308932,
+      "out": 36280,
+      "secs": 338,
+      "rc": 0,
+      "at": "2026-10-20T05:18:07+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c31",
+      "usd": 0.1917,
+      "calls": 73,
+      "in": 320621,
+      "out": 38380,
+      "secs": 338,
+      "rc": 0,
+      "at": "2026-10-20T05:24:08+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c32",
+      "usd": 0.1866,
+      "calls": 71,
+      "in": 314133,
+      "out": 37066,
+      "secs": 335,
+      "rc": 0,
+      "at": "2026-10-20T05:29:51+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c33",
+      "usd": 0.1982,
+      "calls": 75,
+      "in": 347668,
+      "out": 37759,
+      "secs": 344,
+      "rc": 0,
+      "at": "2026-10-20T05:35:41+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c34",
+      "usd": 0.1805,
+      "calls": 73,
+      "in": 297372,
+      "out": 36679,
+      "secs": 337,
+      "rc": 0,
+      "at": "2026-10-20T05:41:24+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c35",
+      "usd": 0.1952,
+      "calls": 75,
+      "in": 332244,
+      "out": 38395,
+      "secs": 345,
+      "rc": 0,
+      "at": "2026-10-20T05:47:24+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c36",
+      "usd": 0.2051,
+      "calls": 76,
+      "in": 361631,
+      "out": 38856,
+      "secs": 354,
+      "rc": 0,
+      "at": "2026-10-20T05:53:25+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c37",
+      "usd": 0.2218,
+      "calls": 81,
+      "in": 405744,
+      "out": 40277,
+      "secs": 356,
+      "rc": 0,
+      "at": "2026-10-20T05:59:28+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c38",
+      "usd": 0.198,
+      "calls": 79,
+      "in": 328512,
+      "out": 39992,
+      "secs": 355,
+      "rc": 0,
+      "at": "2026-10-20T06:05:30+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c39",
+      "usd": 0.1794,
+      "calls": 72,
+      "in": 309600,
+      "out": 34767,
+      "secs": 335,
+      "rc": 0,
+      "at": "2026-10-20T06:11:11+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c40",
+      "usd": 0.221,
+      "calls": 81,
+      "in": 400550,
+      "out": 40575,
+      "secs": 356,
+      "rc": 0,
+      "at": "2026-10-20T06:17:15+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c41",
+      "usd": 0.1912,
+      "calls": 76,
+      "in": 313189,
+      "out": 39035,
+      "secs": 344,
+      "rc": 0,
+      "at": "2026-10-20T06:23:20+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c42",
+      "usd": 0.2022,
+      "calls": 79,
+      "in": 349317,
+      "out": 39172,
+      "secs": 338,
+      "rc": 0,
+      "at": "2026-10-20T06:29:05+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c43",
+      "usd": 0.2042,
+      "calls": 85,
+      "in": 355686,
+      "out": 39221,
+      "secs": 350,
+      "rc": 0,
+      "at": "2026-10-20T06:35:02+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c44",
+      "usd": 0.1871,
+      "calls": 73,
+      "in": 317418,
+      "out": 36916,
+      "secs": 339,
+      "rc": 0,
+      "at": "2026-10-20T06:40:47+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c45",
+      "usd": 0.2094,
+      "calls": 77,
+      "in": 361552,
+      "out": 40529,
+      "secs": 349,
+      "rc": 0,
+      "at": "2026-10-20T06:46:46+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c46",
+      "usd": 0.2113,
+      "calls": 78,
+      "in": 348745,
+      "out": 42807,
+      "secs": 356,
+      "rc": 0,
+      "at": "2026-10-20T06:52:49+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c47",
+      "usd": 0.1923,
+      "calls": 75,
+      "in": 326754,
+      "out": 37870,
+      "secs": 347,
+      "rc": 0,
+      "at": "2026-10-20T06:58:43+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c48",
+      "usd": 0.1986,
+      "calls": 76,
+      "in": 346477,
+      "out": 38068,
+      "secs": 350,
+      "rc": 0,
+      "at": "2026-10-20T07:04:40+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c49",
+      "usd": 0.1926,
+      "calls": 72,
+      "in": 341184,
+      "out": 36269,
+      "secs": 336,
+      "rc": 0,
+      "at": "2026-10-20T07:10:22+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    },
+    {
+      "plan": "t3790-confirm",
+      "slug": "t3790c50",
+      "usd": 0.2118,
+      "calls": 81,
+      "in": 371067,
+      "out": 40390,
+      "secs": 348,
+      "rc": 0,
+      "at": "2026-10-20T07:16:16+00:00",
+      "build": {
+        "app_version": "0.13.6",
+        "generated_with_prompt_version": "cli-l2"
+      },
+      "status": "ok"
+    }
+  ]
+}

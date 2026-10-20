@@ -149,7 +149,10 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # Bumped to :2026-10-02 (PR #2676) — npm-bundled undici 6.28.1 (CVE-2026-85024), ip-address
 # 10.5.1 (CVE-2026-101910/101913), brace-expansion 5.0.12; proven by the base build tripwire.
 # Gate base bumps on staging /healthz, not CI green.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-10-06@sha256:75de9c3c565ea6e1ae88844e3a8f0f29212ac145f3bc3abe162551030c76a3fd AS runtime
+# Bumped to :2026-10-19 — the container.yml Trivy blocking gate caught libexpat1
+# CVE-2026-77214 (fixable high) on :2026-10-06; this tag is base-image.yml's normal weekly
+# rebuild (apt-get upgrade), dispatched a cycle early to unblock a pending container build.
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-10-19@sha256:242806a9ba51c07b4e1db2398cae19abf780506fe9e79e69e1cd839f33a7edbb AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"
@@ -163,11 +166,15 @@ ARG BUILD_SHA=unknown
 ENV BUILD_SHA=${BUILD_SHA}
 
 # Cache dir created at runtime by the app (GitHubAPIBackend).
-# TAXONOMY_CACHE_DIR MUST match AI_TRIAD_DATA_ROOT (t/2061): config.ts's cacheDir
-# defaults to ~/.cache/taxonomy (=/root/.cache/taxonomy in-container) when unset,
-# while getDataRoot() uses AI_TRIAD_DATA_ROOT — the mismatch makes toRepoPath()'s
-# startsWith(cacheDir) check fail, so isDataAvailable() is always false → /healthz
-# 503 → crash-loop (the P1 latent readiness bug, t/2047). Keep these two in sync.
+# Bare/local-run fallback ONLY — every real deployment (main.bicep's baseEnv, both prod and
+# staging) sets both vars explicitly and always wins over these image defaults. Kept in sync
+# with each other here (t/2047: a mismatch makes toRepoPath()'s startsWith(cacheDir) check
+# fail, so isDataAvailable() is always false -> /healthz 503 -> crash-loop) ONLY for the case
+# of a plain `docker run` with no env vars supplied at all. Do NOT read this as the real
+# prod/staging behavior — see main.bicep's baseEnv/stagingEnvOverrides and t/4298/t/4299/t/4300
+# for why the two are deliberately INDEPENDENT there (PR #1078 decoupled them; this Dockerfile
+# default predates that and was never updated to match, since it's unreachable once Bicep sets
+# both explicitly).
 ENV AI_TRIAD_DATA_ROOT=/tmp/taxonomy-cache
 ENV TAXONOMY_CACHE_DIR=/tmp/taxonomy-cache
 ENV PORT=7862

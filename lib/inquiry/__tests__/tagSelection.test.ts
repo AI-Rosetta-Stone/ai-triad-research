@@ -103,9 +103,20 @@ describe('exports state the scope', () => {
   it('Markdown and print HTML show the applied tag with counts; untagged exports do not', () => {
     for (const out of [inquiryToMarkdown(result(true)), inquiryToPrintHtml(result(true))]) {
       expect(out).toContain('Tag: skeptic/critical (scope)');
-      expect(out).toContain('31 untagged excluded');
+      // t/4275: the count includes nodes carrying another tag, so it names the tag by its registry label.
+      expect(out).toContain('31 not tagged Critical excluded');
+      expect(out).not.toMatch(/untagged/i);
     }
     expect(inquiryToMarkdown(result(false))).not.toContain('Tag');
+  });
+
+  it('a Scope export of a retired tag falls back to the tag id, still without "untagged"', () => {
+    const retired = result(true);
+    retired.derivation.tag = { ...APPLIED, tag: 'retired-wing' };
+    for (const out of [inquiryToMarkdown(retired), inquiryToPrintHtml(retired)]) {
+      expect(out).toContain('31 not tagged retired-wing excluded');
+      expect(out).not.toMatch(/untagged/i);
+    }
   });
 
   it('a tag that was asked for but not recorded as applied says so', () => {

@@ -50,12 +50,20 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({
 }));
 
 const warnCalls: unknown[][] = [];
+const infoCalls: unknown[][] = [];
 vi.mock('../logger.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  const logActual = actual.log as Record<string, { warn: (...args: unknown[]) => void }>;
+  const logActual = actual.log as Record<string, { warn: (...args: unknown[]) => void; info: (...args: unknown[]) => void }>;
   return {
     ...actual,
-    log: { ...logActual, storage: { ...logActual.storage, warn: (...args: unknown[]) => warnCalls.push(args) } },
+    log: {
+      ...logActual,
+      storage: {
+        ...logActual.storage,
+        warn: (...args: unknown[]) => warnCalls.push(args),
+        info: (...args: unknown[]) => infoCalls.push(args),
+      },
+    },
   };
 });
 
@@ -96,6 +104,7 @@ beforeEach(() => {
   apiHandlers = [];
   recordedEvents.length = 0;
   warnCalls.length = 0;
+  infoCalls.length = 0;
   vi.stubEnv('AI_TRIAD_DATA_ROOT', '/var/cache/taxonomy-test');
   globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -131,8 +140,8 @@ function mockSessionBranchLookup(branch: string, sha: string, content = '{"test"
   });
 }
 
-describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258 uncommitted-overlay WARN', () => {
-  it('shutdown() with a populated overlay logs a WARN with the entry count and paths', async () => {
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258/t/4302 uncommitted-overlay logging', () => {
+  it('shutdown() with a populated overlay logs INFO (pre-flush, nothing lost yet), not WARN', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
     mockSessionBranchLookup('api-session/alice', 'blob1');
@@ -140,11 +149,32 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258 uncommitted-overla
 
     backend.shutdown();
 
-    expect(warnCalls.length).toBe(1);
-    const [meta] = warnCalls[0] as [{ summary: { userId: string; entryCount: number; paths: string[] }[] }];
+    expect(warnCalls.length).toBe(0);
+    expect(infoCalls.length).toBe(1);
+    const [meta] = infoCalls[0] as [{ summary: { userId: string; entryCount: number; paths: string[] }[] }];
     expect(meta.summary).toEqual([{ userId: 'alice', entryCount: 1, paths: ['taxonomy/nodes.json'] }]);
     expect(recordedEvents.length).toBe(1);
-    expect((recordedEvents[0] as { level: string }).level).toBe('warn');
+    expect((recordedEvents[0] as { level: string }).level).toBe('info');
+  });
+
+  it('getUncommittedOverlaySummary() exposes the same summary used by the shutdown INFO log (t/4276)', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    mockSessionBranchLookup('api-session/alice', 'blob1');
+    await backend.writeFile('/taxonomy/nodes.json', '{"v": 1}', { baseSha: 'blob1' });
+
+    expect(backend.getUncommittedOverlaySummary()).toEqual([
+      { userId: 'alice', entryCount: 1, paths: ['taxonomy/nodes.json'] },
+    ]);
+
+    backend.shutdown();
+  });
+
+  it('getUncommittedOverlaySummary() returns [] when no overlay is dirty', async () => {
+    const backend = await createBackend();
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+    expect(backend.getUncommittedOverlaySummary()).toEqual([]);
+    backend.shutdown();
   });
 
   it('shutdown() with no pending overlay entries logs nothing', async () => {
@@ -154,6 +184,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4258 uncommitted-overla
     backend.shutdown();
 
     expect(warnCalls.length).toBe(0);
+    expect(infoCalls.length).toBe(0);
     expect(recordedEvents.length).toBe(0);
   });
 

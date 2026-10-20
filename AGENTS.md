@@ -63,13 +63,13 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 ### PR-Flow Practice Rules
 
 - **Batch sequential same-feature work** into one PR, unless the diff is over ~400 lines or mixes concerns. Merge promptly on green, or record why not.
-- **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash`) for T0 and T1 PRs. Arming means "done", so disarm before pushing more.
+- **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` comment is on the PR for the current head (t/4247: #3343 and #3364 merged before review). Arming means "done", so disarm before pushing more.
   - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
 - **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
   - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
   - or with the "SO did not review" note plus the human approval.
 - **Co-landing PRs** carry `joint-gv` and are merged manually after their joint review.
-- **Never run `gh pr review --approve`.** Every agent is jpsnover, and GitHub refuses self-approval. Record approval as a PR comment starting `Approved (<role>):`. Owner: TL. This rule lapses when the t/4096 Reviewer App switch-over lands (Sage #225).
+- **Never run `gh pr review --approve`.** Every agent is jpsnover, and GitHub refuses self-approval. Record approval as a PR comment starting `Approved (<role>):`. Owner: TL. Review-by: 2026-11-15. This rule lapses when the t/4096 Reviewer App switch-over lands (Sage #225).
 - **Where this section differs from Change Tiers below, Change Tiers wins.** Ref §4.
 
 ### Claim Before Implement
@@ -128,11 +128,8 @@ Unrecoverable errors use `New-ActionableError` (PS) / `ActionableError` (TS) wit
 
 ## Token Efficiency
 
-- Batch ToolSearch: fetch all schemas in one `select:t1,t2,t3` call.
 - Prefer ping over email for status updates and single-question exchanges.
-- Use `verbose:false` / `include_ids:false` on MCP list/create calls unless IDs are needed.
-- Don't re-read AGENTS.md (already injected as claudeMd).
-- Keep comments/emails concise; reference entities (t/KEY) instead of inlining.
+- Reference entities (t/KEY) instead of inlining their content.
 
 ## Incident Response
 

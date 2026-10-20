@@ -24,11 +24,20 @@ const EMBEDDINGS_COMPUTE_PATH = '/api/embeddings/compute';
  */
 export const EMBEDDINGS_MAX_BATCH = 512;
 
-/** Minimal shape of web-bridge's generic `post` used here (path, JSON body, idempotent flag). */
+/**
+ * Client timeout per compute POST (t/4287). The server scales its endpoint timeout by chunk count:
+ * ceil(n / EMBEDDING_COMPUTE_CHUNK=128) × 45s + margin, about 185s for a full EMBEDDINGS_MAX_BATCH
+ * (4 chunks). web-bridge's DEFAULT_MUTATION_TIMEOUT_MS (180s) would abort a max-size batch before the
+ * server's own guard fires, so this sits just above the server ceiling and below ACA's 240s ingress
+ * timeout. Revisit if EMBEDDINGS_MAX_BATCH or the server's per-chunk budget changes.
+ */
+export const EMBEDDINGS_COMPUTE_TIMEOUT_MS = 200_000;
+
+/** Minimal shape of web-bridge's generic `post` used here (path, JSON body, idempotent flag, timeout). */
 type EmbeddingsPost = <T = unknown>(
   path: string,
   body?: unknown,
-  opts?: { idempotent?: boolean },
+  opts?: { idempotent?: boolean; timeoutMs?: number },
 ) => Promise<T>;
 
 /**
@@ -97,7 +106,7 @@ export async function computeEmbeddingsChunked(
     const res = await post<ComputeResponse>(
       EMBEDDINGS_COMPUTE_PATH,
       { texts: textChunk, ids: idChunk },
-      { idempotent: true },
+      { idempotent: true, timeoutMs: EMBEDDINGS_COMPUTE_TIMEOUT_MS },
     );
     vectors.push(...res.vectors);
     if (res.cacheHits !== undefined || res.cacheMisses !== undefined) {

@@ -36,3 +36,32 @@ Describe 'Invoke-TaxEditorLoadTest (t/4180)' -Tag 'taxonomy' {
         { Invoke-TaxEditorLoadTest -BaseUrl 'https://Taxonomy-Editor.EXAMPLE.io' } | Should -Throw
     }
 }
+
+Describe 'Get-AzMetricPeak (t/4282)' -Tag 'taxonomy' {
+
+    It 'Returns the max of the points that carry the field, skipping points without it, under StrictMode' {
+        # The 10-19 run (t/4263#4): Azure omits the aggregation field for an empty minute, and
+        # reading it under StrictMode threw "The property 'average' cannot be found".
+        $json = '{"value":[{"timeseries":[{"data":[{"timeStamp":"t0"},{"timeStamp":"t1","maximum":1170000000},{"timeStamp":"t2","maximum":980000000}]}]}]}'
+        InModuleScope AITriad -Parameters @{ Json = $json } {
+            param($Json)
+            Set-StrictMode -Version Latest
+            Get-AzMetricPeak -MetricResponse ($Json | ConvertFrom-Json) -Aggregation maximum | Should -Be 1170000000
+        }
+    }
+
+    It 'Returns $null when no point carries the requested aggregation (ingestion lag; the caller retries)' {
+        InModuleScope AITriad {
+            Get-AzMetricPeak -MetricResponse ('{"value":[{"timeseries":[{"data":[{"timeStamp":"t0","average":5}]}]}]}' | ConvertFrom-Json) -Aggregation maximum | Should -BeNullOrEmpty
+            Get-AzMetricPeak -MetricResponse ('{"value":[{"timeseries":[]}]}' | ConvertFrom-Json) | Should -BeNullOrEmpty
+            Get-AzMetricPeak -MetricResponse ('{"value":[]}' | ConvertFrom-Json) | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'Returns $null for a non-metrics body instead of throwing' {
+        InModuleScope AITriad {
+            Get-AzMetricPeak -MetricResponse 'ERROR: not json' | Should -BeNullOrEmpty
+            Get-AzMetricPeak -MetricResponse $null | Should -BeNullOrEmpty
+        }
+    }
+}

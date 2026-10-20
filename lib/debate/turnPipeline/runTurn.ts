@@ -985,7 +985,8 @@ export async function runTurnPipeline(
       if (evidenceWpToUpdate) {
         evidenceWpToUpdate.ungrounded_claims = ungroundedClaims;
       }
-      console.log(`[pipeline] Ungrounded claims: ${ungroundedClaims.length} factual assertions not traceable to source corpus`);
+      const claimSnippets = ungroundedClaims.map(c => c.claim.slice(0, 120)).join('; ');
+      console.log(`[pipeline] Ungrounded claims: ${ungroundedClaims.length} factual assertions not traceable to source corpus — ${claimSnippets}`);
     }
   }
 

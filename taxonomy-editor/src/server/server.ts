@@ -24,6 +24,7 @@ import { prewarmEmbeddingsCache, getEmbeddingsCacheStatus } from './ai/aiBackend
 import { startEventLoopMonitor } from './eventLoopMonitor.js';
 import { startEmbedQueueDepthMonitor } from './embedQueueDepthMonitor.js';
 import { startGroundingSweep } from './groundingSweepScheduler.js';
+import { enforceReadOnlyGuard } from './readOnlyGuard.js';
 
 const require = createRequire(import.meta.url);
 
@@ -41,6 +42,8 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
+import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
+import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
 import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
@@ -622,6 +625,7 @@ async function handleRequestInner(
     const route = matchRoute(req.method!, reqPath);
 
     if (enforceWriteRateLimit(req, res, route, reqPath)) return;
+    if (enforceReadOnlyGuard(req, res, !!route, reqPath, principalName, idp)) return;
 
     if (route) {
       await dispatchMatchedRoute(req, res, route, reqPath);
@@ -1253,10 +1257,11 @@ function shutdown(signal: string) {
     fs.writeFileSync(path.join(dumpDir, `server-shutdown-${Date.now()}.jsonl`), ndjson);
   } catch { /* telemetry — silent by design;  best effort */ }
 
-  // 1a. Stop GitHubAPIBackend polling
+  // 1a. Stop GitHubAPIBackend polling (also logs the immediate uncommitted-overlay snapshot, t/4258 Part 1)
   if (githubBackend) {
     githubBackend.shutdown();
   }
+  logRequestMetrics(githubBackend, 'shutdown'); // t/4300: final GitHub-call tally for this process's lifetime
 
   // 1. Kill terminal PTY
   if (terminalProcess) {
@@ -1272,16 +1277,30 @@ function shutdown(signal: string) {
   eventClients.clear();
 
   // 3. Stop accepting new connections and wait for in-flight requests
-  server.close(() => {
-    log.server.info('All connections closed, exiting');
+  const closeDone = new Promise<void>((resolve) => {
+    server.close(() => { log.server.info('All connections closed'); resolve(); });
+  });
+
+  // 2a. Flush debounced overlay commits concurrently with closing connections (t/4258/t/4276 C4).
+  // closeDone is passed through so the flush can catch a write that lands after its first
+  // snapshot but before its connection actually drains (SO e/315#2).
+  const flushDone = flushOverlaysWithDeadline(githubBackend, closeDone).catch((err) => {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'server', level: 'warn', message: 'Overlay flush at shutdown threw',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  });
+
+  void Promise.all([closeDone, flushDone]).then(() => {
+    log.server.info('Graceful shutdown complete, exiting');
     process.exit(0);
   });
 
-  // 4. Force exit after 10s if graceful shutdown stalls
+  // 4. Force exit if graceful shutdown stalls
   setTimeout(() => {
-    log.server.error('Graceful shutdown timed out after 10s, forcing exit');
+    log.server.error(`Graceful shutdown timed out after ${FORCE_EXIT_TIMEOUT_MS / 1000}s, forcing exit`);
     process.exit(1);
-  }, 10_000).unref();
+  }, FORCE_EXIT_TIMEOUT_MS).unref();
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
@@ -1335,6 +1354,10 @@ try {
   const errObj = err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err);
   log.server.warn({ err: errObj }, 'Data root validation failed at boot — /readyz will report data-root-failed (503); process continues (liveness up), the deploy warm-gate blocks the promotion');
 }
+// t/4298/t/4299/t/4300: WARN-only boot check — github-api's disk cache must never overlap
+// AI_TRIAD_DATA_ROOT (a data-root writer would otherwise silently become what this server
+// serves, with no check against GitHub). Synchronous, never throws, no-op on filesystem mode.
+fileIO.validateCacheDirDisjoint();
 // t/2532 (M12): loopback (127.0.0.1) in dev / 0.0.0.0 in prod; HOST opts into LAN exposure (logged loudly below).
 const BIND_HOST = resolveBindHost(process.env);
 server.listen(PORT, BIND_HOST, () => {
@@ -1348,6 +1371,9 @@ server.listen(PORT, BIND_HOST, () => {
   // so a starvation event (t/3165: 7–8s in-process ONNX froze the loop → ingress-fabricated
   // 500) is directly greppable instead of inferred. Unref'd interval — never holds the process.
   startEventLoopMonitor();
+  // t/4300: logged once ~10min post-boot (past typical warm-up), and again at shutdown.
+  // Unref'd — never holds the process open.
+  setTimeout(() => logRequestMetrics(githubBackend, '10min-post-boot'), REQUEST_METRICS_LOG_DELAY_MS).unref();
   // t/3373: pre-shed early-warning for the embedding worker-offload pool (t/3211 arm-2's real
   // trigger). Samples poolStats() and emits ONE stdout WARN (component:'api' → Log Analytics) when
   // sustained queue depth approaches the dynamic cap — BEFORE a caller eats the 503 queue-shed.
@@ -1447,6 +1473,11 @@ server.listen(PORT, BIND_HOST, () => {
       }
     }).catch((err) => {
       log.storage.error({ err }, 'GitHubAPIBackend initialization failed');
+      // t/4258/t/4281 (Server Storage): serverRecorder.record() alone never
+      // reaches console; alert-fallback-active needs "storage.fallback" in
+      // ContainerAppConsoleLogs_CL. Trivial addition mirroring the storage/
+      // sub-role's fix for the same gap — flagged there, not a design change.
+      log.storage.warn({ err }, 'storage.fallback: GitHubAPIBackend initialization failed');
       serverRecorder.record({
         type: 'storage.fallback', component: 'storage', level: 'warn',
         message: `GitHubAPIBackend init failed: ${err instanceof Error ? err.message : String(err)}`,

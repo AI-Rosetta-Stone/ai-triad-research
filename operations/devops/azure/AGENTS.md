@@ -132,11 +132,8 @@ Before any container app goes to production, verify:
 
 ## Current Deployment (AI Triad Research)
 
-- **Environment**: `ai-triad-prod` (East US 2, Consumption plan)
-- **App**: `ai-triad-taxonomy-editor` — the Taxonomy Editor served as a web app
-- **Registry**: Azure Container Registry (Basic SKU)
-- **Auth**: Easy Auth with GitHub + Google OAuth
-- **Data**: Azure File Share mounted as volume (taxonomy data)
+Deployment identity (app and environment names, region, registry, image, storage, scale, auth, cost) lives in the **canonical [Deployment Facts](../../../deploy/azure/runbooks/deployment-facts.md)** doc, verified against live Azure. Don't restate those values here; inline copies drift (t/1735). Before using a resource name, read it from that doc or query it live (`az containerapp list -g ai-triad`).
+
 - **Model keys**: BYOK — users provide their own API keys (stored client-side)
 
 ## Remote Diagnostics Cmdlets

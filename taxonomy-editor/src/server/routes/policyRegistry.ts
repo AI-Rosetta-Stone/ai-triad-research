@@ -5,8 +5,12 @@
 // Recounts member_count and source_povs for the given policy ids from disk, then writes
 // policy_actions.json via the storage backend. The write is omitted when recounted values
 // are identical to what's on disk (changed === false). Uses policy_actions.lock (t/4028)
-// to serialise concurrent writes. No dirty-registry check: the server storage backend
-// commits every write atomically to the session branch (e/264#21, e/264#23, PI ruling e/264#29).
+// to serialise concurrent writes. No dirty-registry check — the write still lands correctly
+// regardless of ordering (e/264#21, e/264#23, PI ruling e/264#29). The backend does NOT commit
+// atomically: on the GitHub backend this write lands in the session overlay like any other
+// write outside taxonomyDataSlice.save(), and is lost on restart/scale-to-zero unless
+// scheduled for commit (t/4258, confirmed stale at t/4258#16) — hence the
+// scheduleOverlayCommit() call below (t/4258/t/4276 C3 route half).
 
 import path from 'path';
 import fs from 'fs/promises';
@@ -15,7 +19,8 @@ import type { ServerCtx } from './context.js';
 import { json, error } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getTaxonomyDir, getBackend, readTaxonomyFile } from '../storage/fileIO.js';
-import { isAnonymousUser } from '../security/userContext.js';
+import { scheduleOverlayCommit } from '../storage/overlayCommitScheduler.js';
+import { isAnonymousUser, getCurrentUserId } from '../security/userContext.js';
 import {
   recountPolicyMembers,
   serializePolicyRegistry,
@@ -151,8 +156,12 @@ export function registerPolicyRegistryRoutes(router: Router, ctx: ServerCtx): vo
         return;
       }
 
-      // No dirty-registry check: server backend commits every write atomically (e/264#21, PI e/264#29)
+      // No dirty-registry check (e/264#21, PI e/264#29) — but the write itself still needs a
+      // following commit on the GitHub backend (t/4258/t/4276 C3): this is a write outside
+      // taxonomyDataSlice.save(), so it lands in the session overlay with nothing to commit it
+      // unless scheduled here, same as the conflicts/cruxes/edges write paths (t/4277 C3).
       await getBackend().writeFile(registryPath, serializePolicyRegistry(updatedRegistry));
+      scheduleOverlayCommit(getCurrentUserId());
       const result: RecountPolicyMembersResult = { status: 'written', updated: updatedItems };
       json(res, result);
     } catch (err) {

@@ -22,6 +22,7 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index.js';
 import { getConfig } from '../runtimeConfig.js';
+import { log } from '../logger.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -75,6 +76,17 @@ export function sanitizeBranchName(userId: string): string {
   }
 
   return sanitized;
+}
+
+/**
+ * Pure, deterministic session-branch name for a userId — `api-session/{sanitized}`.
+ * t/4258/t/4277 (C3a): callers running outside request scope (a debounced
+ * commit timer, a SIGTERM flush) have no AsyncLocalStorage context to resolve
+ * the branch from, so they must pass this explicitly rather than relying on
+ * GitHubAPIBackend.getEffectiveRef()'s ALS-then-fallback resolution.
+ */
+export function sessionBranchNameFor(userId: string): string {
+  return BRANCH_PREFIX + sanitizeBranchName(userId);
 }
 
 // ── Mutex ────────────────────────────────────────────────────────────────
@@ -513,6 +525,14 @@ export class SessionBranchManager {
           behind_by: result.behind_by,
         },
       });
+      if (result.behind_by >= 10) {
+        // t/4258/t/4281: recordEvent() alone is console-invisible; alert-branch-divergence
+        // needs "branch.divergence" + "behind_by" in Log_s, with behind_by extracted by regex.
+        log.server.warn(
+          { branch: state.branchName, userId, ahead_by: result.ahead_by, behind_by: result.behind_by },
+          `branch.divergence: ${state.branchName} is behind_by ${result.behind_by} commits (ahead_by ${result.ahead_by})`,
+        );
+      }
     }
 
     return { ahead_by: result.ahead_by, behind_by: result.behind_by };

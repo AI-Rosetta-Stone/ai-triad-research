@@ -109,6 +109,38 @@ export class GitHubRestClient {
   // Rate limit tracking
   private rateLimit: RateLimitInfo = { remaining: 5000, limit: 5000, resetsAt: 0 };
 
+  // t/4307: since-boot outbound-call counter by route class, counted at the
+  // one place every fetch (including retries) actually goes out — unlike
+  // getColdCacheMissCount(), which only instruments one of several
+  // miss-then-fetch code paths in githubAPIBackend.ts (t/4300#18).
+  private requestCountsByRouteClass: Record<string, number> = {};
+
+  private static classifyRoute(pathAndQuery: string): string {
+    const path = pathAndQuery.split('?')[0];
+    if (/\/git\/trees/.test(path)) return 'trees';
+    if (/\/git\/commits/.test(path)) return 'commits';
+    if (/\/git\/refs/.test(path)) return 'refs';
+    if (/\/git\/blobs/.test(path)) return 'blobs';
+    if (/\/contents\//.test(path)) return 'contents';
+    if (/\/pulls/.test(path)) return 'pulls';
+    if (/\/commits\//.test(path)) return 'commits-compare';
+    if (/\/rate_limit/.test(path)) return 'rate_limit';
+    return 'other';
+  }
+
+  private countRequest(pathAndQuery: string): void {
+    const routeClass = GitHubRestClient.classifyRoute(pathAndQuery);
+    this.requestCountsByRouteClass[routeClass] = (this.requestCountsByRouteClass[routeClass] ?? 0) + 1;
+  }
+
+  /** t/4307: since-boot request count by route class, plus the latest
+   *  `x-ratelimit-remaining` seen. Supersedes GitHubAPIBackend.getColdCacheMissCount(). */
+  getRequestMetrics(): { totalRequests: number; byRouteClass: Record<string, number>; rateLimitRemaining: number } {
+    const byRouteClass = { ...this.requestCountsByRouteClass };
+    const totalRequests = Object.values(byRouteClass).reduce((sum, n) => sum + n, 0);
+    return { totalRequests, byRouteClass, rateLimitRemaining: this.rateLimit.remaining };
+  }
+
   // Circuit breaker state
   private circuitState: CircuitState = 'closed';
   private consecutiveFailures = 0;
@@ -141,6 +173,9 @@ export class GitHubRestClient {
       try {
         const url = `${GITHUB_API}${pathAndQuery}`;
         const headers = this.buildRequestHeaders(creds, method, pathAndQuery, body, requestId);
+        // t/4307: counted here, the one spot every outbound call (incl. retries)
+        // passes through, regardless of which backend method initiated it.
+        this.countRequest(pathAndQuery);
         const res = await fetch(url, {
           method,
           headers,
@@ -330,6 +365,13 @@ export class GitHubRestClient {
         message: 'Rate limited by GitHub API',
         data: { remaining: this.rateLimit.remaining, resetsAt: this.rateLimit.resetsAt },
       });
+      // t/4258/t/4281: see updateRateLimit — deps.record() alone is console-invisible.
+      // alert-github-rate-limit-critical's second OR-clause matches "github.api.rate_limit"
+      // + "degraded"; this is the primary-429 arm of that alert.
+      log.github.warn(
+        { remaining: this.rateLimit.remaining, resetsAt: this.rateLimit.resetsAt },
+        'github.api.rate_limit: degraded (429 rate limited by GitHub API)',
+      );
       const retryAfter = res.headers.get('retry-after');
       if (retryAfter && attempt < MAX_RETRIES) {
         return { action: 'retry', delayMs: parseInt(retryAfter, 10) * 1000 };
@@ -456,14 +498,25 @@ export class GitHubRestClient {
     if (limit !== null) this.rateLimit.limit = parseInt(limit, 10);
     if (reset !== null) this.rateLimit.resetsAt = parseInt(reset, 10) * 1000;
 
-    if (this.rateLimit.remaining < 500) {
+    if (this.rateLimit.remaining < 1000) {
+      // t/4258/t/4281: deps.record() alone writes only to FlightRecorder's
+      // in-memory ring buffer — never console. alert-github-rate-limit-warning/
+      // -critical (main.bicep) query ContainerAppConsoleLogs_CL for exactly
+      // "github.api.rate_limit"/"remaining"/"degraded", so without the matching
+      // log.github.warn below those alerts silently never fire (same class as
+      // handleGithubRefusal's github-api-refused-403, which already does both).
+      const degraded = this.rateLimit.remaining < 500;
       this.deps.record({
         type: 'github.api.rate_limit',
         component: 'github-api',
-        level: this.rateLimit.remaining < 500 ? 'warn' : 'info',
+        level: degraded ? 'warn' : 'info',
         message: `Rate limit: ${this.rateLimit.remaining}/${this.rateLimit.limit} remaining`,
         data: { ...this.rateLimit },
       });
+      log.github.warn(
+        { ...this.rateLimit, degraded },
+        `github.api.rate_limit: ${this.rateLimit.remaining}/${this.rateLimit.limit} remaining${degraded ? ' (degraded)' : ''}`,
+      );
     }
   }
 

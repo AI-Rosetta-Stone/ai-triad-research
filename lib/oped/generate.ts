@@ -283,7 +283,7 @@ function warnScopeNarrowing(applied: AppliedTag, deps: OpEdGeneratorDeps): void 
   if (applied.mode !== 'scope' || applied.excludedUntagged === 0) return;
   deps.recorder?.record({
     type: 'system.error', component: 'oped-generate', level: 'warn',
-    message: `Op-ed scope tag "${applied.pov}/${applied.tag}" excluded ${applied.excludedUntagged} untagged ${applied.pov} nodes from grounding (${applied.included} tagged in scope)`,
+    message: `Op-ed scope tag "${applied.pov}/${applied.tag}" excluded ${applied.excludedUntagged} ${applied.pov} nodes not tagged ${applied.tag} from grounding (${applied.included} tagged in scope)`,
   });
 }
 

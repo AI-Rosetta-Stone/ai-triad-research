@@ -20,12 +20,14 @@ import type { StorageBackend } from './storageBackend.js';
 import { log } from '../logger.js';
 import { FilesystemBackend } from './filesystemBackend.js';
 import { getGlobalRecorder, redactRecord } from '../../../../lib/flight-recorder/index.js';
-import { parseNpy, extractNodeVectors } from '../../../../lib/npy.js';
+import { parseNpy, extractNodeVectorsAsync } from '../../../../lib/npy.js';
 import type { OrganizationEdge } from '../../../../lib/organizations/types.js';
 import type { Entity } from '../../../../lib/entities/types.js';
 import type { EntityMentionsFile, ContainerMentions } from '../../../../lib/entities/mentionTypes.js';
 import { serializeEdgesJson } from '../../../../lib/edges/serializeEdges.js';
 import { ABSENT_BASELINE, type EdgesData } from '../../../../lib/edges/mergeEdgesPreservingRationale.js';
+import { getCurrentUserId } from '../security/userContext.js';
+import { scheduleOverlayCommit } from './overlayCommitScheduler.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
 // barrel: importers keep importing these symbols from './fileIO.js'. Each module
@@ -34,6 +36,8 @@ import { ABSENT_BASELINE, type EdgesData } from '../../../../lib/edges/mergeEdge
 export * from './debateStore.js';
 export * from './calibrationStore.js';
 export * from './urlFetch.js';
+export * from './overlayCommitScheduler.js';
+export * from './conflictsFileIO.js';
 export type { OpEdSetSummary } from '../../../../lib/oped/types.js';
 export { listOpedSets, loadOpedSet, saveOpedSetInProgress, loadOpedSetInProgress, finalizeOpedSet, deleteOpedSet, getOpedSetsQuotaStatus } from './opedStore.js';
 export { upsertOpedRun, countRunningOpedRuns, getOpedRun } from './opedRunStore.js';
@@ -358,7 +362,12 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
 
     const parsed = parseNpy(npyBuf);
     const index = JSON.parse(idxRaw.replace(/^﻿/, '')) as Record<string, { start: number; count: number }>;
-    Object.assign(result, extractNodeVectors(parsed, index, pov));
+    // t/4286: extractNodeVectorsAsync yields internally every 256 nodes, but
+    // that alone doesn't help this loop's own back-to-back calls — the
+    // explicit yield below ensures the event loop gets a turn between each
+    // synthetic POV file too, not just within one (ServerAPI/Shared Lib).
+    Object.assign(result, await extractNodeVectorsAsync(parsed, index, pov));
+    await new Promise<void>((r) => setImmediate(r));
     found = true;
   }
 
@@ -390,7 +399,9 @@ export async function readAggregatedCruxes(): Promise<unknown | null> {
 // handled by Merge-CruxExternalEvidence.ps1 (t/1540), not here.
 export async function writeAggregatedCruxes(data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   const filePath = path.join(getTaxonomyDir(), 'aggregated-cruxes.json');
-  return backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
+  const result = await backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
+  scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3: no following commit otherwise
+  return result;
 }
 
 /** t/4190: like readAggregatedCruxes, also returns the version (ETag). */
@@ -416,126 +427,6 @@ export async function readConflictClustersWithVersion(): Promise<{ data: unknown
     if (result === null) return null;
     return { data: JSON.parse(result.content), version: result.version };
   } catch (err: unknown) { getGlobalRecorder()?.record({ type: 'system.error', component: 'file-io', level: 'warn', message: 'readConflictClustersWithVersion: read/parse failed, returning null', data: { error: String(err) } }); return null; }
-}
-
-// Conflicts are stored in a single wrapper file (t/689 / t/693) instead of
-// ~1,244 individual {claimId}.json files (which cost 62 batched API reads to
-// list). The 5-minute response cache lives in server.ts and is invalidated by
-// the route handlers on create/write/delete — unchanged by this layer.
-const CONFLICTS_FILE = 'conflicts.json';
-const CONFLICTS_SCHEMA_VERSION = '2.0';
-
-interface ConflictsWrapper {
-  _schema_version: string;
-  last_modified: string;
-  conflict_count: number;
-  conflicts: Record<string, unknown>[];
-}
-
-function conflictsFilePath(): string {
-  return path.join(getConflictsDir(), CONFLICTS_FILE);
-}
-
-function claimIdOf(entry: unknown): string | undefined {
-  return (entry as { claim_id?: string })?.claim_id;
-}
-
-/** Read the conflicts wrapper, tolerating a missing or malformed file (→ empty).
- *  t/4190: version is the on-disk wrapper's own git blob SHA (empty string for
- *  a missing/malformed file — no precondition to check against, same marker
- *  convention as readFileWithVersionOrFallback). */
-async function readConflictsWrapper(): Promise<{ wrapper: ConflictsWrapper; version: string }> {
-  const empty: ConflictsWrapper = {
-    _schema_version: CONFLICTS_SCHEMA_VERSION,
-    last_modified: new Date().toISOString(),
-    conflict_count: 0,
-    conflicts: [],
-  };
-  const result = await readFileWithVersionOrFallback(conflictsFilePath());
-  if (result === null) return { wrapper: empty, version: '' };
-  try {
-    const parsed = JSON.parse(result.content) as Partial<ConflictsWrapper>;
-    const conflicts = Array.isArray(parsed.conflicts) ? parsed.conflicts as Record<string, unknown>[] : [];
-    return {
-      wrapper: {
-        _schema_version: parsed._schema_version ?? CONFLICTS_SCHEMA_VERSION,
-        last_modified: parsed.last_modified ?? empty.last_modified,
-        conflict_count: conflicts.length,
-        conflicts,
-      },
-      version: result.version,
-    };
-  } catch {
-    /* telemetry — silent by design; treat an unreadable conflicts file as empty */
-    return { wrapper: empty, version: '' };
-  }
-}
-
-/** Persist the conflicts array, refreshing conflict_count + last_modified. */
-async function writeConflictsWrapper(conflicts: Record<string, unknown>[], opts?: { baseSha?: string }): Promise<{ version: string }> {
-  const wrapper: ConflictsWrapper = {
-    _schema_version: CONFLICTS_SCHEMA_VERSION,
-    last_modified: new Date().toISOString(),
-    conflict_count: conflicts.length,
-    conflicts,
-  };
-  return backend.writeFile(conflictsFilePath(), JSON.stringify(wrapper, null, 2), opts);
-}
-
-export async function readAllConflictFiles(): Promise<unknown[]> {
-  return (await readConflictsWrapper()).wrapper.conflicts;
-}
-
-/** t/4190: like readAllConflictFiles, but also returns the wrapper file's
- *  version for the save route to hand back to the client as its write
- *  precondition (ETag). */
-export async function readAllConflictFilesWithVersion(): Promise<{ conflicts: unknown[]; version: string }> {
-  const { wrapper, version } = await readConflictsWrapper();
-  return { conflicts: wrapper.conflicts, version };
-}
-
-export async function writeConflictFile(claimId: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
-  assertSafeId(claimId, 'claimId');
-  const { wrapper } = await readConflictsWrapper();
-  const idx = wrapper.conflicts.findIndex(c => claimIdOf(c) === claimId);
-  if (idx === -1) throw new ActionableError({
-    goal: 'Update conflict definition',
-    problem: `Conflict not found: ${claimId}`,
-    location: 'server/fileIO.ts → writeConflictFile',
-    nextSteps: [
-      `Verify that a conflict with claim_id "${claimId}" exists in ${CONFLICTS_FILE}`,
-      'Use createConflictFile() to create a new conflict instead of writeConflictFile()',
-      'Call readAllConflictFiles() to list available conflicts',
-    ],
-  });
-  wrapper.conflicts[idx] = data as Record<string, unknown>;
-  return writeConflictsWrapper(wrapper.conflicts, opts);
-}
-
-export async function createConflictFile(claimId: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
-  assertSafeId(claimId, 'claimId');
-  const { wrapper } = await readConflictsWrapper();
-  if (wrapper.conflicts.some(c => claimIdOf(c) === claimId)) throw new ActionableError({
-    goal: 'Create conflict definition',
-    problem: `Conflict already exists: ${claimId}`,
-    location: 'server/fileIO.ts → createConflictFile',
-    nextSteps: [
-      `Use writeConflictFile() to update the existing conflict "${claimId}"`,
-      'Delete the existing conflict first if you intend to replace it',
-    ],
-  });
-  wrapper.conflicts.push(data as Record<string, unknown>);
-  return writeConflictsWrapper(wrapper.conflicts, opts);
-}
-
-export async function deleteConflictFile(claimId: string): Promise<void> {
-  assertSafeId(claimId, 'claimId');
-  const { wrapper } = await readConflictsWrapper();
-  const filtered = wrapper.conflicts.filter(c => claimIdOf(c) !== claimId);
-  // No-op if the claim wasn't present (mirrors the prior delete-missing behavior).
-  if (filtered.length !== wrapper.conflicts.length) {
-    await writeConflictsWrapper(filtered);
-  }
 }
 
 // ── Lineage categories ──
@@ -827,6 +718,7 @@ export async function updateEdgeStatus(
       delete arr.edges[index].direction_flag;
     }
     const result = await writeEdgesFile(arr, opts);
+    scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3: unlike PUT /api/edges, no following commit
     return { data: arr, version: result.version };
   }
   return { data: arr, version: opts?.baseSha ?? '' };
@@ -841,6 +733,7 @@ export async function bulkUpdateEdges(
       if (arr.edges[i]) arr.edges[i].status = status;
     }
     const result = await writeEdgesFile(arr, opts);
+    scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3
     return { data: arr, version: result.version };
   }
   return { data: arr, version: opts?.baseSha ?? '' };
@@ -857,6 +750,7 @@ export async function swapEdgeDirection(
     edge.target = tmp;
     delete edge.direction_flag;
     const result = await writeEdgesFile(arr, opts);
+    scheduleOverlayCommit(getCurrentUserId()); // t/4258/t/4277 C3
     return { data: arr, version: result.version };
   }
   return { data: arr, version: opts?.baseSha ?? '' };
@@ -1376,7 +1270,7 @@ export async function readSourceDocumentPdf(docId: string): Promise<Buffer | nul
 }
 
 // ── Data-root validation (t/3296) — extracted to dataRootValidator.ts ──
-export { validateDataRoot } from './dataRootValidator.js';
+export { validateDataRoot, validateCacheDirDisjoint } from './dataRootValidator.js';
 
 // ── Dictionary ──
 

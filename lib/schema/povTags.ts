@@ -8,7 +8,8 @@
 // enrichment, which is why it is not under graph_attributes.
 //
 // ABSENCE SEMANTICS (SO e/249#6 condition 3; also stated in taxonomy-schema.json node_fields): an absent
-// or empty `pov_tags` means UNTAGGED. Under a tag in SCOPE mode an untagged node is EXCLUDED, so coverage
+// or empty `pov_tags` means UNTAGGED. Under a tag in SCOPE mode a node without THAT tag (untagged, or
+// carrying only another tag) is EXCLUDED, so coverage
 // gaps silently narrow Scope debates; t/3962 asserts coverage and t/3957 WARNs with the excluded count.
 //
 // `validatePovTags` is the single rule. It is called by every live path that writes tags: the tagging CLI
@@ -68,7 +69,8 @@ export const APPLIED_TAG_COUNT_MEANING = {
     'scope: tagged nodes of the named camp used for grounding. ' +
     'prioritize: tagged nodes of the named camp that were boosted.',
   excludedUntagged:
-    'scope: untagged nodes of the named camp left out of grounding. ' +
+    // Historical field name: with more than one tag per camp this is NOT only untagged nodes (t/4275).
+    "scope: nodes of the named camp that don't carry the selected tag (untagged, or carrying another tag) left out of grounding. " +
     'prioritize: always 0 by construction; it means this mode excludes nothing, NOT full coverage.',
 } as const;
 

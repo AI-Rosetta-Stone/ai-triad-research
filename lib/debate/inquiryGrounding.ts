@@ -80,6 +80,9 @@ function scoreEmbeddingsByCamp(
  *
  * ADR-001: returns an empty-but-valid envelope on zero-hit / empty-corpus inputs.
  * Each fallback path logs a WARN via the flight recorder.
+ * An empty envelope is valid at the grounding layer; it is fatal at the pipeline
+ * layer (runInquiryPipeline) whenever an embedding corpus exists — an all-camps-empty
+ * result with a non-empty embedding map is silent degradation, not graceful fallback.
  */
 export async function buildGroundingEnvelope(
   question: string,
@@ -212,7 +215,7 @@ export async function buildGroundingEnvelope(
         const filteredIds = new Set(filteredNodes.map(n => n.id));
         activeScoredEntries = scored.filter(s => filteredIds.has(s.node.id));
         if (excludedCount > 0) {
-          warn(`buildGroundingEnvelope: scope tag '${sel.tag}' on '${sel.pov}' excluded ${excludedCount} untagged nodes from grounding`);
+          warn(`buildGroundingEnvelope: scope tag '${sel.tag}' on '${sel.pov}' excluded ${excludedCount} nodes not tagged ${sel.tag} from grounding`);
         }
         appliedTag = { pov: sel.pov, tag: sel.tag, mode: sel.mode, included: filteredNodes.length, excludedUntagged: excludedCount };
       } else {
