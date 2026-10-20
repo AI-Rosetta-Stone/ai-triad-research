@@ -45,6 +45,30 @@ export function resolveAnonSessionKey(req: IncomingMessage): string {
 
 const TRACE_MAX_EVENTS_PER_BATCH = 100;
 
+// t/4326 ask 3: per-process dedup for the "signed-in, resolved non-admin" INFO log on
+// /api/auth/me — keyed on storageUserId (derived, never the raw principal), so a user
+// polling this endpoint repeatedly logs once, not once per poll.
+const nonAdminLoggedUserIds = new Set<string>();
+
+/** t/4326 ask 3: resolve admin + storageUserId for /api/auth/me (mirrors
+ *  /api/user/profile's isAdmin(userId) pattern — session.ts:169 — rather than
+ *  re-deriving the logic) and, as a side effect, log one INFO line per process
+ *  per storageUserId the first time a signed-in principal resolves non-admin, so
+ *  "GitHub sign-in isn't admin" (t/4326) is diagnosable from logs without a manual
+ *  query. Per EasyAuth-BestPractices.md §8: derived id only, never the raw
+ *  principal — the dedup Set and the log fields are keyed on storageUserId, never
+ *  principalName. Extracted so the route handler stays under the complexity ceiling. */
+function resolveAuthMeAdmin(principalName: string, idp: string, isAnon: boolean): { admin: boolean; storageUserId: string } {
+  const storageUserId = deriveStorageUserId(principalName || '_local', idp || '_local');
+  const admin = isAdmin(storageUserId);
+  if (!isAnon && !admin && !nonAdminLoggedUserIds.has(storageUserId)) {
+    nonAdminLoggedUserIds.add(storageUserId);
+    log.server.info({ storageUserId, idp, reason: 'non_admin_signed_in' },
+      'Signed-in user resolved non-admin on /api/auth/me');
+  }
+  return { admin, storageUserId };
+}
+
 /** Derive the analytics user id for a request from the Easy Auth principal headers
  *  (only when Azure auth is enabled), falling back to '_local'. */
 function deriveRequestUserId(req: IncomingMessage): string {
@@ -96,6 +120,7 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
       : '';
     const isAnon = !principalName;
     const authOpt = process.env.AUTH_OPTIONAL === '1';
+    const { admin, storageUserId } = resolveAuthMeAdmin(principalName, idp, isAnon);
 
     // t/2493: session_created_at = the anon session's mint time; for sessions
     // predating this feature (id cookie set, no created marker) it is the
@@ -125,6 +150,8 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
       user: principalName || resolveAnonSessionKey(req),
       idp: idp || '',
       anonymous: isAnon,
+      admin,
+      storageUserId,
       readOnly,
       ...(sessionCreatedAt ? { session_created_at: sessionCreatedAt } : {}),
       capabilities: {
