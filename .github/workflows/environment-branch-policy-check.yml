@@ -31,7 +31,11 @@ on:
 permissions:
   contents: read
   issues: write
-  environments: read  # GET .../environments and .../environments/{name}/deployment-branch-policies
+  actions: read  # GET .../environments and .../environments/{name}/deployment-branch-policies.
+                 # `environments: read` is NOT a valid GITHUB_TOKEN permission key -- using it
+                 # made this entire file invalid (TL review, PR #3527, run 39478983829: a push
+                 # failure with zero jobs, GitHub rejecting the file outright, on a workflow with
+                 # no push trigger at all -- the silent-dead-monitor class this check exists for).
 
 jobs:
   check:
