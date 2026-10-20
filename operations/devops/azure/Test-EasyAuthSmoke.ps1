@@ -193,12 +193,17 @@ if ($MyInvocation.InvocationName -ne '.') {
     }
 
     if ($env:GITHUB_STEP_SUMMARY) {
-        $verdict = if ($failures.Count) { "❌ FAILED ($($failures.Count))" } else { '✅ passed' }
+        $verdict = if ($failures.Count) { "❌ FAILED ($($failures.Count))" } elseif ($zumo) { '✅ passed' } else { '⚠️ passed (anonymous subset only; signed-in checks skipped)' }
         Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (@("## Signed-in smoke (t/4134): $verdict on $BaseUrl", '', '| Step | Result |', '|---|---|') + $summary + @('') + ($failures | ForEach-Object { "- $_" })) -Encoding utf8
     }
     if ($failures.Count) {
         foreach ($f in $failures) { Write-Host "::error title=t/4134 signed-in smoke::$f" }
         exit 1
     }
-    Write-Host "t/4134 signed-in smoke passed on $BaseUrl (user $ExpectedLogin, read-only, write probe 403 read_only)"
+    # Claim only what this run actually checked (the run 39453487495 line claimed signed-in checks that were skipped).
+    if ($zumo) {
+        Write-Host "t/4134 signed-in smoke passed on $BaseUrl (user $ExpectedLogin, read-only, write probe 403 read_only)"
+    } else {
+        Write-Host "t/4134 smoke passed on ${BaseUrl}: ANONYMOUS SUBSET ONLY (/me anonymous, anonymous write refused). Signed-in checks NOT run — known gap t/4134#11."
+    }
 }
