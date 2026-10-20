@@ -26,6 +26,7 @@ import { diffNodes, changedFields } from '../storage/editMeta.js';
 import { computeNodeConflicts } from '../community/nodeConflicts.js';
 import type { TaxNode, NodeConflict } from '../community/nodeConflicts.js';
 import { getOverlayCommitStatus } from '../storage/overlayCommitScheduler.js';
+import type { GitHubAPIBackend, CompareResult } from '../storage/githubAPIBackend.js';
 
 type RawBodyReq = IncomingMessage & { __rawBody?: string };
 
@@ -78,6 +79,40 @@ function handleMergedPrBranchCleanup(
         }
       }
     }
+  }
+}
+
+interface SyncBranchState { unsyncedCount: number; behindBy: number; hasConflicts: boolean }
+
+/** t/4324: a session branch with no unique commits of its own (ahead_by === 0) that's
+ *  fallen behind main just carries stale data forever — nothing else ever moves it.
+ *  Lossless fast-forward: ahead_by === 0 means there's nothing of the user's to lose,
+ *  and cmp.merge_base_sha is exactly the branch's own current head in that case (it
+ *  has no commits main doesn't already have). On success, returns the post-fast-
+ *  forward state (all clear). Degrades gracefully (records a system.error WARN,
+ *  returns the pre-fast-forward state) on failure or when fast-forward doesn't apply. */
+async function resolveSyncBranchState(
+  githubBackend: GitHubAPIBackend, branch: string, cmp: CompareResult,
+): Promise<SyncBranchState> {
+  const stale = { unsyncedCount: cmp.files.length, behindBy: cmp.behind_by, hasConflicts: cmp.status === 'diverged' && cmp.behind_by > 0 };
+  if (cmp.ahead_by !== 0 || cmp.behind_by <= 0) return stale;
+  const oldSha = cmp.merge_base_sha;
+  try {
+    const mergeResult = await githubBackend.mergeBranch(branch);
+    if (!mergeResult.ok) return stale;
+    const newSha = mergeResult.sha || githubBackend.getMainSha();
+    log.server.warn(
+      { branch, oldSha, newSha, behindBy: cmp.behind_by },
+      'Auto-fast-forwarded stale session branch to main (t/4324)',
+    );
+    return { unsyncedCount: 0, behindBy: 0, hasConflicts: false };
+  } catch (ffErr) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'sync', level: 'warn',
+      message: `Auto-fast-forward of stale session branch ${branch} failed`,
+      error: { name: (ffErr as Error).name ?? 'Error', message: String(ffErr), stack: (ffErr as Error).stack },
+    });
+    return stale;
   }
 }
 
@@ -143,9 +178,7 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
       let hasConflicts = false;
       if (branch) {
         const cmp = await githubBackend.compareBranches('main', branch);
-        unsyncedCount = cmp.files.length;
-        behindBy = cmp.behind_by;
-        hasConflicts = cmp.status === 'diverged' && cmp.behind_by > 0;
+        ({ unsyncedCount, behindBy, hasConflicts } = await resolveSyncBranchState(githubBackend, branch, cmp));
       }
 
       // t/4258/t/4276 (C3 wiring): a write outside taxonomyDataSlice.save() (edges status/
