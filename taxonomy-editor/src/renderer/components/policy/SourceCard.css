@@ -1,0 +1,21 @@
+/* Source card at the top of an expanded document (t/4336, t/4333). */
+.source-card {
+  border-left: 3px solid var(--color-acc, #3b82f6);
+  background: var(--bg-secondary);
+  padding: 6px 10px;
+  margin: 4px 0 8px;
+  font-size: var(--text-2xs);
+  color: var(--text-primary);
+}
+.source-card-title { font-weight: 700; }
+.source-card-url { display: block; word-break: break-all; margin-top: 2px; }
+.source-card-url-plain { color: var(--text-muted); }
+.source-card-byline { color: var(--text-muted); margin-top: 2px; }
+.source-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.source-card-tag {
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  line-height: 1.6;
+}
+.source-card-oneliner { margin-top: 4px; font-style: italic; }

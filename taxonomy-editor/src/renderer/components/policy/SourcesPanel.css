@@ -175,3 +175,11 @@
   line-height: 1.35;
 }
 
+
+/* t/4336: fetch failed and nothing cached for this node */
+.sources-panel-error {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  padding: 16px 8px;
+  text-align: center;
+}

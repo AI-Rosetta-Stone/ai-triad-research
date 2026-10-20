@@ -4,10 +4,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { groupByDocument } from './sourceGrouping';
 import './PolicySourcesPanel.css';
 
 export interface PolicySourceReference {
   docId: string;
+  /** t/4336: the real document this reference belongs to (t/4334). Until the policy index carries it, rows
+   *  group by `docId` and the grouping helper WARNs once. */
+  canonicalDocId?: string;
   title: string;
   dateIngested: string;
   sourceTime: string;
@@ -60,6 +64,9 @@ const POV_LABELS: Record<string, string> = {
   skeptic: 'Skp',
 };
 
+/** The same node, stance and POV repeated across a document's split parts is one reference. */
+const POLICY_REF_KEY = (r: PolicySourceReference) => `${r.nodeId}\u0000${r.stance}\u0000${r.pov}`;
+
 interface PolicySourcesPanelProps {
   policyId: string;
 }
@@ -78,33 +85,28 @@ export function PolicySourcesPanel({ policyId }: PolicySourcesPanelProps) {
     });
   }, [policyId]);
 
-  // Group by docId
-  const grouped = useMemo(() => {
-    if (!refs) return [];
-    const byDoc: Record<string, PolicySourceReference[]> = {};
-    for (const r of refs) {
-      if (!byDoc[r.docId]) byDoc[r.docId] = [];
-      byDoc[r.docId].push(r);
-    }
-    return Object.entries(byDoc).sort((a, b) => b[1].length - a[1].length);
-  }, [refs]);
+  // t/4336: one row per real document, the same reference counted once (shared with SourcesPanel).
+  const grouped = useMemo(
+    () => (refs ? groupByDocument(refs, { refKey: POLICY_REF_KEY, component: 'policy-sources' }) : []),
+    [refs],
+  );
 
   if (loading) {
     return <div className="policy-sources-loading">Loading source references...</div>;
   }
 
-  if (!refs || refs.length === 0) {
+  if (grouped.length === 0) {
     return <div className="policy-sources-empty">No sources reference this policy.</div>;
   }
 
+  const refCount = grouped.reduce((n, g) => n + g.refs.length, 0);
   return (
     <div className="policy-sources-panel">
       <div className="policy-sources-summary">
-        {refs.length} reference{refs.length !== 1 ? 's' : ''} across {grouped.length} document{grouped.length !== 1 ? 's' : ''}
+        {refCount} reference{refCount !== 1 ? 's' : ''} across {grouped.length} document{grouped.length !== 1 ? 's' : ''}
       </div>
 
-      {grouped.map(([docId, docRefs]) => {
-        const first = docRefs[0];
+      {grouped.map(({ canonicalDocId: docId, first, refs: docRefs }) => {
         const isExpanded = expanded === docId;
 
         return (
