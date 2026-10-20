@@ -1,0 +1,117 @@
+name: Environment Branch-Policy Check
+
+# Scheduled health check (t/4340 follow-up, TL ask): every environment that mints an Azure
+# credential must restrict which branch/ref can get that token, or its full privilege is
+# available to any branch. `production` and `staging` both had this gap for the life of the repo
+# -- a null deployment_branch_policy, or custom_branch_policies:true with zero configured
+# policies, both mean "every branch can deploy" undetected until t/4340 found it by chance while
+# verifying an unrelated deploy. This check makes the next instance of this class visible on its
+# own, not 3+ days after a health-monitor's own credential outage led someone to go looking.
+#
+# CREDENTIALED_ENVIRONMENTS (operations/devops/environment-branch-policy-predicate.mjs) is the
+# maintained list. Keep it in sync with `grep -rn "environment:" .github/workflows/*.yml` when a
+# workflow starts minting a credential against a new environment.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Self-health — predicate unit suite
+        run: node --test operations/devops/environment-branch-policy-predicate.test.mjs
+
+      - name: Evaluate every credentialed environment's branch policy
+        id: evaluate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const { evaluateAll, CREDENTIALED_ENVIRONMENTS } =
+              await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/environment-branch-policy-predicate.mjs`).href);
+            const owner = context.repo.owner, repo = context.repo.repo;
+
+            const envs = [];
+            for (const name of CREDENTIALED_ENVIRONMENTS) {
+              let data;
+              try {
+                ({ data } = await github.rest.repos.getEnvironment({ owner, repo, environment_name: name }));
+              } catch (err) {
+                if (err.status === 404) {
+                  envs.push({ name, missing: true });
+                  continue;
+                }
+                throw err;
+              }
+              const deploymentBranchPolicy = data.deployment_branch_policy ?? null;
+              let policyCount = 0;
+              if (deploymentBranchPolicy) {
+                const policies = await github.paginate(github.rest.repos.listDeploymentBranchPolicies, { owner, repo, environment_name: name });
+                policyCount = policies.length;
+              }
+              envs.push({ name, deploymentBranchPolicy, policyCount });
+            }
+
+            const result = evaluateAll(envs);
+            core.info(`environment-branch-policy-check verdict: pass=${result.pass} gaps=${JSON.stringify(result.gaps)}`);
+            core.setOutput('gaps', JSON.stringify(result.gaps));
+            if (!result.pass) {
+              core.setFailed(`${result.gaps.length} environment(s) have no effective branch-policy restriction: ${result.gaps.map((g) => g.name).join(', ')}`);
+            }
+
+      - name: Open or update an alert issue
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const gaps = JSON.parse(`${{ steps.evaluate.outputs.gaps }}`);
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const title = 'Environment branch-policy gap: a credentialed environment has no branch restriction';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## Branch-policy gap (t/4340)',
+              '',
+              ...gaps.map((g) => `- **${g.name}**: ${g.reason}`),
+              '',
+              `Run: ${runUrl}`,
+              '',
+              'Fix: add a `main`-only deployment-branch policy to each named environment:',
+              '```',
+              'gh api -X POST repos/OWNER/REPO/environments/ENV/deployment-branch-policies -f name=main -f type=branch',
+              '```',
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: 'branch-policy-alert', per_page: 1 });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.data[0].number,
+                body: `Still open at ${new Date().toISOString()}:\n\n${body}`,
+              });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body, labels: ['branch-policy-alert', 'bug'] });
+            }
+
+      - name: Auto-close resolved alerts
+        if: success()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: 'branch-policy-alert' });
+            for (const issue of open.data) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `Resolved — every credentialed environment now has an effective branch-policy restriction. Run: ${runUrl}`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+            }
