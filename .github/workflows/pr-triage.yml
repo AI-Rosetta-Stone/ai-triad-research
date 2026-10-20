@@ -515,8 +515,25 @@ jobs:
                 if (!byPath.has(path)) byPath.set(path, entry);
               }
 
+              // t/4096 arm 1 finding (p/331#2203): mergeable_state can read 'blocked' for several
+              // seconds after a PR is genuinely mergeable. Only re-fetch for a PR that already
+              // looks like armed-but-blocked on this first read -- a second GET, done once per
+              // genuine candidate, not for every PR this loop sees.
+              const looksArmedButBlocked = !!full.auto_merge && full.mergeable_state === 'blocked'
+                && REQUIRED_CONTEXTS.every((name) => {
+                  const run = byPath.get(REQUIRED_CONTEXT_PATHS[name]);
+                  return run && run.status === 'completed' && run.conclusion === 'success';
+                });
+              let mergeableStateRecheck;
+              if (looksArmedButBlocked) {
+                await new Promise((r) => setTimeout(r, 5000));
+                const { data: recheck } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
+                mergeableStateRecheck = recheck.mergeable_state;
+              }
+
               const prFacts = {
                 mergeableState: full.mergeable_state,
+                mergeableStateRecheck,
                 // t/4356 (TL, p/331#2172): #3432/#3455 sat armed-but-DIRTY for hours, unflagged --
                 // `full.mergeable` (a lazily-computed tri-state true/false/null) can lag or read
                 // non-false while GitHub's own `mergeable_state` already reports 'dirty'. Check

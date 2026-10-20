@@ -136,7 +136,7 @@ test('REAL SHAPE: "CodeQL SAST" workflow run (name != CodeQL, path=codeql.yml) i
     }
     return { name, path: REQUIRED_CONTEXT_PATHS[name], status: 'completed', conclusion: 'success', createdAt: hoursAgo(1), startedAt: hoursAgo(1), runAttempt: 1, id: 1 };
   });
-  const pr = basePr({ runs, autoMergeEnabled: true, mergeableState: 'blocked' });
+  const pr = basePr({ runs, autoMergeEnabled: true, mergeableState: 'blocked', mergeableStateRecheck: 'blocked' });
   assert.equal(classifyBlocker(pr, NOW).class, 'armed-but-blocked');
 });
 
@@ -149,8 +149,8 @@ test('required-check-failed: a required context concluded failure', () => {
 });
 
 // ── armed-but-blocked ──
-test('armed-but-blocked: auto-merge armed, everything green, still BLOCKED', () => {
-  const pr = basePr({ autoMergeEnabled: true, mergeableState: 'blocked', mergeRefusalText: 'Required status check "joint-gv-guard" is expected' });
+test('armed-but-blocked: auto-merge armed, everything green, still BLOCKED on both reads', () => {
+  const pr = basePr({ autoMergeEnabled: true, mergeableState: 'blocked', mergeableStateRecheck: 'blocked', mergeRefusalText: 'Required status check "joint-gv-guard" is expected' });
   const v = classifyBlocker(pr, NOW);
   assert.equal(v.class, 'armed-but-blocked');
   assert.match(v.detail.mergeRefusalText, /joint-gv-guard/);
@@ -160,7 +160,15 @@ test('NOT armed-but-blocked: armed and green but mergeableState is clean (normal
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
 });
 test('NOT armed-but-blocked: ci-gate missing entirely (even with everything else green and armed)', () => {
-  const pr = basePr({ runs: allGreenRuns().filter((r) => r.path !== REQUIRED_CONTEXT_PATHS['ci-gate']), autoMergeEnabled: true, mergeableState: 'blocked' });
+  const pr = basePr({ runs: allGreenRuns().filter((r) => r.path !== REQUIRED_CONTEXT_PATHS['ci-gate']), autoMergeEnabled: true, mergeableState: 'blocked', mergeableStateRecheck: 'blocked' });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
+});
+test('t/4096 arm 1: FIRE ARM -- stale-then-clean sequence does NOT escalate (first read blocked, recheck clean)', () => {
+  const pr = basePr({ autoMergeEnabled: true, mergeableState: 'blocked', mergeableStateRecheck: 'clean' });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
+});
+test('t/4096 arm 1: a recheck the caller never performed (undefined) does NOT escalate on a single blocked read', () => {
+  const pr = basePr({ autoMergeEnabled: true, mergeableState: 'blocked' });
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
 });
 

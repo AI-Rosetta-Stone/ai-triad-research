@@ -28,6 +28,13 @@
  * and lowercasing) is rejected as self-approval. This is an approximation, not an exact identity
  * check — documented here so a reviewer can propose a better one if this heuristic misfires on a
  * real role name.
+ *
+ * t/4096 Reviewer switch-over: during the transition, a T1 PR can be approved EITHER way --
+ * the legacy `Approved (<role>):` comment, OR a real GitHub review left by the reviewer App
+ * (`state: 'APPROVED'`, submitted after the latest push). The bot-review arm does NOT reuse the
+ * comment's self-approval heuristic: GitHub itself refuses an App's self-approval on its own PR
+ * (confirmed live, t/4096 arm 5), so a real APPROVED review already proves a distinct identity
+ * reviewed it. Accepting this widens what satisfies the gate, so this change is T1, not T0.
  */
 
 function parseTier(body) {
@@ -45,7 +52,7 @@ function normalizeRole(role) {
   return String(role ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
-export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approvalComments }) {
+export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approvalComments, botReviews }) {
   const tier = parseTier(body);
   if (tier !== 'T1') {
     return { pass: true, tier, reason: 'not-t1' };
@@ -64,6 +71,17 @@ export function evaluateT1ApprovalGuard({ body, headRefName, lastPushAt, approva
     if (!effective) continue;
     if (new Date(effective).getTime() <= pushTime) continue; // approval predates the latest push
     matches.push({ role: m[1], at: effective });
+  }
+
+  // t/4096 Reviewer switch-over: a real bot APPROVED review after the latest push also satisfies
+  // the gate. GitHub itself refuses an App's self-approval (t/4096 arm 5), so no owner-slug check
+  // is needed here.
+  for (const r of botReviews || []) {
+    if (String(r?.state ?? '').toUpperCase() !== 'APPROVED') continue;
+    const effective = r.submittedAt;
+    if (!effective) continue;
+    if (new Date(effective).getTime() <= pushTime) continue; // review predates the latest push
+    matches.push({ role: r.login ?? 'reviewer-app', at: effective });
   }
 
   if (matches.length > 0) {

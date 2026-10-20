@@ -18,6 +18,10 @@ name: t1-approval-guard
 #   - an approval added by EDITING an older comment in place -> covered: the predicate uses the
 #     comment's effective time (`updatedAt ?? createdAt`), and `issue_comment: [edited]` re-runs
 #     this check so the PR isn't stuck red waiting for a new comment.
+#   - t/4096 Reviewer switch-over: a real bot APPROVED review -> covered by `pull_request_review:
+#     [submitted]`, so the check re-runs the moment the reviewer App leaves its review, same as a
+#     new comment does. The legacy `Approved (<role>):` comment path is unchanged during the
+#     transition; both forms satisfy the predicate (t1-approval-guard-predicate.mjs).
 #
 # ROLLOUT: ships warn-only (not a required context) for >=1 green cycle against real T1 PRs.
 # Promotion to required is a separate T2 PR (branch-protection-adjacent).
@@ -28,6 +32,8 @@ on:
     types: [opened, synchronize, edited, labeled]
   issue_comment:
     types: [created, edited]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   pull-requests: write
@@ -147,7 +153,14 @@ jobs:
             const rawComments = await withRetry('issues.listComments', () => github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 }));
             const approvalComments = rawComments.map((c) => ({ body: c.body, createdAt: c.created_at, updatedAt: c.updated_at }));
 
-            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments });
+            // t/4096 Reviewer switch-over: during the transition, a real bot review also satisfies
+            // the gate (t/4096#58's T1 decision), alongside the legacy `Approved (<role>):` comment.
+            const rawReviews = await withRetry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
+            const botReviews = rawReviews
+              .filter((r) => r.user?.type === 'Bot')
+              .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login }));
+
+            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews });
             core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}`);
 
             if (result.pass) {

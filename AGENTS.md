@@ -69,7 +69,8 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
   - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
   - or with the "SO did not review" note plus the human approval.
 - **Co-landing PRs** carry `joint-gv` and are merged manually after their joint review.
-- **Never run `gh pr review --approve`.** Every agent is jpsnover, and GitHub refuses self-approval. Record approval as a PR comment starting `Approved (<role>):`. Owner: TL. Review-by: 2026-11-15. This rule lapses when the t/4096 Reviewer App switch-over lands (Sage #225).
+- **Approve via the reviewer App** (t/4096 Reviewer switch-over): `Invoke-AsAgentApp -Role reviewer -ScriptBlock { gh pr review <N> --approve --body 'Approved (<role>): <reason>' }` (`operations/devops/AgentAppToken.psm1`). Fails closed on a token problem — never falls back to approving as `jpsnover`. Full procedure: [`docs/agent-pr-approval.md`](docs/agent-pr-approval.md). A reviewer-App approval is a record, not a gate (t/4096#12 C1) — it doesn't change what's required to merge.
+- **T2 human approval** is the PI, or **the TL once an SO clearance exists at the exact head** (t/4096#58). If the SO dissents or didn't review, it goes to the PI. Everything else on the PI-only list (below) is unaffected.
 - **Where this section differs from Change Tiers below, Change Tiers wins.** Ref §4.
 
 ### Claim Before Implement
