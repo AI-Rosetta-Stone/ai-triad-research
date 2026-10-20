@@ -1,0 +1,55 @@
+name: Signed-in Auth Smoke (t/4134)
+
+# Signs in through Easy Auth as the read-only smoke identity (ai-triad-smoke) and asserts a real
+# authenticated session: /api/auth/me is 200 as that user, readOnly, write:false, and a no-baseSha
+# write probe is 403 read_only (operations/devops/azure/Test-EasyAuthSmoke.ps1).
+#
+# WARN-ONLY by construction: dispatch-only, and nothing (no deploy, no required check) gates on it.
+# A failed smoke is a RED run on purpose (SO C3, #3497) — no continue-on-error, so the run result is
+# honest evidence for t/4296 G2 and for promotion. Wiring it into a deploy or a required check is the
+# separate T2 promotion step (Gate Promotion rule). Never dispatch before t/4296's READ_ONLY_PRINCIPALS
+# is deployed to the target (TL, t/4134#9). Prod gets a fresh sign-in only; never restarted for a smoke.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which app to sign in to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-smoke-${{ inputs.target }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  signed-in-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # SO C2 (#3497, PI "yes to both"): SMOKE_GH_TOKEN lives only in this environment, whose
+    # deployment-branch rule is `main` only, so a dispatch from any other branch can't read it.
+    environment: auth-smoke
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Signed-in smoke against ${{ inputs.target }}
+        shell: pwsh
+        env:
+          SMOKE_GH_TOKEN: ${{ secrets.SMOKE_GH_TOKEN }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          $base = switch ($env:TARGET) {
+            'production' { 'https://taxonomy-editor.yellowbush-aeda037d.eastus.azurecontainerapps.io' }
+            'staging'    { 'https://taxonomy-editor-staging.yellowbush-aeda037d.eastus.azurecontainerapps.io' }
+          }
+          ./operations/devops/azure/Test-EasyAuthSmoke.ps1 -BaseUrl $base
