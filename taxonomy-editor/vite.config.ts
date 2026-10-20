@@ -252,6 +252,7 @@ export default defineConfig({
       '../../../lib/schema/**/*.test.ts',    // t/3453 — schema-of-record drift comparator + extractors (fixture-based, no ai-triad-data)
       '../../../lib/inquiry/**/*.test.ts',   // t/3574 — inquiry result contract (Zod schemas + parseInquiryResult), fixture-based, no ai-triad-data
       '../../../lib/policy/**/*.test.ts',    // t/4034 — policy registry recount (pure, fixture-based, no ai-triad-data)
+      '../../../lib/sourceIndex/**/*.test.ts', // t/4334 — canonical-doc-id algorithm (pure, fixture-based, Electron/web parity)
       '../../../lib/*.test.ts',
       // translation tests excluded — depend on ai-triad-data dictionary not available in CI
     ],

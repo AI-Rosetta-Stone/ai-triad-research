@@ -28,6 +28,8 @@ import { serializeEdgesJson } from '../../../../lib/edges/serializeEdges.js';
 import { ABSENT_BASELINE, type EdgesData } from '../../../../lib/edges/mergeEdgesPreservingRationale.js';
 import { getCurrentUserId } from '../security/userContext.js';
 import { scheduleOverlayCommit } from './overlayCommitScheduler.js';
+import type { NodeSourceIndex } from '../../../../lib/sourceIndex/types.js';
+import { buildNodeSourceIndex } from './nodeSourceIndex.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
 // barrel: importers keep importing these symbols from './fileIO.js'. Each module
@@ -38,6 +40,7 @@ export * from './calibrationStore.js';
 export * from './urlFetch.js';
 export * from './overlayCommitScheduler.js';
 export * from './conflictsFileIO.js';
+export * from './nodeSourceIndex.js';
 export type { OpEdSetSummary } from '../../../../lib/oped/types.js';
 export { listOpedSets, loadOpedSet, saveOpedSetInProgress, loadOpedSetInProgress, finalizeOpedSet, deleteOpedSet, getOpedSetsQuotaStatus } from './opedStore.js';
 export { upsertOpedRun, countRunningOpedRuns, getOpedRun } from './opedRunStore.js';
@@ -754,106 +757,6 @@ export async function swapEdgeDirection(
     return { data: arr, version: result.version };
   }
   return { data: arr, version: opts?.baseSha ?? '' };
-}
-
-// ── Node/Policy source index ──
-
-interface SourceReference {
-  docId: string;
-  title: string;
-  pov: string;
-  stance: string;
-  point: string;
-  verbatim: string;
-  excerptContext: string;
-  url: string | null;
-  sourceType: string;
-  datePublished: string;
-}
-
-type NodeSourceIndex = Record<string, SourceReference[]>;
-
-type NodeSourceMeta = { title: string; url: string | null; sourceType: string; datePublished: string };
-
-async function loadNodeMetaCache(sourcesDir: string | null): Promise<Record<string, NodeSourceMeta>> {
-  const metaCache: Record<string, NodeSourceMeta> = {};
-  const sourceEntries = sourcesDir ? await backend.listDirectory(sourcesDir) : [];
-  await Promise.all(sourceEntries.map(async (name) => {
-    const metaPath = path.join(sourcesDir!, name, 'metadata.json');
-    try {
-      const metaRaw = await backend.readFile(metaPath);
-      if (metaRaw !== null) {
-        const meta = JSON.parse(metaRaw);
-        metaCache[name] = {
-          title: meta.title || name,
-          url: meta.url || null,
-          sourceType: meta.source_type || 'unknown',
-          datePublished: meta.date_published || meta.source_time || '',
-        };
-      }
-    } catch { /* telemetry — silent by design;  skip */ }
-  }));
-  return metaCache;
-}
-
-async function indexSummaryFile(
-  summariesDir: string, file: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
-): Promise<void> {
-  const docId = file.replace(/\.json$/, '');
-  let summary: {
-    pov_summaries?: Record<string, {
-      key_points?: Array<{
-        taxonomy_node_id?: string | null;
-        point?: string; stance?: string; verbatim?: string; excerpt_context?: string;
-      }>;
-    }>;
-  };
-  try {
-    const raw = await backend.readFile(path.join(summariesDir, file));
-    if (raw === null) return;
-    summary = JSON.parse(raw);
-  } catch { /* telemetry — silent by design */ return; }
-  const meta = metaCache[docId] ?? { title: docId, url: null, sourceType: 'unknown', datePublished: '' };
-  for (const [pov, povData] of Object.entries(summary.pov_summaries || {})) {
-    for (const kp of povData.key_points || []) {
-      const nodeId = kp.taxonomy_node_id;
-      if (!nodeId) continue;
-      if (!index[nodeId]) index[nodeId] = [];
-      index[nodeId].push({
-        docId, title: meta.title, pov,
-        stance: kp.stance || 'neutral',
-        point: kp.point || '',
-        verbatim: kp.verbatim || '',
-        excerptContext: kp.excerpt_context || '',
-        url: meta.url, sourceType: meta.sourceType, datePublished: meta.datePublished,
-      });
-    }
-  }
-}
-
-async function indexSummaryFiles(
-  summaryFiles: string[], summariesDir: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
-): Promise<void> {
-  await Promise.all(
-    summaryFiles.filter(f => f.endsWith('.json')).map(file => indexSummaryFile(summariesDir, file, metaCache, index))
-  );
-}
-
-/**
- * Scan all summary JSON files and build a reverse index:
- * nodeId → list of source references that mapped to it.
- */
-export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
-  const summariesDir = resolveDataPath(loadDataConfig().summaries_dir);
-  const sourcesDir = getSourcesDir();
-  const index: NodeSourceIndex = {};
-
-  const summaryFiles = await backend.listDirectory(summariesDir);
-  if (summaryFiles.length === 0) return index;
-
-  const metaCache = await loadNodeMetaCache(sourcesDir);
-  await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  return index;
 }
 
 interface PolicySourceReference {
