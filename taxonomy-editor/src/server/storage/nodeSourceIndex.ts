@@ -138,6 +138,22 @@ async function loadOneSourceMetaEntry(sourcesDir: string, name: string, hashCach
   return { metaCache, identityMeta, snapshotHash };
 }
 
+/** t/4334#18: a configured data directory that lists empty is a silent
+ *  failure mode, not a legitimate "nothing here yet" — e.g. `getSourcesDir()`
+ *  returning a path the backend's tree doesn't actually cover (the hosted
+ *  AC1 bug: `sources/` from a separate repo, read via a single-repo
+ *  `GitHubAPIBackend`). `dirPath === null` ("sources not configured at all")
+ *  is NOT warned here — that's a legitimate, already-handled absence. */
+function warnIfEmptyConfiguredDir(label: string, dirPath: string, entries: string[]): void {
+  if (entries.length > 0) return;
+  log.server.warn({ label, dirPath }, `Node source index: listDirectory returned no entries for a configured data directory (${label})`);
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'node-source-index', level: 'warn',
+    message: `listDirectory returned no entries for a configured data directory: ${label}`,
+    data: { label, dirPath },
+  });
+}
+
 async function loadNodeMetaCache(
   sourcesDir: string | null,
 ): Promise<{ metaCache: Record<string, NodeSourceMeta>; identityMeta: Record<string, SourceIdentityMeta>; snapshotHashes: Record<string, string | null> }> {
@@ -145,6 +161,7 @@ async function loadNodeMetaCache(
   const identityMeta: Record<string, SourceIdentityMeta> = {};
   const snapshotHashes: Record<string, string | null> = {};
   const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir) : [];
+  if (sourcesDir) warnIfEmptyConfiguredDir('sourcesDir', sourcesDir, sourceEntries);
   // t/4350: one persisted cache load/save per build, not per doc — entries
   // for docs no longer in sourceEntries are dropped on save.
   const hashCache = loadSnapshotHashCache();
@@ -254,7 +271,10 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   const index: NodeSourceIndex = {};
 
   const summaryFiles = await backend.listDirectory(summariesDir);
-  if (summaryFiles.length === 0) return index;
+  if (summaryFiles.length === 0) {
+    warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
+    return index;
+  }
 
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
@@ -315,6 +335,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
   const summaryFiles = await getBackend().listDirectory(summariesDir);
+  warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
   const titleCollisions = applyCanonicalDocIds(index, identityMeta, snapshotHashes);
