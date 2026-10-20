@@ -86,14 +86,7 @@ function warn(message: string): void {
  * the embedding adapter was unavailable for every turn even though the taxonomy
  * has embeddings, which degrades relevance selection precision.
  */
-function warnBrokenInjection(
-  session: DebateSession,
-  embeddingCount: number,
-  debateId: string | undefined,
-): void {
-  // Signature 1: 100% unattributed claims with at least N=5 total claims.
-  // N=5: enough claims to distinguish structural fault from short debates where
-  // novel claims are expected. (Broken-injection claim threshold, t/4304.)
+function warnSignature1(session: DebateSession, debateId: string | undefined): void {
   const UNATTRIBUTED_CLAIM_THRESHOLD = 5;
   const exs = session.extraction_summary;
   if (exs && exs.unattributed_claim_ratio === 1.0) {
@@ -105,17 +98,13 @@ function warnBrokenInjection(
         level: 'error',
         debate_id: debateId,
         message: `broken-injection signature 1 (100% unattributed claims): debate ${debateId ?? 'unknown'} — ${totalClaims} claims, 0 attributed`,
-        data: {
-          signature: 'all_claims_unattributed',
-          debate_id: debateId,
-          total_claims: totalClaims,
-          unattributed_claim_ratio: exs.unattributed_claim_ratio,
-        },
+        data: { signature: 'all_claims_unattributed', debate_id: debateId, total_claims: totalClaims, unattributed_claim_ratio: exs.unattributed_claim_ratio },
       });
     }
   }
+}
 
-  // Signature 2: every turn used lexical scoring while embeddings exist.
+function warnSignature2(session: DebateSession, embeddingCount: number, debateId: string | undefined): void {
   const overview = session.diagnostics?.overview;
   const lexicalTurns = overview?.lexical_turn_count ?? 0;
   const embeddingTurns = overview?.embedding_turn_count ?? 0;
@@ -126,15 +115,18 @@ function warnBrokenInjection(
       level: 'error',
       debate_id: debateId,
       message: `broken-injection signature 2 (all turns lexical despite embeddings): debate ${debateId ?? 'unknown'} — ${lexicalTurns} lexical turns, 0 embedding turns, ${embeddingCount} embeddings in taxonomy`,
-      data: {
-        signature: 'all_turns_lexical_with_embeddings',
-        debate_id: debateId,
-        lexical_turn_count: lexicalTurns,
-        embedding_turn_count: embeddingTurns,
-        taxonomy_embedding_count: embeddingCount,
-      },
+      data: { signature: 'all_turns_lexical_with_embeddings', debate_id: debateId, lexical_turn_count: lexicalTurns, embedding_turn_count: embeddingTurns, taxonomy_embedding_count: embeddingCount },
     });
   }
+}
+
+function warnBrokenInjection(
+  session: DebateSession,
+  embeddingCount: number,
+  debateId: string | undefined,
+): void {
+  warnSignature1(session, debateId);
+  warnSignature2(session, embeddingCount, debateId);
 }
 
 function assertGroundingNonEmpty(

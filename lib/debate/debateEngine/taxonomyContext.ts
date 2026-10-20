@@ -151,6 +151,16 @@ export function getTaxonomyContext(engine: DebateEngineInternals, pov: string): 
   };
 }
 
+function incrementScoringModeCounters(engine: DebateEngineInternals, scoringMode: 'embedding' | 'lexical'): void {
+  const overview = engine.session.diagnostics?.overview;
+  if (!overview) return;
+  if (scoringMode === 'lexical') {
+    overview.lexical_turn_count = (overview.lexical_turn_count ?? 0) + 1;
+  } else {
+    overview.embedding_turn_count = (overview.embedding_turn_count ?? 0) + 1;
+  }
+}
+
 export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, pov: string, priorRefs: string[] = []): Promise<string> {
   const ctx = getTaxonomyContext(engine, pov);
 
@@ -432,15 +442,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   if (testingSelection) engine._lastInjectionManifest.testing_selection = testingSelection;
   engine._lastRelevanceScores = scores;
 
-  // t/4304 broken-injection detector: accumulate per-turn scoring mode counters on the overview diagnostics.
-  if (engine.session.diagnostics?.overview) {
-    const ov = engine.session.diagnostics.overview;
-    if (scoringMode === 'lexical') {
-      ov.lexical_turn_count = (ov.lexical_turn_count ?? 0) + 1;
-    } else {
-      ov.embedding_turn_count = (ov.embedding_turn_count ?? 0) + 1;
-    }
-  }
+  incrementScoringModeCounters(engine, scoringMode);
 
   // Flight recorder: taxonomy injection details
   getGlobalRecorder()?.record({

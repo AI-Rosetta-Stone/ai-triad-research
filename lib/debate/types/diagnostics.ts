@@ -209,6 +209,10 @@ export interface ExtractionSummary {
   rejection_reason_totals: Record<string, number>;
   /** Ratio of AN claims that could not be attributed to any taxonomy Belief node (0-1). >0.50 signals systemic issue. */
   unattributed_claim_ratio?: number;
+  /** Number of claims successfully attributed to a taxonomy Belief node. */
+  attribution_attributed?: number;
+  /** Number of claims that could not be attributed to any taxonomy Belief node. */
+  attribution_unattributed?: number;
 }
 
 export interface DebateOverviewDiagnostics {
