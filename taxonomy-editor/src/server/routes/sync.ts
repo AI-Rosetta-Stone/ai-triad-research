@@ -146,6 +146,34 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
         unsyncedCount = cmp.files.length;
         behindBy = cmp.behind_by;
         hasConflicts = cmp.status === 'diverged' && cmp.behind_by > 0;
+
+        // t/4324: a session branch with no unique commits of its own (ahead_by === 0)
+        // that's fallen behind main just carries stale data forever — nothing else
+        // ever moves it. Lossless fast-forward: ahead_by === 0 means there's nothing
+        // of the user's to lose, and cmp.merge_base_sha is exactly the branch's own
+        // current head in that case (it has no commits main doesn't already have).
+        if (cmp.ahead_by === 0 && behindBy > 0) {
+          const oldSha = cmp.merge_base_sha;
+          try {
+            const mergeResult = await githubBackend.mergeBranch(branch);
+            if (mergeResult.ok) {
+              const newSha = mergeResult.sha || githubBackend.getMainSha();
+              log.server.warn(
+                { branch, oldSha, newSha, behindBy },
+                'Auto-fast-forwarded stale session branch to main (t/4324)',
+              );
+              behindBy = 0;
+              hasConflicts = false;
+              unsyncedCount = 0;
+            }
+          } catch (ffErr) {
+            getGlobalRecorder()?.record({
+              type: 'system.error', component: 'sync', level: 'warn',
+              message: `Auto-fast-forward of stale session branch ${branch} failed`,
+              error: { name: (ffErr as Error).name ?? 'Error', message: String(ffErr), stack: (ffErr as Error).stack },
+            });
+          }
+        }
       }
 
       // t/4258/t/4276 (C3 wiring): a write outside taxonomyDataSlice.save() (edges status/
