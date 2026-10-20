@@ -23,9 +23,17 @@ const { mockIsAdmin } = vi.hoisted(() => ({ mockIsAdmin: vi.fn(() => false) }));
 vi.mock('../community/community.js', () => ({ isAdmin: mockIsAdmin }));
 
 const cfgMock = vi.hoisted(() => ({ storageMode: 'github-api' as string }));
+// t/4316: isPovTagsGateExempt() now delegates to config.ts's isLocalDeployment(), which is a
+// function closing over config.ts's own module-scope STORAGE_MODE — overriding the exported
+// STORAGE_MODE getter alone does NOT change what isLocalDeployment() (called internally)
+// evaluates, so it's overridden explicitly here too, same pattern as modelsRefreshRoute.test.ts.
 vi.mock('../config.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../config.js')>();
-  return { ...actual, get STORAGE_MODE() { return cfgMock.storageMode; } };
+  return {
+    ...actual,
+    get STORAGE_MODE() { return cfgMock.storageMode; },
+    isLocalDeployment: () => cfgMock.storageMode === 'filesystem' && process.env.NODE_ENV !== 'production',
+  };
 });
 
 const { writeTaxonomyFileSpy, readVersionMock } = vi.hoisted(() => ({
