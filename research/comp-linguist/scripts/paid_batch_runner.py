@@ -42,7 +42,18 @@ def save(path, obj):
 
 
 def price_table(code_root):
-    return (load(os.path.join(code_root, "ai-models.json")) or {}).get("pricing", {})
+    """Model -> {inputPer1M, outputPer1M}; skips non-model entries such as `_comment`."""
+    raw = (load(os.path.join(code_root, "ai-models.json")) or {}).get("pricing", {})
+    return {k: v for k, v in raw.items() if isinstance(v, dict)}
+
+
+def counted(row):
+    """A ledger row uses a slot of the debate cap if the debate completed or it spent money.
+    `counts_toward_cap: false` exempts a run that never started a debate (zero AI calls); its booked
+    spend still counts toward the budget."""
+    if row.get("counts_toward_cap") is False:
+        return False
+    return row.get("status") == "ok" or (row.get("usd") or 0) > 0
 
 
 def debate_cost(flight_recorder, prices):
@@ -89,6 +100,7 @@ def pins_of(d):
     return {"debate_model": d.get("debate_model"), "protocol_id": d.get("protocol_id"),
             "audience": d.get("audience"), "active_povers": d.get("active_povers"),
             "seat_tags": seat_tags_of(d), "app_version": d.get("app_version"),
+            "staging_pacing": (d.get("adaptive_staging") or {}).get("pacing"),
             "generated_with_prompt_version": d.get("generated_with_prompt_version")}
 
 
@@ -116,13 +128,24 @@ def main():
     out_dir = plan["output_dir"]
     os.makedirs(out_dir, exist_ok=True)
     done = {os.path.basename(p)[:-len("-debate.json")] for p in glob.glob(os.path.join(out_dir, "*-debate.json"))}
+    # Reconcile: a completed debate with no ledger row (e.g. the runner died after the run) is priced now,
+    # so spend is never undercounted.
+    logged = {(r["plan"], r["slug"]) for r in ledger["debates"] if r.get("status") == "ok"}
+    for slug in sorted(done):
+        if (plan["name"], slug) not in logged:
+            c = debate_cost(os.path.join(out_dir, f"{slug}-flight-recorder.jsonl"), price_table(a.code_root))
+            ledger["debates"].append({"plan": plan["name"], "slug": slug, "usd": c["usd"], "calls": c["calls"],
+                                      "in": c["in"], "out": c["out"], "status": "ok", "note": "reconciled"})
+            sys.stderr.write(f"WARN paid_batch_runner: reconciled unlogged completed debate {slug} (${c['usd']})\n")
+    save(a.ledger, ledger)
     todo = [d for d in plan["debates"] if d["slug"] not in done]
     if not todo:
         print(f"PLAN COMPLETE: {plan['name']} ({len(plan['debates'])} debates)"); return 10
 
     spent = sum(r.get("usd") or 0 for r in ledger["debates"])
-    if len(ledger["debates"]) >= ledger["max_debates"]:
-        print(f"HARD STOP: {len(ledger['debates'])} debates run, the cap is {ledger['max_debates']}"); return 11
+    used = sum(1 for r in ledger["debates"] if counted(r))
+    if used >= ledger["max_debates"]:
+        print(f"HARD STOP: {used} debates counted, the cap is {ledger['max_debates']}"); return 11
     if spent + WORST_CASE_USD > ledger["budget"]:
         print(f"HARD STOP: spent ${spent:.2f}; one more debate (worst ${WORST_CASE_USD}) could pass "
               f"${ledger['budget']:.2f}"); return 11
@@ -130,6 +153,13 @@ def main():
     item = todo[0]
     cfg = dict(plan["base_config"]); cfg.update(item.get("config", {}))
     cfg.update({"slug": item["slug"], "outputDir": out_dir})
+    # The CLI applies `pacing` only with useAdaptiveStaging=true; without it the debate runs fixed rounds
+    # and records no staging block (the 2026-10-20 batch ran 56 debates that way, t/3802#8). Refuse it
+    # before spending anything.
+    if cfg.get("pacing") and not cfg.get("useAdaptiveStaging"):
+        print(f"ABORT before run: {item['slug']} sets pacing={cfg['pacing']!r} without useAdaptiveStaging=true, "
+              "so the CLI would ignore the pacing. Set useAdaptiveStaging, or drop pacing.")
+        return 3
     cfg_path = os.path.join(out_dir, f"{item['slug']}-config.json")
     save(cfg_path, cfg)
     print(f"RUN {plan['name']} {item['slug']} ({len(done) + 1}/{len(plan['debates'])}); spent so far ${spent:.2f}")
@@ -149,10 +179,18 @@ def main():
 
     debate = load(os.path.join(out_dir, f"{item['slug']}-debate.json"))
     if rc != 0 or debate is None:
+        if cost["usd"] is None:  # no flight recorder: fall back to the partial's own AI-call count
+            partial = load(os.path.join(out_dir, f"{item['slug']}-partial.json")) or {}
+            n_calls = ((partial.get("diagnostics") or {}).get("overview") or {}).get("total_ai_calls")
+            row["usd"] = 0.0 if n_calls == 0 else WORST_CASE_USD  # unknown spend is booked at the worst case
+            row["note"] = f"no flight recorder; partial total_ai_calls={n_calls}"
         row["status"] = "failed"; ledger["debates"].append(row); save(a.ledger, ledger)
-        print(f"FAILED {item['slug']} rc={rc} after {secs}s, cost ${cost['usd']}\n{tail}"); return 4
+        print(f"FAILED {item['slug']} rc={rc} after {secs}s, booked ${row['usd']}\n--- CLI output tail ---\n{tail}")
+        return 4
 
     expected = dict(plan["expected_pins"]); expected["seat_tags"] = item.get("expected_seat_tags")
+    if cfg.get("useAdaptiveStaging"):
+        expected["staging_pacing"] = cfg.get("pacing") or "moderate"
     got = pins_of(debate)
     first = next((r.get("build") for r in ledger["debates"] if r["plan"] == plan["name"] and r.get("build")), None)
     build = {k: got[k] for k in ("app_version", "generated_with_prompt_version")}

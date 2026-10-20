@@ -274,3 +274,69 @@ so the **abandon branch is available** and the effect-as-floor caveat does NOT a
 Pre-registered confirmatory arm on an existing design; no blocking-gate promotion, no schema/data-model
 change; reversible; ~5 hours of model time is not a cost/risk asymmetry. TL recorded the same (t/3790#16).
 The only open gate is the PI funding the ~5 hours.
+
+---
+
+# CONFIRMATORY ARM RESULT (2026-10-20, t/3802): NOT INTERPRETABLE, the cell was not matched
+
+Everything above is fixed pre-data. This section is the result. Instrument: `measure_confirmatory_arm.py`
+(imports `measure()` from `measure_pilot_vs_matched_baseline.py`; the only instrument change is the
+additive per-node binary the pre-registration assigned to the CL).
+
+## What ran
+
+- 50 debates, `debates/t3790-confirm-20261020/` (data `d6a7d051`), code frozen at `7ffb7c3f`, the pilot's
+  10 topics × 5. PI-approved batch (t/3802#6). The positive control (`steelman.test.ts`,
+  `opening.priorSteelmans.test.ts`, `agentUtility.test.ts`, `beliefTracking.test.ts`) passes on that build:
+  4 files, 41 tests.
+- **Control:** the pre-fix corpus (`created_at` < t/3795 merge `67953c6d`, 2026-09-30T20:32:08Z) filtered
+  to the cell gives 36 debates and 34 nodes. That reproduces the pilot's matched baseline exactly. The pilot
+  script's "120 most recent by mtime" window is not reused: it now pulls in post-fix production debates
+  (it reads n = 40, 5/31 today).
+
+## The defect: pacing was never applied, in the arm OR the pilot
+
+`lib/debate/cli.ts` applies `pacing` only when `useAdaptiveStaging: true` is set. The pilot's run
+recipe (`t3790-pilot-resume.mjs`), which this arm copied, sets `pacing: 'moderate'` and not
+`useAdaptiveStaging`. So **all 10 pilot debates and all 50 arm debates ran fixed rounds (`rounds` default
+3): exactly 6 debater turns each**, with no `adaptive_staging` block recorded. The control cell is
+`adaptive_staging.pacing = moderate`, a mean of 11.4 debater turns. The cell's pacing dimension was
+**not matched**, and the "Design as run" line above saying it was is wrong. The run-gate 2 pin check
+didn't catch it because the debate record doesn't carry pacing. (The runner now refuses this config
+before spending; see `paid_batch_runner.py`.)
+
+## Numbers (reported, not interpreted)
+
+| axis | control (pre-fix, cell) | arm (6-turn, no staging) |
+|---|---|---|
+| steelman nodes | 34 (36 debates) | 46 (50 debates) |
+| **primary: per-node adoption** | 1/34 = 2.9% [0.5–14.9] | 2/46 = 4.3% [1.2–14.5] |
+| edge-share adoption | 1/26 = 4% | 2/7 = 29% |
+| connection rate | 15/34 = 44% [29–61] | 7/46 = 15% [8–28] |
+| **confound bound: later-inbound edges / debate** | 26/36 = 0.72 | 7/50 = 0.14 |
+| total edges / debate | 23.7 | 11.3 |
+
+## Reading (against the pre-registered branches)
+
+- **Confound-bound check (ruling #6): FAIL.** Later-inbound opportunity is about a fifth of the control's.
+  A steelman in a 6-turn debate has almost no later turns to be adopted in. The pre-registration says
+  material divergence means "the opportunity confound isn't bounded → escalate to the concurrent fix-off
+  control (ruling #7)".
+- **Therefore neither CONFIRM nor ABANDON is available.** The CI doesn't exclude the control (Fisher
+  one-sided p = 0.61), but a null measured with a fifth of the opportunity isn't the interpretable null
+  the abandonment branch requires. Reading it as "abandon" would be the error the pre-registration's
+  confound gate exists to prevent.
+- **Arm-run-gate 2 (abort on cell mismatch) should have fired and didn't.** By the pre-registration's own
+  rule this arm isn't the confirmatory arm: it is a 50-debate sample of a *different cell*
+  (fixed-3-round), kept as data and labelled as such.
+- **The pilot inherits the same defect.** Its directional read (4%→33% edge share) compared 6-turn
+  debates against an ~11-turn control. Its confound check passed on its own numbers (0.60 vs 0.72), so
+  it isn't retracted, but its "matched cell" claim is.
+
+## What would answer the question
+
+A re-run of the arm with `useAdaptiveStaging: true, pacing: 'moderate'`, verified on the first debate
+against the control's turn count and `adaptive_staging.pacing` *before* the batch continues. Adaptive
+debates are roughly twice as long, so expect about $0.40 per debate, about $20 for 50. That's new spend
+for the PI. Alternatively, a fixed-3-round *control* would need a pre-fix corpus of 6-turn debates,
+which doesn't exist in sufficient number (5 or fewer pre-fix in-cell non-staged debates).
