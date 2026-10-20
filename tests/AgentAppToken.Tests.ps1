@@ -112,7 +112,7 @@ Describe 'Get-AgentAppToken (t/4096)' {
 
     It 'with -AsPlainText, posts to the reviewer installation and returns only the token' {
         Mock -ModuleName AgentAppToken Get-Secret { $script:pem }
-        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; expires_at = '2026-10-08T13:00:00Z' } }
+        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; expires_at = '2026-10-08T13:00:00Z'; repositories = @([pscustomobject]@{ name = 'ai-triad-research' }) } }
         Get-AgentAppToken -Role reviewer -AsPlainText | Should -Be 'ghs_TESTONLY'
         Should -Invoke -ModuleName AgentAppToken Invoke-RestMethod -Times 1 -ParameterFilter {
             $Uri -eq 'https://api.github.com/app/installations/170628507/access_tokens' -and $Method -eq 'Post'
@@ -121,7 +121,7 @@ Describe 'Get-AgentAppToken (t/4096)' {
 
     It 'C2: without -AsPlainText, writes nothing token-shaped to the output stream' {
         Mock -ModuleName AgentAppToken Get-Secret { $script:pem }
-        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; expires_at = '2026-10-08T13:00:00Z' } }
+        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; expires_at = '2026-10-08T13:00:00Z'; repositories = @([pscustomobject]@{ name = 'ai-triad-research' }) } }
         $out = Get-AgentAppToken -Role reviewer
         $out | Should -BeOfType [securestring]
         ($out | Out-String) | Should -Not -Match 'ghs_'
@@ -129,7 +129,7 @@ Describe 'Get-AgentAppToken (t/4096)' {
 
     It 'C3: the request body names exactly one repository (default ai-triad-research) and the role''s permissions' {
         Mock -ModuleName AgentAppToken Get-Secret { $script:pem }
-        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY' } }
+        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; repositories = @([pscustomobject]@{ name = 'ai-triad-research' }) } }
         $null = Get-AgentAppToken -Role reviewer -AsPlainText
         Should -Invoke -ModuleName AgentAppToken Invoke-RestMethod -Times 1 -ParameterFilter {
             $b = $Body | ConvertFrom-Json
@@ -141,7 +141,7 @@ Describe 'Get-AgentAppToken (t/4096)' {
 
     It 'C3: ai-triad-data must be named explicitly and is the only repository in the body' {
         Mock -ModuleName AgentAppToken Get-Secret { $script:pem }
-        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY' } }
+        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; repositories = @([pscustomobject]@{ name = 'ai-triad-data' }) } }
         $null = Get-AgentAppToken -Role author -Repository ai-triad-data -AsPlainText
         Should -Invoke -ModuleName AgentAppToken Invoke-RestMethod -Times 1 -ParameterFilter {
             $b = $Body | ConvertFrom-Json
@@ -149,8 +149,36 @@ Describe 'Get-AgentAppToken (t/4096)' {
         }
     }
 
-    It 'C3: rejects a repository outside the installed pair' {
+    It 'C3: rejects a repository outside the allowed set' {
         { Get-AgentAppToken -Role author -Repository 'some-other-repo' -AsPlainText } | Should -Throw
+    }
+
+    It 'accepts app-scratch as a legal -Repository value' {
+        Mock -ModuleName AgentAppToken Get-Secret { $script:pem }
+        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; repositories = @([pscustomobject]@{ name = 'app-scratch' }) } }
+        Get-AgentAppToken -Role author -Repository app-scratch -AsPlainText | Should -Be 'ghs_TESTONLY'
+    }
+
+    It 't/4096#56-59: throws an actionable error naming the installation''s real repos when GitHub silently drops the requested repo from the grant' {
+        Mock -ModuleName AgentAppToken Get-Secret { $script:pem }
+        Mock -ModuleName AgentAppToken Invoke-RestMethod {
+            if ($Method -eq 'Post' -and $Body -like '*app-scratch*') {
+                # The restricted mint "succeeds" but grants nothing -- the silent-drop case.
+                [pscustomobject]@{ token = 'ghs_SCOPED_EMPTY'; repositories = @() }
+            } elseif ($Method -eq 'Post') {
+                # The unrestricted probe mint used only to enumerate the real repos.
+                [pscustomobject]@{ token = 'ghs_PROBE' }
+            } elseif ($Uri -like '*installation/repositories*') {
+                [pscustomobject]@{ repositories = @([pscustomobject]@{ name = 'ai-triad-research' }, [pscustomobject]@{ name = 'ai-triad-data' }) }
+            } else { [pscustomobject]@{} }
+        }
+        { Get-AgentAppToken -Role author -Repository app-scratch -AsPlainText } | Should -Throw '*ai-triad-research, ai-triad-data*'
+    }
+
+    It 'does NOT throw the silent-drop error when the requested repo IS in the grant (happy path unaffected)' {
+        Mock -ModuleName AgentAppToken Get-Secret { $script:pem }
+        Mock -ModuleName AgentAppToken Invoke-RestMethod { [pscustomobject]@{ token = 'ghs_TESTONLY'; repositories = @([pscustomobject]@{ name = 'ai-triad-research' }) } }
+        { Get-AgentAppToken -Role reviewer -AsPlainText } | Should -Not -Throw
     }
 }
 
