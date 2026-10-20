@@ -25,6 +25,7 @@ import { buildPovTagBaseline, povTagMembership } from '../../../utils/povTagGate
 import { buildSituationBaseline, checkSituationBdi, type SituationBdiRefusal } from '../../../utils/situationBdiGate';
 import { coerceSituationDivergence } from '../../../bridge/coerceSituationDivergence';
 import { baselineAfterSave, savedPolicyNodes, allPolicyNodes } from './saveBaselines';
+import { assessValidationFailure, branchEventData, errorKeyNodeId, integrityFailureMessage, markFilesAsBaseline, readBranchContext, schemaFailureMessage, type StaleBranchHint } from './staleBranchHint'; // t/4325
 import { buildPolicyIdBaseline, affectedPolicyIds, runPolicyRecount, mergePolicyCounts, type PolicyRecountNotice } from '../../../utils/policyRecount';
 import {
   povTaxonomyFileSchema,
@@ -211,13 +212,6 @@ function situationBdiOutcome(nodes: SituationNode[], baseline: Record<string, st
   return checkSituationBdi(nodes, baseline) ?? NO_BDI_REFUSAL;
 }
 
-/** The save banner: the BDI refusal names node/POV/fields; schema errors keep the generic text. */
-function saveFailureMessage(bdi: SituationBdiRefusal, totalErrors: number): string {
-  if (!bdi.message) return 'Validation failed. Fix errors before saving.';
-  const other = totalErrors - Object.keys(bdi.errors).length;
-  return other > 0 ? `${bdi.message}\nAlso fix the ${other} other highlighted field${other === 1 ? '' : 's'}.` : bdi.message;
-}
-
 /** What a cross-POV move did to the node's POV tags (t/3972), shown on the moved node. */
 export interface PovMoveReport {
   fromId: string;
@@ -267,6 +261,8 @@ export interface TaxonomyDataSlice {
   dirty: Set<string>;
   validationErrors: ValidationErrors;
   saveError: string | null;
+  /** t/4325: set when the last save failed on untouched nodes while the session branch is behind main. */
+  staleBranchHint: StaleBranchHint | null;
   loadError: string | null;
   // t/2064: the post-save embedding refresh degraded (non-empty staleNodeIds, or the call
   // rejected). Surfaced as a coarse non-blocking banner — NOT a saveError, since the durable
@@ -370,6 +366,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   dirty: new Set(),
   validationErrors: {},
   saveError: null,
+  staleBranchHint: null,
   loadError: null,
   embeddingsStale: false,
   staleEmbeddingNodeIds: [],
@@ -462,6 +459,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
         embeddingCache: new Map(),
         embeddingDirty: true,
       });
+      markFilesAsBaseline([accFile]);
 
       const [saf, skp, cc, polReg] = await Promise.all([
         track(steps[1], api.loadTaxonomyFileForEdit('safetyist')),
@@ -522,6 +520,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
         backgroundLoading: false,
         embeddingDirty: true,
       });
+      markFilesAsBaseline([saf as PovTaxonomyFile, skp as PovTaxonomyFile, situationsFile]);
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'error', message: 'Failed to load taxonomy data', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       const msg = mapErrorToUserMessage(err);
@@ -529,7 +528,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
     }
   },
 
-  dismissSaveError: () => set({ saveError: null, integrityIssues: [] }),
+  dismissSaveError: () => set({ saveError: null, staleBranchHint: null, integrityIssues: [] }),
   dismissEmbeddingsStale: () => set({ embeddingsStale: false, staleEmbeddingNodeIds: [] }),
   dismissOrphanedTagNotice: () => set({ orphanedTagNodeIds: [] }),
   dismissPolicyRecountNotice: () => set({ policyRecountNotice: null }),
@@ -643,8 +642,9 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
     }
 
     if (Object.keys(errors).length > 0) {
-      getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.validation', data: { stage: 'schema', error_count: Object.keys(errors).length, situation_bdi_error_count: Object.keys(bdi.errors).length, errors, duration_ms: Math.round(performance.now() - saveStart) } });
-      set({ validationErrors: errors, saveError: saveFailureMessage(bdi, Object.keys(errors).length) });
+      const v = await assessValidationFailure(Object.keys(errors).map(errorKeyNodeId), [state.accelerationist, state.safetyist, state.skeptic, state.situations]);
+      getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.validation', data: { stage: 'schema', error_count: Object.keys(errors).length, situation_bdi_error_count: Object.keys(bdi.errors).length, errors, ...branchEventData(v), duration_ms: Math.round(performance.now() - saveStart) } });
+      set({ validationErrors: errors, staleBranchHint: v.hint, saveError: schemaFailureMessage(v, bdi, Object.keys(errors).length) });
       return;
     }
 
@@ -676,21 +676,24 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
           }
         }
         const errorSummary = lines.join('\n');
-        getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.validation', data: { stage: 'integrity', error_count: integrityErrors.length, entities: integrityErrors.slice(0, 10).map(i => `${i.code}: ${i.entityId}`), duration_ms: Math.round(performance.now() - saveStart) } });
+        const v = await assessValidationFailure(integrityErrors.map(i => i.entityId), [state.accelerationist, state.safetyist, state.skeptic, state.situations]);
+        getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.validation', data: { stage: 'integrity', error_count: integrityErrors.length, entities: integrityErrors.slice(0, 10).map(i => `${i.code}: ${i.entityId}`), ...branchEventData(v), duration_ms: Math.round(performance.now() - saveStart) } });
         set({
           validationErrors: errors,
           integrityIssues: integrityErrors,
-          saveError: `Integrity check failed (${integrityErrors.length} error${integrityErrors.length > 1 ? 's' : ''}):\n${errorSummary}`,
+          staleBranchHint: v.hint,
+          saveError: integrityFailureMessage(v, `Integrity check failed (${integrityErrors.length} error${integrityErrors.length > 1 ? 's' : ''}):\n${errorSummary}`),
         });
         return;
       }
       const integrityWarnings = integrity.issues.filter(i => i.severity === 'warning');
       if (integrityWarnings.length > 0) {
-        getGlobalRecorder()?.record({ type: 'state.change', component: 'taxonomy-store', level: 'warn', message: 'save.validation', data: { stage: 'integrity', warning_count: integrityWarnings.length, entities: integrityWarnings.slice(0, 10).map(i => `${i.code}: ${i.entityId}`) } });
+        // t/4325: the save proceeds, so the branch context is attached when it arrives rather than awaited.
+        void readBranchContext().then(ctx => getGlobalRecorder()?.record({ type: 'state.change', component: 'taxonomy-store', level: 'warn', message: 'save.validation', data: { stage: 'integrity', warning_count: integrityWarnings.length, entities: integrityWarnings.slice(0, 10).map(i => `${i.code}: ${i.entityId}`), ...ctx } }));
       }
     }
 
-    set({ saveError: null, validationErrors: {} });
+    set({ saveError: null, staleBranchHint: null, validationErrors: {} });
 
     try {
       const promises: Promise<void>[] = [];
@@ -740,6 +743,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       getGlobalRecorder()?.record({ type: 'state.change', component: 'taxonomy-store', level: 'info', message: 'save.completed', data: { files_written: promises.length, duration_ms: Math.round(performance.now() - saveStart), commitSha: commitResult.commitSha, filesCommitted: commitResult.filesCommitted } });
       api.trackEvent('taxonomy_save', 'taxonomy', { files: promises.length });
       // t/3888: the saved snapshot is now what's on disk, so it becomes the gate's baseline.
+      markFilesAsBaseline([state.accelerationist, state.safetyist, state.skeptic, state.situations]); // t/4325: the saved nodes are the new baseline
       set({ dirty: new Set(), orphanedTagNodeIds, ...baselineAfterSave(dirtyKeys, state), policyRegistry: mergePolicyCounts(get().policyRegistry, policyRecount.updates), policyRecountNotice: policyRecount.notice });
 
       // Post-save embedding refresh — NON-FATAL, own boundary (t/1707).
