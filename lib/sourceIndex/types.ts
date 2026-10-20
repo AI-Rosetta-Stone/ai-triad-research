@@ -143,13 +143,15 @@ export function normalizeUrlForCanonicalId(url: string | null): string | null {
 
 /**
  * t/4334 — the canonical-key algorithm, revised per TL p/801#1 after the
- * query-string false merge (PowerShell p/783#6). In order of preference:
- *  0. an exact `contentSha256` match — the strongest possible signal,
- *     checked before everything else.
- *  1. an explicit `parentDocId` link.
- *  2. an explicit `sameAs` link (a curated cross-outlet/reprint alias —
+ * query-string false merge (PowerShell p/783#6), tier order pinned by the
+ * shared spec (t/4344). In order of preference:
+ *  0. an explicit `parentDocId` link.
+ *  1. an explicit `sameAs` link (a curated cross-outlet/reprint alias —
  *     TL's answer to "what if the PI wants reprints merged": never fuzzy
  *     titles, always an explicit link, t/4334#2).
+ *  2. an exact `contentSha256` match — the strongest *inferred* signal
+ *     (no human/pipeline assertion needed, unlike tiers 0-1, but still
+ *     zero false-merge risk since it's byte-exact).
  *  3. a normalized URL match — **skipped when the URL's own provenance
  *     confidence is `'search'`** (see `normalizeUrlForCanonicalId`'s doc).
  *  4. a `-N` suffix whose base id exists (the same document, split into
@@ -185,12 +187,12 @@ function buildTierLookups(
   hashRep: Record<string, string>, urlRep: Record<string, string>, titleRep: Record<string, string>,
 ): TierLookup[] {
   return [
-    // 0. exact content hash.
-    (id) => { const h = meta[id]?.contentSha256; return (h && hashRep[h] !== id) ? hashRep[h] : null; },
-    // 1. explicit parent/chunk link.
+    // 0. explicit parent/chunk link.
     (id) => { const p = meta[id]?.parentDocId; return (p && docIdSet.has(p) && p !== id) ? p : null; },
-    // 2. explicit same-document link.
+    // 1. explicit same-document link.
     (id) => { const s = meta[id]?.sameAs; return (s && docIdSet.has(s) && s !== id) ? s : null; },
+    // 2. exact content hash.
+    (id) => { const h = meta[id]?.contentSha256; return (h && hashRep[h] !== id) ? hashRep[h] : null; },
     // 3. normalized URL — skipped for search-provenance URLs.
     (id) => {
       if (meta[id]?.urlConfidence === SEARCH_CONFIDENCE) return null;
