@@ -6415,23 +6415,25 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #317 [Build] `git merge --ff-only origin/main` Refuses When Shared Tree Has Another Role's Dirty WIP — Work in a Fresh Worktree Instead
+## #317 [Build] `git merge --ff-only origin/main` Refuses Due to Shared-Tree Dirty File — Diagnose Phantom vs Real WIP Before Acting
 
-**Pattern:** An agent runs `git merge --ff-only origin/main` on the shared checkout to advance it. Git refuses: "local changes to <file> would be overwritten by merge." The dirty file belongs to another role's uncommitted WIP — not the agent's own work. Attempting to stash, restore, or clean it would discard another role's in-progress changes.
+**Pattern:** An agent runs `git merge --ff-only origin/main` on the shared checkout to advance it. Git refuses: "local changes to <file> would be overwritten by merge." The dirty file may be a **phantom** (byte-identical to `origin/main`, stale-HEAD artifact) or **real WIP** from another role. The correct response differs: phantoms can be safely restored; real WIP must be left untouched.
 
 **Instances:**
-- 2026-10-20 — DevOps Lead (p/26#225): `git merge --ff-only origin/main` refused because `lib/debate/cli.ts` had uncommitted WIP from another role. Aborted cleanly (git refused without modifying state); created a fresh worktree off `origin/main` instead and did the work there, leaving the shared tree's WIP untouched.
+- 2026-10-20 — DevOps Lead (p/26#225): `git merge --ff-only origin/main` refused on `lib/debate/cli.ts`. Assumed foreign WIP; worked in a fresh worktree. Later confirmed phantom — `git diff origin/main -- lib/debate/cli.ts` empty (p/26#229).
+- 2026-10-20 — Server Storage (p/539#14): same file, same refusal, same session. Confirmed phantom by same diagnostic.
 
-**Root Cause:** The shared checkout is a shared resource. Any role can leave uncommitted WIP on it. `git merge --ff-only` correctly refuses to overwrite local changes — it is the safety mechanism working as intended.
+**Root Cause:** The shared checkout's HEAD can lag behind `origin/main`. A file modified between the local HEAD and `origin/main` appears dirty even when its content is byte-identical to `origin/main`. Git still refuses `--ff-only` because local content != merge target content at the index level.
 
 **Prevention:**
-1. **When `git merge --ff-only origin/main` refuses on the shared checkout, do not stash, restore, or clean the dirty files.** They likely belong to another role's in-progress work. Create a fresh worktree off `origin/main` instead.
-2. **The correct response to a dirty shared checkout is to work around it**, not to clean it up. Only DevOps handles shared-tree cleanup (`docs/shared-tree-divergence.md`).
-3. **Always prefer a worktree for new work** — a fresh worktree off `origin/main` is always clean and unaffected by the shared checkout's state.
+1. **When `git merge --ff-only origin/main` refuses, first run `git diff origin/main -- <file>` on each dirty file.** Empty output = phantom (byte-identical to origin); non-empty = real WIP from another role.
+2. **For a phantom:** `git restore <file>` resets it to HEAD content — safe because the file is byte-identical to `origin/main`. However, the classifier may block `git restore` as "Irreversible Local Destruction" even with phantom proof in hand (see #323).
+3. **For real WIP:** do not stash, restore, or clean. Create a fresh worktree off `origin/main` and do your work there, leaving the shared tree's WIP untouched. Only DevOps handles shared-tree cleanup (`docs/shared-tree-divergence.md`).
+4. **Always prefer a worktree for new work** — a fresh worktree off `origin/main` is always clean and unaffected by the shared checkout's state.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#225).
+**Status:** Active — 2 instances (DevOps Lead p/26#225; Server Storage p/539#14).
 
-**Applies To:** All agents working on the shared checkout; when `--ff-only` refuses due to another role's WIP, create a fresh worktree — never clean or stash foreign WIP.
+**Applies To:** All agents on the shared checkout; diagnose phantom vs real WIP before deciding to restore or work around.
 
 ---
 
@@ -6532,3 +6534,44 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Worker p/749#32).
 
 **Applies To:** All agents arming auto-merge; when mergeStateStatus is CLEAN, arming --auto merges immediately — verify intent first.
+
+---
+
+## #323 [Build] Auto-Mode Classifier Blocks `git restore` on a Phantom File as "Irreversible Local Destruction" — Escalate to PI
+
+**Pattern:** An agent has a phantom dirty file on the shared checkout (confirmed byte-identical to `origin/main` via `git diff origin/main -- <file>` returning empty). The agent attempts `git restore <file>` to clear it. The auto-mode classifier refuses the command, categorizing it as "Irreversible Local Destruction." The proof that the file is a phantom is in hand but the classifier does not evaluate file content — it pattern-matches the command.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#229): `git restore lib/debate/cli.ts` blocked by classifier despite `git diff origin/main -- lib/debate/cli.ts` returning empty. PI flagged directly; waiting on manual restore or permission-rule change.
+
+**Root Cause:** The auto-mode classifier guards `git restore` as irreversible by command shape, without inspecting whether the file content is actually distinct from the restore target. A phantom file (`diff origin/main` empty) has nothing to lose, but the classifier cannot verify this.
+
+**Prevention:**
+1. **When the classifier blocks `git restore` on a confirmed phantom, escalate to the PI** — do not attempt a workaround (e.g., `git checkout`, `git reset`) that may have broader blast radius. The PI can approve manually or adjust the permission rule.
+2. **The phantom proof to include in the escalation:** `git diff origin/main -- <file>` returns empty; file content is byte-identical to `origin/main`; nothing will be lost.
+3. **Work around the blocked restore** by using a worktree off `origin/main` for any immediate work that needs a clean tree — the phantom only blocks `--ff-only` on the shared checkout, not worktree operations.
+4. **Do not attempt `git restore --staged`, `git checkout -- <file>`, or `git reset HEAD <file>` as substitutes** without explicit human approval — the classifier may block those too, and the escalation path is cleaner.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#229).
+
+**Applies To:** All agents on the shared checkout in auto mode; classifier blocks `git restore` by command shape regardless of content safety — escalate rather than bypass.
+
+---
+
+## #324 [Build] `gh api .../dispatches` and `gh workflow run` Require a Branch or Tag Name for `ref` — Not a Commit SHA
+
+**Pattern:** An agent dispatches a workflow via `gh api repos/<owner>/<repo>/actions/workflows/<file>/dispatches -f ref=<SHA>` or `gh workflow run <file> --ref <SHA>`. GitHub returns 422 "No ref found for: \<sha\>". The `ref` parameter for workflow dispatch requires a branch or tag name — an arbitrary commit SHA is not a valid ref for this endpoint.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#226): `gh api .../dispatches -f ref=<full commit SHA>` returned 422 "No ref found for: \<sha\>". The `gh workflow run --help` text explicitly says "Branch or tag name" — confirmed by live test. Resolved by dispatching against the branch name instead.
+
+**Root Cause:** GitHub's `workflow_dispatch` API accepts a `ref` that resolves to a branch or tag. A bare commit SHA is not a named ref and the API cannot resolve it. The `gh workflow run --help` documentation states "Branch or tag name" clearly; testing the raw API before reading the help text cost extra time.
+
+**Prevention:**
+1. **Always pass a branch or tag name to `--ref` / `-f ref=`**, never a commit SHA. `gh workflow run --help` states "Branch or tag name" — trust that wording.
+2. **To pin execution to a specific commit, use a workflow input parameter** (e.g., `-f sha=<full-sha>`) rather than the `ref` parameter. The `ref` selects which branch/tag runs the workflow; inputs carry the pinned SHA to the workflow steps.
+3. **422 "No ref found for: \<value\>"** from the dispatches endpoint is the reliable diagnostic — it means the value is not a resolvable branch or tag name.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#226).
+
+**Applies To:** All agents dispatching `workflow_dispatch` workflows; `ref` must be a branch or tag name — use workflow inputs for SHA pinning.
