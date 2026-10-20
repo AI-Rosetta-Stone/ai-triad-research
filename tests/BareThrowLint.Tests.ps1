@@ -90,6 +90,13 @@ BeforeAll {
     # why, because the baseline ratchet assumes enforcement.
     $script:BareThrowLintBlocking = $false
 
+    # Separate toggle for the actionable-no-mode category (t/4244). The t/4237 sweep took it to
+    # zero (empty baseline section), so blocking here is zero tolerance: any
+    # `throw (New-ActionableError ...)` with no -AsErrorRecord / -PassThru / -Throw fails CI.
+    # Promoted under T2 (Second Opinion + human approval on the t/4244 PR); the bare category
+    # above stays WARN-only. Flipping this back to $false is a gate DEMOTION: record why.
+    $script:ActionableNoModeLintBlocking = $true
+
     # ── Variable allow-list (t/4152) ────────────────────────────────────────────
     # `throw $var` is counted unless the variable demonstrably holds an ErrorRecord or an
     # already-actionable message. Entries are FILE-SCOPED: a global name allow (e.g. every
@@ -770,7 +777,7 @@ Describe 'Actionable-no-mode verdict and gate (t/4237)' -Tag 'error-handling' {
     }
 }
 
-Describe 'No-mode New-ActionableError throws in scripts/AITriad/ do not grow (t/4237, WARN-only)' -Tag 'error-handling' {
+Describe 'No-mode New-ActionableError throws in scripts/AITriad/ do not grow (t/4237; blocking since t/4244)' -Tag 'error-handling' {
 
     BeforeAll {
         $script:ActBaseline = script:Read-BareThrowBaseline -Path $script:BaselinePath -Section 'actionable_no_mode'
@@ -796,13 +803,12 @@ Describe 'No-mode New-ActionableError throws in scripts/AITriad/ do not grow (t/
     }
 
     It 'no file exceeds its baseline (respects the Blocking toggle)' {
-        script:Assert-BareThrowGate -Verdict $script:ActVerdict -Offenders $script:TreeScan.ActionableOffenders -Blocking $script:BareThrowLintBlocking -Category 'actionable-no-mode'
+        script:Assert-BareThrowGate -Verdict $script:ActVerdict -Offenders $script:TreeScan.ActionableOffenders -Blocking $script:ActionableNoModeLintBlocking -Category 'actionable-no-mode'
     }
 
     It 'the shipped baseline holds with Blocking forced on (proof arm; BARETHROWLINT_PROVE_BASELINE=1)' {
-        # Same gating as the bare-throw proof arm: a CI-run forced-blocking assertion would make
-        # the gate blocking in effect, which is T2 (t/4092).
-        if ($env:BARETHROWLINT_PROVE_BASELINE -ne '1' -and -not $script:BareThrowLintBlocking) {
+        # Runs in CI now that this category is blocking (t/4244); skipped only if demoted.
+        if ($env:BARETHROWLINT_PROVE_BASELINE -ne '1' -and -not $script:ActionableNoModeLintBlocking) {
             Set-ItResult -Skipped -Because 'proof arm runs only with BARETHROWLINT_PROVE_BASELINE=1 while the lint is WARN-only'
             return
         }
