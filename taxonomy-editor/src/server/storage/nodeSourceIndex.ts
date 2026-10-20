@@ -24,6 +24,9 @@ import {
   type SourceReference, type SourceCardMeta, type NodeSourceIndex, type SourceIdentityDoc, type SourceIdentityMeta,
 } from '../../../../lib/sourceIndex/types.js';
 import { getBackend, getSourcesDir } from './fileIO.js';
+import {
+  type SnapshotHashCache, gitBlobSha, loadSnapshotHashCache, lookupCachedHash, recordHash, pruneAndSaveSnapshotHashCache,
+} from './snapshotHashCache.js';
 
 export type { SourceReference, SourceCardMeta, NodeSourceIndex };
 
@@ -40,14 +43,26 @@ function sha256Hex(bytes: Uint8Array): string {
  *  gets a *computed* one from `snapshot.md`, per the shared spec (section
  *  4.0) — this can only ever make a hash edge, never veto a suffix edge
  *  (that needs a recorded hash on both sides), so a missing snapshot file or
- *  a read failure safely degrades to "no hash signal" rather than a wrong one. */
-async function computeSnapshotHash(sourcesDir: string, docId: string): Promise<string | null> {
+ *  a read failure safely degrades to "no hash signal" rather than a wrong one.
+ *
+ *  t/4350: the normalize-and-hash step is the expensive part (BOM/line-ending/
+ *  provenance-header stripping, Unicode NFC, per-line trim), not the file
+ *  read itself (still needed every build to derive the blob SHA for
+ *  FilesystemBackend/AzureBlobBackend, which have no content hash of their
+ *  own) — so `hashCache` skips re-normalizing a doc whose blob SHA hasn't
+ *  changed since the last build. */
+async function computeSnapshotHash(sourcesDir: string, docId: string, hashCache: SnapshotHashCache): Promise<string | null> {
   const backend = getBackend();
   const snapshotPath = path.join(sourcesDir, docId, 'snapshot.md');
   try {
     const raw = await backend.readFile(snapshotPath);
     if (raw === null) return null;
-    return computeSourceContentHash(raw, sha256Hex);
+    const blobSha = gitBlobSha(raw);
+    const cached = lookupCachedHash(hashCache, docId, blobSha);
+    if (cached !== undefined) return cached;
+    const hash = computeSourceContentHash(raw, sha256Hex);
+    recordHash(hashCache, docId, blobSha, hash);
+    return hash;
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'node-source-index', level: 'warn',
@@ -111,7 +126,7 @@ async function readAndParseMetadata(backend: ReturnType<typeof getBackend>, meta
   }
 }
 
-async function loadOneSourceMetaEntry(sourcesDir: string, name: string): Promise<SourceMetaEntry | null> {
+async function loadOneSourceMetaEntry(sourcesDir: string, name: string, hashCache: SnapshotHashCache): Promise<SourceMetaEntry | null> {
   const metaPath = path.join(sourcesDir, name, 'metadata.json');
   const meta = await readAndParseMetadata(getBackend(), metaPath);
   if (meta === undefined) return null;
@@ -119,7 +134,7 @@ async function loadOneSourceMetaEntry(sourcesDir: string, name: string): Promise
   const raw = meta as Record<string, unknown>;
   const metaCache = buildCardMetaFromRawJson(raw, name);
   const identityMeta = buildIdentityMetaFromRawJson(raw);
-  const snapshotHash = identityMeta.content_sha256 ? null : await computeSnapshotHash(sourcesDir, name);
+  const snapshotHash = identityMeta.content_sha256 ? null : await computeSnapshotHash(sourcesDir, name, hashCache);
   return { metaCache, identityMeta, snapshotHash };
 }
 
@@ -130,13 +145,17 @@ async function loadNodeMetaCache(
   const identityMeta: Record<string, SourceIdentityMeta> = {};
   const snapshotHashes: Record<string, string | null> = {};
   const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir) : [];
+  // t/4350: one persisted cache load/save per build, not per doc — entries
+  // for docs no longer in sourceEntries are dropped on save.
+  const hashCache = loadSnapshotHashCache();
   await Promise.all(sourceEntries.map(async (name) => {
-    const entry = await loadOneSourceMetaEntry(sourcesDir!, name);
+    const entry = await loadOneSourceMetaEntry(sourcesDir!, name, hashCache);
     if (!entry) return;
     metaCache[name] = entry.metaCache;
     identityMeta[name] = entry.identityMeta;
     snapshotHashes[name] = entry.snapshotHash;
   }));
+  pruneAndSaveSnapshotHashCache(hashCache, sourceEntries);
   return { metaCache, identityMeta, snapshotHashes };
 }
 
