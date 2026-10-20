@@ -6148,3 +6148,165 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#119).
 
 **Applies To:** All agents editing Python analysis scripts; scan for placeholder markers before running.
+
+---
+
+## #304 [Build] GitHub Rulesets API Returns 403 for Private Repos Without GitHub Pro
+
+**Pattern:** An agent calls `gh api repos/<org>/<repo>/rulesets` to inspect branch-protection rulesets on a private repository. The API returns 403: "Upgrade to GitHub Pro or make this repository public." Repository rulesets are a GitHub Pro/Teams/Enterprise feature; the API endpoint is unavailable on free-tier private repos.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#198): `gh api repos/AI-Rosetta-Stone/app-scratch/rulesets` returned 403. Root cause: `app-scratch` is a private repo on a free plan. Branch protection is available on free private repos via the classic API (`/branches/<branch>/protection`), not rulesets.
+
+**Root Cause:** Rulesets require a paid GitHub plan. The classic branch-protection API (`/repos/<owner>/<repo>/branches/<branch>/protection`) is available on free private repos.
+
+**Prevention:**
+1. **For private repos on free GitHub plans, use the classic branch-protection API** (`/repos/<owner>/<repo>/branches/<branch>/protection`) instead of the rulesets API.
+2. **403 with "Upgrade to GitHub Pro" on a rulesets call** is a plan-limitation error, not an authentication error. The token scope is not the issue.
+3. **Rulesets are available on public repos regardless of plan.** If inspection is needed on a private free-tier repo, the only option is the classic protection endpoint.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#198).
+
+**Applies To:** All agents querying GitHub branch-protection configuration on private repositories.
+
+---
+
+## #305 [Build] `gh api -X PUT .../contents/README.md` Returns 422 'sha wasn't supplied' on Empty Repo
+
+**Pattern:** An agent calls `gh api -X PUT repos/<owner>/<repo>/contents/README.md` to create or update a file in a repository. On a repository with no prior commits, the API returns 422: "sha wasn't supplied." The Contents API requires the current file's SHA for updates; on an empty repo there is no file and no SHA, but the endpoint still returns 422 rather than creating the file as expected.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#200, p/26#202): `gh api -X PUT .../contents/README.md` on a newly created repo returned 422. Root cause: the repo had already been initialized via GitHub UI's "initialize with README" option, which added an initial commit — the file existed and had a SHA that the agent didn't supply. Resolved by fetching the current SHA first.
+
+**Root Cause:** The Contents API's PUT endpoint requires `sha` when updating an existing file. A 422 "sha wasn't supplied" means the file already exists — the repo was not empty despite appearing so (likely initialized via GitHub UI). A size-0 quirk in the API can make a just-initialized repo appear empty to a size:0 search.
+
+**Prevention:**
+1. **Before calling `gh api -X PUT .../contents/<file>`, check whether the file already exists:** `gh api repos/<owner>/<repo>/contents/<file> -q .sha`. If it returns a SHA, include it in the PUT body; if 404, omit it.
+2. **422 "sha wasn't supplied" on a contents PUT means the file already exists** — the repo is not empty. Fetch the current SHA and retry with it.
+3. **GitHub UI's "initialize with README" option creates a real commit.** A repo initialized this way is never actually empty, even if the API's size field shows 0 immediately after creation.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#200).
+
+**Applies To:** All agents using the GitHub Contents API to create or update files in repositories.
+
+---
+
+## #306 [Build] Azure CLI `az monitor log-analytics query` Exits 3 When Workspace Name Is Wrong
+
+**Pattern:** An agent calls `az monitor log-analytics query --workspace <name>` to query a Log Analytics workspace. The command exits with code 3 and an error about the workspace not being found. The agent guessed the workspace name from a convention (e.g., `ai-triad-logs`) rather than querying the actual workspace name.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#204, p/26#206): `az monitor log-analytics query --workspace ai-triad-logs` exited 3. Root cause: workspace name was `log-aitriad-kvwl3nywge4iw` (auto-generated suffix). Resolved by querying `az monitor log-analytics workspace list` to find the real name.
+
+**Root Cause:** Azure Log Analytics workspace names are often auto-generated with unique suffixes. Guessing from a convention produces a "not found" error (exit code 3) rather than a more descriptive message.
+
+**Prevention:**
+1. **Never guess a Log Analytics workspace name.** Always fetch it first: `az monitor log-analytics workspace list --query "[].{name:name,rg:resourceGroup}" -o table`.
+2. **Exit code 3 from `az monitor log-analytics query`** is a reliable diagnostic for wrong workspace name or resource group — not a query syntax error.
+3. **Auto-generated Azure resource names have unique suffixes** (e.g., `log-aitriad-kvwl3nywge4iw`). Store the real name in a config file or lookup it at session start.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#204).
+
+**Applies To:** All agents querying Azure Log Analytics workspaces; always look up the workspace name before querying.
+
+---
+
+## #307 [Build] Node.js `/tmp` Resolves to `C:\tmp` on Windows — Git Bash `/tmp` Maps to `%TEMP%`
+
+**Pattern:** An agent pipeline writes a file to `/tmp/<name>` from a Bash command (Git Bash on Windows), then attempts to read it from a Node.js script. Node.js cannot find the file (ENOENT `C:\tmp\<name>`). Git Bash's `/tmp` maps to the user's `%TEMP%` directory (e.g., `C:\Users\<user>\AppData\Local\Temp`), while Node.js on Windows resolves `/tmp` literally as `C:\tmp`.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#26): `writeFileSync('/tmp/acc-origin.json')` inside a Node one-liner in the Bash tool resolved to `C:\tmp\...` — which did not exist. The Bash tool had written to Git Bash's `/tmp` (which is `%TEMP%`). Resolved by moving the logic into a script that calls `git show` itself via `execFileSync`, eliminating the temp file.
+- 2026-10-20 — Diagnostics (p/9#86): Bash wrote `git show` output to `/tmp/acc-origin.json`; Node script returned ENOENT `C:\tmp\acc-origin.json`. Same root cause. Resolved by calling `git show` directly from Node via `execFileSync`.
+
+**Root Cause:** On Windows, POSIX `/tmp` is not a real directory — it is a Git Bash convention mapped to `%TEMP%`. Node.js does not use MSYS/Git Bash's path translation; it treats `/tmp` as a Windows absolute path `C:\tmp`, which typically does not exist.
+
+**Prevention:**
+1. **Never write to `/tmp` in Bash and then read it from Node.js on Windows.** The paths resolve differently between the two runtimes.
+2. **Keep inter-process data in a single process** — call `git show` (or other shell commands) from Node via `execFileSync`/`spawnSync` rather than sharing temp files across shells.
+3. **If a temp file must be shared between Bash and Node on Windows**, use `$TEMP` or `$TMPDIR` in Bash (not `/tmp`) and `os.tmpdir()` in Node — both resolve to the same Windows temp directory.
+
+**Status:** Active — 2 instances (DevOps Worker p/749#26; Diagnostics p/9#86).
+
+**Applies To:** All agents writing multi-process pipelines on Windows; never share temp files across Git Bash and Node.js using `/tmp`.
+
+---
+
+## #308 [Build] jq Rejects Escaped Regex Backreference in Shell-Quoted String — Use `test()` With Simple Pattern or Separate File
+
+**Pattern:** An agent passes a jq filter containing an escaped regex pattern inside a shell-quoted string to `gh pr view ... -q '...'`. The pattern includes a literal backslash-paren (e.g., `test("Approved \\(")`). jq returns "compile error: unterminated string literal." The double-backslash escaping intended for jq is being consumed by the shell, producing a malformed jq string.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#24): `gh pr view ... -q '.comments[] | select(.body | test("Approved \\("))'` returned jq parse error "unterminated string literal." Resolved by matching on a simpler prefix string without regex metacharacters.
+
+**Root Cause:** Backslash escaping in shell single-quoted strings does not apply (single quotes pass everything literally), but the outer `gh -q '...'` context adds another interpretation layer. jq's `test()` function requires valid JSON string escaping; mismatched escaping between shell and jq produces malformed string literals.
+
+**Prevention:**
+1. **For simple prefix matching in jq, use `startswith()` instead of `test()`** — it requires no regex and avoids escaping entirely: `select(.body | startswith("Approved ("))`.
+2. **When regex is necessary in a jq filter passed via shell**, write the jq program to a file and pass it with `jq -f <file>` to avoid shell-escaping interference.
+3. **"unterminated string literal" in a jq filter** is a reliable diagnostic for shell-escaping collision — simplify the pattern or use `jq -f`.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#24).
+
+**Applies To:** All agents constructing jq filters with regex patterns in shell commands.
+
+---
+
+## #309 [Build] `gh pr create --label` Fails When Label Does Not Exist in Repo
+
+**Pattern:** An agent runs `gh pr create ... --label <label-name>` (or `gh pr edit ... --add-label`) where the named label does not exist in the repository. The command fails with "could not add label: <label-name> not found." GitHub requires labels to exist before they can be applied to a PR; there is no auto-create behavior.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#208): `gh pr create ... --label do-not-merge` failed with "could not add label: do-not-merge not found." The label had not been created in the `app-scratch` repository.
+
+**Root Cause:** Labels are repo-specific. A label present in one repo (e.g., `ai-triad-research`) does not exist in another (e.g., `app-scratch`). `gh pr create --label` does not create missing labels.
+
+**Prevention:**
+1. **Before applying a label via `gh pr create` or `gh pr edit`, verify it exists:** `gh label list -R <owner>/<repo>`. If absent, create it first: `gh label create <name> --color <hex> -R <owner>/<repo>`.
+2. **"could not add label: <name> not found"** — the label does not exist in that specific repo. Check `gh label list` and create it if needed.
+3. **Labels are not inherited across repos.** Always verify label existence in the target repo, even if it exists in related repos.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#208).
+
+**Applies To:** All agents applying labels to PRs; verify label existence in the target repo before applying.
+
+---
+
+## #310 [Build] `git branch -d` Refuses Verification-Only PR Branch — Use `-D` When Branch Holds No Real Work
+
+**Pattern:** An agent creates a local branch solely to fetch a PR's head ref (`refs/pull/N/head`) for read-only inspection. After verification, it attempts `git branch -d <branch>`. Git refuses with "not fully merged" because the branch has never been merged into local main — it was never intended to be. The branch holds no original work, only a reference copy of already-pushed PR content.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#211): `git branch -d t3391-verify-c88ff7cc` refused. Branch was created only to fetch `refs/pull/3391/head` for verification. Resolved with `-D` since the branch held no real work.
+
+**Root Cause:** `git branch -d` is a safety check: it refuses to delete a branch that is not an ancestor of the current HEAD. A verification-only branch intentionally bypasses the merge workflow, so it is always "not fully merged" relative to local main.
+
+**Prevention:**
+1. **For verification-only branches (created solely to inspect a PR's head), use `git branch -D`** to force-delete. The "not fully merged" warning is expected and safe to override — the branch contains no original commits.
+2. **Before using `-D`, confirm the branch was created for read-only inspection** and contains no uncommitted or unpushed work that is not also on the remote PR branch.
+3. **A reliable diagnostic: check `git log origin/main..<branch> --oneline`** — if all commits are also on the PR's remote branch (or if the list is empty), `-D` is safe.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#211).
+
+**Applies To:** All agents creating temporary local branches for PR verification; use `-D` to delete after inspection.
+
+
+---
+
+## #311 [Build] `gh pr merge --auto` Rejected on Already-Mergeable PR — Merge Directly Without `--auto`
+
+**Pattern:** An agent arms auto-merge with `gh pr merge --auto --squash --match-head-commit <oid>` on a PR that is already fully green and mergeable. GitHub rejects it with "Pull request is in clean status (enablePullRequestAutoMerge)." Auto-merge is designed for PRs with pending checks; GitHub refuses to arm it when the PR is already ready to merge immediately.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#212): `gh pr merge --auto` on PR #3487 returned "Pull request is in clean status." PR was already green and mergeable. Resolved by merging directly: `gh pr merge <N> --squash --match-head-commit <oid>` (without `--auto`).
+
+**Root Cause:** GitHub's `enablePullRequestAutoMerge` mutation refuses when the PR's mergeable status is already MERGEABLE (i.e., all checks passed and the branch is up to date). Auto-merge is only valid when checks are still pending.
+
+**Prevention:**
+1. **Before arming auto-merge, check `gh pr view <N> --json mergeStateStatus -q .mergeStateStatus`.** If the result is `CLEAN`, merge directly instead: `gh pr merge <N> --squash --match-head-commit <oid>`.
+2. **"Pull request is in clean status" on `gh pr merge --auto`** means the PR is already ready — skip `--auto` and merge now.
+3. **"Pull request is in unstable status"** (the complementary error) means checks are still pending or failing — that is the correct state for auto-merge. See #289 for the stale-guard variant.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#212).
+
+**Applies To:** All agents arming auto-merge; check mergeStateStatus first and merge directly when already CLEAN.
