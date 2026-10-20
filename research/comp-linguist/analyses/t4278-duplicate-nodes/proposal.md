@@ -102,3 +102,16 @@ editorial call, so it isn't in the mechanical set.
 Reserialising would rewrite every line (`edges.json`: 16.6M → 19.9M characters). **So the real write must make minimal text insertions** that preserve each file's existing format, checked by the structural and textual 0-collateral comparisons. `safetyist.json` and `accelerationist.json` do round-trip.
 
 **Mechanical set after Q3:** 8 superseded nodes, 8 survivors. **Held for the PI:** `saf-intentions-237` (recommend retiring it into 235), and G7's `acc-beliefs-115` vs `-116`.
+
+## Correction (2026-10-20, e/343#16): each file's canonical format is its own writer's
+
+The dry run's step [0] compared each file against canonical `json.dumps(indent=2)`, **which isn't the serialiser for every file.** Measured against each file's **actual** writer (`roundtrip_table.ts`, data `7dc19c88`):
+
+| File | Writer | Byte-identical? |
+|---|---|---|
+| `safetyist.json`, `accelerationist.json` | TS `JSON.stringify(o, null, 2) + "\n"` | **yes** |
+| `edges.json` | `serializeEdgesJson` (the designed hybrid format, `docs/edges-json-format.md`) | **yes: not drift** |
+| `skeptic.json` | none (the inline `pov_tags` prefix from t/3962) | **no: the only drift** |
+| `embeddings.json` | its Python producer (`1.0` floats) | n/a for TS writers |
+
+**So, for the write:** normalise `skeptic.json` first (format only, t/4353). Then write the POV files through TS pretty plus newline, and `edges.json` through `serializeEdgesJson`. **The earlier statement that `edges.json` "doesn't round-trip" was true only against the wrong serialiser.**
