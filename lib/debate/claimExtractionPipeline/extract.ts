@@ -154,6 +154,7 @@ export async function extractClaims(
       startNodeId: an.nodes.length + 1,
       taxonomyEdges: ctx.taxonomy.edges?.edges,
       knownNodeIds: ctx.getKnownNodeIds(),
+      resolveRef: ctx.resolveRef,
       activatedSituations: ctx.getActivatedSituations().length > 0 ? ctx.getActivatedSituations() : undefined,
       audience: ctx.session.audience,
     },

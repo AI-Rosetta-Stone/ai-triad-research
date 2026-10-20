@@ -500,6 +500,24 @@ describe('newItemSuggestionsToProposals', () => {
     expect(proposals).toHaveLength(1);
     expect(proposals[0].pov).toBe('skeptic');
   });
+
+  it('superseded edge target: accepted by full-set knownNodeIds, resolved to survivor via resolveRef (t/4354)', () => {
+    // 'saf-beliefs-OLD' is superseded by 'saf-beliefs-002'. Full-set knownNodeIds includes it so
+    // fuzzyCorrectNodeId never gets a chance to misattribute it to a different node.
+    const fullKnownNodeIds = new Set([...knownNodeIds, 'saf-beliefs-OLD']);
+    const resolveRef = (id: string) => id === 'saf-beliefs-OLD' ? 'saf-beliefs-002' : id;
+    const proposals = newItemSuggestionsToProposals({
+      suggestions: [proposeNew({
+        proposed_edges: [
+          { target_node_id: 'saf-beliefs-OLD', edge_type: 'SUPPORTS', new_node_role: 'source', rationale: 'citing retired node' },
+        ],
+      })],
+      pov: 'safetyist', debateId: 'd-superseded', knownNodeIds: fullKnownNodeIds, resolveRef,
+    });
+    expect(proposals).toHaveLength(1);
+    // Edge target must be the survivor, not the superseded node
+    expect(proposals[0].proposed_edges[0].target_node_id).toBe('saf-beliefs-002');
+  });
 });
 
 // ── Situation interpretation materiality gate ──────────────

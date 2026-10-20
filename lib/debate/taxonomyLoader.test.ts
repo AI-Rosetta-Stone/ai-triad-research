@@ -27,6 +27,11 @@ vi.mock('../npy.js', () => ({
   extractNodeVectors: vi.fn(() => ({})),
 }));
 
+const mockRecord = vi.fn();
+vi.mock('../flight-recorder/index.js', () => ({
+  getGlobalRecorder: () => ({ record: (...args: unknown[]) => mockRecord(...args) }),
+}));
+
 import { loadConflicts, fetchUrlContent, loadTaxonomy } from './taxonomyLoader.js';
 
 const FAKE_DATA_ROOT = path.resolve('/fake/data');
@@ -189,6 +194,7 @@ function setupTaxonomyMocks(
 describe('loadTaxonomy — supersession (t/4354)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRecord.mockReset();
     process.env.AI_TRIAD_DATA_ROOT = FAKE_DATA_ROOT;
   });
   afterEach(() => {
@@ -229,6 +235,11 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
     expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
     // Chain members are absent from selectable nodes
     expect(result.accelerationist.nodes.map(n => n.id)).toEqual(['acc-beliefs-001']);
+    // WARN emitted for the chain (length ≥ 3)
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('chain') && m.includes('acc-beliefs-003'))).toBe(true);
   });
 
   it('cycle: both members absent from selection, resolveNode returns each node itself', () => {
@@ -241,6 +252,11 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
     expect(result.accelerationist.nodes).toHaveLength(0);
     expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
     expect(result.resolveNode('acc-beliefs-002')?.id).toBe('acc-beliefs-002');
+    // WARN emitted for the cycle; no throw
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('cycle'))).toBe(true);
   });
 
   it('dangling target: node excluded from selection, resolveNode returns node itself', () => {
@@ -248,6 +264,11 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
     const result = loadTaxonomy(FAKE_ROOT);
     expect(result.accelerationist.nodes).toHaveLength(0);
     expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    // WARN emitted for the dangling target
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('acc-beliefs-MISSING'))).toBe(true);
   });
 
   it('selectableEdges excludes edges with a superseded endpoint', () => {

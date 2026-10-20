@@ -45,14 +45,21 @@ export interface LoadedTaxonomy {
   policyRegistry: PolicyRef[];
   /** Lineage category data (L1 + L2 cluster mapping). Absent if file not found. */
   lineageCategories?: LineageCategoryData;
-  /** All nodes by ID including superseded. Use for historical lookups and resolveNode. */
+  /**
+   * All nodes by ID including superseded. Use `.get(id)` when you need the exact stored node
+   * (historical debate citations, audit trails — the node as it was when cited). Never use it
+   * to pick a node for new reasoning; use resolveNode instead.
+   */
   allNodesById: Map<string, PovNode>;
   /**
-   * Resolve a node ID to its effective non-superseded node.
+   * Resolve a node ID to its canonical survivor for new attribution and reasoning.
    * - Non-superseded node: returns itself.
    * - Superseded node with a valid chain to a non-superseded node: returns the chain endpoint.
-   * - Superseded node in a cycle or with a dangling target: returns the node itself.
+   * - Superseded node in a cycle or with a dangling target: returns the node itself (WARN at load).
    * - Unknown ID: returns undefined.
+   *
+   * Contrast with allNodesById.get(id): that returns the exact stored node for historical lookup;
+   * resolveNode follows the chain to give the current canonical node for new reasoning.
    */
   resolveNode: (id: string) => PovNode | undefined;
   /** Edges where both source and target are selectable (non-superseded) nodes. */
@@ -325,7 +332,9 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
   const allNodesById = new Map<string, PovNode>(allPovNodes.map(n => [n.id, n]));
 
   // resolutionCache: supersededId → ultimate non-superseded id (or null for cycle/dangling)
+  // depthCache: supersededId → number of hops to the terminal (1 = direct supersession)
   const resolutionCache = new Map<string, string | null>();
+  const depthCache = new Map<string, number>();
   const recorder = getGlobalRecorder();
 
   for (const startNode of allPovNodes) {
@@ -355,15 +364,20 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
 
       const curNode = allNodesById.get(cur);
       if (!curNode?.superseded_by) {
-        // Terminal — all prior chain members resolve to cur
-        if (chain.length > 2) {
+        // Terminal — all prior chain members resolve to cur; record per-node hop depth
+        for (let i = 0; i < chain.length; i++) {
+          const id = chain[i];
+          if (id !== cur) {
+            resolutionCache.set(id, cur);
+            depthCache.set(id, chain.length - 1 - i); // hops from chain[i] to terminal
+          }
+        }
+        // WARN for multi-hop chains (≥ 2 hops: chain[0] has depth > 1)
+        if (chain.length - 1 > 1) {
           recorder?.record({
             type: 'system.error', component: 'taxonomy-loader', level: 'warn',
             message: `loadTaxonomy: supersession chain ${chain.join(' → ')} — resolves to ${cur}`,
           });
-        }
-        for (const id of chain) {
-          if (id !== cur) resolutionCache.set(id, cur);
         }
         break;
       }
@@ -382,11 +396,24 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
       cur = nextId;
     }
 
-    // If the loop exited because cur was already cached, propagate that resolution backward
+    // If the loop exited because cur was already cached, propagate resolution backward
     if (resolutionCache.has(cur)) {
       const existingRes = resolutionCache.get(cur) ?? null;
-      for (const id of chain) {
-        if (!resolutionCache.has(id)) resolutionCache.set(id, existingRes);
+      const cachedDepth = depthCache.get(cur) ?? 0; // hops cur→terminal (0 if cycle/dangling)
+      // chain.length hops within current traversal + cachedDepth hops from cur to terminal
+      const totalHops = chain.length + cachedDepth;
+      if (existingRes !== null && totalHops > 1) {
+        recorder?.record({
+          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+          message: `loadTaxonomy: supersession chain ${[...chain, cur].join(' → ')} — resolves to ${existingRes}`,
+        });
+      }
+      for (let i = 0; i < chain.length; i++) {
+        const id = chain[i];
+        if (!resolutionCache.has(id)) {
+          resolutionCache.set(id, existingRes ?? null);
+          if (existingRes !== null) depthCache.set(id, chain.length - i + cachedDepth);
+        }
       }
     }
   }
