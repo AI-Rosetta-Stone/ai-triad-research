@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // Grounding envelope builder for the inquiry pipeline (t/3577).
@@ -127,25 +127,20 @@ export async function buildGroundingEnvelope(
   }
 
   if (anchorSituationId === undefined && taxonomy.situationNodes.length > 0) {
-    // Embed all situation descriptions in one call alongside the question.
-    const situationTexts = taxonomy.situationNodes.map(s => s.description || s.label);
-    let situationVectors: number[][];
-    try {
-      situationVectors = await embed(situationTexts);
-    } catch (err) {
-      warn(`buildGroundingEnvelope: situation embed failed (${String(err)}) — anchor omitted`);
-      situationVectors = [];
-    }
-
+    // Reuse precomputed vectors from corpus assembly — assembleNodeEmbeddings embeds the
+    // full situationNodes list by id at build time, so taxonomy.nodeEmbeddings[s.id].vector
+    // is always populated before this function runs. Nodes missing a vector are skipped
+    // (same graceful behaviour as a failed embed call).
     let bestScore = -Infinity;
     for (let i = 0; i < taxonomy.situationNodes.length; i++) {
-      const vec = situationVectors[i];
+      const s = taxonomy.situationNodes[i];
+      const vec = taxonomy.nodeEmbeddings[s.id]?.vector;
       if (!vec || vec.length === 0) continue;
       const score = cosineSimilarity(questionVec, vec);
       if (score > bestScore) {
         bestScore = score;
-        anchorSituationId = taxonomy.situationNodes[i].id;
-        anchorSummary = taxonomy.situationNodes[i].description || taxonomy.situationNodes[i].label;
+        anchorSituationId = s.id;
+        anchorSummary = s.description || s.label;
       }
     }
   } else if (taxonomy.situationNodes.length === 0) {
