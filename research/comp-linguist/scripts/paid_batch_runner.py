@@ -165,7 +165,15 @@ def main():
         return 3
     cfg_path = os.path.join(out_dir, f"{item['slug']}-config.json")
     save(cfg_path, cfg)
-    print(f"RUN {plan['name']} {item['slug']} ({len(done) + 1}/{len(plan['debates'])}); spent so far ${spent:.2f}")
+    print(f"RUN {plan['name']} {item['slug']} ({len(done) + 1}/{len(plan['debates'])}); spent so far ${spent:.2f}",
+          flush=True)
+    # Book the reserve BEFORE running. If this process is killed mid-debate (e.g. by a low-memory reaper),
+    # the saved in-flight row keeps the reserve in the ledger, so the hard stop never undercounts. A
+    # returning run replaces it with the measured row.
+    inflight = {"plan": plan["name"], "slug": item["slug"], "usd": a.reserve, "status": "in-flight",
+                "note": "booked at --reserve before the run; a row left in this state means the run was killed",
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    ledger["debates"].append(inflight); save(a.ledger, ledger)
     t0 = time.time()
     try:
         proc = subprocess.run(["npx", "tsx", "lib/debate/cli.ts", "--config", cfg_path], cwd=a.code_root,
@@ -175,6 +183,7 @@ def main():
     except subprocess.TimeoutExpired:
         rc, tail = "timeout", ""
     secs = round(time.time() - t0)
+    ledger["debates"].remove(inflight)  # replaced below by the measured (or failed) row
     cost = debate_cost(os.path.join(out_dir, f"{item['slug']}-flight-recorder.jsonl"), price_table(a.code_root))
     row = {"plan": plan["name"], "slug": item["slug"], "usd": cost["usd"], "calls": cost["calls"],
            "in": cost["in"], "out": cost["out"], "secs": secs, "rc": rc,
