@@ -41,6 +41,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { isUndiciMajorAlignedWithRuntime } from '../storage/undiciInvariant.js';
+import { gitBlobSha } from '../storage/gitBlobSha.js';
 
 const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
 
@@ -90,6 +91,32 @@ let apiHandlers: MockHandler[] = [];
 const MAIN_SHA = 'abc123def456789000000000000000000000dead';
 const TREE_SHA = 'tree-sha-000000000000000000000000000dead';
 
+// t/4312: the commit-time base fence compares each overlay path's recorded
+// base against a live tree fetch, so this default mock must reflect what was
+// actually just committed — not a fixed 'blob1' forever — or the fence sees
+// a spurious mismatch against its own prior commit. Tracks only
+// 'taxonomy/nodes.json', the only path these tests write to by default.
+let committedNodesJsonSha = 'blob1';
+let pendingNodesJsonTreeOp: { sha?: string | null; content?: string } | undefined;
+
+/** t/4312: tracks what the mock's recursive-tree GET should report for
+ *  'taxonomy/nodes.json' — the commit-time base fence compares a recorded
+ *  base against a live tree fetch, so this mock must reflect what was
+ *  actually just committed, not a fixed 'blob1' forever, or the fence sees a
+ *  spurious mismatch against its own prior commit. Runs ahead of apiHandlers
+ *  so a test's own gateRequest/onRequestStarted handler intercepting the
+ *  PATCH or POST can't silently skip it. */
+function trackCommittedNodesJsonSha(url: string, method: string, init?: RequestInit): void {
+  const path = url.replace('https://api.github.com', '');
+  if (method === 'POST' && path.includes('/git/trees')) {
+    const body = init?.body ? JSON.parse(init.body as string) as { tree: { path: string; sha?: string | null; content?: string }[] } : null;
+    pendingNodesJsonTreeOp = body?.tree.find(e => e.path === 'taxonomy/nodes.json');
+  } else if (method === 'PATCH' && path.includes('/git/refs/heads/')) {
+    if (pendingNodesJsonTreeOp?.content !== undefined) committedNodesJsonSha = gitBlobSha(pendingNodesJsonTreeOp.content);
+    pendingNodesJsonTreeOp = undefined;
+  }
+}
+
 function handleDefaultGithubApi(url: string, method: string): Response {
   const path = url.replace('https://api.github.com', '');
   if (method === 'GET' && path.includes('/git/refs/heads/')) return mockFetchResponse(200, { object: { sha: MAIN_SHA } });
@@ -99,7 +126,7 @@ function handleDefaultGithubApi(url: string, method: string): Response {
   if (method === 'GET' && path.includes('/git/trees/')) {
     return mockFetchResponse(200, {
       sha: TREE_SHA, truncated: false,
-      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: 'blob1', size: 100 }],
+      tree: [{ path: 'taxonomy/nodes.json', mode: '100644', type: 'blob', sha: committedNodesJsonSha, size: 100 }],
     });
   }
   if (method === 'GET' && path.includes('/contents/')) {
@@ -111,10 +138,17 @@ function handleDefaultGithubApi(url: string, method: string): Response {
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
   apiHandlers = [];
+  committedNodesJsonSha = 'blob1';
+  pendingNodesJsonTreeOp = undefined;
   vi.stubEnv('AI_TRIAD_DATA_ROOT', '/var/cache/taxonomy-test');
   globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? 'GET';
+    // t/4312: observe-only, ahead of apiHandlers — a test's own gateRequest/
+    // onRequestStarted handler can short-circuit a PATCH or POST before
+    // handleDefaultGithubApi's own branch for it ever runs, which would
+    // silently stop committedNodesJsonSha from tracking what was committed.
+    trackCommittedNodesJsonSha(url, method, init);
     for (const handler of apiHandlers) {
       const result = await handler(url, init ?? {});
       if (result) return mockFetchResponse(result.status, result.body);

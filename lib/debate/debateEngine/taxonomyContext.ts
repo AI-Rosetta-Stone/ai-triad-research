@@ -151,6 +151,16 @@ export function getTaxonomyContext(engine: DebateEngineInternals, pov: string): 
   };
 }
 
+function incrementScoringModeCounters(engine: DebateEngineInternals, scoringMode: 'embedding' | 'lexical'): void {
+  const overview = engine.session.diagnostics?.overview;
+  if (!overview) return;
+  if (scoringMode === 'lexical') {
+    overview.lexical_turn_count = (overview.lexical_turn_count ?? 0) + 1;
+  } else {
+    overview.embedding_turn_count = (overview.embedding_turn_count ?? 0) + 1;
+  }
+}
+
 export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, pov: string, priorRefs: string[] = []): Promise<string> {
   const ctx = getTaxonomyContext(engine, pov);
 
@@ -431,6 +441,8 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   engine._lastInjectionManifest.scoring_mode = scoringMode;
   if (testingSelection) engine._lastInjectionManifest.testing_selection = testingSelection;
   engine._lastRelevanceScores = scores;
+
+  incrementScoringModeCounters(engine, scoringMode);
 
   // Flight recorder: taxonomy injection details
   getGlobalRecorder()?.record({

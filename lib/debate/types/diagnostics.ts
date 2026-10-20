@@ -209,6 +209,10 @@ export interface ExtractionSummary {
   rejection_reason_totals: Record<string, number>;
   /** Ratio of AN claims that could not be attributed to any taxonomy Belief node (0-1). >0.50 signals systemic issue. */
   unattributed_claim_ratio?: number;
+  /** Number of claims successfully attributed to a taxonomy Belief node. */
+  attribution_attributed?: number;
+  /** Number of claims that could not be attributed to any taxonomy Belief node. */
+  attribution_unattributed?: number;
 }
 
 export interface DebateOverviewDiagnostics {
@@ -235,6 +239,14 @@ export interface DebateOverviewDiagnostics {
     /** All unique sit- IDs cited across the debate. */
     unique_sit_ids_cited: string[];
   };
+  /**
+   * Feeds the t/4304 broken-injection detector. NO consumer branches on `lexical_turn_count`
+   * or `embedding_turn_count` outside lib/debate — T0-exempt while that holds.
+   */
+  /** Number of debate turns that scored taxonomy nodes via lexical fallback. */
+  lexical_turn_count?: number;
+  /** Number of debate turns that scored taxonomy nodes via embedding similarity. */
+  embedding_turn_count?: number;
 }
 
 export interface DebateDiagnostics {

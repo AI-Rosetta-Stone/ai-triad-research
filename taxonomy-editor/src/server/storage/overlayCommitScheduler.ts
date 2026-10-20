@@ -17,6 +17,7 @@
 
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
 import type { StorageBackend } from './storageBackend.js';
 import { sessionBranchNameFor } from './sessionBranchManager.js';
 import { getBackend } from './fileIO.js';
@@ -24,7 +25,7 @@ import { getBackend } from './fileIO.js';
 interface OverlayCommittable {
   commitOverlay(
     userId: string, message?: string, opts?: { branchName?: string },
-  ): Promise<{ commitSha: string; filesCommitted: number } | null>;
+  ): Promise<{ commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null>;
 }
 function supportsOverlayCommit(b: StorageBackend): b is StorageBackend & OverlayCommittable {
   return typeof (b as unknown as { commitOverlay?: unknown }).commitOverlay === 'function';
@@ -34,7 +35,19 @@ const OVERLAY_COMMIT_DEBOUNCE_MS = 2_000;
 const OVERLAY_COMMIT_MAX_WAIT_MS = 10_000;
 const OVERLAY_COMMIT_MAX_RETRIES = 2;
 
-export type OverlayCommitStatus = { state: 'pending' | 'committed' | 'failed'; at: number; error?: string };
+// t/4312 (SO F1, TL p/538#94): ships gated — either together with Rosetta's
+// conflict banner (t/4313) or behind this flag, OFF by default. The base-sha
+// fence itself (never silently overwrite) is always on regardless; this flag
+// only controls whether a conflict surfaces as a distinct, non-retried
+// 'conflict' state or is treated like any other retryable failure (today's
+// pre-t/4312 behavior, which just keeps retrying the same stale content
+// until it exhausts its retries and shows 'failed').
+const CONFLICT_STATE_ENABLED = process.env.OVERLAY_CONFLICT_STATE_ENABLED === '1';
+
+export type OverlayCommitStatus = { state: 'pending' | 'committed' | 'failed' | 'conflict'; at: number; error?: string; conflictedPaths?: string[] };
+// @INMEMORY_CACHE_SINGLE_REPLICA (t/4181, Server Storage ruling t/4181#9): these per-user pending-commit
+// maps are process-local. With >1 replica and no affinity a read on another replica is up to ~10s stale,
+// and concurrent same-file commits lose an update on retry. Remove only once this state is replica-safe.
 const overlayCommitStatus = new Map<string, OverlayCommitStatus>();
 const pendingOverlayCommits = new Map<string, { debounceTimer: ReturnType<typeof setTimeout>; maxWaitTimer: ReturnType<typeof setTimeout> }>();
 // A user whose commit just failed and is waiting out its retry backoff is in
@@ -82,7 +95,26 @@ async function runScheduledOverlayCommit(userId: string, attempt = 0): Promise<v
     // setTimeout, outside any request's AsyncLocalStorage scope, so
     // GitHubAPIBackend.getEffectiveRef() would otherwise fall back to
     // baseBranch and commitOverlayImpl would throw on every scheduled commit.
-    await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
+    const result = await backend.commitOverlay(userId, undefined, { branchName: sessionBranchNameFor(userId) });
+    const hasConflict = (result?.conflictedPaths?.length ?? 0) > 0;
+    if (hasConflict) {
+      if (CONFLICT_STATE_ENABLED) {
+        // t/4312 SO F1: a conflict-only batch never resolves itself by
+        // retrying — same stale content, same base, same mismatch every
+        // time. Stop and wait for "Use theirs"/"Keep mine" instead.
+        overlayCommitStatus.set(userId, { state: 'conflict', at: Date.now(), conflictedPaths: result!.conflictedPaths });
+        return;
+      }
+      // Flag off: nothing committed, so this must NOT report 'committed' —
+      // throw into the existing retry/backoff path below, same as any other
+      // retryable failure, matching pre-t/4312 behavior exactly.
+      throw new ActionableError({
+        goal: 'Commit the overlay',
+        problem: `${result!.conflictedPaths!.length} path(s) conflicted, nothing committed`,
+        location: 'overlayCommitScheduler.runScheduledOverlayCommit',
+        nextSteps: ['Enable OVERLAY_CONFLICT_STATE_ENABLED for the resolution flow', 'Retry once the other actor\'s change is known'],
+      });
+    }
     overlayCommitStatus.set(userId, { state: 'committed', at: Date.now() });
     const commitsInLastHour = recordCommitRate(userId);
     getGlobalRecorder()?.record({

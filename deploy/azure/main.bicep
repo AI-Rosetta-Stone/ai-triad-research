@@ -529,10 +529,23 @@ resource envStorageSharedRO 'Microsoft.App/managedEnvironments/storages@2024-03-
 var baseEnv = [
   // t/2602: repoint data root from ephemeral /tmp to durable Azure Files mount.
   // Fixes class-A durability (admin flags, runtime-config, calibration logs) and
-  // taxonomy reads (supersedes t/2612 startup.sh symlink). TAXONOMY_CACHE_DIR must
-  // stay in sync with AI_TRIAD_DATA_ROOT (t/2061 invariant; Dockerfile comment).
+  // taxonomy reads (supersedes t/2612 startup.sh symlink).
   { name: 'AI_TRIAD_DATA_ROOT', value: '/mnt/shared' }
-  { name: 'TAXONOMY_CACHE_DIR', value: '/mnt/shared' }
+  // t/4298/t/4299/t/4300: TAXONOMY_CACHE_DIR no longer tracks AI_TRIAD_DATA_ROOT (the
+  // t/2061 "must stay in sync" invariant above was superseded by PR #1078's toRepoPath()
+  // fix, which made the two independent — staging already overrides this one on its own,
+  // below). Co-locating the github-api disk cache with the data root meant any direct
+  // writer to /mnt/shared (reconcile_grounding.py --apply, PS cmdlets) silently became
+  // what prod served, with no check against GitHub — the exact bug validateCacheDirDisjoint()
+  // (t/4300) now catches at boot. Fixed to the SAME ephemeral homedir path config.ts's own
+  // unset-TAXONOMY_CACHE_DIR fallback would compute for github-api mode
+  // (path.join(os.homedir(), '.cache', 'taxonomy-github-api'), HOME=/home/aitriad below) —
+  // set EXPLICITLY here rather than left unset, because an unset value would fall through
+  // to the Dockerfile's own ENV TAXONOMY_CACHE_DIR=/tmp/taxonomy-cache default instead,
+  // landing back in a world-writable /tmp path (the exact symlink-race class config.ts's
+  // own comment says to avoid). TL-approved (t/4299, p/538#77): this cache is intentionally
+  // EPHEMERAL on cold start now — see config.ts's cost arithmetic for why that's acceptable.
+  { name: 'TAXONOMY_CACHE_DIR', value: '/home/aitriad/.cache/taxonomy-github-api' }
   // t/4176: the code splits per-replica AI RPM and per-client rate limits by this (t/4177, t/4178).
   // MUST equal the container app's maxReplicas below, and deploy-azure.yml ExpectedEnvVars.
   { name: 'MAX_REPLICAS', value: '1' }
@@ -547,6 +560,10 @@ var baseEnv = [
   // option. AUTH_DISABLED='1' skips auth entirely. Neither = required sign-in.
   { name: 'AUTH_DISABLED', value: authDisabled }
   { name: 'AUTH_OPTIONAL', value: authOptional }
+  // t/4296 G1: principals forced read-only (writes blocked by #3429's guard) regardless of
+  // proxy-tiers.json — the hosted signed-in smoke identity (t/4134). Fail-closed static list,
+  // idp-scoped `idp:login`. MUST stay in sync with deploy-azure.yml's ExpectedEnvVars gate.
+  { name: 'READ_ONLY_PRINCIPALS', value: 'github:ai-triad-smoke' }
   // Admin allowlist — comma-separated derived userIds gating the review UI and
   // /api/admin/* endpoints. Declared here so it survives Bicep deploys (a CLI
   // --set-env-vars value would be wiped by the next full template deployment).
@@ -576,6 +593,11 @@ var baseEnv = [
   // green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
   // ExpectedEnvVars config-drift gate (Gate Co-Location — the gate verifies this value is deployed).
   { name: 'EMBEDDING_WORKER_OFFLOAD', value: '1' }
+  // t/4312/#3467: PI-approved overlay-commit conflict fence (p/331#2174). Lands ON for both
+  // prod and staging with #3469/#3470's server code, which reads this flag from the
+  // environment and defaults OFF when unset — this entry is what actually arms it. MUST stay
+  // in sync with deploy-azure.yml's ExpectedEnvVars config-drift gate (Gate Co-Location).
+  { name: 'OVERLAY_CONFLICT_STATE_ENABLED', value: '1' }
   // t/4298: both GROUNDING_RECONCILE_INLINE (G8a, was '1') and GROUNDING_SWEEP_ENABLED (G8b, was
   // '1') removed from hosted profiles.
   // - G8b: groundingSweepScheduler.ts's decideSweepArm returns 'blocked-github-api' on the hosted

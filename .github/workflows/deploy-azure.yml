@@ -882,7 +882,7 @@ jobs:
               WEBSITE_AUTH_ENABLED               = 'true'
               HOME                               = '/home/aitriad'
               AI_TRIAD_DATA_ROOT                 = '/mnt/shared'
-              TAXONOMY_CACHE_DIR                 = '/mnt/shared'
+              TAXONOMY_CACHE_DIR                 = '/home/aitriad/.cache/taxonomy-github-api'  # t/4298/t/4299/t/4300 — deliberately NOT /mnt/shared, see main.bicep baseEnv comment
               MAX_REPLICAS                       = '1'  # t/4176 — must equal main.bicep maxReplicas (AI RPM + rate limits divide by it)
               AUTH_OPTIONAL                      = '${{ inputs.auth_mode == 'optional' && '1' || '' }}'
               AUTH_DISABLED                      = '${{ inputs.auth_mode == 'disabled' && '1' || '' }}'
@@ -895,6 +895,8 @@ jobs:
               AZURE_KEYVAULT_URL                 = '${{ steps.deploy.outputs.keyVaultUri }}'
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
+              OVERLAY_CONFLICT_STATE_ENABLED     = '1'  # t/4312/#3467, PI-approved (p/331#2174) — gate verifies the overlay-conflict fence is armed
+              READ_ONLY_PRINCIPALS               = 'github:ai-triad-smoke'  # t/4296 G1 — the smoke identity must stay read-only; must match main.bicep baseEnv
               # GROUNDING_RECONCILE_INLINE removed (t/4298): gated on the grounding_reconcile_inline
               # feature flag, which is OFF — G8a has never run, the env var is read by nothing.
               # GROUNDING_SWEEP_ENABLED removed (t/4298): the sweep is unconditionally refused on

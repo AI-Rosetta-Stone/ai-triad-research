@@ -235,6 +235,8 @@ export function updateExtractionSummary(
     plateau_last_an_id: plateauLastId,
     rejection_reason_totals: reasonTotals,
     unattributed_claim_ratio: unattributedRatio,
+    attribution_attributed: totalAttributed,
+    attribution_unattributed: totalUnattributed,
   };
   ctx.session.extraction_summary = summary;
 

@@ -16,7 +16,8 @@ import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
 import { json, error } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
-import { getDataRoot, STORAGE_MODE, isStagingIdentity } from '../config.js';
+import { ActionableError } from '../../../../lib/debate/errors.js';
+import { getDataRoot, STORAGE_MODE, isStagingIdentity, isLocalDeployment } from '../config.js';
 import { getConfig } from '../runtimeConfig.js';
 import { isPathWithinDir } from '../security/accessControl.js';
 import { requireAdmin } from '../community/admin/reviewRegistry.js';
@@ -279,12 +280,37 @@ export function registerDataRoutes(r: Router, ctx: ServerCtx): void {
 
   // t/4162 Part 1 (T1; TL p/522#398): anon-blocked globally (accessControl.ts `isAnonBlockedRoute`).
   // A plain/dryRun call runs for any signed-in caller (read-only — ai.refreshAIModels coerces a
-  // non-dryRun call without `accept` to dryRun for every principal, same shape as #3329). `accept`
-  // (the actual write path) is refused outright here — Part 2 (admin-gated accept, T2/SO) lands it.
+  // non-dryRun call without `accept` to dryRun for every principal, same shape as #3329).
+  // Part 2 (T2/SO, this ticket): `accept` (the actual write path) requires admin. `principal` is
+  // always host-set from getCurrentUserId() inside ai.refreshAIModels (t/4162#1/#3 C3) — never
+  // client text — so gating here is sufficient; nothing downstream trusts a client-supplied identity.
+  //
+  // SO finding (e/334#2), TL ruling (A1, p/522#430): on hosted, `refreshAIModels` writes
+  // `getProjectRoot()`'s container-local `ai-models.json` — that copy and its t/4160 sign-off
+  // vanish on the next restart/deploy/scale-to-zero, and the repo's actual source of truth
+  // (read by PowerShell, Electron, gated by `verify:config`) never changes. Refuse `accept` on
+  // hosted before it ever reaches ai.refreshAIModels; dry-run/proposal viewing stays unaffected.
+  // SO follow-up (e/334#4): STORAGE_MODE alone fails OPEN during the prod rollback runbook
+  // (STORAGE_MODE=filesystem on hosted prod, t/4229's exact trap) — isLocalDeployment() pins
+  // "accept allowed" to genuine desktop/local-server use via NODE_ENV, not just the mode.
   post('/api/models/refresh', async (_req, res, body) => {
     const parsed = refreshModelsRequestSchema.safeParse(body ?? {});
     if (!parsed.success) { error(res, 'Invalid refresh request: ' + parsed.error.message, 400); return; }
-    if (parsed.data.accept) { error(res, 'Accepting a model-refresh proposal is not yet available.', 403); return; }
+    if (parsed.data.accept) {
+      if (!requireAdmin(res)) return;
+      if (!isLocalDeployment()) {
+        const notDurable = new ActionableError({
+          goal: 'Apply a reviewed AI model-catalog change',
+          problem: 'Hosted accept would write a container-local copy of ai-models.json — the change and its sign-off vanish on the next restart, deploy or scale-to-zero, and the repo\'s source of truth (PowerShell, Electron, verify:config) never changes.',
+          location: 'server/routes/data.ts → POST /api/models/refresh (accept)',
+          nextSteps: ['Apply this change from the desktop app instead', 'Or open a PR updating ai-models.json directly'],
+        });
+        log.server.warn({ component: 'models-refresh' }, 'accept refused on hosted — not durable (t/4234 A1)');
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'models-refresh', level: 'warn', message: notDurable.message, error: { name: notDurable.name, message: notDurable.message, stack: notDurable.stack } });
+        error(res, String(notDurable), 409, notDurable, { code: 'ACCEPT_NOT_DURABLE_ON_HOSTED' });
+        return;
+      }
+    }
     try {
       json(res, await ai.refreshAIModels(parsed.data));
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to refresh AI models', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }

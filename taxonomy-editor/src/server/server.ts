@@ -24,6 +24,7 @@ import { prewarmEmbeddingsCache, getEmbeddingsCacheStatus } from './ai/aiBackend
 import { startEventLoopMonitor } from './eventLoopMonitor.js';
 import { startEmbedQueueDepthMonitor } from './embedQueueDepthMonitor.js';
 import { startGroundingSweep } from './groundingSweepScheduler.js';
+import { enforceReadOnlyGuard } from './readOnlyGuard.js';
 
 const require = createRequire(import.meta.url);
 
@@ -42,6 +43,7 @@ import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadE
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
+import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
 import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
 import { isAuthDisabledAllowed, isPathWithinDir, isTerminalAccessAllowed, isAnonAllowedRoute, invalidRouteParam, missingApiKeyError, resolveTestPersonaOverride } from './security/accessControl.js';
 import { sanitizeUserText } from './security/contentSanitizer.js';
@@ -623,6 +625,7 @@ async function handleRequestInner(
     const route = matchRoute(req.method!, reqPath);
 
     if (enforceWriteRateLimit(req, res, route, reqPath)) return;
+    if (enforceReadOnlyGuard(req, res, !!route, reqPath, principalName, idp)) return;
 
     if (route) {
       await dispatchMatchedRoute(req, res, route, reqPath);
@@ -1258,6 +1261,7 @@ function shutdown(signal: string) {
   if (githubBackend) {
     githubBackend.shutdown();
   }
+  logRequestMetrics(githubBackend, 'shutdown'); // t/4300: final GitHub-call tally for this process's lifetime
 
   // 1. Kill terminal PTY
   if (terminalProcess) {
@@ -1350,6 +1354,10 @@ try {
   const errObj = err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err);
   log.server.warn({ err: errObj }, 'Data root validation failed at boot — /readyz will report data-root-failed (503); process continues (liveness up), the deploy warm-gate blocks the promotion');
 }
+// t/4298/t/4299/t/4300: WARN-only boot check — github-api's disk cache must never overlap
+// AI_TRIAD_DATA_ROOT (a data-root writer would otherwise silently become what this server
+// serves, with no check against GitHub). Synchronous, never throws, no-op on filesystem mode.
+fileIO.validateCacheDirDisjoint();
 // t/2532 (M12): loopback (127.0.0.1) in dev / 0.0.0.0 in prod; HOST opts into LAN exposure (logged loudly below).
 const BIND_HOST = resolveBindHost(process.env);
 server.listen(PORT, BIND_HOST, () => {
@@ -1363,6 +1371,9 @@ server.listen(PORT, BIND_HOST, () => {
   // so a starvation event (t/3165: 7–8s in-process ONNX froze the loop → ingress-fabricated
   // 500) is directly greppable instead of inferred. Unref'd interval — never holds the process.
   startEventLoopMonitor();
+  // t/4300: logged once ~10min post-boot (past typical warm-up), and again at shutdown.
+  // Unref'd — never holds the process open.
+  setTimeout(() => logRequestMetrics(githubBackend, '10min-post-boot'), REQUEST_METRICS_LOG_DELAY_MS).unref();
   // t/3373: pre-shed early-warning for the embedding worker-offload pool (t/3211 arm-2's real
   // trigger). Samples poolStats() and emits ONE stdout WARN (component:'api' → Log Analytics) when
   // sustained queue depth approaches the dynamic cap — BEFORE a caller eats the 503 queue-shed.
