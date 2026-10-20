@@ -3,68 +3,29 @@
 
 <#
 .SYNOPSIS
-    Signed-in hosted smoke (t/4134): sign in through Easy Auth as the read-only smoke identity and
-    assert the positive outcome, not just "responds".
+    Anonymous hosted auth smoke (t/4134): assert the unauthenticated auth surface's positive outcome.
 .DESCRIPTION
-    t/4132: every signed-in user got HTTP 500 from Easy Auth for ~35 min while the anonymous smokes
-    stayed green. This exercises the Easy Auth sign-in pipeline itself:
-      1. POST /.auth/login/github {access_token}  -> 200 with an authenticationToken
-      2. GET  /api/auth/me (X-ZUMO-AUTH)          -> 200, user == ai-triad-smoke, idp github,
-                                                     anonymous false, readOnly true, write false
-      3. PUT  /api/taxonomy/accelerationist with NO If-Match -> 403 read_only (t/4296 guard)
-    Step 3 is SELF-GATED (SO C1, #3497): it is sent only after step 2 has proved readOnly:true and
-    write:false, so "never writes" does not rest on another role's handler ordering. Even then it has
-    a second line of defence: with no If-Match header, the save route's requireBaseVersion rejects it
-    before ensureSessionBranch() would run.
+    Checks, all of which count:
+      0. GET /healthz -> 200 (warm-up; staging and idle prod scale to zero)
+      1. GET /api/auth/me with no session -> 200, anonymous true, capabilities.write false
+      2. PUT /api/taxonomy/accelerationist with no session -> refused 401/403, never 2xx
 
-    The GitHub token comes from $env:SMOKE_GH_TOKEN (an Actions secret) and is never printed; the
-    Easy Auth session token is masked in the Actions log. Run only after t/4296 (READ_ONLY_PRINCIPALS)
-    is deployed to the target, per the TL (t/4134#9).
+    WHY THERE IS NO SIGN-IN STEP (t/4134#25, TL re-scope t/4134#26): ACA Easy Auth does not implement
+    client-directed sign-in for the GitHub provider. POST /.auth/login/github {access_token} throws
+    System.NotImplementedException in GitHubProvider.HandleClientDirectedLoginAsync (500, sub-status 74)
+    for any token, with or without a backed token store. An automated signed-in smoke needs a provider
+    that supports client-directed sign-in (an Entra test identity: a PI accounts decision, not taken).
+    The t/4132 class (token store enabled without storage) is prevented by the t/4133 deploy gate.
 
     The assertion functions are pure so tests/Test-EasyAuthSmoke.Tests.ps1 can prove both arms.
 #>
 [CmdletBinding()]
 param(
-    [string]$BaseUrl = '',
-    [string]$ExpectedLogin = 'ai-triad-smoke'
+    [string]$BaseUrl = ''
 )
 
-function Test-AuthMeResponse {
-    <# Pure: does a /api/auth/me body prove a real, read-only, signed-in session for $ExpectedLogin? #>
-    param([Parameter(Mandatory)][AllowNull()][object]$Me, [Parameter(Mandatory)][string]$ExpectedLogin)
-    $fail = [System.Collections.Generic.List[string]]::new()
-    if ($null -eq $Me) { return [PSCustomObject]@{ Pass = $false; Failures = @('no /api/auth/me body') } }
-    $get = { param($n) if ($Me.PSObject.Properties[$n]) { $Me.$n } else { $null } }
-    if (-not [string]::Equals([string](& $get 'user'), $ExpectedLogin, [StringComparison]::OrdinalIgnoreCase)) { $fail.Add("user is '$(& $get 'user')', expected '$ExpectedLogin'") }
-    if ((& $get 'anonymous') -ne $false) { $fail.Add("anonymous is '$(& $get 'anonymous')', expected false (sign-in did not take)") }
-    if ([string](& $get 'idp') -ne 'github') { $fail.Add("idp is '$(& $get 'idp')', expected 'github'") }
-    if ((& $get 'readOnly') -ne $true) { $fail.Add("readOnly is '$(& $get 'readOnly')', expected true (t/4296 READ_ONLY_PRINCIPALS not live?)") }
-    $caps = & $get 'capabilities'
-    $write = if ($caps -and $caps.PSObject.Properties['write']) { $caps.write } else { $null }
-    if ($write -ne $false) { $fail.Add("capabilities.write is '$write', expected false") }
-    return [PSCustomObject]@{ Pass = ($fail.Count -eq 0); Failures = @($fail) }
-}
-
-function Get-SignInFailureClass {
-    <# Pure: classify a failed Easy Auth sign-in so a dead token isn't reported as the t/4132 outage. #>
-    param([Parameter(Mandatory)][int]$StatusCode)
-    if ($StatusCode -eq 401 -or $StatusCode -eq 403) {
-        return "sign-in returned $StatusCode — SMOKE_GH_TOKEN was rejected (expired or revoked?); rotate it. This is NOT the t/4132 Easy Auth outage class."
-    }
-    if ($StatusCode -ge 500) {
-        return "sign-in returned $StatusCode — the Easy Auth pipeline itself is failing (the t/4132 class)."
-    }
-    return "sign-in returned $StatusCode with no authenticationToken — unexpected Easy Auth response."
-}
-
-function Test-ShouldSendWriteProbe {
-    <# Pure (SO C1): send the write probe ONLY when /api/auth/me has already proved read-only. #>
-    param([Parameter(Mandatory)][AllowNull()][object]$MeVerdict)
-    return [bool]($MeVerdict -and $MeVerdict.Pass)
-}
-
 function Test-AnonMeResponse {
-    <# Pure (interim (d)): anonymous /api/auth/me must be a real anonymous session that cannot write. #>
+    <# Pure: anonymous /api/auth/me must be a real anonymous session that cannot write. #>
     param([Parameter(Mandatory)][AllowNull()][object]$Me)
     if ($null -eq $Me) { return [PSCustomObject]@{ Pass = $false; Failures = @('no body') } }
     $fail = [System.Collections.Generic.List[string]]::new()
@@ -77,7 +38,7 @@ function Test-AnonMeResponse {
 }
 
 function Test-AnonWriteProbeResponse {
-    <# Pure (interim (d)): an unauthenticated mutating request must be refused (401/403), never accepted. #>
+    <# Pure: an unauthenticated mutating request must be refused (401/403), never accepted. #>
     param([Parameter(Mandatory)][int]$StatusCode)
     if ($StatusCode -eq 401 -or $StatusCode -eq 403) { return [PSCustomObject]@{ Pass = $true; Failure = $null } }
     if ($StatusCode -ge 200 -and $StatusCode -lt 300) {
@@ -86,37 +47,20 @@ function Test-AnonWriteProbeResponse {
     return [PSCustomObject]@{ Pass = $false; Failure = "anonymous write probe returned $StatusCode, expected 401/403 from the anonymous gate" }
 }
 
-function Test-ReadOnlyProbeResponse {
-    <# Pure: did the write probe get the t/4296 read-only rejection (and nothing weaker)? #>
-    param([Parameter(Mandatory)][int]$StatusCode, [AllowNull()][string]$AuthReason, [AllowNull()][string]$Body)
-    if ($StatusCode -ge 200 -and $StatusCode -lt 300) {
-        return [PSCustomObject]@{ Pass = $false; Failure = "write probe returned $StatusCode — the read-only guard did NOT block a mutating route" }
-    }
-    $bodyReadOnly = $Body -and ($Body -match '"error"\s*:\s*"read_only"')
-    if ($StatusCode -eq 403 -and ($AuthReason -eq 'read_only' -or $bodyReadOnly)) {
-        return [PSCustomObject]@{ Pass = $true; Failure = $null }
-    }
-    return [PSCustomObject]@{ Pass = $false; Failure = "write probe returned $StatusCode (X-Auth-Reason '$AuthReason'), expected 403 read_only — rejected by something other than the read-only guard" }
-}
-
 if ($MyInvocation.InvocationName -ne '.') {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
     . (Join-Path $PSScriptRoot '..' '..' '..' 'scripts' 'AITriad' 'Private' 'New-ActionableError.ps1')
     $Location = 'operations/devops/azure/Test-EasyAuthSmoke.ps1'
     if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
-        New-ActionableError -Goal 'Run the signed-in hosted smoke' -Problem '-BaseUrl is required.' -Location $Location -NextSteps @('Pass -BaseUrl https://<app>.<env>.azurecontainerapps.io') -Throw
-    }
-    if ([string]::IsNullOrWhiteSpace($env:SMOKE_GH_TOKEN)) {
-        New-ActionableError -Goal 'Sign in as the smoke identity' -Problem 'SMOKE_GH_TOKEN is not set.' -Location $Location -NextSteps @('Run from auth-smoke.yml, which maps the SMOKE_GH_TOKEN Actions secret into the environment') -Throw
+        New-ActionableError -Goal 'Run the anonymous hosted auth smoke' -Problem '-BaseUrl is required.' -Location $Location -NextSteps @('Pass -BaseUrl https://<app>.<env>.azurecontainerapps.io') -Throw
     }
     $BaseUrl = $BaseUrl.TrimEnd('/')
     $failures = [System.Collections.Generic.List[string]]::new()
     $summary = [System.Collections.Generic.List[string]]::new()
 
-    # 0. Warm up: staging (and idle prod) scale to zero, and the first request waits on a cold start
-    #    (~30-60s; budget kept under the job's 5-minute timeout). Without this the sign-in hit the 30s timeout on the first run (t/4134, run 39449706966).
-    $warmDeadline = (Get-Date).AddSeconds(90); $warm = $false; $warmStatus = 'no response'
+    # 0. Warm up: a scaled-to-zero app waits on a cold start (~30-60s); budget stays under the job's 5 minutes.
+    $warmDeadline = (Get-Date).AddSeconds(120); $warm = $false; $warmStatus = 'no response'
     while (-not $warm -and (Get-Date) -lt $warmDeadline) {
         try {
             $hz = Invoke-WebRequest -Uri "$BaseUrl/healthz" -SkipHttpErrorCheck -TimeoutSec 45
@@ -125,12 +69,10 @@ if ($MyInvocation.InvocationName -ne '.') {
         } catch { $warmStatus = $_.Exception.Message }
         Start-Sleep -Seconds 10
     }
-    $summary.Add("| warm-up GET /healthz | $warmStatus |")
-    if (-not $warm) {
-        Write-Warning "t/4134: /healthz never returned 200 within 90s (last: $warmStatus) — attempting sign-in anyway"
-    }
+    $summary.Add("| GET /healthz | $warmStatus |")
+    if (-not $warm) { $failures.Add("/healthz never returned 200 within 120s (last: $warmStatus)") }
 
-    # A. Anonymous subset (TL interim (d), t/4134): these always run and always count.
+    # 1. Anonymous identity
     $anonMe = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -SkipHttpErrorCheck -TimeoutSec 30
     $summary.Add("| anonymous GET /api/auth/me | $($anonMe.StatusCode) |")
     if ($anonMe.StatusCode -ne 200) { $failures.Add("anonymous /api/auth/me returned $($anonMe.StatusCode), expected 200") }
@@ -138,72 +80,21 @@ if ($MyInvocation.InvocationName -ne '.') {
         $av = Test-AnonMeResponse -Me ($anonMe.Content | ConvertFrom-Json)
         foreach ($f in $av.Failures) { $failures.Add("anonymous /api/auth/me: $f") }
     }
+
+    # 2. Anonymous write must be refused
     $anonProbe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 30
     $anonReason = if ($anonProbe.Headers['X-Auth-Reason']) { [string]@($anonProbe.Headers['X-Auth-Reason'])[0] } else { '' }
     $summary.Add("| anonymous write probe PUT /api/taxonomy/accelerationist | $($anonProbe.StatusCode) $anonReason |")
     $ap = Test-AnonWriteProbeResponse -StatusCode ([int]$anonProbe.StatusCode)
     if (-not $ap.Pass) { $failures.Add($ap.Failure) }
 
-    # 1. Easy Auth client-directed sign-in. KNOWN GAP (t/4134#11): POST /.auth/login/github returns 500
-    #    for ANY token on both apps (junk tokens too), so a 5xx here is reported as a WARN, not a failure,
-    #    until the staging blob-backed token-store experiment (t/4134 option a) resolves it.
-    $zumo = $null
-    try {
-        $login = Invoke-WebRequest -Method Post -Uri "$BaseUrl/.auth/login/github" -ContentType 'application/json' `
-            -Body (@{ access_token = $env:SMOKE_GH_TOKEN } | ConvertTo-Json -Compress) -SkipHttpErrorCheck -TimeoutSec 30
-        $summary.Add("| sign-in POST /.auth/login/github | $($login.StatusCode) |")
-        if ($login.StatusCode -eq 200) {
-            $zumo = ($login.Content | ConvertFrom-Json).authenticationToken
-            if ($zumo) { Write-Host "::add-mask::$zumo" }
-        }
-        if (-not $zumo) {
-            if ([int]$login.StatusCode -ge 500) {
-                Write-Host "::warning title=t/4134 known gap::sign-in returned $($login.StatusCode); client-directed GitHub sign-in fails for any token here (t/4134#11). Signed-in checks skipped; not counted as a failure."
-                $summary.Add('| signed-in checks | SKIPPED — known gap t/4134#11 (client-directed sign-in returns 5xx for any token) |')
-            } else {
-                $failures.Add((Get-SignInFailureClass -StatusCode ([int]$login.StatusCode)))
-            }
-        }
-    } catch {
-        $failures.Add("sign-in request failed: $($_.Exception.Message)")
-    }
-
-    if ($zumo) {
-        $h = @{ 'X-ZUMO-AUTH' = $zumo }
-        # 2. Authenticated identity + read-only tier
-        $me = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -Headers $h -SkipHttpErrorCheck -TimeoutSec 30
-        $summary.Add("| GET /api/auth/me | $($me.StatusCode) |")
-        $v = $null
-        if ($me.StatusCode -ne 200) { $failures.Add("/api/auth/me returned $($me.StatusCode) for a signed-in session (t/4132 returned 500 here)") }
-        else {
-            $v = Test-AuthMeResponse -Me ($me.Content | ConvertFrom-Json) -ExpectedLogin $ExpectedLogin
-            foreach ($f in $v.Failures) { $failures.Add("/api/auth/me: $f") }
-        }
-        # 3. Write probe — only once /me has proved read-only (SO C1); no If-Match, so it can't write
-        if (Test-ShouldSendWriteProbe -MeVerdict $v) {
-            $probe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -Headers $h -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 30
-            $reason = if ($probe.Headers['X-Auth-Reason']) { [string]@($probe.Headers['X-Auth-Reason'])[0] } else { '' }
-            $summary.Add("| write probe PUT /api/taxonomy/accelerationist (no If-Match) | $($probe.StatusCode) $reason |")
-            $p = Test-ReadOnlyProbeResponse -StatusCode ([int]$probe.StatusCode) -AuthReason $reason -Body ([string]$probe.Content)
-            if (-not $p.Pass) { $failures.Add($p.Failure) }
-        } else {
-            $summary.Add('| write probe | SKIPPED — /api/auth/me did not prove read-only |')
-            $failures.Add('write probe skipped: /api/auth/me did not prove readOnly:true and write:false, so no mutating request was sent (SO C1)')
-        }
-    }
-
     if ($env:GITHUB_STEP_SUMMARY) {
-        $verdict = if ($failures.Count) { "❌ FAILED ($($failures.Count))" } elseif ($zumo) { '✅ passed' } else { '⚠️ passed (anonymous subset only; signed-in checks skipped)' }
-        Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (@("## Signed-in smoke (t/4134): $verdict on $BaseUrl", '', '| Step | Result |', '|---|---|') + $summary + @('') + ($failures | ForEach-Object { "- $_" })) -Encoding utf8
+        $verdict = if ($failures.Count) { "❌ FAILED ($($failures.Count))" } else { '✅ passed' }
+        Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value (@("## Anonymous auth smoke (t/4134): $verdict on $BaseUrl", '', '| Step | Result |', '|---|---|') + $summary + @('') + ($failures | ForEach-Object { "- $_" })) -Encoding utf8
     }
     if ($failures.Count) {
-        foreach ($f in $failures) { Write-Host "::error title=t/4134 signed-in smoke::$f" }
+        foreach ($f in $failures) { Write-Host "::error title=t/4134 anonymous auth smoke::$f" }
         exit 1
     }
-    # Claim only what this run actually checked (the run 39453487495 line claimed signed-in checks that were skipped).
-    if ($zumo) {
-        Write-Host "t/4134 signed-in smoke passed on $BaseUrl (user $ExpectedLogin, read-only, write probe 403 read_only)"
-    } else {
-        Write-Host "t/4134 smoke passed on ${BaseUrl}: ANONYMOUS SUBSET ONLY (/me anonymous, anonymous write refused). Signed-in checks NOT run — known gap t/4134#11."
-    }
+    Write-Host "t/4134 anonymous auth smoke passed on ${BaseUrl}: /healthz 200, /me anonymous with write:false, anonymous write refused ($($anonProbe.StatusCode))."
 }
