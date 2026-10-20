@@ -8,18 +8,30 @@ name: Environment Branch-Policy Check
 # verifying an unrelated deploy. This check makes the next instance of this class visible on its
 # own, not 3+ days after a health-monitor's own credential outage led someone to go looking.
 #
-# CREDENTIALED_ENVIRONMENTS (operations/devops/environment-branch-policy-predicate.mjs) is the
-# maintained list. Keep it in sync with `grep -rn "environment:" .github/workflows/*.yml` when a
-# workflow starts minting a credential against a new environment.
+# COVERAGE IS COMPUTED, NOT HAND-KEPT (TL review, PR #3527): a hardcoded list of "credentialed
+# environments" reproduces t/4340's own failure class -- a check that silently stops covering the
+# thing it exists to cover. What's required is every real repo environment PLUS every
+# `environment:` value any workflow actually references, minus the explicit
+# EXEMPT_ENVIRONMENTS opt-out list in operations/devops/environment-branch-policy-predicate.mjs.
+#
+# FAIL-LOUD ON THE CHECK'S OWN ERROR (TL review): if evaluation itself throws (API error, rate
+# limit), the alert step still opens/updates an issue saying so -- it never silently produces no
+# issue just because `gaps` was never set.
 
 on:
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:
+    inputs:
+      force_fault:
+        description: 'Gate-verification: force the evaluate step to throw, proving the alert step still opens an issue on a check-level error (t/4340, TL review)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   issues: write
+  environments: read  # GET .../environments and .../environments/{name}/deployment-branch-policies
 
 jobs:
   check:
@@ -30,65 +42,132 @@ jobs:
       - name: Self-health — predicate unit suite
         run: node --test operations/devops/environment-branch-policy-predicate.test.mjs
 
-      - name: Evaluate every credentialed environment's branch policy
+      - name: Evaluate every required environment's branch policy
         id: evaluate
+        env:
+          FORCE_FAULT: ${{ inputs.force_fault }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
             const { pathToFileURL } = require('url');
-            const { evaluateAll, CREDENTIALED_ENVIRONMENTS } =
-              await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/environment-branch-policy-predicate.mjs`).href);
+            const fs = require('fs');
+            const path = require('path');
+            const {
+              evaluateAll,
+              workflowEnvironmentNames,
+              requiredEnvironments,
+            } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/environment-branch-policy-predicate.mjs`).href);
             const owner = context.repo.owner, repo = context.repo.repo;
 
-            const envs = [];
-            for (const name of CREDENTIALED_ENVIRONMENTS) {
-              let data;
-              try {
-                ({ data } = await github.rest.repos.getEnvironment({ owner, repo, environment_name: name }));
-              } catch (err) {
-                if (err.status === 404) {
+            try {
+              if (process.env.FORCE_FAULT === 'true') {
+                throw new Error('t/4340 gate-verification: forced fault (force_fault input)');
+              }
+
+              const repoEnvs = await github.paginate(github.rest.repos.getAllEnvironments, { owner, repo });
+              const repoEnvNames = repoEnvs.map((e) => e.name);
+              const byName = new Map(repoEnvs.map((e) => [e.name, e]));
+
+              const workflowsDir = path.join(process.env.GITHUB_WORKSPACE, '.github', 'workflows');
+              const workflowFiles = fs.readdirSync(workflowsDir)
+                .filter((f) => /\.ya?ml$/.test(f))
+                .map((f) => ({ path: f, text: fs.readFileSync(path.join(workflowsDir, f), 'utf8') }));
+              const workflowEnvNames = workflowEnvironmentNames(workflowFiles);
+
+              const required = requiredEnvironments(repoEnvNames, workflowEnvNames);
+              core.info(`environment-branch-policy-check: required environments: ${required.join(', ')}`);
+
+              const envs = [];
+              for (const name of required) {
+                const repoEnv = byName.get(name);
+                if (!repoEnv) {
                   envs.push({ name, missing: true });
                   continue;
                 }
-                throw err;
+                const deploymentBranchPolicy = repoEnv.deployment_branch_policy ?? null;
+                let policyCount = 0;
+                if (deploymentBranchPolicy) {
+                  const policies = await github.paginate(github.rest.repos.listDeploymentBranchPolicies, { owner, repo, environment_name: name });
+                  policyCount = policies.length;
+                }
+                envs.push({ name, deploymentBranchPolicy, policyCount });
               }
-              const deploymentBranchPolicy = data.deployment_branch_policy ?? null;
-              let policyCount = 0;
-              if (deploymentBranchPolicy) {
-                const policies = await github.paginate(github.rest.repos.listDeploymentBranchPolicies, { owner, repo, environment_name: name });
-                policyCount = policies.length;
-              }
-              envs.push({ name, deploymentBranchPolicy, policyCount });
-            }
 
-            const result = evaluateAll(envs);
-            core.info(`environment-branch-policy-check verdict: pass=${result.pass} gaps=${JSON.stringify(result.gaps)}`);
-            core.setOutput('gaps', JSON.stringify(result.gaps));
-            if (!result.pass) {
-              core.setFailed(`${result.gaps.length} environment(s) have no effective branch-policy restriction: ${result.gaps.map((g) => g.name).join(', ')}`);
+              const result = evaluateAll(envs);
+              core.info(`environment-branch-policy-check verdict: pass=${result.pass} evaluated=${envs.length} gaps=${JSON.stringify(result.gaps)}`);
+              core.setOutput('status', 'evaluated');
+              core.setOutput('gaps', JSON.stringify(result.gaps));
+              core.setOutput('evaluated_count', String(envs.length));
+              if (!result.pass) {
+                core.setFailed(`${result.gaps.length} environment(s) have no effective branch-policy restriction: ${result.gaps.map((g) => g.name).join(', ')}`);
+              }
+            } catch (err) {
+              // The check's OWN failure must never silently produce no alert (TL review): always
+              // set an output the next step can read, even when evaluation never completed.
+              const message = err && err.stack ? err.stack : String(err);
+              core.error(`environment-branch-policy-check CRASHED before producing a verdict: ${message}`);
+              core.setOutput('status', 'error');
+              core.setOutput('gaps', '[]');
+              core.setOutput('error_message', String(err && err.message ? err.message : err));
+              core.setFailed(`environment-branch-policy-check errored: ${String(err && err.message ? err.message : err)}`);
             }
 
       - name: Open or update an alert issue
         if: failure()
+        env:
+          EVAL_STATUS: ${{ steps.evaluate.outputs.status }}
+          GAPS_JSON: ${{ steps.evaluate.outputs.gaps }}
+          ERROR_MESSAGE: ${{ steps.evaluate.outputs.error_message }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
-            const gaps = JSON.parse(`${{ steps.evaluate.outputs.gaps }}`);
             const owner = context.repo.owner, repo = context.repo.repo;
-            const title = 'Environment branch-policy gap: a credentialed environment has no branch restriction';
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const body = [
-              '## Branch-policy gap (t/4340)',
-              '',
-              ...gaps.map((g) => `- **${g.name}**: ${g.reason}`),
-              '',
-              `Run: ${runUrl}`,
-              '',
-              'Fix: add a `main`-only deployment-branch policy to each named environment:',
-              '```',
-              'gh api -X POST repos/OWNER/REPO/environments/ENV/deployment-branch-policies -f name=main -f type=branch',
-              '```',
-            ].join('\n');
+            const title = 'Environment branch-policy gap: a credentialed environment has no branch restriction';
+
+            // Never let an unset/unparsable output produce a silent no-op (TL review): a status
+            // the evaluate step never reached (e.g. it was killed, not just caught-and-errored)
+            // still reads as an error, not as "no gaps".
+            let bodyLines;
+            if (process.env.EVAL_STATUS !== 'evaluated') {
+              bodyLines = [
+                '## The check itself errored (t/4340)',
+                '',
+                'No branch-policy verdict was produced -- coverage for this run is UNKNOWN, not clean.',
+                '',
+                process.env.ERROR_MESSAGE ? `Error: \`${process.env.ERROR_MESSAGE}\`` : '(no error message captured)',
+                '',
+                `Run: ${runUrl}`,
+              ];
+            } else {
+              let gaps = [];
+              try {
+                gaps = JSON.parse(process.env.GAPS_JSON || '[]');
+              } catch (err) {
+                bodyLines = [
+                  '## The check\'s own output was unparsable (t/4340)',
+                  '',
+                  `The evaluate step reported status=evaluated but its gaps output could not be parsed: \`${String(err.message)}\`. Coverage for this run is UNKNOWN, not clean.`,
+                  '',
+                  `Run: ${runUrl}`,
+                ];
+              }
+              if (!bodyLines) {
+                bodyLines = [
+                  '## Branch-policy gap (t/4340)',
+                  '',
+                  ...gaps.map((g) => `- **${g.name}**: ${g.reason}`),
+                  '',
+                  `Run: ${runUrl}`,
+                  '',
+                  'Fix: add a `main`-only deployment-branch policy to each named environment:',
+                  '```',
+                  'gh api -X POST repos/OWNER/REPO/environments/ENV/deployment-branch-policies -f name=main -f type=branch',
+                  '```',
+                ];
+              }
+            }
+            const body = bodyLines.join('\n');
 
             const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: 'branch-policy-alert', per_page: 1 });
             if (existing.data.length > 0) {
@@ -111,7 +190,7 @@ jobs:
             for (const issue of open.data) {
               await github.rest.issues.createComment({
                 owner, repo, issue_number: issue.number,
-                body: `Resolved — every credentialed environment now has an effective branch-policy restriction. Run: ${runUrl}`,
+                body: `Resolved — every required environment now has an effective branch-policy restriction. Run: ${runUrl}`,
               });
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             }

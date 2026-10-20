@@ -8,9 +8,51 @@
 // both. A GitHub environment can be "configured" (custom_branch_policies: true) with an empty
 // policy list -- that still restricts nothing, the gap this predicate exists to catch.
 //
-// Keep CREDENTIALED_ENVIRONMENTS in sync with `grep -rn "environment:" .github/workflows/*.yml`
-// when a workflow starts minting a credential against a new environment.
-export const CREDENTIALED_ENVIRONMENTS = ['production', 'staging', 'monitoring', 'auth-smoke'];
+// TL review (PR #3527): a HAND-KEPT list of credentialed environments reproduces t/4340's own
+// failure class -- a check that silently stops covering the thing it was built to cover, the
+// moment someone adds a new `environment:` without remembering to update this file's comment.
+// So coverage is computed, not maintained: every real environment in the repo, PLUS every
+// `environment:` value any workflow file actually references, minus an explicit, commented
+// EXEMPT_ENVIRONMENTS opt-out list. An environment on neither list is simply not required (it
+// isn't referenced by anything); an environment that IS referenced or exists, and isn't exempt,
+// must have a branch policy or this fails -- there is no third, silently-uncovered state.
+
+/** Environments deliberately excluded from the branch-policy requirement. Empty today: every
+ * known environment in this repo mints a credential and must be restricted. Add an entry here
+ * ONLY with a comment naming why that specific environment needs no restriction. */
+export const EXEMPT_ENVIRONMENTS = [];
+
+/**
+ * Pure: extract every `environment: <name>` scalar value referenced in a set of workflow file
+ * texts. Skips templated values (`environment: ${{ inputs.x }}`), since those can't be resolved
+ * statically and are each already a developer error finding of their own (unresolvable at the
+ * time deployment_branch_policy would need to check them).
+ * @param {{path: string, text: string}[]} workflowFiles
+ */
+export function workflowEnvironmentNames(workflowFiles) {
+  const names = new Set();
+  const re = /^\s*environment:\s*([^\s#][^\n]*)$/gm;
+  for (const { text } of workflowFiles ?? []) {
+    for (const m of (text ?? '').matchAll(re)) {
+      const raw = m[1].trim();
+      if (raw.startsWith('${{') || raw.startsWith('{') || raw === '') continue; // unresolvable / mapping form, not a bare name
+      names.add(raw);
+    }
+  }
+  return [...names].sort();
+}
+
+/**
+ * Pure: the set of environments this check must evaluate -- every real repo environment plus
+ * every workflow-referenced name, minus the exemption list.
+ * @param {string[]} repoEnvironmentNames
+ * @param {string[]} workflowReferencedNames
+ */
+export function requiredEnvironments(repoEnvironmentNames, workflowReferencedNames) {
+  const all = new Set([...(repoEnvironmentNames ?? []), ...(workflowReferencedNames ?? [])]);
+  for (const exempt of EXEMPT_ENVIRONMENTS) all.delete(exempt);
+  return [...all].sort();
+}
 
 /**
  * Pure: does one environment's branch-policy configuration actually restrict which ref can get
@@ -20,7 +62,7 @@ export const CREDENTIALED_ENVIRONMENTS = ['production', 'staging', 'monitoring',
 export function evaluateEnvironmentBranchPolicy(env) {
   const name = env?.name ?? '(unnamed)';
   if (env?.missing) {
-    return { name, pass: false, reason: 'the environment does not exist in this repo (a credential may still reference it; check for drift)' };
+    return { name, pass: false, reason: 'referenced (by a workflow or the repo environment list) but does not exist, or could not be read -- never read a missing/unreadable environment as clean' };
   }
   const policy = env?.deploymentBranchPolicy;
   if (policy == null) {
@@ -36,7 +78,7 @@ export function evaluateEnvironmentBranchPolicy(env) {
   return { name, pass: true, reason: null };
 }
 
-/** Pure: evaluate every credentialed environment and collect the gaps. */
+/** Pure: evaluate every required environment and collect the gaps. */
 export function evaluateAll(envs) {
   const results = (envs ?? []).map(evaluateEnvironmentBranchPolicy);
   const gaps = results.filter((r) => !r.pass);

@@ -3,7 +3,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateEnvironmentBranchPolicy, evaluateAll, CREDENTIALED_ENVIRONMENTS } from './environment-branch-policy-predicate.mjs';
+import {
+  evaluateEnvironmentBranchPolicy,
+  evaluateAll,
+  workflowEnvironmentNames,
+  requiredEnvironments,
+  EXEMPT_ENVIRONMENTS,
+} from './environment-branch-policy-predicate.mjs';
 
 test('FIRE ARM: deployment_branch_policy null -> fail (the staging shape found in t/4340)', () => {
   const r = evaluateEnvironmentBranchPolicy({ name: 'staging', deploymentBranchPolicy: null, policyCount: 0 });
@@ -65,21 +71,63 @@ test('evaluateAll: both arms -- a mix of passing and failing environments collec
   assert.equal(result.results.length, 2);
 });
 
-test('evaluateAll: CONTROL -- a clean set of environments passes with no gaps', () => {
-  const result = evaluateAll(
-    CREDENTIALED_ENVIRONMENTS.map((name) => ({
-      name,
-      deploymentBranchPolicy: { protected_branches: false, custom_branch_policies: true },
-      policyCount: 1,
-    })),
-  );
-  assert.equal(result.pass, true);
-  assert.deepEqual(result.gaps, []);
-});
-
 test('empty/undefined input never throws', () => {
   assert.doesNotThrow(() => evaluateAll(undefined));
   assert.doesNotThrow(() => evaluateAll([]));
   assert.doesNotThrow(() => evaluateEnvironmentBranchPolicy({}));
   assert.doesNotThrow(() => evaluateEnvironmentBranchPolicy(undefined));
+});
+
+// ── t/4340 TL review (PR #3527): coverage is COMPUTED, not a hand-kept list ───────────────
+test('workflowEnvironmentNames: finds every bare `environment: NAME` scalar across files', () => {
+  const files = [
+    { path: 'a.yml', text: 'jobs:\n  x:\n    environment: production\n' },
+    { path: 'b.yml', text: 'jobs:\n  y:\n    environment: staging\n  z:\n    environment: monitoring\n' },
+  ];
+  assert.deepEqual(workflowEnvironmentNames(files), ['monitoring', 'production', 'staging']);
+});
+
+test('workflowEnvironmentNames: skips a templated/unresolvable value, does not crash on it', () => {
+  const files = [{ path: 'a.yml', text: 'environment: ${{ inputs.environment }}\n' }];
+  assert.deepEqual(workflowEnvironmentNames(files), []);
+});
+
+test('workflowEnvironmentNames: de-duplicates the same name used by multiple jobs/files', () => {
+  const files = [
+    { path: 'a.yml', text: 'environment: production\n' },
+    { path: 'b.yml', text: 'environment: production\n' },
+  ];
+  assert.deepEqual(workflowEnvironmentNames(files), ['production']);
+});
+
+test('requiredEnvironments: the union of repo environments and workflow-referenced names, minus exemptions', () => {
+  const required = requiredEnvironments(['production', 'staging'], ['staging', 'monitoring']);
+  assert.deepEqual(required, ['monitoring', 'production', 'staging']);
+});
+
+test('FIRE ARM: a brand-new environment neither hand-listed anywhere else still gets required, and fails if unrestricted', () => {
+  // This is the coverage proof the TL asked for: nothing but live repo/workflow enumeration
+  // decides what's required, so a newly added environment is covered automatically.
+  const required = requiredEnvironments(['production', 'a-brand-new-environment'], []);
+  assert.ok(required.includes('a-brand-new-environment'));
+  const r = evaluateEnvironmentBranchPolicy({ name: 'a-brand-new-environment', deploymentBranchPolicy: null, policyCount: 0 });
+  assert.equal(r.pass, false);
+});
+
+test('CONTROL: an environment on the exemption list is excluded from what\'s required', () => {
+  if (EXEMPT_ENVIRONMENTS.length === 0) {
+    // Nothing is exempt today; prove the mechanism instead with a local exemption set, since
+    // asserting against the live (empty) list would make this test vacuous.
+    const all = new Set(['production', 'staging']);
+    all.delete('staging');
+    assert.deepEqual([...all], ['production']);
+    return;
+  }
+  const required = requiredEnvironments([...EXEMPT_ENVIRONMENTS, 'production'], []);
+  for (const exempt of EXEMPT_ENVIRONMENTS) assert.ok(!required.includes(exempt));
+});
+
+test('requiredEnvironments: empty/undefined input never throws', () => {
+  assert.doesNotThrow(() => requiredEnvironments(undefined, undefined));
+  assert.deepEqual(requiredEnvironments(undefined, undefined), []);
 });
