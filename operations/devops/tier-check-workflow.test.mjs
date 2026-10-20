@@ -198,17 +198,34 @@ test('C3: inlineR1Fallback agrees with the predicate checkR1 on every r1 entry, 
 });
 
 // ── t/4343: early visibility into what a declared tier still needs before merge ────────────
-test('tierRequirementsNote: T1 names the approval requirement and the enforcing gate', () => {
+test('tierRequirementsNote: T1 names the reviewer-App approval (comment accepted during transition) and the enforcing gate', () => {
   const note = loadTierRequirementsNote()('T1');
   assert.match(note, /Approved \(<role>\):/);
+  assert.match(note, /reviewer-App review/);
+  assert.match(note, /accepted during the transition/);
   assert.match(note, /t1-approval-guard/);
 });
 
-test('tierRequirementsNote: T2 names the SO/consult-hold/PI requirement and the enforcing gate', () => {
+test('tierRequirementsNote: T2 names the TL approval path and the PI-only exception, not a bare "PI"', () => {
   const note = loadTierRequirementsNote()('T2');
   assert.match(note, /Second Opinion/);
   assert.match(note, /consult-hold/);
+  assert.match(note, /\bTL\b/);
+  assert.match(note, /dissents or didn't review/);
+  assert.match(note, /PI-only decision/);
   assert.match(note, /consult-hold-guard/);
+});
+
+test('both notes link to the AGENTS.md Change Tiers heading, and that heading still exists', () => {
+  const t1 = loadTierRequirementsNote()('T1');
+  const t2 = loadTierRequirementsNote()('T2');
+  const anchor = 'AGENTS.md#change-tiers-and-decision-rights-t4092-pi-approved-2026-10-07';
+  assert.ok(t1.includes(anchor), 'T1 note must link the Change Tiers heading');
+  assert.ok(t2.includes(anchor), 'T2 note must link the Change Tiers heading');
+
+  const rootAgentsMd = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+  assert.match(rootAgentsMd, /^## Change Tiers and Decision Rights \(t\/4092, PI-approved 2026-10-07\)$/m,
+    'the heading the notes link to must still exist verbatim in root AGENTS.md -- a rename here must fail this test, not drift silently');
 });
 
 test('CONTROL: tierRequirementsNote returns null for T0 and for an undeclared tier', () => {
