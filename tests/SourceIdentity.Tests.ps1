@@ -14,7 +14,8 @@ BeforeDiscovery {
     $script:TitleCases = @($fixture.title_cases | ForEach-Object { @{ Name = $_.name; InputTitle = [string]$_.input; Expected = [string]$_.expected } })
     $script:GroupingCases = @($fixture.grouping_cases | ForEach-Object {
         @{ Name = $_.name; Documents = @($_.documents); Expected = $_.expected_canonical
-           ExpectedCollisionsJson = (ConvertTo-Json -InputObject @($_.expected_title_collisions | ForEach-Object { , [string[]]@($_) }) -Compress -Depth 4) } })
+           ExpectedCollisionsJson = (ConvertTo-Json -InputObject @($_.expected_title_collisions | ForEach-Object { , [string[]]@($_) }) -Compress -Depth 4)
+           ExpectedConflictsJson  = (ConvertTo-Json -InputObject @($_.expected_url_conflicts | ForEach-Object { [ordered]@{ url_key = [string]$_.url_key; ids = [string[]]@($_.ids) } }) -Compress -Depth 4) } })
 }
 
 BeforeAll {
@@ -24,8 +25,8 @@ BeforeAll {
 
 Describe 'Source identity fixture (docs/specs/source-identity.md)' -Tag 'source-identity' {
 
-    It 'is version 2 and non-vacuous' {
-        $script:Fixture.version | Should -Be 2
+    It 'is version 3 and non-vacuous' {
+        $script:Fixture.version | Should -Be 3
         @($script:Fixture.hash_cases).Count  | Should -BeGreaterThan 10
         @($script:Fixture.url_cases).Count   | Should -BeGreaterThan 10
         @($script:Fixture.trust_cases).Count | Should -BeGreaterThan 3
@@ -36,7 +37,9 @@ Describe 'Source identity fixture (docs/specs/source-identity.md)' -Tag 'source-
         $names += @($script:Fixture.grouping_cases.name)
         # Plus the section 4 revision cases the TL required on #3522 (p/801#6).
         foreach ($needle in 'CRLF', 'BOM', 'non-ASCII', 'utm', 'query order', 'fragment', 'search', 'REAL: 7 query-string', 'REAL: eight-ways', 'union',
-            'AI Policy Bulletin', 'non-ASCII titles that reduce', 'genuine -N collision', 'year suffix', 'title_collision') {
+            'AI Policy Bulletin', 'non-ASCII titles that reduce', 'genuine -N collision', 'year suffix', 'title_collision',
+            # And the 4.3 URL conflict veto cases the TL required (t/4337#8).
+            'url_conflict', 'REAL: url_conflict - two PNAS papers', 'REAL: arXiv-number slug') {
             @($names | Where-Object { $_ -match [regex]::Escape($needle) }).Count | Should -BeGreaterThan 0 -Because "the fixture must cover '$needle'"
         }
     }
@@ -89,5 +92,7 @@ Describe 'Get-SourceIdentityGroup matches the fixture' -Tag 'source-identity' {
         }
         $gotJson = ConvertTo-Json -InputObject @($got.TitleCollisions | ForEach-Object { , [string[]]@($_) }) -Compress -Depth 4
         $gotJson | Should -BeExactly $ExpectedCollisionsJson -Because 'title_collision report'
+        $gotConflicts = ConvertTo-Json -InputObject @($got.UrlConflicts | ForEach-Object { [ordered]@{ url_key = [string]$_.url_key; ids = [string[]]@($_.ids) } }) -Compress -Depth 4
+        $gotConflicts | Should -BeExactly $ExpectedConflictsJson -Because 'url_conflict report'
     }
 }

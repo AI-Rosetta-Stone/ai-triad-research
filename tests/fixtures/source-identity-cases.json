@@ -1,6 +1,6 @@
 {
   "$schema_note": "docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.",
-  "version": 2,
+  "version": 3,
   "hash_cases": [
     {
       "name": "plain body, LF",
@@ -402,7 +402,8 @@
         "alpha-brookings-2026": "alpha-2026",
         "beta-2026": "beta-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "computed snapshot hash joins like a recorded one",
@@ -426,7 +427,8 @@
         "new-ingest-elsewhere-2026": "new-ingest-elsewhere-2026",
         "old-ingest-2026": "new-ingest-elsewhere-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "search-provenance URL does not join",
@@ -464,7 +466,8 @@
         "one-2026": "one-2026",
         "two-2026": "two-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "trusted URL joins, query param order ignored",
@@ -488,7 +491,8 @@
         "hn-a-2026": "hn-a-2026",
         "hn-b-2026": "hn-a-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "different query ids stay distinct",
@@ -512,7 +516,8 @@
         "yt-a-2026": "yt-a-2026",
         "yt-b-2026": "yt-b-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "explicit same_as and parent_doc_id join; dangling link ignored",
@@ -551,7 +556,8 @@
         "part-two": "base-doc",
         "reprint-elsewhere": "base-doc"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "strong edges union transitively (union, not first matching tier)",
@@ -584,7 +590,8 @@
         "aa-2026": "a-2026",
         "b-2026": "a-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix joins with an equal title",
@@ -606,7 +613,8 @@
         "gamma-2026": "gamma-2026",
         "gamma-2026-1": "gamma-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix needs the base to exist",
@@ -633,7 +641,8 @@
           "delta-2026-2",
           "delta-2026-3"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix with a different title stays separate",
@@ -655,7 +664,8 @@
         "epsilon-2026": "epsilon-2026",
         "epsilon-2026-1": "epsilon-2026-1"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix with no title on either side stays separate",
@@ -673,7 +683,8 @@
         "eta-2026": "eta-2026",
         "eta-2026-1": "eta-2026-1"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "genuine -N collision: different recorded content_sha256 stays separate",
@@ -702,7 +713,8 @@
           "annual-report-2026",
           "annual-report-2026-1"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "recorded hash on one side only does not veto",
@@ -725,7 +737,8 @@
         "theta-2026": "theta-2026",
         "theta-2026-1": "theta-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "computed snapshot hashes that differ do not veto (conversion noise)",
@@ -749,7 +762,8 @@
         "iota-2026": "iota-2026",
         "iota-2026-1": "iota-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "conflicting trusted URLs veto the suffix",
@@ -778,7 +792,8 @@
           "kappa-2026",
           "kappa-2026-1"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "a trusted URL on one side only does not veto",
@@ -801,7 +816,8 @@
         "lambda-2026": "lambda-2026",
         "lambda-2026-1": "lambda-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "a trusted URL on the -N side only does not veto",
@@ -824,7 +840,8 @@
         "pi-2026": "pi-2026",
         "pi-2026-1": "pi-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "search-provenance URL does not count as a conflicting URL",
@@ -855,7 +872,8 @@
         "mu-2026": "mu-2026",
         "mu-2026-1": "mu-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "year suffix: foo-2026 with a different title does not join foo",
@@ -877,7 +895,8 @@
         "foo": "foo",
         "foo-2026": "foo-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "year suffix: foo-2026 with an equal title joins foo",
@@ -899,7 +918,8 @@
         "bar": "bar",
         "bar-2026": "bar"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "two distinct docs titled AI Policy Bulletin stay separate (title_collision)",
@@ -928,7 +948,8 @@
           "ai-policy-bulletin-april-2026",
           "ai-policy-bulletin-march-2026"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "non-ASCII titles that reduce to the same ASCII key stay separate (title_collision)",
@@ -955,7 +976,8 @@
           "zh-policy-2026",
           "zh-rules-2026"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "missing titles do not fall back to the id (no title_collision)",
@@ -973,7 +995,8 @@
         "ai-act-2026": "ai-act-2026",
         "aiact-2026": "aiact-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "equal titles inside one group are not reported",
@@ -997,7 +1020,200 @@
         "nu-2026": "nu-2026",
         "nu-mirror-2026": "nu-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "url_conflict: shared URL with different hashes and different titles stays separate",
+      "documents": [
+        {
+          "id": "paper-alpha-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Paper Alpha",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        },
+        {
+          "id": "paper-beta-2026",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Paper Beta",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "paper-alpha-2026": "paper-alpha-2026",
+        "paper-beta-2026": "paper-beta-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "paper-alpha-2026",
+            "paper-beta-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "url_conflict veto uses computed snapshot hashes too",
+      "documents": [
+        {
+          "id": "snap-alpha-2026",
+          "metadata": {
+            "title": "Snap Alpha",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "snap-beta-2026",
+          "metadata": {
+            "title": "Snap Beta",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "snap-alpha-2026": "snap-alpha-2026",
+        "snap-beta-2026": "snap-beta-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "snap-alpha-2026",
+            "snap-beta-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shared URL with the same title joins even if hashes differ (conversion noise)",
+      "documents": [
+        {
+          "id": "sigma-2026",
+          "metadata": {
+            "title": "Sigma",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "sigma-mirror-2026",
+          "metadata": {
+            "title": "Sigma",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "sigma-2026": "sigma-2026",
+        "sigma-mirror-2026": "sigma-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "shared URL with different titles but no hash on one side joins",
+      "documents": [
+        {
+          "id": "tau-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Tau",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        },
+        {
+          "id": "tau-preprint-2026",
+          "metadata": {
+            "title": "Tau preprint",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "tau-2026": "tau-2026",
+        "tau-preprint-2026": "tau-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "shared URL with different hashes but an empty title on one side joins",
+      "documents": [
+        {
+          "id": "upsilon-2026",
+          "metadata": {
+            "title": "Upsilon",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "upsilon-scan-2026",
+          "metadata": {
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "upsilon-2026": "upsilon-2026",
+        "upsilon-scan-2026": "upsilon-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "a vetoed pair is still grouped through a third copy, and still reported",
+      "documents": [
+        {
+          "id": "rho-2026",
+          "metadata": {
+            "title": "Rho",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "rho-2026-1",
+          "metadata": {
+            "title": "Rho"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "id": "rho-preprint-2026",
+          "metadata": {
+            "title": "Rho preprint",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "rho-2026": "rho-2026",
+        "rho-2026-1": "rho-2026",
+        "rho-preprint-2026": "rho-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "rho-2026",
+            "rho-preprint-2026"
+          ]
+        }
+      ]
     },
     {
       "name": "REAL: 7 query-string documents stay distinct",
@@ -1124,7 +1340,8 @@
         "evaluating-impact-ai-labor-market-current-state-affairs-2026": "evaluating-impact-ai-labor-market-current-state-affairs-2026",
         "generative-ai-copyright-training-creation-regulation-2026": "generative-ai-copyright-training-creation-regulation-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "REAL: eight-ways (7 docs, 2 outlets) collapses to one",
@@ -1251,7 +1468,151 @@
         "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-1": "eight-ways-ai-will-shape-geopolitics-2026-2026",
         "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-2": "eight-ways-ai-will-shape-geopolitics-2026-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "REAL: url_conflict - two PNAS papers sharing a truncated DOI stay separate",
+      "documents": [
+        {
+          "id": "explicitly-unbiased-large-language-models-still-form-biased-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "doi:10.1073/pnas",
+                "scheme": "doi"
+              }
+            ],
+            "resolved_url": "https://doi.org/10.1073/pnas",
+            "title": "Explicitly unbiased large language models still form biased associations",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "c18fad01992b5ab6aa69cdca180987d4cd6cd8996825ef40a2749d435d5a1240"
+        },
+        {
+          "id": "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "doi:10.1073/pnas",
+                "scheme": "doi"
+              }
+            ],
+            "resolved_url": "https://doi.org/10.1073/pnas",
+            "title": "hoes gilardi 2025 existential risk narratives about ai do not distract from its immediate harms",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "f6bea25cd74243e44b063e4d38b8f1955147f017987666ef66a47bbfa88fd706"
+        }
+      ],
+      "expected_canonical": {
+        "explicitly-unbiased-large-language-models-still-form-biased-2026": "explicitly-unbiased-large-language-models-still-form-biased-2026",
+        "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026": "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "explicitly-unbiased-large-language-models-still-form-biased-2026",
+            "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "REAL: arXiv-number slug and titled copies stay one group despite url_conflict pairs",
+      "documents": [
+        {
+          "id": "170306856v3-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "1703.06856v3",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "118e65a0f2f11e1ba6bdcbd207e2474dd2b9721c344c67238dc86447018f7fd7"
+        },
+        {
+          "id": "counterfactual-fairness-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "Counterfactual Fairness",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "712ed01b70de4d49d83b3a9e8e9357f70d90e65aedfa97e3b34cb39038d3c7b8"
+        },
+        {
+          "id": "counterfactual-fairness-2026-1",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "Counterfactual Fairness",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "118e65a0f2f11e1ba6bdcbd207e2474dd2b9721c344c67238dc86447018f7fd7"
+        },
+        {
+          "id": "counterfactual-fairness-2026-2",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "Counterfactual Fairness",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "712ed01b70de4d49d83b3a9e8e9357f70d90e65aedfa97e3b34cb39038d3c7b8"
+        }
+      ],
+      "expected_canonical": {
+        "170306856v3-2026": "170306856v3-2026",
+        "counterfactual-fairness-2026": "170306856v3-2026",
+        "counterfactual-fairness-2026-1": "170306856v3-2026",
+        "counterfactual-fairness-2026-2": "170306856v3-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "arxiv.org/abs/1703.06856v3",
+          "ids": [
+            "170306856v3-2026",
+            "counterfactual-fairness-2026"
+          ]
+        },
+        {
+          "url_key": "arxiv.org/abs/1703.06856v3",
+          "ids": [
+            "170306856v3-2026",
+            "counterfactual-fairness-2026-2"
+          ]
+        }
+      ]
     }
   ]
 }

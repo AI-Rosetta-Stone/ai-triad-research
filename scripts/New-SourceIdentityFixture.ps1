@@ -182,6 +182,28 @@ $groupingCases = @(
     @{ name = 'equal titles inside one group are not reported'; documents = @(
         (New-Doc 'nu-2026' @{ title = 'Nu'; content_sha256 = $h3 }),
         (New-Doc 'nu-mirror-2026' @{ title = 'Nu'; content_sha256 = $h3 })) }
+
+    # URL conflict veto (4.3, version 3): a shared URL joins unless hashes AND titles both differ.
+    $u = 'https://doi.org/10.1073/pnas'
+    @{ name = 'url_conflict: shared URL with different hashes and different titles stays separate'; documents = @(
+        (New-Doc 'paper-alpha-2026' @{ title = 'Paper Alpha'; url = $u; content_sha256 = $h1 }),
+        (New-Doc 'paper-beta-2026' @{ title = 'Paper Beta'; url = $u; content_sha256 = $h2 })) }
+    @{ name = 'url_conflict veto uses computed snapshot hashes too'; documents = @(
+        (New-Doc 'snap-alpha-2026' @{ title = 'Snap Alpha'; url = $u } $h1),
+        (New-Doc 'snap-beta-2026' @{ title = 'Snap Beta'; url = $u } $h2)) }
+    @{ name = 'shared URL with the same title joins even if hashes differ (conversion noise)'; documents = @(
+        (New-Doc 'sigma-2026' @{ title = 'Sigma'; url = $u } $h1),
+        (New-Doc 'sigma-mirror-2026' @{ title = 'Sigma'; url = $u } $h2)) }
+    @{ name = 'shared URL with different titles but no hash on one side joins'; documents = @(
+        (New-Doc 'tau-2026' @{ title = 'Tau'; url = $u; content_sha256 = $h1 }),
+        (New-Doc 'tau-preprint-2026' @{ title = 'Tau preprint'; url = $u })) }
+    @{ name = 'shared URL with different hashes but an empty title on one side joins'; documents = @(
+        (New-Doc 'upsilon-2026' @{ title = 'Upsilon'; url = $u } $h1),
+        (New-Doc 'upsilon-scan-2026' @{ url = $u } $h2)) }
+    @{ name = 'a vetoed pair is still grouped through a third copy, and still reported'; documents = @(
+        (New-Doc 'rho-2026' @{ title = 'Rho'; url = $u } $h1),
+        (New-Doc 'rho-2026-1' @{ title = 'Rho' } $h2),
+        (New-Doc 'rho-preprint-2026' @{ title = 'Rho preprint'; url = $u } $h2)) }
 )
 
 # Real-corpus cases (TL, t/4344): actual metadata fields. The corpus records no content_sha256 yet,
@@ -201,6 +223,13 @@ $queryIds = @('ai-triad-dialogue-across-differences-2026', 'artificial-intellige
 $eightIds = @(Get-ChildItem $src -Directory | Where-Object Name -like 'eight-ways-ai-will-shape-geopolitics-2026*' | Select-Object -ExpandProperty Name)
 $groupingCases += @{ name = 'REAL: 7 query-string documents stay distinct'; documents = @($queryIds | ForEach-Object { Get-RealDoc $_ }) }
 $groupingCases += @{ name = 'REAL: eight-ways (7 docs, 2 outlets) collapses to one'; documents = @($eightIds | ForEach-Object { Get-RealDoc $_ }) }
+# TL ruling t/4337#8: two different PNAS papers share the truncated DOI doi.org/10.1073/pnas.
+$groupingCases += @{ name = 'REAL: url_conflict - two PNAS papers sharing a truncated DOI stay separate'; documents = @(
+    'explicitly-unbiased-large-language-models-still-form-biased-2026', 'hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026' | ForEach-Object { Get-RealDoc $_ }) }
+# The arXiv-number slug titled "1703.06856v3" differs in title and text from the titled copies; its
+# URL pairs are vetoed and reported, but the group still holds through the copies' shared hash.
+$groupingCases += @{ name = 'REAL: arXiv-number slug and titled copies stay one group despite url_conflict pairs'; documents = @(
+    '170306856v3-2026', 'counterfactual-fairness-2026', 'counterfactual-fairness-2026-1', 'counterfactual-fairness-2026-2' | ForEach-Object { Get-RealDoc $_ }) }
 
 function Get-ExpectedGrouping($docs) {
     $objs = @($docs | ForEach-Object {
@@ -210,7 +239,11 @@ function Get-ExpectedGrouping($docs) {
     $canon = [ordered]@{}
     $keys = [string[]]@($r.Canonical.Keys); [Array]::Sort($keys, [System.StringComparer]::Ordinal)
     foreach ($k in $keys) { $canon[$k] = $r.Canonical[$k] }
-    [ordered]@{ canonical = $canon; collisions = @($r.TitleCollisions | ForEach-Object { , [string[]]$_ }) }
+    [ordered]@{
+        canonical  = $canon
+        collisions = @($r.TitleCollisions | ForEach-Object { , [string[]]$_ })
+        conflicts  = @($r.UrlConflicts | ForEach-Object { [ordered]@{ url_key = $_.url_key; ids = [string[]]$_.ids } })
+    }
 }
 
 # Deterministic output: hashtable literals have no stable key order, so every metadata object is
@@ -236,7 +269,7 @@ foreach ($g in $groupingCases) { foreach ($d in $g.documents) { $d.metadata = Co
 
 $fixture = [ordered]@{
     '$schema_note' = 'docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.'
-    version = 2
+    version = 3
     hash_cases = @($hashCases | ForEach-Object { [ordered]@{ name = $_.name; text = $_.text; expected_sha256 = (Get-SourceContentHash -Text $_.text) } })
     url_cases = @($urlCases | ForEach-Object { [ordered]@{ name = $_.name; input = $_.input; expected = (ConvertTo-SourceUrlKey -Url $_.input) } })
     trust_cases = @($trustCases | ForEach-Object {
@@ -244,7 +277,7 @@ $fixture = [ordered]@{
         [string[]]$keys = Get-TrustedSourceUrlKey -Metadata $meta
         [ordered]@{ name = $_.name; metadata = $_.metadata; expected = $keys } })
     title_cases = @($titleCases | ForEach-Object { [ordered]@{ name = $_.name; input = $_.input; expected = (ConvertTo-SourceTitleKey -Title $_.input) } })
-    grouping_cases = @($groupingCases | ForEach-Object { $g = Get-ExpectedGrouping $_.documents; [ordered]@{ name = $_.name; documents = $_.documents; expected_canonical = $g.canonical; expected_title_collisions = $g.collisions } })
+    grouping_cases = @($groupingCases | ForEach-Object { $g = Get-ExpectedGrouping $_.documents; [ordered]@{ name = $_.name; documents = $_.documents; expected_canonical = $g.canonical; expected_title_collisions = $g.collisions; expected_url_conflicts = $g.conflicts } })
 }
 $json = $fixture | ConvertTo-Json -Depth 8
 [System.IO.File]::WriteAllText("$wt\tests\fixtures\source-identity-cases.json", $json + "`n", [System.Text.UTF8Encoding]::new($false))
