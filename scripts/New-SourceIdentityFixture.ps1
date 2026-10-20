@@ -18,31 +18,44 @@ $wt = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . "$wt\scripts\AITriad\Private\SourceIdentity.ps1"
 
 $hdr = "<!--`r`n  AI Triad Research Project — Document Snapshot`r`n  Title      : Eight ways AI will shape geopolitics in 2026`r`n  Source     : `r`n  Type       : pdf`r`n  Captured   : {0}`r`n  This file is a Markdown shadow copy for AI summarisation and POViewer display.`r`n  The original file lives in raw/ for fidelity (charts, tables, exact layout).`r`n-->`r`n`r`n# Eight ways AI will shape geopolitics in 2026`r`n`r`n> **Snapshot captured:** {0}`r`n> **Source:** `r`n> **Type:** pdf`r`n`r`n---`r`n`r`n"
-$body = "Para one about AI.`n`nPara two.`n"
+# Spec 1.3 (v4): a body under 100 words gets no hash. The normalization cases therefore carry a
+# 100-word filler paragraph in the MIDDLE, so their first/last-line and edge-line behaviour is
+# still what each case tests.
+$fill = (1..100 | ForEach-Object { 'w{0:D3}' -f $_ }) -join ' '
+$body = "Para one about AI.`n`n$fill`n`nPara two.`n"
 $cafeNfc = "Caf" + [char]0x00E9 + " r" + [char]0x00E9 + "sum" + [char]0x00E9
 $cafeNfd = "Cafe" + [char]0x0301 + " re" + [char]0x0301 + "sume" + [char]0x0301
+$nbsp = [string][char]0x00A0
+$cookieWall = "We value your privacy`n`nWe use cookies to improve your experience. By clicking Accept all you agree to our use of cookies.`n`nAccept all    Reject all    Manage preferences`n"
 
 $hashCases = @(
     @{ name = 'plain body, LF';                         text = $body }
     @{ name = 'same body, CRLF (equals plain)';         text = $body.Replace("`n", "`r`n") }
     @{ name = 'same body, lone CR (equals plain)';      text = $body.Replace("`n", "`r") }
     @{ name = 'same body with BOM (equals plain)';      text = ([string][char]0xFEFF) + $body }
-    @{ name = 'same body, trailing spaces/tabs (equals plain)'; text = "Para one about AI.  `t`n`nPara two. `n" }
-    @{ name = 'same body, extra edge blank lines (equals plain)'; text = "`n`n  `nPara one about AI.`n`nPara two.`n`n`n" }
-    @{ name = 'interior blank lines are kept (differs)'; text = "Para one about AI.`n`n`nPara two.`n" }
-    @{ name = 'non-breaking space is not trimmed (differs)'; text = "Para one about AI." + [char]0x00A0 + "`n`nPara two.`n" }
-    @{ name = 'leading indentation is kept (differs)';  text = "  Para one about AI.`n`nPara two.`n" }
+    @{ name = 'same body, trailing spaces/tabs (equals plain)'; text = "Para one about AI.  `t`n`n$fill`n`nPara two. `n" }
+    @{ name = 'same body, extra edge blank lines (equals plain)'; text = "`n`n  `nPara one about AI.`n`n$fill`n`nPara two.`n`n`n" }
+    @{ name = 'interior blank lines are kept (differs)'; text = "Para one about AI.`n`n`n$fill`n`nPara two.`n" }
+    @{ name = 'non-breaking space is not trimmed (differs)'; text = "Para one about AI." + $nbsp + "`n`n$fill`n`nPara two.`n" }
+    @{ name = 'leading indentation is kept (differs)';  text = "  Para one about AI.`n`n$fill`n`nPara two.`n" }
     @{ name = 'header captured 2026-04-11 (equals plain)'; text = ($hdr -f '2026-04-11') + $body }
     @{ name = 'header captured 2026-09-22 (equals plain)'; text = ($hdr -f '2026-09-22') + $body }
     @{ name = 'header without closing rule is kept (differs)'; text = "<!--`n  AI Triad Research Project`n-->`n`n" + $body }
-    @{ name = 'non-ASCII NFC';                          text = "# $cafeNfc`n`nBody.`n" }
-    @{ name = 'non-ASCII NFD (equals NFC)';             text = "# $cafeNfd`n`nBody.`n" }
+    @{ name = 'non-ASCII NFC';                          text = "# $cafeNfc`n`nBody.`n`n$fill`n" }
+    @{ name = 'non-ASCII NFD (equals NFC)';             text = "# $cafeNfd`n`nBody.`n`n$fill`n" }
     @{ name = 'empty';                                  text = '' }
     @{ name = 'whitespace only';                        text = " `n`t`n" }
     @{ name = 'header only';                            text = ($hdr -f '2026-04-11') }
     @{ name = 'PDF extraction failure placeholder';     text = "# PDF EXTRACTION FAILED`n`nSource: C:\inbox\a.pdf`n`nInstall markitdown and re-run." }
+    @{ name = 'PDF extraction failure placeholder over the floor still gets no hash'; text = "# PDF EXTRACTION FAILED`n`nSource: C:\inbox\a.pdf`n`n$fill" }
     @{ name = 'binary placeholder';                     text = "# report.docx`n`n[Binary file — no text extraction available]" }
-    @{ name = 'body that quotes the binary placeholder text (hashed)'; text = "# Notes`n`nThe tool printed [Binary file — no text extraction available] once.`n" }
+    @{ name = 'body that quotes the binary placeholder text (hashed)'; text = "# Notes`n`nThe tool printed [Binary file — no text extraction available] once.`n`n$fill`n" }
+    # Body floor (spec 1.3, version 4).
+    @{ name = 'floor: 99 words gets no hash';           text = ((1..99 | ForEach-Object { "w$_" }) -join ' ') }
+    @{ name = 'floor: exactly 100 words is hashed';     text = ((1..100 | ForEach-Object { "w$_" }) -join ' ') }
+    @{ name = 'floor: words split on ASCII whitespace only (NBSP-joined pairs count as one word)'; text = ((1..75 | ForEach-Object { "a$_" + $nbsp + "b$_" }) -join ' ') }
+    @{ name = 'floor: a cookie wall gets no hash';      text = $cookieWall }
+    @{ name = 'floor: a cookie wall under a snapshot header gets no hash'; text = ($hdr -f '2026-04-11') + $cookieWall }
 )
 $urlCases = @(
     @{ name = 'https + www + trailing slash';  input = 'https://www.Brookings.edu/articles/AI-and-Geopolitics/' }
@@ -98,6 +111,9 @@ function New-Doc([string]$Id, [hashtable]$Meta, [string]$SnapshotSha256) {
     $d = [ordered]@{ id = $Id; metadata = $Meta }
     if ($SnapshotSha256) { $d['snapshot_sha256'] = $SnapshotSha256 }
     $d
+}
+function New-TextDoc([string]$Id, [hashtable]$Meta, [string]$SnapshotText) {
+    [ordered]@{ id = $Id; metadata = $Meta; snapshot_text = $SnapshotText }
 }
 $h1 = 'a' * 64; $h2 = 'b' * 64; $h3 = 'c' * 64
 $groupingCases = @(
@@ -204,6 +220,14 @@ $groupingCases = @(
         (New-Doc 'rho-2026' @{ title = 'Rho'; url = $u } $h1),
         (New-Doc 'rho-2026-1' @{ title = 'Rho' } $h2),
         (New-Doc 'rho-preprint-2026' @{ title = 'Rho preprint'; url = $u } $h2)) }
+
+    # Body floor in grouping (spec 1.3, version 4): documents given as snapshot_text.
+    @{ name = 'floor: two different documents that both converted to the same cookie wall do not merge'; documents = @(
+        (New-TextDoc 'times-op-ed-2026' @{ title = 'The Case for Slowing Down' } (($hdr -f '2026-04-11') + $cookieWall)),
+        (New-TextDoc 'guardian-analysis-2026' @{ title = 'Why Regulation Lags' } (($hdr -f '2026-05-02') + $cookieWall))) }
+    @{ name = 'snapshot_text over the floor still merges on an equal hash'; documents = @(
+        (New-TextDoc 'long-report-2026' @{ title = 'Long Report' } (($hdr -f '2026-04-11') + $body)),
+        (New-TextDoc 'long-report-reprint-2026' @{ title = 'Long Report (reprint)' } (($hdr -f '2026-09-22') + $body.Replace("`n", "`r`n")))) }
 )
 
 # Real-corpus cases (TL, t/4344): actual metadata fields. The corpus records no content_sha256 yet,
@@ -234,7 +258,7 @@ $groupingCases += @{ name = 'REAL: arXiv-number slug and titled copies stay one 
 function Get-ExpectedGrouping($docs) {
     $objs = @($docs | ForEach-Object {
         [pscustomobject]@{ Id = $_.id; Metadata = ($_.metadata | ConvertTo-Json -Depth 6 | ConvertFrom-Json)
-                           SnapshotSha256 = $(if ($_.Contains('snapshot_sha256')) { $_['snapshot_sha256'] }) } })
+                           SnapshotSha256 = $(if ($_.Contains('snapshot_text')) { Get-SourceContentHash -Text $_['snapshot_text'] } elseif ($_.Contains('snapshot_sha256')) { $_['snapshot_sha256'] }) } })
     $r = Get-SourceIdentityGroup -Documents $objs
     $canon = [ordered]@{}
     $keys = [string[]]@($r.Canonical.Keys); [Array]::Sort($keys, [System.StringComparer]::Ordinal)
@@ -269,7 +293,7 @@ foreach ($g in $groupingCases) { foreach ($d in $g.documents) { $d.metadata = Co
 
 $fixture = [ordered]@{
     '$schema_note' = 'docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.'
-    version = 3
+    version = 4
     hash_cases = @($hashCases | ForEach-Object { [ordered]@{ name = $_.name; text = $_.text; expected_sha256 = (Get-SourceContentHash -Text $_.text) } })
     url_cases = @($urlCases | ForEach-Object { [ordered]@{ name = $_.name; input = $_.input; expected = (ConvertTo-SourceUrlKey -Url $_.input) } })
     trust_cases = @($trustCases | ForEach-Object {

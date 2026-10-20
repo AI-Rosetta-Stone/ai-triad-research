@@ -54,6 +54,12 @@ function Get-SourceContentHash {
     # Extraction-failure placeholders say nothing about the document's content (spec 1.3).
     if ($body.StartsWith('# PDF EXTRACTION FAILED')) { return $null }
     if ($body -match "\A# [^\n]*\n\n\[Binary file — no text extraction available\]\z") { return $null }
+    # Body floor (spec 1.3, TL ruling p/801#17): under 100 words, a body is too small to be an
+    # identity (cookie walls, paywall stubs, error pages). Words are runs split on ASCII
+    # whitespace only, so .NET and JS (whose \s sets differ) count the same.
+    $words = 0
+    foreach ($tok in [regex]::Split($body, '[ \t\n\r\f\v]+')) { if ($tok -ne '') { $words++ } }
+    if ($words -lt 100) { return $null }
     $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($body)
     $sha = [System.Security.Cryptography.SHA256]::HashData($bytes)
     ([System.Convert]::ToHexString($sha)).ToLowerInvariant()

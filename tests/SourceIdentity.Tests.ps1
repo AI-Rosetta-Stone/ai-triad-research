@@ -25,8 +25,8 @@ BeforeAll {
 
 Describe 'Source identity fixture (docs/specs/source-identity.md)' -Tag 'source-identity' {
 
-    It 'is version 3 and non-vacuous' {
-        $script:Fixture.version | Should -Be 3
+    It 'is version 4 and non-vacuous' {
+        $script:Fixture.version | Should -Be 4
         @($script:Fixture.hash_cases).Count  | Should -BeGreaterThan 10
         @($script:Fixture.url_cases).Count   | Should -BeGreaterThan 10
         @($script:Fixture.trust_cases).Count | Should -BeGreaterThan 3
@@ -39,7 +39,9 @@ Describe 'Source identity fixture (docs/specs/source-identity.md)' -Tag 'source-
         foreach ($needle in 'CRLF', 'BOM', 'non-ASCII', 'utm', 'query order', 'fragment', 'search', 'REAL: 7 query-string', 'REAL: eight-ways', 'union',
             'AI Policy Bulletin', 'non-ASCII titles that reduce', 'genuine -N collision', 'year suffix', 'title_collision',
             # And the 4.3 URL conflict veto cases the TL required (t/4337#8).
-            'url_conflict', 'REAL: url_conflict - two PNAS papers', 'REAL: arXiv-number slug') {
+            'url_conflict', 'REAL: url_conflict - two PNAS papers', 'REAL: arXiv-number slug',
+            # And the 1.3 body floor the TL required (p/801#17).
+            'floor: 99 words', 'floor: exactly 100 words', 'NBSP-joined', 'same cookie wall do not merge') {
             @($names | Where-Object { $_ -match [regex]::Escape($needle) }).Count | Should -BeGreaterThan 0 -Because "the fixture must cover '$needle'"
         }
     }
@@ -83,7 +85,9 @@ Describe 'Get-SourceIdentityGroup matches the fixture' -Tag 'source-identity' {
     It '<Name>' -ForEach $script:GroupingCases {
         $docs = @($Documents | ForEach-Object {
             [pscustomobject]@{ Id = [string]$_.id; Metadata = $_.metadata
-                               SnapshotSha256 = $(if ($_.PSObject.Properties['snapshot_sha256']) { [string]$_.snapshot_sha256 }) } })
+                               # snapshot_text (v4): the consumer computes the hash itself (spec 5), floor included.
+                               SnapshotSha256 = $(if ($_.PSObject.Properties['snapshot_text']) { Get-SourceContentHash -Text ([string]$_.snapshot_text) }
+                                                  elseif ($_.PSObject.Properties['snapshot_sha256']) { [string]$_.snapshot_sha256 }) } })
         $got = Get-SourceIdentityGroup -Documents $docs
         $expectedIds = @($Expected.PSObject.Properties.Name)
         @($got.Canonical.Keys).Count | Should -Be $expectedIds.Count
