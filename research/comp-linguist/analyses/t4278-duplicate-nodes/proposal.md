@@ -19,7 +19,7 @@ and the Second Opinion (SO) round comes first. The frozen target list is `frozen
 
 ## The reference surface (why "merge and rewrite" is the wrong operation)
 
-Each retired ID is referenced from three kinds of place (counts in t/4278#2):
+Each retired ID is referenced from three kinds of place (counts in t/4278#3):
 
 | Kind | Files | Repair action |
 |---|---|---|
