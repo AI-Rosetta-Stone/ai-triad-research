@@ -48,3 +48,13 @@
 .save-conflict-confirm {
   max-width: 440px;
 }
+
+.save-conflict-banner--success {
+  border-top-color: var(--color-acc, #2e7d32);
+}
+
+.save-conflict-banner-success-text {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}

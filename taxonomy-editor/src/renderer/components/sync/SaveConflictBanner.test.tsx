@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => null }));
 
@@ -75,17 +75,30 @@ describe('SaveConflictBanner', () => {
     expect(screen.getByText('Replace the newer version?')).not.toBeNull();
   });
 
-  it('"Keep mine" calls the endpoint and clears the banner on confirm', async () => {
-    setConflict();
-    render(<SaveConflictBanner />);
-    fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save mine' }));
-    await waitFor(() => expect(mockKeepMine).toHaveBeenCalledTimes(1));
-    expect(mockRefresh).toHaveBeenCalledTimes(1);
+  it('"Keep mine" calls the endpoint, shows the success message, then clears the banner', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      setConflict();
+      mockRefresh.mockImplementation(() => {
+        mockStatus = { overlay_commit: { state: 'committed', at: Date.now() } };
+        return Promise.resolve();
+      });
+      const { container } = render(<SaveConflictBanner />);
+      fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Save mine' }));
+      await waitFor(() => expect(mockKeepMine).toHaveBeenCalledTimes(1));
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
 
-    mockStatus = { overlay_commit: { state: 'committed', at: Date.now() } };
-    const { container } = render(<SaveConflictBanner />);
-    expect(container.firstChild).toBeNull();
+      const status = await screen.findByRole('status');
+      expect(status.textContent).toBe('Saved your changes');
+      expect(screen.queryByRole('button', { name: 'Use theirs' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Keep mine' })).toBeNull();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+      expect(container.firstChild).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('"Keep mine" re-shows the banner instead of re-calling when stillConflicted is non-empty', async () => {
@@ -96,17 +109,34 @@ describe('SaveConflictBanner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save mine' }));
     await waitFor(() => expect(mockKeepMine).toHaveBeenCalledTimes(1));
     expect(mockKeepMine).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('"Use theirs" requires confirmation, then calls the endpoint, reloads, and clears', async () => {
-    setConflict();
-    render(<SaveConflictBanner />);
-    fireEvent.click(screen.getByRole('button', { name: 'Use theirs' }));
-    expect(mockUseTheirs).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Discard my changes' }));
-    await waitFor(() => expect(mockUseTheirs).toHaveBeenCalledTimes(1));
-    expect(mockRefresh).toHaveBeenCalledTimes(1);
-    expect(mockLoadAll).toHaveBeenCalledWith(true);
+  it('"Use theirs" requires confirmation, then calls the endpoint, reloads, shows the success message, then clears', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      setConflict();
+      mockRefresh.mockImplementation(() => {
+        mockStatus = { overlay_commit: { state: 'pending', at: Date.now() } };
+        return Promise.resolve();
+      });
+      const { container } = render(<SaveConflictBanner />);
+      fireEvent.click(screen.getByRole('button', { name: 'Use theirs' }));
+      expect(mockUseTheirs).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Discard my changes' }));
+      await waitFor(() => expect(mockUseTheirs).toHaveBeenCalledTimes(1));
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+      expect(mockLoadAll).toHaveBeenCalledWith(true);
+
+      const status = await screen.findByRole('status');
+      expect(status.textContent).toBe('Loaded the latest version');
+      expect(screen.queryByRole('button', { name: 'Use theirs' })).toBeNull();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+      expect(container.firstChild).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('on failure shows inline error text and does not auto-retry, banner stays', async () => {

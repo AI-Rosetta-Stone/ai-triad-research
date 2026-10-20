@@ -25,9 +25,12 @@ import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import './SaveConflictBanner.css';
 
-// t/4313#1's "Success, a toast" step has no shared toast utility to call yet (none
-// exists in this codebase today) — flagged to Rosetta Stone (p/580) as an open gap
-// rather than built here. The banner clearing is itself the success signal for now.
+// t/4313#1's "Success, a toast" step has no shared toast utility in this codebase —
+// every component rolls its own local one (p/580#8: CommunityLibrary, LibraryListPage,
+// CalibrationReviewViewer). Rosetta Stone's call (p/580#8): follow that local pattern
+// here too — show the message in place of the banner's actions, then hide the whole
+// banner — rather than add a global utility.
+const SUCCESS_MESSAGE_MS = 3_000;
 
 const MAX_LISTED_FILES = 5;
 
@@ -48,13 +51,33 @@ export function SaveConflictBanner() {
   const [error, setError] = useState<string | null>(null);
   const [confirmingMine, setConfirmingMine] = useState(false);
   const [confirmingTheirs, setConfirmingTheirs] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const useTheirsRef = useRef<HTMLButtonElement>(null);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Default focus on "Use theirs" (t/4313#1), each time a new conflict appears.
   const hasConflict = paths !== null;
   useEffect(() => {
     if (hasConflict && busy === null) useTheirsRef.current?.focus();
   }, [hasConflict, busy]);
+
+  useEffect(() => () => { if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current); }, []);
+
+  const showSuccess = (text: string) => {
+    setSuccessMsg(text);
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => setSuccessMsg(null), SUCCESS_MESSAGE_MS);
+  };
+
+  if (successMsg) {
+    return (
+      <div className="save-conflict-banner save-conflict-banner--success" role="status" aria-live="polite">
+        <div className="save-conflict-banner-body">
+          <div className="save-conflict-banner-success-text">{successMsg}</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!paths) return null;
 
@@ -65,6 +88,7 @@ export function SaveConflictBanner() {
       await resolveOverlayConflictUseTheirs();
       await Promise.all([refresh(), loadAll(true)]);
       setConfirmingTheirs(false);
+      showSuccess('Loaded the latest version');
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -92,6 +116,7 @@ export function SaveConflictBanner() {
         return;
       }
       setConfirmingMine(false);
+      showSuccess('Saved your changes');
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
