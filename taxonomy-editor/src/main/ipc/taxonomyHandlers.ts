@@ -25,6 +25,7 @@ import {
   setActiveTaxonomyDir,
   buildNodeSourceIndex,
   buildPolicySourceIndex,
+  getNodeSources,
   readPolicyRegistry,
   acquirePolicyRegistryLock,
   releasePolicyRegistryLock,
@@ -536,6 +537,12 @@ export function registerTaxonomyHandlers(): void {
 
   ipcMain.handle('build-policy-source-index', () => {
     return buildPolicySourceIndex();
+  });
+
+  // t/4342 — Electron leg of the per-node source-index transport trio (t/4335).
+  // Matches the server's GET /api/node-source-index/:nodeId (ServerAPI, PR #3512).
+  ipcMain.handle('get-node-sources', (_event, nodeId: string) => {
+    return getNodeSources(nodeId);
   });
 
   ipcMain.handle('load-edges', () => {
