@@ -54,6 +54,12 @@ function Get-SourceContentHash {
     # Extraction-failure placeholders say nothing about the document's content (spec 1.3).
     if ($body.StartsWith('# PDF EXTRACTION FAILED')) { return $null }
     if ($body -match "\A# [^\n]*\n\n\[Binary file — no text extraction available\]\z") { return $null }
+    # Body floor (spec 1.3, TL ruling p/801#17): under 100 words, a body is too small to be an
+    # identity (cookie walls, paywall stubs, error pages). Words are runs split on ASCII
+    # whitespace only, so .NET and JS (whose \s sets differ) count the same.
+    $words = 0
+    foreach ($tok in [regex]::Split($body, '[ \t\n\r\f\v]+')) { if ($tok -ne '') { $words++ } }
+    if ($words -lt 100) { return $null }
     $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($body)
     $sha = [System.Security.Cryptography.SHA256]::HashData($bytes)
     ([System.Convert]::ToHexString($sha)).ToLowerInvariant()
@@ -202,7 +208,7 @@ function Get-SourceIdentityGroup {
         if ($byKey.ContainsKey($k)) { & $union $byKey[$k] $id } else { $byKey[$k] = $id }
     }
 
-    $titleKey = @{}; $urlKeys = @{}; $recorded = @{}
+    $titleKey = @{}; $urlKeys = @{}; $recorded = @{}; $urlMembers = @{}
     foreach ($id in $ids) {
         $titleKey[$id] = ConvertTo-SourceTitleKey -Title (& $prop $meta[$id] 'title')
         # No @(): the function returns its array whole (leading comma), and @() would wrap an
@@ -222,7 +228,10 @@ function Get-SourceIdentityGroup {
         }
         $hash = if ($recorded[$id]) { $recorded[$id] } else { $snapHash[$id] }   # 4.2 strong
         & $addKey 'hash' $hash $id
-        foreach ($u in $urlKeys[$id]) { & $addKey 'url' $u $id }                 # 4.3 strong
+        foreach ($u in $urlKeys[$id]) {                                         # 4.3: collected, paired below
+            if (-not $urlMembers.ContainsKey($u)) { $urlMembers[$u] = [System.Collections.Generic.List[string]]::new() }
+            $urlMembers[$u].Add($id)
+        }
 
         $sm = [regex]::Match($id, '^(.+)-(\d+)$')                               # 4.4 conditional
         if ($sm.Success -and $known.Contains($sm.Groups[1].Value)) {
@@ -232,6 +241,30 @@ function Get-SourceIdentityGroup {
             $urlConflict = $a.Count -gt 0 -and $b.Count -gt 0 -and -not @($a | Where-Object { $b -ccontains $_ }).Count
             $hashConflict = $recorded[$id] -and $recorded[$base] -and ($recorded[$id] -cne $recorded[$base])
             if ($sameTitle -and -not $urlConflict -and -not $hashConflict) { & $union $id $base }
+        }
+    }
+
+    # 4.3 URL edges are pairwise, so the conflict veto can drop one pair: two documents sharing a
+    # trusted URL key do NOT join when their effective hashes (recorded, else computed) both exist
+    # and differ AND their title keys are both non-empty and differ. That pair is reported as a
+    # url_conflict instead (TL ruling t/4337#8: a truncated DOI shared by two different papers).
+    $urlConflicts = [System.Collections.Generic.List[object]]::new()
+    $urlKeyList = [string[]]@($urlMembers.Keys); [Array]::Sort($urlKeyList, [System.StringComparer]::Ordinal)
+    foreach ($u in $urlKeyList) {
+        $members = [string[]]$urlMembers[$u].ToArray(); [Array]::Sort($members, [System.StringComparer]::Ordinal)
+        for ($i = 0; $i -lt $members.Count; $i++) {
+            for ($j = $i + 1; $j -lt $members.Count; $j++) {
+                $a = $members[$i]; $b = $members[$j]
+                $ha = if ($recorded[$a]) { $recorded[$a] } else { $snapHash[$a] }
+                $hb = if ($recorded[$b]) { $recorded[$b] } else { $snapHash[$b] }
+                $hashesDiffer = $ha -and $hb -and ($ha -cne $hb)
+                $titlesDiffer = $titleKey[$a] -ne '' -and $titleKey[$b] -ne '' -and ($titleKey[$a] -cne $titleKey[$b])
+                if ($hashesDiffer -and $titlesDiffer) {
+                    $urlConflicts.Add([pscustomobject]@{ url_key = $u; ids = [string[]]@($a, $b) })
+                } else {
+                    & $union $a $b
+                }
+            }
         }
     }
 
@@ -254,5 +287,5 @@ function Get-SourceIdentityGroup {
     $ordered = [object[]]@($collisions.ToArray())
     [Array]::Sort($ordered, [System.Comparison[object]] { param($x, $y) [string]::CompareOrdinal($x[0], $y[0]) })
 
-    [pscustomobject]@{ Canonical = $canonical; TitleCollisions = $ordered }
+    [pscustomobject]@{ Canonical = $canonical; TitleCollisions = $ordered; UrlConflicts = [object[]]$urlConflicts.ToArray() }
 }
