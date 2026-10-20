@@ -183,12 +183,12 @@ export class AzureBlobBackend implements StorageBackend {
    * hashed, and `If-Match` would then overwrite that intervening write instead
    * of rejecting it.
    */
-  private async downloadWithEtag(filePath: string): Promise<{ content: Buffer; etag: string } | null> {
+  private async downloadWithEtag(filePath: string): Promise<{ content: Buffer; etag: string | undefined } | null> {
     const blob = this.toBlobPath(filePath);
     try {
       const resp = await this.containerFor(blob).getBlobClient(blob).download();
       const content = await streamToBuffer(resp.readableStreamBody);
-      return { content, etag: resp.etag ?? '' };
+      return { content, etag: resp.etag };
     } catch (err) {
       if (isNotFound(err)) { recordBlobError(err, 'readFile', blob, 'warn'); return null; }
       getGlobalRecorder()?.record({
@@ -231,6 +231,19 @@ export class AzureBlobBackend implements StorageBackend {
       return { ifNoneMatch: '*' };
     }
     if (gitBlobSha(current.content.toString('utf-8')) !== baseSha) throw writeConflictError(filePath, blob);
+    if (!current.etag) {
+      // Fail closed (TL p/538#111): an empty ifMatch is either dropped by the
+      // SDK (making the upload unconditional — the exact silent overwrite this
+      // fix exists to remove) or sent as a literal empty string the service
+      // may reject for the wrong reason. A successful download with no ETag
+      // shouldn't happen; treat it as unable to safely condition the write.
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'azure-blob-backend', level: 'warn',
+        message: `writeFile: download succeeded but returned no ETag, refusing to upload unconditionally: ${blob}`,
+        data: { blob },
+      });
+      throw writeConflictError(filePath, blob);
+    }
     return { ifMatch: current.etag };
   }
 

@@ -362,4 +362,40 @@ describe('AzureBlobBackend — writeFile precondition error mapping (t/4191)', (
     expect(err?.httpStatus).not.toBe(409);
     expect(err?.name).toBe('ActionableError');
   });
+
+  // TL p/538#111: an empty/missing ETag on a successful download must never
+  // fall through to an unconditional upload (the SDK may drop an empty
+  // If-Match, silently reopening the overwrite this PR exists to close).
+  // Fail closed instead — 409, and the upload is never attempted at all.
+  it('a download with a matching baseSha but no ETag fails closed (409), never uploads unconditionally', async () => {
+    const content = '{"v":1}';
+    let uploadCalled = false;
+    const mockBlockBlob = {
+      upload: () => { uploadCalled = true; return Promise.resolve(); },
+    };
+    const mockBlobClient = {
+      download: () => Promise.resolve({
+        readableStreamBody: undefined, // hashes to gitBlobSha('')
+        etag: undefined, // the anomalous case under test
+      }),
+    };
+    const mockContainer = {
+      getBlockBlobClient: () => mockBlockBlob,
+      getBlobClient: () => mockBlobClient,
+    };
+    const mockService = { getContainerClient: () => mockContainer } as unknown as BlobServiceClient;
+    const be = new AzureBlobBackend({
+      accountUrl: 'http://localhost:10000/devstoreaccount1',
+      userContentContainer: 'user-content',
+      communityContainer: 'community',
+      serviceClient: mockService,
+    });
+
+    const err = await be.writeFile('taxonomy/no-etag.json', content, { baseSha: gitBlobSha('') })
+      .then(() => null, (e: unknown) => e) as { code?: string; httpStatus?: number } | null;
+
+    expect(err?.httpStatus).toBe(409);
+    expect(err?.code).toBe('WRITE_CONFLICT');
+    expect(uploadCalled).toBe(false);
+  });
 });
