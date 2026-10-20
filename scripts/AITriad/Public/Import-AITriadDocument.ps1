@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Import-AITriadDocument {
@@ -9,6 +9,9 @@ function Import-AITriadDocument {
         Ingests a document into the AI Triad repository.
 
         What this function does:
+            0. Refuses a duplicate: the same trusted source URL (checked before download) or
+               the same content (content_sha256 of the snapshot, checked before anything is
+               written). A matching title or raw file name only warns (t/4337).
             1. Generates a stable doc-id slug from the title/URL.
             2. Creates sources/<doc-id>/raw/ and saves the original file.
             3. Converts to Markdown snapshot (sources/<doc-id>/snapshot.md).
@@ -29,8 +32,18 @@ function Import-AITriadDocument {
         Skip the Wayback Machine archival submission.
     .PARAMETER NoSummaryQueue
         Do not mark the document for AI summarisation.
+    .PARAMETER SameAs
+        Doc id of an existing source this document is a reprint of (the same work at another
+        outlet, with its own URL or text). Written as metadata same_as, so the source index
+        groups the two (docs/specs/source-identity.md). It does not bypass duplicate detection.
+    .PARAMETER ParentDocId
+        Doc id of an existing source this document is a deliberate part of. Written as metadata
+        parent_doc_id. It does not bypass duplicate detection.
     .PARAMETER Force
-        Allow re-ingesting a document that already exists in the corpus.
+        No longer bypasses duplicate detection (t/4337). It used to, and that minted -N copies
+        of documents already in the corpus. A document with the same content (content_sha256)
+        or the same trusted source URL as an existing source is always refused; use -SameAs or
+        -ParentDocId to record a deliberate relationship instead.
     .PARAMETER SkipAiMeta
         Skip the AI metadata-enrichment step.
     .PARAMETER Model
@@ -87,6 +100,14 @@ function Import-AITriadDocument {
         [Parameter(ParameterSetName = 'ByFile')]
         [string[]]$Topic = @(),
 
+        [Parameter(ParameterSetName = 'ByUrl')]
+        [Parameter(ParameterSetName = 'ByFile')]
+        [string]$SameAs,
+
+        [Parameter(ParameterSetName = 'ByUrl')]
+        [Parameter(ParameterSetName = 'ByFile')]
+        [string]$ParentDocId,
+
         [switch]$SkipWayback,
 
         [switch]$NoSummaryQueue,
@@ -118,35 +139,36 @@ function Import-AITriadDocument {
     # key, so Invoke-AIApi resolves it for the registry backend (t/4087).
     $AIKeyStatus = Get-AIModelKeyStatus -Model $Model -ApiKey ''
 
+    # -- Source identity index (t/4337) ---------------------------------------
+    # Built once per invocation on first use and extended after every ingest, so a batch (-Inbox)
+    # also catches duplicates within itself. A holder object, because inner functions cannot
+    # assign to this scope's variables.
+    $IdentityIndexHolder = @{ Value = $null }
+    $GetIdentityIndex = {
+        if ($null -eq $IdentityIndexHolder.Value) { $IdentityIndexHolder.Value = Get-SourceIdentityIndex -SourcesDir $SourcesDir }
+        $IdentityIndexHolder.Value
+    }
+
+    if ($SameAs -and $ParentDocId) {
+        throw (New-ActionableError -AsErrorRecord `
+            -Goal      'Ingest document' `
+            -Problem   '-SameAs and -ParentDocId were both given; a document is either a reprint of another or a part of one' `
+            -Location  'Import-AITriadDocument' `
+            -NextSteps @('Use -SameAs <docId> for a reprint of the same document at another outlet', 'Use -ParentDocId <docId> for a deliberate part of a larger document'))
+    }
+    foreach ($Link in @(@{ Name = '-SameAs'; Value = $SameAs }, @{ Name = '-ParentDocId'; Value = $ParentDocId })) {
+        if ($Link.Value -and -not (& $GetIdentityIndex).Ids.Contains($Link.Value)) {
+            throw (New-ActionableError -AsErrorRecord `
+                -Goal      'Ingest document' `
+                -Problem   "$($Link.Name) '$($Link.Value)' is not an existing source document under $SourcesDir" `
+                -Location  'Import-AITriadDocument' `
+                -NextSteps @("Find the doc id with: Find-AITSource <words from its title>", "Pass the exact id, e.g. $($Link.Name) 'some-title-2026'"))
+        }
+    }
+
     # =========================================================================
     # Inner function — called once per document
     # =========================================================================
-    function Find-ExistingSource {
-        param(
-            [string]$Url,
-            [string]$FilePath
-        )
-        $MetaFiles = @(Get-ChildItem -Path $SourcesDir -Filter 'metadata.json' -Recurse -Depth 1 -ErrorAction SilentlyContinue)
-        foreach ($MF in $MetaFiles) {
-            try {
-                $Meta = Get-Content $MF.FullName -Raw | ConvertFrom-Json
-            } catch { continue }
-
-            if (-not [string]::IsNullOrWhiteSpace($Url) -and $Meta.url -eq $Url) {
-                return $MF.Directory.Name
-            }
-
-            if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
-                $FileName = [System.IO.Path]::GetFileName($FilePath)
-                $RawDir = Join-Path $MF.Directory.FullName 'raw'
-                if (Test-Path (Join-Path $RawDir $FileName)) {
-                    return $MF.Directory.Name
-                }
-            }
-        }
-        return $null
-    }
-
     function Invoke-IngestDocument {
         [CmdletBinding()]
         param(
@@ -156,21 +178,10 @@ function Import-AITriadDocument {
             [string[]]$TopicTags   = @()
         )
 
-        # -- Duplicate check -------------------------------------------------
-        if (-not $Force) {
-            $ExistingDocId = Find-ExistingSource -Url $SourceUrl -FilePath $SourceFile
-            if ($ExistingDocId) {
-                $MatchType = if (-not [string]::IsNullOrWhiteSpace($SourceUrl)) { "URL '$SourceUrl'" } else { "file '$(Split-Path $SourceFile -Leaf)'" }
-                throw (New-ActionableError -AsErrorRecord `
-                    -Goal     "Ingest document" `
-                    -Problem  "Duplicate source: $MatchType already ingested as '$ExistingDocId'" `
-                    -Location 'Import-AITriadDocument' `
-                    -NextSteps @(
-                        "To re-ingest, use: Import-AITriadDocument ... -Force"
-                        "To view existing source: Get-AITSource -DocId '$ExistingDocId'"
-                    ))
-            }
-        }
+        # -- Early duplicate check (t/4337): same trusted URL refuses, same raw file name warns --
+        # Runs before download or conversion. The content check runs once the snapshot is built.
+        $IncomingName = if ($SourceFile) { [System.IO.Path]::GetFileName($SourceFile) } else { '' }
+        Assert-NoSourceDuplicate -Index (& $GetIdentityIndex) -Url $SourceUrl -RawFileName $IncomingName -ForceRequested:$Force
 
         $RawContent   = $null
         $MarkdownText = ''
@@ -343,7 +354,27 @@ function Import-AITriadDocument {
             }
         }
 
+        # -- Normalize markdown (encoding artifacts, ligatures, etc.) ----------
+        $MarkdownText = Repair-Markdown -Text $MarkdownText
+
+        # -- Strip vertical-text artifacts (ArXiv watermarks, rotated margin text) --
+        $MarkdownText = Remove-VerticalTextArtifact -Markdown $MarkdownText
+
+        # -- Build the snapshot (provenance header) ---------------------------
+        $FinalMarkdown = Add-SnapshotHeader `
+            -Markdown    $MarkdownText `
+            -Title       $Title `
+            -SourceUrl   $SourceUrl `
+            -SourceType  $SourceType `
+            -CapturedAt  (Get-Date -Format 'yyyy-MM-dd')
+
+        # -- Content duplicate check (t/4337), BEFORE anything is written -----
+        # content_sha256 is over the snapshot text exactly as written (docs/specs/source-identity.md 1.1).
+        $ContentHash = Get-SourceContentHash -Text $FinalMarkdown
+        Assert-NoSourceDuplicate -Index (& $GetIdentityIndex) -ContentHash $ContentHash -Title $Title -ForceRequested:$Force
+
         # -- Generate doc-id --------------------------------------------------
+        # A -N suffix now only ever means a genuine slug collision with DIFFERENT content.
         $SlugSource = $Title
         if ([string]::IsNullOrWhiteSpace($SlugSource)) {
             if ($IsUrl) { $SlugSource = $SourceUrl } else { $SlugSource = [System.IO.Path]::GetFileNameWithoutExtension($SourceFile) }
@@ -372,51 +403,11 @@ function Import-AITriadDocument {
             # WriteAllBytes is symmetric with the ReadAllBytes used to load it.
             [System.IO.File]::WriteAllBytes($RawPath, $RawContent)
         } else {
-            Write-Utf8NoBom -Path $RawPath -Value $RawContent 
+            Write-Utf8NoBom -Path $RawPath -Value $RawContent
         }
         Write-OK "Raw file saved: raw/$RawFilename"
 
-        # -- Normalize markdown (encoding artifacts, ligatures, etc.) ----------
-        $MarkdownText = Repair-Markdown -Text $MarkdownText
-
-        # -- Strip vertical-text artifacts (ArXiv watermarks, rotated margin text) --
-        $Lines = $MarkdownText -split "`n"
-        $CleanLines = [System.Collections.Generic.List[string]]::new($Lines.Count)
-        $RunBuf     = [System.Collections.Generic.List[int]]::new()
-        $ShortCount = 0
-        for ($i = 0; $i -lt $Lines.Count; $i++) {
-            $Trimmed = $Lines[$i].Trim()
-            $IsShort = ($Trimmed.Length -ge 1 -and $Trimmed.Length -le 2 -and $Trimmed -match '^\S{1,2}$')
-            $IsBlank = ($Trimmed.Length -eq 0)
-            if ($IsShort -or ($IsBlank -and $RunBuf.Count -gt 0)) {
-                $RunBuf.Add($i)
-                if ($IsShort) { $ShortCount++ }
-            } else {
-                if ($ShortCount -ge 10) {
-                    Write-Info "Stripped $($RunBuf.Count) lines of vertical-text artifact (lines $($RunBuf[0]+1)-$($RunBuf[$RunBuf.Count-1]+1))"
-                } else {
-                    foreach ($j in $RunBuf) { $CleanLines.Add($Lines[$j]) }
-                }
-                $CleanLines.Add($Lines[$i])
-                $RunBuf.Clear()
-                $ShortCount = 0
-            }
-        }
-        if ($ShortCount -ge 10) {
-            Write-Info "Stripped $($RunBuf.Count) lines of vertical-text artifact (lines $($RunBuf[0]+1)-$($RunBuf[$RunBuf.Count-1]+1))"
-        } elseif ($RunBuf.Count -gt 0) {
-            foreach ($j in $RunBuf) { $CleanLines.Add($Lines[$j]) }
-        }
-        $MarkdownText = $CleanLines -join "`n"
-
-        # -- Add provenance header and write snapshot.md ----------------------
-        $FinalMarkdown = Add-SnapshotHeader `
-            -Markdown    $MarkdownText `
-            -Title       $Title `
-            -SourceUrl   $SourceUrl `
-            -SourceType  $SourceType `
-            -CapturedAt  (Get-Date -Format 'yyyy-MM-dd')
-
+        # -- Write snapshot.md ------------------------------------------------
         $SnapshotPath = Join-Path $DocDir 'snapshot.md'
         Write-Utf8NoBom -Path $SnapshotPath -Value $FinalMarkdown 
         Write-OK "Snapshot written: snapshot.md ($([int]$FinalMarkdown.Length) chars)"
@@ -456,9 +447,17 @@ function Import-AITriadDocument {
             if ($AiMeta.one_liner) { $Metadata['one_liner'] = $AiMeta.one_liner }
         }
 
+        # Source-identity fields (docs/specs/source-identity.md section 0, t/4337).
+        if ($ContentHash) { $Metadata['content_sha256'] = $ContentHash }
+        if ($SameAs)      { $Metadata['same_as']        = $SameAs }
+        if ($ParentDocId) { $Metadata['parent_doc_id']  = $ParentDocId }
+
         $MetaPath = Join-Path $DocDir 'metadata.json'
         $Metadata | ConvertTo-Json -Depth 5 | Write-Utf8NoBom -Path $MetaPath
         Write-OK "Metadata written: metadata.json"
+
+        # Later documents in the same run (e.g. -Inbox) are checked against this one too.
+        Add-SourceIdentityIndexEntry -Index (& $GetIdentityIndex) -DocDir $DocDir
 
         # -- Rebuild source index ---------------------------------------------
         try { Update-AITSourceIndex -Quiet } catch { Write-Verbose "Index rebuild skipped: $_" }
