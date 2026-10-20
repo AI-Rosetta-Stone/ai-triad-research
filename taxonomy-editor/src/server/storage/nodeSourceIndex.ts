@@ -15,10 +15,14 @@
  */
 
 import path from 'path';
+import { createHash } from 'crypto';
 import { loadDataConfig, resolveDataPath } from '../config.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
-import { computeCanonicalDocIds, type SourceReference, type SourceCardMeta, type NodeSourceIndex } from '../../../../lib/sourceIndex/types.js';
+import {
+  groupSourceIdentities, computeSourceContentHash,
+  type SourceReference, type SourceCardMeta, type NodeSourceIndex, type SourceIdentityDoc, type SourceIdentityMeta,
+} from '../../../../lib/sourceIndex/types.js';
 import { getBackend, getSourcesDir } from './fileIO.js';
 
 export type { SourceReference, SourceCardMeta, NodeSourceIndex };
@@ -28,29 +32,112 @@ type NodeSourceMeta = {
   authors: string[]; topicTags: string[]; oneLiner: string | null;
 };
 
-async function loadNodeMetaCache(sourcesDir: string | null): Promise<Record<string, NodeSourceMeta>> {
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+}
+
+/** t/4344: a doc with no *recorded* `content_sha256` (ingested before t/4337)
+ *  gets a *computed* one from `snapshot.md`, per the shared spec (section
+ *  4.0) — this can only ever make a hash edge, never veto a suffix edge
+ *  (that needs a recorded hash on both sides), so a missing snapshot file or
+ *  a read failure safely degrades to "no hash signal" rather than a wrong one. */
+async function computeSnapshotHash(sourcesDir: string, docId: string): Promise<string | null> {
   const backend = getBackend();
+  const snapshotPath = path.join(sourcesDir, docId, 'snapshot.md');
+  try {
+    const raw = await backend.readFile(snapshotPath);
+    if (raw === null) return null;
+    return computeSourceContentHash(raw, sha256Hex);
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'warn',
+      message: `computeSnapshotHash: failed to read/hash snapshot, degrading to no hash signal for this doc: ${snapshotPath}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return null;
+  }
+}
+
+type SourceMetaEntry = { metaCache: NodeSourceMeta; identityMeta: SourceIdentityMeta; snapshotHash: string | null };
+
+// Raw metadata.json shape asserted field-by-field, not typed — JSON.parse's
+// result is unknown and every field below is read defensively regardless.
+function buildCardMetaFromRawJson(meta: Record<string, unknown>, name: string): NodeSourceMeta {
+  return {
+    title: (meta.title as string) || name,
+    url: (meta.url as string) || null,
+    sourceType: (meta.source_type as string) || 'unknown',
+    datePublished: (meta.date_published as string) || (meta.source_time as string) || '',
+    authors: Array.isArray(meta.authors) ? meta.authors as string[] : [],
+    topicTags: Array.isArray(meta.topic_tags) ? meta.topic_tags as string[] : [],
+    oneLiner: (meta.one_liner as string) || null,
+  };
+}
+
+function buildIdentityMetaFromRawJson(meta: Record<string, unknown>): SourceIdentityMeta {
+  return {
+    title: (meta.title as string) ?? null,
+    url: (meta.url as string) ?? null,
+    resolved_url: (meta.resolved_url as string) ?? null,
+    provenance: Array.isArray(meta.provenance) ? meta.provenance as SourceIdentityMeta['provenance'] : [],
+    content_sha256: (meta.content_sha256 as string) ?? null,
+    same_as: (meta.same_as as string) ?? null,
+    parent_doc_id: (meta.parent_doc_id as string) ?? null,
+  };
+}
+
+async function readAndParseMetadata(backend: ReturnType<typeof getBackend>, metaPath: string): Promise<unknown> {
+  let metaRaw: string | null;
+  try {
+    metaRaw = await backend.readFile(metaPath);
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'warn',
+      message: `readAndParseMetadata: failed to read metadata.json, excluding this doc from the index build: ${metaPath}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return undefined;
+  }
+  if (metaRaw === null) return undefined;
+  try {
+    return JSON.parse(metaRaw);
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'warn',
+      message: `readAndParseMetadata: malformed metadata.json, excluding this doc from the index build: ${metaPath}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return undefined;
+  }
+}
+
+async function loadOneSourceMetaEntry(sourcesDir: string, name: string): Promise<SourceMetaEntry | null> {
+  const metaPath = path.join(sourcesDir, name, 'metadata.json');
+  const meta = await readAndParseMetadata(getBackend(), metaPath);
+  if (meta === undefined) return null;
+
+  const raw = meta as Record<string, unknown>;
+  const metaCache = buildCardMetaFromRawJson(raw, name);
+  const identityMeta = buildIdentityMetaFromRawJson(raw);
+  const snapshotHash = identityMeta.content_sha256 ? null : await computeSnapshotHash(sourcesDir, name);
+  return { metaCache, identityMeta, snapshotHash };
+}
+
+async function loadNodeMetaCache(
+  sourcesDir: string | null,
+): Promise<{ metaCache: Record<string, NodeSourceMeta>; identityMeta: Record<string, SourceIdentityMeta>; snapshotHashes: Record<string, string | null> }> {
   const metaCache: Record<string, NodeSourceMeta> = {};
-  const sourceEntries = sourcesDir ? await backend.listDirectory(sourcesDir) : [];
+  const identityMeta: Record<string, SourceIdentityMeta> = {};
+  const snapshotHashes: Record<string, string | null> = {};
+  const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir) : [];
   await Promise.all(sourceEntries.map(async (name) => {
-    const metaPath = path.join(sourcesDir!, name, 'metadata.json');
-    try {
-      const metaRaw = await backend.readFile(metaPath);
-      if (metaRaw !== null) {
-        const meta = JSON.parse(metaRaw);
-        metaCache[name] = {
-          title: meta.title || name,
-          url: meta.url || null,
-          sourceType: meta.source_type || 'unknown',
-          datePublished: meta.date_published || meta.source_time || '',
-          authors: Array.isArray(meta.authors) ? meta.authors : [],
-          topicTags: Array.isArray(meta.topic_tags) ? meta.topic_tags : [],
-          oneLiner: meta.one_liner || null,
-        };
-      }
-    } catch { /* telemetry — silent by design;  skip */ }
+    const entry = await loadOneSourceMetaEntry(sourcesDir!, name);
+    if (!entry) return;
+    metaCache[name] = entry.metaCache;
+    identityMeta[name] = entry.identityMeta;
+    snapshotHashes[name] = entry.snapshotHash;
   }));
-  return metaCache;
+  return { metaCache, identityMeta, snapshotHashes };
 }
 
 /** t/4334/t/4333 (PI scope addition, p/548#306): % of sources carrying each
@@ -114,23 +201,27 @@ async function indexSummaryFiles(
 }
 
 /** Fills in `canonicalDocId` (today it's set to each ref's own `docId` by
- *  `indexSummaryFile`) using the shared tier 1-4 algorithm, mutating `index`
- *  in place. Every `docId` seen anywhere in the index participates, so a
- *  split part reachable only via one node still resolves against the full
- *  known-id set. */
-function applyCanonicalDocIds(index: NodeSourceIndex, metaCache: Record<string, NodeSourceMeta>): void {
+ *  `indexSummaryFile`) using the shared source-identity algorithm
+ *  (`docs/specs/source-identity.md`, t/4344), mutating `index` in place.
+ *  Every `docId` seen anywhere in the index participates, so a split part
+ *  reachable only via one node still resolves against the full known-id
+ *  set. Returns the title-collision report (spec 4.5) for the caller to log
+ *  — it's a signal for a human cleanup pass, never applied as a merge. */
+function applyCanonicalDocIds(
+  index: NodeSourceIndex, identityMeta: Record<string, SourceIdentityMeta>, snapshotHashes: Record<string, string | null>,
+): string[][] {
   const allDocIds = new Set<string>();
   for (const refs of Object.values(index)) for (const r of refs) allDocIds.add(r.docId);
-  const docIds = [...allDocIds];
-  const canonicalMeta: Record<string, { url: string | null; title: string }> = {};
-  for (const id of docIds) {
-    const m = metaCache[id];
-    canonicalMeta[id] = { url: m?.url ?? null, title: m?.title ?? id };
-  }
-  const canonicalIds = computeCanonicalDocIds(docIds, canonicalMeta);
+  const docs: SourceIdentityDoc[] = [...allDocIds].map(id => ({
+    id,
+    metadata: identityMeta[id] ?? { title: id },
+    snapshotSha256: snapshotHashes[id] ?? null,
+  }));
+  const { canonical, titleCollisions } = groupSourceIdentities(docs);
   for (const refs of Object.values(index)) {
-    for (const r of refs) r.canonicalDocId = canonicalIds[r.docId] ?? r.docId;
+    for (const r of refs) r.canonicalDocId = canonical[r.docId] ?? r.docId;
   }
+  return titleCollisions;
 }
 
 /**
@@ -146,9 +237,9 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   const summaryFiles = await backend.listDirectory(summariesDir);
   if (summaryFiles.length === 0) return index;
 
-  const metaCache = await loadNodeMetaCache(sourcesDir);
+  const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  applyCanonicalDocIds(index, metaCache);
+  applyCanonicalDocIds(index, identityMeta, snapshotHashes);
   return index;
 }
 
@@ -205,9 +296,9 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
   const summaryFiles = await getBackend().listDirectory(summariesDir);
-  const metaCache = await loadNodeMetaCache(sourcesDir);
+  const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  applyCanonicalDocIds(index, metaCache);
+  const titleCollisions = applyCanonicalDocIds(index, identityMeta, snapshotHashes);
   const cards = buildCardMetaByCanonicalId(index, metaCache);
   nodeSourceIndexGeneration += 1;
 
@@ -216,9 +307,13 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const coldBuildMs = Date.now() - start;
   const coverage = sourceCardFieldCoverage(metaCache);
   log.server.info(
-    { coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length, ...coverage },
+    { coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length, titleCollisionCount: titleCollisions.length, ...coverage },
     'Node source index rebuilt',
   );
+  if (titleCollisions.length > 0) {
+    // t/4344 spec 4.5: a report for a human cleanup pass (t/4337), never applied as a merge.
+    log.server.warn({ titleCollisions }, 'Node source index: title collisions found (no merge applied, human review needed)');
+  }
   getGlobalRecorder()?.record({
     type: 'system.info', component: 'node-source-index', level: 'info',
     message: 'Node source index rebuilt',

@@ -2,19 +2,14 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
- * Shared node→source index types (t/4334/t/4333) — the server
- * (`taxonomy-editor/src/server/storage/fileIO.ts`) and Electron
- * (`taxonomy-editor/src/main/fileIO.ts`) builds share this shape and the
- * canonical-document-id algorithm below, so the two produce identical
- * `canonicalDocId` groupings for the same data (the Electron/web parity
- * requirement, `docs/dual-build-bridge.md`).
- *
- * Canonicalization field names, shared with PowerShell's ingestion-side
- * dedupe (t/4337), agreed with TL p/801#1 — see `CANONICALIZATION_SPEC.md`
- * in this directory for the full spec and corpus fixtures:
- *   - `content_sha256` → `contentSha256` (exact content hash)
- *   - `same_as`        → `sameAs`        (explicit curated cross-doc link)
- *   - `parent_doc_id`  → `parentDocId`   (explicit parent/chunk link)
+ * Shared node→source index types (t/4334/t/4333) and the source-identity
+ * algorithm pinned by `docs/specs/source-identity.md` (t/4344) — content
+ * hash, URL key, and canonical grouping. The PowerShell ingester
+ * (`scripts/AITriad/Private/SourceIdentity.ps1`) implements the same spec;
+ * both must pass every case in `tests/fixtures/source-identity-cases.json`
+ * (see `sourceIdentityFixture.test.ts`). **To change a rule: edit the spec
+ * and the fixture first, in one PR, then update both implementations —
+ * never change one implementation alone.**
  */
 
 export interface SourceReference {
@@ -52,206 +47,341 @@ export interface SourceCardMeta {
   oneLiner: string | null;
 }
 
-/** Per-document fields the canonical-id algorithm needs — a slice of each
- *  document's full metadata, not the whole `metadata.json`. */
-export interface CanonicalIdDocMeta {
-  url: string | null;
-  title: string;
-  /** The `scheme: "url"` provenance entry's `confidence` for `url`, when one
-   *  exists. `'search'` means the URL was discovered via search, not
-   *  asserted by the source itself or verified — corpus-wide, ~43% of
-   *  sources carry `confidence: "search"` on their url provenance, and a
-   *  search-discovered URL is a citation the ingestion pipeline found, not
-   *  necessarily the document's own canonical address (two unrelated videos
-   *  cited from two unrelated articles both resolve through
-   *  `youtube.com/watch`, distinguished only by `?v=`). Never used for tier 2
-   *  matching (TL p/801#1); absent/other values are trusted. */
-  urlConfidence?: string | null;
-  /** t/4337 `content_sha256` — an exact hash of the raw ingested content.
-   *  Two doc ids with the same hash are unambiguously the same document;
-   *  checked before every other tier. */
-  contentSha256?: string | null;
-  /** t/4337 `same_as` — an explicit, curated pointer to another doc id this
-   *  one is the same document as (e.g. a reprint at a different outlet, the
-   *  case TL ruled must never be fuzzy-matched by URL/title alone). */
-  sameAs?: string | null;
-  /** t/4337 `parent_doc_id` — an explicit pointer to the parent/chunk-source
-   *  doc id. Tier 1 of the original spec (t/4333); previously a no-op hook
-   *  since no ingestion output set it, now real. */
-  parentDocId?: string | null;
+// ═══════════════════════════════════════════════════════════════════════
+// Source-identity spec (docs/specs/source-identity.md, t/4344)
+// ═══════════════════════════════════════════════════════════════════════
+
+/** A `provenance[]` entry, as read from `metadata.json`. */
+export interface SourceProvenanceEntry {
+  scheme?: string;
+  confidence?: string;
+  id?: string;
 }
 
-const SUFFIX_RE = /^(.+)-(\d+)$/;
-const SEARCH_CONFIDENCE = 'search';
+/** The `metadata.json` fields the identity algorithm reads (spec section 0). */
+export interface SourceIdentityMeta {
+  title?: string | null;
+  url?: string | null;
+  resolved_url?: string | null;
+  provenance?: SourceProvenanceEntry[];
+  /** Recorded at ingest (t/4337). Distinct from a *computed* snapshot hash —
+   *  see `SourceIdentityDoc.snapshotSha256` and spec section 4.0. */
+  content_sha256?: string | null;
+  same_as?: string | null;
+  parent_doc_id?: string | null;
+}
 
-/** Lowercase, `+` → space (ingestion sometimes URL-encodes titles), strip
- *  punctuation, collapse whitespace. Deliberately simple — "no fuzzy
- *  matching beyond this" is the explicit design constraint (t/4333): a false
- *  merge of two different documents is worse than a duplicate row. */
-export function normalizeTitleForCanonicalId(title: string): string {
+/** One document as input to `groupSourceIdentities` (spec section 4). */
+export interface SourceIdentityDoc {
+  id: string;
+  metadata: SourceIdentityMeta;
+  /** The section-1 hash computed from `snapshot.md`, for a document with no
+   *  *recorded* `metadata.content_sha256` (spec 4.0). Only a recorded hash
+   *  can veto a suffix edge (4.4) — pass this only when there's no recorded
+   *  one, so computed-hash "conversion noise" differences never veto. */
+  snapshotSha256?: string | null;
+}
+
+export interface SourceIdentityGroupResult {
+  /** docId → canonical (ordinal-smallest) id in its connected component. */
+  canonical: Record<string, string>;
+  /** Equal non-empty title keys spanning 2+ groups — a report for a human
+   *  (t/4337's cleanup pass), never a merge (spec 4.5). Each inner array is
+   *  one collision's doc ids, ordinal-sorted; collisions are sorted by their
+   *  first id. */
+  titleCollisions: string[][];
+}
+
+const BOM = '﻿';
+const SNAPSHOT_HEADER_START = '<!--\n  AI Triad Research Project';
+const SUFFIX_RE = /^(.+)-(\d+)$/;
+const TRACKING_PARAM_EXACT = new Set(['fbclid', 'gclid', 'mc_cid', 'mc_eid']);
+const SEARCH_CONFIDENCE = 'search';
+const BINARY_PLACEHOLDER_RE = /^# [^\n]*\n\n\[Binary file — no text extraction available\]$/;
+
+/**
+ * Spec section 1.1-1.2: the body text `content_sha256` is computed over.
+ * Strips a leading BOM, normalizes line endings, removes the
+ * `Add-SnapshotHeader` provenance block if present, applies Unicode NFC,
+ * strips trailing spaces/tabs per line, and drops leading/trailing blank
+ * lines. Interior blank lines, and non-ASCII whitespace, are kept.
+ */
+export function normalizeSnapshotBody(text: string): string {
+  let t = text;
+  if (t.startsWith(BOM)) t = t.slice(1);
+  t = t.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  if (t.startsWith(SNAPSHOT_HEADER_START)) {
+    const close = t.indexOf('\n-->\n');
+    if (close >= 0) {
+      const rule = t.indexOf('\n---\n', close);
+      if (rule >= 0) t = t.slice(rule + '\n---\n'.length);
+    }
+  }
+
+  t = t.normalize('NFC');
+  const lines = t.split('\n').map(line => line.replace(/[ \t]+$/, ''));
+  while (lines.length > 0 && lines[0] === '') lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return lines.join('\n');
+}
+
+/**
+ * Spec section 1: `content_sha256` (lowercase hex) for raw snapshot text, or
+ * `null` when the body is empty or an extraction-failure placeholder (1.3) —
+ * never a hash of nothing, never a hash that collides two different
+ * failures. `digest` defaults to Node's `crypto.createHash`; callers in a
+ * non-Node runtime (there are none today) can supply their own.
+ */
+export function computeSourceContentHash(
+  text: string, digest: (utf8Bytes: Uint8Array) => string,
+): string | null {
+  const body = normalizeSnapshotBody(text);
+  if (body === '') return null;
+  if (body.startsWith('# PDF EXTRACTION FAILED')) return null;
+  if (BINARY_PLACEHOLDER_RE.test(body)) return null;
+  return digest(new TextEncoder().encode(body));
+}
+
+/** Spec section 2: the normalized URL identity key, or `null` if `url` isn't
+ *  an absolute http(s) URL. Purely textual (no percent-decoding, no IDN
+ *  conversion) so .NET and JS parsers can't diverge. Only the scheme and
+ *  host are case-folded — the path and query keep their original case,
+ *  because e.g. a YouTube `?v=` id is case-sensitive. */
+export function normalizeUrlForCanonicalId(url: string | null | undefined): string | null {
+  if (url === null || url === undefined) return null;
+  const m = /^(https?):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(String(url).trim());
+  if (!m) return null;
+
+  let authority = m[2];
+  const at = authority.lastIndexOf('@');
+  if (at >= 0) authority = authority.slice(at + 1);
+  authority = authority.toLowerCase().replace(/:(80|443)$/, '');
+  if (authority.startsWith('www.')) authority = authority.slice(4);
+  if (authority === '') return null;
+
+  const path = m[3].replace(/\/+$/, '');
+
+  let query = '';
+  if (m[4] !== undefined) {
+    const params = m[4]
+      .slice(1)
+      .split('&')
+      .filter(p => p !== '')
+      .filter((p) => {
+        const name = p.split('=')[0].toLowerCase();
+        return !name.startsWith('utm_') && !TRACKING_PARAM_EXACT.has(name);
+      })
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); // ordinal: UTF-16 code units
+    if (params.length > 0) query = `?${params.join('&')}`;
+  }
+
+  return authority + path + query;
+}
+
+/** Spec section 3: the trusted URL keys of one document's metadata — `url`
+ *  then `resolved_url`, normalized and de-duplicated (first occurrence
+ *  wins), minus any key that matches a `scheme:"url", confidence:"search"`
+ *  provenance entry (a post-ingest guess, not an asserted address). */
+export function trustedSourceUrlKeys(meta: SourceIdentityMeta | null | undefined): string[] {
+  if (!meta) return [];
+  const untrusted = new Set<string>();
+  for (const p of meta.provenance ?? []) {
+    if (p && p.scheme === 'url' && p.confidence === SEARCH_CONFIDENCE) {
+      const k = normalizeUrlForCanonicalId(p.id);
+      if (k) untrusted.add(k);
+    }
+  }
+  const out: string[] = [];
+  for (const field of ['url', 'resolved_url'] as const) {
+    const k = normalizeUrlForCanonicalId(meta[field]);
+    if (k && !untrusted.has(k) && !out.includes(k)) out.push(k);
+  }
+  return out;
+}
+
+/** Spec section 4.5: lowercase, `+`→space, keep only ASCII `[a-z0-9_]` and
+ *  ASCII whitespace, collapse whitespace runs, trim. Deliberately ASCII-only
+ *  — .NET `\w` is Unicode-aware and JS `\w` is ASCII, so this spells out the
+ *  character class explicitly rather than relying on either runtime's
+ *  default, and the two implementations can't diverge on a non-ASCII title.
+ *  A missing/empty title gives an empty key (no id fallback — an empty key
+ *  never produces an edge or a collision). */
+export function normalizeTitleForCanonicalId(title: string | null | undefined): string {
+  if (!title) return '';
   return title
     .toLowerCase()
     .replace(/\+/g, ' ')
-    .replace(/[^\w\s]/g, '')
-    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9_ \t\n\r\f\v]/g, '')
+    .replace(/[ \t\n\r\f\v]+/g, ' ')
     .trim();
 }
 
-const TRACKING_PARAM_EXACT = new Set(['fbclid', 'gclid']);
-function isTrackingParam(key: string): boolean {
-  return key.startsWith('utm_') || TRACKING_PARAM_EXACT.has(key);
-}
+/** Union-find over doc ids, ordinal-smallest-id-wins on union (spec 4.6). */
+class DocIdUnionFind {
+  private readonly parent = new Map<string, string>();
+  constructor(ids: Iterable<string>) { for (const id of ids) this.parent.set(id, id); }
 
-/**
- * `host + path + sorted query` (fragment always dropped), lowercased.
- *
- * t/4334 (PowerShell p/783#6, confirmed against the real corpus — e.g. two
- * distinct YouTube videos both ingested as `youtube.com/watch`, distinguished
- * only by `?v=`): the query string is kept, not dropped, because on sites
- * where the query *is* the item id (YouTube `?v=`, Hacker News `?id=`, Google
- * Scholar `?user=`), dropping it collapses genuinely different documents —
- * exactly the false merge t/4333 rules out. Tracking params (`utm_*`,
- * `fbclid`, `gclid`) are stripped before sorting, since those vary per-share
- * without identifying a different document. Params are sorted by key so two
- * URLs differing only in parameter order still normalize identically.
- *
- * Falls back to a plain lowercase/trim compare for a string that doesn't
- * parse as a URL (ingestion metadata is free-form). Empty string and null
- * both mean "no URL".
- */
-export function normalizeUrlForCanonicalId(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    // t/4334 (PowerShell p/801#2, agreed): only the scheme and host are
-    // case-folded. The path and query keep their original case — a YouTube
-    // `?v=` id, for example, is case-sensitive, so lowercasing it would
-    // itself cause a false merge between two different videos.
-    const host = u.hostname.replace(/^www\./, '').toLowerCase();
-    const pathname = u.pathname.replace(/\/+$/, '');
-    const params = [...u.searchParams.entries()]
-      .filter(([key]) => !isTrackingParam(key))
-      .sort(([a], [b]) => a.localeCompare(b));
-    const query = params.length > 0 ? `?${params.map(([k, v]) => `${k}=${v}`).join('&')}` : '';
-    const normalized = `${host}${pathname}${query}`;
-    return normalized || null;
-  } catch {
-    const trimmed = url.trim().replace(/\/+$/, '');
-    return trimmed || null;
+  find(x: string): string {
+    let root = x;
+    while (this.parent.get(root) !== root) root = this.parent.get(root)!;
+    let cur = x;
+    while (this.parent.get(cur) !== root) { const next = this.parent.get(cur)!; this.parent.set(cur, root); cur = next; }
+    return root;
+  }
+
+  union(a: string, b: string): void {
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra === rb) return;
+    if (ra < rb) this.parent.set(rb, ra); else this.parent.set(ra, rb);
   }
 }
 
+/** Unions every doc sharing a non-empty key under `tier`, first-seen-wins. */
+function unionByKey(uf: DocIdUnionFind, byKey: Map<string, string>, tier: string, key: string | null | undefined, id: string): void {
+  if (!key) return;
+  const k = `${tier}\0${key}`;
+  const existing = byKey.get(k);
+  if (existing !== undefined) uf.union(existing, id); else byKey.set(k, id);
+}
+
+function effectiveHash(doc: SourceIdentityDoc): string | null {
+  return doc.metadata.content_sha256 ?? doc.snapshotSha256 ?? null;
+}
+
+/** Spec 4.4: `X-N` joins its base `X` only if the title keys are equal and
+ *  non-empty, neither side's trusted URLs conflict (a URL on only one side,
+ *  or a search-provenance one, is not a conflict), and neither side's
+ *  *recorded* hash conflicts (a recorded hash on only one side, or differing
+ *  *computed* snapshot hashes, is not a conflict — those are conversion
+ *  noise, not evidence of a different document). */
+function suffixEdgeAllowed(
+  titleKeys: Map<string, string>, urlKeys: Map<string, string[]>, recordedHashes: Map<string, string | null>,
+  id: string, base: string,
+): boolean {
+  const sameTitle = titleKeys.get(id) !== '' && titleKeys.get(id) === titleKeys.get(base);
+  if (!sameTitle) return false;
+
+  const a = urlKeys.get(id) ?? [];
+  const b = urlKeys.get(base) ?? [];
+  const urlConflict = a.length > 0 && b.length > 0 && !a.some(u => b.includes(u));
+  if (urlConflict) return false;
+
+  const ha = recordedHashes.get(id) ?? null;
+  const hb = recordedHashes.get(base) ?? null;
+  const hashConflict = !!ha && !!hb && ha !== hb;
+  return !hashConflict;
+}
+
 /**
- * t/4334 — the canonical-key algorithm, revised per TL p/801#1 after the
- * query-string false merge (PowerShell p/783#6), tier order pinned by the
- * shared spec (t/4344). In order of preference:
- *  0. an explicit `parentDocId` link.
- *  1. an explicit `sameAs` link (a curated cross-outlet/reprint alias —
- *     TL's answer to "what if the PI wants reprints merged": never fuzzy
- *     titles, always an explicit link, t/4334#2).
- *  2. an exact `contentSha256` match — the strongest *inferred* signal
- *     (no human/pipeline assertion needed, unlike tiers 0-1, but still
- *     zero false-merge risk since it's byte-exact).
- *  3. a normalized URL match — **skipped when the URL's own provenance
- *     confidence is `'search'`** (see `normalizeUrlForCanonicalId`'s doc).
- *  4. a `-N` suffix whose base id exists (the same document, split into
- *     processing parts under one slug).
- *  5. a normalized title match.
- * "No fuzzy matching beyond that" (t/4333): two documents that are the same
- * article reprinted at different outlets, with different URLs and titles
- * that don't normalize to the same string and no explicit `sameAs` link,
- * stay two separate canonical ids.
- *
- * Takes the full known doc-id set at once (not a per-reference streaming
- * call) because tiers 3-5 require comparing a document against every OTHER
- * known document, not just itself. Deterministic: ties resolve to the
- * lexicographically-first doc id as the representative, so both the server
- * and Electron builds (which may list files in different orders) agree.
- *
- * Known limitation, not fuzzy-matching risk: a doc id that structurally ends
- * in `-<digits>` (e.g. a title that itself ends in a year) is indistinguishable
- * from a true split-part suffix if an unrelated doc happens to exist at the
- * stripped base id. Accepted per the "no fuzzy matching" design — exact
- * structural match only, same precision/recall tradeoff the ticket requires
- * for every other tier.
+ * Spec section 4 — canonical grouping. The groups are the connected
+ * components over every edge, from every tier together (a union, never
+ * "first matching tier"), so the result doesn't depend on tier-check order
+ * or file listing order:
+ *  1. (strong) an explicit `parent_doc_id`/`same_as` link, ignored if the
+ *     target id isn't in the input set;
+ *  2. (strong) an equal content hash (recorded, or else computed — 4.0/4.2);
+ *  3. (strong) an equal trusted URL key (4.3);
+ *  4. (conditional) a `-N` suffix joins its base only under 4.4's three
+ *     conditions — never unconditionally, so a genuine slug collision
+ *     (t/4337 can mint one deliberately) or a coincidental `foo-2026`/`foo`
+ *     pair stays separate;
+ *  5. a title alone adds **no edge** — only a `title_collision` report
+ *     (4.5), since generic or non-ASCII-reduced titles would otherwise chain
+ *     unrelated documents together.
  */
-/** One tier's check for a single doc id: returns the id it should resolve
- *  toward under this tier, or `null` if this tier doesn't apply. Splitting
- *  each tier into its own small closure (rather than one long if/else chain)
- *  keeps `resolve` itself a trivial loop — the tier *order* is the only thing
- *  that encodes the preference list, each tier's own logic stays simple. */
-type TierLookup = (id: string) => string | null;
+type DocDerivedFields = { titleKeys: Map<string, string>; urlKeys: Map<string, string[]>; recordedHashes: Map<string, string | null> };
 
-function buildTierLookups(
-  meta: Record<string, CanonicalIdDocMeta>, docIdSet: Set<string>,
-  hashRep: Record<string, string>, urlRep: Record<string, string>, titleRep: Record<string, string>,
-): TierLookup[] {
-  return [
-    // 0. explicit parent/chunk link.
-    (id) => { const p = meta[id]?.parentDocId; return (p && docIdSet.has(p) && p !== id) ? p : null; },
-    // 1. explicit same-document link.
-    (id) => { const s = meta[id]?.sameAs; return (s && docIdSet.has(s) && s !== id) ? s : null; },
-    // 2. exact content hash.
-    (id) => { const h = meta[id]?.contentSha256; return (h && hashRep[h] !== id) ? hashRep[h] : null; },
-    // 3. normalized URL — skipped for search-provenance URLs.
-    (id) => {
-      if (meta[id]?.urlConfidence === SEARCH_CONFIDENCE) return null;
-      const u = normalizeUrlForCanonicalId(meta[id]?.url ?? null);
-      return (u && urlRep[u] !== id) ? urlRep[u] : null;
-    },
-    // 4. -N suffix whose base id exists.
-    (id) => { const m = id.match(SUFFIX_RE); return (m && docIdSet.has(m[1])) ? m[1] : null; },
-    // 5. normalized title.
-    (id) => { const t = normalizeTitleForCanonicalId(meta[id]?.title ?? id); return (t && titleRep[t] !== id) ? titleRep[t] : null; },
-  ];
-}
-
-function resolveCanonicalId(id: string, depth: number, tiers: TierLookup[], resolved: Map<string, string>): string {
-  const cached = resolved.get(id);
-  if (cached !== undefined) return cached;
-  if (depth > 10) return id; // cycle guard — never expected, never trusted
-
-  for (const tier of tiers) {
-    const target = tier(id);
-    if (target === null) continue;
-    const r = resolveCanonicalId(target, depth + 1, tiers, resolved);
-    resolved.set(id, r);
-    return r;
+function computeDerivedFields(docs: SourceIdentityDoc[]): DocDerivedFields {
+  const titleKeys = new Map<string, string>();
+  const urlKeys = new Map<string, string[]>();
+  const recordedHashes = new Map<string, string | null>();
+  for (const d of docs) {
+    titleKeys.set(d.id, normalizeTitleForCanonicalId(d.metadata.title));
+    urlKeys.set(d.id, trustedSourceUrlKeys(d.metadata));
+    recordedHashes.set(d.id, d.metadata.content_sha256 ?? null);
   }
-  resolved.set(id, id);
-  return id;
+  return { titleKeys, urlKeys, recordedHashes };
 }
 
-/** First-seen (in sorted order, for determinism) representative doc id per
- *  content hash / normalized URL (search-provenance ones excluded) / title. */
-function buildRepresentativeMaps(
-  sortedDocIds: string[], meta: Record<string, CanonicalIdDocMeta>,
-): { hashRep: Record<string, string>; urlRep: Record<string, string>; titleRep: Record<string, string> } {
-  const hashRep: Record<string, string> = {};
-  const urlRep: Record<string, string> = {};
-  const titleRep: Record<string, string> = {};
-  for (const id of sortedDocIds) {
-    const hash = meta[id]?.contentSha256;
-    if (hash && !(hash in hashRep)) hashRep[hash] = id;
-    if (meta[id]?.urlConfidence !== SEARCH_CONFIDENCE) {
-      const u = normalizeUrlForCanonicalId(meta[id]?.url ?? null);
-      if (u && !(u in urlRep)) urlRep[u] = id;
+function unionAllEdges(uf: DocIdUnionFind, known: Set<string>, docs: SourceIdentityDoc[], derived: DocDerivedFields): void {
+  const { titleKeys, urlKeys, recordedHashes } = derived;
+  const byKey = new Map<string, string>();
+  for (const d of docs) {
+    for (const link of ['parent_doc_id', 'same_as'] as const) {
+      const target = d.metadata[link];
+      if (target && known.has(target)) uf.union(d.id, target);
     }
-    const t = normalizeTitleForCanonicalId(meta[id]?.title ?? id);
-    if (t && !(t in titleRep)) titleRep[t] = id;
+    unionByKey(uf, byKey, 'hash', effectiveHash(d), d.id);
+    for (const u of urlKeys.get(d.id) ?? []) unionByKey(uf, byKey, 'url', u, d.id);
+
+    const suffixMatch = d.id.match(SUFFIX_RE);
+    if (suffixMatch && known.has(suffixMatch[1]) && suffixEdgeAllowed(titleKeys, urlKeys, recordedHashes, d.id, suffixMatch[1])) {
+      uf.union(d.id, suffixMatch[1]);
+    }
   }
-  return { hashRep, urlRep, titleRep };
 }
 
+/** Spec 4.5's report: equal non-empty title keys spanning 2+ already-resolved
+ *  groups, ordinal-sorted within each collision and across collisions. */
+function findTitleCollisions(ids: string[], titleKeys: Map<string, string>, canonical: Record<string, string>): string[][] {
+  const byTitle = new Map<string, string[]>();
+  for (const id of ids) {
+    const key = titleKeys.get(id)!;
+    if (key === '') continue;
+    const bucket = byTitle.get(key);
+    if (bucket) bucket.push(id); else byTitle.set(key, [id]);
+  }
+  const collisions: string[][] = [];
+  for (const members of byTitle.values()) {
+    const distinctGroups = new Set(members.map(id => canonical[id]));
+    if (distinctGroups.size >= 2) collisions.push([...members].sort());
+  }
+  collisions.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return collisions;
+}
+
+export function groupSourceIdentities(docs: SourceIdentityDoc[]): SourceIdentityGroupResult {
+  const ids = docs.map(d => d.id);
+  const known = new Set(ids);
+  const uf = new DocIdUnionFind(ids);
+
+  const derived = computeDerivedFields(docs);
+  unionAllEdges(uf, known, docs, derived);
+
+  const canonical: Record<string, string> = {};
+  for (const id of ids) canonical[id] = uf.find(id);
+
+  const titleCollisions = findTitleCollisions(ids, derived.titleKeys, canonical);
+
+  return { canonical, titleCollisions };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Back-compat shim (t/4344 superseded this) — ElectronMain's t/4341
+// (`src/main/fileIO.ts`, PR #3510) consumes this exact shape already.
+// Deprecated: migrate to `groupSourceIdentities`/`SourceIdentityMeta`, which
+// add the content-hash tier, the conditional suffix edge, and the
+// title-collision report this shim can't surface (a follow-up, not blocking
+// — this shim is correct, just narrower).
+// ═══════════════════════════════════════════════════════════════════════
+
+/** @deprecated Use `SourceIdentityMeta` (t/4344). Kept only for the shim below. */
+export interface CanonicalIdDocMeta {
+  url: string | null;
+  title: string;
+}
+
+/** @deprecated Use `groupSourceIdentities` (t/4344) — this wraps it with the
+ *  old, narrower input/output shape (no content hash, `same_as`,
+ *  `parent_doc_id` or title-collision report). */
 export function computeCanonicalDocIds(
   docIds: string[], meta: Record<string, CanonicalIdDocMeta>,
 ): Record<string, string> {
-  const docIdSet = new Set(docIds);
-  const { hashRep, urlRep, titleRep } = buildRepresentativeMaps([...docIds].sort(), meta);
-
-  const tiers = buildTierLookups(meta, docIdSet, hashRep, urlRep, titleRep);
-  const resolved = new Map<string, string>();
-  const canonical: Record<string, string> = {};
-  for (const id of docIds) canonical[id] = resolveCanonicalId(id, 0, tiers, resolved);
-  return canonical;
+  const docs: SourceIdentityDoc[] = docIds.map(id => ({
+    id,
+    metadata: { title: meta[id]?.title ?? id, url: meta[id]?.url ?? null },
+  }));
+  return groupSourceIdentities(docs).canonical;
 }
