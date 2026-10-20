@@ -476,22 +476,54 @@ jobs:
               // Newest run per required-context workflow PATH on this exact head SHA (MUST-fix:
               // match on .path, never .name -- "CI"/"CodeQL SAST" are workflow DISPLAY names,
               // not the required-context names; see stuck-pr-classifier.mjs's REQUIRED_CONTEXT_PATHS).
+              //
+              // t/4322 (Azure, p/786#11): a path can carry MULTIPLE runs on the same head_sha from
+              // different trigger events -- e.g. a manual workflow_dispatch re-run alongside the
+              // real pull_request-event run. Only the pull_request-event run (associated with THIS
+              // PR via run.pull_requests) feeds the PR's required-status rollup; a failing
+              // workflow_dispatch run on the same head is a different, non-rollup check-run entirely,
+              // and picking "newest run regardless of event" can select it over a green PR-event run
+              // (observed on #3392: a 15:58Z workflow_dispatch failure outranked the 15:49Z green
+              // pull_request run by timestamp, producing a false required-check-failed/stuck alert).
+              // Prefer pull_request-event runs associated with this exact PR number; fall back to
+              // any event only when no pull_request-event run exists yet for that path (e.g. a
+              // brand-new required workflow that hasn't had a PR-triggered run), so detection isn't
+              // silently lost before a PR-event run shows up.
               const requiredPaths = new Set(Object.values(REQUIRED_CONTEXT_PATHS));
+              const isPrEventRunForThisPr = (run) => run.event === 'pull_request'
+                && (run.pull_requests ?? []).some((p) => p.number === pr.number);
               const byPath = new Map();
+              const byPathAnyEvent = new Map();
               for (const run of runsResp.data.workflow_runs ?? []) {
                 if (!requiredPaths.has(run.path)) continue;
+                const entry = {
+                  path: run.path, status: run.status, conclusion: run.conclusion,
+                  createdAt: run.created_at, startedAt: run.run_started_at, runAttempt: run.run_attempt, id: run.id,
+                };
+                const prevAny = byPathAnyEvent.get(run.path);
+                if (!prevAny || new Date(run.created_at) > new Date(prevAny.createdAt)) {
+                  byPathAnyEvent.set(run.path, entry);
+                }
+                if (!isPrEventRunForThisPr(run)) continue;
                 const prev = byPath.get(run.path);
                 if (!prev || new Date(run.created_at) > new Date(prev.createdAt)) {
-                  byPath.set(run.path, {
-                    path: run.path, status: run.status, conclusion: run.conclusion,
-                    createdAt: run.created_at, startedAt: run.run_started_at, runAttempt: run.run_attempt, id: run.id,
-                  });
+                  byPath.set(run.path, entry);
                 }
+              }
+              // Fallback fills any path with no pull_request-event run for this PR yet.
+              for (const [path, entry] of byPathAnyEvent) {
+                if (!byPath.has(path)) byPath.set(path, entry);
               }
 
               const prFacts = {
                 mergeableState: full.mergeable_state,
-                isConflicting: full.mergeable === false,
+                // t/4356 (TL, p/331#2172): #3432/#3455 sat armed-but-DIRTY for hours, unflagged --
+                // `full.mergeable` (a lazily-computed tri-state true/false/null) can lag or read
+                // non-false while GitHub's own `mergeable_state` already reports 'dirty'. Check
+                // both, matching this field's own documented contract in stuck-pr-classifier.mjs
+                // ("mergeable === false / mergeable_state === 'dirty'"), which this line never
+                // actually implemented.
+                isConflicting: full.mergeable === false || full.mergeable_state === 'dirty',
                 autoMergeEnabled: !!full.auto_merge,
                 labels: (full.labels || []).map((l) => (typeof l === 'string' ? l : l.name)),
                 runs: [...byPath.values()],

@@ -560,6 +560,10 @@ var baseEnv = [
   // option. AUTH_DISABLED='1' skips auth entirely. Neither = required sign-in.
   { name: 'AUTH_DISABLED', value: authDisabled }
   { name: 'AUTH_OPTIONAL', value: authOptional }
+  // t/4296 G1: principals forced read-only (writes blocked by #3429's guard) regardless of
+  // proxy-tiers.json — the hosted signed-in smoke identity (t/4134). Fail-closed static list,
+  // idp-scoped `idp:login`. MUST stay in sync with deploy-azure.yml's ExpectedEnvVars gate.
+  { name: 'READ_ONLY_PRINCIPALS', value: 'github:ai-triad-smoke' }
   // Admin allowlist — comma-separated derived userIds gating the review UI and
   // /api/admin/* endpoints. Declared here so it survives Bicep deploys (a CLI
   // --set-env-vars value would be wiped by the next full template deployment).

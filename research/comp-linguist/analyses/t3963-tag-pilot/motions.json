@@ -1,0 +1,25 @@
+{
+  "_comment": "t/3963 POV-tag pilot: the 10 FIXED motions, frozen 2026-10-20 before any run (pre-registration t/3963#3). Run paired: once per arm per motion. A mix of policy-shaped and contested-empirical motions. Stage 1 (plumbing pilot, PI-approved 2026-10-20, t/3802#6) uses motion m01 only, across arms A0-A5.",
+  "frozen_at": "2026-10-20",
+  "motions": [
+    {"id": "m01", "kind": "policy", "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?"},
+    {"id": "m02", "kind": "policy", "topic": "Should the largest AI model training runs require a government licence?"},
+    {"id": "m03", "kind": "policy", "topic": "Should the weights of the most capable AI models be released publicly?"},
+    {"id": "m04", "kind": "policy", "topic": "Should governments break up vertically integrated AI companies that own chips, cloud and models?"},
+    {"id": "m05", "kind": "policy", "topic": "Should AI systems be barred from making final decisions in hiring and lending?"},
+    {"id": "m06", "kind": "empirical", "topic": "Will generative AI raise or lower overall employment in office work over the next decade?"},
+    {"id": "m07", "kind": "empirical", "topic": "Is current AI progress driven mainly by scaling compute, or by algorithmic advances?"},
+    {"id": "m08", "kind": "empirical", "topic": "Has AI measurably increased productivity in the firms that have adopted it?"},
+    {"id": "m09", "kind": "empirical", "topic": "Do AI benchmark scores predict real-world usefulness?"},
+    {"id": "m10", "kind": "empirical", "topic": "Is the market for frontier AI models becoming more concentrated or more competitive?"}
+  ],
+  "arms": {
+    "A0": {"label": "no tag, new umbrella"},
+    "A1": {"label": "Critical, Scope", "seatTags": {"skeptic": {"pov_tag": "critical", "tag_mode": "scope"}}},
+    "A2": {"label": "Critical, Prioritize", "seatTags": {"skeptic": {"pov_tag": "critical", "tag_mode": "prioritize"}}},
+    "A3": {"label": "Institutional, Scope", "seatTags": {"skeptic": {"pov_tag": "institutional", "tag_mode": "scope"}}},
+    "A4": {"label": "Institutional, Prioritize", "seatTags": {"skeptic": {"pov_tag": "institutional", "tag_mode": "prioritize"}}},
+    "A5": {"label": "no tag, old umbrella (skeptic.soul.json at eb51471b)", "soulOverrides": {"skeptic": "research/comp-linguist/analyses/t3963-tag-pilot/old-umbrella-skeptic.soul.json"}}
+  },
+  "held_fixed": {"model": "gemini-3.5-flash-lite", "protocolId": "structured", "pacing": "moderate", "audience": "policymakers", "activePovers": ["accelerationist", "safetyist", "skeptic"]}
+}

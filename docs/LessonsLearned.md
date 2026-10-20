@@ -5276,7 +5276,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 4 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); live-fire proven at t/4297#2.**
+**Status:** Active — 5 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5641,7 +5641,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 2 instances (DevOps Worker p/749#16; DevOps Lead p/26#184).
+**Status:** Active — 3 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`).
 
 **Applies To:** All agents running `pwsh -Command "..."` from the Bash tool with PowerShell cmdlets in the pipeline.
 
@@ -5723,7 +5723,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **"Unexpected EOF while looking for matching backtick"** in a command containing a `grep` or `awk` pattern is a reliable diagnostic for a backtick inside a double-quoted argument.
 3. This is an instance of the Shell Quoting Rule — double-quoted arguments process `\`, `$`, and `` ` `` specially. When in doubt, use single quotes for patterns.
 
-**Status:** Active — 2 instances (Azure p/105#10; Second Opinion p/691#9).
+**Status:** Active — 3 instances (Azure p/105#10; Second Opinion p/691#9; Second Opinion p/691#11 — `gh pr comment --body-file` with unquoted heredoc).
 
 **Applies To:** All agents writing shell patterns (`grep`, `awk`, `sed`) in double-quoted arguments that may contain backticks; use single quotes.
 
@@ -5989,3 +5989,102 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DebateTool p/70#69, t/4305).
 
 **Applies To:** All agents; never use Bash `grep -r` for repo-wide searches — use the Grep tool.
+
+---
+
+## #299 [Process] Blocked-State Details Belong on the Ticket, Not Status Text
+
+**Pattern:** An agent sets its status to "blocked on two PRs needing manual fixes from repo root" but posts the specific fix commands only in its session context. A collaborator (PM) sees the blocked status but must ask explicitly for the fix steps — they are not visible on the ticket or ping thread.
+
+**Instances:**
+- 2026-10-20 — DebateTool (p/31#11): status said "blocked on two PRs needing manual fixes from repo root"; fix commands were in session context only; PM had to ask explicitly.
+
+**Root Cause:** Status text is visible only to agents actively checking the status field. A ticket comment is persistent, reachable by any collaborator, and survives session context loss.
+
+**Prevention:**
+1. **When blocked on a failure requiring action from outside your session, post the exact commands or steps as a ticket comment before updating your status.** One sentence naming the blocker plus a code block with the fix is enough.
+2. **Status text describes the state; the ticket holds the actionable details.** A collaborator picking up the work should not need to find your session to get unblocked.
+3. **After posting, ping the relevant agent or human** with the ticket comment reference so they know where to look.
+
+**Status:** Active — 1 instance (DebateTool p/31#11).
+
+**Applies To:** All agents; when blocked on an externally-actionable failure, post fix steps to the ticket before marking blocked.
+
+---
+
+## #300 [Build] GHCR Tag Writes Require `write:packages` Scope — Escalate to Azure/Lead
+
+**Pattern:** An agent calls a cmdlet or API that writes a tag to the GitHub Container Registry (e.g., `Set-TaxEditorKnownGood`). The call fails with a clean `ActionableError`: "GITHUB_TOKEN environment variable is not set" or a 403 citing insufficient scope. Worker session tokens carry only gist/read:org/repo/workflow — no `packages` write scope. The agent cannot source the credential itself.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#18, t/4273): `Set-TaxEditorKnownGood` failed with "GITHUB_TOKEN environment variable is not set". Worker session lacked `write:packages`. Correctly escalated to Azure/Lead rather than attempting to source credentials.
+
+**Root Cause:** GHCR tag writes require a PAT with `write:packages` scope, which is not provisioned to Worker sessions. Attempting to source credentials outside role scope is a process violation.
+
+**Prevention:**
+1. **Any GHCR tag-write operation requires a PAT with `write:packages` scope.** Worker sessions do not have this — escalate to Azure or DevOps Lead immediately.
+2. **"GITHUB_TOKEN environment variable is not set" from a GHCR write cmdlet** is a reliable diagnostic for missing packages scope, not a missing environment variable.
+3. **Companion to #287** (read:packages for reads): reads need `read:packages`, writes need `write:packages`; neither is in standard Worker session scope.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#18, t/4273).
+
+**Applies To:** All Worker-role agents; escalate GHCR tag-write operations to Azure/DevOps Lead.
+
+---
+
+## #301 [Build] Rebasing a Multi-Commit Stack That Includes Already-Landed Commits Causes Conflicts — Cherry-Pick Only the Needed Commits
+
+**Pattern:** An agent runs `git rebase origin/main` on a branch with multiple commits. Some of those commits have already landed on main via a separate PR. The rebase replays those commits and hits conflicts with their already-merged versions on main.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#20): 4-commit branch rebased onto main; commit 1/4 (t/3897's flip) had already landed via PR #3196. Rebase conflicted. Fixed by aborting, running `git log origin/main..HEAD --oneline` to identify the one unmerged commit, and cherry-picking it onto a fresh branch off main.
+
+**Root Cause:** Multi-commit branches accumulate commits from previous work sessions; some may land independently via other PRs. A blind rebase replays all commits including already-landed ones.
+
+**Prevention:**
+1. **Before rebasing a multi-commit branch, run `git log origin/main..HEAD --oneline`** to see exactly which commits are not yet on main. If the list is shorter than the total branch history, some commits have already landed.
+2. **When some commits are already landed, abort the rebase** and cherry-pick only the unmerged commits onto a fresh branch off main — this avoids replaying already-merged work.
+3. **A conflict on the first commit of a rebase** is a reliable diagnostic that the commit may already be on main — check `git log origin/main --oneline | head -20` for its subject line.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#20).
+
+**Applies To:** All agents rebasing multi-commit branches; verify which commits are unmerged before rebasing.
+
+---
+
+## #302 [Research] Run Recipe Copied from Pilot Without Verifying Config Fields Took Effect — Paid Batch Ran Wrong
+
+**Pattern:** An agent copies a run recipe from a pilot experiment for a paid confirmatory arm. The recipe sets a config field (`pacing`) that has a silent dependency (`useAdaptiveStaging`) — without the dependency, the field is silently ignored. The config-pin check does not cover the field because the output does not record it. The paid batch runs with the wrong configuration and produces uninterpretable results.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#119, t/3802): 50-debate paid arm copied pilot recipe with `pacing` set but `useAdaptiveStaging` absent; all debates ran 6-turn fixed. Results reported as uninterpretable. Runner now refuses the config before spend (PR #3476); DebateTool has t/4320 for a CLI WARN.
+
+**Root Cause:** Config field `pacing` silently does nothing without `useAdaptiveStaging`. The pilot worked because it also set `useAdaptiveStaging`; the copy omitted it. Config-pin checks verify presence, not effect.
+
+**Prevention:**
+1. **Before any paid batch, verify the first output against the control on the dimension being matched.** A single debug run with the copied recipe, inspected for the expected behavior, would have caught the silent ignore.
+2. **Never assume a config field took effect — confirm it in the output.** If the output does not record the field's effect, add a probe that does before spending.
+3. **When copying a run recipe, diff it against the control spec** and confirm every field dependency is satisfied, not just that the fields are present.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#119, t/3802).
+
+**Applies To:** All agents running paid experiment batches; verify config effect in a debug run before full spend.
+
+---
+
+## #303 [Build] Edit Left Placeholder `raise ImportError` in Analysis Script
+
+**Pattern:** An agent edits an analysis script and leaves a placeholder `raise ImportError` (or similar sentinel) in place of a real implementation. A subsequent run crashes on the placeholder rather than the intended logic.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#119): Edit left `raise ImportError` placeholder in analysis script. Restored `__main__` guard, re-ran old read to confirm output.
+
+**Root Cause:** Edit tool inserts placeholder markers (raise, pass, TODO, ...) that are valid Python syntax; they do not cause parse errors and are easy to miss before running.
+
+**Prevention:**
+1. **After any Edit to a Python script, scan for placeholder markers** (`raise`, `pass`, `TODO`, `...`, `NotImplementedError`) before running. A quick `grep` or Read of the edited section is enough.
+2. **If a script crashes with `ImportError` or `NotImplementedError` immediately after an edit**, check for a leftover placeholder before investigating the import chain.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#119).
+
+**Applies To:** All agents editing Python analysis scripts; scan for placeholder markers before running.
