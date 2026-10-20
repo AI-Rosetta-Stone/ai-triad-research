@@ -4,9 +4,11 @@ name: Signed-in Auth Smoke (t/4134)
 # authenticated session: /api/auth/me is 200 as that user, readOnly, write:false, and a no-baseSha
 # write probe is 403 read_only (operations/devops/azure/Test-EasyAuthSmoke.ps1).
 #
-# WARN-ONLY (continue-on-error) until one green cycle on prod, then promotion is a separate T2
-# (Gate Promotion rule). Dispatch only: never run before t/4296's READ_ONLY_PRINCIPALS is deployed
-# to the target (TL, t/4134#9). Prod gets a fresh sign-in only; it is never restarted for a smoke.
+# WARN-ONLY by construction: dispatch-only, and nothing (no deploy, no required check) gates on it.
+# A failed smoke is a RED run on purpose (SO C3, #3497) — no continue-on-error, so the run result is
+# honest evidence for t/4296 G2 and for promotion. Wiring it into a deploy or a required check is the
+# separate T2 promotion step (Gate Promotion rule). Never dispatch before t/4296's READ_ONLY_PRINCIPALS
+# is deployed to the target (TL, t/4134#9). Prod gets a fresh sign-in only; never restarted for a smoke.
 
 on:
   workflow_dispatch:
@@ -34,7 +36,6 @@ jobs:
   signed-in-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true  # warn-only phase (t/4134); remove only in the T2 promotion PR
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 

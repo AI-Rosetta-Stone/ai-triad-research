@@ -11,9 +11,11 @@
       1. POST /.auth/login/github {access_token}  -> 200 with an authenticationToken
       2. GET  /api/auth/me (X-ZUMO-AUTH)          -> 200, user == ai-triad-smoke, idp github,
                                                      anonymous false, readOnly true, write false
-      3. PUT  /api/taxonomy/accelerationist with NO baseSha -> 403 read_only (t/4296 guard)
-    Step 3 can never write: with the guard working it is 403 read_only; if the guard were broken the
-    save route's own requireBaseVersion still rejects a missing baseSha before any write.
+      3. PUT  /api/taxonomy/accelerationist with NO If-Match -> 403 read_only (t/4296 guard)
+    Step 3 is SELF-GATED (SO C1, #3497): it is sent only after step 2 has proved readOnly:true and
+    write:false, so "never writes" does not rest on another role's handler ordering. Even then it has
+    a second line of defence: with no If-Match header, the save route's requireBaseVersion rejects it
+    before ensureSessionBranch() would run.
 
     The GitHub token comes from $env:SMOKE_GH_TOKEN (an Actions secret) and is never printed; the
     Easy Auth session token is masked in the Actions log. Run only after t/4296 (READ_ONLY_PRINCIPALS)
@@ -41,6 +43,24 @@ function Test-AuthMeResponse {
     $write = if ($caps -and $caps.PSObject.Properties['write']) { $caps.write } else { $null }
     if ($write -ne $false) { $fail.Add("capabilities.write is '$write', expected false") }
     return [PSCustomObject]@{ Pass = ($fail.Count -eq 0); Failures = @($fail) }
+}
+
+function Get-SignInFailureClass {
+    <# Pure: classify a failed Easy Auth sign-in so a dead token isn't reported as the t/4132 outage. #>
+    param([Parameter(Mandatory)][int]$StatusCode)
+    if ($StatusCode -eq 401 -or $StatusCode -eq 403) {
+        return "sign-in returned $StatusCode — SMOKE_GH_TOKEN was rejected (expired or revoked?); rotate it. This is NOT the t/4132 Easy Auth outage class."
+    }
+    if ($StatusCode -ge 500) {
+        return "sign-in returned $StatusCode — the Easy Auth pipeline itself is failing (the t/4132 class)."
+    }
+    return "sign-in returned $StatusCode with no authenticationToken — unexpected Easy Auth response."
+}
+
+function Test-ShouldSendWriteProbe {
+    <# Pure (SO C1): send the write probe ONLY when /api/auth/me has already proved read-only. #>
+    param([Parameter(Mandatory)][AllowNull()][object]$MeVerdict)
+    return [bool]($MeVerdict -and $MeVerdict.Pass)
 }
 
 function Test-ReadOnlyProbeResponse {
@@ -81,7 +101,7 @@ if ($MyInvocation.InvocationName -ne '.') {
             $zumo = ($login.Content | ConvertFrom-Json).authenticationToken
             if ($zumo) { Write-Host "::add-mask::$zumo" }
         }
-        if (-not $zumo) { $failures.Add("sign-in returned $($login.StatusCode) with no authenticationToken — the Easy Auth pipeline is broken (the t/4132 class)") }
+        if (-not $zumo) { $failures.Add((Get-SignInFailureClass -StatusCode ([int]$login.StatusCode))) }
     } catch {
         $failures.Add("sign-in request failed: $($_.Exception.Message)")
     }
@@ -91,17 +111,23 @@ if ($MyInvocation.InvocationName -ne '.') {
         # 2. Authenticated identity + read-only tier
         $me = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -Headers $h -SkipHttpErrorCheck -TimeoutSec 30
         $summary.Add("| GET /api/auth/me | $($me.StatusCode) |")
+        $v = $null
         if ($me.StatusCode -ne 200) { $failures.Add("/api/auth/me returned $($me.StatusCode) for a signed-in session (t/4132 returned 500 here)") }
         else {
             $v = Test-AuthMeResponse -Me ($me.Content | ConvertFrom-Json) -ExpectedLogin $ExpectedLogin
             foreach ($f in $v.Failures) { $failures.Add("/api/auth/me: $f") }
         }
-        # 3. Harmless write probe (no baseSha — can never write)
-        $probe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -Headers $h -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 30
-        $reason = if ($probe.Headers['X-Auth-Reason']) { [string]@($probe.Headers['X-Auth-Reason'])[0] } else { '' }
-        $summary.Add("| write probe PUT /api/taxonomy/accelerationist (no baseSha) | $($probe.StatusCode) $reason |")
-        $p = Test-ReadOnlyProbeResponse -StatusCode ([int]$probe.StatusCode) -AuthReason $reason -Body ([string]$probe.Content)
-        if (-not $p.Pass) { $failures.Add($p.Failure) }
+        # 3. Write probe — only once /me has proved read-only (SO C1); no If-Match, so it can't write
+        if (Test-ShouldSendWriteProbe -MeVerdict $v) {
+            $probe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -Headers $h -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 30
+            $reason = if ($probe.Headers['X-Auth-Reason']) { [string]@($probe.Headers['X-Auth-Reason'])[0] } else { '' }
+            $summary.Add("| write probe PUT /api/taxonomy/accelerationist (no If-Match) | $($probe.StatusCode) $reason |")
+            $p = Test-ReadOnlyProbeResponse -StatusCode ([int]$probe.StatusCode) -AuthReason $reason -Body ([string]$probe.Content)
+            if (-not $p.Pass) { $failures.Add($p.Failure) }
+        } else {
+            $summary.Add('| write probe | SKIPPED — /api/auth/me did not prove read-only |')
+            $failures.Add('write probe skipped: /api/auth/me did not prove readOnly:true and write:false, so no mutating request was sent (SO C1)')
+        }
     }
 
     if ($env:GITHUB_STEP_SUMMARY) {

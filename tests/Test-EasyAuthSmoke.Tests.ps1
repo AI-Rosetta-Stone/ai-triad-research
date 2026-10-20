@@ -46,6 +46,38 @@ Describe 'Test-AuthMeResponse (t/4134)' {
     }
 }
 
+Describe 'Test-ShouldSendWriteProbe — probe self-gating (t/4134, SO C1)' {
+    It 'SEND: /me proved read-only' {
+        Test-ShouldSendWriteProbe -MeVerdict (Test-AuthMeResponse -Me (New-Me) -ExpectedLogin 'ai-triad-smoke') | Should -BeTrue
+    }
+    It 'SKIP: /me shows readOnly false (READ_ONLY_PRINCIPALS not live) — no mutating request' {
+        Test-ShouldSendWriteProbe -MeVerdict (Test-AuthMeResponse -Me (New-Me @{ readOnly = $false }) -ExpectedLogin 'ai-triad-smoke') | Should -BeFalse
+    }
+    It 'SKIP: /me shows write true' {
+        Test-ShouldSendWriteProbe -MeVerdict (Test-AuthMeResponse -Me (New-Me @{ capabilities = @{ write = $true } }) -ExpectedLogin 'ai-triad-smoke') | Should -BeFalse
+    }
+    It 'SKIP: /me never returned 200 (no verdict)' {
+        Test-ShouldSendWriteProbe -MeVerdict $null | Should -BeFalse
+    }
+}
+
+Describe 'Get-SignInFailureClass — token rejected vs t/4132 outage (t/4134, SO rec.)' {
+    It '401 -> token rejected, explicitly NOT the t/4132 class' {
+        $m = Get-SignInFailureClass -StatusCode 401
+        $m | Should -Match 'rejected'; $m | Should -Match 'NOT the t/4132'
+    }
+    It '403 -> token rejected' {
+        Get-SignInFailureClass -StatusCode 403 | Should -Match 'rejected'
+    }
+    It '500 -> Easy Auth pipeline failing (the t/4132 class)' {
+        $m = Get-SignInFailureClass -StatusCode 500
+        $m | Should -Match 'the t/4132 class'; $m | Should -Not -Match 'NOT the'
+    }
+    It '302/other -> unexpected response' {
+        Get-SignInFailureClass -StatusCode 302 | Should -Match 'unexpected'
+    }
+}
+
 Describe 'Test-ReadOnlyProbeResponse (t/4134)' {
     It 'PASS: 403 with X-Auth-Reason read_only' {
         (Test-ReadOnlyProbeResponse -StatusCode 403 -AuthReason 'read_only' -Body '').Pass | Should -BeTrue
