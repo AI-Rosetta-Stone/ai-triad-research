@@ -1096,6 +1096,33 @@ export function buildNodeSourceIndex(): NodeSourceIndex {
   return buildNodeSourceIndexWithMeta().index;
 }
 
+/** One source card per canonical document, same shape/fallback order as the server's
+ *  identically-named helper (src/server/storage/nodeSourceIndex.ts:cardMetaFor) — kept as
+ *  its own function rather than inlined so getNodeSources stays under the complexity
+ *  budget (t/4342, CI: local/complexity-budget). */
+function cardMetaFor(ref: SourceReference, metaCache: Record<string, NodeSourceMeta>): SourceCardMeta {
+  const m = metaCache[ref.docId] ?? metaCache[ref.canonicalDocId];
+  return {
+    title: m?.title ?? ref.title,
+    url: m?.url ?? ref.url,
+    authors: m?.authors ?? [],
+    datePublished: m?.datePublished ?? ref.datePublished,
+    topicTags: m?.topicTags ?? [],
+    oneLiner: m?.oneLiner ?? null,
+  };
+}
+
+/** One card per canonical document referenced by `sources`, not one per reference —
+ *  extracted from getNodeSources alongside cardMetaFor for the same complexity-budget
+ *  reason. */
+function buildCardsForSources(sources: SourceReference[], metaCache: Record<string, NodeSourceMeta>): Record<string, SourceCardMeta> {
+  const cards: Record<string, SourceCardMeta> = {};
+  for (const ref of sources) {
+    if (!cards[ref.canonicalDocId]) cards[ref.canonicalDocId] = cardMetaFor(ref, metaCache);
+  }
+  return cards;
+}
+
 /**
  * t/4342 — Electron-side equivalent of the server's per-node lookup
  * (src/server/storage/nodeSourceIndex.ts:getNodeSources). No build-once cache on this
@@ -1106,19 +1133,7 @@ export function buildNodeSourceIndex(): NodeSourceIndex {
 export function getNodeSources(nodeId: string): { sources: SourceReference[]; cards: Record<string, SourceCardMeta>; indexVersion: number } {
   const { index, metaCache } = buildNodeSourceIndexWithMeta();
   const sources = index[nodeId] ?? [];
-  const cards: Record<string, SourceCardMeta> = {};
-  for (const ref of sources) {
-    if (cards[ref.canonicalDocId]) continue;
-    const m = metaCache[ref.docId] ?? metaCache[ref.canonicalDocId];
-    cards[ref.canonicalDocId] = {
-      title: m?.title ?? ref.title,
-      url: m?.url ?? ref.url,
-      authors: m?.authors ?? [],
-      datePublished: m?.datePublished ?? ref.datePublished,
-      topicTags: m?.topicTags ?? [],
-      oneLiner: m?.oneLiner ?? null,
-    };
-  }
+  const cards = buildCardsForSources(sources, metaCache);
   return { sources, cards, indexVersion: 0 };
 }
 
