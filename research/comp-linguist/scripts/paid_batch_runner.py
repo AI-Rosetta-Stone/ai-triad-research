@@ -119,6 +119,9 @@ def main():
     ap.add_argument("--plan"); ap.add_argument("--ledger", required=True)
     ap.add_argument("--code-root"); ap.add_argument("--budget", type=float, default=15.0)
     ap.add_argument("--max-debates", type=int, default=56); ap.add_argument("--report", action="store_true")
+    ap.add_argument("--reserve", type=float, default=WORST_CASE_USD,
+                    help="per-debate spend reserved before starting one; size it to the format's max cost")
+    ap.add_argument("--timeout", type=int, default=DEBATE_TIMEOUT_SEC)
     a = ap.parse_args()
     ledger = load(a.ledger, {"budget": a.budget, "max_debates": a.max_debates, "debates": []})
     if a.report:
@@ -146,8 +149,8 @@ def main():
     used = sum(1 for r in ledger["debates"] if counted(r))
     if used >= ledger["max_debates"]:
         print(f"HARD STOP: {used} debates counted, the cap is {ledger['max_debates']}"); return 11
-    if spent + WORST_CASE_USD > ledger["budget"]:
-        print(f"HARD STOP: spent ${spent:.2f}; one more debate (worst ${WORST_CASE_USD}) could pass "
+    if spent + a.reserve > ledger["budget"]:
+        print(f"HARD STOP: spent ${spent:.2f}; one more debate (reserve ${a.reserve}) could pass "
               f"${ledger['budget']:.2f}"); return 11
 
     item = todo[0]
@@ -167,7 +170,7 @@ def main():
     try:
         proc = subprocess.run(["npx", "tsx", "lib/debate/cli.ts", "--config", cfg_path], cwd=a.code_root,
                               capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              timeout=DEBATE_TIMEOUT_SEC, shell=(os.name == "nt"))
+                              timeout=a.timeout, shell=(os.name == "nt"))
         rc, tail = proc.returncode, (proc.stdout + proc.stderr)[-1500:]
     except subprocess.TimeoutExpired:
         rc, tail = "timeout", ""
@@ -182,7 +185,7 @@ def main():
         if cost["usd"] is None:  # no flight recorder: fall back to the partial's own AI-call count
             partial = load(os.path.join(out_dir, f"{item['slug']}-partial.json")) or {}
             n_calls = ((partial.get("diagnostics") or {}).get("overview") or {}).get("total_ai_calls")
-            row["usd"] = 0.0 if n_calls == 0 else WORST_CASE_USD  # unknown spend is booked at the worst case
+            row["usd"] = 0.0 if n_calls == 0 else a.reserve  # unknown spend is booked at the worst case
             row["note"] = f"no flight recorder; partial total_ai_calls={n_calls}"
         row["status"] = "failed"; ledger["debates"].append(row); save(a.ledger, ledger)
         print(f"FAILED {item['slug']} rc={rc} after {secs}s, booked ${row['usd']}\n--- CLI output tail ---\n{tail}")

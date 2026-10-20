@@ -1,0 +1,386 @@
+{
+  "name": "t3790-confirm2-adaptive",
+  "output_dir": "C:\\Users\\jsnov\\repos\\ai-triad-data\\debates\\t3790-confirm2-adaptive-20261020",
+  "base_config": {
+    "model": "gemini-3.5-flash-lite",
+    "protocolId": "structured",
+    "pacing": "moderate",
+    "audience": "policymakers",
+    "activePovers": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ],
+    "useAdaptiveStaging": true
+  },
+  "expected_pins": {
+    "debate_model": "gemini-3.5-flash-lite",
+    "protocol_id": "structured",
+    "audience": "policymakers",
+    "active_povers": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ]
+  },
+  "debates": [
+    {
+      "slug": "t3790a01",
+      "config": {
+        "topic": "Mandatory pre-deployment safety evaluations for frontier AI models"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a02",
+      "config": {
+        "topic": "AI governance frameworks for advanced AI systems"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a03",
+      "config": {
+        "topic": "Should AI developers be legally liable for harms caused by their deployed models?"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a04",
+      "config": {
+        "topic": "Compute governance as a lever for AI safety: export controls and thresholds"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a05",
+      "config": {
+        "topic": "International coordination on AI safety standards and treaty obligations"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a06",
+      "config": {
+        "topic": "The risks and benefits of releasing powerful AI model weights publicly"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a07",
+      "config": {
+        "topic": "AI systems in high-stakes decisions: healthcare triage and criminal justice"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a08",
+      "config": {
+        "topic": "Alignment research priorities: interpretability versus capability scaling"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a09",
+      "config": {
+        "topic": "Economic displacement from AI automation: labor policy responses"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a10",
+      "config": {
+        "topic": "Autonomous weapons systems and the future of warfare under international law"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a11",
+      "config": {
+        "topic": "Mandatory pre-deployment safety evaluations for frontier AI models"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a12",
+      "config": {
+        "topic": "AI governance frameworks for advanced AI systems"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a13",
+      "config": {
+        "topic": "Should AI developers be legally liable for harms caused by their deployed models?"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a14",
+      "config": {
+        "topic": "Compute governance as a lever for AI safety: export controls and thresholds"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a15",
+      "config": {
+        "topic": "International coordination on AI safety standards and treaty obligations"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a16",
+      "config": {
+        "topic": "The risks and benefits of releasing powerful AI model weights publicly"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a17",
+      "config": {
+        "topic": "AI systems in high-stakes decisions: healthcare triage and criminal justice"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a18",
+      "config": {
+        "topic": "Alignment research priorities: interpretability versus capability scaling"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a19",
+      "config": {
+        "topic": "Economic displacement from AI automation: labor policy responses"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a20",
+      "config": {
+        "topic": "Autonomous weapons systems and the future of warfare under international law"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a21",
+      "config": {
+        "topic": "Mandatory pre-deployment safety evaluations for frontier AI models"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a22",
+      "config": {
+        "topic": "AI governance frameworks for advanced AI systems"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a23",
+      "config": {
+        "topic": "Should AI developers be legally liable for harms caused by their deployed models?"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a24",
+      "config": {
+        "topic": "Compute governance as a lever for AI safety: export controls and thresholds"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a25",
+      "config": {
+        "topic": "International coordination on AI safety standards and treaty obligations"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a26",
+      "config": {
+        "topic": "The risks and benefits of releasing powerful AI model weights publicly"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a27",
+      "config": {
+        "topic": "AI systems in high-stakes decisions: healthcare triage and criminal justice"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a28",
+      "config": {
+        "topic": "Alignment research priorities: interpretability versus capability scaling"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a29",
+      "config": {
+        "topic": "Economic displacement from AI automation: labor policy responses"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a30",
+      "config": {
+        "topic": "Autonomous weapons systems and the future of warfare under international law"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a31",
+      "config": {
+        "topic": "Mandatory pre-deployment safety evaluations for frontier AI models"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a32",
+      "config": {
+        "topic": "AI governance frameworks for advanced AI systems"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a33",
+      "config": {
+        "topic": "Should AI developers be legally liable for harms caused by their deployed models?"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a34",
+      "config": {
+        "topic": "Compute governance as a lever for AI safety: export controls and thresholds"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a35",
+      "config": {
+        "topic": "International coordination on AI safety standards and treaty obligations"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a36",
+      "config": {
+        "topic": "The risks and benefits of releasing powerful AI model weights publicly"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a37",
+      "config": {
+        "topic": "AI systems in high-stakes decisions: healthcare triage and criminal justice"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a38",
+      "config": {
+        "topic": "Alignment research priorities: interpretability versus capability scaling"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a39",
+      "config": {
+        "topic": "Economic displacement from AI automation: labor policy responses"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a40",
+      "config": {
+        "topic": "Autonomous weapons systems and the future of warfare under international law"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a41",
+      "config": {
+        "topic": "Mandatory pre-deployment safety evaluations for frontier AI models"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a42",
+      "config": {
+        "topic": "AI governance frameworks for advanced AI systems"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a43",
+      "config": {
+        "topic": "Should AI developers be legally liable for harms caused by their deployed models?"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a44",
+      "config": {
+        "topic": "Compute governance as a lever for AI safety: export controls and thresholds"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a45",
+      "config": {
+        "topic": "International coordination on AI safety standards and treaty obligations"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a46",
+      "config": {
+        "topic": "The risks and benefits of releasing powerful AI model weights publicly"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a47",
+      "config": {
+        "topic": "AI systems in high-stakes decisions: healthcare triage and criminal justice"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a48",
+      "config": {
+        "topic": "Alignment research priorities: interpretability versus capability scaling"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a49",
+      "config": {
+        "topic": "Economic displacement from AI automation: labor policy responses"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3790a50",
+      "config": {
+        "topic": "Autonomous weapons systems and the future of warfare under international law"
+      },
+      "expected_seat_tags": null
+    }
+  ],
+  "first_debate_gate": {
+    "_comment": "Frozen 2026-10-20 before the first re-run debate (PI condition, t/3802#9). All must hold for debate 1, else STOP and report.",
+    "staging_pacing": "moderate",
+    "debater_turns_min": 9,
+    "debater_turns_max": 15,
+    "_basis": "control cell (pre-fix, adaptive moderate, n=36): debater turns mean 11.4, max 15; the failed arm was a constant 6",
+    "confound_check": "later-inbound edges per debate computed and reported (one debate is a draw, not a test: it is reported, not gated)"
+  }
+}
