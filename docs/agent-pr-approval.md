@@ -8,8 +8,13 @@ How an agent records a PR approval, after the t/4096 Reviewer switch-over. Every
 GitHub login (`jpsnover`), so GitHub's own self-approval block never applied to a free-text
 `Approved (<role>):` comment — that's why `gh pr review --approve` was banned outright (root
 AGENTS.md, pre-switch-over). The reviewer App (`ai-triad-reviewer-jpsnover[bot]`) is a distinct
-GitHub identity, so a real review through it is both attributable and genuinely self-approval-safe
-(confirmed live, t/4096 arm 5: the App can't approve its own PR either).
+GitHub identity, but every PR here is still authored by `jpsnover`, not by an author App — so
+GitHub's own identity check does NOT make a reviewer-App review self-approval-safe by itself (an
+agent could run `Invoke-AsAgentApp -Role reviewer` on its own PR). What actually blocks that is
+`t1-approval-guard`'s owner-slug check on the review body (PR #3487) — the same check it already
+applied to the legacy comment. **This closes the reviewer-App vector only, not the whole class**:
+the guard still trusts the self-declared role name in the body, so an author can name a *different*
+role and pass. See the residual at t/4096#65.
 
 ## The command
 
