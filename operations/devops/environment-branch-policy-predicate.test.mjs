@@ -92,6 +92,42 @@ test('workflowEnvironmentNames: skips a templated/unresolvable value, does not c
   assert.deepEqual(workflowEnvironmentNames(files), []);
 });
 
+// t/4058, issue #3333: a bare `environment:` mapping key (workflow_dispatch input block, nothing
+// after the colon on its own line) must NOT be read as having the next line's `description:`
+// content as its value -- `\s*` matches `\n`, so a naive regex can cross the line boundary.
+test('workflowEnvironmentNames: a bare `environment:` input-mapping key yields no false match', () => {
+  const files = [{
+    path: 'deploy-azure.yml',
+    text: [
+      'on:',
+      '  workflow_dispatch:',
+      '    inputs:',
+      '      environment:',
+      "        description: 'Deployment environment (production only)'",
+      '        required: true',
+      "        default: 'production'",
+      '',
+    ].join('\n'),
+  }];
+  assert.deepEqual(workflowEnvironmentNames(files), []);
+});
+
+test('workflowEnvironmentNames: a bare mapping key does not suppress a real scalar elsewhere', () => {
+  const files = [{
+    path: 'mixed.yml',
+    text: [
+      '    inputs:',
+      '      environment:',
+      "        description: 'x'",
+      'jobs:',
+      '  deploy:',
+      '    environment: production',
+      '',
+    ].join('\n'),
+  }];
+  assert.deepEqual(workflowEnvironmentNames(files), ['production']);
+});
+
 test('workflowEnvironmentNames: de-duplicates the same name used by multiple jobs/files', () => {
   const files = [
     { path: 'a.yml', text: 'environment: production\n' },
