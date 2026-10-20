@@ -75,3 +75,75 @@ Describe 'Invoke-TokenStoreCheck — tokenStore safety predicate (t/4133)' {
         $r.Safe | Should -BeTrue
     }
 }
+
+# t/4169 (t/4133 C3): the pre-merge layer. Parses deploy/azure/main.bicep itself, so a template that
+# regresses to tokenStore.enabled:true without backing fails CI before it can ever deploy (t/4132).
+Describe 'main.bicep authConfig tokenStore is safe (t/4169)' {
+    BeforeAll {
+        function New-AuthFixture([string]$TokenStoreBody, [string]$Name = 'authX') {
+            @"
+resource $Name 'Microsoft.App/containerApps/authConfigs@2024-10-02-preview' = {
+  name: 'current'
+  properties: {
+    login: {
+      allowedExternalRedirectUrls: [
+        'https://`${containerApp.properties.configuration.ingress.fqdn}'
+      ]
+$TokenStoreBody
+    }
+  }
+}
+"@
+        }
+    }
+
+    It 'REAL main.bicep: finds the prod and staging authConfigs, each parsed, each safe' {
+        $text = Get-Content -Raw "$PSScriptRoot/../deploy/azure/main.bicep"
+        $cfgs = Get-BicepTokenStoreConfigs -BicepText $text
+        @($cfgs).Count | Should -BeGreaterOrEqual 2
+        @($cfgs.Resource) | Should -Contain 'authConfig'
+        @($cfgs.Resource) | Should -Contain 'authConfigStaging'
+        foreach ($c in $cfgs) {
+            $c.ParseError | Should -BeNullOrEmpty -Because "$($c.Resource) must have a literal, explicit tokenStore"
+            (Invoke-TokenStoreCheck -AppLabel $c.Resource -TokenStore $c.TokenStore).Safe | Should -BeTrue -Because "$($c.Resource) tokenStore must be disabled or blob-backed (t/4132)"
+        }
+    }
+
+    It 'FIRE: enabled: true with no backing (the t/4132 template) -> unsafe' {
+        $c = (Get-BicepTokenStoreConfigs -BicepText (New-AuthFixture "      tokenStore: {`n        enabled: true`n      }"))[0]
+        $c.ParseError | Should -BeNullOrEmpty
+        (Invoke-TokenStoreCheck -AppLabel $c.Resource -TokenStore $c.TokenStore).Safe | Should -BeFalse
+    }
+
+    It 'FIRE: enabled: true with an empty azureBlobStorage block -> unsafe' {
+        $c = (Get-BicepTokenStoreConfigs -BicepText (New-AuthFixture "      tokenStore: {`n        enabled: true`n        azureBlobStorage: {}`n      }"))[0]
+        (Invoke-TokenStoreCheck -AppLabel $c.Resource -TokenStore $c.TokenStore).Safe | Should -BeFalse
+    }
+
+    It 'PASS: enabled: true with sasUrlSettingName backing -> safe' {
+        $c = (Get-BicepTokenStoreConfigs -BicepText (New-AuthFixture "      tokenStore: {`n        enabled: true`n        azureBlobStorage: {`n          sasUrlSettingName: 'tokenstore-sas-url'`n        }`n      }"))[0]
+        (Invoke-TokenStoreCheck -AppLabel $c.Resource -TokenStore $c.TokenStore).Safe | Should -BeTrue
+    }
+
+    It 'PASS: enabled: true with blobContainerUri backing -> safe' {
+        $c = (Get-BicepTokenStoreConfigs -BicepText (New-AuthFixture "      tokenStore: {`n        enabled: true`n        azureBlobStorage: {`n          blobContainerUri: 'https://acct.blob.core.windows.net/tokens'`n        }`n      }"))[0]
+        (Invoke-TokenStoreCheck -AppLabel $c.Resource -TokenStore $c.TokenStore).Safe | Should -BeTrue
+    }
+
+    It 'IGNORES comments: a comment saying "enabled: true" does not override the real enabled: false' {
+        $c = (Get-BicepTokenStoreConfigs -BicepText (New-AuthFixture "      tokenStore: {`n        // enabled: true would lose sessions on recycle`n        enabled: false`n      }"))[0]
+        $c.ParseError | Should -BeNullOrEmpty
+        $c.TokenStore.enabled | Should -BeFalse
+    }
+
+    It 'FAILS CLOSED: no tokenStore block -> ParseError, never safe' {
+        $c = (Get-BicepTokenStoreConfigs -BicepText (New-AuthFixture '      preserveUrlFragmentsForLogins: false'))[0]
+        $c.ParseError | Should -Match 'no tokenStore block'
+        $c.TokenStore | Should -BeNullOrEmpty
+    }
+
+    It 'FAILS CLOSED: non-literal enabled (a param/expression) -> ParseError' {
+        $c = (Get-BicepTokenStoreConfigs -BicepText (New-AuthFixture "      tokenStore: {`n        enabled: tokenStoreEnabled`n      }"))[0]
+        $c.ParseError | Should -Match 'not a literal'
+    }
+}
