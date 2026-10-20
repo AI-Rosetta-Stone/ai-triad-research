@@ -55,10 +55,15 @@ on:
     # subscribed to those events. Keeping them on ci.yml re-ran the full matrix on
     # every label/auto-merge toggle, re-opening a transient BLOCKED window on an
     # already-green PR (t/3605/t/3607). Code CI only needs code-change events.
-    # lint:gated-events: opened,synchronize,reopened
+    # lint:gated-events: opened,synchronize,reopened,edited
     # ^ machine-readable declaration (t/3646): every event that can change what ci-gate
     #   aggregates. workflow-lint asserts pull_request.types ⊇ this set for the required context.
-    types: [opened, synchronize, reopened]
+    # 'edited' added (workflow-lint R3-floor, t/3646): also fires on a PR body/title edit — e.g.
+    # declaring `Tier: T2` after opening, which t/4103's tier-check needs re-evaluated. ci-gate's
+    # own job just re-aggregates its `needs:` jobs' pass/fail for the SAME commit SHA on an
+    # edited-only event (no code changes), so this is a harmless re-aggregation, not a re-run of
+    # the full test matrix.
+    types: [opened, synchronize, reopened, edited]
   # Nightly FULL-suite backstop (cost fix). Pushes to main/epic/** are now path-filtered
   # by `changes` exactly like PRs, so an unfiltered run no longer happens on every merge
   # (~35 merges/day x ~36 jobs was the bulk of Actions minutes). This scheduled run keeps
