@@ -186,12 +186,35 @@ export function registerEdgesRoutes(r: Router, _ctx: ServerCtx): void {
   let nodeSourceIndexCache: { value: unknown; builtAt: number } | null = null;
   const NODE_SOURCE_INDEX_TTL_MS = 60_000;
 
+  // t/4335: whole-corpus route, superseded by the per-node one below (t/4333's speed fix —
+  // this one lists all 911 summaries to render a single node, cold or on a 60s TTL expiry).
+  // Kept for one release with a WARN so a straggling caller is visible before removal.
   get('/api/node-source-index', async (_req, res) => {
     const now = Date.now();
     const fromCache = nodeSourceIndexCache !== null && (now - nodeSourceIndexCache.builtAt) < NODE_SOURCE_INDEX_TTL_MS;
     if (!fromCache) nodeSourceIndexCache = { value: await fileIO.buildNodeSourceIndex(), builtAt: now };
-    getGlobalRecorder()?.record({ type: 'system.info', component: 'node-source-index', level: 'info', message: 'node-source-index served', data: { source: fromCache ? 'cache' : 'compute' } });
+    getGlobalRecorder()?.record({
+      type: 'system.info', component: 'node-source-index', level: 'warn',
+      message: 'Deprecated whole-corpus /api/node-source-index called — use GET /api/node-source-index/:nodeId (t/4335)',
+      data: { source: fromCache ? 'cache' : 'compute' },
+    });
     json(res, nodeSourceIndexCache!.value);
+  });
+
+  // t/4334/t/4335: per-node, build-once/invalidate-on-change (not a TTL) — replaces the
+  // whole-corpus route above for the Sources tab's actual use case (one node at a time).
+  get('/api/node-source-index/:nodeId', async (req, res) => {
+    try {
+      const nodeId = param(req, 'nodeId', '/api/node-source-index/:nodeId');
+      json(res, await fileIO.getNodeSources(nodeId));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'node-source-index', level: 'error',
+        message: 'Failed to build per-node source index',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      error(res, String(err), 500, err);
+    }
   });
 
   get('/api/policy-source-index', async (_req, res) => {

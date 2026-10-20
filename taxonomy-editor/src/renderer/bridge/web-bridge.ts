@@ -785,6 +785,7 @@ const rawApi: AppAPI = {
   saveEdges: (data) => put('/api/edges', data).then(() => {}),
   buildNodeSourceIndex: () => get('/api/node-source-index'),
   buildPolicySourceIndex: () => get('/api/policy-source-index'),
+  getNodeSources: (nodeId) => get(`/api/node-source-index/${encodeURIComponent(nodeId)}`),
 
   // Conflict CRUD
   loadConflictFiles: () => get('/api/conflicts'),

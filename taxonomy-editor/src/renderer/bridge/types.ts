@@ -15,6 +15,7 @@ import type { StopReason, ProviderCallDiagnostics } from '@lib/ai-client/types';
 import type { PovTagProposalsFile, ProposalDecision, ProposalStatus, ApplyProposalDecisionResult } from '@lib/schema/povTagProposals';
 import type { RecountPolicyMembersResult } from '@lib/policy/registryRecount';
 import type { RefreshResult, RefreshAccept } from '@lib/electron-shared/modelDiscovery';
+import type { SourceReference as _SourceReference, SourceCardMeta as _SourceCardMeta } from '@lib/sourceIndex/types';
 
 /**
  * What the renderer may send to a model refresh (t/4031). No argument is a plain refresh, exactly as before.
@@ -416,6 +417,9 @@ export interface AppAPI {
   saveEdges: (data: EdgesFile) => Promise<void>;
   buildNodeSourceIndex: () => Promise<unknown>;
   buildPolicySourceIndex: () => Promise<unknown>;
+  /** t/4334/t/4335: per-node source index — replaces buildNodeSourceIndex (whole-corpus)
+   *  for the Sources tab's actual use case (one node at a time). */
+  getNodeSources: (nodeId: string) => Promise<{ sources: _SourceReference[]; cards: Record<string, _SourceCardMeta>; indexVersion: number }>;
 
   // --- Conflict CRUD ---
   loadConflictFiles: () => Promise<unknown[]>;

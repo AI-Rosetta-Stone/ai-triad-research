@@ -138,6 +138,9 @@ export const api: AppAPI = {
   bulkUpdateEdges: (indices, s) => window.electronAPI.bulkUpdateEdges(indices, s),
   buildNodeSourceIndex: () => window.electronAPI.buildNodeSourceIndex(),
   buildPolicySourceIndex: () => window.electronAPI.buildPolicySourceIndex(),
+  // t/4335: optional-chaining fallback until ElectronMain's IPC handler lands (child ticket
+  // filed) — an empty-but-valid shape, not null, so a caller doesn't need its own null guard.
+  getNodeSources: (nodeId) => window.electronAPI.getNodeSources?.(nodeId) ?? Promise.resolve({ sources: [], cards: {}, indexVersion: 0 }),
 
   // Conflict CRUD
   loadConflictFiles: () => window.electronAPI.loadConflictFiles(),
