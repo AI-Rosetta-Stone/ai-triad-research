@@ -187,8 +187,8 @@ param githubRunnerWebhookSecret string = ''
 // always measures whatever prod's CURRENT size actually is, not a stale snapshot of it — the
 // exact gap that made the first version of stagingLoadTestSize "prove it at the size you're
 // moving away from" when t/4263 proposed changing prod's own cpu/memory.
-var prodCpu = '2.0'
-var prodMemory = '4Gi'
+var prodCpu = '1.5'
+var prodMemory = '3Gi'
 
 var googleEnabled = !empty(googleClientId) && !empty(googleClientSecret)
 var githubEnabled = !empty(githubClientId) && !empty(githubClientSecret)
@@ -588,11 +588,17 @@ var baseEnv = [
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
   // ONNX embedding compute to the off-thread worker (t/3183) so a large novel-text batch can't starve
-  // the event loop past ACA's liveness deadline — the t/3165 fabricated-500 root cause. Requires the
-  // 2 vCPU worker floor above (t/3182). Proven: staging storm-canary GREEN + prod staged-flip AC-1/AC-3
-  // green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
+  // the event loop past ACA's liveness deadline — the t/3165 fabricated-500 root cause. Designed for
+  // a 2 vCPU worker floor (t/3182); prod now runs 1.5 vCPU by PI decision (t/4263), so the worker and
+  // the loop share 1.5 cores — see the resources comment below. Storm-canary proof was at 2 vCPU:
+  // GREEN + prod staged-flip AC-1/AC-3 green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
   // ExpectedEnvVars config-drift gate (Gate Co-Location — the gate verifies this value is deployed).
   { name: 'EMBEDDING_WORKER_OFFLOAD', value: '1' }
+  // t/4263 SO C3: pin the worker pool to ONE worker at 1.5 vCPU. configureEmbeddingWorkerPool clamps
+  // to availableParallelism()-1, which counts VISIBLE cores, not the cgroup CPU quota, so an unpinned
+  // pool could oversubscribe the 1.5-vCPU quota. Raise only together with prodCpu (or after the
+  // cgroup-aware clamp lands in lib/embeddings/offThreadEmbedding.ts). Gate-verified in deploy-azure.yml.
+  { name: 'EMBEDDING_WORKER_POOL_SIZE', value: '1' }
   // t/4312/#3467: PI-approved overlay-commit conflict fence (p/331#2174). Lands ON for both
   // prod and staging with #3469/#3470's server code, which reads this flag from the
   // environment and defaults OFF when unset — this entry is what actually arms it. MUST stay
@@ -719,22 +725,22 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'taxonomy-editor'
           image: containerImage
           resources: {
-            // 2 vCPU is the CORRECTNESS FLOOR for the embedding worker-offload
-            // (t/3182 / t/2977 C1). The off-thread ONNX worker (EMBEDDING_WORKER_OFFLOAD)
-            // needs a REAL second core: on 1 vCPU the worker time-slices the same core
-            // as the event loop, so a big embed still starves liveness (defeats the
-            // offload). 2 vCPU keeps the loop responsive while the worker computes.
-            // Stays within the ACA Consumption plan (0.25-4 vCPU) - one-line resources
-            // edit, no workload-profile/topology migration. Cost ~$0 (free grant, t/2977#4).
-            // Memory MUST be 4Gi: ACA Consumption only permits FIXED cpu:memory pairs, and
-            // 2.0 vCPU is valid ONLY with 4.0Gi. ARM rejects 2.0/2Gi with
-            // ContainerAppInvalidResourceTotal (the #1771 bug — a deploy would fail the ARM
-            // step; t/3182). Headroom is ample regardless: incident RSS ~650MB/2048 + ~250MB
-            // worker model copy ~= 900MB (embeddings.json is NOT copied to the worker — the
-            // cache resolve stays main-thread, only miss-texts marshal).
+            // 1.5 vCPU / 3Gi by PI decision (t/4263, 2026-10-19), overriding the 2 vCPU
+            // worker floor of t/3182 / t/2977 C1. That floor was justified as "Cost ~$0
+            // (free grant)"; in fact always-on 2 vCPU / 4Gi is well over the $30 budget
+            // (deploy/azure/runbooks/cost-investigation-2026-10.md).
+            // NOT 1.0/2Gi: the C1b test (t/4263#5) failed it — the synthetic-embeddings
+            // serialize blocked the loop 3.8s and 500'd, novel embeds starved, and a full
+            // serialize peaks ~2.0 GiB (more than a 2Gi limit). The bar is "no worse than
+            // 2.0/4Gi", and 1.5/3Gi met it (2.0's 2,076 MiB serialize peak is 68% of 3Gi). The serialize
+            // loop-block (t/4286) and the 45s novel-embed chunk budget (t/4287) fail at 2.0
+            // too; they are code fixes, not sizing. Before raising back to 2.0, check
+            // alert-event-loop-blocked / ingress-5xx history.
+            // Memory MUST match the fixed ACA Consumption pair: 1.5 vCPU is valid ONLY
+            // with 3.0Gi (Test-BicepAcaResourcePairs.ps1; the #1771 ARM-rejection bug).
             //
-            // t/4203 SO C1: these are now the prodCpu/prodMemory vars (single source of truth),
-            // not independent literals — whoever changes prod's size (e.g. t/4263) edits the var
+            // t/4203 SO C1: these are the prodCpu/prodMemory vars (single source of truth),
+            // not independent literals — whoever changes prod's size (this PR) edits the var
             // near the top of this file, not this line, so stagingLoadTestSize stays correct.
             cpu: json(prodCpu)
             memory: prodMemory
