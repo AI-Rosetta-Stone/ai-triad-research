@@ -91,11 +91,27 @@ if ($MyInvocation.InvocationName -ne '.') {
     $failures = [System.Collections.Generic.List[string]]::new()
     $summary = [System.Collections.Generic.List[string]]::new()
 
+    # 0. Warm up: staging (and idle prod) scale to zero, and the first request waits on a cold start
+    #    (~30-60s; budget kept under the job's 5-minute timeout). Without this the sign-in hit the 30s timeout on the first run (t/4134, run 39449706966).
+    $warmDeadline = (Get-Date).AddSeconds(120); $warm = $false; $warmStatus = 'no response'
+    while (-not $warm -and (Get-Date) -lt $warmDeadline) {
+        try {
+            $hz = Invoke-WebRequest -Uri "$BaseUrl/healthz" -SkipHttpErrorCheck -TimeoutSec 45
+            $warmStatus = "$($hz.StatusCode)"
+            if ($hz.StatusCode -eq 200) { $warm = $true; break }
+        } catch { $warmStatus = $_.Exception.Message }
+        Start-Sleep -Seconds 10
+    }
+    $summary.Add("| warm-up GET /healthz | $warmStatus |")
+    if (-not $warm) {
+        Write-Warning "t/4134: /healthz never returned 200 within 120s (last: $warmStatus) — attempting sign-in anyway"
+    }
+
     # 1. Easy Auth client-directed sign-in
     $zumo = $null
     try {
         $login = Invoke-WebRequest -Method Post -Uri "$BaseUrl/.auth/login/github" -ContentType 'application/json' `
-            -Body (@{ access_token = $env:SMOKE_GH_TOKEN } | ConvertTo-Json -Compress) -SkipHttpErrorCheck -TimeoutSec 30
+            -Body (@{ access_token = $env:SMOKE_GH_TOKEN } | ConvertTo-Json -Compress) -SkipHttpErrorCheck -TimeoutSec 45
         $summary.Add("| sign-in POST /.auth/login/github | $($login.StatusCode) |")
         if ($login.StatusCode -eq 200) {
             $zumo = ($login.Content | ConvertFrom-Json).authenticationToken
@@ -109,7 +125,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     if ($zumo) {
         $h = @{ 'X-ZUMO-AUTH' = $zumo }
         # 2. Authenticated identity + read-only tier
-        $me = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -Headers $h -SkipHttpErrorCheck -TimeoutSec 30
+        $me = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -Headers $h -SkipHttpErrorCheck -TimeoutSec 45
         $summary.Add("| GET /api/auth/me | $($me.StatusCode) |")
         $v = $null
         if ($me.StatusCode -ne 200) { $failures.Add("/api/auth/me returned $($me.StatusCode) for a signed-in session (t/4132 returned 500 here)") }
@@ -119,7 +135,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         }
         # 3. Write probe — only once /me has proved read-only (SO C1); no If-Match, so it can't write
         if (Test-ShouldSendWriteProbe -MeVerdict $v) {
-            $probe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -Headers $h -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 30
+            $probe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -Headers $h -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 45
             $reason = if ($probe.Headers['X-Auth-Reason']) { [string]@($probe.Headers['X-Auth-Reason'])[0] } else { '' }
             $summary.Add("| write probe PUT /api/taxonomy/accelerationist (no If-Match) | $($probe.StatusCode) $reason |")
             $p = Test-ReadOnlyProbeResponse -StatusCode ([int]$probe.StatusCode) -AuthReason $reason -Body ([string]$probe.Content)
