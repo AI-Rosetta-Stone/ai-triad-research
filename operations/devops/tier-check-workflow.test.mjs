@@ -198,8 +198,10 @@ test('C3: inlineR1Fallback agrees with the predicate checkR1 on every r1 entry, 
 });
 
 // ── t/4343: early visibility into what a declared tier still needs before merge ────────────
+const FIXTURE_CHANGE_TIERS_URL = 'https://github.com/AI-Rosetta-Stone/ai-triad-research/blob/main/AGENTS.md#change-tiers-and-decision-rights-t4092-pi-approved-2026-10-07';
+
 test('tierRequirementsNote: T1 names the reviewer-App approval (comment accepted during transition) and the enforcing gate', () => {
-  const note = loadTierRequirementsNote()('T1');
+  const note = loadTierRequirementsNote()('T1', FIXTURE_CHANGE_TIERS_URL);
   assert.match(note, /Approved \(<role>\):/);
   assert.match(note, /reviewer-App review/);
   assert.match(note, /accepted during the transition/);
@@ -207,7 +209,7 @@ test('tierRequirementsNote: T1 names the reviewer-App approval (comment accepted
 });
 
 test('tierRequirementsNote: T2 names the TL approval path and the PI-only exception, not a bare "PI"', () => {
-  const note = loadTierRequirementsNote()('T2');
+  const note = loadTierRequirementsNote()('T2', FIXTURE_CHANGE_TIERS_URL);
   assert.match(note, /Second Opinion/);
   assert.match(note, /consult-hold/);
   assert.match(note, /\bTL\b/);
@@ -216,13 +218,24 @@ test('tierRequirementsNote: T2 names the TL approval path and the PI-only except
   assert.match(note, /consult-hold-guard/);
 });
 
-test('both notes link to the AGENTS.md Change Tiers heading, and that heading still exists', () => {
-  const t1 = loadTierRequirementsNote()('T1');
-  const t2 = loadTierRequirementsNote()('T2');
-  const anchor = 'AGENTS.md#change-tiers-and-decision-rights-t4092-pi-approved-2026-10-07';
-  assert.ok(t1.includes(anchor), 'T1 note must link the Change Tiers heading');
-  assert.ok(t2.includes(anchor), 'T2 note must link the Change Tiers heading');
+test('both notes render an ABSOLUTE link (not a bare repo-relative AGENTS.md#... that 404s in a PR comment)', () => {
+  const t1 = loadTierRequirementsNote()('T1', FIXTURE_CHANGE_TIERS_URL);
+  const t2 = loadTierRequirementsNote()('T2', FIXTURE_CHANGE_TIERS_URL);
+  for (const note of [t1, t2]) {
+    assert.match(note, /https:\/\//, 'the link must be absolute, not repo-relative');
+    assert.match(note, /\/blob\/main\/AGENTS\.md#/);
+  }
+});
 
+test('the call site builds the link from context.serverUrl, not a hardcoded host, and anchors it to blob/main', () => {
+  const endIdx = workflow.indexOf('// END requirements-note');
+  assert.ok(endIdx >= 0);
+  const code = workflow.slice(endIdx, endIdx + 1000);
+  assert.match(code, /context\.serverUrl/, 'the URL must come from context.serverUrl, not a hardcoded github.com');
+  assert.match(code, /\/blob\/main\/AGENTS\.md#change-tiers-and-decision-rights-t4092-pi-approved-2026-10-07/);
+});
+
+test('the Change Tiers heading linked by both notes still exists verbatim in root AGENTS.md', () => {
   const rootAgentsMd = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
   assert.match(rootAgentsMd, /^## Change Tiers and Decision Rights \(t\/4092, PI-approved 2026-10-07\)$/m,
     'the heading the notes link to must still exist verbatim in root AGENTS.md -- a rename here must fail this test, not drift silently');

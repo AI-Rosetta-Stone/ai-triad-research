@@ -270,19 +270,23 @@ jobs:
             // Both notes link to the AGENTS.md source instead of restating it in full, since the
             // restated text itself went stale once already (TL review, t/4343 PR #3518) --
             // tier-check-workflow.test.mjs asserts the linked heading still exists in AGENTS.md.
-            const CHANGE_TIERS_LINK = 'AGENTS.md#change-tiers-and-decision-rights-t4092-pi-approved-2026-10-07';
-            function tierRequirementsNote(tier) {
+            // The URL must be ABSOLUTE (TL re-review): a relative `AGENTS.md#...` link in a PR
+            // comment resolves against the comment's own page URL, not the repo, and 404s. The
+            // URL is passed in rather than read from `context` inside this block, so the
+            // function stays pure and the test can call it with no `context` global in scope.
+            function tierRequirementsNote(tier, changeTiersUrl) {
               if (tier === 'T1') {
-                return `Needs: an \`Approved (<role>):\` approval at the current head from a role other than this PR's owner. Use a reviewer-App review (\`docs/agent-pr-approval.md\`); a comment is accepted during the transition. Enforced by \`t1-approval-guard\`. Arm auto-merge only after it. See [${CHANGE_TIERS_LINK}](${CHANGE_TIERS_LINK}).`;
+                return `Needs: an \`Approved (<role>):\` approval at the current head from a role other than this PR's owner. Use a reviewer-App review (\`docs/agent-pr-approval.md\`); a comment is accepted during the transition. Enforced by \`t1-approval-guard\`. Arm auto-merge only after it. See [${changeTiersUrl}](${changeTiersUrl}).`;
               }
               if (tier === 'T2') {
-                return `Needs: one Second Opinion round, with \`consult-hold\` on until the SO clears this exact head. Then the TL approves (reviewer App). It goes to the PI instead if the SO dissents or didn't review, or if the change is itself a PI-only decision (spend, secrets policy, branch protection, deleting prod data). \`consult-hold-guard\` enforces the label. See [${CHANGE_TIERS_LINK}](${CHANGE_TIERS_LINK}).`;
+                return `Needs: one Second Opinion round, with \`consult-hold\` on until the SO clears this exact head. Then the TL approves (reviewer App). It goes to the PI instead if the SO dissents or didn't review, or if the change is itself a PI-only decision (spend, secrets policy, branch protection, deleting prod data). \`consult-hold-guard\` enforces the label. See [${changeTiersUrl}](${changeTiersUrl}).`;
               }
               return null;
             }
             // END requirements-note
 
-            const requirementsNote = tierRequirementsNote(result.tier);
+            const changeTiersUrl = `${context.serverUrl}/${owner}/${repo}/blob/main/AGENTS.md#change-tiers-and-decision-rights-t4092-pi-approved-2026-10-07`;
+            const requirementsNote = tierRequirementsNote(result.tier, changeTiersUrl);
 
             if (result.comments.length === 0 && !requirementsNote) {
               await postVerdictComment(`${MARKER}\ntier-check: clean — no advisory findings.`, { createIfAbsent: false });
