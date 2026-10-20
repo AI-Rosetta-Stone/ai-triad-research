@@ -82,6 +82,13 @@ export interface SourceIdentityDoc {
   snapshotSha256?: string | null;
 }
 
+/** Spec 4.5: a pair sharing a trusted URL key, kept from joining by the 4.3
+ *  conflict veto (differing effective hashes AND differing titles). */
+export interface SourceUrlConflict {
+  url_key: string;
+  ids: [string, string];
+}
+
 export interface SourceIdentityGroupResult {
   /** docId → canonical (ordinal-smallest) id in its connected component. */
   canonical: Record<string, string>;
@@ -90,6 +97,10 @@ export interface SourceIdentityGroupResult {
    *  one collision's doc ids, ordinal-sorted; collisions are sorted by their
    *  first id. */
   titleCollisions: string[][];
+  /** Pairs vetoed from joining on a shared URL key (spec 4.3/4.5) — reported
+   *  even if other edges still put both documents in one group. Sorted by
+   *  `url_key`, then by `ids`, all ordinal. */
+  urlConflicts: SourceUrlConflict[];
 }
 
 const BOM = '﻿';
@@ -98,6 +109,15 @@ const SUFFIX_RE = /^(.+)-(\d+)$/;
 const TRACKING_PARAM_EXACT = new Set(['fbclid', 'gclid', 'mc_cid', 'mc_eid']);
 const SEARCH_CONFIDENCE = 'search';
 const BINARY_PLACEHOLDER_RE = /^# [^\n]*\n\n\[Binary file — no text extraction available\]$/;
+const MIN_HASH_BODY_WORDS = 100;
+
+/** Spec 1.3 (version 4): word count for the 100-word hash-identity floor.
+ *  Splits on runs of ASCII whitespace only (not Unicode `\s` — .NET and JS
+ *  disagree on that set) and counts the non-empty tokens. */
+function countAsciiWhitespaceWords(body: string): number {
+  const tokens = body.split(/[ \t\n\r\f\v]+/).filter(t => t !== '');
+  return tokens.length;
+}
 
 /**
  * Spec section 1.1-1.2: the body text `content_sha256` is computed over.
@@ -140,6 +160,7 @@ export function computeSourceContentHash(
   if (body === '') return null;
   if (body.startsWith('# PDF EXTRACTION FAILED')) return null;
   if (BINARY_PLACEHOLDER_RE.test(body)) return null;
+  if (countAsciiWhitespaceWords(body) < MIN_HASH_BODY_WORDS) return null;
   return digest(new TextEncoder().encode(body));
 }
 
@@ -291,21 +312,67 @@ function suffixEdgeAllowed(
  *     (4.5), since generic or non-ASCII-reduced titles would otherwise chain
  *     unrelated documents together.
  */
-type DocDerivedFields = { titleKeys: Map<string, string>; urlKeys: Map<string, string[]>; recordedHashes: Map<string, string | null> };
+type DocDerivedFields = {
+  titleKeys: Map<string, string>; urlKeys: Map<string, string[]>;
+  recordedHashes: Map<string, string | null>; effectiveHashes: Map<string, string | null>;
+};
 
 function computeDerivedFields(docs: SourceIdentityDoc[]): DocDerivedFields {
   const titleKeys = new Map<string, string>();
   const urlKeys = new Map<string, string[]>();
   const recordedHashes = new Map<string, string | null>();
+  const effectiveHashes = new Map<string, string | null>();
   for (const d of docs) {
     titleKeys.set(d.id, normalizeTitleForCanonicalId(d.metadata.title));
     urlKeys.set(d.id, trustedSourceUrlKeys(d.metadata));
     recordedHashes.set(d.id, d.metadata.content_sha256 ?? null);
+    effectiveHashes.set(d.id, effectiveHash(d));
   }
-  return { titleKeys, urlKeys, recordedHashes };
+  return { titleKeys, urlKeys, recordedHashes, effectiveHashes };
 }
 
-function unionAllEdges(uf: DocIdUnionFind, known: Set<string>, docs: SourceIdentityDoc[], derived: DocDerivedFields): void {
+/** Spec 4.3's veto: a pair sharing a URL key does NOT join when both their
+ *  effective hashes AND their titles differ (both sides must have a
+ *  non-empty/present value on each axis for it to count as "differing"). */
+function urlPairVetoed(derived: DocDerivedFields, a: string, b: string): boolean {
+  const ha = derived.effectiveHashes.get(a) ?? null;
+  const hb = derived.effectiveHashes.get(b) ?? null;
+  const hashesDiffer = !!ha && !!hb && ha !== hb;
+
+  const ta = derived.titleKeys.get(a) ?? '';
+  const tb = derived.titleKeys.get(b) ?? '';
+  const titlesDiffer = ta !== '' && tb !== '' && ta !== tb;
+
+  return hashesDiffer && titlesDiffer;
+}
+
+/** Spec 4.3/4.5: URL edges are pairwise, not first-seen-wins grouping — every
+ *  pair sharing a trusted key is considered independently, so one vetoed
+ *  pair doesn't block others sharing the same key. Mutates `uf` for allowed
+ *  pairs and returns every vetoed pair as a `url_conflict`. */
+function unionUrlEdgesPairwise(uf: DocIdUnionFind, derived: DocDerivedFields): SourceUrlConflict[] {
+  const idsByKey = new Map<string, string[]>();
+  for (const [id, keys] of derived.urlKeys) {
+    for (const key of keys) {
+      const bucket = idsByKey.get(key);
+      if (bucket) bucket.push(id); else idsByKey.set(key, [id]);
+    }
+  }
+
+  const conflicts: SourceUrlConflict[] = [];
+  for (const [key, ids] of idsByKey) {
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const [a, b] = ids[i] < ids[j] ? [ids[i], ids[j]] : [ids[j], ids[i]];
+        if (urlPairVetoed(derived, a, b)) conflicts.push({ url_key: key, ids: [a, b] });
+        else uf.union(a, b);
+      }
+    }
+  }
+  return conflicts;
+}
+
+function unionAllEdges(uf: DocIdUnionFind, known: Set<string>, docs: SourceIdentityDoc[], derived: DocDerivedFields): SourceUrlConflict[] {
   const { titleKeys, urlKeys, recordedHashes } = derived;
   const byKey = new Map<string, string>();
   for (const d of docs) {
@@ -314,13 +381,13 @@ function unionAllEdges(uf: DocIdUnionFind, known: Set<string>, docs: SourceIdent
       if (target && known.has(target)) uf.union(d.id, target);
     }
     unionByKey(uf, byKey, 'hash', effectiveHash(d), d.id);
-    for (const u of urlKeys.get(d.id) ?? []) unionByKey(uf, byKey, 'url', u, d.id);
 
     const suffixMatch = d.id.match(SUFFIX_RE);
     if (suffixMatch && known.has(suffixMatch[1]) && suffixEdgeAllowed(titleKeys, urlKeys, recordedHashes, d.id, suffixMatch[1])) {
       uf.union(d.id, suffixMatch[1]);
     }
   }
+  return unionUrlEdgesPairwise(uf, derived);
 }
 
 /** Spec 4.5's report: equal non-empty title keys spanning 2+ already-resolved
@@ -342,20 +409,29 @@ function findTitleCollisions(ids: string[], titleKeys: Map<string, string>, cano
   return collisions;
 }
 
+/** Spec 4.5: sorted by `url_key`, then by `ids`, all ordinal. */
+function sortUrlConflicts(conflicts: SourceUrlConflict[]): SourceUrlConflict[] {
+  return [...conflicts].sort((a, b) => {
+    if (a.url_key !== b.url_key) return a.url_key < b.url_key ? -1 : 1;
+    if (a.ids[0] !== b.ids[0]) return a.ids[0] < b.ids[0] ? -1 : 1;
+    return a.ids[1] < b.ids[1] ? -1 : a.ids[1] > b.ids[1] ? 1 : 0;
+  });
+}
+
 export function groupSourceIdentities(docs: SourceIdentityDoc[]): SourceIdentityGroupResult {
   const ids = docs.map(d => d.id);
   const known = new Set(ids);
   const uf = new DocIdUnionFind(ids);
 
   const derived = computeDerivedFields(docs);
-  unionAllEdges(uf, known, docs, derived);
+  const urlConflicts = unionAllEdges(uf, known, docs, derived);
 
   const canonical: Record<string, string> = {};
   for (const id of ids) canonical[id] = uf.find(id);
 
   const titleCollisions = findTitleCollisions(ids, derived.titleKeys, canonical);
 
-  return { canonical, titleCollisions };
+  return { canonical, titleCollisions, urlConflicts: sortUrlConflicts(urlConflicts) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
