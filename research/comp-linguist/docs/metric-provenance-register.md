@@ -469,6 +469,19 @@ These are the rule and threshold for the cross-tag reflection gate, spec `analys
 
 **Revisit when** a second POV gets tags (re-run M0 for that POV), or when M1/M2 show the judge's `conflict` rate is near 0% or near 100% on real edits. Either result means the scale isn't separating cases.
 
+## 20. POV-tag pilot primary outcome: wing distinctness (t/3963)
+
+The decision thresholds for the t/3963 primary outcome, operationalised in the pre-data amendment t/3963#7 and computed by `analyses/t3963-tag-pilot/primary_wing_distinctness.ts`. **They aren't `CalibrationDataPoint` fields, so they're excluded from the §5 count.**
+
+| Item | Value | Provenance | Evidence / notes |
+|---|---|---|---|
+| Per-motion "distinct" rule | between-wing = mean(d(A1,A3), d(A2,A4)) > within-wing = max(d(A1,A2), d(A3,A4)); d = cosine distance of per-debate mean Skeptic vectors | **stipulated** | Within-wing pairs share a soul and differ only in selection mode, a real treatment, so the floor is conservative (biased toward "not distinct"), as named in #7. |
+| Decision rule | distinct on ≥ 7 of 10 motions; not distinct on ≤ 3; inconclusive in between | **stipulated** | From t/3963#3. A majority-plus margin with no fitted basis. |
+| Non-degenerate void line | median within-wing distance < 0.01 → void | **stipulated** | Excludes the degenerate "identical outputs" pass (t/3587). For scale, the stage-1 m01 plumbing check measured within-wing 0.17; that's a plumbing check, not evidence for the value. |
+| Turn chunking | paragraphs, split further at about 900 characters | **stipulated** | all-MiniLM-L6-v2 truncates at 256 tokens. Without chunking, an about 2,000-character turn would be embedded from its first half only. |
+
+**Revisit when** the pilot reports. If within-wing distances cluster near between-wing ones on every motion, the instrument may not separate voices at all, and a different unit (crux sets, cited-node sets) should be the primary.
+
 ## Maintenance
 
 - Every PR adding or modifying a metric, threshold, weight, or lexicon must state its provenance class and update this register in the same PR (CL review checklist item).
