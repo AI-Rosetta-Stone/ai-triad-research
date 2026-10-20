@@ -113,3 +113,7 @@ export async function listInquiryResults(): Promise<InquiryResultSummary[]> {
   if (isAnonymousUser()) return [];
   return readIndex();
 }
+
+// No delete path exists for inquiry results yet. When one is added: deleting a result must
+// also delete its inquiry debate session (storage/debateStore.ts's `inquiry-debate-<id>.json`,
+// keyed by `result.debateId`), or the reference breaks in the other direction (t/4338).

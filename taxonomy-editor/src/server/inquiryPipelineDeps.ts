@@ -145,6 +145,12 @@ function createInquiryAdapter(): AIAdapter {
  * can be told apart from interactive debates in listings/counts. `mustNotExist: true` (t/4331)
  * makes this a true create — a fresh `session.id`, one writer — and skips the "missing
  * expectedVersion" WARN that tracks un-migrated UPDATE callers, not legitimate creates.
+ * `excludeFromQuota: true` (t/4331, CL review on #3511) is what actually makes this
+ * quota-exempt: it stores under `inquiry-debate-<id>.json`, a prefix the quota count and
+ * the debate listing both skip structurally — `mustNotExist` alone does not exempt a save
+ * from the quota (that was CL's finding: the first pass used the plain `debate-<id>.json`
+ * path, which the quota counts regardless of any other opt). `loadDebateSession` still
+ * finds it via a fallback, so "View raw run" is unaffected.
  *
  * Never lets a save failure break the inquiry answer itself: the result is the user-facing
  * artifact, the debate is an audit copy. A failed save just means "View raw run" 404s for this
@@ -153,7 +159,7 @@ function createInquiryAdapter(): AIAdapter {
 async function persistInquiryDebateSession(session: unknown, jobId: string): Promise<void> {
   const marked = { ...(session as object), origin: 'inquiry', inquiryJobId: jobId };
   try {
-    await saveDebateSession(marked, 'inquiry', { mustNotExist: true });
+    await saveDebateSession(marked, 'inquiry', { mustNotExist: true, excludeFromQuota: true });
   } catch (err) {
     log.server.warn({ err, jobId }, 'Failed to persist inquiry debate session — "View raw run" will 404 for this result (t/4338)');
     getGlobalRecorder()?.record({

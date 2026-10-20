@@ -9,6 +9,9 @@
 // return 200 with that session, not 404.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import type { InquiryPipelineDeps } from '../../../../lib/debate/inquiryPipeline.js';
@@ -112,5 +115,50 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
   it('a result for a NON-existent debateId still 404s (sanity — the fix does not make loadDebateSession lenient)', async () => {
     const { status } = await userContext.runWithUser(USER_CTX, () => invokeGetDebate('never-saved'));
     expect(status).toBe(404);
+  });
+
+  // CL review on #3511: the first pass used `mustNotExist` alone, which still stored under
+  // `debate-<id>.json` — counted by the quota and visible in the list. These two arms are
+  // CL's exact asks (t/4338, PR comment on #3511).
+  it("doesn't consume a debate slot, and doesn't appear in the user's debate list", async () => {
+    await userContext.runWithUser(USER_CTX, async () => {
+      expect((await fileIO.getDebatesQuotaStatus()).current).toBe(0);
+
+      await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-2' });
+      const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+      await h.capturedDeps!.runDebate(config, 'q');
+
+      expect((await fileIO.getDebatesQuotaStatus()).current).toBe(0);
+      const list = await fileIO.listDebateSessions() as { id: string }[];
+      expect(list.find(d => d.id === 'inquiry-session-1')).toBeUndefined();
+    });
+  });
+
+  it('still gets persisted even when the user is already at their debate quota', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'quota-rt-'));
+    const prevRoot = process.env.AI_TRIAD_DATA_ROOT;
+    process.env.AI_TRIAD_DATA_ROOT = dataRoot;
+    try {
+      fs.mkdirSync(path.join(dataRoot, 'admin'), { recursive: true });
+      fs.writeFileSync(path.join(dataRoot, 'admin', 'quotas.json'), JSON.stringify({ defaults: { maxDebates: 1 }, elevated: [] }));
+
+      await userContext.runWithUser(USER_CTX, async () => {
+        // Hit the (tiny, test-configured) limit through a normal, quota-counted save first.
+        await fileIO.saveDebateSession({ id: 'seed-1', title: 'seed', phase: 'closed' }, 'test');
+        const before = await fileIO.getDebatesQuotaStatus();
+        expect(before.allowed).toBe(false); // genuinely at quota
+
+        await buildInquiryRunPipeline()(REQUEST, { onStage: () => {}, jobId: 'job-rt-3' });
+        const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+        // Must not throw the 429 a normal save would at this point.
+        await expect(h.capturedDeps!.runDebate(config, 'q')).resolves.toBeDefined();
+      });
+
+      const { status } = await userContext.runWithUser(USER_CTX, () => invokeGetDebate('inquiry-session-1'));
+      expect(status).toBe(200);
+    } finally {
+      if (prevRoot === undefined) delete process.env.AI_TRIAD_DATA_ROOT; else process.env.AI_TRIAD_DATA_ROOT = prevRoot;
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
   });
 });
