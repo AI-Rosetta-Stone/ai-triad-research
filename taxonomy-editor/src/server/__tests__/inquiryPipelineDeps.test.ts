@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
   capturedDeps: null as InquiryPipelineDeps | null,
   warnSpy: vi.fn(),
   recordSpy: vi.fn(),
+  saveDebateSessionSpy: vi.fn(async () => ({ newVersion: 1 })),
+  runHeadlessDebateMock: vi.fn(async () => ({ session: { id: 'session-1' }, terminationReason: undefined })),
 }));
 
 vi.mock('../routes/corpusAssemblyCache.js', () => ({
@@ -29,8 +31,9 @@ vi.mock('../ai/aiBackends.js', () => ({
   computeQueryEmbedding: (text: string) => computeQueryEmbeddingSpy(text),
   generateText: vi.fn(),
 }));
-vi.mock('../../../../lib/debate/headlessRunner.js', () => ({ runHeadlessDebate: vi.fn() }));
-vi.mock('../../../../lib/debate/taxonomyLoader.js', () => ({ loadTaxonomy: () => ({}) }));
+vi.mock('../../../../lib/debate/headlessRunner.js', () => ({ runHeadlessDebate: h.runHeadlessDebateMock }));
+vi.mock('../storage/debateStore.js', () => ({ saveDebateSession: h.saveDebateSessionSpy }));
+vi.mock('../../../../lib/debate/taxonomyLoader.js', () => ({ loadTaxonomy: () => ({ embeddings: {} }) }));
 vi.mock('../config.js', () => ({ getProjectRoot: () => '/repo' }));
 vi.mock('../../../../lib/debate/inquiryPipeline.js', () => ({
   runInquiryPipeline: async (_req: unknown, deps: InquiryPipelineDeps) => { h.capturedDeps = deps; return { schemaVersion: 1 }; },
@@ -42,12 +45,14 @@ import { buildInquiryRunPipeline } from '../inquiryPipelineDeps.js';
 
 const REQUEST = { question: 'q', fidelity: 'standard' as const };
 const ctxOnStage = vi.fn();
-const CTX = { onStage: ctxOnStage };
+const CTX = { onStage: ctxOnStage, jobId: 'job-123' };
 
 beforeEach(() => {
   h.corpora.clear(); h.fail.clear(); h.capturedDeps = null;
   h.warnSpy.mockClear(); h.recordSpy.mockClear(); ctxOnStage.mockClear();
   computeQueryEmbeddingSpy.mockClear();
+  h.saveDebateSessionSpy.mockClear().mockResolvedValue({ newVersion: 1 });
+  h.runHeadlessDebateMock.mockClear().mockResolvedValue({ session: { id: 'session-1' }, terminationReason: undefined });
   // Each camp's pov file contributes one distinct node + embedding; situations are shared.
   for (const pov of ['accelerationist', 'safetyist', 'skeptic', 'cross-cutting']) {
     h.corpora.set(pov, { povNodes: [{ id: `${pov}-n1` }], situationNodes: [{ id: 'sit-1' }], nodeEmbeddings: { [`${pov}-n1`]: { pov, vector: [0] } } });
@@ -111,5 +116,45 @@ describe('t/4289/t/4290 — server inquiry adapter wires computeQueryEmbedding',
     const adapter = h.capturedDeps!.adapter;
     computeQueryEmbeddingSpy.mockRejectedValueOnce(new Error('ONNX runtime unavailable'));
     await expect(adapter.computeQueryEmbedding!('q')).rejects.toThrow('ONNX runtime unavailable');
+  });
+});
+
+// t/4338: runHeadlessDebate's session was never persisted, so result.debateId (session.id)
+// pointed at nothing — "View raw run" (t/3617) 404'd for every inquiry answer ever produced.
+describe('t/4338 — runDebate persists the headless debate session', () => {
+  it('calls saveDebateSession with mustNotExist:true and the origin/jobId marker', async () => {
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    await h.capturedDeps!.runDebate(config, 'q');
+
+    expect(h.saveDebateSessionSpy).toHaveBeenCalledTimes(1);
+    const [savedSession, caller, opts] = h.saveDebateSessionSpy.mock.calls[0];
+    expect((savedSession as { id: string; origin: string; inquiryJobId: string }).id).toBe('session-1');
+    expect((savedSession as { origin: string }).origin).toBe('inquiry');
+    expect((savedSession as { inquiryJobId: string }).inquiryJobId).toBe('job-123');
+    expect(caller).toBe('inquiry');
+    expect(opts).toEqual({ mustNotExist: true });
+  });
+
+  it('still returns the session/terminationReason to the pipeline on a successful save', async () => {
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+    const result = await h.capturedDeps!.runDebate(config, 'q');
+    expect(result.session).toEqual({ id: 'session-1' });
+  });
+
+  it('a save failure is logged, not swallowed silently, and does not break the inquiry result', async () => {
+    h.saveDebateSessionSpy.mockRejectedValueOnce(new Error('WRITE_CONFLICT'));
+    await buildInquiryRunPipeline()(REQUEST, CTX);
+    const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
+
+    const result = await h.capturedDeps!.runDebate(config, 'q');
+
+    expect(result.session).toEqual({ id: 'session-1' }); // the answer still completes
+    expect(h.warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: 'job-123' }),
+      expect.stringContaining('Failed to persist inquiry debate session'),
+    );
+    expect(h.recordSpy).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn' }));
   });
 });

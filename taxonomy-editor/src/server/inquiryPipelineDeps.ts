@@ -35,6 +35,7 @@ import { getModelRegistry } from './ai/aiBackends.js';
 import * as ai from './ai/aiBackends.js';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { saveDebateSession } from './storage/debateStore.js';
 
 // Camp code (contract) → taxonomy pov-file name (what readTaxonomyFile/getAssembledCorpus key on).
 // GroundingEnvelope.nodesByCamp is a PARTIAL record, so a camp whose file is absent is skipped with a
@@ -134,6 +135,35 @@ function createInquiryAdapter(): AIAdapter {
   };
 }
 
+/**
+ * t/4338: persist the inquiry's underlying headless debate session so `result.debateId`
+ * (stamped from `session.id`, t/3641) resolves to something — before this, `runHeadlessDebate`
+ * never persisted anything, so "View raw run" (t/3617) 404'd for every inquiry answer ever
+ * produced. CL + TL decision (t/4338#2/#3): persist, quota-exempt (an inquiry debate is an
+ * implementation detail of answering the inquiry, not a user-initiated debate — counting it
+ * against debate quota would be a cost-model change, PI-only), marked with its origin so it
+ * can be told apart from interactive debates in listings/counts. `mustNotExist: true` (t/4331)
+ * makes this a true create — a fresh `session.id`, one writer — and skips the "missing
+ * expectedVersion" WARN that tracks un-migrated UPDATE callers, not legitimate creates.
+ *
+ * Never lets a save failure break the inquiry answer itself: the result is the user-facing
+ * artifact, the debate is an audit copy. A failed save just means "View raw run" 404s for this
+ * one result, same as it always has — logged, not silently swallowed.
+ */
+async function persistInquiryDebateSession(session: unknown, jobId: string): Promise<void> {
+  const marked = { ...(session as object), origin: 'inquiry', inquiryJobId: jobId };
+  try {
+    await saveDebateSession(marked, 'inquiry', { mustNotExist: true });
+  } catch (err) {
+    log.server.warn({ err, jobId }, 'Failed to persist inquiry debate session — "View raw run" will 404 for this result (t/4338)');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'inquiry', level: 'warn',
+      message: `Failed to persist inquiry debate session for job ${jobId}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+}
+
 /** Build the single injected pipeline runner the job store (t/3578) calls. Assembles the server deps
  *  and adapts runInquiryPipeline to the InquiryPipelineRunner signature (request + ctx → InquiryResult).
  *  `ctx.onStage` (job progress) is mapped onto the pipeline's InquiryStage sink. */
@@ -149,7 +179,10 @@ export function buildInquiryRunPipeline(): InquiryPipelineRunner {
       // + the engine's LoadedTaxonomy; the pipeline's `question` arg is unused here.
       // t/4025: inject soulResolver so server inquiry debates record soul_provenance.
       runDebate: (config, _question) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy())
-        .then(r => ({ session: r.session, terminationReason: r.terminationReason })),
+        .then(async (r) => {
+          await persistInquiryDebateSession(r.session, ctx.jobId); // t/4338
+          return { session: r.session, terminationReason: r.terminationReason };
+        }),
       adapter,
       onStage: (stage: InquiryStage) => mapStage(stage, ctx),
     };

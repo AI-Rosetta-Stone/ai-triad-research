@@ -169,6 +169,9 @@ function readDebateRef(result: InquiryResult): string | null {
 export interface InquiryPipelineContext {
   onStage: (stage: InquiryPipelineStage) => void;
   signal?: AbortSignal;
+  /** t/4338: threaded through so the pipeline deps (inquiryPipelineDeps.ts) can mark the
+   *  persisted debate session's origin without inquiryJobs.ts reaching into the pipeline. */
+  jobId: string;
 }
 /** The one injected dependency. The route (t/3581) wires the real `runInquiryPipeline` (t/3585,
  *  lib/debate) closing over its deps; tests pass a fake. Kept injected permanently (TL t/3578#6). */
@@ -239,6 +242,7 @@ async function runInquiryJob(job: InquiryJob, args: CreateInquiryJobArgs): Promi
   try {
     const result = await args.runPipeline(args.request, {
       onStage: (stage) => setStatus(job, stage),
+      jobId: job.jobId,
     });
 
     job.debateId = readDebateRef(result);
