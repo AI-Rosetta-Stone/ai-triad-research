@@ -70,6 +70,96 @@ interface LlmSynthesisOutput {
   synthesizedHeadline?: string;
 }
 
+// ── Figure token post-check (t/4303) ─────────────────────────────────────────
+// Stipulated magnitude lexicon — entry in metric-provenance-register §1 (t/4303).
+// Compound phrases ("hundreds of thousands") match first and normalise to
+// hyphenated form ("hundreds-of-thousands"), so individual transcript words
+// do not cancel a compound phrase in the headline.
+const FIGURE_MAGNITUDE_RE =
+  /\b(?:(?:hundreds?|thousands?|millions?|billions?|dozens?)(?:\s+of\s+(?:hundreds?|thousands?|millions?|billions?))+|hundreds?|thousands?|millions?|billions?|dozens?)\b/gi;
+// Digit run: digits with optional comma separators, optional decimal, optional %.
+const DIGIT_RUN_RE = /\d[\d,]*(?:\.\d+)?%?/g;
+// Node-ID citations like [saf-beliefs-206] produce bare digit tokens that are never
+// in the transcript corpus. Strip them before extracting so they don't false-warn.
+const NODE_ID_CITATION_RE = /\[?(?:acc|saf|skp|cc|sit|pol)-[a-z]+-\d+\]?/gi;
+
+function stripNodeIds(text: string): string {
+  return text.replace(new RegExp(NODE_ID_CITATION_RE.source, 'gi'), ' ');
+}
+
+/** Extract normalised figure tokens from text: compound/single magnitude phrases and digit runs. */
+function extractFigureTokens(text: string): Set<string> {
+  const stripped = stripNodeIds(text);
+  const tokens = new Set<string>();
+  for (const m of stripped.matchAll(new RegExp(FIGURE_MAGNITUDE_RE.source, 'gi'))) {
+    // Normalise compound: "hundreds of thousands" → "hundreds-of-thousands"
+    tokens.add(m[0].toLowerCase().replace(/\s+of\s+/g, '-of-'));
+  }
+  for (const m of stripped.matchAll(new RegExp(DIGIT_RUN_RE.source, 'g'))) {
+    tokens.add(m[0].replace(/,/g, ''));
+  }
+  return tokens;
+}
+
+/**
+ * Deterministic unsupported-figure post-check (t/4303).
+ * Scans synthesized fields for figure tokens not present in the allowed corpus
+ * (question + transcript turns + grounding node labels). Records a WARN for each miss.
+ * Observability only — no InquiryResult schema change in v1.
+ */
+function checkUnsupportedFigures(
+  synthesizedHeadline: string | undefined,
+  campVerdicts: CampVerdict[],
+  convergences: Convergence[],
+  unresolvedGaps: LlmUnresolvedGap[],
+  session: DebateSession,
+  grounding: GroundingEnvelope,
+  request: StoredInquiryRequest,
+): void {
+  // Build allowed corpus of figure tokens
+  const corpusTokens = new Set<string>();
+  const addToCorpus = (text: string) => {
+    for (const tok of extractFigureTokens(text)) corpusTokens.add(tok);
+  };
+
+  addToCorpus(request.question);
+  for (const entry of session.transcript ?? []) {
+    addToCorpus(entry.content);
+  }
+  for (const refs of Object.values(grounding.nodesByCamp)) {
+    for (const ref of refs ?? []) {
+      addToCorpus(ref.label);
+    }
+  }
+
+  // Scan result fields
+  const scanField = (fieldName: string, text: string | undefined) => {
+    if (!text) return;
+    for (const tok of extractFigureTokens(text)) {
+      if (!corpusTokens.has(tok)) {
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'inquiry-synthesis',
+          level: 'warn',
+          message: `synthesizeInquiry: unsupported figure in '${fieldName}': '${tok}' not in question/transcript/grounding`,
+          data: { debate_id: session.id, field: fieldName, token: tok },
+        });
+      }
+    }
+  };
+
+  scanField('synthesizedHeadline', synthesizedHeadline);
+  for (let i = 0; i < campVerdicts.length; i++) {
+    scanField(`campVerdicts[${i}].verdict`, campVerdicts[i].verdict);
+  }
+  for (let i = 0; i < convergences.length; i++) {
+    scanField(`convergences[${i}].claim`, convergences[i].claim);
+  }
+  for (let i = 0; i < unresolvedGaps.length; i++) {
+    scanField(`unresolvedGaps[${i}].description`, unresolvedGaps[i].description);
+  }
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function warn(message: string): void {
@@ -218,7 +308,18 @@ export async function synthesizeInquiry(
     debateId,
   };
 
-  // 6. Validate through the contract schema — producers go through the same validated
+  // 6. Deterministic unsupported-figure post-check (t/4303 — observability only, no schema change).
+  checkUnsupportedFigures(
+    assembled.synthesizedHeadline,
+    campVerdicts,
+    convergences,
+    assembled.unresolvedGaps,
+    session,
+    grounding,
+    request,
+  );
+
+  // 7. Validate through the contract schema — producers go through the same validated
   //    path as consumers so the shape never drifts (TL t/3580#2 design note).
   return parseInquiryResult(assembled);
 }

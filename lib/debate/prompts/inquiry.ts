@@ -57,6 +57,8 @@ Your task: produce a structured JSON synthesis of this debate. Return ONLY valid
 
 REQUIRED FIELDS:
 
+FIGURES RULE (applies to every field): Do not introduce any number, percentage, date, or magnitude phrase (e.g. "hundreds of thousands", "millions", "dozens") that does not appear in the QUESTION or the DEBATE HIGHLIGHTS above. If a debater stated a figure, attribute it to that camp ("the Accelerationist cited …") rather than stating it as fact. If no figure was given, describe the claim qualitatively ("far more deaths").
+
 1. campVerdicts — one entry per POV camp that appeared in the debate (acc, saf, skp, cc).
    - "camp": the camp code
    - "verdict": 2-4 sentences summarising this camp's position on the question
