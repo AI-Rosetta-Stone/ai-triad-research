@@ -429,6 +429,18 @@ export function registerSyncRoutes(r: Router, ctx: ServerCtx): void {
         json(res, { ok: true, commitSha: null, filesCommitted: 0, message: 'No pending changes' });
         return;
       }
+      // t/4312 (SO condition F5, e/333#4): a conflict is a normal return, not
+      // a throw — filesCommitted is 0 and the edit is still staged, never
+      // committed. Reporting ok:true here would show the user a successful
+      // save while nothing actually landed; unlike the pre-t/4312 silent
+      // overwrite (at least recoverable from git history), a restart then
+      // loses the edit unrecoverably. This 409 applies regardless of
+      // OVERLAY_CONFLICT_STATE_ENABLED — it's not gated on the resolution
+      // UI being ready, only on never reporting a false success.
+      if (result.conflictedPaths?.length) {
+        error(res, 'Save conflicted — see conflictedPaths', 409, undefined, { code: 'OVERLAY_CONFLICT', conflictedPaths: result.conflictedPaths });
+        return;
+      }
       json(res, { ok: true, commitSha: result.commitSha, filesCommitted: result.filesCommitted });
       // Phase 5F: best-effort notify other web clients. Response is already sent;
       // broadcastTaxonomyUpdate never throws, so the save result is unaffected (t/652).
