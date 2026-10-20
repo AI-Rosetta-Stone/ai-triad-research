@@ -6249,7 +6249,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **When regex is necessary in a jq filter passed via shell**, write the jq program to a file and pass it with `jq -f <file>` to avoid shell-escaping interference.
 3. **"unterminated string literal" in a jq filter** is a reliable diagnostic for shell-escaping collision — simplify the pattern or use `jq -f`.
 
-**Status:** Active — 1 instance (DevOps Worker p/749#24).
+**Status:** Active — 2 instances (DevOps Worker p/749#24; Rosetta Stone p/6#102 — `test("^Approved \\(Quality\\)")` failed; switched to `startswith("Approved (Quality)")`).
 
 **Applies To:** All agents constructing jq filters with regex patterns in shell commands.
 
@@ -6372,3 +6372,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#222).
 
 **Applies To:** All agents calling `gh api` with boolean, integer, or null field values; use `-F` for typed values.
+
+---
+
+## #315 [Build] `gh workflow run --ref` Returns 404 When Workflow File Only Exists on a Feature Branch
+
+**Pattern:** An agent runs `gh workflow run <workflow>.yml --ref <feature-branch>` to dispatch a workflow against a non-default branch. GitHub returns 404 "workflow not found on the default branch." The `workflow_dispatch` API requires the workflow file to exist on the repository's default branch (`main`) — it can be dispatched to run against any `--ref`, but the file must first be registered on `main`.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#224): `gh workflow run t4340-livefire-probe.yml --ref <feature-branch>` returned 404. Workflow file existed only on the feature branch. Resolved by landing a minimal version of the workflow file to `main` first (T0, dispatch-only, no triggers), then dispatching with `--ref <feature-branch>`.
+
+**Root Cause:** GitHub's `workflow_dispatch` API indexes workflows from the default branch. A workflow file that has never been on the default branch is invisible to the dispatch endpoint — the `--ref` parameter controls which ref runs the workflow, not which ref registers it.
+
+**Prevention:**
+1. **Before dispatching `gh workflow run <file>.yml`, verify the workflow file exists on `main`:** `gh api repos/<owner>/<repo>/contents/.github/workflows/<file>.yml -q .name`. A 404 here means the file hasn't been merged to main yet.
+2. **To test a new workflow against a feature branch:** land a minimal `workflow_dispatch`-only version to `main` first (T0), then dispatch with `--ref <feature-branch>`.
+3. **404 "workflow not found on the default branch"** is the reliable diagnostic — it is not a permissions error or a file-path typo.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#224).
+
+**Applies To:** All agents dispatching `workflow_dispatch` workflows against non-default branches; the workflow file must exist on the default branch first.
+
+---
+
+## #316 [Build] PR Opened by Another Agent Between Push and `gh pr create` — Check for Existing PR at Create Time
+
+**Pattern:** An agent pushes a branch and checks for an existing PR before pushing (finding none). By the time it calls `gh pr create`, another agent (or the PI) has already opened a PR for that branch. The `gh pr create` call fails with "a pull request for branch already exists."
+
+**Instances:**
+- 2026-10-20 — Rosetta Stone (p/6#101): `gh pr create` failed — PR #3520 had been opened by the PI minutes after the push, before the agent called `gh pr create`. Resolved by editing #3520's title and body in place with `gh pr edit`.
+
+**Root Cause:** The window between checking for an existing PR and calling `gh pr create` is non-zero. In a multi-agent/human environment, another party can open a PR for the branch during that window.
+
+**Prevention:**
+1. **Check for an existing PR immediately before calling `gh pr create`**, not only before the push: `gh pr list --head <branch> --json number,url -q '.[0]'`. If one exists, edit it in place with `gh pr edit <N>` rather than creating a duplicate.
+2. **"a pull request for branch already exists" from `gh pr create`** means another PR was opened for that branch. Find it with `gh pr list --head <branch>` and edit it instead.
+3. **Never open a duplicate PR** — edit the existing one. Duplicate PRs confuse CI and auto-merge arming.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#101).
+
+**Applies To:** All agents in multi-agent/human environments; check for existing PRs immediately before `gh pr create`, not only at session start.
