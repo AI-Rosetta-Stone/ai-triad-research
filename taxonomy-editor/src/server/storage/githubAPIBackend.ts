@@ -176,6 +176,8 @@ export class GitHubAPIBackend implements StorageBackend {
   // (`commitChain`) makes any later call wait for the current run to finish
   // before starting its own — so two PATCH /git/refs/heads/<branch> calls for
   // one user are never in flight at once, and no trigger is silently dropped.
+  // @INMEMORY_CACHE_SINGLE_REPLICA (t/4181, Server Storage t/4181#9): this serialization is per-process,
+  // so it does not hold across replicas. Remove once t/4311's cross-replica commit lock lands.
   private commitChain: Map<string, Promise<void>> = new Map();
   private commitPending: Map<string, {
     promise: Promise<{ commitSha: string; filesCommitted: number } | null>;
