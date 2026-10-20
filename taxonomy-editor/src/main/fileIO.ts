@@ -17,6 +17,7 @@ import type { Entity } from '../../../lib/entities/types.js';
 import { serializeEdgesJson } from '../../../lib/edges/serializeEdges.js';
 import type { ContainerMentions, EntityMentionsFile } from '../../../lib/entities/mentionTypes.js';
 import { serializePovTagProposals, type PovTagProposalsFile } from '../../../lib/schema/povTagProposals.js';
+import { computeCanonicalDocIds, type SourceReference as SharedSourceReference, type CanonicalIdDocMeta } from '../../../lib/sourceIndex/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -949,18 +950,11 @@ export function writeEdgesFile(data: unknown): void {
 
 // ── Node ↔ Source reverse index ──────────────────────────────────────────────
 
-export interface SourceReference {
-  docId: string;
-  title: string;
-  pov: string;
-  stance: string;
-  point: string;
-  verbatim: string;
-  excerptContext: string;
-  url: string | null;
-  sourceType: string;
-  datePublished: string;
-}
+// t/4341: re-exports the shared type (lib/sourceIndex/types.ts) rather than a local
+// redeclaration, so adding canonicalDocId here is structural parity with the server's
+// identically-shaped SourceReference (src/server/storage/nodeSourceIndex.ts), not just a
+// same-looking interface that could drift.
+export type SourceReference = SharedSourceReference;
 
 export type NodeSourceIndex = Record<string, SourceReference[]>;
 
@@ -1016,6 +1010,10 @@ function indexSummaryKeyPoints(index: NodeSourceIndex, docId: string, meta: Node
       if (!index[nodeId]) index[nodeId] = [];
       index[nodeId].push({
         docId,
+        // t/4341: placeholder, overwritten by applyCanonicalDocIds below (mirrors the
+        // server's indexSummaryFile — canonicalDocId needs the FULL known-doc-id set to
+        // resolve tiers 2-4, which isn't available yet mid-scan).
+        canonicalDocId: docId,
         title: meta.title,
         pov,
         stance: kp.stance || 'neutral',
@@ -1027,6 +1025,26 @@ function indexSummaryKeyPoints(index: NodeSourceIndex, docId: string, meta: Node
         datePublished: meta.datePublished,
       });
     }
+  }
+}
+
+/** t/4341: fills in canonicalDocId (set to each ref's own docId by indexSummaryKeyPoints)
+ *  using the shared tier 1-4 algorithm — mirrors the server's applyCanonicalDocIds
+ *  (src/server/storage/nodeSourceIndex.ts) so both builds group identically for the same
+ *  data. Every docId seen anywhere in the index participates, so a split part reachable
+ *  only via one node still resolves against the full known-id set. */
+function applyCanonicalDocIds(index: NodeSourceIndex, metaCache: Record<string, NodeSourceMeta>): void {
+  const allDocIds = new Set<string>();
+  for (const refs of Object.values(index)) for (const r of refs) allDocIds.add(r.docId);
+  const docIds = [...allDocIds];
+  const canonicalMeta: Record<string, CanonicalIdDocMeta> = {};
+  for (const id of docIds) {
+    const m = metaCache[id];
+    canonicalMeta[id] = { url: m?.url ?? null, title: m?.title ?? id };
+  }
+  const canonicalIds = computeCanonicalDocIds(docIds, canonicalMeta);
+  for (const refs of Object.values(index)) {
+    for (const r of refs) r.canonicalDocId = canonicalIds[r.docId] ?? r.docId;
   }
 }
 
@@ -1057,6 +1075,7 @@ export function buildNodeSourceIndex(): NodeSourceIndex {
     indexSummaryKeyPoints(index, docId, meta, summary);
   }
 
+  applyCanonicalDocIds(index, metaCache);
   return index;
 }
 
