@@ -29,6 +29,18 @@ function loadInline() {
   return new Function(`${extractBlock()}\nreturn inlineR1Fallback;`)();
 }
 
+function extractRequirementsNoteBlock() {
+  const start = workflow.indexOf('// BEGIN requirements-note');
+  const end = workflow.indexOf('// END requirements-note');
+  assert.ok(start >= 0 && end > start, 'requirements-note markers must exist in tier-check.yml');
+  return workflow.slice(start, end);
+}
+
+function loadTierRequirementsNote() {
+  // eslint-disable-next-line no-new-func
+  return new Function(`${extractRequirementsNoteBlock()}\nreturn tierRequirementsNote;`)();
+}
+
 const files = (...names) => names.map((filename) => ({ filename, status: 'modified' }));
 
 test('the inline fallback imports and references no predicate module (head or base)', () => {
@@ -183,4 +195,25 @@ test('C3: inlineR1Fallback agrees with the predicate checkR1 on every r1 entry, 
     const fromInline = !inline(files(p), 'Tier: T1', config).pass;
     assert.equal(fromInline, fromPredicate, `parity broken for "${p}": inline=${fromInline} predicate=${fromPredicate}`);
   }
+});
+
+// ── t/4343: early visibility into what a declared tier still needs before merge ────────────
+test('tierRequirementsNote: T1 names the approval requirement and the enforcing gate', () => {
+  const note = loadTierRequirementsNote()('T1');
+  assert.match(note, /Approved \(<role>\):/);
+  assert.match(note, /t1-approval-guard/);
+});
+
+test('tierRequirementsNote: T2 names the SO/consult-hold/PI requirement and the enforcing gate', () => {
+  const note = loadTierRequirementsNote()('T2');
+  assert.match(note, /Second Opinion/);
+  assert.match(note, /consult-hold/);
+  assert.match(note, /consult-hold-guard/);
+});
+
+test('CONTROL: tierRequirementsNote returns null for T0 and for an undeclared tier', () => {
+  const fn = loadTierRequirementsNote();
+  assert.equal(fn('T0'), null);
+  assert.equal(fn(null), null);
+  assert.equal(fn(undefined), null);
 });
