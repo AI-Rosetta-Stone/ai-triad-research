@@ -6575,3 +6575,63 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#226).
 
 **Applies To:** All agents dispatching `workflow_dispatch` workflows; `ref` must be a branch or tag name — use workflow inputs for SHA pinning.
+
+---
+
+## #325 [Build] `az monitor log-analytics query -w` Requires Workspace `customerId` GUID, Not Workspace Name
+
+**Pattern:** An agent runs `az monitor log-analytics query -w <workspace-name> --workspace <workspace-name>` to query Log Analytics. The command fails with `PathNotFoundError`. The `-w` / `--workspace` flag for `az monitor log-analytics query` requires the workspace's `customerId` GUID — the human-readable workspace name is not accepted.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#231): `az monitor log-analytics query -w log-aitriad-kvwl3nywge4iw` → PathNotFoundError. Fixed by retrieving the workspace `customerId` GUID via `az monitor log-analytics workspace list` and passing that instead.
+
+**Root Cause:** `az monitor log-analytics query` resolves the workspace by its GUID (`customerId`), not by its display name or resource name. The workspace name is a human-readable label; the GUID is the stable identifier the query API uses.
+
+**Prevention:**
+1. **Always pass the `customerId` GUID to `az monitor log-analytics query -w`.** Retrieve it first: `az monitor log-analytics workspace list --query "[].{name:name, customerId:customerId}" -o table`.
+2. **`PathNotFoundError` from `az monitor log-analytics query`** is the diagnostic for passing a workspace name instead of its GUID.
+3. **The GUID is stable** — it can be cached in `deploy/azure/runbooks/deployment-facts.md` alongside other workspace identifiers to avoid a lookup on every query session.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#231).
+
+**Applies To:** All agents querying Azure Log Analytics; `-w` requires the workspace `customerId` GUID, not the workspace name.
+
+---
+
+## #326 [Build] Fabricated Infrastructure URL Instead of Reading Canonical Source — "Couldn't Resolve Host"
+
+**Pattern:** An agent needs a production endpoint URL (app URL, API gateway, storage endpoint). Instead of reading the canonical source (`deploy/azure/runbooks/deployment-facts.md` or equivalent), the agent constructs or guesses a plausible-looking URL. The URL does not exist or resolves to a dead host; `curl` / HTTP client returns "couldn't resolve host" or a connection refused error.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#231): guessed a prod URL → `curl: (6) Could not resolve host`. Resolved by reading `deploy/azure/runbooks/deployment-facts.md` for the real deployed URL.
+
+**Root Cause:** Infrastructure URLs (especially Azure-provisioned hostnames) are not guessable from component names. Constructing them from patterns (e.g., `<name>.azurewebsites.net`) is unreliable — the actual hostname depends on provisioning details and may include random suffixes, custom domains, or private endpoints.
+
+**Prevention:**
+1. **Never construct or guess a production URL.** Read it from `deploy/azure/runbooks/deployment-facts.md` (the canonical source for this project's deployed endpoints). This is an instance of the root AGENTS.md rule: "Before asserting what a system is doing, read the system, not a file that describes it."
+2. **"Could not resolve host" from `curl` on a constructed URL** is the diagnostic for a fabricated hostname — the URL does not exist, not a network problem.
+3. **If the URL is absent from `deployment-facts.md`**, retrieve it from the Azure portal or CLI (`az webapp show --name <name> --query defaultHostName`) and update the runbook — do not proceed on a guess.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#231).
+
+**Applies To:** All agents accessing production infrastructure; read deployed URLs from the canonical runbook, never construct them from component names.
+
+---
+
+## #327 [Build] `gh pr diff <N> -- <path>` Fails — `gh pr diff` Does Not Support Pathspec Filtering
+
+**Pattern:** An agent wants to inspect only specific files changed in a PR and runs `gh pr diff <N> -- <path>`. The command fails with "accepts at most 1 arg(s), received 2." `gh pr diff` takes only the PR number as an argument — it does not support pathspec filtering the way `git diff` does.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#233): `gh pr diff 3547 -- <path>` failed with "accepts at most 1 arg(s), received 2". Resolved by fetching the branch and reading the file directly.
+
+**Root Cause:** `gh pr diff` is a thin wrapper that streams the full diff of a PR. It accepts one positional argument (the PR number) and does not pass pathspecs to the underlying diff engine.
+
+**Prevention:**
+1. **To see only a specific file's diff for a PR, fetch the branch and use `git diff`:** `git fetch origin <head-branch> && git diff origin/main...origin/<head-branch> -- <path>`.
+2. **Alternatively, read the file directly** from the PR head: `git show origin/<head-branch>:<path>`.
+3. **"accepts at most 1 arg(s), received 2" from `gh pr diff`** is the diagnostic — the extra argument is being treated as a second positional, not a pathspec flag.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#233).
+
+**Applies To:** All agents inspecting PR diffs; `gh pr diff` streams the full diff only — use `git diff` with a pathspec for file-scoped inspection.
