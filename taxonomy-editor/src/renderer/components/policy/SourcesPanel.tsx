@@ -69,6 +69,19 @@ const POV_LABELS: Record<string, string> = {
   'situations': 'Sit',
 };
 
+/**
+ * t/4336 step 0: time from opening a node's Sources tab to having its data, so the t/4333 change has a
+ * like-for-like before/after taken from the same mark on hosted prod. `cache` says whether the whole-corpus
+ * index was already loaded; the cold `miss` is the number the change targets.
+ */
+function recordFirstRender(nodeId: string, ms: number, cache: 'hit' | 'miss', refs: SourceReference[]): void {
+  getGlobalRecorder()?.record({
+    type: 'lifecycle', component: 'sources-panel', level: 'info',
+    message: 'sources-panel.first-render',
+    data: { nodeId, ms: Math.round(ms), cache, refs: refs.length, rows: new Set(refs.map(r => r.docId)).size },
+  });
+}
+
 interface SourcesPanelProps {
   nodeId: string;
 }
@@ -81,9 +94,13 @@ export function SourcesPanel({ nodeId }: SourcesPanelProps) {
   useEffect(() => {
     setLoading(true);
     setExpanded(null);
+    const startedAt = performance.now();
+    const cache = _indexCache ? 'hit' : 'miss';
     void getNodeSourceIndex().then((index) => {
-      setRefs(index[nodeId] || []);
+      const nodeRefs = index[nodeId] || [];
+      setRefs(nodeRefs);
       setLoading(false);
+      recordFirstRender(nodeId, performance.now() - startedAt, cache, nodeRefs);
     });
   }, [nodeId]);
 
