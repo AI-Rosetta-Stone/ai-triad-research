@@ -178,6 +178,12 @@ export class GitHubAPIBackend implements StorageBackend {
   // rather than silently trusting an unverifiable base.
   private sessionOverlayBaseShas: Map<string, Map<string, string | null | 'unknown'>> = new Map();
 
+  // t/4312 (SO F1): the most recently detected conflicted paths per user —
+  // persists across scheduler retries so "Use theirs"/"Keep mine" (below)
+  // can resolve "all of them" without the caller having to already know
+  // which paths are conflicted.
+  private sessionOverlayConflicts: Map<string, Set<string>> = new Map();
+
   // t/4258/t/4277 (C2): per-user commit serialization. A commit already
   // queued-but-not-started for a user is shared (`commitPending`); the chain
   // (`commitChain`) makes any later call wait for the current run to finish
@@ -1639,30 +1645,35 @@ export class GitHubAPIBackend implements StorageBackend {
     }
     const currentSha = ((refResp.data as { object: { sha: string } }).object).sha;
 
-    // t/4312: per-path base-sha fence — split entries into safe (this path's
-    // base is unchanged since it was staged) and conflicted (someone else's
-    // commit, or our own earlier one, moved it). Only safe entries get
-    // committed; conflicted ones stay staged, never silently overwritten.
-    const { safe, conflictedPaths } = await this.partitionOverlayEntriesByBase(creds, userId, entries, currentSha, callId);
-    if (safe.writes.length === 0 && safe.deletes.length === 0) {
-      return this.buildConflictOnlyResult(userId, branch, currentSha, conflictedPaths);
+    // t/4312 (SO condition F2, e/333#2 — TL ruling p/538#94): all-or-nothing
+    // per batch. A per-path base-sha fence that only excluded the conflicting
+    // paths could leave git cross-file-inconsistent (e.g. a POV file commits
+    // while the edges file it's referenced from conflicts and stays out) —
+    // durability doesn't need a partial commit, since everything stays
+    // staged either way. Any conflict means nothing commits this round.
+    const { conflictedPaths } = await this.partitionOverlayEntriesByBase(creds, userId, entries, currentSha, callId);
+    if (conflictedPaths.length > 0) {
+      this.recordOverlayConflicts(userId, branch, conflictedPaths);
+      this.sessionOverlayConflicts.set(userId, new Set(conflictedPaths)); // t/4312 SO F1: resolvable via discard/rebase below
+      return { commitSha: currentSha, filesCommitted: 0, conflictedPaths };
     }
+    this.sessionOverlayConflicts.delete(userId); // t/4312 SO F1: a clean commit clears any stale conflict record
 
     // Step 2: Create tree with writes + deletes
-    const treeEntries = this.buildOverlayTreeEntries(safe);
-    const commitMsg = message || this.buildOverlayCommitMessage(safe);
+    const treeEntries = this.buildOverlayTreeEntries(entries);
+    const commitMsg = message || this.buildOverlayCommitMessage(entries);
     const commitSha = await this.createTreeCommitAndUpdateRef(creds, branch, currentSha, treeEntries, commitMsg, callId);
 
-    const filesCommitted = safe.writes.length + safe.deletes.length;
+    const filesCommitted = entries.writes.length + entries.deletes.length;
     const durationMs = Date.now() - startMs;
     this.recordEvent({
       type: 'overlay.commit',
       component: 'session',
       level: 'info',
-      message: `Overlay committed to ${branch}: ${safe.writes.length} writes, ${safe.deletes.length} deletes`,
+      message: `Overlay committed to ${branch}: ${entries.writes.length} writes, ${entries.deletes.length} deletes`,
       call_id: callId,
       duration_ms: durationMs,
-      data: { branch, writes: safe.writes.length, deletes: safe.deletes.length, commitSha, durationMs },
+      data: { branch, writes: entries.writes.length, deletes: entries.deletes.length, commitSha, durationMs },
     });
 
     // t/4215: populate the session read cache for free — we already have
@@ -1670,8 +1681,8 @@ export class GitHubAPIBackend implements StorageBackend {
     // readFile() right after this doesn't need to go live at all.
     let readCache = this.sessionReadCache.get(userId);
     if (!readCache) { readCache = new Map(); this.sessionReadCache.set(userId, readCache); }
-    for (const w of safe.writes) readCache.set(w.path, w.content);
-    for (const d of safe.deletes) readCache.set(d, GitHubAPIBackend.TOMBSTONE);
+    for (const w of entries.writes) readCache.set(w.path, w.content);
+    for (const d of entries.deletes) readCache.set(d, GitHubAPIBackend.TOMBSTONE);
     this.sessionReadCacheHeadSha.set(userId, {
       sha: commitSha, checkedAt: Date.now(), checkedAtActivitySeq: this.sessionWriteActivitySeq.get(userId) ?? 0,
     });
@@ -1680,11 +1691,9 @@ export class GitHubAPIBackend implements StorageBackend {
     // entries this commit actually captured (t/4258/t/4277 C1) — anything
     // written during the awaits above stays staged for the next commit.
     // t/4312: also refreshes/clears sessionOverlayBaseShas (conditions 2/3).
-    this.clearCommittedOverlayEntries(userId, safe);
+    this.clearCommittedOverlayEntries(userId, entries);
 
-    if (conflictedPaths.length > 0) this.recordOverlayConflicts(userId, branch, conflictedPaths);
-
-    return { commitSha, filesCommitted, conflictedPaths: conflictedPaths.length > 0 ? conflictedPaths : undefined };
+    return { commitSha, filesCommitted };
   }
 
   async createOrUpdatePR(
@@ -3168,6 +3177,7 @@ export class GitHubAPIBackend implements StorageBackend {
   clearSessionOverlay(userId: string): void {
     this.sessionOverlays.delete(userId);
     this.sessionOverlayBaseShas.delete(userId); // t/4312 condition 3
+    this.sessionOverlayConflicts.delete(userId); // t/4312 condition 3 (SO F1 state)
     this.recordEvent({
       type: 'branch.delete',
       component: 'session',
@@ -3175,6 +3185,56 @@ export class GitHubAPIBackend implements StorageBackend {
       message: `Session overlay cleared for ${userId}`,
       data: { userId },
     });
+  }
+
+  /** t/4312 SO F1 ("Use theirs"), whole-batch per TL's correction (p/538#97):
+   *  a per-path discard could leave the same cross-file inconsistency F2
+   *  exists to prevent. **Operates on the WHOLE staged overlay, not just
+   *  the conflicted subset** (Rosetta Stone's catch, p/641#10/#11): a kept
+   *  `edges.json` that references a node only the discarded `skeptic.json`
+   *  defined would dangle just as badly as a partial commit would have.
+   *  Discards every staged path and its recorded base together — they all
+   *  read live from the committed branch again. Idempotent: a no-op (empty
+   *  result) when nothing is staged, so a double-call is safe. Returns the
+   *  paths actually discarded. */
+  discardConflictedOverlayEntries(userId: string): string[] {
+    const overlay = this.sessionOverlays.get(userId);
+    if (!overlay || overlay.size === 0) return [];
+    const targets = [...overlay.keys()];
+    this.sessionOverlays.delete(userId);
+    this.sessionOverlayBaseShas.delete(userId);
+    this.sessionOverlayConflicts.delete(userId);
+    return targets;
+  }
+
+  /** t/4312 SO F1 ("Keep mine"), whole-batch per TL's correction (p/538#97)
+   *  and Rosetta Stone's catch (p/641#10/#11) — same cross-file-consistency
+   *  reasoning as discard above. Re-bases EVERY staged path (not just the
+   *  conflicted subset) to the branch's CURRENT head together, then
+   *  attempts one commit — the staged content now looks fresh against the
+   *  new base and intentionally overwrites the other actor's changes (an
+   *  explicit, user-confirmed overwrite, never a silent one). `stillConflicted`
+   *  is normally empty; non-empty only if another conflict lands in the brief
+   *  window between the rebase and the commit — the caller should re-enter
+   *  resolution for those, never auto-retry this call. */
+  async rebaseAndRecommitConflictedOverlayEntries(
+    userId: string, branchName: string,
+  ): Promise<{ committed: boolean; commitSha?: string; filesCommitted?: number; stillConflicted: string[] }> {
+    const overlay = this.sessionOverlays.get(userId);
+    if (!overlay || overlay.size === 0) return { committed: false, stillConflicted: [] };
+    let bases = this.sessionOverlayBaseShas.get(userId);
+    if (!bases) { bases = new Map(); this.sessionOverlayBaseShas.set(userId, bases); }
+    for (const path of overlay.keys()) bases.set(path, await this.resolveLiveBaseSha(path, branchName));
+    this.sessionOverlayConflicts.delete(userId);
+
+    const result = await this.commitOverlay(userId, undefined, { branchName });
+    if (!result) return { committed: false, stillConflicted: [] };
+    return {
+      committed: (result.conflictedPaths?.length ?? 0) === 0 && result.filesCommitted > 0,
+      commitSha: result.commitSha,
+      filesCommitted: result.filesCommitted,
+      stillConflicted: result.conflictedPaths ?? [],
+    };
   }
 
   /**
@@ -3212,15 +3272,18 @@ export class GitHubAPIBackend implements StorageBackend {
     if (bases && bases.size === 0) this.sessionOverlayBaseShas.delete(userId);
   }
 
-  /** t/4312: split overlay entries into safe (base unchanged since staged) and
-   *  conflicted (changed — by another actor, or our own since-committed
-   *  content). A base-tree lookup failure or a truncated tree fails CLOSED:
-   *  every entry conflicts rather than risking a silent overwrite. */
+  /** t/4312: find which overlay entries' recorded base no longer matches the
+   *  current tree (someone else's commit, or our own since-committed
+   *  content, moved it). A base-tree lookup failure or a truncated tree
+   *  fails CLOSED: every entry conflicts rather than risking a silent
+   *  overwrite. SO condition F2 (e/333#2): any conflict means the caller
+   *  commits NOTHING this round, so this only needs to report which paths
+   *  conflict, not split entries into a safe/conflicted pair. */
   private async partitionOverlayEntriesByBase(
     creds: SyncCredentials, userId: string,
     entries: { writes: { path: string; content: string }[]; deletes: string[] },
     currentSha: string, callId: string,
-  ): Promise<{ safe: { writes: { path: string; content: string }[]; deletes: string[] }; conflictedPaths: string[] }> {
+  ): Promise<{ conflictedPaths: string[] }> {
     const treeResp = await this.rest.request(creds, 'GET',
       `/repos/${creds.repo}/git/trees/${currentSha}?recursive=1`, undefined, callId);
     const failClosed = !treeResp.ok || (treeResp.data as { truncated?: boolean } | null)?.truncated === true;
@@ -3244,9 +3307,10 @@ export class GitHubAPIBackend implements StorageBackend {
       return base === (shaByPath.get(path) ?? null);
     };
 
-    const conflictedPaths: string[] = [];
-    const safeWrites = entries.writes.filter(w => (isSafe(w.path) ? true : (conflictedPaths.push(w.path), false)));
-    const safeDeletes = entries.deletes.filter(p => (isSafe(p) ? true : (conflictedPaths.push(p), false)));
+    const conflictedPaths = [
+      ...entries.writes.map(w => w.path).filter(p => !isSafe(p)),
+      ...entries.deletes.filter(p => !isSafe(p)),
+    ];
 
     if (failClosed && conflictedPaths.length > 0) {
       this.recordEvent({
@@ -3256,7 +3320,7 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
 
-    return { safe: { writes: safeWrites, deletes: safeDeletes }, conflictedPaths };
+    return { conflictedPaths };
   }
 
   private buildOverlayTreeEntries(safe: { writes: { path: string; content: string }[]; deletes: string[] }): Record<string, unknown>[] {
@@ -3313,16 +3377,6 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
     return commitSha;
-  }
-
-  /** t/4312: nothing was safe to commit — everything conflicted (or there was
-   *  nothing to do). Extracted to keep commitOverlayImpl's complexity down. */
-  private buildConflictOnlyResult(
-    userId: string, branch: string, currentSha: string, conflictedPaths: string[],
-  ): { commitSha: string; filesCommitted: number; conflictedPaths?: string[] } | null {
-    if (conflictedPaths.length === 0) return null;
-    this.recordOverlayConflicts(userId, branch, conflictedPaths);
-    return { commitSha: currentSha, filesCommitted: 0, conflictedPaths };
   }
 
   /** t/4312: one WARN + flight-recorder event naming paths kept staged rather

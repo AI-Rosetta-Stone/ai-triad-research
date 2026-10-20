@@ -270,4 +270,71 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — t/4312 overlay commit bas
 
     backendA.shutdown(); backendB.shutdown();
   });
+
+  // SO F1 (e/333#2), TL p/538#94/#97, Rosetta Stone's catch (p/641#10/#11):
+  // both resolution actions operate on the WHOLE staged batch, never a
+  // per-path subset — a per-path "Use theirs" that discarded only the
+  // conflicting path while leaving an unrelated staged path untouched would
+  // reintroduce exactly the cross-file inconsistency F2 (all-or-nothing)
+  // exists to prevent.
+  describe('resolution contract (SO F1): whole-batch, not per-path', () => {
+    it('"Use theirs" discards the ENTIRE staged batch, including paths that did not conflict', async () => {
+      const backendA = await createBackend();
+      const backendB = await createBackend();
+      backendA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+      backendB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+      await backendA.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/taxonomy/nodes.json', '{"v":"B-stale"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/taxonomy/unrelated.json', '{"u":"B"}'); // staged, never conflicts itself
+
+      await backendA.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
+      const resultB = await backendB.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
+      expect(resultB?.conflictedPaths).toEqual(['taxonomy/nodes.json']); // only this path actually conflicted
+      expect(backendB.getSessionOverlay('alice')?.has('taxonomy/unrelated.json')).toBe(true); // still staged
+
+      const discarded = backendB.discardConflictedOverlayEntries('alice');
+      expect(discarded.sort()).toEqual(['taxonomy/nodes.json', 'taxonomy/unrelated.json']); // BOTH, not just the conflicting one
+      expect(backendB.getSessionOverlay('alice')).toBeUndefined(); // whole batch gone
+
+      backendA.shutdown(); backendB.shutdown();
+    });
+
+    it('"Keep mine" re-bases and commits the ENTIRE staged batch, including paths that did not conflict', async () => {
+      contentByPath.set('taxonomy/unrelated.json', '{"u":"orig"}');
+      const backendA = await createBackend();
+      const backendB = await createBackend();
+      backendA.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+      backendB.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+      await backendA.writeFile('/taxonomy/nodes.json', '{"v":"A"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/taxonomy/nodes.json', '{"v":"B-stale"}', { baseSha: gitBlobSha('{"v":0}') });
+      await backendB.writeFile('/taxonomy/unrelated.json', '{"u":"B"}', { baseSha: gitBlobSha('{"u":"orig"}') });
+
+      await backendA.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
+      const resultB = await backendB.commitOverlay('alice', undefined, { branchName: 'api-session/alice' });
+      expect(resultB?.conflictedPaths).toEqual(['taxonomy/nodes.json']);
+
+      const resolved = await backendB.rebaseAndRecommitConflictedOverlayEntries('alice', 'api-session/alice');
+      expect(resolved.committed).toBe(true);
+      expect(resolved.stillConflicted).toEqual([]);
+      expect(resolved.filesCommitted).toBe(2); // both paths committed together, not just the conflicting one
+      expect(contentByPath.get('taxonomy/nodes.json')).toBe('{"v":"B-stale"}'); // B's explicit overwrite
+      expect(contentByPath.get('taxonomy/unrelated.json')).toBe('{"u":"B"}');
+      expect(backendB.getSessionOverlay('alice')).toBeUndefined();
+
+      backendA.shutdown(); backendB.shutdown();
+    });
+
+    it('both resolution methods are no-ops when nothing is staged', async () => {
+      const backend = await createBackend();
+      backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+      expect(backend.discardConflictedOverlayEntries('alice')).toEqual([]);
+      const resolved = await backend.rebaseAndRecommitConflictedOverlayEntries('alice', 'api-session/alice');
+      expect(resolved).toEqual({ committed: false, stillConflicted: [] });
+
+      backend.shutdown();
+    });
+  });
 });
