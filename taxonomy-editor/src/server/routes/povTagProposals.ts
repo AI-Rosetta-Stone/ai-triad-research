@@ -14,10 +14,10 @@
 import path from 'path';
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error } from '../httpKit.js';
+import { json, error, statusForError, codeForError } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getCurrentUserId } from '../security/userContext.js';
-import { getBackend, getTaxonomyDir } from '../storage/fileIO.js';
+import { getBackend, getTaxonomyDir, readFileWithVersionOrFallback } from '../storage/fileIO.js';
 import {
   parsePovTagProposals,
   applyProposalDecision,
@@ -79,9 +79,9 @@ export function registerPovTagProposalsRoutes(router: Router, ctx: ServerCtx): v
 
     try {
       const p = proposalsFilePath();
-      const raw = await getBackend().readFile(p, { optional: true });
-      if (raw === null) { error(res, 'pov-tag-proposals.json not found', 404); return; }
-      const parsed = parsePovTagProposals(JSON.parse(raw));
+      const read = await readFileWithVersionOrFallback(p);
+      if (read === null) { error(res, 'pov-tag-proposals.json not found', 404); return; }
+      const parsed = parsePovTagProposals(JSON.parse(read.content));
       if (!parsed.ok) {
         getGlobalRecorder()?.record({
           type: 'system.error', component: COMPONENT, level: 'error',
@@ -96,7 +96,12 @@ export function registerPovTagProposalsRoutes(router: Router, ctx: ServerCtx): v
         parsed.file, nodeId, decision, reviewedBy, new Date().toISOString(), expectedStatus,
       );
       if ('refused' in result) { json(res, result, 409); return; }
-      await getBackend().writeFile(p, serializePovTagProposals(result.file));
+      // t/4332: baseSha from the read above — a concurrent writer that lands between this
+      // read and this write now gets a storage-level WRITE_CONFLICT instead of silently
+      // losing the other's update. Distinct from the `expectedStatus`/'refused' check above,
+      // which only catches staleness the application layer can see (the decided item's
+      // status), not a same-expectedStatus race between two requests.
+      await getBackend().writeFile(p, serializePovTagProposals(result.file), { baseSha: read.version });
       json(res, { file: result.file, item: result.item });
     } catch (err) {
       getGlobalRecorder()?.record({
@@ -104,7 +109,7 @@ export function registerPovTagProposalsRoutes(router: Router, ctx: ServerCtx): v
         message: 'Failed to apply pov-tag-proposal review decision',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      error(res, String(err), 500, err);
+      error(res, (err as Error).message, statusForError(err), err, codeForError(err));
     }
   });
 }
