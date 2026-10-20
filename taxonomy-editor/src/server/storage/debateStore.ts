@@ -16,12 +16,14 @@ import { resolveDataPath } from '../config.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { safeSerialize } from '../../../../lib/debate/persistence.js';
 import { applyDebateDelta } from '../../../../lib/debate/applyDebateDelta.js';
+import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { DebateDelta, DebateSession } from '../../../../lib/debate/types.js';
 import { log } from '../logger.js';
 import { getStorageUserId, isAnonymousUser, getAnonymousSessionId } from '../security/userContext.js';
 import { getAnonymousSessionStore } from './anonymousSessionStore.js';
 import { checkQuota, type QuotaCheckResult } from '../security/quotas.js';
 import { getUserContentBackend, assertSafeId } from './fileIO.js';
+import type { StorageBackend } from './storageBackend.js';
 
 function getAnonStore() {
   const store = getAnonymousSessionStore();
@@ -206,28 +208,68 @@ export async function getDebatesQuotaStatus(): Promise<QuotaCheckResult> {
   return checkQuota('debates', files.length);
 }
 
-export async function saveDebateSession(session: unknown, caller: string): Promise<void> {
-  const s = session as { id: string; title?: string; topic?: { final?: string; original?: string }; created_at?: string; updated_at?: string; phase?: string };
+/**
+ * t/4331: layered concurrency check, same shape the delta path (t/1635)
+ * established — now closed against true concurrent writes, not just a stale
+ * client:
+ *  1. Domain check — `opts.expectedVersion` (when supplied) against the
+ *     `_saveVersion` read right here. A mismatch is the client having loaded
+ *     an old version; 409 immediately, no write attempted.
+ *  2. Storage check — the write is conditioned on `baseSha` from the SAME
+ *     `readFileWithVersion()` read used for the domain check, so a write
+ *     landing between this read and this write (a race `expectedVersion`
+ *     alone can't see, since no two in-flight requests observe the same
+ *     stale version through two different checks) is caught atomically by
+ *     the backend's own precondition (GitHub SHA / Blob's atomic `ifMatch`,
+ *     t/4191) and mapped to the identical 409.
+ * `opts.expectedVersion` omitted preserves today's unconditional-overwrite
+ * behavior for back-compat, logging a once-per-user WARN so renderer
+ * adoption is visible (condition 3; follow-up ticket makes it mandatory once
+ * the WARN count is zero for 7 days).
+ */
+export async function saveDebateSession(
+  session: unknown, caller: string, opts?: { expectedVersion?: number; mustNotExist?: boolean },
+): Promise<{ newVersion: number }> {
+  const s = session as { id: string; title?: string; topic?: { final?: string; original?: string }; created_at?: string; updated_at?: string; phase?: string; _saveVersion?: number };
   assertSafeId(s.id, 'debate id');
-  if (isAnonymousUser()) { const a = getAnonStore(); if (a) await a.store.saveDebate(a.sessionId, session); return; }
+  if (isAnonymousUser()) {
+    const a = getAnonStore();
+    if (a) await a.store.saveDebate(a.sessionId, session);
+    return { newVersion: (s._saveVersion ?? 0) + 1 };
+  }
   const backend = getUserContentBackend();
   const debatePath = path.join(getDebatesDir(), `debate-${s.id}.json`);
-  const isNew = (await backend.readFile(debatePath)) === null;
-  if (isNew) {
+  const { existing, currentVersion } = await resolveVersionedWrite(backend, debatePath, s.id, 'debate', opts);
+  if (existing === null) {
     const q = await getDebatesQuotaStatus();
     if (!q.allowed) {
       throw Object.assign(new ActionableError({ goal: 'Save debate session', problem: `Debate quota exceeded (${q.current}/${q.limit})`, location: 'server/fileIO.ts → saveDebateSession', nextSteps: ['Delete existing debates to free space'] }), { statusCode: 429, quotaInfo: q });
     }
   }
-  const { json, hadError, errorMessage } = safeSerialize(session, 2);
+  const newVersion = resolveSaveVersion(session as Record<string, unknown>, currentVersion, opts !== undefined);
+  const bodyToWrite = opts !== undefined ? { ...(session as object), _saveVersion: newVersion } : session;
+  const { json, hadError, errorMessage } = safeSerialize(bodyToWrite, 2);
   if (hadError) {
     log.server.warn({ debateId: s.id, errorMessage }, 'Debate session serialized with sanitizing replacer — non-serializable fields stripped');
   }
-  await backend.writeFile(debatePath, json);
+  try {
+    await backend.writeFile(debatePath, json, { baseSha: existing ? existing.version : '' });
+  } catch (err) {
+    if (isWriteConflict(err)) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'debate-store', level: 'warn',
+        message: `Debate session save hit a backend WRITE_CONFLICT (concurrent write detected): ${s.id}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw debateVersionConflict(s.id, currentVersion);
+    }
+    throw err;
+  }
   log.server.info({ caller, debateId: s.id, backendName: backend.backendName, blobKey: debatePath, bytes: json.length, writeAck: true }, 'Debate session saved');
   // Maintain the lightweight index
-  void upsertDebateIndex(buildDebateIndexEntry(s.id, session as DebateSession))
+  void upsertDebateIndex(buildDebateIndexEntry(s.id, { ...(session as DebateSession), _saveVersion: newVersion }))
     .catch((err) => { log.server.warn({ err }, 'Debate index upsert failed (best-effort)'); });
+  return { newVersion };
 }
 
 /** Build the typed 409 version-conflict error carrying the server's current
@@ -242,6 +284,86 @@ function debateVersionConflict(debateId: string, currentVersion: number | null):
     location: 'server/fileIO.ts → applyDebateDeltaToStorage',
     nextSteps: ['Re-read the full session, recompute against the returned currentVersion, and retry as a full PUT.'],
   }), { statusCode: 409, code: 'version_conflict', currentVersion });
+}
+
+/** t/4331: a backend `WRITE_CONFLICT` means a write landed between our own
+ *  `readFileWithVersion()` and our `writeFile({baseSha})` — a true concurrent
+ *  race, not just a client holding a stale `_saveVersion`. Each call site
+ *  records the detection itself (ADR-003 requires the record() call literally
+ *  in the catch, not hidden behind a helper) before converting to the same
+ *  typed 409 `debateVersionConflict` throws. */
+function isWriteConflict(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === 'WRITE_CONFLICT';
+}
+
+// t/4331 condition 3: per-user, once-per-process WARN when a full-PUT save
+// arrives with no expectedVersion, so adoption of the renderer change is
+// visible in logs before expectedVersion is made mandatory (follow-up ticket).
+const warnedMissingExpectedVersion = new Set<string>();
+function warnOnceIfNoExpectedVersion(kind: string, userId: string, hasExpectedVersion: boolean): void {
+  if (hasExpectedVersion || warnedMissingExpectedVersion.has(`${kind}:${userId}`)) return;
+  warnedMissingExpectedVersion.add(`${kind}:${userId}`);
+  log.server.warn({ kind, userId }, `${kind} save arrived with no expectedVersion — unconditional-overwrite back-compat path (t/4331)`);
+}
+
+/** t/4331: a caller that passes `opts` (`expectedVersion` or `mustNotExist`)
+ *  is participating in the server-owned versioning contract — `_saveVersion`
+ *  is bumped and stamped server-side regardless of what the body says. A
+ *  caller that omits `opts` entirely gets today's exact back-compat
+ *  behavior: whatever `_saveVersion` is already in the body is written
+ *  through unchanged (the atomicity fix above still applies either way —
+ *  this only controls who owns the version NUMBER, not whether the write is
+ *  safe). */
+function resolveSaveVersion(body: Record<string, unknown>, currentVersion: number, participatesInVersioning: boolean): number {
+  if (participatesInVersioning) return currentVersion + 1;
+  const bodyVersion = body._saveVersion;
+  return typeof bodyVersion === 'number' ? bodyVersion : currentVersion + 1;
+}
+
+/** `StorageBackend.readFileWithVersion` is optional (test/mock backends may
+ *  not implement it). When it's absent, `version` comes back `undefined` —
+ *  passed straight through as `{baseSha: undefined}` on a write, which is
+ *  indistinguishable from omitting `baseSha` entirely (no precondition),
+ *  preserving today's unconditional-overwrite behavior rather than
+ *  misreporting "must not exist" for content that's actually there. Existence
+ *  itself still comes from the ordinary `readFile`, so the `baseSha: ''`
+ *  (must-not-exist) case is unaffected either way. */
+async function readWithVersionOrFallback(
+  backend: StorageBackend, filePath: string,
+): Promise<{ content: string; version: string | undefined } | null> {
+  if (backend.readFileWithVersion) return backend.readFileWithVersion(filePath);
+  const content = await backend.readFile(filePath);
+  return content === null ? null : { content, version: undefined };
+}
+
+/**
+ * t/4331 (+ TL p/799#1 cross-coordination with t/4338): shared prelude for
+ * every versioned save — one `readFileWithVersion` read backing both the
+ * domain check and the storage precondition (`existing.version` as `baseSha`)
+ * the caller writes under. Throws the domain conflict itself; callers only
+ * need the storage-level WRITE_CONFLICT mapping around their own `writeFile`.
+ *
+ * `opts.mustNotExist` is a genuine *create*: t/4338's inquiry persistence is
+ * creating a new entity, not holding a possibly-stale version of an existing
+ * one, so it must never trip the "no expectedVersion" WARN (that WARN tracks
+ * un-migrated UPDATE callers, not legitimate creates) — and it conflicts if
+ * the id is already taken, rather than silently overwriting it.
+ */
+async function resolveVersionedWrite(
+  backend: StorageBackend, filePath: string, entityId: string, kind: string,
+  opts?: { expectedVersion?: number; mustNotExist?: boolean },
+): Promise<{ existing: { content: string; version: string | undefined } | null; currentVersion: number }> {
+  const existing = await readWithVersionOrFallback(backend, filePath);
+  const currentVersion = existing ? ((JSON.parse(existing.content) as { _saveVersion?: number })._saveVersion ?? 0) : 0;
+  if (opts?.mustNotExist) {
+    if (existing !== null) throw debateVersionConflict(entityId, currentVersion);
+    return { existing, currentVersion };
+  }
+  warnOnceIfNoExpectedVersion(kind, getStorageUserId(), opts?.expectedVersion !== undefined);
+  if (opts?.expectedVersion !== undefined && opts.expectedVersion !== currentVersion) {
+    throw debateVersionConflict(entityId, existing ? currentVersion : null);
+  }
+  return { existing, currentVersion };
 }
 
 /**
@@ -295,9 +417,14 @@ export async function applyDebateDeltaToStorage(delta: DebateDelta): Promise<{ n
 
   const backend = getUserContentBackend();
   const debatePath = path.join(getDebatesDir(), `debate-${delta.debateId}.json`);
-  const raw = await backend.readFile(debatePath);
-  if (raw === null) throw debateVersionConflict(delta.debateId, null);
-  const existing = JSON.parse(raw) as DebateSession;
+  // t/4331 condition 2: readFileWithVersion (not readFile) so the baseSha
+  // passed to writeFile below comes from the SAME read the _saveVersion
+  // business check uses — two concurrent deltas at the same baseVersion both
+  // pass this compare, but only one write's baseSha can still match at write
+  // time; the backend's own atomic precondition (t/4191) catches the other.
+  const existingWithVersion = await readWithVersionOrFallback(backend, debatePath);
+  if (existingWithVersion === null) throw debateVersionConflict(delta.debateId, null);
+  const existing = JSON.parse(existingWithVersion.content) as DebateSession;
   const currentVersion = existing._saveVersion ?? 0;
   if (delta.baseVersion !== currentVersion) throw debateVersionConflict(delta.debateId, currentVersion);
 
@@ -306,7 +433,19 @@ export async function applyDebateDeltaToStorage(delta: DebateDelta): Promise<{ n
   if (hadError) {
     log.server.warn({ debateId: delta.debateId, errorMessage }, 'Delta-merged debate session serialized with sanitizing replacer — non-serializable fields stripped');
   }
-  await backend.writeFile(debatePath, json);
+  try {
+    await backend.writeFile(debatePath, json, { baseSha: existingWithVersion.version });
+  } catch (err) {
+    if (isWriteConflict(err)) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'debate-store', level: 'warn',
+        message: `Delta-merged debate save hit a backend WRITE_CONFLICT (concurrent write detected): ${delta.debateId}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw debateVersionConflict(delta.debateId, currentVersion);
+    }
+    throw err;
+  }
   void upsertDebateIndex(buildDebateIndexEntry(delta.debateId, merged))
     .catch((err) => { log.server.warn({ err }, 'Debate index upsert failed (best-effort)'); });
 
@@ -325,25 +464,49 @@ export async function loadDebateComments(debateId: string): Promise<unknown> {
   assertSafeId(debateId, 'debate id');
   if (isAnonymousUser()) {
     const a = getAnonStore();
-    return (await a?.store.loadDebateComments(a.sessionId, debateId)) ?? { _schema_version: '1', debateId, comments: [] };
+    return (await a?.store.loadDebateComments(a.sessionId, debateId)) ?? { _schema_version: '1', debateId, comments: [], _saveVersion: 0 };
   }
   const backend = getUserContentBackend();
   const filePath = path.join(getDebatesDir(), `debate-${debateId}-comments.json`);
   const raw = await backend.readFile(filePath);
   if (raw === null) {
-    return { _schema_version: '1', debateId, comments: [] };
+    return { _schema_version: '1', debateId, comments: [], _saveVersion: 0 };
   }
   return JSON.parse(raw);
 }
 
-export async function saveDebateComments(debateId: string, data: unknown): Promise<void> {
+/** t/4331/condition 5: `_saveVersion` is a new field on comments — absent
+ *  means 0, same convention as debate/chat sessions. Layered concurrency
+ *  check identical to `saveDebateSession` (domain check + atomic `baseSha`). */
+export async function saveDebateComments(
+  debateId: string, data: unknown, opts?: { expectedVersion?: number; mustNotExist?: boolean },
+): Promise<{ newVersion: number }> {
   assertSafeId(debateId, 'debate id');
-  if (isAnonymousUser()) { const a = getAnonStore(); if (a) await a.store.saveDebateComments(a.sessionId, debateId, data); return; }
+  if (isAnonymousUser()) {
+    const a = getAnonStore();
+    if (a) await a.store.saveDebateComments(a.sessionId, debateId, data);
+    return { newVersion: ((data as { _saveVersion?: number })._saveVersion ?? 0) + 1 };
+  }
   const backend = getUserContentBackend();
-  await backend.writeFile(
-    path.join(getDebatesDir(), `debate-${debateId}-comments.json`),
-    JSON.stringify(data, null, 2),
-  );
+  const filePath = path.join(getDebatesDir(), `debate-${debateId}-comments.json`);
+  const { existing, currentVersion } = await resolveVersionedWrite(backend, filePath, debateId, 'debate-comments', opts);
+  const newVersion = resolveSaveVersion(data as Record<string, unknown>, currentVersion, opts !== undefined);
+  const bodyToWrite = opts !== undefined ? { ...(data as object), _saveVersion: newVersion } : data;
+  const json = JSON.stringify(bodyToWrite, null, 2);
+  try {
+    await backend.writeFile(filePath, json, { baseSha: existing ? existing.version : '' });
+  } catch (err) {
+    if (isWriteConflict(err)) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'debate-store', level: 'warn',
+        message: `Debate comments save hit a backend WRITE_CONFLICT (concurrent write detected): ${debateId}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw debateVersionConflict(debateId, currentVersion);
+    }
+    throw err;
+  }
+  return { newVersion };
 }
 
 // ── Chat sessions ──
@@ -397,21 +560,42 @@ export async function loadChatSession(id: string): Promise<unknown> {
   return JSON.parse(raw);
 }
 
-export async function saveChatSession(session: unknown): Promise<void> {
-  const s = session as { id: string };
+/** t/4331: same layered concurrency check as `saveDebateSession`. */
+export async function saveChatSession(session: unknown, opts?: { expectedVersion?: number; mustNotExist?: boolean }): Promise<{ newVersion: number }> {
+  const s = session as { id: string; _saveVersion?: number };
   assertSafeId(s.id, 'chat id');
-  if (isAnonymousUser()) { const a = getAnonStore(); if (a) await a.store.saveChat(a.sessionId, session); return; }
+  if (isAnonymousUser()) {
+    const a = getAnonStore();
+    if (a) await a.store.saveChat(a.sessionId, session);
+    return { newVersion: (s._saveVersion ?? 0) + 1 };
+  }
   const backend = getUserContentBackend();
   const chatPath = path.join(getChatsDir(), `chat-${s.id}.json`);
-  const isNew = (await backend.readFile(chatPath)) === null;
-  if (isNew) {
+  const { existing, currentVersion } = await resolveVersionedWrite(backend, chatPath, s.id, 'chat', opts);
+  if (existing === null) {
     const files = (await backend.listDirectory(getChatsDir())).filter(f => f.startsWith('chat-') && f.endsWith('.json'));
     const q = checkQuota('chats', files.length);
     if (!q.allowed) {
       throw Object.assign(new ActionableError({ goal: 'Save chat session', problem: `Chat quota exceeded (${q.current}/${q.limit})`, location: 'server/fileIO.ts → saveChatSession', nextSteps: ['Delete existing chats to free space'] }), { statusCode: 429, quotaInfo: q });
     }
   }
-  await backend.writeFile(chatPath, JSON.stringify(session, null, 2));
+  const newVersion = resolveSaveVersion(session as Record<string, unknown>, currentVersion, opts !== undefined);
+  const bodyToWrite = opts !== undefined ? { ...(session as object), _saveVersion: newVersion } : session;
+  const json = JSON.stringify(bodyToWrite, null, 2);
+  try {
+    await backend.writeFile(chatPath, json, { baseSha: existing ? existing.version : '' });
+  } catch (err) {
+    if (isWriteConflict(err)) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'debate-store', level: 'warn',
+        message: `Chat session save hit a backend WRITE_CONFLICT (concurrent write detected): ${s.id}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw debateVersionConflict(s.id, currentVersion);
+    }
+    throw err;
+  }
+  return { newVersion };
 }
 
 export async function deleteChatSession(id: string): Promise<void> {
