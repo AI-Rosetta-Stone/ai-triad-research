@@ -29,7 +29,7 @@ vi.mock('../config.js', async (importActual) => ({
   getProjectRoot: () => '/fake/repo/root',
 }));
 
-import { refreshAIModels } from '../ai/aiBackends.js';
+import { refreshAIModels, clearRefreshAIModelsCacheForTests } from '../ai/aiBackends.js';
 
 const PROPOSAL = { catalogFingerprint: 'fp1', hash: 'h1', changes: [] };
 
@@ -37,6 +37,7 @@ beforeEach(() => {
   libRefreshMock.mockClear();
   getCurrentUserIdMock.mockClear();
   recordMock.mockClear();
+  clearRefreshAIModelsCacheForTests();
 });
 
 describe('refreshAIModels — dryRun coercion (SO C1)', () => {
@@ -69,5 +70,53 @@ describe('refreshAIModels — dryRun coercion (SO C1)', () => {
     await refreshAIModels({ accept: { proposal: PROPOSAL, approvedBy: 'Alice', reason: 'r' } });
     const [, opts] = libRefreshMock.mock.calls[0];
     expect((opts as { accept: { principal: string } }).accept.principal).toBe('test-principal');
+  });
+});
+
+describe('refreshAIModels — dry-run cache (t/4162 C5, t/4318)', () => {
+  it('a second dry-run call within the TTL is served from cache — the lib is not re-invoked', async () => {
+    const first = await refreshAIModels({ dryRun: true });
+    const second = await refreshAIModels({ dryRun: true });
+    expect(libRefreshMock).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it('a coerced call shares the same cache as an explicit dryRun:true call', async () => {
+    await refreshAIModels({ dryRun: true });
+    const coercedResult = await refreshAIModels({}); // no dryRun, no accept → coerced
+    expect(libRefreshMock).toHaveBeenCalledTimes(1);
+    expect(coercedResult.coerced).toBe(true);
+  });
+
+  it('a cache hit still stamps coerced:true for a coerced caller, even though the cached result itself was not coerced', async () => {
+    await refreshAIModels({ dryRun: true }); // populates cache with an uncoerced result
+    const coercedResult = await refreshAIModels({});
+    expect(coercedResult.coerced).toBe(true);
+    expect(coercedResult.totalModels).toBe(5); // same underlying cached data
+  });
+
+  it('expires after the TTL — a call past expiry re-invokes the lib', async () => {
+    vi.useFakeTimers();
+    try {
+      await refreshAIModels({ dryRun: true });
+      vi.advanceTimersByTime(60_001);
+      await refreshAIModels({ dryRun: true });
+      expect(libRefreshMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a write (accept) bypasses the cache — always calls the lib live', async () => {
+    await refreshAIModels({ dryRun: true }); // populate cache
+    await refreshAIModels({ accept: { proposal: PROPOSAL, approvedBy: 'Alice', reason: 'r' } });
+    expect(libRefreshMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('a write invalidates the cache — the next dry-run after an accept is fresh, not stale', async () => {
+    await refreshAIModels({ dryRun: true }); // populate cache (call 1)
+    await refreshAIModels({ accept: { proposal: PROPOSAL, approvedBy: 'Alice', reason: 'r' } }); // call 2, invalidates
+    await refreshAIModels({ dryRun: true }); // call 3 — must be live, not a stale cache hit
+    expect(libRefreshMock).toHaveBeenCalledTimes(3);
   });
 });

@@ -16,7 +16,7 @@ import { createRequire } from 'module';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 const require = createRequire(import.meta.url);
-import { getApiKey, getApiKeyForListing, getProjectRoot, EMBED_SCRIPT, resolveDataPath, isEmbeddingWorkerOffloadEnabled, getApiKeySource } from '../config.js';
+import { getApiKey, getProjectRoot, EMBED_SCRIPT, resolveDataPath, isEmbeddingWorkerOffloadEnabled, getApiKeySource } from '../config.js';
 import { isKeyRoutingRefusal } from '../../../../lib/ai-client/apiKeyFallback.js';
 import { chainLinkKeys, throwNoApiKeyError } from './chainLinkKeys.js';
 import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource, resolveChainLinkKeySource, emitChainLinkComplete, type ChainLinkComplete } from './aiCallLog.js';
@@ -24,8 +24,6 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { parseJsonRobust } from '../../../../lib/debate/helpers.js';
 import { readFileWithMtime } from './fsCache.js';
 import { getCurrentUserId } from '../security/userContext.js';
-import { refreshAIModels as libRefreshAIModels, type RefreshResult } from '../../../../lib/electron-shared/modelDiscovery.js';
-import type { RefreshModelsRequestInput } from './refreshModelsRequestSchema.js';
 import { readDataFile } from '../storage/readDataFile.js';
 import { tavilySearch, buildSearchAugmentedPrompt } from '../../../../lib/search/tavily.js';
 import { resolveEmbeddings, type EmbeddingFallback } from '../../../../lib/embeddings/embeddingResolver.js';
@@ -1451,50 +1449,5 @@ export async function classifyNli(
 }
 
 // ── Model discovery (refresh) ──
-
-// `ALL_BACKENDS` inside modelDiscovery.ts isn't exported, and 'ollama' needs no key (t/4162).
-const KEYED_DISCOVERY_BACKENDS = ['gemini', 'claude', 'groq', 'deepseek'] as const;
-
-// `ModelDiscoveryDeps.loadApiKey` is SYNCHRONOUS (Electron reads a local file store); the server's
-// `getApiKeyForListing` is ASYNC (Key Vault in Azure mode, t/4105) — resolve every keyed backend's
-// key up front, then hand the lib a sync lookup over the resolved map.
-async function buildApiKeyLookup(): Promise<(backend: string) => string | null> {
-  const entries = await Promise.all(
-    KEYED_DISCOVERY_BACKENDS.map(async (backend) => [backend, await getApiKeyForListing(backend)] as const),
-  );
-  const keys = new Map<string, string | null>(entries);
-  return (backend: string) => keys.get(backend) ?? null;
-}
-
-/**
- * Refresh the AI model registry (t/4162; TL t/4031#1-3; SO e/297#4) via the shared lib's
- * `refreshAIModels` (lib/electron-shared/modelDiscovery.ts, t/4160) — the same engine the Electron
- * IPC path (t/4161) calls, replacing the old per-backend probe that never wrote anything and didn't
- * match the `RefreshResult` shape the renderer bridge (`web-bridge.ts`) already declares.
- *
- * SO C1: no `accept` → `dryRun: true`, for every principal, admin included — the proposal/hash
- * review (TL t/4031#2 adj. 1) exists to stop an unreviewed selection-surface change, and a role check
- * is not a substitute. A non-dryRun call without `accept` gets a WARN naming the caller, and the
- * response carries `coerced: true` so the downgrade is never silent (SO risk 2).
- */
-export async function refreshAIModels(opts: RefreshModelsRequestInput = {}): Promise<RefreshResult & { coerced?: boolean }> {
-  const requestedWrite = opts.dryRun !== true;
-  const coerced = requestedWrite && !opts.accept;
-  if (coerced) {
-    getGlobalRecorder()?.record({
-      type: 'system.error', component: 'ai-backends', level: 'warn',
-      message: `refreshAIModels: non-dryRun call without an accepted proposal — coerced to dryRun (caller: ${getCurrentUserId()})`,
-    });
-  }
-  const loadApiKey = await buildApiKeyLookup();
-  const result = await libRefreshAIModels(
-    { loadApiKey, repoRoot: getProjectRoot() },
-    {
-      dryRun: coerced ? true : opts.dryRun,
-      // C3: `principal` is always the authenticated server identity, never client text —
-      // `refreshModelsRequestSchema`'s `.strict()` already refuses a body that tries to set it.
-      ...(opts.accept ? { accept: { ...opts.accept, principal: getCurrentUserId() } } : {}),
-    },
-  );
-  return coerced ? { ...result, coerced: true } : result;
-}
+// Moved to refreshModels.ts (t/4318, to keep this file under its max-lines budget).
+export { refreshAIModels, clearRefreshAIModelsCacheForTests } from './refreshModels.js';
