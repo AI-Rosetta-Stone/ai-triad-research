@@ -382,5 +382,7 @@
     "debater_turns_max": 15,
     "_basis": "control cell (pre-fix, adaptive moderate, n=36): debater turns mean 11.4, max 15; the failed arm was a constant 6",
     "confound_check": "later-inbound edges per debate computed and reported (one debate is a draw, not a test: it is reported, not gated)"
-  }
+  },
+  "hard_stop_usd": 30.0,
+  "hard_stop_ref": "PI first-hand 2026-10-20 \"spend $10 more\" (t/3802#19): $30 total, all spend counted; 50-debate stop unchanged"
 }

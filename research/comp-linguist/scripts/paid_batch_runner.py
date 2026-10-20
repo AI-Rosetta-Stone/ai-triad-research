@@ -147,11 +147,19 @@ def main():
 
     spent = sum(r.get("usd") or 0 for r in ledger["debates"])
     used = sum(1 for r in ledger["debates"] if counted(r))
+    # A PI-approved cap change is recorded in the plan (`hard_stop_usd`, with its approval ref), which a
+    # running loop re-reads every debate. The ledger's own `budget` is rewritten by whichever process saves
+    # last, so it can't carry a mid-run change safely.
+    budget = plan.get("hard_stop_usd", ledger["budget"])
+    if budget != ledger["budget"]:
+        sys.stderr.write(f"WARN paid_batch_runner: hard stop ${budget:.2f} from the plan "
+                         f"({plan.get('hard_stop_ref', 'no ref')}) overrides the ledger's ${ledger['budget']:.2f}\n")
+        ledger["budget"] = budget
     if used >= ledger["max_debates"]:
         print(f"HARD STOP: {used} debates counted, the cap is {ledger['max_debates']}"); return 11
-    if spent + a.reserve > ledger["budget"]:
+    if spent + a.reserve > budget:
         print(f"HARD STOP: spent ${spent:.2f}; one more debate (reserve ${a.reserve}) could pass "
-              f"${ledger['budget']:.2f}"); return 11
+              f"${budget:.2f}"); return 11
 
     item = todo[0]
     cfg = dict(plan["base_config"]); cfg.update(item.get("config", {}))
