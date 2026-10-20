@@ -1,0 +1,217 @@
+name: cl-path-check
+
+# Advisory CL path-coupling check (t/4151, t/4109 migration C). Moves CL rules #2 (owned-files
+# table), #3 (provenance register) and #9 (normative schema-edit tiering) into a comment-only
+# PR check. Never blocks a merge, never touches labels or merge state.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, ready_for_review]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  cl-path-check:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0
+
+      - name: Self-health — predicate unit suite
+        # Same t/3737#4 principle as tier-check: re-run the unit suite on every PR event, so a
+        # regression that breaks detection fails this job loudly instead of going quietly blind.
+        run: node --test operations/devops/cl-path-check-predicate.test.mjs
+
+      - name: Evaluate CL path-coupling rules
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const os = require('os');
+            const path = require('path');
+
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const prNumber = context.payload.pull_request.number;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const MARKER = '<!-- cl-path-check:verdict -->';
+
+            async function postVerdictComment(body, { createIfAbsent } = { createIfAbsent: true }) {
+              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const existing = comments.find((c) => c.body?.includes(MARKER));
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else if (createIfAbsent) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+              }
+            }
+
+            try {
+              await run();
+            } catch (err) {
+              // A crash must never read as a verdict, and silence must never read as a pass
+              // (same posture as tier-check, t/4103).
+              const message = err && err.stack ? err.stack : String(err);
+              core.error(`cl-path-check CRASHED: ${message}`);
+              await postVerdictComment([
+                MARKER,
+                '**cl-path-check: CANNOT EVALUATE**',
+                '',
+                'The check crashed while evaluating this PR. No verdict was produced -- this is',
+                'not a pass and not a failure, it is an unknown.',
+                '',
+                `Error: \`${String(err && err.message ? err.message : err)}\``,
+                `Run: ${runUrl}`,
+              ].join('\n'));
+              core.setFailed(`CANNOT EVALUATE: ${String(err && err.message ? err.message : err)}`);
+            }
+
+            async function run() {
+            // CONFIG (cl-path-sets.json) and the predicate module itself load from the BASE
+            // BRANCH'S LIVE TIP, not the PR's own head copy and not the pinned base.sha -- same
+            // anti-self-narrowing + staleness rationale as tier-check (t/4103#14): a PR cannot
+            // narrow its own path sets or weaken the predicate in the same change that should be
+            // caught by it, and a PR opened before this check existed isn't judged against a
+            // stale, pre-bootstrap base.sha.
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            const headSha = pr.head.sha;
+            execSync(`git fetch origin ${JSON.stringify(pr.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+            const baseTipSha = execSync(`git rev-parse FETCH_HEAD`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+            // The schema file itself is part of THIS PR's own diff, so it's read at the PR's
+            // actual base/head commits, not the live tip (no staleness concern -- it isn't a
+            // shared config file, it's the thing being diffed).
+            const baseSha = pr.base.sha;
+
+            function showAt(sha, repoPath) {
+              try {
+                return execSync(`git show ${sha}:${repoPath}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8', maxBuffer: 1024 * 1024 * 16 });
+              } catch {
+                return null;
+              }
+            }
+
+            const CONFIG_PATH = 'research/comp-linguist/docs/cl-path-sets.json';
+            const PREDICATE_PATH = 'operations/devops/cl-path-check-predicate.mjs';
+
+            const baseConfigText = showAt(baseTipSha, CONFIG_PATH);
+            const basePredicateText = showAt(baseTipSha, PREDICATE_PATH);
+
+            // The HEAD copy of the predicate is NEVER imported (same e/291 SO C1 rationale as
+            // tier-check): under `pull_request` it is the PR's own code. Its declared API is read
+            // from the file's TEXT with a fixed regex; anything unparseable reads as null and
+            // forces the skew path below.
+            let headApi = null;
+            try {
+              const headText = fs.readFileSync(path.join(process.env.GITHUB_WORKSPACE, PREDICATE_PATH), 'utf8');
+              const apiMatch = /^export const CL_PATH_CHECK_API\s*=\s*(\d+)\s*;/m.exec(headText);
+              headApi = apiMatch ? Number(apiMatch[1]) : null;
+            } catch {
+              headApi = null;
+            }
+
+            async function postSkippedVerdict(reason) {
+              core.info(`cl-path-check: verdict skipped (skew/bootstrap) -- ${reason}`);
+              await postVerdictComment([
+                MARKER,
+                `_cl-path-check: verdict skipped (skew/bootstrap) -- ${reason}_`,
+              ].join('\n'));
+            }
+
+            if (baseConfigText === null) {
+              await postSkippedVerdict(`${CONFIG_PATH} not yet installed on the base branch's tip. Once this PR merges, later PRs are judged by main's rules.`);
+              return;
+            }
+
+            let config;
+            try {
+              config = JSON.parse(baseConfigText);
+            } catch (e) {
+              await postVerdictComment([
+                MARKER,
+                '**cl-path-check: CANNOT EVALUATE**',
+                '',
+                `${CONFIG_PATH} at the base revision is not valid JSON — could not evaluate.`,
+              ].join('\n'));
+              return;
+            }
+
+            if (basePredicateText === null) {
+              await postSkippedVerdict(`${PREDICATE_PATH} not yet installed on the base branch's tip (config present, predicate code missing)`);
+              return;
+            }
+
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cl-path-check-base-'));
+            const predicatePath = path.join(tmpDir, 'cl-path-check-predicate.mjs');
+            fs.writeFileSync(predicatePath, basePredicateText);
+            const baseModule = await import(pathToFileURL(predicatePath).href);
+
+            const apiCheck = baseModule.checkApiVersion(baseModule.CL_PATH_CHECK_API, headApi);
+            if (!apiCheck.compatible) {
+              await postSkippedVerdict(apiCheck.reason);
+              return;
+            }
+
+            const { evaluateClPathCheck } = baseModule;
+
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+            const mappedFiles = files
+              .filter((f) => typeof f.filename === 'string')
+              .map((f) => ({ path: f.filename, status: f.status }));
+            const touchedPaths = mappedFiles.map((f) => f.path);
+
+            const schemaPath = config.schema_rule && config.schema_rule.file;
+            let baseSchema = null, headSchema = null;
+            if (schemaPath && touchedPaths.includes(schemaPath)) {
+              const baseText = showAt(baseSha, schemaPath);
+              const headText = showAt(headSha, schemaPath);
+              try { baseSchema = baseText === null ? null : JSON.parse(baseText); } catch { baseSchema = null; }
+              try { headSchema = headText === null ? null : JSON.parse(headText); } catch { headSchema = null; }
+            }
+
+            const tierLine = /^Tier:\s*T([012])\b/.exec((pr.body || '').trim().split('\n')[0].trim());
+            const tier = tierLine ? `T${tierLine[1]}` : null;
+
+            const result = evaluateClPathCheck({
+              body: pr.body || '',
+              tier,
+              touchedPaths,
+              files: mappedFiles,
+              config,
+              baseSchema,
+              headSchema,
+            });
+
+            core.info(`cl-path-check verdict: couldEvaluate=${result.couldEvaluate} comments=${JSON.stringify(result.comments)}`);
+
+            if (!result.couldEvaluate) {
+              await postVerdictComment([
+                MARKER,
+                '**cl-path-check: CANNOT EVALUATE**',
+                '',
+                ...result.comments.map((c) => `- ${c}`),
+              ].join('\n'));
+              return;
+            }
+
+            if (result.comments.length === 0) {
+              await postVerdictComment(`${MARKER}\ncl-path-check: clean — no advisory findings.`, { createIfAbsent: false });
+              core.info('cl-path-check: clean, nothing to comment.');
+              return;
+            }
+
+            const body = [
+              MARKER,
+              '**cl-path-check (advisory)**',
+              '',
+              ...result.comments.map((c) => `- ${c}`),
+              '',
+              '_This check is advisory and never blocks a merge. See t/4151._',
+            ].join('\n');
+
+            await postVerdictComment(body);
+            } // end run()
