@@ -17,7 +17,7 @@ import type { ServerCtx } from './context.js';
 import { json, error } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
-import { getDataRoot, STORAGE_MODE, isStagingIdentity } from '../config.js';
+import { getDataRoot, STORAGE_MODE, isStagingIdentity, isLocalDeployment } from '../config.js';
 import { getConfig } from '../runtimeConfig.js';
 import { isPathWithinDir } from '../security/accessControl.js';
 import { requireAdmin } from '../community/admin/reviewRegistry.js';
@@ -290,12 +290,15 @@ export function registerDataRoutes(r: Router, ctx: ServerCtx): void {
   // vanish on the next restart/deploy/scale-to-zero, and the repo's actual source of truth
   // (read by PowerShell, Electron, gated by `verify:config`) never changes. Refuse `accept` on
   // hosted before it ever reaches ai.refreshAIModels; dry-run/proposal viewing stays unaffected.
+  // SO follow-up (e/334#4): STORAGE_MODE alone fails OPEN during the prod rollback runbook
+  // (STORAGE_MODE=filesystem on hosted prod, t/4229's exact trap) — isLocalDeployment() pins
+  // "accept allowed" to genuine desktop/local-server use via NODE_ENV, not just the mode.
   post('/api/models/refresh', async (_req, res, body) => {
     const parsed = refreshModelsRequestSchema.safeParse(body ?? {});
     if (!parsed.success) { error(res, 'Invalid refresh request: ' + parsed.error.message, 400); return; }
     if (parsed.data.accept) {
       if (!requireAdmin(res)) return;
-      if (STORAGE_MODE === 'github-api') {
+      if (!isLocalDeployment()) {
         const notDurable = new ActionableError({
           goal: 'Apply a reviewed AI model-catalog change',
           problem: 'Hosted accept would write a container-local copy of ai-models.json — the change and its sign-off vanish on the next restart, deploy or scale-to-zero, and the repo\'s source of truth (PowerShell, Electron, verify:config) never changes.',

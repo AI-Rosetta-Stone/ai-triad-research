@@ -21,8 +21,13 @@
  * SO finding (e/334#2), TL ruling A1 (p/522#430): on hosted (STORAGE_MODE=github-api), a hosted
  * `accept` would write a container-local, non-durable copy of ai-models.json — refused with 409
  * ACCEPT_NOT_DURABLE_ON_HOSTED before ever reaching refreshAIModels. Desktop/local (filesystem
- * mode) keeps the admin-gated accept from arm 1 above. STORAGE_MODE is mocked explicitly in both
+ * mode) keeps the admin-gated accept from arm 1 above. STORAGE_MODE is mocked explicitly in all
  * arms below rather than relying on the test runner's implicit default.
+ *
+ * SO follow-up (e/334#4, the t/4229 trap): STORAGE_MODE alone fails open during the prod
+ * rollback runbook, which sets STORAGE_MODE=filesystem on HOSTED prod — isLocalDeployment()
+ * (config.ts) adds the NODE_ENV!=='production' check. The filesystem-plus-production arm below
+ * proves the gate still refuses in that exact state, not just under github-api.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -31,10 +36,18 @@ import type { IncomingMessage, ServerResponse } from 'http';
 const refreshAIModelsMock = vi.hoisted(() => vi.fn(async () => ({ written: false, dryRun: true, totalModels: 0 })));
 vi.mock('../ai/aiBackends.js', () => ({ refreshAIModels: refreshAIModelsMock }));
 
+// isLocalDeployment is a function closing over config.ts's real module-scope STORAGE_MODE —
+// overriding the exported STORAGE_MODE getter alone does NOT change what isLocalDeployment()
+// (called internally by the route) evaluates, so it's overridden explicitly here too, computed
+// from the same mocked mode + the real process.env.NODE_ENV (the SO's filesystem-plus-production trap).
 const storageModeMock = vi.hoisted(() => ({ current: 'filesystem' as 'filesystem' | 'github-api' }));
 vi.mock('../config.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../config.js')>();
-  return { ...actual, get STORAGE_MODE() { return storageModeMock.current; } };
+  return {
+    ...actual,
+    get STORAGE_MODE() { return storageModeMock.current; },
+    isLocalDeployment: () => storageModeMock.current === 'filesystem' && process.env.NODE_ENV !== 'production',
+  };
 });
 
 import { runWithUser, type UserContext } from '../security/userContext.js';
@@ -97,6 +110,20 @@ describe('POST /api/models/refresh — Part 2: admin-gated accept (t/4162, t/423
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ written: true, dryRun: false, totalModels: 3 });
     expect(refreshAIModelsMock).toHaveBeenCalledWith(ACCEPT_BODY);
+  });
+
+  it('(SO e/334#4, the t/4229 trap) STORAGE_MODE=filesystem on HOSTED PROD (NODE_ENV=production, prod rollback runbook) → still refused 409, not a false-open local-allow', async () => {
+    storageModeMock.current = 'filesystem'; // the rollback runbook's exact state — mode alone would fail open here
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const res = await postRefresh(ACCEPT_BODY, ADMIN_ID);
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ code: 'ACCEPT_NOT_DURABLE_ON_HOSTED' });
+      expect(refreshAIModelsMock).not.toHaveBeenCalled();
+    } finally {
+      if (prevNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prevNodeEnv;
+    }
   });
 
   it('(SO e/334#2, TL A1) admin + accept, HOSTED (github-api mode) → 409 ACCEPT_NOT_DURABLE_ON_HOSTED, nothing written', async () => {
