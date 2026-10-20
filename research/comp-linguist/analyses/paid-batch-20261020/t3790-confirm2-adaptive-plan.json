@@ -384,5 +384,7 @@
     "confound_check": "later-inbound edges per debate computed and reported (one debate is a draw, not a test: it is reported, not gated)"
   },
   "hard_stop_usd": 30.0,
-  "hard_stop_ref": "PI first-hand 2026-10-20 \"spend $10 more\" (t/3802#19): $30 total, all spend counted; 50-debate stop unchanged"
+  "hard_stop_ref": "PI first-hand 2026-10-20 \"spend $10 more\" (t/3802#19): $30 total, all spend counted; 50-debate stop unchanged",
+  "count_cap_on": "completed",
+  "count_cap_ref": "TL ruling 2026-10-20 (p/349#561, t/3802): 50 COMPLETED debates; killed attempts do not count toward the 50, but all spend counts toward the $30 stop"
 }

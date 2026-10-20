@@ -145,8 +145,13 @@ def main():
     if not todo:
         print(f"PLAN COMPLETE: {plan['name']} ({len(plan['debates'])} debates)"); return 10
 
-    spent = sum(r.get("usd") or 0 for r in ledger["debates"])
-    used = sum(1 for r in ledger["debates"] if counted(r))
+    spent = sum(r.get("usd") or 0 for r in ledger["debates"])  # every dollar, killed attempts included
+    # `count_cap_on: "completed"` (a plan-level ruling, re-read each debate) counts only completed debates
+    # toward max_debates; the default counts every paid attempt. Spend is never exempted either way.
+    if plan.get("count_cap_on") == "completed":
+        used = sum(1 for r in ledger["debates"] if r.get("status") == "ok")
+    else:
+        used = sum(1 for r in ledger["debates"] if counted(r))
     # A PI-approved cap change is recorded in the plan (`hard_stop_usd`, with its approval ref), which a
     # running loop re-reads every debate. The ledger's own `budget` is rewritten by whichever process saves
     # last, so it can't carry a mid-run change safely.
