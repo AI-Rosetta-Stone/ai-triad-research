@@ -135,18 +135,20 @@ test('empty/undefined input never throws', () => {
 });
 
 // ── t/4096 Reviewer switch-over: a real bot APPROVED review also satisfies the gate ──
+const REVIEWER_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
 
-test('t/4096: a bot APPROVED review after the latest push -> pass, no comment needed', () => {
+test('t/4096: a bot APPROVED review after the latest push, with an Approved(<role>) body -> pass', () => {
   const r = evaluateT1ApprovalGuard({
     body: 'Tier: T1',
     headRefName: 'devops/t4247-t1-approval-guard',
     lastPushAt: PUSH,
     approvalComments: [],
-    botReviews: [{ state: 'APPROVED', submittedAt: AFTER_PUSH, login: 'ai-triad-reviewer-jpsnover[bot]' }],
+    botReviews: [{ state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): looks good' }],
+    reviewerAppLogin: REVIEWER_LOGIN,
   });
   assert.equal(r.pass, true);
   assert.equal(r.reason, 'approved-after-push');
-  assert.equal(r.approver.role, 'ai-triad-reviewer-jpsnover[bot]');
+  assert.equal(r.approver.role, 'Quality');
 });
 
 test('FIRE ARM: t/4096: a bot review that predates the latest push -> fail (stale, same as a stale comment)', () => {
@@ -155,7 +157,8 @@ test('FIRE ARM: t/4096: a bot review that predates the latest push -> fail (stal
     headRefName: 'devops/t4247-t1-approval-guard',
     lastPushAt: AFTER_PUSH,
     approvalComments: [],
-    botReviews: [{ state: 'APPROVED', submittedAt: BEFORE_PUSH, login: 'ai-triad-reviewer-jpsnover[bot]' }],
+    botReviews: [{ state: 'APPROVED', submittedAt: BEFORE_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): looks good' }],
+    reviewerAppLogin: REVIEWER_LOGIN,
   });
   assert.equal(r.pass, false);
   assert.equal(r.reason, 'no-post-push-approval');
@@ -168,9 +171,10 @@ test('FIRE ARM: t/4096: a bot review with state COMMENTED or CHANGES_REQUESTED d
     lastPushAt: PUSH,
     approvalComments: [],
     botReviews: [
-      { state: 'COMMENTED', submittedAt: AFTER_PUSH, login: 'ai-triad-reviewer-jpsnover[bot]' },
-      { state: 'CHANGES_REQUESTED', submittedAt: AFTER_PUSH, login: 'ai-triad-reviewer-jpsnover[bot]' },
+      { state: 'COMMENTED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): looks good' },
+      { state: 'CHANGES_REQUESTED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): looks good' },
     ],
+    reviewerAppLogin: REVIEWER_LOGIN,
   });
   assert.equal(r.pass, false);
   assert.equal(r.reason, 'no-post-push-approval');
@@ -183,7 +187,75 @@ test('t/4096: either form satisfies the gate during the transition -- a legacy c
     lastPushAt: PUSH,
     approvalComments: [{ body: 'Approved (Quality): looks good', createdAt: AFTER_PUSH }],
     botReviews: [],
+    reviewerAppLogin: REVIEWER_LOGIN,
   });
   assert.equal(r.pass, true);
   assert.equal(r.approver.role, 'Quality');
+});
+
+// ── TL review fixes (PR #3487): the bot-review arm must not reopen self-approval ──
+
+test('FIRE ARM (TL blocking 1): a bot review whose body names the AUTHOR\'s own owning role is rejected as self-approval', () => {
+  const r = evaluateT1ApprovalGuard({
+    body: 'Tier: T1',
+    headRefName: 'devops/t4247-t1-approval-guard',
+    lastPushAt: PUSH,
+    approvalComments: [],
+    botReviews: [{ state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (DevOps Lead): self-sign-off via the App' }],
+    reviewerAppLogin: REVIEWER_LOGIN,
+  });
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
+});
+
+test('a bot review naming a DIFFERENT role than the PR owner still passes despite sharing the jpsnover author identity', () => {
+  const r = evaluateT1ApprovalGuard({
+    body: 'Tier: T1',
+    headRefName: 'devops/t4247-t1-approval-guard',
+    lastPushAt: PUSH,
+    approvalComments: [],
+    botReviews: [{ state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'Approved (Quality): genuine second reviewer' }],
+    reviewerAppLogin: REVIEWER_LOGIN,
+  });
+  assert.equal(r.pass, true);
+  assert.equal(r.approver.role, 'Quality');
+});
+
+test('FIRE ARM (TL blocking 2): an APPROVED review from a login OTHER than the configured reviewer App does not satisfy the gate', () => {
+  const r = evaluateT1ApprovalGuard({
+    body: 'Tier: T1',
+    headRefName: 'devops/t4247-t1-approval-guard',
+    lastPushAt: PUSH,
+    approvalComments: [],
+    botReviews: [{ state: 'APPROVED', submittedAt: AFTER_PUSH, login: 'ai-triad-maintainer-jpsnover[bot]', body: 'Approved (Quality): looks good' }],
+    reviewerAppLogin: REVIEWER_LOGIN,
+  });
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
+});
+
+test('FIRE ARM (TL blocking 2): a human APPROVED review (no bot login at all) does not satisfy the gate', () => {
+  const r = evaluateT1ApprovalGuard({
+    body: 'Tier: T1',
+    headRefName: 'devops/t4247-t1-approval-guard',
+    lastPushAt: PUSH,
+    approvalComments: [],
+    botReviews: [{ state: 'APPROVED', submittedAt: AFTER_PUSH, login: 'jpsnover', body: 'Approved (Quality): looks good' }],
+    reviewerAppLogin: REVIEWER_LOGIN,
+  });
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
+});
+
+test('a bot review with an APPROVED state but no "Approved (<role>):" body text does not satisfy the gate', () => {
+  const r = evaluateT1ApprovalGuard({
+    body: 'Tier: T1',
+    headRefName: 'devops/t4247-t1-approval-guard',
+    lastPushAt: PUSH,
+    approvalComments: [],
+    botReviews: [{ state: 'APPROVED', submittedAt: AFTER_PUSH, login: REVIEWER_LOGIN, body: 'lgtm' }],
+    reviewerAppLogin: REVIEWER_LOGIN,
+  });
+  assert.equal(r.pass, false);
+  assert.equal(r.reason, 'no-post-push-approval');
 });

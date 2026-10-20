@@ -63,14 +63,13 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 ### PR-Flow Practice Rules
 
 - **Batch sequential same-feature work** into one PR, unless the diff is over ~400 lines or mixes concerns. Merge promptly on green, or record why not.
-- **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` comment is on the PR for the current head (t/4247: #3343 and #3364 merged before review). Arming means "done", so disarm before pushing more.
+- **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247: #3343 and #3364 merged before review). Arming means "done", so disarm before pushing more.
   - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
 - **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
   - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
   - or with the "SO did not review" note plus the human approval.
 - **Co-landing PRs** carry `joint-gv` and are merged manually after their joint review.
-- **Approve via the reviewer App** (t/4096 Reviewer switch-over): `Invoke-AsAgentApp -Role reviewer -ScriptBlock { gh pr review <N> --approve --body 'Approved (<role>): <reason>' }` (`operations/devops/AgentAppToken.psm1`). Fails closed on a token problem — never falls back to approving as `jpsnover`. Full procedure: [`docs/agent-pr-approval.md`](docs/agent-pr-approval.md). A reviewer-App approval is a record, not a gate (t/4096#12 C1) — it doesn't change what's required to merge.
-- **T2 human approval** is the PI, or **the TL once an SO clearance exists at the exact head** (t/4096#58). If the SO dissents or didn't review, it goes to the PI. Everything else on the PI-only list (below) is unaffected.
+- **Approve via the reviewer App:** `Invoke-AsAgentApp -Role reviewer`, with the review body `Approved (<role>): …`. Never approve your own role's PR. It fails closed; procedure in `docs/agent-pr-approval.md`. The approval is a record, not a merge requirement.
 - **Where this section differs from Change Tiers below, Change Tiers wins.** Ref §4.
 
 ### Claim Before Implement
@@ -160,7 +159,7 @@ Unrecoverable errors use `New-ActionableError` (PS) / `ActionableError` (TS) wit
   - One Second Opinion round (`main.engineering-second-opinion@ai-triad-research.orca.local`), time-boxed to **2 hours**. Send the proposal, alternatives, what's at stake and the evidence; the reply is Recommendation / Key risks / Conditions / Dissent.
   - **Silence never approves.** After the time-box, the PR goes to the T2 human approver marked "SO did not review", and the approver decides knowingly. An unreachable SO backend is an infra issue for Orca Support; it neither blocks nor waives.
   - Conditions name the files they edit **and the files their logic depends on**. A new head needs re-confirmation only if it touches one of those.
-  - Apply the **`consult-hold` label** (the required context `consult-hold-guard` enforces it for every merge path) and a one-line comment naming the open conditions. Human approval is required: the PI, or the TL once agent identities exist (t/4096). Merge pinned with `--match-head-commit`.
+  - Apply the **`consult-hold` label** (the required context `consult-hold-guard` enforces it for every merge path) and a one-line comment naming the open conditions. Human approval is required: the PI, or the TL when the SO has cleared the exact head (t/4096#58). SO dissent or no SO review → the PI. Merge pinned with `--match-head-commit`.
 - **Incident remediation is an automated check, test or platform fix.** A new prose rule needs a second occurrence, an owner and a review-by date.
 
 **Only the PI decides:**

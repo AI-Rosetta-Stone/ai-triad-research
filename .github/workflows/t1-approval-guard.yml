@@ -64,6 +64,11 @@ jobs:
 
             const owner = context.repo.owner, repo = context.repo.repo;
             const MARKER = '<!-- t1-approval-guard:verdict -->';
+            // Gate Co-Location: this MUST match the reviewer App's slug in
+            // operations/devops/AgentAppToken.psm1 ($script:AgentApps.reviewer.Slug) + GitHub's
+            // own "[bot]" suffix convention. If that App is ever renamed, update both (TL review,
+            // PR #3487 blocking 2: restrict the bot-review arm to this exact login, not any App).
+            const REVIEWER_APP_LOGIN = 'ai-triad-reviewer-jpsnover[bot]';
 
             async function withRetry(label, fn) {
               let lastErr;
@@ -155,12 +160,16 @@ jobs:
 
             // t/4096 Reviewer switch-over: during the transition, a real bot review also satisfies
             // the gate (t/4096#58's T1 decision), alongside the legacy `Approved (<role>):` comment.
+            // Fetch every bot review's body too -- the predicate applies the same owner-slug
+            // self-approval check to it that it applies to a comment (TL review, PR #3487
+            // blocking 1: a human-authored PR, reviewed by ANY agent running as the reviewer App,
+            // is not self-approval-safe by GitHub identity alone).
             const rawReviews = await withRetry('pulls.listReviews', () => github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: prNumber, per_page: 100 }));
             const botReviews = rawReviews
               .filter((r) => r.user?.type === 'Bot')
-              .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login }));
+              .map((r) => ({ state: r.state, submittedAt: r.submitted_at, login: r.user?.login, body: r.body }));
 
-            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews });
+            const result = evaluateT1ApprovalGuard({ body: pr.body, headRefName: pr.head.ref, lastPushAt, approvalComments, botReviews, reviewerAppLogin: REVIEWER_APP_LOGIN });
             core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}`);
 
             if (result.pass) {
