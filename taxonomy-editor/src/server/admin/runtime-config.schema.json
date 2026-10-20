@@ -148,6 +148,14 @@
         "defaultTtlMs": { "type": "integer", "minimum": 0, "maximum": 86400000, "description": "Default cache TTL (ms). Default 30000." }
       }
     },
+    "pollGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The t/4251 renderer poll gate's live switch, delivered via GET /api/config/client. Default false (no behavior change — background/idle tabs keep polling). Turning it on is a TL/PI decision gated on t/4258 acceptance criterion 2 (overlay-write durability).",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Switches the t/4251 renderer poll gate on. Default false." }
+      }
+    },
     "debate": {
       "type": "object",
       "additionalProperties": false,

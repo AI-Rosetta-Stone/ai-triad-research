@@ -145,6 +145,18 @@ function Wait-RevisionActivation {
     } while ((Get-Date) -lt $deadline)
 
     $final = if ($verdict.Verdict -eq 'waiting') { 'timeout' } else { $verdict.Verdict }
+
+    # t/4249: GetState/GetLogTail/GetProbe each run a native `az`/curl call every round, including
+    # the round that resolves to 'healthy'. A deploy run (39061815653, 2026-10-17) failed its
+    # "Health check new revision" step with "Health check passed — server up and taxonomy data
+    # loaded" printed immediately before the step exited 1 — the calling script never issued an
+    # explicit exit, so the step's exit code leaked from whatever $LASTEXITCODE the LAST native
+    # call inside this loop happened to leave (most likely `az containerapp logs show` racing a
+    # revision whose log stream wasn't available yet). Reset it here, at the one place that knows
+    # every native call this function made is now behind it — the correct exit code is Verdict,
+    # never a leftover $LASTEXITCODE.
+    $global:LASTEXITCODE = 0
+
     [pscustomobject]@{
         Verdict     = $final
         Cause       = $verdict.Cause
@@ -153,4 +165,19 @@ function Wait-RevisionActivation {
         Rounds      = $round
         Result      = $result
     }
+}
+
+<#
+.SYNOPSIS
+Maps a Wait-RevisionActivation verdict string to the step's exit code (t/4249).
+
+.DESCRIPTION
+Pure: the only correct source for a health-check step's own exit code is this mapping of the
+VERDICT, never an ambient $LASTEXITCODE left over from a native call made while computing it.
+'healthy' exits 0; 'failed' and 'timeout' (and anything else) exit 1.
+#>
+function Get-HealthCheckExitCode {
+    param([Parameter(Mandatory)][AllowNull()][AllowEmptyString()][string] $Verdict)
+    if ($Verdict -eq 'healthy') { return 0 }
+    return 1
 }

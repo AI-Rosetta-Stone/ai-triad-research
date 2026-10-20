@@ -86,6 +86,8 @@ vi.mock('../ai/aiBackends.js', () => ({
   updateNodeEmbeddings: vi.fn(),
   setDebateTemperature: vi.fn(),
   resolveEmbeddingsChunked: vi.fn(),
+  EMBEDDING_COMPUTE_CHUNK: 128, // t/4287: routes/ai.ts scales its endpoint timeout by this
+  EMBEDDINGS_REQUEST_TIMEOUT_MS: 45_000,
 }));
 
 vi.mock('./generationContext.js', () => ({

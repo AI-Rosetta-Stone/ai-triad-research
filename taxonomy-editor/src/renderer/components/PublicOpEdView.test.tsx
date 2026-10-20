@@ -320,7 +320,7 @@ describe('PublicOpEdView — wing scope (t/3992)', () => {
     mockFetch.mockResolvedValue(fakeResponse({ body: share({ pov: 'skeptic', tag: 'critical', mode: 'scope', included: 12, excludedUntagged: 31 }) }));
     render(<PublicOpEdView />);
     await screen.findByText(SAMPLE.topic);
-    expect(screen.getByText('Skeptic · Critical wing (scope; 31 untagged excluded)')).toBeInTheDocument();
+    expect(screen.getByText('Skeptic · Critical wing (scope; 31 not tagged Critical excluded)')).toBeInTheDocument();
   });
 
   it('a Prioritize member shows no count (0 by construction would read as full coverage)', async () => {
@@ -328,7 +328,7 @@ describe('PublicOpEdView — wing scope (t/3992)', () => {
     render(<PublicOpEdView />);
     await screen.findByText(SAMPLE.topic);
     expect(screen.getByText('Skeptic · Critical wing (prioritized)')).toBeInTheDocument();
-    expect(screen.queryByText(/untagged excluded/)).toBeNull();
+    expect(screen.queryByText(/not tagged .* excluded/)).toBeNull();
   });
 
   it('an untagged member, or a share projected before t/3990, shows no scope line', async () => {
@@ -342,6 +342,6 @@ describe('PublicOpEdView — wing scope (t/3992)', () => {
     mockFetch.mockResolvedValue(fakeResponse({ body: share({ pov: 'skeptic', tag: 'retired-wing', mode: 'scope', included: 5, excludedUntagged: 2 }) }));
     render(<PublicOpEdView />);
     await screen.findByText(SAMPLE.topic);
-    expect(screen.getByText('Skeptic · retired-wing wing (scope; 2 untagged excluded)')).toBeInTheDocument();
+    expect(screen.getByText('Skeptic · retired-wing wing (scope; 2 not tagged retired-wing excluded)')).toBeInTheDocument();
   });
 });

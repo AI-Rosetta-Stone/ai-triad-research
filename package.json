@@ -13,7 +13,7 @@
     "verify:config": "pwsh -File scripts/Verify-Config.ps1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "unist-util-visit": "^5.1.0"
@@ -22,6 +22,6 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "jszip": "^3.10.2",
     "onnxruntime-node": "^1.30.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   }
 }

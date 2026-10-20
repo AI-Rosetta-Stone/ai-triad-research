@@ -104,10 +104,17 @@ describe('SeatTagPicker', () => {
     expect(onChange).toHaveBeenCalledWith(undefined);
   });
 
-  it('shows the in-scope/untagged counts in Scope mode', () => {
+  it('shows the in-scope/excluded counts in Scope mode, labelled by the selected tag', () => {
     const povNodes = [makeNode('skp-beliefs-001', ['critical']), makeNode('skp-beliefs-002')];
     render(<SeatTagPicker pov="skeptic" povNodes={povNodes} registry={registry} seatTag={{ pov_tag: 'critical', tag_mode: 'scope' }} onChange={vi.fn()} />);
-    expect(screen.getByText('1 in scope, 1 untagged')).toBeTruthy();
+    expect(screen.getByText('1 in scope, 1 not tagged Critical')).toBeTruthy();
+  });
+
+  // t/4275: excluded nodes may carry a different wing's tag, not be untagged — the count label must not claim "untagged".
+  it('still reads "not tagged" when the excluded node carries a different tag entirely', () => {
+    const povNodes = [makeNode('skp-beliefs-001', ['critical']), makeNode('skp-beliefs-002', ['institutional'])];
+    render(<SeatTagPicker pov="skeptic" povNodes={povNodes} registry={registry} seatTag={{ pov_tag: 'critical', tag_mode: 'scope' }} onChange={vi.fn()} />);
+    expect(screen.getByText('1 in scope, 1 not tagged Critical')).toBeTruthy();
   });
 
   it('shows in-scope, excluded, and minimum together when Scope is below the floor', () => {

@@ -399,3 +399,64 @@ describe('buildGroundingEnvelope — thin-scope / no-tag refusal', () => {
     ).resolves.toBeDefined();
   });
 });
+
+// ── POV file-name normalization (t/4255 regression) ──────────────────────────
+// Embedding producers stamp pov with the file name ("skeptic", "accelerationist",
+// "safetyist", "cross-cutting") rather than the camp code ("skp", "acc", "saf",
+// "cc"). The old isCamp() guard silently dropped every such entry, leaving all
+// camps empty and every inquiry returning no grounding nodes.
+
+describe('buildGroundingEnvelope — pov file-name normalization (t/4255)', () => {
+  function makeFileNameTaxonomy(): GroundingTaxonomy {
+    const povNodes: PovNode[] = [
+      makeNode('acc-beliefs-001', 'A1'),
+      makeNode('acc-beliefs-002', 'A2'),
+      makeNode('saf-beliefs-001', 'S1'),
+      makeNode('saf-beliefs-002', 'S2'),
+      makeNode('skp-beliefs-001', 'K1', ['safety']),
+      makeNode('skp-beliefs-002', 'K2', ['safety']),
+      makeNode('skp-beliefs-003', 'K3', ['safety']),
+      makeNode('skp-beliefs-004', 'K4', ['safety']),
+      makeNode('skp-beliefs-005', 'K5', ['safety']),
+      makeNode('cc-beliefs-001',  'C1'),
+    ];
+    // Stamped with file names as assembleNodeEmbeddings produces, NOT camp codes.
+    const nodeEmbeddings: NodeEmbeddingMap = {
+      'acc-beliefs-001': { pov: 'accelerationist', vector: unitVec(12, 0) },
+      'acc-beliefs-002': { pov: 'accelerationist', vector: unitVec(12, 1) },
+      'saf-beliefs-001': { pov: 'safetyist',       vector: unitVec(12, 2) },
+      'saf-beliefs-002': { pov: 'safetyist',       vector: unitVec(12, 3) },
+      'skp-beliefs-001': { pov: 'skeptic',          vector: unitVec(12, 4) },
+      'skp-beliefs-002': { pov: 'skeptic',          vector: unitVec(12, 5) },
+      'skp-beliefs-003': { pov: 'skeptic',          vector: unitVec(12, 6) },
+      'skp-beliefs-004': { pov: 'skeptic',          vector: unitVec(12, 7) },
+      'skp-beliefs-005': { pov: 'skeptic',          vector: unitVec(12, 8) },
+      'cc-beliefs-001':  { pov: 'cross-cutting',    vector: unitVec(12, 9) },
+    };
+    return { povNodes, situationNodes: [], nodeEmbeddings };
+  }
+
+  it('populates all four camps from file-name-stamped embeddings', async () => {
+    const { envelope } = await buildGroundingEnvelope('q', makeFileNameTaxonomy(), flatEmbed);
+    expect((envelope.nodesByCamp['acc'] ?? []).length).toBeGreaterThan(0);
+    expect((envelope.nodesByCamp['saf'] ?? []).length).toBeGreaterThan(0);
+    expect((envelope.nodesByCamp['skp'] ?? []).length).toBeGreaterThan(0);
+    expect((envelope.nodesByCamp['cc'] ?? []).length).toBeGreaterThan(0);
+  });
+
+  it('accepts cross-cutting → cc normalization', async () => {
+    const { envelope } = await buildGroundingEnvelope('q', makeFileNameTaxonomy(), flatEmbed);
+    const ccRefs = envelope.nodesByCamp['cc'] ?? [];
+    expect(ccRefs.length).toBeGreaterThan(0);
+    expect(ccRefs[0]?.nodeId).toBe('cc-beliefs-001');
+  });
+
+  it('tag selection works against file-name-stamped embeddings and returns appliedTag', async () => {
+    const { appliedTag } = await buildGroundingEnvelope('q', makeFileNameTaxonomy(), flatEmbed, {
+      tagSelection: { pov: 'skeptic', tag: 'safety', mode: 'scope' },
+    });
+    expect(appliedTag).toBeDefined();
+    expect(appliedTag!.pov).toBe('skeptic');
+    expect(appliedTag!.included).toBe(5);
+  });
+});

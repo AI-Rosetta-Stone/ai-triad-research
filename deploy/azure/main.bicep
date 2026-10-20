@@ -63,12 +63,26 @@ param trafficPinRevisionName string = ''
 param trafficPinRevisionNameStaging string = ''
 
 // ── Staging write-isolation (t/2643) ──
-// Set stagingSharedReadOnly=true as the FINAL step of the isolation deployment,
-// AFTER arm-B verification confirms class-A writes route to /mnt/staging-state.
-// The RO flip makes the hard boundary live: missed write sites EROFS instead of
-// silently mutating prod. Deploy order matters — see t/2643#5/#6.
-@description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation). Apply ONLY after arm-B verification passes with /mnt/shared still RW.')
-param stagingSharedReadOnly bool = false
+// FLIPPED TO true (t/4298 escalation, 2026-10-19): staging was still RW on prod's own
+// `taxonomy-data` share — any staging writer to the data root (e.g. G8a inline grounding
+// reconcile, confirmed live on staging today, independent of GROUNDING_SWEEP_ENABLED) wrote
+// directly to the same share prod reads, which also holds authorized-users.json and
+// taxonomy/Origin/embeddings.json. arm-B verification is satisfied: Azure's test revisions
+// already ran successfully against `taxonomy-data-ro` via `-ReadOnlyShared`, no boot problems
+// (p/241#90) — confirming class-A writes already route to /mnt/staging-state, not /mnt/shared.
+// The RO flip makes the hard boundary live: missed write sites EROFS instead of silently
+// mutating prod. Lands with the first deploy after the t/4258 hold, with the PI's go.
+@description('Flip /mnt/shared to read-only on staging (ARM step 3 of t/2643 isolation).')
+param stagingSharedReadOnly bool = true
+
+// ── Staging load-test sizing (t/4203) ──
+// A PARAMETER, not a hand-applied resize: t/4176's own history (t/4242) shows a manual
+// `az containerapp update` resize gets silently reverted by the next ordinary deploy, because
+// the deploy re-applies this template's declared (small) values. Defaulting this to false means
+// every normal deploy-staging run (which never sets it) keeps staging small automatically — the
+// resize can never be "left large" by someone forgetting to revert it (t/4203 AC4).
+@description('Temporarily size staging like prod (2 vCPU/4Gi, maxReplicas 3, concurrentRequests scale rule) for a load test (t/4203). Revert to false for the next ordinary deploy.')
+param stagingLoadTestSize bool = false
 
 // ── Resource Tags ──
 var tags = {
@@ -167,6 +181,14 @@ param githubRunnerPat string = ''
 @secure()
 @description('HMAC secret for verifying GitHub runner webhook signatures')
 param githubRunnerWebhookSecret string = ''
+
+// Prod's own resources, as a single source of truth (t/4203 SO C1, p/682#44 / e/307#2):
+// stagingLoadTestSize below reads these instead of a hardcoded literal, so the load test
+// always measures whatever prod's CURRENT size actually is, not a stale snapshot of it — the
+// exact gap that made the first version of stagingLoadTestSize "prove it at the size you're
+// moving away from" when t/4263 proposed changing prod's own cpu/memory.
+var prodCpu = '2.0'
+var prodMemory = '4Gi'
 
 var googleEnabled = !empty(googleClientId) && !empty(googleClientSecret)
 var githubEnabled = !empty(githubClientId) && !empty(githubClientSecret)
@@ -554,19 +576,22 @@ var baseEnv = [
   // green (loop max 39.6ms under 1536 concurrent computes). MUST stay in sync with deploy-azure.yml's
   // ExpectedEnvVars config-drift gate (Gate Co-Location — the gate verifies this value is deployed).
   { name: 'EMBEDDING_WORKER_OFFLOAD', value: '1' }
-  // t/3163 G8a (STAGED enable, TL GO): enable inline grounding reconcile on the write path.
-  // Deployed AHEAD of G8b (GROUNDING_SWEEP_ENABLED), which TL holds until this deploy's real
-  // write-cycle lock telemetry is clean (grounding_lock held ≤~2s, zero stale-break/contention).
-  // baseEnv — never a CLI --set-env-vars (wiped by the next template apply). MUST stay in sync with
-  // deploy-azure.yml ExpectedEnvVars (Gate Co-Location — the config-drift gate verifies it's deployed).
-  { name: 'GROUNDING_RECONCILE_INLINE', value: '1' }
-  // t/3163 G8b (staged enable, TL GO t/3163#9): arm the scheduled grounding sweep (backstop to the
-  // G8a inline reconcile). Gate cleared — Option C measured grounding_lock held 0.00s + zero
-  // stale-break/contention (≤~2s bar), corroborating the code-level lock-safety GV (t/3163#5).
-  // MUST land + deploy TOGETHER WITH the git-ops-timeout fix (#1872, t/3267): the sweep does git
-  // ops, so it must run on the undici-timeout/degrade-and-proceed code, not the untimed-fetch code.
-  // baseEnv (never CLI --set-env-vars) + MUST stay in sync with deploy-azure.yml ExpectedEnvVars.
-  { name: 'GROUNDING_SWEEP_ENABLED', value: '1' }
+  // t/4298: both GROUNDING_RECONCILE_INLINE (G8a, was '1') and GROUNDING_SWEEP_ENABLED (G8b, was
+  // '1') removed from hosted profiles.
+  // - G8b: groundingSweepScheduler.ts's decideSweepArm returns 'blocked-github-api' on the hosted
+  //   github-api profile unconditionally (the t/3333 guard — the sweep shells
+  //   `reconcile_grounding.py --apply`, which writes the local filesystem, and the github-api read
+  //   path never sees that write). Confirmed via Log Analytics: 351/351 prod boots and 89/89
+  //   staging boots over 14 days logged the refusal, 0 "Grounding sweep started".
+  // - G8a: SO review (e/326#2) first flagged that groundingReconcileHook.ts runs the SAME
+  //   reconcile_grounding.py --apply with no STORAGE_MODE guard, so it was suspected to have the
+  //   same no-op problem as G8b. **Resolved, C2 answer (TL, t/4298#8/e/327#5): G8a is gated by the
+  //   `grounding_reconcile_inline` feature flag, which is OFF — G8a has never run at all.
+  //   GROUNDING_RECONCILE_INLINE is an env var nothing reads.**
+  // Kept certifying/enabling two things that never ran: ~25 boot error lines/day in prod from G8b,
+  // plus a deploy gate that passed a check corresponding to nothing. Hosted grounding via a
+  // CI-committed sweep (t/3333 Option A) is unfiled — not asked for; re-add either flag only if
+  // that or an equivalent fix lands.
   // t/3309 step-3: DATA_ROOT_VALIDATION_ENFORCE (t/3305 boot hard-fail) RETIRED. The boot-time
   // exit(1) in server.ts is superseded by the /readyz warm-gate: a misprovisioned data root now
   // makes /readyz report failed → the deploy warm-gate blocks the traffic-shift and rolls back
@@ -603,10 +628,17 @@ var stagingEnvOverrides = [
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount
   { name: 'AI_TRIAD_STATE_ROOT', value: '/mnt/staging-state' }
+  // t/4264 / t/2643 SO (e/307#6): without this, AnonymousSessionStore.defaultBaseDir()
+  // falls back to /mnt/shared/anon-sessions and staging's own TTL/maxSessions eviction
+  // runs over PROD's anonymous session files. Isolates it like the two overrides above.
+  { name: 'ANON_SESSION_DIR',    value: '/mnt/staging-state/anon-sessions' }
   // github-api writes go to the staging branch, not main (t/2650 class-B isolation)
   { name: 'GITHUB_BRANCH',       value: 'staging' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
   // /readyz warm-gate replaces the boot hard-fail. Nothing to override here.
+  // NOTE: S2 (GROUNDING_RECONCILE_INLINE=0 override) DROPPED per TL (e/327#5) — G8a is gated by
+  // the grounding_reconcile_inline feature flag, OFF, and has never run; the env var is inert and
+  // is being removed entirely from hosted baseEnv/the deploy gate in #3431 instead.
 ]
 // stagingBaseEnv = baseEnv with the isolation overrides applied.
 // filter() removes the baseEnv entries that stagingEnvOverrides supersedes.
@@ -678,8 +710,12 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             // step; t/3182). Headroom is ample regardless: incident RSS ~650MB/2048 + ~250MB
             // worker model copy ~= 900MB (embeddings.json is NOT copied to the worker — the
             // cache resolve stays main-thread, only miss-texts marshal).
-            cpu: json('2.0')
-            memory: '4Gi'
+            //
+            // t/4203 SO C1: these are now the prodCpu/prodMemory vars (single source of truth),
+            // not independent literals — whoever changes prod's size (e.g. t/4263) edits the var
+            // near the top of this file, not this line, so stagingLoadTestSize stays correct.
+            cpu: json(prodCpu)
+            memory: prodMemory
           }
           env: containerEnv
           probes: [
@@ -814,10 +850,14 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'taxonomy-editor'
           image: containerImage
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
+          // t/4203: prod-size only while stagingLoadTestSize=true, for the t/4180 load test to
+          // run at a representative size. Defaults back to staging's normal small footprint on
+          // the very next ordinary deploy. SO C1 (p/682#44, e/307#2): reads prodCpu/prodMemory
+          // rather than a hardcoded 2.0/4Gi, so the load test always matches prod's CURRENT
+          // size — if prod's own resources change (e.g. t/4263), this follows automatically.
+          resources: stagingLoadTestSize
+            ? { cpu: json(prodCpu), memory: prodMemory }
+            : { cpu: json('0.25'), memory: '0.5Gi' }
           env: stagingContainerEnv
           probes: [
             {
@@ -852,7 +892,13 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
           // (ReadOnly accessMode) makes the hard boundary live: any missed write site
           // fails with EACCES rather than silently mutating prod (t/2643#3 cond 3,
           // t/2643#5 binding correction — RO must come last, never before getStateRoot).
-          storageName: stagingSharedReadOnly ? 'taxonomy-data-ro' : 'taxonomy-data'
+          //
+          // t/4203 SO C3 (p/682#44): coupled to stagingLoadTestSize too — without this,
+          // 3 load-test replicas mount PROD's own taxonomy-data share RW, making the load
+          // test itself a write load against production storage. Confirming staging runs
+          // correctly against RO shared data is exactly the open t/2643 arm-B question, so
+          // this also doubles as that verification once a load test actually runs.
+          storageName: (stagingSharedReadOnly || stagingLoadTestSize) ? 'taxonomy-data-ro' : 'taxonomy-data'
         }
         {
           // Staging-isolated RW share for class-A state (t/2643).
@@ -863,7 +909,19 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       scale: {
         minReplicas: 0
-        maxReplicas: 1
+        // t/4203: max 3 with an HTTP scale rule only while stagingLoadTestSize=true, so the
+        // t/4180 load test can observe real multi-replica behavior (job-poll 404s, limiter
+        // totals, GitHub calls per startup). Reverts to 1/no-rule on the next ordinary deploy —
+        // same parameter, same reasoning as the resources block above.
+        maxReplicas: stagingLoadTestSize ? 3 : 1
+        rules: stagingLoadTestSize
+          ? [
+              {
+                name: 'http-scaler'
+                http: { metadata: { concurrentRequests: '10' } }
+              }
+            ]
+          : []
       }
     }
   }
@@ -1244,12 +1302,13 @@ resource rateLimitWarning 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
   tags: tags
   properties: {
     displayName: 'GitHub API Rate Limit Warning'
-    description: 'Rate limit remaining below 1,000 for 5 minutes. At 145 calls/hr typical, this indicates unusual consumption.'
+    description: 'Rate limit remaining below 1,000 within a 15-minute window. At 145 calls/hr typical, this indicates unusual consumption.'
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1282,7 +1341,8 @@ resource rateLimitCritical 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pr
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1304,18 +1364,103 @@ resource rateLimitCritical 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pr
   }
 }
 
+resource aadstsConfigErrorAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-aadsts-config-error'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'AADSTS Config Error (sev-1)'
+    description: 'A config-class AADSTS error (bad/expired client secret, app not found, app disabled, reply-URL mismatch) in the Easy Auth sidecar logs within 10 minutes — e.g. the 2026-10-19 invalid-client-secret incident (t/4288). These codes are ops-caused, never user-caused, so this is sev-1. Split by ContainerAppName_s (t/4288 SO review, e/318 A1) so prod and staging page independently — a staging-only config error should not look like a prod sev-1, or vice versa.'
+    severity: 1
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT10M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          // Config-class error_codes only (SO e/318 A1): 7000215 (invalid client secret),
+          // 7000222 (expired secret), 700016 (app not found in tenant), 7000112 (app disabled),
+          // 50011/500113 (reply URL mismatch). Deliberately narrower than the broad \d+ regex
+          // below — these are the codes an operator caused and must act on immediately.
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where ContainerName_s == "http-auth"
+            | where Log_s matches regex @"AADSTS(7000215|7000222|700016|7000112|50011|500113)\b"
+            | summarize Count = count() by ContainerAppName_s
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          dimensions: [
+            {
+              name: 'ContainerAppName_s'
+              operator: 'Include'
+              values: [ '*' ]
+            }
+          ]
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+resource aadstsAnyErrorAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-aadsts-any-error'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'AADSTS Any Error (sev-3)'
+    description: 'Any AADSTS error at all in the Easy Auth sidecar logs within 10 minutes, including user-caused codes (e.g. 50020 account issue, 65001 consent required, 50126 bad credentials). Sev-3 (not sev-1): these are routine and often user-side, not an operator page — kept as a broader backstop/trend signal. Split by ContainerAppName_s, same rationale as alert-aadsts-config-error.'
+    severity: 3
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT10M'
+    windowSize: 'PT10M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where ContainerName_s == "http-auth"
+            | where Log_s matches regex @"AADSTS\d+"
+            | summarize Count = count() by ContainerAppName_s
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          dimensions: [
+            {
+              name: 'ContainerAppName_s'
+              operator: 'Include'
+              values: [ '*' ]
+            }
+          ]
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
 resource apiErrorSpike 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-github-api-error-spike'
   location: location
   tags: tags
   properties: {
     displayName: 'GitHub API Error Spike'
-    description: 'More than 5 GitHub API errors in 5 minutes. May indicate GitHub outage or auth failure.'
+    description: 'More than 15 GitHub API errors in 15 minutes (same rate as the former 5 in 5 min). May indicate GitHub outage or auth failure.'
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1323,7 +1468,7 @@ resource apiErrorSpike 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
             ContainerAppConsoleLogs_CL
             | where Log_s contains "github.api.error"
             | summarize ErrorCount = count()
-            | where ErrorCount > 5
+            | where ErrorCount > 15
           '''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
@@ -1343,12 +1488,13 @@ resource cacheDegraded 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
   tags: tags
   properties: {
     displayName: 'Cache Hit Rate Degraded'
-    description: 'Cache hit rate below 85% over 5 minutes. Indicates excessive cache misses — possible invalidation storm or cache corruption.'
+    description: 'Cache hit rate below 85% over 15 minutes. Indicates excessive cache misses — possible invalidation storm or cache corruption.'
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1356,7 +1502,7 @@ resource cacheDegraded 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previe
             ContainerAppConsoleLogs_CL
             | where Log_s contains "cache.miss"
             | summarize Misses = count()
-            | where Misses > 50
+            | where Misses > 150
           '''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
@@ -1376,12 +1522,13 @@ resource fallbackActive 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previ
   tags: tags
   properties: {
     displayName: 'Fallback Data Active'
-    description: 'App serving from baked fallback data for more than 5 minutes. GitHub API is likely unreachable.'
+    description: 'App served from baked fallback data within the last 15 minutes. GitHub API is likely unreachable.'
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
-    windowSize: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
     criteria: {
       allOf: [
         {
@@ -1426,7 +1573,8 @@ resource workerQueueSaturation 'Microsoft.Insights/scheduledQueryRules@2023-03-1
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
     windowSize: 'PT15M'
     criteria: {
       allOf: [
@@ -1467,7 +1615,8 @@ resource workerQueueNearCap 'Microsoft.Insights/scheduledQueryRules@2023-03-15-p
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT5M'
+    // t/4248 cost: PT5M -> PT15M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT15M'
     windowSize: 'PT15M'
     criteria: {
       allOf: [
@@ -1510,7 +1659,17 @@ resource sweepStallAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-prev
     displayName: 'G8b Grounding Sweep Stalled (failed inline reconcile un-swept > N)'
     description: 'A G8a inline grounding reconcile FAILED and no G8b sweep drained the backlog within N hours — grounding may be silently stale (the failed-inline-then-cold edge, t/3279).'
     severity: 2
-    enabled: true
+    // DISABLED (t/4298). CORRECTED rationale (SO review, e/326#2 — my first version was wrong):
+    // this query reads ContainerAppConsoleLogs_CL exclusively (Azure-only), so it only ever
+    // covered the hosted (github-api profile) sweep. That sweep is unconditionally refused on
+    // hosted (t/3333 guard), so the query's "no sweep complete within N hours of the failure"
+    // condition can NEVER be satisfied there — meaning this does NOT "never fire": it fires on
+    // EVERY inline-reconcile-failure log line on hosted, unconditionally. That's not a "sweep
+    // stalled" signal (there's never a backstop to have stalled); it's a relabeled, always-firing
+    // copy of "an inline failure happened," which is misleading under this alert's name/severity.
+    // Disabling it is still correct, but for THIS reason, not the originally-stated one.
+    // Re-enable only if hosted grounding via a CI-committed sweep (t/3333 Option A) lands.
+    enabled: false
     scopes: [ logAnalytics.id ]
     evaluationFrequency: 'PT30M'
     windowSize: 'PT6H'
@@ -1673,7 +1832,7 @@ resource branchDivergence 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
 }
 
 // ── Staging ContainerBackOff Alert (t/2659) ──
-// Fires within 2 min on any ContainerBackOff or ContainerCrashing event on
+// Fires within ~5 min (PT5M eval since t/4248) on any ContainerBackOff or ContainerCrashing event on
 // taxonomy-editor-staging. Staging-specific so it can be distinguished from
 // the generic restartLoopAlert (all apps, 5+ threshold, 5-min eval).
 // Historical proof: staging-151d3e7 incident produced ContainerBackOff rows
@@ -1691,7 +1850,8 @@ resource stagingBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1717,7 +1877,7 @@ resource stagingBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-
 // Same query as staging alert but scoped to taxonomy-editor (prod).
 // Severity 0 (Critical) because a prod restart loop means users cannot load the app.
 // Complements the generic restartLoopAlert (all apps, 5-restart threshold)
-// with faster per-minute detection and no restart-count threshold.
+// with no restart-count threshold (PT5M eval since t/4248; was per-minute).
 
 resource prodBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-prod-container-backoff'
@@ -1729,7 +1889,8 @@ resource prodBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     severity: 0
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1776,7 +1937,8 @@ Structured fields: component="event-loop", level=warn(40). Primary detector for 
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
-    evaluationFrequency: 'PT1M'
+    // t/4248 cost: PT1M -> PT5M eval (log-alert price is per-rule by frequency).
+    evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {
       allOf: [
@@ -1902,6 +2064,8 @@ resource circuitOpenAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
+    // Kept at PT5M by t/4248 SO C1 (e/306#3): since #3266 an open circuit fails hosted saves
+    // closed (503), so this is a user-facing outage signal. Do not slow it for cost (~$1/mo).
     evaluationFrequency: 'PT5M'
     windowSize: 'PT5M'
     criteria: {

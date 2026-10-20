@@ -37,7 +37,15 @@ on:
           - required
           - disabled
       staging_shared_read_only:
-        description: 'Mount staging shared volume read-only (true = RO flip for arm-A verification, t/2643)'
+        description: 'Mount staging shared volume read-only (false = documented override back to RW; RO is now the default, t/2643/t/4298)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      staging_load_test_size:
+        description: 'Prod-size staging (2 vCPU/4Gi, maxReplicas 3, HTTP scale rule) for the t/4180 load test (t/4203). Forces the RO shared-volume mount. Set back to false to revert — see t/4203 runbook note.'
         required: false
         default: 'false'
         type: choice
@@ -48,7 +56,10 @@ on:
 
 permissions:
   contents: read
-  packages: read
+  packages: read   # t/4170 SO C3 (p/682#28): packages:write is scoped to the tag-known-good job
+                   # only, not granted workflow-wide (every job, including preflight which
+                   # handles dispatch inputs, would otherwise get a token that can push/overwrite
+                   # images).
   id-token: write  # For Azure OIDC login
   actions: read    # t/4194 SO C1: `gh run list` in the cross-workflow wait-gate step
   issues: write    # t/4242 SO C2: ops-alert issue when the post-deploy AC2 check fails after the existing rollback gates
@@ -205,6 +216,12 @@ jobs:
                          # workflow for the same window. 45m is generous over this job's observed
                          # real runtime (health checks + smoke + persona matrix all have their own
                          # shorter internal timeouts already).
+    outputs:
+      # t/4170: exposed so the separate tag-known-good job (packages:write, SO C3) can gate on
+      # the same success condition as the in-job post-deploy steps, without needing packages:write
+      # itself or re-running the gates.
+      image_accepted: ${{ steps.acceptance.outputs.accepted }}
+      persona_accepted: ${{ steps.persona.outputs.accepted }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
@@ -303,6 +320,31 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check sign-in secret drift (warn-only — t/4288)
+        # t/4288: this deploy is about to re-apply AAD/Google/GitHub client secrets from these
+        # GitHub Actions secrets. If the live container-app copy was changed by hand since the
+        # last deploy (the 2026-10-19 incident), this deploy would silently revert it. Never
+        # reads a value to a log — reads the live secret, masks it immediately, compares SHA-256
+        # hashes only. Warn-only: promotion to blocking is a separate T2 decision.
+        # SO C1 (e/320): checks BOTH taxonomy-editor and taxonomy-editor-staging by default — a
+        # single main.bicep apply writes both (same secret names, same Entra app registration;
+        # this is exactly what broke staging on 2026-10-19), regardless of which environment this
+        # job run targets.
+        shell: pwsh
+        continue-on-error: true
+        env:
+          AAD_CLIENT_SECRET: ${{ secrets.AAD_CLIENT_SECRET }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+        run: |
+          ./operations/devops/Test-SignInSecretDrift.ps1 `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -DeploySourceValues @{
+              'aad-client-secret'    = $env:AAD_CLIENT_SECRET
+              'google-client-secret' = $env:GOOGLE_CLIENT_SECRET
+              'github-client-secret' = $env:GITHUB_CLIENT_SECRET
+            }
 
       - name: Validate auth config — tokenStore safety (warn-only — t/4133)
         # t/4133: tokenStore.enabled=true with no blob backing causes HTTP 500 for all signed-in
@@ -419,6 +461,7 @@ jobs:
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
               budgetAlertEmail=${{ vars.ALERT_EMAIL }} \
               stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }} \
+              stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }} \
             --no-pretty-print 2>&1) || true
           echo "$RESULT"
 
@@ -465,6 +508,7 @@ jobs:
             trafficPinRevisionName=${{ steps.current_revision.outputs.revision }}
             trafficPinRevisionNameStaging=${{ steps.current_revision.outputs.staging_revision }}
             stagingSharedReadOnly=${{ inputs.staging_shared_read_only == 'true' && 'true' || 'false' }}
+            stagingLoadTestSize=${{ inputs.staging_load_test_size == 'true' && 'true' || 'false' }}
 
       # NOTE: the current active revision is now captured BEFORE the Bicep apply
       # (see "Capture current active revisions" above) so it can be passed as the
@@ -693,6 +737,16 @@ jobs:
             }
           }
 
+          # t/4249: exit 0 UNCONDITIONALLY — SO C1 (p/682#40): this step is designed to always
+          # report step-success and carry the real signal through steps.health_check.outputs.healthy
+          # only. "Collect failure diagnostics" (below) has no always(), so if THIS step reports
+          # failure, GitHub's implicit success() ANDs into that condition and skips it — losing the
+          # diagnostics on exactly the runs that need them. Get-HealthCheckExitCode (returns 1 on a
+          # non-healthy verdict) belongs to the staging step, which has no such downstream step to
+          # break. Never call it here. The fix for 39061815653 is `exit 0` always reaching this
+          # line cleanly — never a leftover $LASTEXITCODE from a native call made above.
+          exit 0
+
       - name: Acceptance tests — full smoke (pre-traffic shift)
         id: acceptance
         if: steps.health_check.outputs.healthy == 'true'
@@ -841,8 +895,11 @@ jobs:
               AZURE_KEYVAULT_URL                 = '${{ steps.deploy.outputs.keyVaultUri }}'
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
-              GROUNDING_RECONCILE_INLINE         = '1'  # t/3163 G8a — gate verifies the staged inline-reconcile flag is deployed
-              GROUNDING_SWEEP_ENABLED            = '1'  # t/3163 G8b — gate verifies the staged sweep-enable flag is deployed
+              # GROUNDING_RECONCILE_INLINE removed (t/4298): gated on the grounding_reconcile_inline
+              # feature flag, which is OFF — G8a has never run, the env var is read by nothing.
+              # GROUNDING_SWEEP_ENABLED removed (t/4298): the sweep is unconditionally refused on
+              # hosted (t/3333 guard, decideSweepArm -> 'blocked-github-api'), so this gate was
+              # certifying a flag that could only ever no-op. See main.bicep's baseEnv comment.
               # DATA_ROOT_VALIDATION_ENFORCE retired in t/3309 step-3 — /readyz warm-gate replaces the boot hard-fail (co-landed with the server.ts exit(1) removal).
             } `
             -CheckFirewall `
@@ -1064,3 +1121,88 @@ jobs:
             -StagingApp '${{ env.CONTAINER_APP_NAME }}-staging' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}'
 
+
+  # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────
+  # Set-TaxEditorKnownGood was manual-only and never actually run, consistently, across the org
+  # move — so the documented known-good rollback (Restore-TaxEditorKnownGood) had no target
+  # (t/4170 ask 1, confirmed not a cleanup bug: Remove-StaleContainerImages only deletes
+  # UNTAGGED versions). This job makes it part of every successful deploy instead of a manual
+  # step nobody remembers to run.
+  #
+  # SO C3 (t/4170, p/682#28): a SEPARATE job, not a step in `deploy`, so packages:write (needed
+  # to PUT the known-good tag via the GHCR OCI API) is scoped to only the one job that needs it —
+  # NOT granted workflow-wide to every job, including `preflight`, which handles dispatch inputs.
+  #
+  # Gated on deploy's own success + the same acceptance/persona outputs the in-job post-deploy
+  # steps use (exposed via `deploy`'s `outputs:` block, SO C3), so this never runs on a deploy
+  # that didn't actually promote traffic.
+  tag-known-good:
+    needs: [preflight, deploy]
+    runs-on: ubuntu-latest
+    # t/4273: same environment as `deploy`, so azure/login presents the environment OIDC subject
+    # the federated credential matches. Without it the subject is ref-form and login fails AADSTS700213.
+    # If `production` ever gains required reviewers, this job will wait for its own second approval.
+    environment: ${{ inputs.environment }}
+    # Flipped on (t/4091 digest's own "then runs warn-only" plan): C1 (the cmdlet fix, PR #3340,
+    # p/682#28) merged 2026-10-17 03:18Z. Caught by Azure (p/241#64) via health-monitor's
+    # known-good-liveness job correctly reporting "missing" since 04:55Z — not a wiring bug, the
+    # disable switch was simply never removed after its own trigger condition landed. Checkable
+    # fact, acted on directly (Pre-Authorized-Trigger Discipline).
+    if: needs.deploy.result == 'success' && needs.deploy.outputs.image_accepted == 'true' && needs.deploy.outputs.persona_accepted == 'true'
+    timeout-minutes: 10
+    continue-on-error: true  # SO C3: a checkout/login/module-import failure must not fail the
+                              # job and turn an otherwise-successful deploy run red.
+    permissions:
+      # SO C3: job-level `permissions:` REPLACES the workflow-level set, it does not merge with
+      # it — `packages: write` alone would leave this job with no `id-token`/`contents`, and
+      # azure/login (OIDC) would fail. All three are required here.
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set known-good image tag and assert it resolves to the deployed digest
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYED_IMAGE_REF: ${{ needs.preflight.outputs.image_ref }}
+        run: |
+          # WARN-ONLY (continue-on-error on the job's only real step, via try/catch + exit 0
+          # below): a GHCR tagging hiccup here must never redden an otherwise-successful deploy.
+          # t/4170 ask 3 (Worker, health-monitor.yml) is the liveness backstop that alerts if
+          # known-good goes missing or stale across real deploys — that is the mechanism that
+          # catches a PERSISTENT failure of this step, not this step's own exit code.
+          #
+          # SO C1 (owner: PowerShell, scripts/AITriad/Public/Set-TaxEditorKnownGood.ps1, tracked
+          # separately): the cmdlet must select the 100%-traffic revision (not Active[0], which is
+          # order-dependent across a 0%/100% split) and handle digest refs (prod deploys by
+          # digest, t/3679) by fetching the manifest BY DIGEST rather than treating the raw hex as
+          # a tag name. Until that lands, this step's try/catch below is expected to warn on every
+          # run — tracked on t/4170, not silently masked here.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          $DeployedDigest = ($env:DEPLOYED_IMAGE_REF -split '@')[-1]
+          try {
+            $Result = Set-TaxEditorKnownGood -ResourceGroup '${{ env.RESOURCE_GROUP }}' -AppName '${{ env.CONTAINER_APP_NAME }}' -Confirm:$false
+
+            # SO C2: assert known-good resolves to the digest actually serving traffic — "any
+            # known-good exists" can't fail and proves nothing (e.g. a stale prior tag surviving
+            # a failed PUT would pass that check).
+            $Check = @(Get-TaxEditorImage -Last 20 | Where-Object { $_.IsKnownGood })
+            if ($Check.Count -eq 0) {
+              Write-Host "::warning::t/4170: known-good was set (cmdlet returned $($Result | ConvertTo-Json -Compress)) but no image reports IsKnownGood on re-check (GHCR propagation lag, or a real failure)."
+            } elseif ($Check[0].Digest -ne $DeployedDigest) {
+              Write-Host "::warning::t/4170: known-good resolves to $($Check[0].Digest), which does NOT match the digest serving 100% traffic ($DeployedDigest)."
+            } else {
+              Write-Host "t/4170: known-good resolves to the deployed digest ($DeployedDigest) — confirmed."
+            }
+          } catch {
+            Write-Host "::warning::t/4170: Set-TaxEditorKnownGood failed: $($_.Exception.Message) — deploy succeeded, but the known-good rollback target was NOT updated this deploy."
+          }

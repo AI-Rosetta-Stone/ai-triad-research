@@ -108,7 +108,8 @@ export function SeatTagPicker({ pov, povNodes, registry, seatTag, onChange }: Se
       )}
 
       {scopeCount && (
-        <div className="seat-tag-picker-count">{scopeCount.inScope.length} in scope, {scopeCount.excluded.length} untagged</div>
+        // t/4275: "untagged" over-claimed — excluded nodes may carry a different wing's tag (94 of 100 on prod).
+        <div className="seat-tag-picker-count">{scopeCount.inScope.length} in scope, {scopeCount.excluded.length} not tagged {seatTagLabel(pov, seatTag, registry) ?? seatTag?.pov_tag}</div>
       )}
 
       {refusal && (

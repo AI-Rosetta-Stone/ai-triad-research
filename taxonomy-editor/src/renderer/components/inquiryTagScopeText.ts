@@ -33,8 +33,8 @@ export interface TagScopeLines {
   warn?: string;
 }
 
-/** "12 tagged Skeptic nodes" — count, qualifier, camp, then the noun, singular for 1. */
-const counted = (n: number, qualifier: string, camp: string) => `${n} ${qualifier} ${camp} ${n === 1 ? 'node' : 'nodes'}`;
+/** "12 Skeptic nodes tagged Critical" — count, camp, the noun (singular for 1), then the qualifier. */
+const counted = (n: number, camp: string, qualifier: string) => `${n} ${camp} ${n === 1 ? 'node' : 'nodes'} ${qualifier}`;
 
 function scopePhrase(t: ResolvedTag): string {
   return t.mode === 'scope'
@@ -48,9 +48,11 @@ function sameSelection(a: ResolvedTag, b: ResolvedTag): boolean {
 
 function appliedDetail(t: ResolvedAppliedTag): string {
   // Prioritize drops nothing, so it reports no exclusion count: a number there would mislead.
+  // `excludedUntagged` counts every camp node WITHOUT the selected tag, including nodes carrying another
+  // tag, so the text says "not tagged <wing>", never "untagged" (t/4275: 94 of 100 carried Institutional).
   return t.mode === 'scope'
-    ? `Grounded on ${counted(t.included, 'tagged', t.campLabel)}; ${counted(t.excludedUntagged, 'untagged', t.campLabel)} excluded.`
-    : `${counted(t.included, 'tagged', t.campLabel)} ranked first; untagged nodes still included.`;
+    ? `Grounded on ${counted(t.included, t.campLabel, `tagged ${t.tagLabel}`)}; ${counted(t.excludedUntagged, t.campLabel, `not tagged ${t.tagLabel}`)} excluded.`
+    : `${counted(t.included, t.campLabel, `tagged ${t.tagLabel}`)} ranked first; the camp's other nodes still included.`;
 }
 
 /**

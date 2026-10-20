@@ -58,7 +58,7 @@ describe('ChatTagPicker (t/3959)', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText(/2 in scope, 1 untagged/)).toBeInTheDocument();
+    expect(screen.getByText(/2 in scope, 1 not tagged Critical/)).toBeInTheDocument();
     expect(screen.getByText(/below the minimum/)).toBeInTheDocument();
   });
 
@@ -79,8 +79,25 @@ describe('ChatTagPicker (t/3959)', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText(/0 in scope, 2 untagged/)).toBeInTheDocument();
+    expect(screen.getByText(/0 in scope, 2 not tagged Critical/)).toBeInTheDocument();
     expect(screen.getByText(/no nodes carry this tag/)).toBeInTheDocument();
+  });
+
+  it('counts a node carrying another tag as "not tagged X", not "untagged" (t/4275)', () => {
+    mockRegistry.povs = { accelerationist: [{ id: 'critical', label: 'Critical' }, { id: 'institutional', label: 'Institutional' }] };
+    mockNodes.accelerationist = [
+      { id: 'a1', pov_tags: ['critical'] },
+      { id: 'a2', pov_tags: ['institutional'] }, // carries a different tag — not "untagged"
+      { id: 'a3' },
+    ];
+    render(
+      <ChatTagPicker
+        pov="accelerationist"
+        seatTag={{ pov_tag: 'critical', tag_mode: 'scope' }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/1 in scope, 2 not tagged Critical/)).toBeInTheDocument();
   });
 
   it('tagBlockedReason: Prioritize with any tagged node is never blocked, only at zero', () => {

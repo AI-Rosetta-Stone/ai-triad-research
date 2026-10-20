@@ -57,7 +57,7 @@ function Update-SyntheticCorpus {
     finally { $ErrorActionPreference = $PrevEAP }
 
     if ($LASTEXITCODE -ne 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal    'Update synthetic corpus' `
             -Problem "generate_corpus.py get-hashes failed (exit $LASTEXITCODE)" `
             -Location 'Update-SyntheticCorpus' `

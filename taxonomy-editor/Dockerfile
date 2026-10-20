@@ -149,7 +149,10 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # Bumped to :2026-10-02 (PR #2676) — npm-bundled undici 6.28.1 (CVE-2026-85024), ip-address
 # 10.5.1 (CVE-2026-101910/101913), brace-expansion 5.0.12; proven by the base build tripwire.
 # Gate base bumps on staging /healthz, not CI green.
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-10-06@sha256:75de9c3c565ea6e1ae88844e3a8f0f29212ac145f3bc3abe162551030c76a3fd AS runtime
+# Bumped to :2026-10-19 — the container.yml Trivy blocking gate caught libexpat1
+# CVE-2026-77214 (fixable high) on :2026-10-06; this tag is base-image.yml's normal weekly
+# rebuild (apt-get upgrade), dispatched a cycle early to unblock a pending container build.
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-10-19@sha256:242806a9ba51c07b4e1db2398cae19abf780506fe9e79e69e1cd839f33a7edbb AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"
@@ -197,9 +200,9 @@ COPY --chown=aitriad:aitriad scripts/ ./scripts/
 # The op-ed create route resolves promptsDir = getProjectRoot()/lib/oped/prompts
 # (= /app/lib/oped/prompts here); tsc emits no .prompt assets, so copy the source.
 COPY --chown=aitriad:aitriad lib/oped/prompts/ ./lib/oped/prompts/
-# Soul-doc JSON data files for op-ed voice generation (t/2689).
-# soulDocLoader.ts reads these at runtime via fs.readFile from SOUL_DOCS_DIR
-# (= /app/lib/debate/soul-docs/); tsc does not emit .json data files, so copy explicitly.
+# Soul-doc JSON at the repo-root path, for op-ed voice generation (t/2689), which locates
+# soul-docs from getProjectRoot() (= /app/lib/debate/soul-docs/). The compiled loader reads
+# its own copy under dist/server (layer 3 below, t/4245).
 COPY --chown=aitriad:aitriad lib/debate/soul-docs/ ./lib/debate/soul-docs/
 
 # 2b. ONNX model files (baked offline; change only when model contract changes — t/2784)
@@ -213,6 +216,13 @@ COPY --chown=aitriad:aitriad --from=builder /build/taxonomy-editor/dist/server/ 
 COPY --chown=aitriad:aitriad --from=builder /build/taxonomy-editor/dist/renderer/ ./dist/renderer/
 RUN ln -s /app/dist/renderer /app/dist/server/taxonomy-editor/src/renderer \
  && ln -s /app/package.json /app/dist/server/taxonomy-editor/src/package.json
+# Soul-doc JSON for the compiled loader (t/4245). soulDocLoader.ts resolves SOUL_DOCS_DIR from its
+# own compiled location (= /app/dist/server/lib/debate/soul-docs/), and tsc emits only the JSON it
+# imports, so the tag souls were missing there and every tagged run failed on the hosted profile.
+COPY --chown=aitriad:aitriad lib/debate/soul-docs/ ./dist/server/lib/debate/soul-docs/
+# Build-time guard (t/4245): the image build fails if the compiled loader can't load a base soul
+# and a tag soul, so this path can't regress silently again.
+RUN node --input-type=module -e "const m = await import('/app/dist/server/lib/debate/soulDocLoader.js'); m.getSoulDocument('skeptic'); m.getSoulDocument('skeptic', 'critical'); console.log('soul-doc load check: OK (base + tag)');"
 
 # 4. Third-party license notices (generated during build)
 COPY --chown=aitriad:aitriad --from=builder /build/taxonomy-editor/THIRD-PARTY-NOTICES.txt ./taxonomy-editor/THIRD-PARTY-NOTICES.txt

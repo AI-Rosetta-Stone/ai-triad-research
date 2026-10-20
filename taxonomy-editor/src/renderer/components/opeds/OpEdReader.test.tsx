@@ -225,9 +225,9 @@ describe('OpEdReader — wing scope (t/3992)', () => {
   const tagged = (mode: 'scope' | 'prioritize', excludedUntagged: number) =>
     member({ pov: 'skeptic', tag: { pov: 'skeptic', tag: 'critical', mode, included: 12, excludedUntagged } });
 
-  it('Scope shows the wing and how many untagged nodes were excluded', () => {
+  it('Scope shows the wing and how many nodes without its tag were excluded', () => {
     render(<OpEdReader set={makeSet([tagged('scope', 31)])} />);
-    expect(screen.getByRole('note', { name: '' }).textContent).toBe('Skeptic · Critical wing (scope; 31 untagged excluded)');
+    expect(screen.getByRole('note', { name: '' }).textContent).toBe('Skeptic · Critical wing (scope; 31 not tagged Critical excluded)');
   });
 
   it('Prioritize shows no exclusion count (0 by construction would read as full coverage)', () => {

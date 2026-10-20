@@ -206,6 +206,11 @@ function Invoke-TaxEditorLoadTest {
                 # actual problem — the data just wasn't there yet. Re-querying the identical
                 # windows minutes later (same script, by hand) returned real values cleanly.
                 # Retry-with-backoff closes this without needing a manual re-query afterward.
+                # t/4282: that diagnosis was incomplete. Under StrictMode, `$_.average` THROWS
+                # on any datapoint without the field (Azure omits it for an empty minute), so
+                # every attempt failed on a parse error no retry could fix (t/4263#4). Query
+                # Maximum (the step's peak is what capacity needs) and read it through
+                # Get-AzMetricPeak, which skips missing fields; $null still means "no data yet".
                 $cpuNano = $null; $memBytes = $null
                 $lastErr = $null
                 for ($attempt = 1; $attempt -le 4; $attempt++) {
@@ -213,23 +218,21 @@ function Invoke-TaxEditorLoadTest {
                         $cpuRaw = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
                             --resource-type 'Microsoft.App/containerApps' --metric 'UsageNanoCores' `
                             --start-time $step.startTime --end-time $step.endTime `
-                            --interval PT1M --aggregation Average -o json 2>&1
-                        if ($LASTEXITCODE -ne 0) { throw "az exited $LASTEXITCODE`: $cpuRaw" }
+                            --interval PT1M --aggregation Maximum -o json 2>&1
+                        if ($LASTEXITCODE -ne 0) { throw [System.Exception]::new("az exited $LASTEXITCODE`: $cpuRaw") }
                         $cpu = $cpuRaw | ConvertFrom-Json
                         $memRaw = az monitor metrics list --resource-group $ResourceGroup --resource $ContainerAppName `
                             --resource-type 'Microsoft.App/containerApps' --metric 'WorkingSetBytes' `
                             --start-time $step.startTime --end-time $step.endTime `
-                            --interval PT1M --aggregation Average -o json 2>&1
-                        if ($LASTEXITCODE -ne 0) { throw "az exited $LASTEXITCODE`: $memRaw" }
+                            --interval PT1M --aggregation Maximum -o json 2>&1
+                        if ($LASTEXITCODE -ne 0) { throw [System.Exception]::new("az exited $LASTEXITCODE`: $memRaw") }
                         $mem = $memRaw | ConvertFrom-Json
 
-                        $cpuPoints = @($cpu.value[0].timeseries[0].data | Where-Object { $null -ne $_.average })
-                        $memPoints = @($mem.value[0].timeseries[0].data | Where-Object { $null -ne $_.average })
-                        if ($cpuPoints.Count -eq 0 -or $memPoints.Count -eq 0) {
-                            throw "no datapoints yet (ingestion lag) — cpuPoints=$($cpuPoints.Count) memPoints=$($memPoints.Count)"
+                        $cpuNano = Get-AzMetricPeak -MetricResponse $cpu -Aggregation maximum
+                        $memBytes = Get-AzMetricPeak -MetricResponse $mem -Aggregation maximum
+                        if ($null -eq $cpuNano -or $null -eq $memBytes) {
+                            throw [System.Exception]::new("no maximum datapoints yet (ingestion lag) — cpu=$($null -ne $cpuNano) mem=$($null -ne $memBytes)")
                         }
-                        $cpuNano = ($cpuPoints | Select-Object -Last 1).average
-                        $memBytes = ($memPoints | Select-Object -Last 1).average
                         $lastErr = $null
                         break
                     } catch {
@@ -264,7 +267,7 @@ function Invoke-TaxEditorLoadTest {
             Write-Host "  p95Breach=$($bp.p95Breach) errorBreach=$($bp.errorBreach)"
             $az = $azureMetricsByStep["$($bp.profile)@$($bp.level)"]
             if ($az) {
-                Write-Host "  CPU (nanocores): $($az.cpuNanoCores)  Memory (bytes): $($az.memWorkingSetBytes)"
+                Write-Host "  Peak CPU (nanocores): $($az.cpuNanoCores)  Peak memory (bytes): $($az.memWorkingSetBytes)"
             }
         }
         Write-Host ''

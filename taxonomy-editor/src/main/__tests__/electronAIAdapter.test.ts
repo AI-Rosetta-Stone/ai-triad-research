@@ -11,8 +11,9 @@ const mockGenerateText = vi.hoisted(() => vi.fn());
 const mockWriteAICallLogEntry = vi.hoisted(() => vi.fn());
 // t/4088: Model/Backend/KeySource context, computed once per call and reused for success/failure.
 const mockResolveAiCallLogContext = vi.hoisted(() => vi.fn(() => ({ model: 'gemini-2.0-flash', backend: 'gemini', keySource: 'store' })));
+const mockComputeQueryEmbedding = vi.hoisted(() => vi.fn());
 
-vi.mock('../embeddings.js', () => ({ generateText: mockGenerateText, resolveAiCallLogContext: mockResolveAiCallLogContext }));
+vi.mock('../embeddings.js', () => ({ generateText: mockGenerateText, resolveAiCallLogContext: mockResolveAiCallLogContext, computeQueryEmbedding: mockComputeQueryEmbedding }));
 vi.mock('../aiCallLog.js', () => ({ writeAICallLogEntry: mockWriteAICallLogEntry }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: vi.fn(() => null) }));
 // t/3614: electronAIAdapter now reads PROJECT_ROOT + a cached registry to satisfy AIAdapter's
@@ -79,5 +80,25 @@ describe('makeElectronAIAdapter — Model/Backend/KeySource on every log entry (
     expect(mockWriteAICallLogEntry).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'groq-qwen-qwen3.6-27b', backend: 'groq', keySource: 'none', status: 'error' }),
     );
+  });
+});
+
+describe('makeElectronAIAdapter — computeQueryEmbedding (t/4291, t/4289)', () => {
+  it('is defined and delegates to main/embeddings.ts computeQueryEmbedding', async () => {
+    mockComputeQueryEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    const adapter = makeElectronAIAdapter('Debate');
+
+    expect(adapter.computeQueryEmbedding).toBeDefined();
+    const result = await adapter.computeQueryEmbedding!('some query text');
+
+    expect(mockComputeQueryEmbedding).toHaveBeenCalledWith('some query text');
+    expect(result).toEqual({ vector: [0.1, 0.2, 0.3] });
+  });
+
+  it('propagates a failure rather than swallowing it (the engine handles the fallback+WARN)', async () => {
+    mockComputeQueryEmbedding.mockRejectedValue(new Error('no embedding backend available'));
+    const adapter = makeElectronAIAdapter('OpEd Generation');
+
+    await expect(adapter.computeQueryEmbedding!('some query text')).rejects.toThrow('no embedding backend available');
   });
 });

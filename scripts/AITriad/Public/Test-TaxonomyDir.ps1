@@ -61,7 +61,7 @@ function Test-TaxonomyDir {
 
     if (-not $Path) { $Path = Get-TaxonomyDir }
     if (-not (Test-Path -LiteralPath $Path)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Pre-validate the taxonomy directory before embedding' `
             -Problem "Taxonomy directory not found: $Path" `
             -Location 'Test-TaxonomyDir' `

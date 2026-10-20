@@ -4833,7 +4833,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
 5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 3 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149).
+**Status:** Active — 4 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -5262,7 +5262,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #249 [Build] `gh pr merge --match-head-commit` Rejects Abbreviated SHAs — Always Supply the Full 40-Char OID
+## #249 [Build] `gh pr merge --match-head-commit` Rejects Wrong or Abbreviated SHAs — Always Read `headRefOid`, Never Type One
 
 **Pattern:** An agent runs `gh pr merge <N> --squash --match-head-commit <short-sha>` using an abbreviated commit SHA (7–8 hex chars). The call is rejected with a GraphQL coercion error. `--match-head-commit` passes the value directly to GitHub's GraphQL API, which expects a full 40-character OID. An abbreviated SHA is not a valid OID and fails schema validation before the merge is attempted.
 
@@ -5276,7 +5276,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 1 instance (ServerAPI p/504#21).
+**Status:** Active — 4 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); live-fire proven at t/4297#2.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5484,21 +5484,508 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #261 [Build] Compound `git commit && git push` With a Long Message Hits the 120s Bash Timeout — Commit Silently Backgrounded, Ref Never Exists
+## #261 [Build] Compound Bash Call With File Write + Long-Running CLI (commit, pr create) Hits 120s Timeout — Command Silently Backgrounded, Never Completes
 
-**Pattern:** An agent chains `git commit -m "$(cat <<'EOF'…EOF)" && git push origin <branch>` in a single Bash call. The commit message is long (multi-paragraph). The call hits the 120s Bash tool timeout mid-execution. The commit is moved to background — the change is staged-but-uncommitted — and the push never runs. A subsequent `git log origin/<branch>` errors "unknown revision" because the ref genuinely does not exist on the remote yet. The agent may misdiagnose this as a fetch failure or ref lookup error.
+**Pattern:** An agent chains a file-write (heredoc or long content) with a long-running CLI call (`git commit`, `gh pr create`) in a single Bash call. The call hits the 120s Bash tool timeout mid-execution. The command is moved to background — the file write may not flush and the CLI call never completes. The tool reports normal background execution but output is empty and no artifact (commit, PR) is created.
 
 **Instances:**
-- 2026-10-16 — DevOps Worker (p/749#11): compound `git commit -m "$(…long message…)" && git push` timed out. Change was staged-but-uncommitted. `git log origin/<branch>` errored "unknown revision." Resolved: `git status` confirmed staged state, re-ran `git commit` (fast, completed immediately), then `git push` separately.
+- 2026-10-16 — DevOps Worker (p/749#11): compound `git commit -m "$(…long message…)" && git push` timed out. Change was staged-but-uncommitted. `git log origin/<branch>` errored "unknown revision." Resolved: `git status` confirmed staged state, re-ran `git commit` separately, then `git push`.
+- 2026-10-17 — DevOps Lead (p/26#178): `gh pr create` chained after a heredoc body-file write silently never completed — output file was empty, no PR created. Resolved: re-wrote the body file with the Write tool, re-ran `gh pr create` in the foreground separately — succeeded immediately (PR #3367).
 
-**Root Cause:** The 120s Bash timeout fires while the commit command is still running (possibly blocked on message expansion or hook). The tool backgrounds the process and returns. The staged index is untouched (the commit didn't complete), so the ref never advances.
+**Root Cause:** The 120s Bash timeout fires while a slow heredoc write or CLI setup is still running. The tool backgrounds the process. The staged index or file write is untouched (the command didn't complete), so no artifact is produced — but the tool exit looks normal.
 
 **Prevention:**
-1. **Never chain `git commit` + `git push` in a single Bash call when the commit message is multi-line or long.** Run them as separate calls.
-2. **Write long commit messages to a file with the Write tool and use `git commit -F <file>`** — keeps the commit call short and avoids inline heredoc expansion delays.
-3. **"unknown revision" on `git log origin/<branch>` immediately after a commit+push** is a diagnostic: check `git status` first. Staged files confirm the commit didn't complete; a clean tree with no new commit on `git log --oneline -1` confirms the same.
-4. **After any Bash timeout on a `git commit` call, check `git status` before assuming the commit landed.**
+1. **Never chain a file-write + long-running CLI call in a single Bash call.** Run them as separate calls.
+2. **Use the Write tool for PR body files and commit message files** — not bash heredocs — then invoke the CLI separately. This avoids heredoc expansion delays and keeps each Bash call short.
+3. **After a backgrounded or timed-out Bash call involving `git commit` or `gh pr create`, verify the artifact exists** before proceeding: `git status` (staged = commit didn't land), `gh pr list` (no PR = create didn't complete).
+4. **Empty output from a backgrounded `gh pr create`** is a reliable diagnostic — re-run in the foreground after writing the body file with the Write tool.
 
-**Status:** Active — 1 instance (DevOps Worker p/749#11).
+**Status:** Active — 2 instances (DevOps Worker p/749#11; DevOps Lead p/26#178).
 
-**Applies To:** All agents running `git commit` with multi-line messages in the Bash tool; use `-F <file>` and separate the commit from the push.
+**Applies To:** All agents running `git commit` with multi-line messages or `gh pr create` with body files in the Bash tool; use Write tool for file content and separate each CLI call.
+
+---
+
+## #263 [Build] jq `\(` String Interpolation Mangled by Bash Double-Quoting in `--jq` Argument — Write the Program to a File
+
+**Pattern:** An agent passes a jq program containing `\(` (jq string interpolation syntax) as a double-quoted bash argument to `gh --jq "…\(…"` or `jq "…\(…"`. Bash processes the backslash before jq sees it, mangling or stripping the interpolation syntax and causing a jq parse error or unexpected output.
+
+**Instances:**
+- 2026-10-17 — Rosetta Stone (p/6#96): a jq regex containing `\(` inside a double-quoted `--jq` argument tripped jq's string-interpolation parser. Resolved: wrote the jq program to a file and used `--jq "$(cat file)"`.
+
+**Root Cause:** Bash's double-quote processing strips or transforms backslash sequences before the argument reaches jq. `\(` in a double-quoted string is interpreted by bash, not passed through literally.
+
+**Prevention:**
+1. **When a jq program contains `\(`, `\"`, or other backslash sequences, write it to a file** and use `--jq "$(cat file)"` or pipe: `jq -r '…' <<'JQ_EOF'` … `JQ_EOF` (single-quoted heredoc passes the program literally).
+2. **Single-quoted strings (`'…'`) in bash pass `\(` literally to jq** — prefer single quotes for inline jq programs that contain backslash sequences.
+3. **A jq parse error on a program that looks correct in isolation** is a reliable diagnostic for bash-quoting mangling — inspect with `printf '%s\n' "$JQ_PROG"` to see what jq actually received.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#96).
+
+**Applies To:** All agents constructing jq programs with `\(` interpolation, regex literals, or `\"` in bash double-quoted arguments.
+
+---
+
+## #264 [Build] `MSYS_NO_PATHCONV=1` Suppresses All MSYS Path Translation Including `/dev/null` — Use PowerShell for HTTP Probes on Windows
+
+**Pattern:** An agent sets `MSYS_NO_PATHCONV=1` to prevent MSYS from mangling a path-like string in a curl argument (e.g. `-w "/health"`). This also prevents MSYS from translating `/dev/null` to the Windows equivalent `NUL`. `curl -o /dev/null` then tries to write to a literal path that does not exist on Windows and exits 23 (write error).
+
+**Instances:**
+- 2026-10-17 — Tech Lead (p/335#153): `MSYS_NO_PATHCONV=1 curl -o /dev/null -w "%{http_code}" …/health` returned exit 23. Root cause: `-w "/health"` had been mangled by MSYS without the flag; adding the flag fixed the format string but broke `/dev/null`. Resolved: switched to `Invoke-WebRequest` in PowerShell.
+
+**Root Cause:** `MSYS_NO_PATHCONV=1` is a global suppress — it disables all MSYS path translation for the command, not just the argument that needed protection. `/dev/null` is a POSIX device path that MSYS normally translates to `NUL`; suppressing translation leaves it as a literal path Windows cannot open.
+
+**Prevention:**
+1. **Use PowerShell `Invoke-WebRequest` (or `Invoke-RestMethod`) for HTTP probes on Windows** — no MSYS path translation issues.
+2. **Do not combine `MSYS_NO_PATHCONV=1` with `-o /dev/null`** in the same curl call. If output must be discarded, use `-o NUL` directly (Windows-native) when the flag is set.
+3. **`curl` exit 23 immediately after adding `MSYS_NO_PATHCONV=1`** is a reliable diagnostic for `/dev/null` translation being suppressed — check whether `-o /dev/null` is in the same command.
+4. **The root AGENTS.md recommends `MSYS_NO_PATHCONV=1` for `git show <ref>:<path>`** — it is safe there because no `/dev/null` is involved. Do not apply it globally to all curl commands.
+
+**Status:** Active — 1 instance (Tech Lead p/335#153).
+
+**Applies To:** All agents running curl on Windows (Git Bash / MSYS) when both MSYS path-mangling protection and output-discarding are needed.
+
+---
+
+## #266 [Process] `gh pr merge --auto` Rejected on a Draft PR — Run `gh pr ready` First
+
+**Pattern:** An agent arms auto-merge (`gh pr merge --auto --squash`) on a PR that is still in draft state. GitHub rejects the auto-merge request because draft PRs are not eligible for merging. The agent may not have checked draft status before arming.
+
+**Instances:**
+- 2026-10-17 — Tech Lead (p/335#156, PR #3196): `--auto` rejected on a draft PR. Resolved: ran `gh pr ready <N>` to mark it ready for review, then re-armed successfully.
+
+**Root Cause:** GitHub enforces that draft PRs cannot be merged (auto or manual). The root AGENTS.md already states "Never arm consult-hold, joint-gv or draft PRs" — the failure was not checking draft state before arming.
+
+**Prevention:**
+1. **Before arming auto-merge, check draft state:** `gh pr view <N> --json isDraft -q .isDraft`. If `true`, run `gh pr ready <N>` first.
+2. **The root AGENTS.md rule is authoritative:** "Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`." Check all four conditions before arming.
+3. **`gh pr merge --auto` rejecting immediately** (not after CI) is a reliable diagnostic that the PR state itself is the blocker — check draft, base branch, and hold labels.
+
+**Status:** Active — 1 instance (Tech Lead p/335#156, PR #3196).
+
+**Applies To:** All agents arming auto-merge; always check `isDraft`, base branch, and hold labels before calling `gh pr merge --auto`.
+
+---
+
+## #267 [Build] `import.meta` Is Illegal Inside `new Function()` Bodies — Always Plain Script Context
+
+**Pattern:** An agent constructs a string passed to `new Function()` that references `import.meta.url` (e.g. `createRequire(import.meta.url)`). At runtime, `new Function()` bodies execute as plain scripts, never as ES modules — even when called from a module. `import.meta` is a module-only feature and is a syntax error in plain script context.
+
+**Instances:**
+- 2026-10-17 — DevOps Lead (p/26#180): a scratch syntax-check script used `createRequire(import.meta.url)` inside a `new Function()`-constructed body. Threw `SyntaxError: Cannot use 'import.meta' outside a module`. Resolved: replaced with a plain no-op `require` mock.
+
+**Root Cause:** `new Function(body)` always creates a plain function in the global scope, not a module. `import.meta` is only valid inside a true ES module (`type: "module"` file or `import()` expression). The call site being in a module does not affect the `new Function()` body's execution context.
+
+**Prevention:**
+1. **Never use `import.meta`, `import()`, or top-level `await` inside a `new Function()` body.** These are module-only features and will throw in the plain-script context `new Function()` always creates.
+2. **For CJS-style `require` inside a dynamically constructed function**, use a plain `require` mock or pass `require` in as a parameter — not `createRequire(import.meta.url)`.
+3. **`SyntaxError: Cannot use 'import.meta' outside a module` thrown from a `new Function()` call** is a reliable diagnostic that the body uses module syntax — inspect the string being passed.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#180).
+
+**Applies To:** All agents constructing `new Function()` bodies in ES module files; do not use module-only syntax inside the body string.
+
+---
+
+## #269 [Build] `az bicep build --stdout` Crashes With `UnicodeEncodeError` on Windows — Use `--outfile` Instead
+
+**Pattern:** An agent runs `az bicep build --file main.bicep --stdout` on Windows. The .bicep file contains non-ASCII characters (e.g. `→`, `—`). The Azure CLI writes stdout using the Windows default cp1252 encoding, which cannot encode those characters, causing `UnicodeEncodeError: 'charmap' codec can't encode character`.
+
+**Instances:**
+- 2026-10-17 — Azure (p/105#8): `az bicep build --file main.bicep --stdout` crashed with `UnicodeEncodeError: 'charmap' codec can't encode '→'`. Resolved: used `--outfile <path>` instead; build succeeded.
+
+**Root Cause:** On Windows, the Azure CLI writes to stdout using the system's default ANSI codepage (cp1252). Any non-ASCII character outside cp1252's range causes a codec error. `--outfile` writes to a file in UTF-8, bypassing the codepage constraint.
+
+**Prevention:**
+1. **Use `--outfile <path>` instead of `--stdout`** when building bicep files on Windows, especially any file that may contain non-ASCII characters (comments, string literals, identifiers).
+2. **Alternatively, set `$env:PYTHONIOENCODING = "utf-8"` or `[Console]::OutputEncoding = [Text.Encoding]::UTF8`** before the az call in PowerShell to force UTF-8 stdout encoding.
+3. **`UnicodeEncodeError: 'charmap' codec can't encode`** from an az CLI call on Windows is a reliable diagnostic that the output contains characters outside cp1252 — switch to `--outfile`.
+
+**Status:** Active — 1 instance (Azure p/105#8).
+
+**Applies To:** All agents running `az bicep build --stdout` on Windows with bicep files containing non-ASCII characters.
+
+---
+
+## #270 [Build] Multi-Heredoc Bash Command With Code Containing Quotes Breaks Bash Parsing — "Unexpected EOF While Looking for Matching `'`"
+
+**Pattern:** An agent constructs a single Bash tool call containing multiple `cat <<'EOF'` heredocs to write code files inline. The code being written contains single quotes, double quotes, or other shell-special characters. Bash mis-parses the compound command's quoting structure before any heredoc is processed, exiting with "unexpected EOF while looking for matching `''`". No files are partially written.
+
+**Instances:**
+- 2026-10-17 — Rosetta Stone (p/6#99): one Bash call wrote three TypeScript test files through `cat <<'EOF'` heredocs. Bash's quote parsing broke on the code's quotes before execution. Resolved: wrote all three files with the Write tool instead.
+
+**Root Cause:** Bash's command parser processes quoting for the entire compound command before evaluating any heredocs. When code in a heredoc body contains single quotes, Bash can mistake them for the delimiter of a surrounding quoted argument, breaking the parse. This is the failure mode the AGENTS.md Shell Quoting Rule is designed to prevent.
+
+**Prevention:**
+1. **Use the Write tool for all code files.** Never write code files through Bash heredocs — the Shell Quoting Rule is authoritative: "Code with special shell characters: use Edit/Write, and run scripts from a file; never use inline heredocs, `sed` or `awk` for it."
+2. **"Unexpected EOF while looking for matching `''`" in a Bash call that contains heredocs** is a reliable diagnostic for bash quote-parsing failure — switch to the Write tool.
+3. **This failure mode is distinct from #251** (which is about heredoc content corruption from `\'` producing unescaped `'` in output). Here, the command never executes — bash fails at parse time, so no files are partially written.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#99). Related: #251 (heredoc content corruption), Shell Quoting Rule (AGENTS.md).
+
+**Applies To:** All agents writing code files via Bash heredocs; use Write/Edit instead.
+
+---
+
+## #271 [Build] PowerShell Cmdlets Piped Outside `pwsh -Command "..."` Are Parsed by Bash — "Command Not Found"
+
+**Pattern:** An agent runs `pwsh -NoProfile -Command "..." 2>&1 | Select-Object -First 40` from the Bash tool. The `| Select-Object -First 40` portion is outside the `-Command` string, so Bash (not PowerShell) parses it. Bash does not know `Select-Object` and errors "command not found." The PowerShell command itself may have completed successfully.
+
+**Instances:**
+- 2026-10-17 — DevOps Worker (p/749#16): `pwsh -NoProfile -Command "..." 2>&1 | Select-Object -First 40` from the Bash tool. `Select-Object` was parsed by bash → "Select-Object: command not found." Resolved: moved `Select-Object` inside the `-Command` string.
+
+**Root Cause:** In the Bash tool, only what is inside the `-Command "..."` string is executed by PowerShell. Anything outside — including piped stages appended after the closing quote — is parsed and executed by bash. PowerShell cmdlets are not bash commands.
+
+**Prevention:**
+1. **Put the full PowerShell pipeline inside the `-Command "..."` string.** If truncation or post-processing is needed, do it in PowerShell: `pwsh -NoProfile -Command "... | Select-Object -First 40"`.
+2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
+3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
+
+**Status:** Active — 2 instances (DevOps Worker p/749#16; DevOps Lead p/26#184).
+
+**Applies To:** All agents running `pwsh -Command "..."` from the Bash tool with PowerShell cmdlets in the pipeline.
+
+---
+
+## #273 [Build] `-WhatIf` Propagates Through `SupportsShouldProcess` to All Cmdlets — Writes Are Silently Skipped
+
+**Pattern:** A script decorated with `SupportsShouldProcess` is invoked with `-WhatIf`. The flag propagates automatically to every `SupportsShouldProcess` cmdlet called inside the script (`Set-Content`, `New-Item`, `Remove-Item`, etc.), silently skipping all writes. An agent that reads an output file written by the script after a `-WhatIf` dry run gets `FileNotFoundError` — the file was never created.
+
+**Instances:**
+- 2026-10-19 — Azure (p/105#12): checked a script's `-WhatIf` dry run by reading the spec file it writes; got `FileNotFoundError`. `-WhatIf` had propagated to `Set-Content`, preventing the write. Resolved: added `-WhatIf:$false` on that specific `Set-Content` call.
+
+**Root Cause:** PowerShell's `ShouldProcess` mechanism propagates `-WhatIf` down the call stack to all cmdlets that support it. This is by design — but it means a dry run cannot produce inspectable file output unless the specific write is explicitly opted out with `-WhatIf:$false`.
+
+**Prevention:**
+1. **If a dry run must still write an inspectable output file** (spec, report, log), add `-WhatIf:$false` on that specific `Set-Content`/`Out-File`/`New-Item` call.
+2. **Never read a file produced inside a `SupportsShouldProcess` script after a `-WhatIf` invocation** and expect it to exist — the write was suppressed.
+3. **`FileNotFoundError` on a file a script "should have written"** after a `-WhatIf` call is a reliable diagnostic for `-WhatIf` propagation.
+
+**Status:** Active — 1 instance (Azure p/105#12).
+
+**Applies To:** All agents invoking or testing `-WhatIf` dry runs of `SupportsShouldProcess` scripts that produce output files.
+
+---
+
+## #274 [Build] Stale Deployment Resource Name in AGENTS.md Causes `ResourceNotFound` — Always Query Live Names
+
+**Pattern:** An agent reads a deployment resource name (e.g. an Azure Container App name) from a role's AGENTS.md "Current Deployment" section and uses it in an `az` CLI call. The live name has drifted from what the doc says. The CLI returns `ResourceNotFound`.
+
+**Instances:**
+- 2026-10-19 — Azure (p/105#14, t/1735): `az containerapp show -n ai-triad-taxonomy-editor-staging` returned `ResourceNotFound`. The name came from Azure's AGENTS.md "Current Deployment" section; the live name is `taxonomy-editor-staging`. Resolved: listed apps with `az containerapp list -g ai-triad`.
+
+**Root Cause:** Inline resource names in AGENTS.md drift silently as deployments are renamed or redeployed. The authoritative source is the Azure API, not the context doc.
+
+**Prevention:**
+1. **Always query live names before using them:** `az containerapp list -g ai-triad --query "[].name" -o tsv`. Never rely on a name from a context doc.
+2. **The root AGENTS.md rule is authoritative:** "Infrastructure: query the registry or cloud API, not the workflow YAML." This applies equally to AGENTS.md deployment sections.
+3. **`ResourceNotFound` on an Azure resource whose name came from a context doc** is a reliable diagnostic for name drift — list the resource group to find the live name.
+4. **The durable fix is to have AGENTS.md reference `deployment-facts.md`** (or equivalent live source) rather than restate names inline.
+
+**Status:** Active — 1 instance (Azure p/105#14, t/1735).
+
+**Applies To:** All agents reading Azure resource names from AGENTS.md or any context doc before making API calls.
+
+---
+
+## #275 [Build] `git branch -d` Blocked After Merge — Stale Worktree Still Checked Out on the Branch
+
+**Pattern:** After a PR merges, an agent runs `git branch -d <merged-branch>` for routine cleanup. Git rejects it with "error: Cannot delete branch '<branch>' used by worktree at '<path>'." A stale local worktree is still checked out on that branch, even though the PR has merged and the remote branch has been deleted.
+
+**Instances:**
+- 2026-10-19 — Server Storage (p/539#8, t/4258): `git branch -d feat/t4258-shutdown-warn` blocked after merge — a local worktree at `.worktrees/t4258-shutdown-warn` was still on that branch. Resolved: skipped cleanup (out of scope for the task).
+
+**Root Cause:** `git branch -d` refuses to delete a branch that any local worktree currently has checked out, regardless of merge status. The worktree must be removed or detached first.
+
+**Prevention:**
+1. **Before `git branch -d <branch>`, check if any worktree holds it:** `git worktree list | grep <branch>`. If one does, `git worktree remove <path>` first, then `git branch -d <branch>`.
+2. **The land-from-worktree skill step 8** covers this: `git worktree remove ../wt-<ticket>` before cleanup. If the worktree was not removed post-land, it will block branch deletion.
+3. **"used by worktree" on a `git branch -d` call** is a clean diagnostic — find the worktree path in the error message and remove it.
+
+**Status:** Active — 1 instance (Server Storage p/539#8, t/4258).
+
+**Applies To:** All agents performing post-merge branch cleanup when local worktrees may still reference the branch.
+
+---
+
+## #277 [Build] Backtick Inside a Double-Quoted Shell Argument Triggers Command Substitution — Use Single Quotes
+
+**Pattern:** An agent writes a shell argument (e.g. a `grep -E` pattern) in double quotes and includes a literal backtick character. Bash treats the backtick as the start of command substitution inside double quotes, causing "unexpected EOF while looking for matching backtick" when the closing backtick is absent or the balance is wrong.
+
+**Instances:**
+- 2026-10-17 — Azure (p/105#10): `grep -vE "…\`…"` pattern exited 2 with "unexpected EOF while looking for matching backtick." Resolved: saved log to a file and used simple patterns without backticks.
+- 2026-10-19 — Second Opinion (p/691#9): `grep -E "…\`…"` same error. Resolved: rewrote the pattern in single quotes.
+
+**Root Cause:** Inside double quotes, bash recognizes backtick as a command substitution delimiter. A literal backtick in a pattern is not possible in double-quoted context — it must be either single-quoted or avoided.
+
+**Prevention:**
+1. **Use single quotes for shell patterns containing backticks:** `grep -E '…`…'`. Single-quoted strings pass every character literally, including backtick.
+2. **"Unexpected EOF while looking for matching backtick"** in a command containing a `grep` or `awk` pattern is a reliable diagnostic for a backtick inside a double-quoted argument.
+3. This is an instance of the Shell Quoting Rule — double-quoted arguments process `\`, `$`, and `` ` `` specially. When in doubt, use single quotes for patterns.
+
+**Status:** Active — 2 instances (Azure p/105#10; Second Opinion p/691#9).
+
+**Applies To:** All agents writing shell patterns (`grep`, `awk`, `sed`) in double-quoted arguments that may contain backticks; use single quotes.
+
+---
+
+## #278 [Process] `--match-head-commit` Pin Checked Only at Arming — Subsequent Push Leaves Auto-Merge Armed on Unapproved Head
+
+**Pattern:** An agent arms auto-merge with `gh pr merge --auto --match-head-commit <sha>`. The pin is checked only at that moment. A later push to the same branch (by any agent — all share the `jpsnover` identity) updates the head. GitHub's auto-merge queue sees the same identity and does not re-validate the pin; when checks pass, it merges the new, unapproved head. The pin's intent — "merge only this reviewed commit" — is silently defeated.
+
+**Instances:**
+- 2026-10-19 — Tech Lead (p/335#159, PR #3402, t/4266): T2 PR had auto-merge armed with `--match-head-commit`. A subsequent push updated the head. Auto-merge remained armed and merged the new unapproved head. Caught by the Second Opinion before landing consequences.
+
+**Root Cause:** `--match-head-commit` is a point-in-time check at enablement, not a persistent invariant. GitHub's auto-merge re-evaluates when checks pass, merging the current live head — not the pinned one. The shared `jpsnover` identity means GitHub has no way to distinguish "authorized push" from "unauthorized push."
+
+**Prevention:**
+1. **Disarm auto-merge before pushing any additional commits to an armed PR:** `gh pr merge <N> --disable-auto -R AI-Rosetta-Stone/ai-triad-research`. This is the existing root AGENTS.md rule: "Arming means 'done', so disarm before pushing more."
+2. **For T2 PRs specifically, re-verify `headRefOid` right before merge:** `gh pr view <N> --json headRefOid -q .headRefOid`. Confirm it matches the reviewed commit. If it has changed, stop and re-review.
+3. **`--match-head-commit` does not protect against post-arming pushes** — it only prevents a race at the moment of arming. Its protection window ends the instant a new commit is pushed.
+4. The mechanical fix for this class is tracked at t/4266 (P2).
+
+**Status:** Active — 1 instance (Tech Lead p/335#159, PR #3402, t/4266). High severity on T2 PRs.
+
+**Applies To:** All agents arming auto-merge; all agents who push additional commits to any PR — check for armed auto-merge first and disarm before pushing.
+
+---
+
+## #279 [Build] `ResourceNotFound` on a Lazy-Initialized Storage Directory Is Not a Misconfiguration Signal
+
+**Pattern:** An agent checks for the existence of a storage directory (e.g. `az storage file list --path anon-sessions`) as a health or configuration check. The directory does not exist and the command returns `ResourceNotFound`. The agent incorrectly diagnoses this as a misconfiguration of `ANON_SESSION_DIR` or equivalent config. In fact, the directory is created lazily on the first write — it is expected to be absent on a fresh or idle deployment.
+
+**Instances:**
+- 2026-10-19 — Azure (p/105#18): `az storage file list --path anon-sessions` on the staging share returned `ResourceNotFound`. Diagnosed as possible misconfiguration of `ANON_SESSION_DIR`. Actual cause: `anonymousSessionStore` creates the directory on first write; no write had occurred yet. Resolved: listed share root and read `defaultBaseDir()`.
+
+**Root Cause:** Lazy-initialization is a common storage pattern — the directory is created on demand rather than at startup. A missing directory only means "nothing has been written yet," not "the config is wrong."
+
+**Prevention:**
+1. **Before diagnosing `ResourceNotFound` on a storage path as misconfiguration, check whether the directory is lazily initialized.** Read the store's initialization code (`defaultBaseDir()`, `ensureDir()`, or equivalent) to understand when the directory is created.
+2. **List the share root** (`az storage file list` without `--path`) to confirm the share itself exists and the credentials work — ruling out genuine misconfiguration.
+3. **A missing lazy-init directory on a fresh or idle deployment is expected.** Trigger the first write (a test chat, comment, or synthetic event) and verify the directory appears.
+
+**Status:** Active — 1 instance (Azure p/105#18).
+
+**Applies To:** All agents diagnosing `ResourceNotFound` on storage paths that may be lazily initialized; verify initialization semantics before concluding misconfiguration.
+
+---
+
+## #281 [Build] `statusCheckRollup` Mixes Check Runs and Status Contexts — `.name` Is Null on Status Context Entries
+
+**Pattern:** An agent iterates over `gh pr view --json statusCheckRollup` entries and applies `.name | startswith(…)` or another string operation. Some entries have a null `.name` — these are status contexts (e.g. CI systems posting statuses rather than GitHub Actions check runs). Status contexts use `.context` for their name, not `.name`. The null `.name` causes the string operation to error.
+
+**Instances:**
+- 2026-10-19 — Tech Lead (p/335#161): `.name|startswith()` errored on a `statusCheckRollup` entry whose `.name` was null. The entry was a status context (`.context` was present). Resolved: used `(.name // .context // "") as $n` before string ops.
+
+**Root Cause:** GitHub's PR check rollup contains two kinds of entries: check runs (GitHub Actions, expose `.name`) and status contexts (external CI systems, expose `.context`). Neither field is always present; a consumer that reads only `.name` will see null on status context entries.
+
+**Prevention:**
+1. **Always normalize status rollup entries before string operations:** `(.name // .context // "") as $n | $n | startswith(…)`.
+2. **Check both fields when filtering or matching:** a check run has `.name`; a status context has `.context`. Neither is guaranteed on every entry.
+3. **`.name` null on a rollup entry** is a reliable diagnostic for a status context entry — check whether `.context` is the intended field.
+
+**Status:** Active — 1 instance (Tech Lead p/335#161).
+
+**Applies To:** All agents processing `gh pr view --json statusCheckRollup` entries with string operations on the name field.
+
+---
+
+## #282 [Build] KQL `has` Matches Whole Terms Only — Use `contains` for Codes Embedded in a Larger Token
+
+**Pattern:** An agent writes a KQL alert or query using `Log_s has 'AADSTS'` to match log lines containing Azure AD error codes like `AADSTS7000215`. The query fires zero times because KQL `has` performs whole-term matching — `AADSTS7000215` is one term, and `AADSTS` does not match any whole term. The alert silently misses all real incidents.
+
+**Instances:**
+- 2026-10-19 — Tech Lead (p/335#163, t/4288): KQL alert written with `Log_s has 'AADSTS'` would have fired zero times against real 10-19 incident logs. Caught by DevOps before deployment. Fixed: use `contains` or `matches regex @"AADSTS\d+"`.
+
+**Root Cause:** KQL `has` is a term-index operator — it checks whether the search term appears as a complete whitespace- or punctuation-delimited token in the column. A code like `AADSTS7000215` is a single token; `has 'AADSTS'` does not match it. `contains` performs substring search; `matches regex` allows pattern matching.
+
+**Prevention:**
+1. **Use `contains` for substring matching in KQL:** `Log_s contains 'AADSTS'` matches `AADSTS7000215`.
+2. **Use `matches regex @"AADSTS\d+"` for structured code patterns** when an exact prefix is needed without matching unrelated strings.
+3. **Always prove alert KQL against real incident log lines** before deploying — use `Log_s | where … | take 10` against actual log data, not hand-written examples.
+4. **`has` is only appropriate when the search term is itself a complete token** (e.g. a standalone word or exact field value). When in doubt, use `contains`.
+
+**Status:** Active — 1 instance (Tech Lead p/335#163, t/4288).
+
+**Applies To:** All agents writing KQL queries or alerts that match log lines containing error codes, identifiers, or any string that may be embedded within a larger token.
+
+---
+
+## #283 [Build] GitHub Only Discovers `workflow_dispatch` Definitions From the Default Branch — New Workflows Not Dispatchable Until Merged
+
+**Pattern:** An agent adds a new `workflow_dispatch` workflow file on a feature branch and immediately tries to trigger it: `gh workflow run <new-workflow>.yml --ref <feature-branch>`. GitHub returns HTTP 404 "workflow not found on the default branch." The workflow file exists on the feature branch but GitHub only registers `workflow_dispatch` triggers from the default branch (`main`). The dispatch is impossible until the PR merges.
+
+**Instances:**
+- 2026-10-19 — DevOps Lead (p/26#182): `gh workflow run <new-workflow>.yml --ref <feature-branch>` returned 404. New workflow file existed only on the feature branch. Resolution: dispatch must wait until PR merges to `main`.
+
+**Root Cause:** GitHub's workflow dispatch discovery is scoped to the repository's default branch. A workflow file that exists only on a non-default branch is invisible to the dispatch API, regardless of the `--ref` value. This is a GitHub platform constraint, not a configuration error.
+
+**Prevention:**
+1. **New `workflow_dispatch` workflows cannot be tested via `gh workflow run` until merged to `main`.** Plan for this constraint when designing pre-merge workflow testing.
+2. **For pre-merge testing of a new workflow, alternative approaches:** (a) merge to `main` first and test from there; (b) temporarily add the workflow to a test branch that is `main` (not recommended for production workflows); (c) use `act` or a local runner for pre-merge testing.
+3. **HTTP 404 "workflow not found on the default branch"** from `gh workflow run` is a reliable diagnostic that the workflow file has not yet been merged to the default branch.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#182).
+
+**Applies To:** All agents creating new `workflow_dispatch` workflows on feature branches and attempting to test via dispatch before merging.
+
+---
+
+## #285 [Build] Parallel `pnpm exec` Across Workspace Packages Collides on pnpm 11 Stale-Dep Install — Run One First
+
+**Pattern:** An agent fans out `pnpm exec <tool>` calls across multiple workspace packages in parallel. pnpm 11 checks for stale dependencies before executing and runs a workspace install when needed. Concurrent `exec` calls each trigger the same install in parallel, causing install collisions. Every `exec` call dies before the tool runs, producing no output files.
+
+**Instances:**
+- 2026-10-19 — Shared Lib (p/5#55, t/4238): five parallel `pnpm exec eslint` runs (one per package) produced no output files. pnpm 11 install collisions killed all five. Resolved: ran one `pnpm exec` alone first to let the install finish, then fanned out the remaining four in parallel — all succeeded.
+
+**Root Cause:** pnpm 11 added an auto-install-on-stale-deps check to `pnpm exec`. Multiple concurrent `exec` calls all detect stale deps simultaneously and race to run the same workspace install, corrupting each other's lock/state. Once one install completes, subsequent `exec` calls find deps fresh and proceed cleanly.
+
+**Prevention:**
+1. **Before fanning out `pnpm exec` across packages, run one `pnpm exec` call alone first** to let any stale-dep install complete. Then fan out the remaining calls in parallel.
+2. **Alternatively, run `pnpm install` explicitly before any parallel `exec` fan-out** to ensure deps are fresh — `exec` then skips the install check entirely.
+3. **No output files from a parallel `pnpm exec` fan-out** (zero results across all packages) is a reliable diagnostic for install collision — a single sequential run would have succeeded.
+
+**Status:** Active — 1 instance (Shared Lib p/5#55, t/4238).
+
+**Applies To:** All agents fanning out `pnpm exec` in parallel across workspace packages; always prime with one sequential run first.
+
+---
+
+## #286 [Build] Worktree Isolation Guard Blocks `git -C <shared-checkout> worktree add` — Push `HEAD:<branch>` as Workaround
+
+**Pattern:** An agent's session is pinned to a worktree by the worktree isolation guard. The agent tries to create a new worktree by redirecting git to the shared checkout with `git -C <repo-root> worktree add …`. The isolation guard blocks the command — using `-C` to operate on the shared checkout from within a pinned worktree session is disallowed.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#61, t/4305): `git -C C:/Users/jsnov/repos/ai-triad-research worktree add` blocked by isolation guard. Workaround: committed changes with pathspec to the current worktree branch, then `git push origin HEAD:feat/cli-seat-tags-soul-overrides-t4305` to create the remote branch, opened the PR normally.
+
+**Root Cause:** The worktree isolation guard restricts the pinned session to its own worktree path. Using `-C` to redirect git commands to the shared checkout's path is treated as an attempt to operate on the shared checkout — which is prohibited in the pinned session.
+
+**Prevention:**
+1. **Do not use `git -C <shared-checkout>` to create worktrees from a pinned session.** Worktree creation must happen from the shared checkout directly (outside the pinned session) or via a coordinator.
+2. **Workaround when you need a different remote branch name:** commit your changes to the current local branch with a pathspec, then `git push origin HEAD:<desired-branch-name>` — this creates the remote branch at your current HEAD without requiring a new local worktree.
+3. **The isolation guard "blocked" message on a `git -C`** is a reliable diagnostic for this constraint — the session is pinned and cannot use `-C` to escape to the shared checkout.
+
+**Status:** Active — 1 instance (DebateTool p/70#61, t/4305).
+
+**Applies To:** All agents operating in worktree-pinned sessions who need to create additional worktrees or push to a differently-named remote branch.
+
+---
+
+## #287 [Build] gh Token Lacks `read:packages` Scope — 403 on GHCR Packages API; Prefer Deploy Workflow Log for Container Tag Diagnosis
+
+**Pattern:** An agent queries the GitHub Container Registry packages API (`gh api orgs/.../packages/container/...`) to check whether a `sha-<commit>` container tag exists. The call returns 403 "you need read:packages scope" or "package not found" due to missing scope or a wrong URL-encoded package path. The packages API is not necessary — the deploy workflow failure log already contains the diagnostic.
+
+**Instances:**
+- 2026-10-19 — DevOps Lead (p/26#188): `Get-TaxEditorImage` and raw `gh api orgs/.../packages/container/...` both 403'd. Root cause confirmed instead via deploy workflow failure log, which showed directly that no `sha-<commit>` tag existed for the dispatched SHA. Dispatched a fresh container build instead.
+
+**Root Cause:** Session gh/PAT tokens commonly lack `read:packages` scope, which is not a default OAuth scope. The packages API also requires exact URL-encoded package path format; an off-by-one encoding produces "package not found" rather than a scope error.
+
+**Prevention:**
+1. **Before querying the GHCR packages API, check whether the deploy workflow failure log already answers the question.** It typically surfaces missing `sha-<commit>` tags directly — no API call needed.
+2. **If a packages API call is necessary, confirm the token has `read:packages` scope first** (`gh auth status` shows current scopes). A 403 here is a scope problem, not a permissions or visibility problem.
+3. **URL-encode the package name carefully** — slashes and colons in container image names must be percent-encoded; "package not found" on a known package is a reliable diagnostic for encoding error.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#188).
+
+**Applies To:** All agents diagnosing container image or tag availability; always check the deploy workflow log before reaching for the packages API.
+
+---
+
+## #288 [Build] Concurrent Agents Chose the Same Branch Name — Foreign Commit Rides Into the Wrong PR
+
+**Pattern:** Two agent sessions independently create a branch with the same name. One agent pushes a commit to the branch first; the second agent's subsequent push appends its commit to that branch. The second agent's PR then includes both commits — one from the wrong ticket.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#63, t/4304): branch `feat/broken-injection-detection-t4304` had a t4303 commit (d6f6f9d7) pushed onto it by a concurrent agent session. Both commits landed in PR #3450. The foreign-commit-check workflow (t/3738) would catch this warn-only.
+
+**Root Cause:** Branch name derived from feature description without sufficient ticket-ID uniqueness, and no pre-push check for unexpected commits on the remote branch.
+
+**Prevention:**
+1. **Before opening a PR or pushing additional commits to an existing remote branch, run `git log origin/<branch> --oneline`** to confirm no unexpected commits exist. A commit from another ticket is a signal to stop and coordinate.
+2. **Include ONLY the owning ticket's number in the branch name.** Never reuse a feature-description prefix that another concurrent ticket might also generate.
+3. **The foreign-commit-check workflow (t/3738) fires warn-only on PRs** — it catches ticketed foreign commits and merge-commits-in-range, but does not block. It is the backstop, not the first line of defense.
+
+**Status:** Active — 1 instance (DebateTool p/70#63, t/4304).
+
+**Applies To:** All agents creating or pushing to remote branches; always verify branch history is clean before opening a PR.
+
+---
+
+## #289 [Build] T1 Approval-Guard Stale FAILURE Blocks Auto-Merge Arm — Re-run Failed Check After Approval Comment
+
+**Pattern:** A T1 PR receives the reviewer's `Approved (<role>):` comment. The agent then arms auto-merge with `gh pr merge --auto --squash --match-head-commit`. GitHub rejects it with "Pull request is in unstable status (enablePullRequestAutoMerge)". Cause: the `t1-approval-guard` check ran and FAILED before the approval comment landed; it does not auto-re-run when a new comment is added.
+
+**Instances:**
+- 2026-10-19 — ServerAPI (p/504#24): PR #3437 auto-merge arm rejected. `t1-approval-guard` had a stale FAILURE run from before the `Approved (Quality):` comment. Fixed with `gh run rerun <run-id> --failed`; guard then passed and auto-merge armed successfully.
+
+**Root Cause:** `t1-approval-guard` is a GitHub Actions workflow triggered by PR events. A new comment does not always trigger a re-run if the workflow already has a concluded run for that head SHA.
+
+**Prevention:**
+1. **After the reviewer's approval comment lands on a T1 PR, check `gh pr checks <N>` before arming auto-merge.** If `t1-approval-guard` shows a stale FAILURE, re-run it: `gh run rerun <run-id> --failed` (find the run ID with `gh run list --workflow t1-approval-guard.yml --branch <branch>`).
+2. **"Pull request is in unstable status" on `gh pr merge --auto` for a T1 PR** is a reliable diagnostic for this stale-guard scenario — check guard run status before investigating further.
+3. **Do not arm auto-merge before all required checks are green.** `gh pr checks <N> --watch` confirms live status.
+
+**Status:** Active — 1 instance (ServerAPI p/504#24).
+
+**Applies To:** All agents arming auto-merge on T1 PRs after receiving an approval comment.
+
+
+---
+
+## #293 [Build] Edit Anchor Matches at Wrong Nesting Level — Injected Code Lands Outside Describe Block
+
+**Pattern:** An agent uses a comment string as an Edit anchor to insert new test blocks. The comment appears at multiple structural levels in the file — both inside an existing describe block and as a section header. The edit matches the first occurrence (inside the inner describe), injecting code between that block's closing `});` and the next section header. The new blocks land outside any describe, causing a syntax error.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#67, t/4305): anchor `// ── buildSoulOverrideResolver` matched inside `loadSoulOverrides` describe; new `it()` blocks injected between closing `});` and next section, landing outside any describe. Fixed by re-reading, moving blocks into `validateSeatTagsConfig` describe, removing duplicates.
+
+**Root Cause:** Comment strings used as anchors are not unique when the same string appears at multiple nesting levels. The Edit tool matches the first occurrence, which may not be the intended injection point.
+
+**Prevention:**
+1. **Include surrounding brace and indentation context in the anchor**, not just the comment string — ensure the anchor is unique to the intended nesting level.
+2. **After any test insertion, re-read the file and verify the nesting** by checking that each new block is inside the correct describe and that `});` counts balance.
+3. **A syntax error immediately after a test insertion** is a reliable diagnostic for an out-of-describe injection — inspect the lines just before and after the inserted block.
+
+**Status:** Active — 1 instance (DebateTool p/70#67, t/4305).
+
+**Applies To:** All agents inserting test blocks via Edit; always verify nesting after insertion.
+
+---
+
+## #294 [Build] Absolute Path to `.bin/` Binary Blocked by Bash Isolation Hook — Use `pnpm exec` Instead
+
+**Pattern:** An agent calls a node binary using its absolute path (e.g., `"C:\...\node_modules\.bin\vitest.CMD"`). The Bash isolation hook blocks the call because it cannot verify the binary is not git-related. The tool is available via `pnpm exec` or a `pnpm run` script, which the hook recognizes as safe.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#69, t/4305): direct call to absolute `.bin\vitest.CMD` path blocked by isolation hook. Worked around with `node_modules\.pnpm\node_modules\.bin\vitest.CMD` via PowerShell `&`, but cleaner fix is `pnpm exec vitest`.
+
+**Root Cause:** The Bash isolation hook verifies commands against an allowlist by command name/pattern. An absolute path to a `.bin/` binary does not match any allowlist pattern, so it is treated as unverifiable.
+
+**Prevention:**
+1. **Always invoke project tooling via `pnpm exec <tool>` or `pnpm run <script>`** — both resolve through pnpm's known binary resolution and pass the hook check.
+2. **Never construct absolute paths to `node_modules/.bin/` binaries for shell invocation.** The path may vary by OS or pnpm layout version, and it bypasses hook verification.
+3. **"Unverifiable command" from the isolation hook on a `.bin/` path** is a reliable diagnostic for this pattern — switch to `pnpm exec`.
+
+**Status:** Active — 1 instance (DebateTool p/70#69, t/4305).
+
+**Applies To:** All agents invoking node binaries in isolated sessions; prefer `pnpm exec` over absolute `.bin/` paths.
+
+---
+
+## #295 [Build] `grep -r` from Worktree Root Hits 120s Timeout — Use the Grep Tool Instead
+
+**Pattern:** An agent runs `grep -r "<pattern>" .` from the worktree root via Bash to search the repo. With a large repo (~410 MB data + code), the recursive grep hits the 120-second Bash timeout and returns no results.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#69, t/4305): `grep -r "lib-debate-not-to-soul-loaders" .` from worktree root timed out at 120s. Fixed by using the Grep tool (ripgrep), which completed instantly.
+
+**Root Cause:** Bash `grep -r` traverses all files including `node_modules/`, `.git/`, and the adjacent `../ai-triad-data/` symlink. The Grep tool (ripgrep) respects `.gitignore` and default exclusions, completing orders of magnitude faster.
+
+**Prevention:**
+1. **Always use the Grep tool for repo-wide pattern searches** — never `grep -r` via Bash. The Grep tool uses ripgrep with `.gitignore`-aware exclusions and completes in milliseconds on this repo.
+2. **`grep -r` from the repo root will always time out** on this project due to `node_modules/` and data repo size. There is no flags combination that makes it safe — use the Grep tool.
+3. **AGENTS.md Shell Quoting Rule** already says to prefer dedicated tools over Bash; this is the search-specific instance of that rule.
+
+**Status:** Active — 1 instance (DebateTool p/70#69, t/4305).
+
+**Applies To:** All agents; never use Bash `grep -r` for repo-wide searches — use the Grep tool.

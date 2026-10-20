@@ -282,9 +282,14 @@ jobs:
             }
             if ($Gate.LastRefusal) { Write-Host "::error::Last GitHub refusal seen in the revision log: $($Gate.LastRefusal)" }
             if ($Gate.Result) { $Gate.Result.Checks | Format-Table -AutoSize }
-            exit 1
+            # t/4249: explicit from the verdict, not an ambient $LASTEXITCODE — belt-and-suspenders,
+            # Wait-RevisionActivation itself already resets $LASTEXITCODE=0 before returning.
+            exit (Get-HealthCheckExitCode $Gate.Verdict)
           }
           Write-Host "Health gate passed"
+          # t/4249: reset explicitly here too — the smoke test below runs more native calls, and a
+          # reader should never have to trace whether $LASTEXITCODE is clean at this point.
+          $global:LASTEXITCODE = 0
 
           # Full smoke: all 6 endpoint categories (mandatory pre-traffic gate, t/2376).
           Write-Host "=== Full smoke test against 0%-traffic revision: $BaseUrl ==="
@@ -447,6 +452,11 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
+          # t/4301 (Azure, p/241#94): Import-Module does not persist between workflow steps —
+          # missing here, every staging deploy since 10-17 failed this step with
+          # "Test-TaxEditorHealth is not recognized" and rolled back, even when the deploy and
+          # /health were actually fine.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
           $Rev = '${{ steps.new_revision.outputs.revision }}'
           $Info = az containerapp revision show `
             --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Rev `

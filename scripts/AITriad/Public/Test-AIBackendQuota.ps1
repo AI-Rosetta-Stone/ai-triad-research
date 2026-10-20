@@ -65,7 +65,7 @@ function Test-AIBackendQuota {
     # ── Load ai-models.json defaults (backend id -> default model id) ──────
     $ConfigPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..' '..' '..' 'ai-models.json'))
     if (-not (Test-Path $ConfigPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal      'Load AI backend defaults for quota probe' `
             -Problem   "ai-models.json not found at: $ConfigPath" `
             -Location  'Test-AIBackendQuota' `

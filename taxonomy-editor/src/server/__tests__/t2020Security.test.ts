@@ -23,7 +23,10 @@ import os from 'os';
 import path from 'path';
 
 vi.mock('../logger.js', () => ({
-  log: { server: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() } },
+  log: {
+    server: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    storage: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  },
 }));
 
 // ── stripHtmlFallback ────────────────────────────────────────────────────────
@@ -204,5 +207,30 @@ describe.skipIf(!isUndiciMajorAlignedWithRuntime())('GitHubAPIBackend temp file 
     const path2 = writeFileMock.mock.calls[0][0] as string;
 
     expect(path1).not.toBe(path2);
+  });
+
+  // t/4298/t/4299 (TL condition 3): staging's share went read-only
+  // (taxonomy-data-ro) — a write-through cache write must never crash the
+  // read it follows. Was previously an uncaught throw out of writeToDiskCache.
+  it('writeToDiskCache on EROFS logs a WARN and resolves, never throws', async () => {
+    vi.mocked(fsp.writeFile).mockRejectedValueOnce(Object.assign(new Error('EROFS: read-only file system'), { code: 'EROFS' }));
+
+    await expect((backend as unknown as {
+      writeToDiskCache(p: string, c: string, s: string, e: string): Promise<void>
+    }).writeToDiskCache('taxonomy/nodes.json', '{}', 'abc', '"abc"')).resolves.toBeUndefined();
+
+    const warns = (backend as unknown as { getErrorBuffer(): Array<{ level?: string; message?: string }> }).getErrorBuffer();
+    expect(warns.some(w => w.level === 'warn' && w.message?.includes('write-through failed'))).toBe(true);
+  });
+
+  it('writeBinaryToDiskCache on EROFS logs a WARN and resolves, never throws', async () => {
+    vi.mocked(fsp.writeFile).mockRejectedValueOnce(Object.assign(new Error('EROFS: read-only file system'), { code: 'EROFS' }));
+
+    await expect((backend as unknown as {
+      writeBinaryToDiskCache(p: string, c: Buffer, s: string, e: string): Promise<void>
+    }).writeBinaryToDiskCache('taxonomy/image.png', Buffer.from('x'), 'abc', '"abc"')).resolves.toBeUndefined();
+
+    const warns = (backend as unknown as { getErrorBuffer(): Array<{ level?: string; message?: string }> }).getErrorBuffer();
+    expect(warns.some(w => w.level === 'warn' && w.message?.includes('write-through failed'))).toBe(true);
   });
 });

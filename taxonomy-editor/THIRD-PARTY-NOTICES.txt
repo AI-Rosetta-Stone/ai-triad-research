@@ -15,7 +15,7 @@ The following npm packages may be included in this product:
  - @azure/core-tracing@1.4.0
  - @azure/core-util@1.14.0
  - @azure/core-xml@1.6.0
- - @azure/identity@4.13.3
+ - @azure/identity@4.14.0
  - @azure/keyvault-common@2.1.0
  - @azure/keyvault-secrets@4.11.2
  - @azure/logger@1.4.0
@@ -112,8 +112,9 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - @azure/msal-browser@5.22.0
+ - @azure/msal-browser@5.25.1
  - @azure/msal-common@16.14.1
+ - @azure/msal-common@16.14.2
 
 These packages each contain the following license:
 
@@ -377,7 +378,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 The following npm package may be included in this product:
 
- - @fontsource/source-serif-4@5.3.0
+ - @fontsource/source-serif-4@5.3.1
 
 This package contains the following license:
 
@@ -946,6 +947,7 @@ The following npm packages may be included in this product:
  - @types/node@22.20.1
  - @types/node@25.9.9
  - @types/node@26.6.4
+ - @types/node@26.6.5
  - @types/react@19.3.0
  - @types/unist@2.0.11
  - @types/unist@3.0.3
@@ -1321,22 +1323,24 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 The following npm packages may be included in this product:
 
- - bundle-name@4.1.0
+ - bundle-name@4.1.1
  - default-browser-id@5.0.1
  - default-browser@5.5.1
  - define-lazy-prop@3.0.0
  - escape-string-regexp@4.0.0
  - escape-string-regexp@5.0.0
  - is-docker@3.0.0
+ - is-in-ssh@1.0.0
  - is-inside-container@1.0.0
  - is-plain-obj@4.1.0
  - is-wsl@3.1.1
  - matcher@4.0.0
- - open@10.2.0
+ - open@11.0.4
+ - powershell-utils@0.2.1
  - run-applescript@7.1.0
  - serialize-error@8.1.0
  - supports-color@10.2.2
- - wsl-utils@0.1.0
+ - wsl-utils@1.0.1
 
 These packages each contain the following license:
 
@@ -3603,7 +3607,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - lucide-react@1.52.0
+ - lucide-react@1.57.0
 
 This package contains the following license:
 
@@ -4316,8 +4320,8 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - react-dom@19.3.0
- - react@19.3.0
+ - react-dom@19.3.1
+ - react@19.3.1
  - scheduler@0.28.0
 
 These packages each contain the following license:
@@ -5340,7 +5344,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - zod@4.6.5
+ - zod@4.6.7
 
 This package contains the following license:
 

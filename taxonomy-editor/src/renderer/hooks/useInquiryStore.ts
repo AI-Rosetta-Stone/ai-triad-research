@@ -10,6 +10,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { deriveDebateConfig } from '@lib/debate/inquiryConfig';
 import type { InquiryJobStatus, InquiryResult, InquiryStatusResponse, InquiryResultSummary } from '../bridge/types';
 import type { Fidelity } from '@lib/inquiry';
+import type { TagSelection } from '@lib/schema/povTags';
 import type { ModelRegistry } from '@lib/ai-client/registry';
 import aiModelsRegistry from '../../../../ai-models.json';
 
@@ -30,6 +31,8 @@ interface InquiryStoreState {
    *  the fidelity tier default. */
   debaterModel?: string;
   evaluatorModel?: string;
+  /** Optional POV tag for one camp (t/4246, contract t/3965). Undefined = an untagged inquiry, as before. */
+  tagSelection?: TagSelection;
 
   jobId: string | null;
   status: InquiryJobStatus | null;
@@ -55,6 +58,7 @@ interface InquiryStoreState {
   setFidelity: (f: Fidelity) => void;
   setDebaterModel: (m: string | undefined) => void;
   setEvaluatorModel: (m: string | undefined) => void;
+  setTagSelection: (t: TagSelection | undefined) => void;
   /** The debater/evaluator models this run will actually use — the override if set, else the
    *  fidelity tier default (single source of truth: lib/debate/inquiryConfig's deriveDebateConfig,
    *  same function the server-side pipeline uses to resolve the same request). */
@@ -185,6 +189,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     fidelity: 'standard',
     debaterModel: undefined,
     evaluatorModel: undefined,
+    tagSelection: undefined,
     jobId: null,
     status: null,
     progressPct: 0,
@@ -202,6 +207,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     setFidelity: (f) => set({ fidelity: f }),
     setDebaterModel: (m) => set({ debaterModel: m }),
     setEvaluatorModel: (m) => set({ evaluatorModel: m }),
+    setTagSelection: (t) => set({ tagSelection: t }),
 
     resolvedModels: () => {
       const { fidelity, debaterModel, evaluatorModel } = get();
@@ -221,13 +227,14 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     },
 
     startInquiry: async () => {
-      const { question, fidelity, debaterModel, evaluatorModel } = get();
+      const { question, fidelity, debaterModel, evaluatorModel, tagSelection } = get();
       set({ error: null, pollError: null, result: null, status: 'queued', progressPct: 0, terminationReason: null });
       try {
         const { jobId } = await api.startInquiry({
           question,
           fidelity,
           models: (debaterModel || evaluatorModel) ? { debaters: debaterModel, evaluator: evaluatorModel } : undefined,
+          ...(tagSelection ? { tagSelection } : {}),
         });
         set({ jobId });
         clearPollTimer();

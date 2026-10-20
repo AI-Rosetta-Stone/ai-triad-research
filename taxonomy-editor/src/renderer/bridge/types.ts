@@ -209,6 +209,9 @@ export interface StartInquiryRequest {
   fidelity: 'quick' | 'standard' | 'deep';
   situationId?: string;
   models?: { debaters?: string; evaluator?: string };
+  /** Optional POV tag for one camp (t/3965, picked in the Ask panel since t/4246). The server and the
+   *  desktop IPC both validate it with InquiryRequestSchema, which rejects an unregistered tag. */
+  tagSelection?: import('@lib/schema/povTags').TagSelection;
 }
 
 /** `done_truncated` is a DISTINCT terminal state (budget/ceiling truncation, fails closed by

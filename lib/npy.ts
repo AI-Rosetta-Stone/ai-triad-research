@@ -47,25 +47,64 @@ export function parseNpy(buffer: Buffer): { shape: [number, number]; data: Float
   return { shape: [rows, cols], data };
 }
 
+type ParsedNpy = { shape: [number, number]; data: Float32Array };
+type NpyIndex = Record<string, { start: number; count: number }>;
+type NodeVectors = Record<string, { pov: string; vectors: number[][] }>;
+
+/**
+ * Copy one node's rows into plain number[][]. A preallocated index loop is
+ * ~5x faster than Array.from(subarray), which goes through the iterator
+ * protocol per float (t/4286: ~400ms vs ~70ms at corpus scale).
+ */
+function copyNodeRows(data: Float32Array, start: number, count: number, cols: number): number[][] {
+  const vectors: number[][] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    const offset = (start + i) * cols;
+    const row: number[] = new Array(cols);
+    for (let j = 0; j < cols; j++) row[j] = data[offset + j];
+    vectors[i] = row;
+  }
+  return vectors;
+}
+
 /**
  * Extract per-node vectors from a parsed NPY file using an index map.
  * Index format: { [nodeId]: { start: number, count: number } }
+ *
+ * Synchronous — on a server request path prefer extractNodeVectorsAsync,
+ * which yields to the event loop (t/4286).
  */
-export function extractNodeVectors(
-  parsed: { shape: [number, number]; data: Float32Array },
-  index: Record<string, { start: number; count: number }>,
-  pov: string,
-): Record<string, { pov: string; vectors: number[][] }> {
+export function extractNodeVectors(parsed: ParsedNpy, index: NpyIndex, pov: string): NodeVectors {
   const [, cols] = parsed.shape;
-  const result: Record<string, { pov: string; vectors: number[][] }> = {};
+  const result: NodeVectors = {};
 
   for (const [nodeId, { start, count }] of Object.entries(index)) {
-    const vectors: number[][] = [];
-    for (let i = 0; i < count; i++) {
-      const offset = (start + i) * cols;
-      vectors.push(Array.from(parsed.data.subarray(offset, offset + cols)));
-    }
-    result[nodeId] = { pov, vectors };
+    result[nodeId] = { pov, vectors: copyNodeRows(parsed.data, start, count, cols) };
+  }
+
+  return result;
+}
+
+/**
+ * Same output as extractNodeVectors, but yields to the event loop (setImmediate)
+ * every `yieldEvery` nodes so a cold corpus load does not block the server's
+ * event loop (t/4286; same chunk-yield pattern as httpKit's jsonStringifyChunked).
+ */
+export async function extractNodeVectorsAsync(
+  parsed: ParsedNpy,
+  index: NpyIndex,
+  pov: string,
+  yieldEvery = 256,
+): Promise<NodeVectors> {
+  const yieldToLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+  const [, cols] = parsed.shape;
+  const result: NodeVectors = {};
+  const step = Math.max(1, Math.floor(yieldEvery));
+
+  let n = 0;
+  for (const [nodeId, { start, count }] of Object.entries(index)) {
+    result[nodeId] = { pov, vectors: copyNodeRows(parsed.data, start, count, cols) };
+    if (++n % step === 0) await yieldToLoop();
   }
 
   return result;

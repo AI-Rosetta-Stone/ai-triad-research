@@ -54,7 +54,7 @@ function Set-TriadConfig {
     Set-StrictMode -Version Latest
 
     if (-not (Test-Path $InputPath)) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Upload runtime config to taxonomy-editor' `
             -Problem "Config file not found: $InputPath" `
             -Location 'Set-TriadConfig' `
@@ -67,7 +67,7 @@ function Set-TriadConfig {
         $ConfigObj = $RawJson | ConvertFrom-Json -ErrorAction Stop
     }
     catch {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Parse local config file' `
             -Problem "Invalid JSON in $InputPath — $($_.Exception.Message)" `
             -Location 'Set-TriadConfig' `
@@ -82,7 +82,7 @@ function Set-TriadConfig {
         Where-Object { $_.MemberType -eq 'NoteProperty' -and $_.Name -notin $KnownSections } |
         ForEach-Object { $_.Name })
     if (@($UnknownKeys).Count -gt 0) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Validate local config schema' `
             -Problem "Unknown config sections: $($UnknownKeys -join ', ')" `
             -Location 'Set-TriadConfig' `
@@ -147,7 +147,7 @@ function Set-TriadConfig {
                elseif ($StatusCode) { "HTTP $StatusCode" }
                else { $_.Exception.Message }
 
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Upload runtime config to taxonomy-editor' `
             -Problem "Config upload error: $Msg" `
             -Location 'Set-TriadConfig' `

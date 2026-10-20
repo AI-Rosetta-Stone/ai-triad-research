@@ -28,7 +28,7 @@ function Show-POViewer {
     $ErrorActionPreference = 'Stop'
     $CodeRoot = Get-CodeRoot
     if (-not $CodeRoot) {
-        throw (New-ActionableError `
+        throw (New-ActionableError -AsErrorRecord `
             -Goal 'Launch POV Viewer' `
             -Problem 'Cannot find the ai-triad-research code repository' `
             -Location 'Show-POViewer' `
