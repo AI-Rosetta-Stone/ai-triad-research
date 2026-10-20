@@ -895,6 +895,7 @@ jobs:
               AZURE_KEYVAULT_URL                 = '${{ steps.deploy.outputs.keyVaultUri }}'
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
+              READ_ONLY_PRINCIPALS               = 'github:ai-triad-smoke'  # t/4296 G1 — the smoke identity must stay read-only; must match main.bicep baseEnv
               # GROUNDING_RECONCILE_INLINE removed (t/4298): gated on the grounding_reconcile_inline
               # feature flag, which is OFF — G8a has never run, the env var is read by nothing.
               # GROUNDING_SWEEP_ENABLED removed (t/4298): the sweep is unconditionally refused on
