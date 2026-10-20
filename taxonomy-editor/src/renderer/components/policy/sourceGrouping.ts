@@ -2,11 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // t/4336 (t/4333): one row per REAL document. Split parts and re-ingested copies of a document carry the same
-// `canonicalDocId` (t/4334), so they collapse into one row, and identical references (the same point and the
-// same verbatim quote, repeated across the parts) count once. SourcesPanel and PolicySourcesPanel share this.
+// `canonicalDocId` (t/4334), so they collapse into one row, and identical references (same `refKey`, repeated
+// across the parts) count once. SourcesPanel and PolicySourcesPanel share this.
 
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
-import type { SourceReference } from '../../../../../lib/sourceIndex/types';
 
 export const STANCE_ORDER: Record<string, number> = {
   strongly_aligned: 0,
@@ -16,26 +15,38 @@ export const STANCE_ORDER: Record<string, number> = {
   disputes: 4,
 };
 
-export interface DocumentGroup {
-  canonicalDocId: string;
-  /** Title, date and URL of the group's first reference (the parts of one document share them). */
-  title: string;
-  datePublished: string;
-  url: string | null;
-  /** The distinct references, sorted by stance. */
-  refs: SourceReference[];
+/** What grouping needs from a reference. `canonicalDocId` is optional: an index without it groups by `docId`. */
+export interface GroupableRef {
+  docId: string;
+  canonicalDocId?: string;
+  stance: string;
 }
 
-let warnedMissingCanonical = false;
+export interface DocumentGroup<T extends GroupableRef> {
+  canonicalDocId: string;
+  /** The group's first reference; the parts of one document share its title, date and URL. */
+  first: T;
+  /** The distinct references, sorted by stance. */
+  refs: T[];
+}
 
-/** The grouping key: `canonicalDocId`, or `docId` for older data that doesn't carry one (WARN once). */
-function groupKey(r: SourceReference): string {
+export interface GroupingOptions<T> {
+  /** Two references with the same key are the same reference (counted once). */
+  refKey: (r: T) => string;
+  /** Flight-recorder component for the fallback WARN. */
+  component: string;
+}
+
+const warnedComponents = new Set<string>();
+
+/** The grouping key: `canonicalDocId`, or `docId` when the index doesn't carry one (WARN once per component). */
+function groupKey(r: GroupableRef, component: string): string {
   if (r.canonicalDocId) return r.canonicalDocId;
-  if (!warnedMissingCanonical) {
-    warnedMissingCanonical = true;
+  if (!warnedComponents.has(component)) {
+    warnedComponents.add(component);
     getGlobalRecorder()?.record({
-      type: 'state.change', component: 'sources-panel', level: 'warn',
-      message: 'source reference has no canonicalDocId; grouping by docId instead (older index)',
+      type: 'state.change', component, level: 'warn',
+      message: 'source reference has no canonicalDocId; grouping by docId instead (split parts stay separate rows)',
       data: { docId: r.docId },
     });
   }
@@ -43,27 +54,25 @@ function groupKey(r: SourceReference): string {
 }
 
 /** Group references into real documents, drop repeated references, and order by distinct-reference count. */
-export function groupByDocument(refs: readonly SourceReference[]): DocumentGroup[] {
-  const groups = new Map<string, { first: SourceReference; seen: Set<string>; refs: SourceReference[] }>();
+export function groupByDocument<T extends GroupableRef>(refs: readonly T[], opts: GroupingOptions<T>): DocumentGroup<T>[] {
+  const groups = new Map<string, { first: T; seen: Set<string>; refs: T[] }>();
   for (const r of refs) {
-    const key = groupKey(r);
+    const key = groupKey(r, opts.component);
     let g = groups.get(key);
     if (!g) { g = { first: r, seen: new Set(), refs: [] }; groups.set(key, g); }
-    const refKey = `${r.point}\u0000${r.verbatim}`;
-    if (g.seen.has(refKey)) continue;
-    g.seen.add(refKey);
+    const k = opts.refKey(r);
+    if (g.seen.has(k)) continue;
+    g.seen.add(k);
     g.refs.push(r);
   }
   return [...groups.entries()]
     .map(([canonicalDocId, g]) => ({
       canonicalDocId,
-      title: g.first.title,
-      datePublished: g.first.datePublished,
-      url: g.first.url,
+      first: g.first,
       refs: [...g.refs].sort((a, b) => (STANCE_ORDER[a.stance] ?? 9) - (STANCE_ORDER[b.stance] ?? 9)),
     }))
     .sort((a, b) => b.refs.length - a.refs.length);
 }
 
 /** Test seam: re-arm the once-per-session WARN. */
-export function __resetGroupingWarnForTests(): void { warnedMissingCanonical = false; }
+export function __resetGroupingWarnForTests(): void { warnedComponents.clear(); }
