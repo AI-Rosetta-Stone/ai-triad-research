@@ -1,0 +1,51 @@
+name: Signed-in Auth Smoke (t/4134)
+
+# Signs in through Easy Auth as the read-only smoke identity (ai-triad-smoke) and asserts a real
+# authenticated session: /api/auth/me is 200 as that user, readOnly, write:false, and a no-baseSha
+# write probe is 403 read_only (operations/devops/azure/Test-EasyAuthSmoke.ps1).
+#
+# WARN-ONLY (continue-on-error) until one green cycle on prod, then promotion is a separate T2
+# (Gate Promotion rule). Dispatch only: never run before t/4296's READ_ONLY_PRINCIPALS is deployed
+# to the target (TL, t/4134#9). Prod gets a fresh sign-in only; it is never restarted for a smoke.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which app to sign in to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-smoke-${{ inputs.target }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  signed-in-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true  # warn-only phase (t/4134); remove only in the T2 promotion PR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Signed-in smoke against ${{ inputs.target }}
+        shell: pwsh
+        env:
+          SMOKE_GH_TOKEN: ${{ secrets.SMOKE_GH_TOKEN }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          $base = switch ($env:TARGET) {
+            'production' { 'https://taxonomy-editor.yellowbush-aeda037d.eastus.azurecontainerapps.io' }
+            'staging'    { 'https://taxonomy-editor-staging.yellowbush-aeda037d.eastus.azurecontainerapps.io' }
+          }
+          ./operations/devops/azure/Test-EasyAuthSmoke.ps1 -BaseUrl $base
