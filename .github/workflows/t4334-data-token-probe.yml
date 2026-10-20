@@ -1,0 +1,52 @@
+name: t4334-data-token-probe
+
+# Throwaway, one-off probe (t/4334 latest TL comment): proves DATA_REPO_TOKEN can read
+# AI-Rosetta-Stone/ai-triad-sources and write AI-Rosetta-Stone/ai-triad-data, before building the
+# sources-index.json generator workflow on top of it. Dispatch manually, never on a schedule or
+# push trigger. Never prints the token itself. Delete once recorded on t/4334.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read probe — checkout ai-triad-sources with DATA_REPO_TOKEN
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          repository: AI-Rosetta-Stone/ai-triad-sources
+          path: ai-triad-sources-probe
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          fetch-depth: 1
+
+      - name: Report read result
+        run: |
+          echo "READ probe: ai-triad-sources checkout succeeded."
+          echo "File count: $(find ai-triad-sources-probe -type f | wc -l)"
+          ls ai-triad-sources-probe | head -5
+
+      - name: Write probe — checkout ai-triad-data with DATA_REPO_TOKEN
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          repository: AI-Rosetta-Stone/ai-triad-data
+          path: ai-triad-data-probe
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          fetch-depth: 1
+
+      - name: Write probe — dry-run push permission check (no actual commit)
+        working-directory: ai-triad-data-probe
+        env:
+          GH_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+        run: |
+          # Confirm write access via the GitHub API's collaborator-permission endpoint, never an
+          # actual commit — this probe must leave zero trace in ai-triad-data.
+          PERM=$(gh api repos/AI-Rosetta-Stone/ai-triad-data/collaborators/$(gh api user --jq .login)/permission --jq .permission 2>&1) || PERM="API_ERROR: $PERM"
+          echo "WRITE probe: DATA_REPO_TOKEN's effective permission on ai-triad-data = $PERM"
+          if [[ "$PERM" != "admin" && "$PERM" != "write" ]]; then
+            echo "::error::DATA_REPO_TOKEN does NOT have write access to ai-triad-data (permission=$PERM)"
+            exit 1
+          fi
