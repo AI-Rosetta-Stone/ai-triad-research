@@ -11,8 +11,8 @@ This spec defines how a source document in `ai-triad-sources/<doc-id>/` is ident
 | Field | Type | Written by | Meaning |
 |---|---|---|---|
 | `content_sha256` | string, 64 lowercase hex chars, or absent | the ingester, at ingest | The content hash of the snapshot body (section 1). |
-| `same_as` | string doc id, or absent | the ingester, only with `-SameAs` | A deliberate cross-outlet reprint. The canonical document is `same_as`. |
-| `parent_doc_id` | string doc id, or absent | the ingester, only with `-ParentDocId` | A deliberate part of a larger document. |
+| `same_as` | string doc id, or absent | the ingester, only with `-SameAs` | A deliberate cross-outlet reprint of that document. It groups with it (section 4.1). |
+| `parent_doc_id` | string doc id, or absent | the ingester, only with `-ParentDocId` | A deliberate part of a larger document. It groups with it (section 4.1). |
 
 **When `content_sha256` is absent** (documents ingested before t/4337), compute it from `snapshot.md` using section 1. It gives the same value the ingester would have written.
 
@@ -83,22 +83,44 @@ A URL key is a string, or **null** (meaning no URL identity). Normalization is p
 
 ## 4. Canonical grouping
 
-**The input** is a set of documents, each with an id and its `metadata.json` fields. For a document with no `content_sha256` field, the consumer computes it from `snapshot.md` (section 1) before grouping.
+*TL design decision on #3522 (p/801#6), replacing the t/4333 tier list. Strong evidence merges; weak evidence only confirms or reports.*
 
-**Every tier below adds edges between documents.** The groups are the **connected components** over all edges, from all tiers together (union, not "first matching tier"). That way the result doesn't depend on the order tiers are checked or files are listed.
+### 4.0 Input
+The input is a set of documents. Each has an `id`, its `metadata.json` fields, and optionally a **snapshot hash**. The snapshot hash is the section 1 hash computed from `snapshot.md`, for a document with no **recorded** `content_sha256`.
 
-Tiers, strongest first:
-1. **Explicit link:** `parent_doc_id` or `same_as` joins the document to that id. **The link is ignored if the target id isn't in the set.**
-2. **Content hash:** equal `content_sha256`. Absent means no edge (section 1.3).
-3. **URL:** an equal trusted URL key (section 3). Every trusted key of a document counts.
-4. **Suffix:** an id matching `^(.+)-(\d+)$` whose captured base is also an id in the set is joined to that base.
-   - **Known limitation, accepted in t/4334:** an id that ends in a year, such as `foo-2026`, joins `foo` if `foo` exists.
-5. **Title:** an equal title key.
-   - **The title key:** lowercase (invariant), then replace `+` with a space, then **delete every character that isn't ASCII `[a-z0-9_]` or ASCII whitespace** (space, `\t`, `\n`, `\r`, `\f`, `\v`), then collapse ASCII whitespace runs to one space, then trim.
-   - Non-ASCII letters are deleted, not kept. That's deliberate: .NET `\w` is Unicode and JS `\w` is ASCII.
-   - **If `title` is absent or empty, use the doc id as the title.** An empty key means no edge.
+**Recorded and computed hashes behave differently:**
+- **both** make a hash edge;
+- **only recorded hashes** can veto a suffix edge (4.4), because conversion-noise copies differ in their computed hash.
 
-**The canonical id** of a document is the **ordinal-smallest id** (UTF-16 code units) in its component.
+### 4.1–4.3 Strong edges
+The groups are the **connected components** over every edge (union, not "first matching tier"). That way the result doesn't depend on the order tiers are checked or files are listed.
+1. **Explicit link (4.1):** `parent_doc_id` or `same_as` joins the document to that id. **The link is ignored if the target id isn't in the set.**
+2. **Content hash (4.2):** equal hashes, where a document's hash is its recorded `content_sha256`, or else its snapshot hash. Absent means no edge (section 1.3).
+3. **URL (4.3):** an equal trusted URL key (section 3). Every trusted key of a document counts.
+
+### 4.4 Conditional suffix edge
+**Which documents qualify:** a document `X-N`, meaning its id matches `^(.+)-(\d+)$`, whose captured base `X` is also an id in the set.
+
+**`X-N` joins `X` only if all three hold:**
+1. **Equal titles:** their title keys (4.5) are equal and non-empty. A missing title gives an empty key, so there's no edge.
+2. **No URL conflict:** both have at least one trusted URL key, and they share none. **A URL on only one side is not a conflict**, and neither is a search-provenance URL, since it isn't trusted.
+3. **No recorded-hash conflict:** both have a **recorded** `content_sha256` and they differ. A recorded hash on only one side, or differing *computed* snapshot hashes, is not a conflict.
+
+**Why:** t/4337 now deliberately mints `-N` for a genuine slug collision with different content and records its hash, and rule 3 keeps that document separate. Rule 1 also removes t/4334's year-suffix limitation: `foo-2026` joins `foo` only when their titles match.
+
+### 4.5 Title key and the `title_collision` report
+**The title key:** lowercase (invariant), then replace `+` with a space, then **delete every character that isn't ASCII `[a-z0-9_]` or ASCII whitespace** (space, `\t`, `\n`, `\r`, `\f`, `\v`), then collapse ASCII whitespace runs to one space, then trim.
+- Non-ASCII letters are deleted, not kept, because .NET `\w` is Unicode and JS `\w` is ASCII.
+- **No id fallback:** a missing or empty title gives an empty key.
+
+**A title on its own adds no edge.** Generic titles ("AI Policy Bulletin", "Executive Summary") and non-ASCII titles that reduce to the same ASCII key would otherwise chain distinct documents together.
+
+**Instead, grouping reports a `title_collision`:** for each non-empty title key whose documents fall in two or more groups, it lists those documents' ids.
+- Ids within a collision are sorted ordinally, and collisions are sorted by their first id.
+- **The report is input for a human** (the t/4337 cleanup pass). It never merges anything.
+
+### 4.6 Canonical id
+The canonical id of a document is the **ordinal-smallest id** (UTF-16 code units) in its group.
 
 `same_as` and `parent_doc_id` change only grouping. Which document a person sees as primary is the consumer's display choice.
 
@@ -109,7 +131,10 @@ Tiers, strongest first:
 - `url_cases`: `{name, input, expected}`, where `expected` may be `null`;
 - `trust_cases`: `{name, metadata, expected}`, where `expected` is an array of keys;
 - `title_cases`: `{name, input, expected}`;
-- `grouping_cases`: `{name, documents: [{id, metadata}], expected_canonical: {id: canonicalId}}`.
-  - Real-corpus cases carry the documents' actual metadata. Their `content_sha256` is computed from the real `snapshot.md` with section 1.
+- `grouping_cases`: `{name, documents: [{id, metadata, snapshot_sha256?}], expected_canonical: {id: canonicalId}, expected_title_collisions: [[id, …], …]}`.
+  - `metadata.content_sha256` is a **recorded** hash, and `snapshot_sha256` is a **computed** one (4.0).
+  - Real-corpus cases carry the documents' actual metadata. No corpus document records a hash yet, so each one's hash, computed from the real `snapshot.md`, is in `snapshot_sha256`.
+
+The fixture's `version` is bumped whenever a rule changes an expected value (version 2: the section 4 revision).
 
 Expected values are generated by one implementation and **independently confirmed** by a second, from-spec implementation in the other runtime before they are committed.

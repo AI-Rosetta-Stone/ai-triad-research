@@ -110,7 +110,7 @@ function Get-TrustedSourceUrlKey {
     [OutputType([string[]])]
     param([Parameter(Mandatory)][AllowNull()]$Metadata)
 
-    if ($null -eq $Metadata) { return @() }
+    if ($null -eq $Metadata) { return , [string[]]@() }
     $untrusted = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     if ($Metadata.PSObject.Properties['provenance']) {
         foreach ($p in @($Metadata.provenance)) {
@@ -153,20 +153,27 @@ function ConvertTo-SourceTitleKey {
 
 <#
 .SYNOPSIS
-    Returns @{ docId = canonicalDocId } for a set of documents (spec section 4).
+    Groups source documents (spec section 4): returns Canonical (docId -> canonical id) and
+    TitleCollisions (equal titles across different groups, a report, never a merge).
 .DESCRIPTION
-    Each document is @{ Id; Metadata }, where Metadata may carry title, url, resolved_url,
-    provenance, content_sha256, same_as and parent_doc_id. Every tier contributes edges; the
-    canonical id of a document is the ordinal-smallest id in its connected component.
+    Each document is @{ Id; Metadata; SnapshotSha256 }. Metadata may carry title, url,
+    resolved_url, provenance, content_sha256 (recorded), same_as and parent_doc_id.
+    SnapshotSha256 is the hash computed from snapshot.md for a document with no recorded one; it
+    makes a hash edge but never vetoes. Strong edges (link, hash, trusted URL) are unioned; the
+    -N suffix edge is conditional (4.4); titles add no edge (4.5).
 #>
-function Get-SourceCanonicalIdMap {
+function Get-SourceIdentityGroup {
     [CmdletBinding()]
-    [OutputType([hashtable])]
+    [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][object[]]$Documents)
 
     $ids = [System.Collections.Generic.List[string]]::new()
     $meta = @{}
-    foreach ($d in $Documents) { $ids.Add([string]$d.Id); $meta[[string]$d.Id] = $d.Metadata }
+    $snapHash = @{}
+    foreach ($d in $Documents) {
+        $ids.Add([string]$d.Id); $meta[[string]$d.Id] = $d.Metadata
+        $snapHash[[string]$d.Id] = if ($d.PSObject.Properties['SnapshotSha256'] -and $d.SnapshotSha256) { [string]$d.SnapshotSha256 } else { $null }
+    }
     $known = [System.Collections.Generic.HashSet[string]]::new([string[]]$ids, [System.StringComparer]::Ordinal)
 
     $parent = @{}
@@ -195,21 +202,57 @@ function Get-SourceCanonicalIdMap {
         if ($byKey.ContainsKey($k)) { & $union $byKey[$k] $id } else { $byKey[$k] = $id }
     }
 
+    $titleKey = @{}; $urlKeys = @{}; $recorded = @{}
+    foreach ($id in $ids) {
+        $titleKey[$id] = ConvertTo-SourceTitleKey -Title (& $prop $meta[$id] 'title')
+        # No @(): the function returns its array whole (leading comma), and @() would wrap an
+        # empty result as one '' element, a phantom URL that vetoes suffix edges.
+        # Plain assignment, not an if-expression: pipeline output would unroll an empty array to $null.
+        $k = Get-TrustedSourceUrlKey -Metadata $meta[$id]
+        if ($null -eq $k) { $k = [string[]]::new(0) }
+        $urlKeys[$id] = [string[]]$k
+        $recorded[$id] = & $prop $meta[$id] 'content_sha256'
+    }
+
     foreach ($id in $ids) {
         $m = $meta[$id]
-        foreach ($link in 'parent_doc_id', 'same_as') {                         # 4.1
+        foreach ($link in 'parent_doc_id', 'same_as') {                         # 4.1 strong
             $target = & $prop $m $link
             if ($target -and $known.Contains($target)) { & $union $id $target }
         }
-        & $addKey 'hash' (& $prop $m 'content_sha256') $id                     # 4.2
-        foreach ($u in @(Get-TrustedSourceUrlKey -Metadata $m)) { & $addKey 'url' $u $id }   # 4.3
-        $sm = [regex]::Match($id, '^(.+)-(\d+)$')                               # 4.4
-        if ($sm.Success -and $known.Contains($sm.Groups[1].Value)) { & $union $id $sm.Groups[1].Value }
-        $title = & $prop $m 'title'                                             # 4.5
-        & $addKey 'title' (ConvertTo-SourceTitleKey -Title $(if ($title) { $title } else { $id })) $id
+        $hash = if ($recorded[$id]) { $recorded[$id] } else { $snapHash[$id] }   # 4.2 strong
+        & $addKey 'hash' $hash $id
+        foreach ($u in $urlKeys[$id]) { & $addKey 'url' $u $id }                 # 4.3 strong
+
+        $sm = [regex]::Match($id, '^(.+)-(\d+)$')                               # 4.4 conditional
+        if ($sm.Success -and $known.Contains($sm.Groups[1].Value)) {
+            $base = $sm.Groups[1].Value
+            $sameTitle = $titleKey[$id] -ne '' -and $titleKey[$id] -ceq $titleKey[$base]
+            $a = $urlKeys[$id]; $b = $urlKeys[$base]
+            $urlConflict = $a.Count -gt 0 -and $b.Count -gt 0 -and -not @($a | Where-Object { $b -ccontains $_ }).Count
+            $hashConflict = $recorded[$id] -and $recorded[$base] -and ($recorded[$id] -cne $recorded[$base])
+            if ($sameTitle -and -not $urlConflict -and -not $hashConflict) { & $union $id $base }
+        }
     }
 
-    $out = @{}
-    foreach ($id in $ids) { $out[$id] = & $find $id }
-    $out
+    $canonical = @{}
+    foreach ($id in $ids) { $canonical[$id] = & $find $id }
+
+    # 4.5 title collisions: an equal non-empty title key across two or more groups (report only).
+    $collisions = [System.Collections.Generic.List[object]]::new()
+    $byTitle = @{}
+    foreach ($id in $ids) {
+        if ($titleKey[$id] -eq '') { continue }
+        if (-not $byTitle.ContainsKey($titleKey[$id])) { $byTitle[$titleKey[$id]] = [System.Collections.Generic.List[string]]::new() }
+        $byTitle[$titleKey[$id]].Add($id)
+    }
+    foreach ($members in $byTitle.Values) {
+        if (@($members | ForEach-Object { $canonical[$_] } | Sort-Object -Unique).Count -lt 2) { continue }
+        $sorted = [string[]]@($members); [Array]::Sort($sorted, [System.StringComparer]::Ordinal)
+        $collisions.Add($sorted)
+    }
+    $ordered = [object[]]@($collisions.ToArray())
+    [Array]::Sort($ordered, [System.Comparison[object]] { param($x, $y) [string]::CompareOrdinal($x[0], $y[0]) })
+
+    [pscustomobject]@{ Canonical = $canonical; TitleCollisions = $ordered }
 }

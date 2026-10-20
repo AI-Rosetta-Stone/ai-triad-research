@@ -94,13 +94,21 @@ $titleCases = @(
     @{ name = 'empty';                            input = '' }
 )
 
-function New-Doc([string]$Id, [hashtable]$Meta) { [ordered]@{ id = $Id; metadata = $Meta } }
-$h1 = 'a' * 64; $h2 = 'b' * 64
+function New-Doc([string]$Id, [hashtable]$Meta, [string]$SnapshotSha256) {
+    $d = [ordered]@{ id = $Id; metadata = $Meta }
+    if ($SnapshotSha256) { $d['snapshot_sha256'] = $SnapshotSha256 }
+    $d
+}
+$h1 = 'a' * 64; $h2 = 'b' * 64; $h3 = 'c' * 64
 $groupingCases = @(
+    # Strong edges.
     @{ name = 'content hash joins different slugs'; documents = @(
         (New-Doc 'alpha-2026' @{ title = 'Alpha'; content_sha256 = $h1 }),
         (New-Doc 'alpha-brookings-2026' @{ title = 'Alpha Brookings'; content_sha256 = $h1 }),
         (New-Doc 'beta-2026' @{ title = 'Beta'; content_sha256 = $h2 })) }
+    @{ name = 'computed snapshot hash joins like a recorded one'; documents = @(
+        (New-Doc 'old-ingest-2026' @{ title = 'Old ingest' } $h1),
+        (New-Doc 'new-ingest-elsewhere-2026' @{ title = 'New ingest'; content_sha256 = $h1 })) }
     @{ name = 'search-provenance URL does not join'; documents = @(
         (New-Doc 'one-2026' @{ title = 'One'; url = 'https://x.org/p'; provenance = @(@{ scheme = 'url'; id = 'https://x.org/p'; confidence = 'search' }) }),
         (New-Doc 'two-2026' @{ title = 'Two'; url = 'https://x.org/p'; provenance = @(@{ scheme = 'url'; id = 'https://x.org/p'; confidence = 'search' }) })) }
@@ -110,40 +118,81 @@ $groupingCases = @(
     @{ name = 'different query ids stay distinct'; documents = @(
         (New-Doc 'yt-a-2026' @{ title = 'Video A'; url = 'https://www.youtube.com/watch?v=AAA' }),
         (New-Doc 'yt-b-2026' @{ title = 'Video B'; url = 'https://www.youtube.com/watch?v=BBB' })) }
-    @{ name = 'suffix joins only when the base exists'; documents = @(
-        (New-Doc 'gamma-2026' @{ title = 'Gamma' }),
-        (New-Doc 'gamma-2026-1' @{ title = 'Gamma copy' }),
-        (New-Doc 'delta-2026-2' @{ title = 'Delta copy' })) }
-    @{ name = 'title tier joins, missing title falls back to id'; documents = @(
-        (New-Doc 'report-x-2026' @{ title = 'The Report!' }),
-        (New-Doc 'report-y-2026' @{ title = 'the report' }),
-        (New-Doc 'thereport' @{ })) }
     @{ name = 'explicit same_as and parent_doc_id join; dangling link ignored'; documents = @(
         (New-Doc 'base-doc' @{ title = 'Base' }),
         (New-Doc 'reprint-elsewhere' @{ title = 'Reprint'; same_as = 'base-doc' }),
         (New-Doc 'part-two' @{ title = 'Part two'; parent_doc_id = 'base-doc' }),
         (New-Doc 'orphan-link' @{ title = 'Orphan'; same_as = 'not-in-set' })) }
-    @{ name = 'tiers union transitively (hash + suffix + url)'; documents = @(
-        (New-Doc 'zeta-2026' @{ title = 'Zeta'; content_sha256 = $h1 }),
-        (New-Doc 'zeta-mirror-2026' @{ title = 'Zeta mirror'; content_sha256 = $h1; url = 'https://m.org/z' }),
-        (New-Doc 'zeta-mirror-2026-1' @{ title = 'Zeta mirror again' }),
-        (New-Doc 'unrelated-2026' @{ title = 'Unrelated'; url = 'https://m.org/z/' })) }
-    @{ name = 'a doc matching two groups joins both (union, not first matching tier)'; documents = @(
+    @{ name = 'strong edges union transitively (union, not first matching tier)'; documents = @(
         (New-Doc 'a-2026' @{ title = 'Apple'; url = 'https://u.org/1' }),
-        (New-Doc 'b-2026' @{ title = 'Common ground'; url = 'https://u.org/1' }),
-        (New-Doc 'aa-2026' @{ title = 'Common ground' })) }
+        (New-Doc 'b-2026' @{ title = 'Banana'; url = 'https://u.org/1'; content_sha256 = $h2 }),
+        (New-Doc 'aa-2026' @{ title = 'Cherry'; content_sha256 = $h2 })) }
+
+    # Conditional suffix edge (4.4).
+    @{ name = 'suffix joins with an equal title'; documents = @(
+        (New-Doc 'gamma-2026' @{ title = 'Gamma report' }),
+        (New-Doc 'gamma-2026-1' @{ title = 'Gamma Report!' })) }
+    @{ name = 'suffix needs the base to exist'; documents = @(
+        (New-Doc 'delta-2026-2' @{ title = 'Delta' }),
+        (New-Doc 'delta-2026-3' @{ title = 'Delta' })) }
+    @{ name = 'suffix with a different title stays separate'; documents = @(
+        (New-Doc 'epsilon-2026' @{ title = 'Epsilon' }),
+        (New-Doc 'epsilon-2026-1' @{ title = 'Epsilon   Brookings' })) }
+    @{ name = 'suffix with no title on either side stays separate'; documents = @(
+        (New-Doc 'eta-2026' @{ }),
+        (New-Doc 'eta-2026-1' @{ })) }
+    @{ name = 'genuine -N collision: different recorded content_sha256 stays separate'; documents = @(
+        (New-Doc 'annual-report-2026' @{ title = 'Annual Report'; content_sha256 = $h1 }),
+        (New-Doc 'annual-report-2026-1' @{ title = 'Annual Report'; content_sha256 = $h2 })) }
+    @{ name = 'recorded hash on one side only does not veto'; documents = @(
+        (New-Doc 'theta-2026' @{ title = 'Theta' }),
+        (New-Doc 'theta-2026-1' @{ title = 'Theta'; content_sha256 = $h1 })) }
+    @{ name = 'computed snapshot hashes that differ do not veto (conversion noise)'; documents = @(
+        (New-Doc 'iota-2026' @{ title = 'Iota' } $h1),
+        (New-Doc 'iota-2026-1' @{ title = 'Iota' } $h2)) }
+    @{ name = 'conflicting trusted URLs veto the suffix'; documents = @(
+        (New-Doc 'kappa-2026' @{ title = 'Kappa'; url = 'https://one.org/k' }),
+        (New-Doc 'kappa-2026-1' @{ title = 'Kappa'; url = 'https://two.org/k' })) }
+    @{ name = 'a trusted URL on one side only does not veto'; documents = @(
+        (New-Doc 'lambda-2026' @{ title = 'Lambda'; url = 'https://arxiv.org/abs/1606.06565v2' }),
+        (New-Doc 'lambda-2026-1' @{ title = 'Lambda' })) }
+    @{ name = 'a trusted URL on the -N side only does not veto'; documents = @(
+        (New-Doc 'pi-2026' @{ title = 'Pi' }),
+        (New-Doc 'pi-2026-1' @{ title = 'Pi'; url = 'https://p.org/x' })) }
+    @{ name = 'search-provenance URL does not count as a conflicting URL'; documents = @(
+        (New-Doc 'mu-2026' @{ title = 'Mu'; url = 'https://one.org/m' }),
+        (New-Doc 'mu-2026-1' @{ title = 'Mu'; url = 'https://two.org/m'; provenance = @(@{ scheme = 'url'; id = 'https://two.org/m'; confidence = 'search' }) })) }
+    @{ name = 'year suffix: foo-2026 with a different title does not join foo'; documents = @(
+        (New-Doc 'foo' @{ title = 'Foo framework' }),
+        (New-Doc 'foo-2026' @{ title = 'Foo outlook for 2026' })) }
+    @{ name = 'year suffix: foo-2026 with an equal title joins foo'; documents = @(
+        (New-Doc 'bar' @{ title = 'Bar' }),
+        (New-Doc 'bar-2026' @{ title = 'Bar' })) }
+
+    # Titles add no edge, only a title_collision report (4.5).
+    @{ name = 'two distinct docs titled AI Policy Bulletin stay separate (title_collision)'; documents = @(
+        (New-Doc 'ai-policy-bulletin-march-2026' @{ title = 'AI Policy Bulletin'; content_sha256 = $h1 }),
+        (New-Doc 'ai-policy-bulletin-april-2026' @{ title = 'AI Policy Bulletin'; content_sha256 = $h2 })) }
+    @{ name = 'non-ASCII titles that reduce to the same ASCII key stay separate (title_collision)'; documents = @(
+        (New-Doc 'zh-policy-2026' @{ title = ([string][char]0x653F + [char]0x7B56 + ' 2026') }),
+        (New-Doc 'zh-rules-2026' @{ title = ([string][char]0x89C4 + [char]0x5219 + ' 2026') })) }
+    @{ name = 'missing titles do not fall back to the id (no title_collision)'; documents = @(
+        (New-Doc 'ai-act-2026' @{ }),
+        (New-Doc 'aiact-2026' @{ })) }
+    @{ name = 'equal titles inside one group are not reported'; documents = @(
+        (New-Doc 'nu-2026' @{ title = 'Nu'; content_sha256 = $h3 }),
+        (New-Doc 'nu-mirror-2026' @{ title = 'Nu'; content_sha256 = $h3 })) }
 )
 
-# Real-corpus cases (TL, t/4344): actual metadata fields + content_sha256 from the real snapshot.md.
+# Real-corpus cases (TL, t/4344): actual metadata fields. The corpus records no content_sha256 yet,
+# so the hash computed from the real snapshot.md goes in snapshot_sha256 (edges, never a veto).
 $src = if ($SourcesDir) { $SourcesDir } else { Import-Module (Join-Path $wt 'scripts' 'AITriad' 'AITriad.psd1') -Force 3>$null; & (Get-Module AITriad) { Get-SourcesDir } }
 function Get-RealDoc([string]$Id) {
     $m = Get-Content (Join-Path $src "$Id\metadata.json") -Raw | ConvertFrom-Json
     $meta = [ordered]@{}
-    foreach ($f in 'title', 'url', 'resolved_url', 'provenance') { if ($m.PSObject.Properties[$f]) { $meta[$f] = $m.$f } }
-    $snap = Join-Path $src "$Id\snapshot.md"
-    $hash = Get-SourceContentHash -Text ([System.IO.File]::ReadAllText($snap))
-    if ($hash) { $meta['content_sha256'] = $hash }
-    New-Doc $Id $meta
+    foreach ($f in 'title', 'url', 'resolved_url', 'provenance', 'content_sha256', 'same_as', 'parent_doc_id') { if ($m.PSObject.Properties[$f]) { $meta[$f] = $m.$f } }
+    $hash = Get-SourceContentHash -Text ([System.IO.File]::ReadAllText((Join-Path $src "$Id\snapshot.md")))
+    New-Doc $Id $meta $hash
 }
 $queryIds = @('ai-triad-dialogue-across-differences-2026', 'artificial-intelligence-index-report-2025-2026',
     'ai-agent-published-hit-piece-me-2026', 'evaluating-impact-ai-labor-market-current-state-affairs-2026',
@@ -153,12 +202,15 @@ $eightIds = @(Get-ChildItem $src -Directory | Where-Object Name -like 'eight-way
 $groupingCases += @{ name = 'REAL: 7 query-string documents stay distinct'; documents = @($queryIds | ForEach-Object { Get-RealDoc $_ }) }
 $groupingCases += @{ name = 'REAL: eight-ways (7 docs, 2 outlets) collapses to one'; documents = @($eightIds | ForEach-Object { Get-RealDoc $_ }) }
 
-function Get-ExpectedCanonical($docs) {
-    $objs = @($docs | ForEach-Object { [pscustomobject]@{ Id = $_.id; Metadata = ($_.metadata | ConvertTo-Json -Depth 6 | ConvertFrom-Json) } })
-    $map = Get-SourceCanonicalIdMap -Documents $objs
-    $o = [ordered]@{}
-    foreach ($k in ($map.Keys | Sort-Object { $_ } -CaseSensitive)) { $o[$k] = $map[$k] }
-    $o
+function Get-ExpectedGrouping($docs) {
+    $objs = @($docs | ForEach-Object {
+        [pscustomobject]@{ Id = $_.id; Metadata = ($_.metadata | ConvertTo-Json -Depth 6 | ConvertFrom-Json)
+                           SnapshotSha256 = $(if ($_.Contains('snapshot_sha256')) { $_['snapshot_sha256'] }) } })
+    $r = Get-SourceIdentityGroup -Documents $objs
+    $canon = [ordered]@{}
+    $keys = [string[]]@($r.Canonical.Keys); [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+    foreach ($k in $keys) { $canon[$k] = $r.Canonical[$k] }
+    [ordered]@{ canonical = $canon; collisions = @($r.TitleCollisions | ForEach-Object { , [string[]]$_ }) }
 }
 
 # Deterministic output: hashtable literals have no stable key order, so every metadata object is
@@ -184,7 +236,7 @@ foreach ($g in $groupingCases) { foreach ($d in $g.documents) { $d.metadata = Co
 
 $fixture = [ordered]@{
     '$schema_note' = 'docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.'
-    version = 1
+    version = 2
     hash_cases = @($hashCases | ForEach-Object { [ordered]@{ name = $_.name; text = $_.text; expected_sha256 = (Get-SourceContentHash -Text $_.text) } })
     url_cases = @($urlCases | ForEach-Object { [ordered]@{ name = $_.name; input = $_.input; expected = (ConvertTo-SourceUrlKey -Url $_.input) } })
     trust_cases = @($trustCases | ForEach-Object {
@@ -192,7 +244,7 @@ $fixture = [ordered]@{
         [string[]]$keys = Get-TrustedSourceUrlKey -Metadata $meta
         [ordered]@{ name = $_.name; metadata = $_.metadata; expected = $keys } })
     title_cases = @($titleCases | ForEach-Object { [ordered]@{ name = $_.name; input = $_.input; expected = (ConvertTo-SourceTitleKey -Title $_.input) } })
-    grouping_cases = @($groupingCases | ForEach-Object { [ordered]@{ name = $_.name; documents = $_.documents; expected_canonical = (Get-ExpectedCanonical $_.documents) } })
+    grouping_cases = @($groupingCases | ForEach-Object { $g = Get-ExpectedGrouping $_.documents; [ordered]@{ name = $_.name; documents = $_.documents; expected_canonical = $g.canonical; expected_title_collisions = $g.collisions } })
 }
 $json = $fixture | ConvertTo-Json -Depth 8
 [System.IO.File]::WriteAllText("$wt\tests\fixtures\source-identity-cases.json", $json + "`n", [System.Text.UTF8Encoding]::new($false))
