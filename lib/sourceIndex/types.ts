@@ -375,13 +375,24 @@ export interface CanonicalIdDocMeta {
 
 /** @deprecated Use `groupSourceIdentities` (t/4344) — this wraps it with the
  *  old, narrower input/output shape (no content hash, `same_as`,
- *  `parent_doc_id` or title-collision report). */
+ *  `parent_doc_id` or title-collision report).
+ *
+ * t/4334#11 (TL): the shim's caller (ElectronMain) has no `provenance` data,
+ * so it can never *prove* a URL is trustworthy — unlike the real spec, where
+ * an absent provenance entry defaults to trusted (section 3.2 only
+ * untrusts a URL with *positive* evidence of a `confidence:"search"` guess).
+ * **The shim inverts that default: a URL is never trusted here**, since
+ * "no evidence either way" means "unverified," not "verified." The URL
+ * field is therefore never forwarded to `groupSourceIdentities` — this shim
+ * groups on the suffix (conditional) and the title-collision report only,
+ * never falsely merging two documents on a URL that might be a search guess. */
 export function computeCanonicalDocIds(
   docIds: string[], meta: Record<string, CanonicalIdDocMeta>,
 ): Record<string, string> {
   const docs: SourceIdentityDoc[] = docIds.map(id => ({
     id,
-    metadata: { title: meta[id]?.title ?? id, url: meta[id]?.url ?? null },
+    // url intentionally omitted — see the note above.
+    metadata: { title: meta[id]?.title ?? id, url: null },
   }));
   return groupSourceIdentities(docs).canonical;
 }

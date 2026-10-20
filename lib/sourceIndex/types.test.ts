@@ -13,16 +13,20 @@ import { computeCanonicalDocIds, normalizeTitleForCanonicalId, normalizeUrlForCa
 // ElectronMain's t/4341 (`src/main/fileIO.ts`, PR #3510), which only ever
 // supplies `{url, title}` — no hash, no links, no provenance confidence.
 describe('computeCanonicalDocIds (deprecated shim, t/4334/t/4344)', () => {
-  it('merges two docs on an equal normalized URL', () => {
+  // t/4334#11 (TL): the shim has no provenance data, so it can't distinguish
+  // a verified URL from a search-provenance guess — it must default to
+  // untrusted, the opposite of the real spec's "no evidence = trusted"
+  // default, which only applies when provenance data actually exists to check.
+  it('never merges two docs on a matching URL alone — the shim cannot verify provenance, so it never trusts a URL', () => {
     const meta = {
       'doc-a': { url: 'https://example.com/shared', title: 'Doc A' },
-      'doc-b': { url: 'https://example.com/shared', title: 'Doc B (different title, same URL)' },
+      'doc-b': { url: 'https://example.com/shared', title: 'Doc B (different title, same URL, no suffix relation)' },
     };
     const canonical = computeCanonicalDocIds(Object.keys(meta), meta);
-    expect(canonical['doc-a']).toBe(canonical['doc-b']);
+    expect(canonical['doc-a']).not.toBe(canonical['doc-b']);
   });
 
-  it('does not merge two distinct YouTube videos that share a path but differ only by ?v=', () => {
+  it('does not merge two distinct YouTube videos that share a path but differ only by ?v= (also never merges via URL at all)', () => {
     const meta = {
       'ai-triad-dialogue-across-differences-2026': { url: 'https://www.youtube.com/watch?v=kGa0ZPFsRuo', title: 'AI Triad Dialogue Across Differences' },
       'artificial-intelligence-index-report-2025-2026': { url: 'https://www.youtube.com/watch?v=D03EJhztsHQ', title: 'Artificial Intelligence Index Report 2025' },
@@ -31,7 +35,7 @@ describe('computeCanonicalDocIds (deprecated shim, t/4334/t/4344)', () => {
     expect(canonical['ai-triad-dialogue-across-differences-2026']).not.toBe(canonical['artificial-intelligence-index-report-2025-2026']);
   });
 
-  it('a -N suffix joins its base when titles match and there is no URL conflict', () => {
+  it('a -N suffix still joins its base when titles match, even with no URL to compare (the shim never populates one)', () => {
     const meta = {
       'doc-2026': { url: 'https://example.com/x', title: 'Shared Title' },
       'doc-2026-1': { url: null as string | null, title: 'Shared Title' },
@@ -60,14 +64,14 @@ describe('computeCanonicalDocIds (deprecated shim, t/4334/t/4344)', () => {
 
   it('is deterministic regardless of input array order (ordinal-smallest representative)', () => {
     const meta = {
-      'alpha-2026': { url: 'https://example.com/shared', title: 'Doc' },
-      'zeta-2026': { url: 'https://example.com/shared', title: 'Doc' },
+      'alpha-2026': { url: null as string | null, title: 'Shared Title' },
+      'alpha-2026-1': { url: null as string | null, title: 'Shared Title' },
     };
-    const forward = computeCanonicalDocIds(['alpha-2026', 'zeta-2026'], meta);
-    const reverse = computeCanonicalDocIds(['zeta-2026', 'alpha-2026'], meta);
+    const forward = computeCanonicalDocIds(['alpha-2026', 'alpha-2026-1'], meta);
+    const reverse = computeCanonicalDocIds(['alpha-2026-1', 'alpha-2026'], meta);
     expect(forward).toEqual(reverse);
     expect(forward['alpha-2026']).toBe('alpha-2026');
-    expect(forward['zeta-2026']).toBe('alpha-2026');
+    expect(forward['alpha-2026-1']).toBe('alpha-2026');
   });
 });
 
