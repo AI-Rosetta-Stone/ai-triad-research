@@ -35,13 +35,15 @@
  *
  * TL correction (PR #3487 review): arm 5 proved GitHub refuses an App's approval of a PR **the
  * App itself authored** -- it does NOT prove a human-authored PR is self-approval-safe. Every PR
- * in this fleet is authored by `jpsnover` (the author-App switch-over hasn't happened yet), and
- * any agent can run `Invoke-AsAgentApp -Role reviewer` -- so an author approving their own PR
- * through the reviewer App would otherwise pass. The bot-review arm therefore reuses the EXACT
- * SAME owner-slug self-approval check as the comment arm: the review body must still start with
- * `Approved (<role>):`, and that role must not match the head branch's owner slug. It is also
- * restricted to the configured reviewer App's own login (`reviewerAppLogin`) -- a human's review
- * or any other App's review must not silently satisfy this gate.
+ * is authored by SOME identity -- `jpsnover` directly before the t/4351 author-App switch-over,
+ * the author App (`ai-triad-author-jpsnover[bot]`) after it -- and any agent can run
+ * `Invoke-AsAgentApp -Role reviewer`, so an author approving their own PR through the reviewer
+ * App would otherwise pass EITHER WAY (App-distinctness from the reviewer App never made this
+ * safe; it was never the control). The bot-review arm therefore reuses the EXACT SAME owner-slug
+ * self-approval check as the comment arm, independent of author identity: the review body must
+ * still start with `Approved (<role>):`, and that role must not match the head branch's owner
+ * slug. It is also restricted to the configured reviewer App's own login (`reviewerAppLogin`) --
+ * a human's review or any other App's review must not silently satisfy this gate.
  */
 
 function parseTier(body) {
@@ -50,7 +52,11 @@ function parseTier(body) {
   return m ? m[1].toUpperCase() : null;
 }
 
-function ownerSlugFromBranch(headRefName) {
+/** Exported for reuse by pr-triage.yml's CI-green nudge (t/4351): since the author-App
+ * switch-over, `pr.user.login` is a bot handle and no longer names a notifiable human, so the
+ * nudge uses this to say WHICH role's branch is green, while still @-mentioning the one shared
+ * human account (t/4351, see pr-triage.yml). */
+export function ownerSlugFromBranch(headRefName) {
   const seg = String(headRefName ?? '').split('/')[0] ?? '';
   return seg.toLowerCase().replace(/[^a-z]/g, '');
 }

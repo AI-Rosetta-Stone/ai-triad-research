@@ -34,6 +34,12 @@ jobs:
   triage:
     runs-on: ubuntu-latest
     steps:
+      # t/4351#4 Lead finding 2: the nudge step below dynamic-imports
+      # operations/devops/t1-approval-guard-predicate.mjs via GITHUB_WORKSPACE, which needs a
+      # real checkout -- this job never had one before, since the rest of its logic is pure
+      # GitHub-API calls. Same checkout action/pin as the stuck-pr-alert job below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
       - name: PR triage
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
@@ -49,6 +55,14 @@ jobs:
 
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
+
+            // t/4351: since the author-App switch-over, pr.user.login is a bot handle and no
+            // longer names a notifiable human -- the nudge below uses this to say WHICH role's
+            // branch is green, while still @-mentioning the one shared human account.
+            const { pathToFileURL } = require('url');
+            const { ownerSlugFromBranch } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/t1-approval-guard-predicate.mjs`).href);
+            const HUMAN_LOGIN = 'jpsnover'; // the one shared GitHub account across the fleet (docs/agent-pr-approval.md)
+            const AUTHOR_APP_LOGIN = 'ai-triad-author-jpsnover[bot]'; // t/4351 -- NOT in BOT_LOGINS (t/4351#4)
 
             // ── 1. Semver helpers ──────────────────────────────────────────────────
             // Numeric comparison — "9.0.0" < "10.0.0" correctly.
@@ -74,6 +88,10 @@ jobs:
             // github-actions[bot] is only used as a git commit identity in this
             // repo (cluster-conflicts.yml commits directly; it does NOT open PRs).
             // Keeping it in BOT_LOGINS as a safe guard in case that changes.
+            // t/4351 Lead correction (t/4351#4): the author App's login does NOT go in
+            // BOT_LOGINS. botPRs feeds the "close as superseded" path below (step 5b) -- an
+            // author-App PR is a real agent PR, never closable, so it must stay in fleetPRs.
+            // The author-App identity is handled narrowly, inside the nudge loop only (step 7).
             const BOT_LOGINS = new Set(['dependabot[bot]', 'github-actions[bot]']);
             const botPRs   = allPRs.filter(pr => BOT_LOGINS.has(pr.user.login));
             const fleetPRs = allPRs.filter(pr => !BOT_LOGINS.has(pr.user.login));
@@ -351,10 +369,18 @@ jobs:
               const nudgeMarker = `${NUDGE_MARKER_PREFIX} ${pr.head.sha} -->`;
               if (prComments.some(c => c.body.includes(nudgeMarker))) continue;
 
-              // Post nudge comment
+              // Post nudge comment. t/4351 Lead correction (t/4351#4): the author-App identity
+              // is handled HERE ONLY, narrowly -- an author-App PR's pr.user.login is a bot
+              // handle that can't be usefully @-mentioned, so it gets the owner-slug form and
+              // still @-mentions the one shared human account. Any other fleetPR (a human-
+              // authored PR, pre-switch-over or otherwise) keeps the original direct mention.
               const elapsedMin = Math.round((nowMs - greenAt) / 60000);
+              const isAuthorApp = pr.user.login === AUTHOR_APP_LOGIN;
+              const mentionLine = isAuthorApp
+                ? `@${HUMAN_LOGIN} CI has been green for ${elapsedMin} min on the \`${ownerSlugFromBranch(pr.head.ref) || pr.head.ref}\` PR — merge when ready,`
+                : `@${pr.user.login} CI has been green for ${elapsedMin} min — merge when ready,`;
               const nudgeBody = [
-                `@${pr.user.login} CI has been green for ${elapsedMin} min — merge when ready,`,
+                mentionLine,
                 `or add a comment starting with \`HOLD: <reason>\` to suppress this nudge.`,
                 nudgeMarker,
               ].join('\n');
@@ -365,7 +391,7 @@ jobs:
                 });
               }
               nudgedPRs.push({ pr, elapsedMin });
-              core.info(`${dryRun ? '[DRY]' : '[LIVE]'} Nudge #${pr.number} (green ${elapsedMin} min, @${pr.user.login})`);
+              core.info(`${dryRun ? '[DRY]' : '[LIVE]'} Nudge #${pr.number} (green ${elapsedMin} min, @${isAuthorApp ? HUMAN_LOGIN : pr.user.login})`);
             }
 
             // ── 8. Job summary ────────────────────────────────────────────────────

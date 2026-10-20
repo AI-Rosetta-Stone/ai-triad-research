@@ -8,13 +8,17 @@ How an agent records a PR approval, after the t/4096 Reviewer switch-over. Every
 GitHub login (`jpsnover`), so GitHub's own self-approval block never applied to a free-text
 `Approved (<role>):` comment — that's why `gh pr review --approve` was banned outright (root
 AGENTS.md, pre-switch-over). The reviewer App (`ai-triad-reviewer-jpsnover[bot]`) is a distinct
-GitHub identity, but every PR here is still authored by `jpsnover`, not by an author App — so
-GitHub's own identity check does NOT make a reviewer-App review self-approval-safe by itself (an
-agent could run `Invoke-AsAgentApp -Role reviewer` on its own PR). What actually blocks that is
-`t1-approval-guard`'s owner-slug check on the review body (PR #3487) — the same check it already
-applied to the legacy comment. **This closes the reviewer-App vector only, not the whole class**:
-the guard still trusts the self-declared role name in the body, so an author can name a *different*
-role and pass. See the residual at t/4096#65.
+GitHub identity from both `jpsnover` and the author App (`ai-triad-author-jpsnover[bot]`, t/4351,
+step 2 of the same rollout) — but **App-distinctness alone does not make a reviewer-App review
+self-approval-safe**, whether the PR is authored by `jpsnover` directly or by the author App: an
+agent could run `Invoke-AsAgentApp -Role reviewer` on its own PR either way. What actually blocks
+that is `t1-approval-guard`'s owner-slug check on the review body (PR #3487) — the same check it
+already applied to the legacy comment, and unaffected by which identity authored the PR. **This
+closes the reviewer-App vector only, not the whole class**: the guard still trusts the
+self-declared role name in the body, so an author can name a *different* role and pass. See the
+residual at t/4096#65. (This doc already got this wrong once before the author-App switch-over
+landed, t/4096#65/PR #3490 — don't let a future reader re-infer "different App login = safe" from
+half of this doc; both identity switch-overs share the same actual control.)
 
 ## The command
 
@@ -48,6 +52,42 @@ to the repo) `Get-AgentAppToken`/`Invoke-AsAgentApp` throws an `ActionableError`
 underlying App/vault issue and retry; do not work around a failed mint by posting a plain
 `Approved (<role>):` comment instead, since that's exactly the unattributable path this switch-over
 retires.
+
+## Author App (t/4351, t/4096 step 2)
+
+Opening a PR under the author App makes agent actions attributable in the same way the reviewer
+App did for approvals — the PR's `user.login` becomes `ai-triad-author-jpsnover[bot]` instead of
+the shared `jpsnover` account.
+
+```powershell
+Import-Module ./operations/devops/AgentAppToken.psm1
+Invoke-AsAgentApp -Role author -ScriptBlock {
+  gh pr create --title '<title>' --body '<body>' --base main --head '<branch>'
+}
+```
+
+**What changes downstream of this:**
+- `pr-triage.yml`'s `BOT_LOGINS` set does **not** include the author App's login (t/4351#4, Lead
+  correction) — `BOT_LOGINS` feeds the "close as superseded" path for real dependency bots, and
+  an author-App PR is a real agent PR that must never be auto-closed that way. Author-App PRs
+  stay in `fleetPRs`, same as any other agent PR.
+- The author-App identity is handled narrowly, inside the CI-green nudge loop only: `pr.user.login`
+  is now a bot handle a human can't act on, so a PR matching the author App's login gets a nudge
+  that `@`-mentions the one shared human account directly and names the branch's owner-slug in
+  the message body for context, instead of `@`-mentioning the bot handle. Any other fleet PR
+  keeps the original direct mention. See `pr-triage.yml`'s nudge step.
+- `t1-approval-guard-predicate.mjs`'s owner-slug self-approval check needed **no logic change** —
+  it was never keyed on author identity. Only its own doc comment, which once said "every PR is
+  authored by `jpsnover`", needed correcting.
+
+**Fallback: same as the reviewer App.** A failed mint throws an `ActionableError`; it never falls
+back to opening the PR as `jpsnover`.
+
+**Live-fire proof (t/4351):** a throwaway PR opened by the author App must (1) trigger the
+required workflows (App-token events do; `GITHUB_TOKEN` events don't), (2) get all four required
+contexts reporting (`ci-gate`, `CodeQL`, `joint-gv-guard`, `consult-hold-guard`), (3) allow
+auto-merge to arm with `--match-head-commit`, and (4) be approvable by the reviewer App. Recorded
+on t/4351, cleaned up after.
 
 ## Still a comment, not a gate
 
