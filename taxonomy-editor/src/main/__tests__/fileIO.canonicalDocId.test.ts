@@ -97,13 +97,16 @@ describe('buildNodeSourceIndex canonicalDocId grouping (t/4341, Electron parity 
   });
 
   it('is governed by the same shared computeCanonicalDocIds the server uses, not a local reimplementation (t/4341 AC1/AC2)', () => {
-    // A -1 suffix split, a URL match, and a title match — one case per tier the ticket covers.
+    // A -1 suffix split merges (equal title, no URL/hash conflict); a shared URL alone and a
+    // shared title alone do NOT merge through this shim (t/4334#11 cond. 2: the shim has no
+    // provenance data, so it can never trust a URL, and a title alone is collision-only under
+    // the real spec too — see lib/sourceIndex/types.ts).
     writeSourceMeta('report-2026', { title: 'Annual Report', url: 'https://example.com/report' });
     writeSourceMeta('report-2026-1', { title: 'Annual Report', url: 'https://example.com/report-mirror' });
     writeSourceMeta('reprint-x', { title: 'Same Article', url: 'https://outlet-a.example.com/x' });
-    writeSourceMeta('reprint-y', { title: 'Same Article', url: 'https://outlet-a.example.com/x' }); // same URL → tier 2
+    writeSourceMeta('reprint-y', { title: 'Same Article', url: 'https://outlet-a.example.com/x' }); // same URL, no suffix relation → stays separate
     writeSourceMeta('title-match-a', { title: 'Distinct Wording Here', url: 'https://outlet-b.example.com/a' });
-    writeSourceMeta('title-match-b', { title: 'Distinct Wording Here', url: 'https://outlet-c.example.com/b' }); // same normalized title → tier 4
+    writeSourceMeta('title-match-b', { title: 'Distinct Wording Here', url: 'https://outlet-c.example.com/b' }); // same title, no suffix relation → collision-only, no merge
     for (const id of ['report-2026', 'report-2026-1', 'reprint-x', 'reprint-y', 'title-match-a', 'title-match-b']) {
       writeSummary(id, 'n-parity');
     }
@@ -125,6 +128,8 @@ describe('buildNodeSourceIndex canonicalDocId grouping (t/4341, Electron parity 
     // Sanity-check the groupings actually collapsed as the fixture intends.
     const byCanonical = new Map<string, string[]>();
     for (const r of refs) byCanonical.set(r.canonicalDocId, [...(byCanonical.get(r.canonicalDocId) ?? []), r.docId]);
-    expect(byCanonical.size).toBe(3); // 6 docIds → 3 canonical documents
+    // 6 docIds → 5 canonical documents: only the -1 suffix pair merges (report-2026/-1);
+    // reprint-x/reprint-y (shared URL) and title-match-a/-b (shared title) each stay separate.
+    expect(byCanonical.size).toBe(5);
   });
 });
