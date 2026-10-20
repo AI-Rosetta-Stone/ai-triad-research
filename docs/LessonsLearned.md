@@ -5949,9 +5949,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **`gh pr edit` supports `--base` (target branch) but not `--head` (source branch).** Do not reach for `--head` on edit.
 3. **"unknown flag: --head" on `gh pr edit`** — check `gh pr edit --help`; `--head` is absent by design.
 
-**Status:** Active — 1 instance (DebateTool p/70#65).
+**Status:** Active — 2 instances (DebateTool p/70#65; Sage self p/26#225-follow-up — `gh pr view --head <branch>` also rejected with "unknown flag: --head"; `--head` is not a flag on any `gh pr` subcommand other than `gh pr list`).
 
-**Applies To:** All agents attempting to retarget a PR's source (head) branch after creation.
+**Applies To:** All agents attempting to retarget a PR's source (head) branch after creation; note `--head` is not accepted by `gh pr view`, `gh pr edit`, or `gh pr merge` — only `gh pr list`.
 
 ---
 
@@ -6229,7 +6229,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Keep inter-process data in a single process** — call `git show` (or other shell commands) from Node via `execFileSync`/`spawnSync` rather than sharing temp files across shells.
 3. **If a temp file must be shared between Bash and Node on Windows**, use `$TEMP` or `$TMPDIR` in Bash (not `/tmp`) and `os.tmpdir()` in Node — both resolve to the same Windows temp directory.
 
-**Status:** Active — 2 instances (DevOps Worker p/749#26; Diagnostics p/9#86).
+**Status:** Active — 3 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on file at Bash `/tmp`/`/c/...` path; fix: write temp file inside repo worktree where both Bash and Node resolve the same path).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; never share temp files across Git Bash and Node.js using `/tmp`.
 
@@ -6412,3 +6412,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Rosetta Stone p/6#101).
 
 **Applies To:** All agents in multi-agent/human environments; check for existing PRs immediately before `gh pr create`, not only at session start.
+
+---
+
+## #317 [Build] `git merge --ff-only origin/main` Refuses When Shared Tree Has Another Role's Dirty WIP — Work in a Fresh Worktree Instead
+
+**Pattern:** An agent runs `git merge --ff-only origin/main` on the shared checkout to advance it. Git refuses: "local changes to <file> would be overwritten by merge." The dirty file belongs to another role's uncommitted WIP — not the agent's own work. Attempting to stash, restore, or clean it would discard another role's in-progress changes.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#225): `git merge --ff-only origin/main` refused because `lib/debate/cli.ts` had uncommitted WIP from another role. Aborted cleanly (git refused without modifying state); created a fresh worktree off `origin/main` instead and did the work there, leaving the shared tree's WIP untouched.
+
+**Root Cause:** The shared checkout is a shared resource. Any role can leave uncommitted WIP on it. `git merge --ff-only` correctly refuses to overwrite local changes — it is the safety mechanism working as intended.
+
+**Prevention:**
+1. **When `git merge --ff-only origin/main` refuses on the shared checkout, do not stash, restore, or clean the dirty files.** They likely belong to another role's in-progress work. Create a fresh worktree off `origin/main` instead.
+2. **The correct response to a dirty shared checkout is to work around it**, not to clean it up. Only DevOps handles shared-tree cleanup (`docs/shared-tree-divergence.md`).
+3. **Always prefer a worktree for new work** — a fresh worktree off `origin/main` is always clean and unaffected by the shared checkout's state.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#225).
+
+**Applies To:** All agents working on the shared checkout; when `--ff-only` refuses due to another role's WIP, create a fresh worktree — never clean or stash foreign WIP.
+
+---
+
+## #318 [Build] PowerShell Backtick/`[ref]` Syntax Fails When Embedded in `pwsh -Command` via Bash Tool — Write as `.ps1` File
+
+**Pattern:** An agent constructs a multi-line PowerShell one-liner with backtick line-continuation or `[ref]` type constraints and runs it via `pwsh -NoProfile -Command "..."` through the Bash tool. Bash's own parser errors on the backticks and parentheses before PowerShell sees them, producing Bash syntax errors rather than PowerShell errors.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#225): `pwsh -NoProfile -Command "..."` with backtick continuation and `[ref]$x` threw Bash parser errors on the backticks/parens. Resolved by writing the check as a standalone `.ps1` file and running `pwsh -NoProfile -File script.ps1`, per the root AGENTS.md Shell Quoting Rule.
+
+**Root Cause:** The Bash tool is Git Bash. When PowerShell code with special characters (backticks, parens, `[ref]`, `$`) is passed as a `-Command` string, Bash interpolates and parses it before `pwsh.exe` sees it. Complex PowerShell syntax routinely breaks at the Bash layer.
+
+**Prevention:**
+1. **Any PowerShell code with special characters (backtick, parentheses, `[ref]`, `$var`, `{` blocks) must be written to a `.ps1` file and run with `pwsh -File`.** Never embed it in a `-Command` string through the Bash tool.
+2. **This is the root AGENTS.md Shell Quoting Rule applied to PowerShell:** "Code with special shell characters: use Edit/Write, and run scripts from a file; never use inline heredocs."
+3. **Use the PowerShell tool directly** for PowerShell commands that don't need Bash pipelines — the PowerShell tool bypasses the Bash/MSYS layer entirely.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#225).
+
+**Applies To:** All agents running PowerShell through the Bash tool; complex PS syntax goes in a `.ps1` file, not a `-Command` string.
