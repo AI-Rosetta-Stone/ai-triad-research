@@ -185,4 +185,55 @@ describe('debateStore save conflict handling (t/4331)', () => {
       expect(result.newVersion).toBe(1);
     });
   });
+
+  // t/4338 (CL review on #3511): saveDebateSession({ excludeFromQuota: true })
+  // must not consume a debate slot or appear in the user's debate list, and
+  // loadDebateSession must still resolve it by id.
+  describe('saveDebateSession excludeFromQuota (t/4338)', () => {
+    it('does not change the quota count or appear in the debate list', async () => {
+      const before = await userContext.runWithUser(ctx, () => fileIO.getDebatesQuotaStatus());
+      await userContext.runWithUser(ctx, () =>
+        fileIO.saveDebateSession({ id: 'inq-1', title: 'Inquiry debate' }, 'inquiry', { mustNotExist: true, excludeFromQuota: true }));
+      const after = await userContext.runWithUser(ctx, () => fileIO.getDebatesQuotaStatus());
+      expect(after.current).toBe(before.current);
+
+      const list = await userContext.runWithUser(ctx, () => fileIO.listDebateSessions()) as { id: string }[];
+      expect(list.some(d => d.id === 'inq-1')).toBe(false);
+
+      // Stored under the quota-exempt key, not the normal one (exact key
+      // check — `find`'s substring match would false-positive against
+      // "inquiry-debate-inq-1.json" containing "debate-inq-1.json").
+      const exactKeys = [...uc.files.keys()];
+      expect(exactKeys.some(k => k.endsWith('/debate-inq-1.json'))).toBe(false);
+      expect(exactKeys.some(k => k.endsWith('/inquiry-debate-inq-1.json'))).toBe(true);
+    });
+
+    it('loadDebateSession still resolves a quota-exempt session by id', async () => {
+      await userContext.runWithUser(ctx, () =>
+        fileIO.saveDebateSession({ id: 'inq-2', title: 'Inquiry debate 2', origin: 'inquiry' }, 'inquiry', { mustNotExist: true, excludeFromQuota: true }));
+      const loaded = await userContext.runWithUser(ctx, () => fileIO.loadDebateSession('inq-2')) as { id: string; origin?: string };
+      expect(loaded.id).toBe('inq-2');
+      expect(loaded.origin).toBe('inquiry');
+    });
+
+    it('a user already at the debate quota still gets the inquiry debate persisted', async () => {
+      const status = await userContext.runWithUser(ctx, () => fileIO.getDebatesQuotaStatus());
+      const debatesDir = path.join(dataRoot, 'users', 'alice', 'debates');
+      for (let i = status.current; i < status.limit; i++) {
+        uc.files.set(path.join(debatesDir, `debate-filler-${i}.json`).replace(/\\/g, '/'), '{}');
+      }
+      // Confirm quota is now exhausted for a normal save.
+      const atLimit = await userContext.runWithUser(ctx, () => fileIO.getDebatesQuotaStatus());
+      expect(atLimit.allowed).toBe(false);
+      await expect(
+        userContext.runWithUser(ctx, () => fileIO.saveDebateSession({ id: 'should-be-blocked', title: 'x' }, 'test')),
+      ).rejects.toMatchObject({ statusCode: 429 });
+
+      // The quota-exempt save still succeeds.
+      const result = await userContext.runWithUser(ctx, () =>
+        fileIO.saveDebateSession({ id: 'inq-3', title: 'Inquiry at quota' }, 'inquiry', { mustNotExist: true, excludeFromQuota: true }));
+      expect(result.newVersion).toBe(1);
+      expect(uc.find('inquiry-debate-inq-3.json')).toBeDefined();
+    });
+  });
 });
