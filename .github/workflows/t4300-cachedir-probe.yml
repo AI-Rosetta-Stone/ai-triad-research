@@ -22,11 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf417  # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Pull the image under probe
         env:
