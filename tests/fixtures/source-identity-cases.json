@@ -1,0 +1,1257 @@
+{
+  "$schema_note": "docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.",
+  "version": 2,
+  "hash_cases": [
+    {
+      "name": "plain body, LF",
+      "text": "Para one about AI.\n\nPara two.\n",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "same body, CRLF (equals plain)",
+      "text": "Para one about AI.\r\n\r\nPara two.\r\n",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "same body, lone CR (equals plain)",
+      "text": "Para one about AI.\r\rPara two.\r",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "same body with BOM (equals plain)",
+      "text": "﻿Para one about AI.\n\nPara two.\n",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "same body, trailing spaces/tabs (equals plain)",
+      "text": "Para one about AI.  \t\n\nPara two. \n",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "same body, extra edge blank lines (equals plain)",
+      "text": "\n\n  \nPara one about AI.\n\nPara two.\n\n\n",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "interior blank lines are kept (differs)",
+      "text": "Para one about AI.\n\n\nPara two.\n",
+      "expected_sha256": "30be5a5085b2ff0af386fa51e932a49cd3451672683e76221b04ea16f2a7ea26"
+    },
+    {
+      "name": "non-breaking space is not trimmed (differs)",
+      "text": "Para one about AI. \n\nPara two.\n",
+      "expected_sha256": "57724254c1af40639a5fd21648eda36fa142a6bb13abbeb6ba4511699a94fda4"
+    },
+    {
+      "name": "leading indentation is kept (differs)",
+      "text": "  Para one about AI.\n\nPara two.\n",
+      "expected_sha256": "df250c9e850b1cf06de8b02b5dea935483a7cf8feeb8b952761a2e5a2413aa72"
+    },
+    {
+      "name": "header captured 2026-04-11 (equals plain)",
+      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-04-11\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-04-11\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\n\nPara two.\n",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "header captured 2026-09-22 (equals plain)",
+      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-09-22\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-09-22\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\n\nPara two.\n",
+      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+    },
+    {
+      "name": "header without closing rule is kept (differs)",
+      "text": "<!--\n  AI Triad Research Project\n-->\n\nPara one about AI.\n\nPara two.\n",
+      "expected_sha256": "68282bcb71fc8321375b8f5b8a2dcfdfe18003c36b06be84fa7cc625f430c8e0"
+    },
+    {
+      "name": "non-ASCII NFC",
+      "text": "# Café résumé\n\nBody.\n",
+      "expected_sha256": "526af0185a6adff1c85fd573d651ddaf81161096e7cbf999e9f7cfced42f05f6"
+    },
+    {
+      "name": "non-ASCII NFD (equals NFC)",
+      "text": "# Café résumé\n\nBody.\n",
+      "expected_sha256": "526af0185a6adff1c85fd573d651ddaf81161096e7cbf999e9f7cfced42f05f6"
+    },
+    {
+      "name": "empty",
+      "text": "",
+      "expected_sha256": null
+    },
+    {
+      "name": "whitespace only",
+      "text": " \n\t\n",
+      "expected_sha256": null
+    },
+    {
+      "name": "header only",
+      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-04-11\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-04-11\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\n",
+      "expected_sha256": null
+    },
+    {
+      "name": "PDF extraction failure placeholder",
+      "text": "# PDF EXTRACTION FAILED\n\nSource: C:\\inbox\\a.pdf\n\nInstall markitdown and re-run.",
+      "expected_sha256": null
+    },
+    {
+      "name": "binary placeholder",
+      "text": "# report.docx\n\n[Binary file — no text extraction available]",
+      "expected_sha256": null
+    },
+    {
+      "name": "body that quotes the binary placeholder text (hashed)",
+      "text": "# Notes\n\nThe tool printed [Binary file — no text extraction available] once.\n",
+      "expected_sha256": "38e5beadee0b57e0f00179d8a4da0d6006390c964a1f952dd8b55d23de08c41d"
+    }
+  ],
+  "url_cases": [
+    {
+      "name": "https + www + trailing slash",
+      "input": "https://www.Brookings.edu/articles/AI-and-Geopolitics/",
+      "expected": "brookings.edu/articles/AI-and-Geopolitics"
+    },
+    {
+      "name": "http and https are equal",
+      "input": "http://brookings.edu/articles/AI-and-Geopolitics",
+      "expected": "brookings.edu/articles/AI-and-Geopolitics"
+    },
+    {
+      "name": "path case is preserved",
+      "input": "https://brookings.edu/articles/ai-and-geopolitics",
+      "expected": "brookings.edu/articles/ai-and-geopolitics"
+    },
+    {
+      "name": "fragment dropped",
+      "input": "https://example.org/paper#section-2",
+      "expected": "example.org/paper"
+    },
+    {
+      "name": "utm params dropped",
+      "input": "https://example.org/post?utm_source=x&UTM_Medium=y&id=7",
+      "expected": "example.org/post?id=7"
+    },
+    {
+      "name": "fbclid gclid mc_ dropped",
+      "input": "https://example.org/post?fbclid=a&gclid=b&mc_cid=c&mc_eid=d",
+      "expected": "example.org/post"
+    },
+    {
+      "name": "query order normalized A",
+      "input": "https://news.ycombinator.com/item?id=47051956&p=2",
+      "expected": "news.ycombinator.com/item?id=47051956&p=2"
+    },
+    {
+      "name": "query order normalized B",
+      "input": "https://news.ycombinator.com/item?p=2&id=47051956",
+      "expected": "news.ycombinator.com/item?id=47051956&p=2"
+    },
+    {
+      "name": "youtube v= kept, case-sensitive",
+      "input": "https://www.youtube.com/watch?v=d03EjhZtShq",
+      "expected": "youtube.com/watch?v=d03EjhZtShq"
+    },
+    {
+      "name": "youtube different v= differs",
+      "input": "https://www.youtube.com/watch?v=kgA0zpfSruo",
+      "expected": "youtube.com/watch?v=kgA0zpfSruo"
+    },
+    {
+      "name": "empty query parts dropped",
+      "input": "https://example.org/x?&&a=1&",
+      "expected": "example.org/x?a=1"
+    },
+    {
+      "name": "default port dropped",
+      "input": "https://example.org:443/x",
+      "expected": "example.org/x"
+    },
+    {
+      "name": "non-default port kept",
+      "input": "https://example.org:8443/x",
+      "expected": "example.org:8443/x"
+    },
+    {
+      "name": "userinfo dropped",
+      "input": "https://user:pw@example.org/x",
+      "expected": "example.org/x"
+    },
+    {
+      "name": "percent-encoding kept as written",
+      "input": "https://example.org/a%2Fb?q=a%20b",
+      "expected": "example.org/a%2Fb?q=a%20b"
+    },
+    {
+      "name": "surrounding whitespace trimmed",
+      "input": "  https://example.org/x  ",
+      "expected": "example.org/x"
+    },
+    {
+      "name": "scheme case-insensitive",
+      "input": "HTTPS://Example.org/X",
+      "expected": "example.org/X"
+    },
+    {
+      "name": "bare DOI is null",
+      "input": "10.1073/pnas.2416228122",
+      "expected": null
+    },
+    {
+      "name": "non-http scheme is null",
+      "input": "ftp://example.org/x",
+      "expected": null
+    },
+    {
+      "name": "free text is null",
+      "input": "Atlantic Council",
+      "expected": null
+    },
+    {
+      "name": "empty is null",
+      "input": "",
+      "expected": null
+    },
+    {
+      "name": "null is null",
+      "input": null,
+      "expected": null
+    },
+    {
+      "name": "host only",
+      "input": "https://example.org",
+      "expected": "example.org"
+    },
+    {
+      "name": "non-ASCII path kept",
+      "input": "https://example.org/café",
+      "expected": "example.org/café"
+    }
+  ],
+  "trust_cases": [
+    {
+      "name": "url from search provenance is untrusted",
+      "metadata": {
+        "provenance": [
+          {
+            "confidence": "search",
+            "id": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/",
+            "scheme": "url"
+          }
+        ],
+        "resolved_url": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/",
+        "url": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/"
+      },
+      "expected": []
+    },
+    {
+      "name": "url and resolved_url, both trusted, deduped",
+      "metadata": {
+        "resolved_url": "https://www.example.org/x",
+        "url": "https://example.org/x/"
+      },
+      "expected": [
+        "example.org/x"
+      ]
+    },
+    {
+      "name": "resolved_url differs and is kept second",
+      "metadata": {
+        "resolved_url": "https://example.org/x?utm_source=t",
+        "url": "https://t.co/abc"
+      },
+      "expected": [
+        "t.co/abc",
+        "example.org/x"
+      ]
+    },
+    {
+      "name": "non-search provenance does not untrust",
+      "metadata": {
+        "provenance": [
+          {
+            "confidence": "extracted",
+            "id": "https://example.org/x",
+            "scheme": "url"
+          }
+        ],
+        "url": "https://example.org/x"
+      },
+      "expected": [
+        "example.org/x"
+      ]
+    },
+    {
+      "name": "search provenance for a different url only untrusts that url",
+      "metadata": {
+        "provenance": [
+          {
+            "confidence": "search",
+            "id": "https://other.org/y/",
+            "scheme": "url"
+          }
+        ],
+        "resolved_url": "https://other.org/y",
+        "url": "https://example.org/x"
+      },
+      "expected": [
+        "example.org/x"
+      ]
+    },
+    {
+      "name": "doi provenance ignored",
+      "metadata": {
+        "provenance": [
+          {
+            "confidence": "search",
+            "id": "https://example.org/x",
+            "scheme": "doi"
+          }
+        ],
+        "url": "https://example.org/x"
+      },
+      "expected": [
+        "example.org/x"
+      ]
+    },
+    {
+      "name": "no url fields",
+      "metadata": {
+        "title": "x"
+      },
+      "expected": []
+    }
+  ],
+  "title_cases": [
+    {
+      "name": "punctuation and case",
+      "input": "Eight ways AI will shape geopolitics in 2026",
+      "expected": "eight ways ai will shape geopolitics in 2026"
+    },
+    {
+      "name": "site name appended stays distinct",
+      "input": "Eight ways AI will shape geopolitics in 2026   Atlantic Council",
+      "expected": "eight ways ai will shape geopolitics in 2026 atlantic council"
+    },
+    {
+      "name": "plus as space (URL-encoded title)",
+      "input": "Managing+Risks+from+Internal+AI+Systems",
+      "expected": "managing risks from internal ai systems"
+    },
+    {
+      "name": "colon, quotes, dash removed",
+      "input": "Managing Risks: from 'Internal' AI—Systems",
+      "expected": "managing risks from internal aisystems"
+    },
+    {
+      "name": "non-ASCII letters deleted",
+      "input": "Café résumé",
+      "expected": "caf rsum"
+    },
+    {
+      "name": "non-breaking space deleted",
+      "input": "AI safety",
+      "expected": "aisafety"
+    },
+    {
+      "name": "tabs and newlines collapse",
+      "input": "AI\t safety\n report",
+      "expected": "ai safety report"
+    },
+    {
+      "name": "underscore and digits kept",
+      "input": "gpt_4 report 2026",
+      "expected": "gpt_4 report 2026"
+    },
+    {
+      "name": "punctuation only is empty",
+      "input": "!!! ---",
+      "expected": ""
+    },
+    {
+      "name": "empty",
+      "input": "",
+      "expected": ""
+    }
+  ],
+  "grouping_cases": [
+    {
+      "name": "content hash joins different slugs",
+      "documents": [
+        {
+          "id": "alpha-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Alpha"
+          }
+        },
+        {
+          "id": "alpha-brookings-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Alpha Brookings"
+          }
+        },
+        {
+          "id": "beta-2026",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Beta"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "alpha-2026": "alpha-2026",
+        "alpha-brookings-2026": "alpha-2026",
+        "beta-2026": "beta-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "computed snapshot hash joins like a recorded one",
+      "documents": [
+        {
+          "id": "old-ingest-2026",
+          "metadata": {
+            "title": "Old ingest"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "new-ingest-elsewhere-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "New ingest"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "new-ingest-elsewhere-2026": "new-ingest-elsewhere-2026",
+        "old-ingest-2026": "new-ingest-elsewhere-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "search-provenance URL does not join",
+      "documents": [
+        {
+          "id": "one-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://x.org/p",
+                "scheme": "url"
+              }
+            ],
+            "title": "One",
+            "url": "https://x.org/p"
+          }
+        },
+        {
+          "id": "two-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://x.org/p",
+                "scheme": "url"
+              }
+            ],
+            "title": "Two",
+            "url": "https://x.org/p"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "one-2026": "one-2026",
+        "two-2026": "two-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "trusted URL joins, query param order ignored",
+      "documents": [
+        {
+          "id": "hn-a-2026",
+          "metadata": {
+            "title": "A",
+            "url": "https://news.ycombinator.com/item?id=1&p=2"
+          }
+        },
+        {
+          "id": "hn-b-2026",
+          "metadata": {
+            "title": "B",
+            "url": "https://news.ycombinator.com/item?p=2&id=1&utm_source=x"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "hn-a-2026": "hn-a-2026",
+        "hn-b-2026": "hn-a-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "different query ids stay distinct",
+      "documents": [
+        {
+          "id": "yt-a-2026",
+          "metadata": {
+            "title": "Video A",
+            "url": "https://www.youtube.com/watch?v=AAA"
+          }
+        },
+        {
+          "id": "yt-b-2026",
+          "metadata": {
+            "title": "Video B",
+            "url": "https://www.youtube.com/watch?v=BBB"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "yt-a-2026": "yt-a-2026",
+        "yt-b-2026": "yt-b-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "explicit same_as and parent_doc_id join; dangling link ignored",
+      "documents": [
+        {
+          "id": "base-doc",
+          "metadata": {
+            "title": "Base"
+          }
+        },
+        {
+          "id": "reprint-elsewhere",
+          "metadata": {
+            "same_as": "base-doc",
+            "title": "Reprint"
+          }
+        },
+        {
+          "id": "part-two",
+          "metadata": {
+            "parent_doc_id": "base-doc",
+            "title": "Part two"
+          }
+        },
+        {
+          "id": "orphan-link",
+          "metadata": {
+            "same_as": "not-in-set",
+            "title": "Orphan"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "base-doc": "base-doc",
+        "orphan-link": "orphan-link",
+        "part-two": "base-doc",
+        "reprint-elsewhere": "base-doc"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "strong edges union transitively (union, not first matching tier)",
+      "documents": [
+        {
+          "id": "a-2026",
+          "metadata": {
+            "title": "Apple",
+            "url": "https://u.org/1"
+          }
+        },
+        {
+          "id": "b-2026",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Banana",
+            "url": "https://u.org/1"
+          }
+        },
+        {
+          "id": "aa-2026",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Cherry"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "a-2026": "a-2026",
+        "aa-2026": "a-2026",
+        "b-2026": "a-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "suffix joins with an equal title",
+      "documents": [
+        {
+          "id": "gamma-2026",
+          "metadata": {
+            "title": "Gamma report"
+          }
+        },
+        {
+          "id": "gamma-2026-1",
+          "metadata": {
+            "title": "Gamma Report!"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "gamma-2026": "gamma-2026",
+        "gamma-2026-1": "gamma-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "suffix needs the base to exist",
+      "documents": [
+        {
+          "id": "delta-2026-2",
+          "metadata": {
+            "title": "Delta"
+          }
+        },
+        {
+          "id": "delta-2026-3",
+          "metadata": {
+            "title": "Delta"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "delta-2026-2": "delta-2026-2",
+        "delta-2026-3": "delta-2026-3"
+      },
+      "expected_title_collisions": [
+        [
+          "delta-2026-2",
+          "delta-2026-3"
+        ]
+      ]
+    },
+    {
+      "name": "suffix with a different title stays separate",
+      "documents": [
+        {
+          "id": "epsilon-2026",
+          "metadata": {
+            "title": "Epsilon"
+          }
+        },
+        {
+          "id": "epsilon-2026-1",
+          "metadata": {
+            "title": "Epsilon   Brookings"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "epsilon-2026": "epsilon-2026",
+        "epsilon-2026-1": "epsilon-2026-1"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "suffix with no title on either side stays separate",
+      "documents": [
+        {
+          "id": "eta-2026",
+          "metadata": {}
+        },
+        {
+          "id": "eta-2026-1",
+          "metadata": {}
+        }
+      ],
+      "expected_canonical": {
+        "eta-2026": "eta-2026",
+        "eta-2026-1": "eta-2026-1"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "genuine -N collision: different recorded content_sha256 stays separate",
+      "documents": [
+        {
+          "id": "annual-report-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Annual Report"
+          }
+        },
+        {
+          "id": "annual-report-2026-1",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Annual Report"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "annual-report-2026": "annual-report-2026",
+        "annual-report-2026-1": "annual-report-2026-1"
+      },
+      "expected_title_collisions": [
+        [
+          "annual-report-2026",
+          "annual-report-2026-1"
+        ]
+      ]
+    },
+    {
+      "name": "recorded hash on one side only does not veto",
+      "documents": [
+        {
+          "id": "theta-2026",
+          "metadata": {
+            "title": "Theta"
+          }
+        },
+        {
+          "id": "theta-2026-1",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Theta"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "theta-2026": "theta-2026",
+        "theta-2026-1": "theta-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "computed snapshot hashes that differ do not veto (conversion noise)",
+      "documents": [
+        {
+          "id": "iota-2026",
+          "metadata": {
+            "title": "Iota"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "iota-2026-1",
+          "metadata": {
+            "title": "Iota"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "iota-2026": "iota-2026",
+        "iota-2026-1": "iota-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "conflicting trusted URLs veto the suffix",
+      "documents": [
+        {
+          "id": "kappa-2026",
+          "metadata": {
+            "title": "Kappa",
+            "url": "https://one.org/k"
+          }
+        },
+        {
+          "id": "kappa-2026-1",
+          "metadata": {
+            "title": "Kappa",
+            "url": "https://two.org/k"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "kappa-2026": "kappa-2026",
+        "kappa-2026-1": "kappa-2026-1"
+      },
+      "expected_title_collisions": [
+        [
+          "kappa-2026",
+          "kappa-2026-1"
+        ]
+      ]
+    },
+    {
+      "name": "a trusted URL on one side only does not veto",
+      "documents": [
+        {
+          "id": "lambda-2026",
+          "metadata": {
+            "title": "Lambda",
+            "url": "https://arxiv.org/abs/1606.06565v2"
+          }
+        },
+        {
+          "id": "lambda-2026-1",
+          "metadata": {
+            "title": "Lambda"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "lambda-2026": "lambda-2026",
+        "lambda-2026-1": "lambda-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "a trusted URL on the -N side only does not veto",
+      "documents": [
+        {
+          "id": "pi-2026",
+          "metadata": {
+            "title": "Pi"
+          }
+        },
+        {
+          "id": "pi-2026-1",
+          "metadata": {
+            "title": "Pi",
+            "url": "https://p.org/x"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "pi-2026": "pi-2026",
+        "pi-2026-1": "pi-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "search-provenance URL does not count as a conflicting URL",
+      "documents": [
+        {
+          "id": "mu-2026",
+          "metadata": {
+            "title": "Mu",
+            "url": "https://one.org/m"
+          }
+        },
+        {
+          "id": "mu-2026-1",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://two.org/m",
+                "scheme": "url"
+              }
+            ],
+            "title": "Mu",
+            "url": "https://two.org/m"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "mu-2026": "mu-2026",
+        "mu-2026-1": "mu-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "year suffix: foo-2026 with a different title does not join foo",
+      "documents": [
+        {
+          "id": "foo",
+          "metadata": {
+            "title": "Foo framework"
+          }
+        },
+        {
+          "id": "foo-2026",
+          "metadata": {
+            "title": "Foo outlook for 2026"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "foo": "foo",
+        "foo-2026": "foo-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "year suffix: foo-2026 with an equal title joins foo",
+      "documents": [
+        {
+          "id": "bar",
+          "metadata": {
+            "title": "Bar"
+          }
+        },
+        {
+          "id": "bar-2026",
+          "metadata": {
+            "title": "Bar"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "bar": "bar",
+        "bar-2026": "bar"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "two distinct docs titled AI Policy Bulletin stay separate (title_collision)",
+      "documents": [
+        {
+          "id": "ai-policy-bulletin-march-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "AI Policy Bulletin"
+          }
+        },
+        {
+          "id": "ai-policy-bulletin-april-2026",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "AI Policy Bulletin"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "ai-policy-bulletin-april-2026": "ai-policy-bulletin-april-2026",
+        "ai-policy-bulletin-march-2026": "ai-policy-bulletin-march-2026"
+      },
+      "expected_title_collisions": [
+        [
+          "ai-policy-bulletin-april-2026",
+          "ai-policy-bulletin-march-2026"
+        ]
+      ]
+    },
+    {
+      "name": "non-ASCII titles that reduce to the same ASCII key stay separate (title_collision)",
+      "documents": [
+        {
+          "id": "zh-policy-2026",
+          "metadata": {
+            "title": "政策 2026"
+          }
+        },
+        {
+          "id": "zh-rules-2026",
+          "metadata": {
+            "title": "规则 2026"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "zh-policy-2026": "zh-policy-2026",
+        "zh-rules-2026": "zh-rules-2026"
+      },
+      "expected_title_collisions": [
+        [
+          "zh-policy-2026",
+          "zh-rules-2026"
+        ]
+      ]
+    },
+    {
+      "name": "missing titles do not fall back to the id (no title_collision)",
+      "documents": [
+        {
+          "id": "ai-act-2026",
+          "metadata": {}
+        },
+        {
+          "id": "aiact-2026",
+          "metadata": {}
+        }
+      ],
+      "expected_canonical": {
+        "ai-act-2026": "ai-act-2026",
+        "aiact-2026": "aiact-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "equal titles inside one group are not reported",
+      "documents": [
+        {
+          "id": "nu-2026",
+          "metadata": {
+            "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "title": "Nu"
+          }
+        },
+        {
+          "id": "nu-mirror-2026",
+          "metadata": {
+            "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "title": "Nu"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "nu-2026": "nu-2026",
+        "nu-mirror-2026": "nu-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "REAL: 7 query-string documents stay distinct",
+      "documents": [
+        {
+          "id": "ai-triad-dialogue-across-differences-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "extracted",
+                "id": "https://www.youtube.com/watch?v=kGa0ZPFsRuo",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://www.youtube.com/watch?v=kGa0ZPFsRuo",
+            "title": "AI Triad: A Dialogue Across Differences",
+            "url": "https://www.youtube.com/watch?v=kGa0ZPFsRuo"
+          },
+          "snapshot_sha256": "e75e4fd8bc8134327f646b8ab47390feed29f67e2fc9fd3f3b8823a9014f1114"
+        },
+        {
+          "id": "artificial-intelligence-index-report-2025-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://www.youtube.com/watch?v=D03EJhztsHQ",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://www.youtube.com/watch?v=D03EJhztsHQ",
+            "title": "Artificial Intelligence Index Report 2025",
+            "url": "https://www.youtube.com/watch?v=D03EJhztsHQ"
+          },
+          "snapshot_sha256": "6ece2627b861f7c47fc84300a22621741ed133bca5afc719860a405600dbd6b8"
+        },
+        {
+          "id": "ai-agent-published-hit-piece-me-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://news.ycombinator.com/item?id=47051956",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://news.ycombinator.com/item?id=47051956",
+            "title": "An AI Agent Published a Hit Piece on Me",
+            "url": "https://news.ycombinator.com/item?id=47051956"
+          },
+          "snapshot_sha256": "c1e9b01c1284a78566eee67c2442460a3cdec3ac9e59dad9326c5bfe3a674186"
+        },
+        {
+          "id": "evaluating-impact-ai-labor-market-current-state-affairs-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://news.ycombinator.com/item?id=45442743",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://news.ycombinator.com/item?id=45442743",
+            "title": "Evaluating the Impact of AI on the Labor Market: Current State of Affairs",
+            "url": "https://news.ycombinator.com/item?id=45442743"
+          },
+          "snapshot_sha256": "9af84407ee2ca175142bb1f455cd60305baafdc4631c3c10f367e987780aeb5d"
+        },
+        {
+          "id": "baumols-cost-disease-long-term-economic-implications-where-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://scholar.google.com/citations?user=BRgvWnYAAAAJ&hl=zh-CN",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://scholar.google.com/citations?user=BRgvWnYAAAAJ&hl=zh-CN",
+            "title": "Baumolâ€™s cost disease: long-term economic implications where machines cannot replace humans",
+            "url": ""
+          },
+          "snapshot_sha256": "d22356af01fad5eaf4a2ee602c924ddb008655a9ef822382247382ab3cd40ce4"
+        },
+        {
+          "id": "dreyfus-revisited-third-wave-artificial-intelligence-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://scholar.google.com/citations?user=1WkJuxsAAAAJ&hl=en",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://scholar.google.com/citations?user=1WkJuxsAAAAJ&hl=en",
+            "title": "Dreyfus Revisited for the Third Wave of Artificial Intelligence",
+            "url": ""
+          },
+          "snapshot_sha256": "e4ba8aaf9f8038e0733737031dc04b29d04f8740d31ddbd816b0dd44459d3e79"
+        },
+        {
+          "id": "generative-ai-copyright-training-creation-regulation-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://scholar.google.com/citations?user=zGF9xYcAAAAJ&hl=en",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://scholar.google.com/citations?user=zGF9xYcAAAAJ&hl=en",
+            "title": "Generative AI and Copyright: Training, Creation, Regulation",
+            "url": ""
+          },
+          "snapshot_sha256": "9805c9992a91bbd7fa8cdc97870457eb396bf81b4f3d1eed002b6f175b6aa41e"
+        }
+      ],
+      "expected_canonical": {
+        "ai-agent-published-hit-piece-me-2026": "ai-agent-published-hit-piece-me-2026",
+        "ai-triad-dialogue-across-differences-2026": "ai-triad-dialogue-across-differences-2026",
+        "artificial-intelligence-index-report-2025-2026": "artificial-intelligence-index-report-2025-2026",
+        "baumols-cost-disease-long-term-economic-implications-where-2026": "baumols-cost-disease-long-term-economic-implications-where-2026",
+        "dreyfus-revisited-third-wave-artificial-intelligence-2026": "dreyfus-revisited-third-wave-artificial-intelligence-2026",
+        "evaluating-impact-ai-labor-market-current-state-affairs-2026": "evaluating-impact-ai-labor-market-current-state-affairs-2026",
+        "generative-ai-copyright-training-creation-regulation-2026": "generative-ai-copyright-training-creation-regulation-2026"
+      },
+      "expected_title_collisions": []
+    },
+    {
+      "name": "REAL: eight-ways (7 docs, 2 outlets) collapses to one",
+      "documents": [
+        {
+          "id": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/",
+            "title": "Eight ways AI will shape geopolitics in 2026",
+            "url": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/"
+          },
+          "snapshot_sha256": "08eba201cc1ac67708a17c32eb499c0f4b032e64bdcbc48de3a6d824e93138d8"
+        },
+        {
+          "id": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://etcjournal.com/2026/02/05/whither-ai-in-2026-14-insights/",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://etcjournal.com/2026/02/05/whither-ai-in-2026-14-insights/",
+            "title": "Eight ways AI will shape geopolitics in 2026",
+            "url": "https://etcjournal.com/2026/02/05/whither-ai-in-2026-14-insights/"
+          },
+          "snapshot_sha256": "08eba201cc1ac67708a17c32eb499c0f4b032e64bdcbc48de3a6d824e93138d8"
+        },
+        {
+          "id": "eight-ways-ai-will-shape-geopolitics-2026-2026-2",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/",
+            "title": "Eight ways AI will shape geopolitics in 2026",
+            "url": "https://www.brookings.edu/articles/artificial-intelligence-and-the-future-of-geopolitics/"
+          },
+          "snapshot_sha256": "08eba201cc1ac67708a17c32eb499c0f4b032e64bdcbc48de3a6d824e93138d8"
+        },
+        {
+          "id": "eight-ways-ai-will-shape-geopolitics-2026-2026-3",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://etcjournal.com/2026/02/05/whither-ai-in-2026-14-insights/",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://etcjournal.com/2026/02/05/whither-ai-in-2026-14-insights/",
+            "title": "Eight ways AI will shape geopolitics in 2026",
+            "url": "https://etcjournal.com/2026/02/05/whither-ai-in-2026-14-insights/"
+          },
+          "snapshot_sha256": "08eba201cc1ac67708a17c32eb499c0f4b032e64bdcbc48de3a6d824e93138d8"
+        },
+        {
+          "id": "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/",
+            "title": "Eight ways AI will shape geopolitics in 2026   Atlantic Council",
+            "url": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/"
+          },
+          "snapshot_sha256": "08eba201cc1ac67708a17c32eb499c0f4b032e64bdcbc48de3a6d824e93138d8"
+        },
+        {
+          "id": "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-1",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/",
+            "title": "Eight ways AI will shape geopolitics in 2026   Atlantic Council",
+            "url": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/"
+          },
+          "snapshot_sha256": "419e8354fe13c0ef4cafb47671faab7f4b8849c05393f541214a7f860f99d326"
+        },
+        {
+          "id": "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-2",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "search",
+                "id": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/",
+                "scheme": "url"
+              }
+            ],
+            "resolved_url": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/",
+            "title": "Eight ways AI will shape geopolitics in 2026   Atlantic Council",
+            "url": "https://www.atlanticcouncil.org/dispatches/eight-ways-ai-will-shape-geopolitics-in-2026/"
+          },
+          "snapshot_sha256": "08eba201cc1ac67708a17c32eb499c0f4b032e64bdcbc48de3a6d824e93138d8"
+        }
+      ],
+      "expected_canonical": {
+        "eight-ways-ai-will-shape-geopolitics-2026-2026": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+        "eight-ways-ai-will-shape-geopolitics-2026-2026-1": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+        "eight-ways-ai-will-shape-geopolitics-2026-2026-2": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+        "eight-ways-ai-will-shape-geopolitics-2026-2026-3": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+        "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+        "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-1": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+        "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-2": "eight-ways-ai-will-shape-geopolitics-2026-2026"
+      },
+      "expected_title_collisions": []
+    }
+  ]
+}
