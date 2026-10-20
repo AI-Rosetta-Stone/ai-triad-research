@@ -36,6 +36,9 @@ jobs:
   signed-in-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # SO C2 (#3497, PI "yes to both"): SMOKE_GH_TOKEN lives only in this environment, whose
+    # deployment-branch rule is `main` only, so a dispatch from any other branch can't read it.
+    environment: auth-smoke
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
