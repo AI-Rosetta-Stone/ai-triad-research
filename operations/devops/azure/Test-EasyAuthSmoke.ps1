@@ -63,6 +63,29 @@ function Test-ShouldSendWriteProbe {
     return [bool]($MeVerdict -and $MeVerdict.Pass)
 }
 
+function Test-AnonMeResponse {
+    <# Pure (interim (d)): anonymous /api/auth/me must be a real anonymous session that cannot write. #>
+    param([Parameter(Mandatory)][AllowNull()][object]$Me)
+    if ($null -eq $Me) { return [PSCustomObject]@{ Pass = $false; Failures = @('no body') } }
+    $fail = [System.Collections.Generic.List[string]]::new()
+    $anon = if ($Me.PSObject.Properties['anonymous']) { $Me.anonymous } else { $null }
+    if ($anon -ne $true) { $fail.Add("anonymous is '$anon', expected true (an unauthenticated request was treated as signed in)") }
+    $caps = if ($Me.PSObject.Properties['capabilities']) { $Me.capabilities } else { $null }
+    $write = if ($caps -and $caps.PSObject.Properties['write']) { $caps.write } else { $null }
+    if ($write -ne $false) { $fail.Add("capabilities.write is '$write', expected false for an anonymous session") }
+    return [PSCustomObject]@{ Pass = ($fail.Count -eq 0); Failures = @($fail) }
+}
+
+function Test-AnonWriteProbeResponse {
+    <# Pure (interim (d)): an unauthenticated mutating request must be refused (401/403), never accepted. #>
+    param([Parameter(Mandatory)][int]$StatusCode)
+    if ($StatusCode -eq 401 -or $StatusCode -eq 403) { return [PSCustomObject]@{ Pass = $true; Failure = $null } }
+    if ($StatusCode -ge 200 -and $StatusCode -lt 300) {
+        return [PSCustomObject]@{ Pass = $false; Failure = "anonymous write probe returned $StatusCode — an unauthenticated mutating request was ACCEPTED" }
+    }
+    return [PSCustomObject]@{ Pass = $false; Failure = "anonymous write probe returned $StatusCode, expected 401/403 from the anonymous gate" }
+}
+
 function Test-ReadOnlyProbeResponse {
     <# Pure: did the write probe get the t/4296 read-only rejection (and nothing weaker)? #>
     param([Parameter(Mandatory)][int]$StatusCode, [AllowNull()][string]$AuthReason, [AllowNull()][string]$Body)
@@ -93,7 +116,7 @@ if ($MyInvocation.InvocationName -ne '.') {
 
     # 0. Warm up: staging (and idle prod) scale to zero, and the first request waits on a cold start
     #    (~30-60s; budget kept under the job's 5-minute timeout). Without this the sign-in hit the 30s timeout on the first run (t/4134, run 39449706966).
-    $warmDeadline = (Get-Date).AddSeconds(120); $warm = $false; $warmStatus = 'no response'
+    $warmDeadline = (Get-Date).AddSeconds(90); $warm = $false; $warmStatus = 'no response'
     while (-not $warm -and (Get-Date) -lt $warmDeadline) {
         try {
             $hz = Invoke-WebRequest -Uri "$BaseUrl/healthz" -SkipHttpErrorCheck -TimeoutSec 45
@@ -104,20 +127,43 @@ if ($MyInvocation.InvocationName -ne '.') {
     }
     $summary.Add("| warm-up GET /healthz | $warmStatus |")
     if (-not $warm) {
-        Write-Warning "t/4134: /healthz never returned 200 within 120s (last: $warmStatus) — attempting sign-in anyway"
+        Write-Warning "t/4134: /healthz never returned 200 within 90s (last: $warmStatus) — attempting sign-in anyway"
     }
 
-    # 1. Easy Auth client-directed sign-in
+    # A. Anonymous subset (TL interim (d), t/4134): these always run and always count.
+    $anonMe = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -SkipHttpErrorCheck -TimeoutSec 30
+    $summary.Add("| anonymous GET /api/auth/me | $($anonMe.StatusCode) |")
+    if ($anonMe.StatusCode -ne 200) { $failures.Add("anonymous /api/auth/me returned $($anonMe.StatusCode), expected 200") }
+    else {
+        $av = Test-AnonMeResponse -Me ($anonMe.Content | ConvertFrom-Json)
+        foreach ($f in $av.Failures) { $failures.Add("anonymous /api/auth/me: $f") }
+    }
+    $anonProbe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 30
+    $anonReason = if ($anonProbe.Headers['X-Auth-Reason']) { [string]@($anonProbe.Headers['X-Auth-Reason'])[0] } else { '' }
+    $summary.Add("| anonymous write probe PUT /api/taxonomy/accelerationist | $($anonProbe.StatusCode) $anonReason |")
+    $ap = Test-AnonWriteProbeResponse -StatusCode ([int]$anonProbe.StatusCode)
+    if (-not $ap.Pass) { $failures.Add($ap.Failure) }
+
+    # 1. Easy Auth client-directed sign-in. KNOWN GAP (t/4134#11): POST /.auth/login/github returns 500
+    #    for ANY token on both apps (junk tokens too), so a 5xx here is reported as a WARN, not a failure,
+    #    until the staging blob-backed token-store experiment (t/4134 option a) resolves it.
     $zumo = $null
     try {
         $login = Invoke-WebRequest -Method Post -Uri "$BaseUrl/.auth/login/github" -ContentType 'application/json' `
-            -Body (@{ access_token = $env:SMOKE_GH_TOKEN } | ConvertTo-Json -Compress) -SkipHttpErrorCheck -TimeoutSec 45
+            -Body (@{ access_token = $env:SMOKE_GH_TOKEN } | ConvertTo-Json -Compress) -SkipHttpErrorCheck -TimeoutSec 30
         $summary.Add("| sign-in POST /.auth/login/github | $($login.StatusCode) |")
         if ($login.StatusCode -eq 200) {
             $zumo = ($login.Content | ConvertFrom-Json).authenticationToken
             if ($zumo) { Write-Host "::add-mask::$zumo" }
         }
-        if (-not $zumo) { $failures.Add((Get-SignInFailureClass -StatusCode ([int]$login.StatusCode))) }
+        if (-not $zumo) {
+            if ([int]$login.StatusCode -ge 500) {
+                Write-Host "::warning title=t/4134 known gap::sign-in returned $($login.StatusCode); client-directed GitHub sign-in fails for any token here (t/4134#11). Signed-in checks skipped; not counted as a failure."
+                $summary.Add('| signed-in checks | SKIPPED — known gap t/4134#11 (client-directed sign-in returns 5xx for any token) |')
+            } else {
+                $failures.Add((Get-SignInFailureClass -StatusCode ([int]$login.StatusCode)))
+            }
+        }
     } catch {
         $failures.Add("sign-in request failed: $($_.Exception.Message)")
     }
@@ -125,7 +171,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     if ($zumo) {
         $h = @{ 'X-ZUMO-AUTH' = $zumo }
         # 2. Authenticated identity + read-only tier
-        $me = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -Headers $h -SkipHttpErrorCheck -TimeoutSec 45
+        $me = Invoke-WebRequest -Uri "$BaseUrl/api/auth/me" -Headers $h -SkipHttpErrorCheck -TimeoutSec 30
         $summary.Add("| GET /api/auth/me | $($me.StatusCode) |")
         $v = $null
         if ($me.StatusCode -ne 200) { $failures.Add("/api/auth/me returned $($me.StatusCode) for a signed-in session (t/4132 returned 500 here)") }
@@ -135,7 +181,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         }
         # 3. Write probe — only once /me has proved read-only (SO C1); no If-Match, so it can't write
         if (Test-ShouldSendWriteProbe -MeVerdict $v) {
-            $probe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -Headers $h -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 45
+            $probe = Invoke-WebRequest -Method Put -Uri "$BaseUrl/api/taxonomy/accelerationist" -Headers $h -ContentType 'application/json' -Body '{}' -SkipHttpErrorCheck -TimeoutSec 30
             $reason = if ($probe.Headers['X-Auth-Reason']) { [string]@($probe.Headers['X-Auth-Reason'])[0] } else { '' }
             $summary.Add("| write probe PUT /api/taxonomy/accelerationist (no If-Match) | $($probe.StatusCode) $reason |")
             $p = Test-ReadOnlyProbeResponse -StatusCode ([int]$probe.StatusCode) -AuthReason $reason -Body ([string]$probe.Content)

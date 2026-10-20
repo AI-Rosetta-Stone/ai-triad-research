@@ -78,6 +78,35 @@ Describe 'Get-SignInFailureClass — token rejected vs t/4132 outage (t/4134, SO
     }
 }
 
+Describe 'Anonymous subset — interim (d) (t/4134)' {
+    It 'PASS: anonymous /me (live staging shape: anonymous true, write false)' {
+        $me = '{"user":"_anonymous","idp":"","anonymous":true,"readOnly":false,"capabilities":{"ai":false,"write":false}}' | ConvertFrom-Json
+        (Test-AnonMeResponse -Me $me).Pass | Should -BeTrue
+    }
+    It 'FIRE: an unauthenticated request reported as signed in' {
+        $me = '{"user":"someone","anonymous":false,"capabilities":{"write":true}}' | ConvertFrom-Json
+        (Test-AnonMeResponse -Me $me).Pass | Should -BeFalse
+    }
+    It 'FIRE: anonymous but write true' {
+        $me = '{"anonymous":true,"capabilities":{"write":true}}' | ConvertFrom-Json
+        (Test-AnonMeResponse -Me $me).Pass | Should -BeFalse
+    }
+    It 'PASS: anonymous write probe 401 (live staging: no_session)' {
+        (Test-AnonWriteProbeResponse -StatusCode 401).Pass | Should -BeTrue
+    }
+    It 'PASS: anonymous write probe 403' {
+        (Test-AnonWriteProbeResponse -StatusCode 403).Pass | Should -BeTrue
+    }
+    It 'FIRE: anonymous write probe accepted (2xx)' {
+        $r = Test-AnonWriteProbeResponse -StatusCode 200
+        $r.Pass | Should -BeFalse; $r.Failure | Should -Match 'ACCEPTED'
+    }
+    It 'FIRE: anonymous write probe 428/500 (not the anonymous gate)' {
+        (Test-AnonWriteProbeResponse -StatusCode 428).Pass | Should -BeFalse
+        (Test-AnonWriteProbeResponse -StatusCode 500).Pass | Should -BeFalse
+    }
+}
+
 Describe 'Test-ReadOnlyProbeResponse (t/4134)' {
     It 'PASS: 403 with X-Auth-Reason read_only' {
         (Test-ReadOnlyProbeResponse -StatusCode 403 -AuthReason 'read_only' -Body '').Pass | Should -BeTrue
