@@ -1,0 +1,658 @@
+{
+  "data_revision": "7dc19c88",
+  "survivors": [
+    {
+      "group": "G1",
+      "survivor": "skp-intentions-146",
+      "superseded": [
+        "skp-intentions-153"
+      ],
+      "add_refs": {
+        "debate_refs": [
+          "f9c54c70-dfc3-4255-b125-0c49da39c519"
+        ],
+        "situation_refs": [
+          "sit-219",
+          "sit-365",
+          "sit-374"
+        ],
+        "concept_refs": [
+          {
+            "ref": "term:accountability_algorithmic",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5621,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:deployment_gated",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5743,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:governance_oversight",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.6062,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:oversight_audit",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.6702,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:regulation_precautionary",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5801,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:transparency_verification",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.6252,
+            "status": "proposed"
+          }
+        ]
+      },
+      "add_edges": [
+        {
+          "source": "skp-intentions-146",
+          "target": "skp-intentions-097",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.95,
+          "rationale": "The implementation of performance-gated auditing is a specific, actionable mechanism that directly supports the broader intention of establishing lifecycle oversight.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-16",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.9,
+          "strength": "strong",
+          "copied_from": {
+            "source": "skp-intentions-153",
+            "target": "skp-intentions-097"
+          }
+        },
+        {
+          "source": "skp-intentions-146",
+          "target": "skp-intentions-133",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "Performance-gated auditing serves as one of the key independent oversight modalities required to prevent regulatory capture and ensure robust verification.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-16",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.7,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "skp-intentions-153",
+            "target": "skp-intentions-133"
+          }
+        },
+        {
+          "source": "skp-intentions-146",
+          "target": "sit-164",
+          "type": "INTERPRETS",
+          "bidirectional": false,
+          "confidence": 0.95,
+          "rationale": "The source node provides a concrete policy implementation (auditing) for the concept of performance-gated safety investment.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-16",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.8,
+          "strength": "strong",
+          "copied_from": {
+            "source": "skp-intentions-153",
+            "target": "sit-164"
+          }
+        },
+        {
+          "source": "skp-intentions-146",
+          "target": "sit-046",
+          "type": "INTERPRETS",
+          "bidirectional": false,
+          "confidence": 0.9,
+          "rationale": "The source node applies the concept of 'rules by power level' by specifically proposing tiered, performance-gated auditing as the mechanism for enforcement.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-16",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.7,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "skp-intentions-153",
+            "target": "sit-046"
+          }
+        },
+        {
+          "source": "skp-intentions-146",
+          "target": "saf-intentions-005",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "The source node's proposal for independent auditing aligns with the safetyist goal of institutionalizing adversarial oversight to ensure technical integrity.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-16",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.7,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "skp-intentions-153",
+            "target": "saf-intentions-005"
+          }
+        },
+        {
+          "source": "saf-intentions-225",
+          "target": "skp-intentions-146",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "The PrIME-LLM methodology could provide the objective, multi-domain performance metrics necessary to establish the 'performance-gated' thresholds for independent AI auditing.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-27T15:59:07.458Z",
+          "model": "gemini-2.5-flash",
+          "strength": "moderate",
+          "copied_from": {
+            "source": "saf-intentions-225",
+            "target": "skp-intentions-153"
+          }
+        },
+        {
+          "source": "acc-desires-042",
+          "target": "skp-intentions-146",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.9,
+          "rationale": "The desire for actionability as an evaluation metric (acc-desires-042) strongly supports the skeptic intention to implement performance-gated independent AI auditing (skp-intentions-153), as both prioritize practical, empirically validated, and governance-focused assessment.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-27T15:59:57.821Z",
+          "model": "gemini-2.5-flash",
+          "strength": "strong",
+          "copied_from": {
+            "source": "acc-desires-042",
+            "target": "skp-intentions-153"
+          }
+        },
+        {
+          "source": "acc-desires-042",
+          "target": "skp-intentions-146",
+          "type": "TENSION_WITH",
+          "bidirectional": true,
+          "confidence": 0.75,
+          "rationale": "The source node advocates for funding efficiency and practical utility, which may conflict with the bureaucratic and potentially resource-heavy nature of performance-gated independent auditing.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-06-27",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.6,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "acc-desires-042",
+            "target": "skp-intentions-153"
+          }
+        },
+        {
+          "source": "skp-beliefs-279",
+          "target": "skp-intentions-146",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "The belief that inspection is non-functional without evidence access supports the intention to implement performance-gated audits that mandate such access as a prerequisite.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-07-20",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.7,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "skp-beliefs-279",
+            "target": "skp-intentions-153"
+          }
+        },
+        {
+          "source": "skp-beliefs-286",
+          "target": "skp-intentions-146",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.9,
+          "rationale": "The structural critique that post-deployment auditing is rendered circular by feedback loops directly justifies and supports the necessity of implementing performance-gated independent AI auditing.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.85,
+          "strength": "strong",
+          "copied_from": {
+            "source": "skp-beliefs-286",
+            "target": "skp-intentions-153"
+          }
+        }
+      ],
+      "dropped_self_loops": 0
+    },
+    {
+      "group": "G2",
+      "survivor": "skp-intentions-152",
+      "superseded": [
+        "skp-intentions-151"
+      ],
+      "add_refs": {},
+      "add_edges": [
+        {
+          "source": "skp-intentions-152",
+          "target": "skp-beliefs-045",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.95,
+          "rationale": "The intention to enforce financial chokepoints is a direct policy response to the documented harms of generative AI content described in this belief node.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-16",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.9,
+          "strength": "strong",
+          "copied_from": {
+            "source": "skp-intentions-151",
+            "target": "skp-beliefs-045"
+          }
+        },
+        {
+          "source": "skp-intentions-152",
+          "target": "skp-desires-009",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "Defunding and deplatforming deepfake operations is a practical mechanism to protect voice identity as an inviolable right.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-16",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.7,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "skp-intentions-151",
+            "target": "skp-desires-009"
+          }
+        },
+        {
+          "source": "sit-175",
+          "target": "skp-intentions-152",
+          "type": "WEAKENS",
+          "bidirectional": false,
+          "confidence": 0.8,
+          "rationale": "The source node argues that financial chokepoints are ineffective against unmonetized, crypto-funded offshore mirrors, directly undermining the skeptic intention to rely on financial chokepoint obligations for deepfake ecosystems.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "approved",
+          "discovered_at": "2026-06-18",
+          "model": "gemini-3.1-flash-lite",
+          "weight": 0.8,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "sit-175",
+            "target": "skp-intentions-151"
+          }
+        }
+      ],
+      "dropped_self_loops": 0
+    },
+    {
+      "group": "G3",
+      "survivor": "skp-desires-089",
+      "superseded": [
+        "skp-desires-090"
+      ],
+      "add_refs": {
+        "debate_refs": [
+          "706ad547-72a2-47d7-9791-5da0e3b7475f"
+        ]
+      },
+      "add_edges": [
+        {
+          "source": "skp-desires-089",
+          "target": "skp-beliefs-118",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "Prohibiting commercial relational simulation aligns directly with the broader skeptic belief that AI creates socially harmful outputs despite any superficial utility.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.7,
+          "strength": "strong",
+          "copied_from": {
+            "source": "skp-desires-090",
+            "target": "skp-beliefs-118"
+          }
+        },
+        {
+          "source": "skp-beliefs-299",
+          "target": "skp-desires-089",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.9,
+          "weight": 0.9,
+          "status": "proposed",
+          "discovered_at": "2026-08-01T11:00:03.001Z",
+          "model": "debate-reflection",
+          "rationale": "Believing that commercial companions manufacture psychological dependency directly justifies the policy desire to ban child-facing relational simulation by establishing the harm that makes statutory prohibition necessary.",
+          "rationale_source": "t4278-supersede-copy",
+          "copied_from": {
+            "source": "skp-beliefs-299",
+            "target": "skp-desires-090"
+          }
+        }
+      ],
+      "dropped_self_loops": 0
+    },
+    {
+      "group": "G4",
+      "survivor": "saf-beliefs-250",
+      "superseded": [
+        "saf-beliefs-251"
+      ],
+      "add_refs": {
+        "debate_refs": [
+          "488de8a5-8547-4bce-bfac-0b79b129ec3b"
+        ]
+      },
+      "add_edges": [
+        {
+          "source": "saf-beliefs-250",
+          "target": "saf-intentions-104",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "Identifying the surveillance gap in AI toys provides a concrete empirical justification for mandating child protection across the entire AI lifecycle, including physical hardware.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.8,
+          "strength": "strong",
+          "copied_from": {
+            "source": "saf-beliefs-251",
+            "target": "saf-intentions-104"
+          }
+        },
+        {
+          "source": "saf-beliefs-250",
+          "target": "skp-beliefs-290",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.95,
+          "rationale": "Both nodes articulate the exact same core belief regarding the oversight gap for ambient hardware surveillance in smart toys, reinforcing each other across safetyist and skeptic discourse.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.9,
+          "strength": "strong",
+          "copied_from": {
+            "source": "saf-beliefs-251",
+            "target": "skp-beliefs-290"
+          }
+        },
+        {
+          "source": "saf-intentions-237",
+          "target": "saf-beliefs-250",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.95,
+          "rationale": "The source intention of mandating hardware-level data governance directly operationalizes the core argument of the belief node that current regulations suffer from a hardware sensor stack governance gap.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.9,
+          "copied_from": {
+            "source": "saf-intentions-237",
+            "target": "saf-beliefs-251"
+          }
+        }
+      ],
+      "dropped_self_loops": 0
+    },
+    {
+      "group": "G5",
+      "survivor": "saf-intentions-235",
+      "superseded": [
+        "saf-intentions-236"
+      ],
+      "add_refs": {
+        "debate_refs": [
+          "3b066483-3cf9-483e-a141-953d6fa231e5"
+        ]
+      },
+      "add_edges": [
+        {
+          "source": "skp-beliefs-296",
+          "target": "saf-intentions-235",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "The belief that educational IoT devices accumulate sensitive profiles and pose high-impact breach vulnerabilities directly supports the regulatory intention to mandate hardware-level data governance for children's connected devices.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.9,
+          "strength": "strong",
+          "copied_from": {
+            "source": "skp-beliefs-296",
+            "target": "saf-intentions-236"
+          }
+        },
+        {
+          "source": "saf-intentions-235",
+          "target": "skp-beliefs-293",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "rationale": "Mandating hardware-level data governance provides the concrete regulatory mechanism that directly supports the belief that software encryption alone is insufficient without isolated silicon architecture.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.8,
+          "strength": "strong",
+          "copied_from": {
+            "source": "saf-intentions-236",
+            "target": "skp-beliefs-293"
+          }
+        },
+        {
+          "source": "saf-intentions-235",
+          "target": "skp-intentions-007",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.8,
+          "rationale": "Focusing regulatory regimes specifically on the hardware sensor stack of children's connected devices aligns with and supports the broader skeptic intention to regulate AI by specific socio-technical use cases.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.7,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "saf-intentions-236",
+            "target": "skp-intentions-007"
+          }
+        },
+        {
+          "source": "saf-intentions-235",
+          "target": "sit-046",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.75,
+          "rationale": "Proposing hardware-level constraints for children's devices serves as an instance of tiered security and safety rules applied to specific device categories.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.6,
+          "strength": "moderate",
+          "copied_from": {
+            "source": "saf-intentions-236",
+            "target": "sit-046"
+          }
+        }
+      ],
+      "dropped_self_loops": 0
+    },
+    {
+      "group": "G6",
+      "survivor": "acc-beliefs-111",
+      "superseded": [
+        "acc-beliefs-112"
+      ],
+      "add_refs": {
+        "debate_refs": [
+          "e9af2f30-c8b7-4030-9992-bf5c9e8dd26b"
+        ]
+      },
+      "add_edges": [],
+      "dropped_self_loops": 0
+    },
+    {
+      "group": "G7",
+      "survivor": "acc-beliefs-116",
+      "superseded": [
+        "acc-beliefs-117"
+      ],
+      "add_refs": {},
+      "add_edges": [
+        {
+          "source": "acc-beliefs-116",
+          "target": "sit-409",
+          "type": "INTERPRETS",
+          "bidirectional": false,
+          "confidence": 0.9,
+          "status": "proposed",
+          "discovered_at": "2026-08-08",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.85,
+          "rationale": "The accelerationist belief analyzes how automated compliance monitoring metrics fail when turned into optimization targets, diagnosing a fundamental flaw in the target's algorithmic approach to regulation.",
+          "rationale_source": "t4278-supersede-copy",
+          "copied_from": {
+            "source": "acc-beliefs-117",
+            "target": "sit-409"
+          }
+        },
+        {
+          "source": "acc-beliefs-116",
+          "target": "saf-intentions-002",
+          "type": "TENSION_WITH",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "status": "proposed",
+          "discovered_at": "2026-08-08",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.8,
+          "rationale": "The accelerationist source argues that static compliance thresholds inevitably become gamed optimization targets, directly undermining the safetyist target's reliance on dynamic metrics to govern remediation speed.",
+          "rationale_source": "t4278-supersede-copy",
+          "copied_from": {
+            "source": "acc-beliefs-117",
+            "target": "saf-intentions-002"
+          }
+        },
+        {
+          "source": "acc-beliefs-116",
+          "target": "sit-139",
+          "type": "INTERPRETS",
+          "bidirectional": false,
+          "confidence": 0.8,
+          "status": "proposed",
+          "discovered_at": "2026-08-08",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.75,
+          "rationale": "The accelerationist belief that fixed compliance metrics inevitably become adversarial targets provides the theoretical diagnosis for why governance systems regress into treating administrative checkpoints as the primary end goal, as captured by procedure fetish.",
+          "rationale_source": "t4278-supersede-copy",
+          "copied_from": {
+            "source": "acc-beliefs-117",
+            "target": "sit-139"
+          }
+        }
+      ],
+      "dropped_self_loops": 0
+    },
+    {
+      "group": "G8",
+      "survivor": "acc-beliefs-119",
+      "superseded": [
+        "acc-beliefs-118"
+      ],
+      "add_refs": {
+        "debate_refs": [
+          "2306fafc-6d5e-4387-beee-f1ecc900b7ce"
+        ],
+        "situation_refs": [
+          "sit-439",
+          "sit-472"
+        ]
+      },
+      "add_edges": [
+        {
+          "source": "acc-beliefs-119",
+          "target": "skp-beliefs-299",
+          "type": "RESPONDS_TO",
+          "bidirectional": false,
+          "confidence": 0.8,
+          "status": "proposed",
+          "discovered_at": "2026-08-08",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.85,
+          "strength": "strong",
+          "rationale": "The source belief proposes targeted runtime filters specifically to counteract the manufactured psychological dependency and engagement-driven extraction identified in the target.",
+          "rationale_source": "t4278-supersede-copy",
+          "copied_from": {
+            "source": "acc-beliefs-118",
+            "target": "skp-beliefs-299"
+          }
+        },
+        {
+          "source": "acc-beliefs-119",
+          "target": "saf-desires-011",
+          "type": "TENSION_WITH",
+          "bidirectional": true,
+          "confidence": 0.75,
+          "status": "proposed",
+          "discovered_at": "2026-08-08",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.7,
+          "strength": "moderate",
+          "rationale": "While the target demands strict prevention of all psychological harm, the source seeks only runtime output filters to manage dependency so pre-market architectural bans can be avoided. This creates tension because relying on output filtering inherently permits potential psychological risks that a zero-harm mandate would otherwise prohibit.",
+          "rationale_source": "t4278-supersede-copy",
+          "copied_from": {
+            "source": "acc-beliefs-118",
+            "target": "saf-desires-011"
+          }
+        }
+      ],
+      "dropped_self_loops": 0
+    }
+  ],
+  "held": [
+    {
+      "group": "G5",
+      "survivor": "saf-intentions-235",
+      "held_ids": [
+        "saf-intentions-237"
+      ],
+      "why": "saf-intentions-237 is held for the editorial pass with G7 (SO Q3). CL check: 235 is the better survivor text (it names microphone, camera and network, and states the contrast with the language model); 237 is the vaguer restatement with the same Encompasses/Excludes. Recommend retiring 237 into 235; the PI confirms."
+    }
+  ]
+}
