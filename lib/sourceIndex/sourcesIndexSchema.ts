@@ -28,6 +28,12 @@
  * every key's presence meaningful (a reader checks `'title' in entry`, not
  * `entry.title !== null`).
  *
+ * **`content_sha256` vs `snapshot_sha256` (v2):** the index keeps the
+ * recorded-vs-computed hash distinction the live algorithm depends on
+ * (`SourceIdentityDoc.metadata.content_sha256` vs `.snapshotSha256`,
+ * `docs/specs/source-identity.md` section 4.0/4.4) — never merge them into
+ * one field. Only a recorded hash may veto a suffix edge.
+ *
  * **Exclusions:** source directories whose name starts with `.` or `_`
  * (`.git`, `.claude`, `_inbox`) are skipped entirely — not indexed, not
  * counted.
@@ -76,14 +82,24 @@ export interface SourcesIndexEntry {
   topic_tags?: string[];
 
   // ── Identity fields (docs/specs/source-identity.md) ──
-  /** The recorded `content_sha256` from `metadata.json`, or else the spec
-   *  section-1 hash computed from `snapshot.md` — omitted (not `null`) when
-   *  neither is available: an empty/placeholder body, or (spec 1.3 v4) a
-   *  body under the 100-word floor. A reader must NOT fall back to treating
-   *  this doc's hash as "equal to every other hash-less doc" — absent means
-   *  no hash identity, same as the live `SourceIdentityMeta.content_sha256`
-   *  contract in `types.ts`. */
+  /** The *recorded* `content_sha256` from `metadata.json` (spec section 0) —
+   *  omitted, never present from a computed fallback. Only a recorded hash
+   *  may veto a suffix edge (spec 4.4 rule 3); a computed one must not, since
+   *  conversion-noise copies of the same document can hash differently when
+   *  computed. Collapsing the two into one field (an earlier draft of this
+   *  schema did) would silently disable that protection for every reader —
+   *  caught before #3558 shipped, PowerShell p/783#12. */
   content_sha256?: string;
+  /** The spec section-1 hash computed from `snapshot.md`, used **only** when
+   *  `content_sha256` is absent (spec 4.0's "no recorded hash" case — today,
+   *  before t/4337's backfill runs, this is every document in the corpus).
+   *  Maps directly onto `SourceIdentityDoc.snapshotSha256` in `types.ts` —
+   *  same name as the shared fixture's own `snapshot_sha256` field
+   *  (`tests/fixtures/source-identity-cases.json`), deliberately, so a reader
+   *  built against one fixture already knows the other's shape. Omitted
+   *  (never present) when no hash is computable at all: an empty/placeholder
+   *  body, or (spec 1.3 v4) a body under the 100-word floor. */
+  snapshot_sha256?: string;
   provenance?: SourcesIndexProvenanceEntry[];
   same_as?: string;
   parent_doc_id?: string;
@@ -109,5 +125,9 @@ export interface SourcesIndexFile {
   docs: SourcesIndexEntry[];
 }
 
-export const SOURCES_INDEX_SCHEMA_VERSION = 1;
+/** v2: split the single `content_sha256` field into `content_sha256`
+ *  (recorded only) and `snapshot_sha256` (computed only) — v1 conflated them,
+ *  silently disabling the spec 4.4 suffix-veto's recorded-hash check for
+ *  every index-sourced reader (p/783#12). */
+export const SOURCES_INDEX_SCHEMA_VERSION = 2;
 export const SOURCES_INDEX_FILENAME = 'sources-index.json';
