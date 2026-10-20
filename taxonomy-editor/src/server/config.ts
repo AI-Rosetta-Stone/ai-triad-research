@@ -435,6 +435,18 @@ export const STORAGE_MODE: StorageMode =
     ? process.env.STORAGE_MODE
     : (process.env.NODE_ENV === 'production' ? 'github-api' : 'filesystem');
 
+/**
+ * t/4229 (t/4167 part B, TL p/522#390) / t/4234 (SO e/334#4): STORAGE_MODE alone fails OPEN
+ * during the prod rollback runbook, which can set STORAGE_MODE=filesystem on HOSTED prod —
+ * NODE_ENV pins this to genuine desktop/local-server use. Shared predicate for any gate that
+ * means "this is actually someone's desktop or a local dev server," not just "mode happens to
+ * be filesystem right now." (routes/taxonomy.ts's isPovTagsGateExempt() and this module's own
+ * callers should converge on this rather than re-deriving the two-part check.)
+ */
+export function isLocalDeployment(): boolean {
+  return STORAGE_MODE === 'filesystem' && process.env.NODE_ENV !== 'production';
+}
+
 // t/2061: in FILESYSTEM mode, fall back to AI_TRIAD_DATA_ROOT (the same data root
 // getDataRoot() uses) before the homedir default. The container sets AI_TRIAD_DATA_ROOT
 // but not TAXONOMY_CACHE_DIR, so CACHE_DIR was defaulting to ~/.cache/taxonomy while the
