@@ -17,6 +17,12 @@
  * covered by the "plain refresh" test here); (6) a hand-edited/stale proposal → refused
  * `proposal-changed`, the lib already does this (modelDiscovery.ts) — the route-level test here
  * confirms the route surfaces that result unchanged, not re-testing the lib's own refusal logic.
+ *
+ * SO finding (e/334#2), TL ruling A1 (p/522#430): on hosted (STORAGE_MODE=github-api), a hosted
+ * `accept` would write a container-local, non-durable copy of ai-models.json — refused with 409
+ * ACCEPT_NOT_DURABLE_ON_HOSTED before ever reaching refreshAIModels. Desktop/local (filesystem
+ * mode) keeps the admin-gated accept from arm 1 above. STORAGE_MODE is mocked explicitly in both
+ * arms below rather than relying on the test runner's implicit default.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -24,6 +30,12 @@ import type { IncomingMessage, ServerResponse } from 'http';
 
 const refreshAIModelsMock = vi.hoisted(() => vi.fn(async () => ({ written: false, dryRun: true, totalModels: 0 })));
 vi.mock('../ai/aiBackends.js', () => ({ refreshAIModels: refreshAIModelsMock }));
+
+const storageModeMock = vi.hoisted(() => ({ current: 'filesystem' as 'filesystem' | 'github-api' }));
+vi.mock('../config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../config.js')>();
+  return { ...actual, get STORAGE_MODE() { return storageModeMock.current; } };
+});
 
 import { runWithUser, type UserContext } from '../security/userContext.js';
 import type { ServerCtx } from '../routes/context.js';
@@ -65,6 +77,7 @@ let prevAdminUsers: string | undefined;
 
 beforeEach(() => {
   refreshAIModelsMock.mockClear();
+  storageModeMock.current = 'filesystem';
   prevAdminUsers = process.env.ADMIN_USERS;
   process.env.ADMIN_USERS = ADMIN_ID;
 });
@@ -77,12 +90,28 @@ describe('POST /api/models/refresh — Part 2: admin-gated accept (t/4162, t/423
     expect(refreshAIModelsMock).not.toHaveBeenCalled();
   });
 
-  it('(arm 1) admin + accept → passes through to refreshAIModels, no 403', async () => {
+  it('(arm 1) admin + accept, LOCAL (filesystem mode) → passes through to refreshAIModels, no 403', async () => {
+    storageModeMock.current = 'filesystem';
     refreshAIModelsMock.mockResolvedValueOnce({ written: true, dryRun: false, totalModels: 3 });
     const res = await postRefresh(ACCEPT_BODY, ADMIN_ID);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ written: true, dryRun: false, totalModels: 3 });
     expect(refreshAIModelsMock).toHaveBeenCalledWith(ACCEPT_BODY);
+  });
+
+  it('(SO e/334#2, TL A1) admin + accept, HOSTED (github-api mode) → 409 ACCEPT_NOT_DURABLE_ON_HOSTED, nothing written', async () => {
+    storageModeMock.current = 'github-api';
+    const res = await postRefresh(ACCEPT_BODY, ADMIN_ID);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'ACCEPT_NOT_DURABLE_ON_HOSTED' });
+    expect(refreshAIModelsMock).not.toHaveBeenCalled();
+  });
+
+  it('a plain/dry-run refresh (no accept) still works on hosted — only accept is refused', async () => {
+    storageModeMock.current = 'github-api';
+    const res = await postRefresh({ dryRun: true }, ADMIN_ID);
+    expect(res.status).toBe(200);
+    expect(refreshAIModelsMock).toHaveBeenCalledWith({ dryRun: true });
   });
 
   it('(arm 2) non-admin + accept → 403, nothing written', async () => {
