@@ -309,11 +309,12 @@ export async function synthesizeInquiry(
   };
 
   // 6. Deterministic unsupported-figure post-check (t/4303 — observability only, no schema change).
+  const unresolvedGapsForCheck = parsed.unresolvedGaps ?? [];
   checkUnsupportedFigures(
     assembled.synthesizedHeadline,
     campVerdicts,
     convergences,
-    parsed.unresolvedGaps ?? [],
+    unresolvedGapsForCheck,
     session,
     grounding,
     request,
