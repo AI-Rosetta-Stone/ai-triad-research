@@ -1,0 +1,7 @@
+{
+  "_comment": "t/4323 — CI size ratchet for instruction files. Each entry's max_lines/max_words is seeded at the file's measured size on origin/main at PR merge time (re-seeded 2026-10-20 per T2 consult condition C3, e/337#2 — the initial seed had gone stale between authoring and merge). git ls-files confirms these are the only AGENTS.md files tracked by the main repo, and therefore the only ones a GitHub Actions checkout can see. Bump a budget deliberately, in the same PR that grows the file, when growth is intended — see scripts/check-agents-md-budget.mjs and the 'agents-md-budget' CI job.",
+  "files": [
+    { "path": "AGENTS.md", "max_lines": 176, "max_words": 1996 },
+    { "path": "operations/devops/azure/AGENTS.md", "max_lines": 162, "max_words": 1333 }
+  ]
+}
