@@ -1,0 +1,116 @@
+{
+  "name": "t3963-stage1",
+  "output_dir": "C:\\Users\\jsnov\\repos\\ai-triad-data\\debates\\t3963-tag-pilot-stage1",
+  "base_config": {
+    "model": "gemini-3.5-flash-lite",
+    "protocolId": "structured",
+    "pacing": "moderate",
+    "audience": "policymakers",
+    "activePovers": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ]
+  },
+  "expected_pins": {
+    "debate_model": "gemini-3.5-flash-lite",
+    "protocol_id": "structured",
+    "audience": "policymakers",
+    "active_povers": [
+      "accelerationist",
+      "safetyist",
+      "skeptic"
+    ]
+  },
+  "debates": [
+    {
+      "slug": "t3963s1-m01-a0",
+      "config": {
+        "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?"
+      },
+      "expected_seat_tags": null
+    },
+    {
+      "slug": "t3963s1-m01-a1",
+      "config": {
+        "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+        "seatTags": {
+          "skeptic": {
+            "pov_tag": "critical",
+            "tag_mode": "scope"
+          }
+        }
+      },
+      "expected_seat_tags": {
+        "skeptic": {
+          "pov_tag": "critical",
+          "tag_mode": "scope"
+        }
+      }
+    },
+    {
+      "slug": "t3963s1-m01-a2",
+      "config": {
+        "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+        "seatTags": {
+          "skeptic": {
+            "pov_tag": "critical",
+            "tag_mode": "prioritize"
+          }
+        }
+      },
+      "expected_seat_tags": {
+        "skeptic": {
+          "pov_tag": "critical",
+          "tag_mode": "prioritize"
+        }
+      }
+    },
+    {
+      "slug": "t3963s1-m01-a3",
+      "config": {
+        "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+        "seatTags": {
+          "skeptic": {
+            "pov_tag": "institutional",
+            "tag_mode": "scope"
+          }
+        }
+      },
+      "expected_seat_tags": {
+        "skeptic": {
+          "pov_tag": "institutional",
+          "tag_mode": "scope"
+        }
+      }
+    },
+    {
+      "slug": "t3963s1-m01-a4",
+      "config": {
+        "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+        "seatTags": {
+          "skeptic": {
+            "pov_tag": "institutional",
+            "tag_mode": "prioritize"
+          }
+        }
+      },
+      "expected_seat_tags": {
+        "skeptic": {
+          "pov_tag": "institutional",
+          "tag_mode": "prioritize"
+        }
+      }
+    },
+    {
+      "slug": "t3963s1-m01-a5",
+      "config": {
+        "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+        "soulOverrides": {
+          "skeptic": "C:\\Users\\jsnov\\repos\\ai-triad-research\\.worktrees\\cl-paid-batch\\research\\comp-linguist\\analyses\\t3963-tag-pilot\\old-umbrella-skeptic.soul.json"
+        }
+      },
+      "expected_seat_tags": null
+    }
+  ]
+}

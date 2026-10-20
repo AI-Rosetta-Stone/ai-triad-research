@@ -73,6 +73,62 @@ function warn(message: string): void {
   });
 }
 
+/**
+ * t/4304: Emit error-level flight-recorder events when a broken-injection
+ * signature is detected at the end of a headless inquiry debate.
+ *
+ * Signature 1 — 100% unattributed claims: every extracted claim failed
+ * attribution, which can signal structural injection failure (though legitimate
+ * causes exist, e.g. forecasting questions outside the taxonomy). NEVER fails
+ * the job — telemetry only.
+ *
+ * Signature 2 — all turns used lexical scoring while embeddings are present:
+ * the embedding adapter was unavailable for every turn even though the taxonomy
+ * has embeddings, which degrades relevance selection precision.
+ */
+function warnSignature1(session: DebateSession, debateId: string | undefined): void {
+  const UNATTRIBUTED_CLAIM_THRESHOLD = 5;
+  const exs = session.extraction_summary;
+  if (exs && exs.unattributed_claim_ratio === 1.0) {
+    const totalClaims = (exs.attribution_attributed ?? 0) + (exs.attribution_unattributed ?? 0);
+    if (totalClaims >= UNATTRIBUTED_CLAIM_THRESHOLD) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'inquiryPipeline',
+        level: 'error',
+        debate_id: debateId,
+        message: `broken-injection signature 1 (100% unattributed claims): debate ${debateId ?? 'unknown'} — ${totalClaims} claims, 0 attributed`,
+        data: { signature: 'all_claims_unattributed', debate_id: debateId, total_claims: totalClaims, unattributed_claim_ratio: exs.unattributed_claim_ratio },
+      });
+    }
+  }
+}
+
+function warnSignature2(session: DebateSession, embeddingCount: number, debateId: string | undefined): void {
+  const overview = session.diagnostics?.overview;
+  const lexicalTurns = overview?.lexical_turn_count ?? 0;
+  const embeddingTurns = overview?.embedding_turn_count ?? 0;
+  if (embeddingCount > 0 && lexicalTurns > 0 && embeddingTurns === 0) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'inquiryPipeline',
+      level: 'error',
+      debate_id: debateId,
+      message: `broken-injection signature 2 (all turns lexical despite embeddings): debate ${debateId ?? 'unknown'} — ${lexicalTurns} lexical turns, 0 embedding turns, ${embeddingCount} embeddings in taxonomy`,
+      data: { signature: 'all_turns_lexical_with_embeddings', debate_id: debateId, lexical_turn_count: lexicalTurns, embedding_turn_count: embeddingTurns, taxonomy_embedding_count: embeddingCount },
+    });
+  }
+}
+
+function warnBrokenInjection(
+  session: DebateSession,
+  embeddingCount: number,
+  debateId: string | undefined,
+): void {
+  warnSignature1(session, debateId);
+  warnSignature2(session, embeddingCount, debateId);
+}
+
 function assertGroundingNonEmpty(
   request: InquiryRequest,
   grounding: GroundingEnvelope,
@@ -126,7 +182,8 @@ export async function runInquiryPipeline(
 
   // ── Stage 2: build grounding envelope ─────────────────────────────────────
   // ADR-001: empty envelope on zero-hit / empty-corpus inputs — WARN logged in
-  // buildGroundingEnvelope itself; pipeline continues.
+  // buildGroundingEnvelope itself. An empty envelope is valid at the grounding layer
+  // but fatal here when an embedding corpus exists (assertGroundingNonEmpty below).
   deps.onStage?.('grounding');
   const { envelope: grounding, appliedTag } = await buildGroundingEnvelope(
     request.question,
@@ -165,5 +222,8 @@ export async function runInquiryPipeline(
       `(terminationReason: ${terminationReason ?? 'none'})`,
     );
   }
+  // t/4304: check for broken-injection signatures before returning
+  warnBrokenInjection(session, Object.keys(deps.taxonomy.nodeEmbeddings).length, debateId);
+
   return synthesizeInquiry(session, grounding, calibration, derivation, request, deps.adapter, debateId);
 }

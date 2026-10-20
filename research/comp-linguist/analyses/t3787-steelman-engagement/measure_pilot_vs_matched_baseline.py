@@ -30,8 +30,8 @@ def turn_of(n):
     except: return None
 
 def measure(files, label, require_cell=False):
-    n_debates=0; n_cell=0
-    steel_nodes=0; later_inbound=[]; any_later=0
+    n_debates=0; n_cell=0; n_edges=0
+    steel_nodes=0; later_inbound=[]; any_later=0; adopt_nodes=0
     type_counter=collections.Counter()
     src_camp=collections.Counter()      # later-inbound source camp rel. to steelman
     for p in files:
@@ -58,14 +58,20 @@ def measure(files, label, require_cell=False):
             if ss==so: src_camp["steelmanned_camp"]+=1
             elif ss==au: src_camp["author_camp"]+=1
             else: src_camp["third_camp"]+=1
+        n_edges+=sum(1 for e in edges if isinstance(e,dict))
         for nid,nn in steel.items():
-            steel_nodes+=1; tt=turn_of(nn); cnt=0
+            steel_nodes+=1; tt=turn_of(nn); cnt=0; own=0
             for e in edges:
                 if isinstance(e,dict) and e.get("target")==nid:
                     sn=byid.get(e.get("source")); st=turn_of(sn) if sn else None
-                    if st is not None and tt is not None and st>tt: cnt+=1
+                    if st is not None and tt is not None and st>tt:
+                        cnt+=1
+                        if sn and sn.get("speaker")==nn.get("steelman_of"): own+=1
             later_inbound.append(cnt)
             if cnt>0: any_later+=1
+            # Confirmatory primary (pre-reg, t/3790): per-node binary, >=1 later inbound from the
+            # node's OWN steelmanned camp. Same predicate as the src_camp tally above.
+            if own>0: adopt_nodes+=1
     print(f"=== {label} ===")
     print(f"  debates scanned: {n_debates}" + (f" | matched cell: {n_cell}" if require_cell else ""))
     print(f"  steelman nodes (n): {steel_nodes}")
@@ -80,7 +86,8 @@ def measure(files, label, require_cell=False):
             adopt=src_camp['steelmanned_camp']/tot
             print(f"  ADOPTION (steelmanned-camp share of later inbound): {src_camp['steelmanned_camp']}/{tot} ({adopt:.0%})")
     return dict(steel=steel_nodes, conn_num=any_later, conn_den=len(later_inbound),
-                src=dict(src_camp), types=dict(type_counter))
+                src=dict(src_camp), types=dict(type_counter),
+                adopt_nodes=adopt_nodes, n_cell=n_cell, n_edges=n_edges)
 
 def wilson(k,n,z=1.96):
     if n==0: return (0,0)
@@ -88,15 +95,16 @@ def wilson(k,n,z=1.96):
     c=(p+z*z/(2*n))/d; h=z*math.sqrt(p*(1-p)/n+z*z/(4*n*n))/d
     return (max(0,c-h),min(1,c+h))
 
-base_files=sorted(glob.glob(BASELINE_GLOB), key=os.path.getmtime, reverse=True)[:120]
-pilot_files=sorted(glob.glob(PILOT_GLOB))
+if __name__ == "__main__":  # the pilot read (t/3790); importable for the confirmatory arm
+  base_files=sorted(glob.glob(BASELINE_GLOB), key=os.path.getmtime, reverse=True)[:120]
+  pilot_files=sorted(glob.glob(PILOT_GLOB))
 
-b=measure(base_files, "MATCHED BASELINE SUBSET (120-corpus filtered to pilot cell)", require_cell=True)
-print()
-p=measure(pilot_files, "PILOT (10 debates, post-fix)", require_cell=False)
-print()
-print("=== COMPARISON ===")
-for m,lbl in [(b,"baseline-matched"),(p,"pilot")]:
+  b=measure(base_files, "MATCHED BASELINE SUBSET (120-corpus filtered to pilot cell)", require_cell=True)
+  print()
+  p=measure(pilot_files, "PILOT (10 debates, post-fix)", require_cell=False)
+  print()
+  print("=== COMPARISON ===")
+  for m,lbl in [(b,"baseline-matched"),(p,"pilot")]:
     if m['conn_den']:
         lo,hi=wilson(m['conn_num'],m['conn_den'])
         st=sum(m['src'].values()); sc=m['src'].get('steelmanned_camp',0)

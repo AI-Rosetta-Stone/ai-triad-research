@@ -80,6 +80,9 @@ function scoreEmbeddingsByCamp(
  *
  * ADR-001: returns an empty-but-valid envelope on zero-hit / empty-corpus inputs.
  * Each fallback path logs a WARN via the flight recorder.
+ * An empty envelope is valid at the grounding layer; it is fatal at the pipeline
+ * layer (runInquiryPipeline) whenever an embedding corpus exists — an all-camps-empty
+ * result with a non-empty embedding map is silent degradation, not graceful fallback.
  */
 export async function buildGroundingEnvelope(
   question: string,
