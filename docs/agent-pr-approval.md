@@ -67,11 +67,15 @@ Invoke-AsAgentApp -Role author -ScriptBlock {
 ```
 
 **What changes downstream of this:**
-- `pr-triage.yml`'s `BOT_LOGINS` set includes the author App's login, so author-App PRs classify
-  as bot PRs for triage purposes, not human "fleet" PRs (t/4351).
-- The CI-green nudge no longer `@`-mentions `pr.user.login` (now a bot handle a human can't act
-  on) — it `@`-mentions the one shared human account directly, and names the branch's owner-slug
-  in the message body for context. See `pr-triage.yml`'s nudge step.
+- `pr-triage.yml`'s `BOT_LOGINS` set does **not** include the author App's login (t/4351#4, Lead
+  correction) — `BOT_LOGINS` feeds the "close as superseded" path for real dependency bots, and
+  an author-App PR is a real agent PR that must never be auto-closed that way. Author-App PRs
+  stay in `fleetPRs`, same as any other agent PR.
+- The author-App identity is handled narrowly, inside the CI-green nudge loop only: `pr.user.login`
+  is now a bot handle a human can't act on, so a PR matching the author App's login gets a nudge
+  that `@`-mentions the one shared human account directly and names the branch's owner-slug in
+  the message body for context, instead of `@`-mentioning the bot handle. Any other fleet PR
+  keeps the original direct mention. See `pr-triage.yml`'s nudge step.
 - `t1-approval-guard-predicate.mjs`'s owner-slug self-approval check needed **no logic change** —
   it was never keyed on author identity. Only its own doc comment, which once said "every PR is
   authored by `jpsnover`", needed correcting.
