@@ -88,6 +88,26 @@ function wrapBlobError(err: unknown, op: string, blob: string): ActionableError 
   });
 }
 
+/** t/4191: the conflict shape writeFile throws on a stale/missing baseSha or
+ *  a rejected If-Match/If-None-Match precondition — same code/status either way
+ *  so callers don't need to distinguish "someone else changed it" (412) from
+ *  "someone else changed it, and we noticed before even trying" (hash mismatch). */
+function writeConflictError(filePath: string, blob: string): ActionableError {
+  return new ActionableError({
+    goal: `Save ${filePath}`,
+    problem: 'The file changed since you loaded it (someone else saved a conflicting change).',
+    location: `AzureBlobBackend.writeFile(${blob})`,
+    nextSteps: ['Reload the file to see the latest version', 'Re-apply your change and save again'],
+    httpStatus: 409,
+    code: 'WRITE_CONFLICT',
+  });
+}
+
+/** Blob service returns 412 for both a failed If-Match and a failed If-None-Match. */
+function isPreconditionFailed(err: unknown): boolean {
+  return err instanceof RestError && err.statusCode === 412;
+}
+
 const DEFAULT_BLOB_UPLOAD_TIMEOUT_MS = 60_000;
 
 export class AzureBlobBackend implements StorageBackend {
@@ -142,18 +162,33 @@ export class AzureBlobBackend implements StorageBackend {
   }
 
   /** t/4201 (p/775#31): version is the content's git blob SHA (gitBlobSha), the
-   *  same hash writeFile's baseSha precondition checks against. Blob's own
-   *  native ETag/If-Match preconditions are tracked separately (t/4191). */
+   *  same hash writeFile's baseSha precondition checks against — not Blob's own
+   *  native ETag, which is tracked internally (downloadWithEtag) purely to
+   *  drive writeFile's If-Match/If-None-Match (t/4191). */
   async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
     const content = await this.readFile(filePath, opts);
     return content === null ? null : { content, version: gitBlobSha(content) };
   }
 
   async readBinaryFile(filePath: string): Promise<Buffer | null> {
+    return (await this.downloadWithEtag(filePath))?.content ?? null;
+  }
+
+  /**
+   * t/4191: one `download()` call is the sole source of both the content used
+   * to verify a caller's `baseSha` and the ETag passed as `If-Match` — reusing
+   * a value from a *second* call (e.g. a follow-up `getProperties()`) would
+   * reopen exactly the race this exists to close: another write could land
+   * between the two calls, so the ETag would no longer match the content just
+   * hashed, and `If-Match` would then overwrite that intervening write instead
+   * of rejecting it.
+   */
+  private async downloadWithEtag(filePath: string): Promise<{ content: Buffer; etag: string | undefined } | null> {
     const blob = this.toBlobPath(filePath);
     try {
       const resp = await this.containerFor(blob).getBlobClient(blob).download();
-      return await streamToBuffer(resp.readableStreamBody);
+      const content = await streamToBuffer(resp.readableStreamBody);
+      return { content, etag: resp.etag };
     } catch (err) {
       if (isNotFound(err)) { recordBlobError(err, 'readFile', blob, 'warn'); return null; }
       getGlobalRecorder()?.record({
@@ -166,32 +201,55 @@ export class AzureBlobBackend implements StorageBackend {
   }
 
   /**
-   * t/4201 (p/775#31): versions by content's git blob SHA (gitBlobSha) rather
-   * than the empty string this backend used to return — returning `''` meant
-   * no `ETag`, so no `If-Match`, so every save on a local web server backed by
-   * Blob hit the route's mandatory-428 rule. When `opts.baseSha` is supplied,
-   * this is check-then-write: read the current blob, hash it, and compare
-   * before uploading. It is NOT atomic (another write can land between the
-   * read and the upload) — an accepted gap for this single-node precondition,
-   * same tradeoff as FilesystemBackend; Blob's own native ETag/If-Match
-   * preconditions are the real fix and are tracked separately (t/4191).
+   * t/4201 (p/775#31)/t/4191: versions by content's git blob SHA (gitBlobSha)
+   * rather than the empty string this backend used to return — returning `''`
+   * meant no `If-Match`, so every save on a local web server backed by Blob hit
+   * the route's mandatory-428 rule. When `opts.baseSha` is supplied, enforcement
+   * is now atomic: one `download()` (see `downloadWithEtag`) supplies both the
+   * hash to check and the ETag the upload is conditioned on, so nothing can
+   * land between the check and the write.
+   * - `baseSha` matches an existing blob's hash → `If-Match: <that ETag>`.
+   * - `baseSha === ''` and no blob exists → `If-None-Match: '*'` (atomic
+   *   "create only if absent" — a plain existence check-then-create has the
+   *   same race as a plain hash check-then-write).
+   * - Blob missing while a non-empty `baseSha` was supplied → conflict, not a
+   *   silent create: the caller loaded real content that's since been deleted.
+   * A 412 from the service (either condition) always maps to the same 409
+   * `WRITE_CONFLICT` as a pre-upload hash mismatch; any other `RestError` is
+   * rethrown unmapped.
    */
+  /** Resolves `opts.baseSha` into the SDK's upload conditions, or throws a 409
+   *  `WRITE_CONFLICT` — see the atomicity note on `writeFile` above. Returns
+   *  `undefined` when no precondition was requested (unconditional write). */
+  private async resolveWriteConditions(
+    filePath: string, blob: string, baseSha: string | undefined,
+  ): Promise<{ ifMatch?: string; ifNoneMatch?: string } | undefined> {
+    if (baseSha === undefined) return undefined;
+    const current = await this.downloadWithEtag(filePath);
+    if (current === null) {
+      if (baseSha !== '') throw writeConflictError(filePath, blob);
+      return { ifNoneMatch: '*' };
+    }
+    if (gitBlobSha(current.content.toString('utf-8')) !== baseSha) throw writeConflictError(filePath, blob);
+    if (!current.etag) {
+      // Fail closed (TL p/538#111): an empty ifMatch is either dropped by the
+      // SDK (making the upload unconditional — the exact silent overwrite this
+      // fix exists to remove) or sent as a literal empty string the service
+      // may reject for the wrong reason. A successful download with no ETag
+      // shouldn't happen; treat it as unable to safely condition the write.
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'azure-blob-backend', level: 'warn',
+        message: `writeFile: download succeeded but returned no ETag, refusing to upload unconditionally: ${blob}`,
+        data: { blob },
+      });
+      throw writeConflictError(filePath, blob);
+    }
+    return { ifMatch: current.etag };
+  }
+
   async writeFile(filePath: string, content: string, opts?: { ref?: string; baseSha?: string }): Promise<{ version: string }> {
     const blob = this.toBlobPath(filePath);
-    if (opts?.baseSha !== undefined) {
-      const current = await this.readFile(filePath);
-      const currentSha = current === null ? '' : gitBlobSha(current);
-      if (currentSha !== opts.baseSha) {
-        throw new ActionableError({
-          goal: `Save ${filePath}`,
-          problem: 'The file changed since you loaded it (someone else saved a conflicting change).',
-          location: `AzureBlobBackend.writeFile(${blob})`,
-          nextSteps: ['Reload the file to see the latest version', 'Re-apply your change and save again'],
-          httpStatus: 409,
-          code: 'WRITE_CONFLICT',
-        });
-      }
-    }
+    const conditions = await this.resolveWriteConditions(filePath, blob, opts?.baseSha);
     const data = Buffer.from(content, 'utf-8');
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.uploadTimeoutMs);
@@ -199,6 +257,7 @@ export class AzureBlobBackend implements StorageBackend {
       await this.containerFor(blob).getBlockBlobClient(blob).upload(data, data.byteLength, {
         blobHTTPHeaders: { blobContentType: 'application/json; charset=utf-8' },
         abortSignal: ac.signal,
+        conditions,
       });
       return { version: gitBlobSha(content) };
     } catch (err) {
@@ -217,6 +276,14 @@ export class AzureBlobBackend implements StorageBackend {
             'If the problem persists, check Azure Blob service health',
           ],
         }), { statusCode: 503 });
+      }
+      if (isPreconditionFailed(err)) {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'azure-blob-backend', level: 'warn',
+          message: `writeFile precondition failed (412), reporting as a conflict: ${blob}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        throw writeConflictError(filePath, blob);
       }
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'azure-blob-backend', level: 'error',
