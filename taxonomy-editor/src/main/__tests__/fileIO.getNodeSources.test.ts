@@ -68,13 +68,20 @@ describe('getNodeSources (t/4342)', () => {
   });
 
   it('returns one card per canonical document, carrying authors/topicTags/oneLiner', () => {
-    writeSourceMeta('doc-a', {
+    const sharedMeta = {
       title: 'Doc A', url: 'https://example.com/a',
       authors: ['Jane Doe'], topic_tags: ['governance'], one_liner: 'A summary.',
-    });
-    // doc-a-1 has no metadata.json of its own — a split part whose card metadata falls back
-    // to the canonical id's cache entry (metaCache[ref.docId] is undefined for it), so the
-    // card assertion below doesn't depend on which of the two refs the scan visits first.
+    };
+    writeSourceMeta('doc-a', sharedMeta);
+    // doc-a-1 carries the identical metadata of its base — under the v2 source-identity
+    // spec (t/4344), a -N suffix only joins its base when both sides' titles match (a bare
+    // id fallback title, as a truly metadata-less split part would get, no longer
+    // qualifies on its own; t/4334#11 cond. 2). Giving it the full metadata (not just a
+    // matching title) keeps cardMetaFor's result identical regardless of which of the two
+    // refs the scan visits first — metaCache['doc-a-1'] is no longer undefined, but it
+    // carries the same values metaCache['doc-a'] does, so the card assertion below is
+    // still order-independent.
+    writeSourceMeta('doc-a-1', sharedMeta);
     writeSummary('doc-a', 'node-1', 'first point');
     writeSummary('doc-a-1', 'node-1', 'second point');
 
