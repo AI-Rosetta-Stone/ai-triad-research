@@ -325,6 +325,36 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — integration', () => {
     backend.shutdown();
   });
 
+  // t/4298/t/4299/t/4300: ServerAPI's per-boot cold-start-cache-miss log
+  // (TL condition #2, p/538#77) reads this counter — it must increment
+  // exactly once per main-cache miss, never on a hit. This suite's fs/promises
+  // mock always ENOENTs reads (line 39), so a real disk-cache hit can't be
+  // observed through readFile() here — stub readFromDiskCache directly to
+  // control hit/miss instead of fighting that global mock.
+  it('getColdCacheMissCount increments once per main-cache miss, not on a hit', async () => {
+    const backend = await createBackend();
+    expect(backend.getColdCacheMissCount()).toBe(0);
+
+    const readSpy = vi.spyOn(
+      backend as unknown as { readFromDiskCache(p: string): Promise<string | null> },
+      'readFromDiskCache',
+    );
+
+    readSpy.mockResolvedValueOnce(null); // miss
+    await backend.readFile('/taxonomy/nodes.json');
+    expect(backend.getColdCacheMissCount()).toBe(1);
+
+    readSpy.mockResolvedValueOnce('{"cached": true}'); // hit
+    await backend.readFile('/taxonomy/nodes.json');
+    expect(backend.getColdCacheMissCount()).toBe(1);
+
+    readSpy.mockResolvedValueOnce(null); // another miss
+    await backend.readFile('/dictionary/terms.json');
+    expect(backend.getColdCacheMissCount()).toBe(2);
+
+    backend.shutdown();
+  });
+
   it('writes to overlay only when session branch is active (no API call)', async () => {
     const backend = await createBackend();
     backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
@@ -1538,7 +1568,19 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — diagnostic accessors', ()
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — manifest mutex', () => {
-  it('concurrent readFile cache misses preserve all manifest entries', async () => {
+  // t/4219 (same class as t/3444's validateDataRoot.test.ts precedent): this
+  // fixture constructs read paths by prefixing the literal POSIX string
+  // '/var/cache/taxonomy-test' (cacheDir), relying on toRepoPath()'s
+  // getDataRoot()-prefix strip to recover the repo-relative path. On Windows,
+  // getDataRoot() runs that same literal through path.resolve(), which
+  // rewrites it to a drive-prefixed backslash path (e.g. 'C:\var\cache\...')
+  // — so the prefix no longer matches the fixture's POSIX string, the strip
+  // never fires, and every mocked content fetch misses its handler and falls
+  // through to the generic default body. Passes on Linux (CI) and non-Windows
+  // local dev — gate, don't fix, since path.resolve()'s platform-dependent
+  // behavior here is correct for each platform; this server backend only
+  // ever runs on Linux in production anyway.
+  it.skipIf(process.platform === 'win32')('concurrent readFile cache misses preserve all manifest entries', async () => {
     // Simulate the Phase 2 loadAll() pattern: 3 concurrent readFile() calls
     // that all miss cache, each fetching from GitHub and writing to manifest.
     // Before the mutex fix, the shared .tmp file would corrupt concurrent saves.
@@ -1816,7 +1858,16 @@ describe.skipIf(!UNDICI_ALIGNED)('toRepoPath strips getDataRoot() not cacheDir (
   beforeEach(() => { vi.stubEnv('AI_TRIAD_DATA_ROOT', FAKE_DATA_ROOT); });
   afterEach(() => { vi.unstubAllEnvs(); });
 
-  it('resolves a getDataRoot()-prefixed absolute path to a repo-relative path when cacheDir differs', async () => {
+  // t/4219 (same class as t/3444's validateDataRoot.test.ts precedent):
+  // FAKE_DATA_ROOT is a POSIX-style literal; on Windows, getDataRoot() runs
+  // it through path.resolve(), which rewrites it to a drive-prefixed
+  // backslash path, so the fixture's literal-string prefix check this test
+  // exists to verify (toRepoPath's getDataRoot()-prefix strip) never
+  // matches. Passes on Linux (CI) and non-Windows local dev — gate, don't
+  // fix, since path.resolve()'s platform-dependent behavior here is correct
+  // for each platform; this server backend only ever runs on Linux in
+  // production anyway.
+  it.skipIf(process.platform === 'win32')('resolves a getDataRoot()-prefixed absolute path to a repo-relative path when cacheDir differs', async () => {
     const backend = await createBackend(); // cacheDir = /var/cache/taxonomy-test
 
     // File path as fileIO.ts constructs it: absolute, rooted at getDataRoot().

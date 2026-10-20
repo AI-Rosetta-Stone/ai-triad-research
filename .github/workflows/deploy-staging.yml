@@ -452,6 +452,11 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
+          # t/4301 (Azure, p/241#94): Import-Module does not persist between workflow steps —
+          # missing here, every staging deploy since 10-17 failed this step with
+          # "Test-TaxEditorHealth is not recognized" and rolled back, even when the deploy and
+          # /health were actually fine.
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
           $Rev = '${{ steps.new_revision.outputs.revision }}'
           $Info = az containerapp revision show `
             --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Rev `

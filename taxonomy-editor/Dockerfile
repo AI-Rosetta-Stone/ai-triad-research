@@ -166,11 +166,15 @@ ARG BUILD_SHA=unknown
 ENV BUILD_SHA=${BUILD_SHA}
 
 # Cache dir created at runtime by the app (GitHubAPIBackend).
-# TAXONOMY_CACHE_DIR MUST match AI_TRIAD_DATA_ROOT (t/2061): config.ts's cacheDir
-# defaults to ~/.cache/taxonomy (=/root/.cache/taxonomy in-container) when unset,
-# while getDataRoot() uses AI_TRIAD_DATA_ROOT — the mismatch makes toRepoPath()'s
-# startsWith(cacheDir) check fail, so isDataAvailable() is always false → /healthz
-# 503 → crash-loop (the P1 latent readiness bug, t/2047). Keep these two in sync.
+# Bare/local-run fallback ONLY — every real deployment (main.bicep's baseEnv, both prod and
+# staging) sets both vars explicitly and always wins over these image defaults. Kept in sync
+# with each other here (t/2047: a mismatch makes toRepoPath()'s startsWith(cacheDir) check
+# fail, so isDataAvailable() is always false -> /healthz 503 -> crash-loop) ONLY for the case
+# of a plain `docker run` with no env vars supplied at all. Do NOT read this as the real
+# prod/staging behavior — see main.bicep's baseEnv/stagingEnvOverrides and t/4298/t/4299/t/4300
+# for why the two are deliberately INDEPENDENT there (PR #1078 decoupled them; this Dockerfile
+# default predates that and was never updated to match, since it's unreachable once Bicep sets
+# both explicitly).
 ENV AI_TRIAD_DATA_ROOT=/tmp/taxonomy-cache
 ENV TAXONOMY_CACHE_DIR=/tmp/taxonomy-cache
 ENV PORT=7862

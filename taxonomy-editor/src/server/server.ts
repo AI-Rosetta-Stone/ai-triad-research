@@ -24,6 +24,7 @@ import { prewarmEmbeddingsCache, getEmbeddingsCacheStatus } from './ai/aiBackend
 import { startEventLoopMonitor } from './eventLoopMonitor.js';
 import { startEmbedQueueDepthMonitor } from './embedQueueDepthMonitor.js';
 import { startGroundingSweep } from './groundingSweepScheduler.js';
+import { enforceReadOnlyGuard } from './readOnlyGuard.js';
 
 const require = createRequire(import.meta.url);
 
@@ -623,6 +624,7 @@ async function handleRequestInner(
     const route = matchRoute(req.method!, reqPath);
 
     if (enforceWriteRateLimit(req, res, route, reqPath)) return;
+    if (enforceReadOnlyGuard(req, res, !!route, reqPath, principalName, idp)) return;
 
     if (route) {
       await dispatchMatchedRoute(req, res, route, reqPath);
@@ -1350,6 +1352,10 @@ try {
   const errObj = err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err);
   log.server.warn({ err: errObj }, 'Data root validation failed at boot — /readyz will report data-root-failed (503); process continues (liveness up), the deploy warm-gate blocks the promotion');
 }
+// t/4298/t/4299/t/4300: WARN-only boot check — github-api's disk cache must never overlap
+// AI_TRIAD_DATA_ROOT (a data-root writer would otherwise silently become what this server
+// serves, with no check against GitHub). Synchronous, never throws, no-op on filesystem mode.
+fileIO.validateCacheDirDisjoint();
 // t/2532 (M12): loopback (127.0.0.1) in dev / 0.0.0.0 in prod; HOST opts into LAN exposure (logged loudly below).
 const BIND_HOST = resolveBindHost(process.env);
 server.listen(PORT, BIND_HOST, () => {
@@ -1462,6 +1468,11 @@ server.listen(PORT, BIND_HOST, () => {
       }
     }).catch((err) => {
       log.storage.error({ err }, 'GitHubAPIBackend initialization failed');
+      // t/4258/t/4281 (Server Storage): serverRecorder.record() alone never
+      // reaches console; alert-fallback-active needs "storage.fallback" in
+      // ContainerAppConsoleLogs_CL. Trivial addition mirroring the storage/
+      // sub-role's fix for the same gap — flagged there, not a design change.
+      log.storage.warn({ err }, 'storage.fallback: GitHubAPIBackend initialization failed');
       serverRecorder.record({
         type: 'storage.fallback', component: 'storage', level: 'warn',
         message: `GitHubAPIBackend init failed: ${err instanceof Error ? err.message : String(err)}`,

@@ -37,13 +37,13 @@ on:
           - required
           - disabled
       staging_shared_read_only:
-        description: 'Mount staging shared volume read-only (true = RO flip for arm-A verification, t/2643)'
+        description: 'Mount staging shared volume read-only (false = documented override back to RW; RO is now the default, t/2643/t/4298)'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
-          - 'false'
           - 'true'
+          - 'false'
       staging_load_test_size:
         description: 'Prod-size staging (2 vCPU/4Gi, maxReplicas 3, HTTP scale rule) for the t/4180 load test (t/4203). Forces the RO shared-volume mount. Set back to false to revert — see t/4203 runbook note.'
         required: false
@@ -882,7 +882,7 @@ jobs:
               WEBSITE_AUTH_ENABLED               = 'true'
               HOME                               = '/home/aitriad'
               AI_TRIAD_DATA_ROOT                 = '/mnt/shared'
-              TAXONOMY_CACHE_DIR                 = '/mnt/shared'
+              TAXONOMY_CACHE_DIR                 = '/home/aitriad/.cache/taxonomy-github-api'  # t/4298/t/4299/t/4300 — deliberately NOT /mnt/shared, see main.bicep baseEnv comment
               MAX_REPLICAS                       = '1'  # t/4176 — must equal main.bicep maxReplicas (AI RPM + rate limits divide by it)
               AUTH_OPTIONAL                      = '${{ inputs.auth_mode == 'optional' && '1' || '' }}'
               AUTH_DISABLED                      = '${{ inputs.auth_mode == 'disabled' && '1' || '' }}'
@@ -896,8 +896,11 @@ jobs:
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
               READ_ONLY_PRINCIPALS               = 'github:ai-triad-smoke'  # t/4296 G1 — the smoke identity must stay read-only; must match main.bicep baseEnv
-              GROUNDING_RECONCILE_INLINE         = '1'  # t/3163 G8a — gate verifies the staged inline-reconcile flag is deployed
-              GROUNDING_SWEEP_ENABLED            = '1'  # t/3163 G8b — gate verifies the staged sweep-enable flag is deployed
+              # GROUNDING_RECONCILE_INLINE removed (t/4298): gated on the grounding_reconcile_inline
+              # feature flag, which is OFF — G8a has never run, the env var is read by nothing.
+              # GROUNDING_SWEEP_ENABLED removed (t/4298): the sweep is unconditionally refused on
+              # hosted (t/3333 guard, decideSweepArm -> 'blocked-github-api'), so this gate was
+              # certifying a flag that could only ever no-op. See main.bicep's baseEnv comment.
               # DATA_ROOT_VALIDATION_ENFORCE retired in t/3309 step-3 — /readyz warm-gate replaces the boot hard-fail (co-landed with the server.ts exit(1) removal).
             } `
             -CheckFirewall `

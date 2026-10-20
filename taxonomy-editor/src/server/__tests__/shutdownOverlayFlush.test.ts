@@ -19,8 +19,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { GitHubAPIBackend } from '../storage/githubAPIBackend.js';
 
-const { warnMock, recordMock } = vi.hoisted(() => ({ warnMock: vi.fn(), recordMock: vi.fn() }));
-vi.mock('../logger.js', () => ({ log: { server: { warn: vi.fn(), error: warnMock, info: vi.fn() } } }));
+const { warnMock, recordMock, infoMock } = vi.hoisted(() => ({ warnMock: vi.fn(), recordMock: vi.fn(), infoMock: vi.fn() }));
+vi.mock('../logger.js', () => ({ log: { server: { warn: vi.fn(), error: warnMock, info: infoMock } } }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
 vi.mock('../config.js', () => ({ getMaxReplicas: () => 1 }));
 
@@ -51,7 +51,7 @@ function fakeBackend(opts: {
   } as unknown as GitHubAPIBackend & { writeOverlay: (userId: string, entryCount?: number) => void };
 }
 
-beforeEach(() => { warnMock.mockReset(); recordMock.mockReset(); });
+beforeEach(() => { warnMock.mockReset(); recordMock.mockReset(); infoMock.mockReset(); });
 
 describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
   it('no-ops when backend is null (filesystem/Electron mode)', async () => {
@@ -76,6 +76,21 @@ describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
     expect(warnMock).not.toHaveBeenCalled();
   });
 
+  // t/4302: Azure's staging kill test couldn't tell whether the SIGTERM commit came from this
+  // flush or the 2s debounce timer firing during the grace period. This proves the INFO line
+  // reports the real commit outcome, and that a clean flush never also WARNs "will be lost".
+  it('t/4302: logs an INFO summary naming who committed, with no WARN, on a clean flush', async () => {
+    const backend = fakeBackend({ overlays: { alice: 2, bob: 1 } });
+    await flushOverlaysWithDeadline(backend, Promise.resolve());
+    expect(warnMock).not.toHaveBeenCalled();
+    expect(infoMock).toHaveBeenCalledTimes(1);
+    expect(infoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ committedUsers: expect.arrayContaining(['alice', 'bob']), stillDirtyUsers: [], timedOut: false }),
+      expect.stringContaining('committed 2 user(s)'),
+    );
+    expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ level: 'info', message: expect.stringContaining('committed 2 user(s)') }));
+  });
+
   it('WARNs naming whoever is still dirty after a commit failure — based on overlay contents, not scheduler status', async () => {
     const backend = fakeBackend({
       overlays: { alice: 3, bob: 1 },
@@ -88,6 +103,11 @@ describe('flushOverlaysWithDeadline (t/4276 C4)', () => {
       level: 'warn',
       data: expect.objectContaining({ timedOut: false, users: [{ userId: 'alice', entryCount: 3, paths: ['alice/path.json'] }] }),
     }));
+    // t/4302: the INFO line still reports what DID commit (bob) alongside what's still dirty.
+    expect(infoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ committedUsers: ['bob'], stillDirtyUsers: [{ userId: 'alice', entryCount: 3, paths: ['alice/path.json'] }] }),
+      expect.stringContaining('committed 1 user(s)'),
+    );
   });
 
   it('skips a user who already failed the first sweep, rather than retrying them, on the late-write pass', async () => {

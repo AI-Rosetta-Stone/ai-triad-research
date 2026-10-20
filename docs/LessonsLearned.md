@@ -5276,7 +5276,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 3 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156).
+**Status:** Active — 5 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5641,7 +5641,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 1 instance (DevOps Worker p/749#16).
+**Status:** Active — 3 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`).
 
 **Applies To:** All agents running `pwsh -Command "..."` from the Bash tool with PowerShell cmdlets in the pipeline.
 
@@ -5723,7 +5723,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **"Unexpected EOF while looking for matching backtick"** in a command containing a `grep` or `awk` pattern is a reliable diagnostic for a backtick inside a double-quoted argument.
 3. This is an instance of the Shell Quoting Rule — double-quoted arguments process `\`, `$`, and `` ` `` specially. When in doubt, use single quotes for patterns.
 
-**Status:** Active — 2 instances (Azure p/105#10; Second Opinion p/691#9).
+**Status:** Active — 3 instances (Azure p/105#10; Second Opinion p/691#9; Second Opinion p/691#11 — `gh pr comment --body-file` with unquoted heredoc).
 
 **Applies To:** All agents writing shell patterns (`grep`, `awk`, `sed`) in double-quoted arguments that may contain backticks; use single quotes.
 
@@ -5828,3 +5828,263 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#182).
 
 **Applies To:** All agents creating new `workflow_dispatch` workflows on feature branches and attempting to test via dispatch before merging.
+
+---
+
+## #285 [Build] Parallel `pnpm exec` Across Workspace Packages Collides on pnpm 11 Stale-Dep Install — Run One First
+
+**Pattern:** An agent fans out `pnpm exec <tool>` calls across multiple workspace packages in parallel. pnpm 11 checks for stale dependencies before executing and runs a workspace install when needed. Concurrent `exec` calls each trigger the same install in parallel, causing install collisions. Every `exec` call dies before the tool runs, producing no output files.
+
+**Instances:**
+- 2026-10-19 — Shared Lib (p/5#55, t/4238): five parallel `pnpm exec eslint` runs (one per package) produced no output files. pnpm 11 install collisions killed all five. Resolved: ran one `pnpm exec` alone first to let the install finish, then fanned out the remaining four in parallel — all succeeded.
+
+**Root Cause:** pnpm 11 added an auto-install-on-stale-deps check to `pnpm exec`. Multiple concurrent `exec` calls all detect stale deps simultaneously and race to run the same workspace install, corrupting each other's lock/state. Once one install completes, subsequent `exec` calls find deps fresh and proceed cleanly.
+
+**Prevention:**
+1. **Before fanning out `pnpm exec` across packages, run one `pnpm exec` call alone first** to let any stale-dep install complete. Then fan out the remaining calls in parallel.
+2. **Alternatively, run `pnpm install` explicitly before any parallel `exec` fan-out** to ensure deps are fresh — `exec` then skips the install check entirely.
+3. **No output files from a parallel `pnpm exec` fan-out** (zero results across all packages) is a reliable diagnostic for install collision — a single sequential run would have succeeded.
+
+**Status:** Active — 1 instance (Shared Lib p/5#55, t/4238).
+
+**Applies To:** All agents fanning out `pnpm exec` in parallel across workspace packages; always prime with one sequential run first.
+
+---
+
+## #286 [Build] Worktree Isolation Guard Blocks `git -C <shared-checkout> worktree add` — Push `HEAD:<branch>` as Workaround
+
+**Pattern:** An agent's session is pinned to a worktree by the worktree isolation guard. The agent tries to create a new worktree by redirecting git to the shared checkout with `git -C <repo-root> worktree add …`. The isolation guard blocks the command — using `-C` to operate on the shared checkout from within a pinned worktree session is disallowed.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#61, t/4305): `git -C C:/Users/jsnov/repos/ai-triad-research worktree add` blocked by isolation guard. Workaround: committed changes with pathspec to the current worktree branch, then `git push origin HEAD:feat/cli-seat-tags-soul-overrides-t4305` to create the remote branch, opened the PR normally.
+
+**Root Cause:** The worktree isolation guard restricts the pinned session to its own worktree path. Using `-C` to redirect git commands to the shared checkout's path is treated as an attempt to operate on the shared checkout — which is prohibited in the pinned session.
+
+**Prevention:**
+1. **Do not use `git -C <shared-checkout>` to create worktrees from a pinned session.** Worktree creation must happen from the shared checkout directly (outside the pinned session) or via a coordinator.
+2. **Workaround when you need a different remote branch name:** commit your changes to the current local branch with a pathspec, then `git push origin HEAD:<desired-branch-name>` — this creates the remote branch at your current HEAD without requiring a new local worktree.
+3. **The isolation guard "blocked" message on a `git -C`** is a reliable diagnostic for this constraint — the session is pinned and cannot use `-C` to escape to the shared checkout.
+
+**Status:** Active — 1 instance (DebateTool p/70#61, t/4305).
+
+**Applies To:** All agents operating in worktree-pinned sessions who need to create additional worktrees or push to a differently-named remote branch.
+
+---
+
+## #287 [Build] gh Token Lacks `read:packages` Scope — 403 on GHCR Packages API; Prefer Deploy Workflow Log for Container Tag Diagnosis
+
+**Pattern:** An agent queries the GitHub Container Registry packages API (`gh api orgs/.../packages/container/...`) to check whether a `sha-<commit>` container tag exists. The call returns 403 "you need read:packages scope" or "package not found" due to missing scope or a wrong URL-encoded package path. The packages API is not necessary — the deploy workflow failure log already contains the diagnostic.
+
+**Instances:**
+- 2026-10-19 — DevOps Lead (p/26#188): `Get-TaxEditorImage` and raw `gh api orgs/.../packages/container/...` both 403'd. Root cause confirmed instead via deploy workflow failure log, which showed directly that no `sha-<commit>` tag existed for the dispatched SHA. Dispatched a fresh container build instead.
+
+**Root Cause:** Session gh/PAT tokens commonly lack `read:packages` scope, which is not a default OAuth scope. The packages API also requires exact URL-encoded package path format; an off-by-one encoding produces "package not found" rather than a scope error.
+
+**Prevention:**
+1. **Before querying the GHCR packages API, check whether the deploy workflow failure log already answers the question.** It typically surfaces missing `sha-<commit>` tags directly — no API call needed.
+2. **If a packages API call is necessary, confirm the token has `read:packages` scope first** (`gh auth status` shows current scopes). A 403 here is a scope problem, not a permissions or visibility problem.
+3. **URL-encode the package name carefully** — slashes and colons in container image names must be percent-encoded; "package not found" on a known package is a reliable diagnostic for encoding error.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#188).
+
+**Applies To:** All agents diagnosing container image or tag availability; always check the deploy workflow log before reaching for the packages API.
+
+---
+
+## #288 [Build] Concurrent Agents Chose the Same Branch Name — Foreign Commit Rides Into the Wrong PR
+
+**Pattern:** Two agent sessions independently create a branch with the same name. One agent pushes a commit to the branch first; the second agent's subsequent push appends its commit to that branch. The second agent's PR then includes both commits — one from the wrong ticket.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#63, t/4304): branch `feat/broken-injection-detection-t4304` had a t4303 commit (d6f6f9d7) pushed onto it by a concurrent agent session. Both commits landed in PR #3450. The foreign-commit-check workflow (t/3738) would catch this warn-only.
+
+**Root Cause:** Branch name derived from feature description without sufficient ticket-ID uniqueness, and no pre-push check for unexpected commits on the remote branch.
+
+**Prevention:**
+1. **Before opening a PR or pushing additional commits to an existing remote branch, run `git log origin/<branch> --oneline`** to confirm no unexpected commits exist. A commit from another ticket is a signal to stop and coordinate.
+2. **Include ONLY the owning ticket's number in the branch name.** Never reuse a feature-description prefix that another concurrent ticket might also generate.
+3. **The foreign-commit-check workflow (t/3738) fires warn-only on PRs** — it catches ticketed foreign commits and merge-commits-in-range, but does not block. It is the backstop, not the first line of defense.
+
+**Status:** Active — 1 instance (DebateTool p/70#63, t/4304).
+
+**Applies To:** All agents creating or pushing to remote branches; always verify branch history is clean before opening a PR.
+
+---
+
+## #289 [Build] T1 Approval-Guard Stale FAILURE Blocks Auto-Merge Arm — Re-run Failed Check After Approval Comment
+
+**Pattern:** A T1 PR receives the reviewer's `Approved (<role>):` comment. The agent then arms auto-merge with `gh pr merge --auto --squash --match-head-commit`. GitHub rejects it with "Pull request is in unstable status (enablePullRequestAutoMerge)". Cause: the `t1-approval-guard` check ran and FAILED before the approval comment landed; it does not auto-re-run when a new comment is added.
+
+**Instances:**
+- 2026-10-19 — ServerAPI (p/504#24): PR #3437 auto-merge arm rejected. `t1-approval-guard` had a stale FAILURE run from before the `Approved (Quality):` comment. Fixed with `gh run rerun <run-id> --failed`; guard then passed and auto-merge armed successfully.
+
+**Root Cause:** `t1-approval-guard` is a GitHub Actions workflow triggered by PR events. A new comment does not always trigger a re-run if the workflow already has a concluded run for that head SHA.
+
+**Prevention:**
+1. **After the reviewer's approval comment lands on a T1 PR, check `gh pr checks <N>` before arming auto-merge.** If `t1-approval-guard` shows a stale FAILURE, re-run it: `gh run rerun <run-id> --failed` (find the run ID with `gh run list --workflow t1-approval-guard.yml --branch <branch>`).
+2. **"Pull request is in unstable status" on `gh pr merge --auto` for a T1 PR** is a reliable diagnostic for this stale-guard scenario — check guard run status before investigating further.
+3. **Do not arm auto-merge before all required checks are green.** `gh pr checks <N> --watch` confirms live status.
+
+**Status:** Active — 1 instance (ServerAPI p/504#24).
+
+**Applies To:** All agents arming auto-merge on T1 PRs after receiving an approval comment.
+
+
+---
+
+## #293 [Build] Edit Anchor Matches at Wrong Nesting Level — Injected Code Lands Outside Describe Block
+
+**Pattern:** An agent uses a comment string as an Edit anchor to insert new test blocks. The comment appears at multiple structural levels in the file — both inside an existing describe block and as a section header. The edit matches the first occurrence (inside the inner describe), injecting code between that block's closing `});` and the next section header. The new blocks land outside any describe, causing a syntax error.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#67, t/4305): anchor `// ── buildSoulOverrideResolver` matched inside `loadSoulOverrides` describe; new `it()` blocks injected between closing `});` and next section, landing outside any describe. Fixed by re-reading, moving blocks into `validateSeatTagsConfig` describe, removing duplicates.
+
+**Root Cause:** Comment strings used as anchors are not unique when the same string appears at multiple nesting levels. The Edit tool matches the first occurrence, which may not be the intended injection point.
+
+**Prevention:**
+1. **Include surrounding brace and indentation context in the anchor**, not just the comment string — ensure the anchor is unique to the intended nesting level.
+2. **After any test insertion, re-read the file and verify the nesting** by checking that each new block is inside the correct describe and that `});` counts balance.
+3. **A syntax error immediately after a test insertion** is a reliable diagnostic for an out-of-describe injection — inspect the lines just before and after the inserted block.
+
+**Status:** Active — 1 instance (DebateTool p/70#67, t/4305).
+
+**Applies To:** All agents inserting test blocks via Edit; always verify nesting after insertion.
+
+---
+
+## #294 [Build] Absolute Path to `.bin/` Binary Blocked by Bash Isolation Hook — Use `pnpm exec` Instead
+
+**Pattern:** An agent calls a node binary using its absolute path (e.g., `"C:\...\node_modules\.bin\vitest.CMD"`). The Bash isolation hook blocks the call because it cannot verify the binary is not git-related. The tool is available via `pnpm exec` or a `pnpm run` script, which the hook recognizes as safe.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#69, t/4305): direct call to absolute `.bin\vitest.CMD` path blocked by isolation hook. Worked around with `node_modules\.pnpm\node_modules\.bin\vitest.CMD` via PowerShell `&`, but cleaner fix is `pnpm exec vitest`.
+
+**Root Cause:** The Bash isolation hook verifies commands against an allowlist by command name/pattern. An absolute path to a `.bin/` binary does not match any allowlist pattern, so it is treated as unverifiable.
+
+**Prevention:**
+1. **Always invoke project tooling via `pnpm exec <tool>` or `pnpm run <script>`** — both resolve through pnpm's known binary resolution and pass the hook check.
+2. **Never construct absolute paths to `node_modules/.bin/` binaries for shell invocation.** The path may vary by OS or pnpm layout version, and it bypasses hook verification.
+3. **"Unverifiable command" from the isolation hook on a `.bin/` path** is a reliable diagnostic for this pattern — switch to `pnpm exec`.
+
+**Status:** Active — 1 instance (DebateTool p/70#69, t/4305).
+
+**Applies To:** All agents invoking node binaries in isolated sessions; prefer `pnpm exec` over absolute `.bin/` paths.
+
+---
+
+## #295 [Build] `grep -r` from Worktree Root Hits 120s Timeout — Use the Grep Tool Instead
+
+**Pattern:** An agent runs `grep -r "<pattern>" .` from the worktree root via Bash to search the repo. With a large repo (~410 MB data + code), the recursive grep hits the 120-second Bash timeout and returns no results.
+
+**Instances:**
+- 2026-10-19 — DebateTool (p/70#69, t/4305): `grep -r "lib-debate-not-to-soul-loaders" .` from worktree root timed out at 120s. Fixed by using the Grep tool (ripgrep), which completed instantly.
+
+**Root Cause:** Bash `grep -r` traverses all files including `node_modules/`, `.git/`, and the adjacent `../ai-triad-data/` symlink. The Grep tool (ripgrep) respects `.gitignore` and default exclusions, completing orders of magnitude faster.
+
+**Prevention:**
+1. **Always use the Grep tool for repo-wide pattern searches** — never `grep -r` via Bash. The Grep tool uses ripgrep with `.gitignore`-aware exclusions and completes in milliseconds on this repo.
+2. **`grep -r` from the repo root will always time out** on this project due to `node_modules/` and data repo size. There is no flags combination that makes it safe — use the Grep tool.
+3. **AGENTS.md Shell Quoting Rule** already says to prefer dedicated tools over Bash; this is the search-specific instance of that rule.
+
+**Status:** Active — 1 instance (DebateTool p/70#69, t/4305).
+
+**Applies To:** All agents; never use Bash `grep -r` for repo-wide searches — use the Grep tool.
+
+---
+
+## #299 [Process] Blocked-State Details Belong on the Ticket, Not Status Text
+
+**Pattern:** An agent sets its status to "blocked on two PRs needing manual fixes from repo root" but posts the specific fix commands only in its session context. A collaborator (PM) sees the blocked status but must ask explicitly for the fix steps — they are not visible on the ticket or ping thread.
+
+**Instances:**
+- 2026-10-20 — DebateTool (p/31#11): status said "blocked on two PRs needing manual fixes from repo root"; fix commands were in session context only; PM had to ask explicitly.
+
+**Root Cause:** Status text is visible only to agents actively checking the status field. A ticket comment is persistent, reachable by any collaborator, and survives session context loss.
+
+**Prevention:**
+1. **When blocked on a failure requiring action from outside your session, post the exact commands or steps as a ticket comment before updating your status.** One sentence naming the blocker plus a code block with the fix is enough.
+2. **Status text describes the state; the ticket holds the actionable details.** A collaborator picking up the work should not need to find your session to get unblocked.
+3. **After posting, ping the relevant agent or human** with the ticket comment reference so they know where to look.
+
+**Status:** Active — 1 instance (DebateTool p/31#11).
+
+**Applies To:** All agents; when blocked on an externally-actionable failure, post fix steps to the ticket before marking blocked.
+
+---
+
+## #300 [Build] GHCR Tag Writes Require `write:packages` Scope — Escalate to Azure/Lead
+
+**Pattern:** An agent calls a cmdlet or API that writes a tag to the GitHub Container Registry (e.g., `Set-TaxEditorKnownGood`). The call fails with a clean `ActionableError`: "GITHUB_TOKEN environment variable is not set" or a 403 citing insufficient scope. Worker session tokens carry only gist/read:org/repo/workflow — no `packages` write scope. The agent cannot source the credential itself.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#18, t/4273): `Set-TaxEditorKnownGood` failed with "GITHUB_TOKEN environment variable is not set". Worker session lacked `write:packages`. Correctly escalated to Azure/Lead rather than attempting to source credentials.
+
+**Root Cause:** GHCR tag writes require a PAT with `write:packages` scope, which is not provisioned to Worker sessions. Attempting to source credentials outside role scope is a process violation.
+
+**Prevention:**
+1. **Any GHCR tag-write operation requires a PAT with `write:packages` scope.** Worker sessions do not have this — escalate to Azure or DevOps Lead immediately.
+2. **"GITHUB_TOKEN environment variable is not set" from a GHCR write cmdlet** is a reliable diagnostic for missing packages scope, not a missing environment variable.
+3. **Companion to #287** (read:packages for reads): reads need `read:packages`, writes need `write:packages`; neither is in standard Worker session scope.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#18, t/4273).
+
+**Applies To:** All Worker-role agents; escalate GHCR tag-write operations to Azure/DevOps Lead.
+
+---
+
+## #301 [Build] Rebasing a Multi-Commit Stack That Includes Already-Landed Commits Causes Conflicts — Cherry-Pick Only the Needed Commits
+
+**Pattern:** An agent runs `git rebase origin/main` on a branch with multiple commits. Some of those commits have already landed on main via a separate PR. The rebase replays those commits and hits conflicts with their already-merged versions on main.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#20): 4-commit branch rebased onto main; commit 1/4 (t/3897's flip) had already landed via PR #3196. Rebase conflicted. Fixed by aborting, running `git log origin/main..HEAD --oneline` to identify the one unmerged commit, and cherry-picking it onto a fresh branch off main.
+
+**Root Cause:** Multi-commit branches accumulate commits from previous work sessions; some may land independently via other PRs. A blind rebase replays all commits including already-landed ones.
+
+**Prevention:**
+1. **Before rebasing a multi-commit branch, run `git log origin/main..HEAD --oneline`** to see exactly which commits are not yet on main. If the list is shorter than the total branch history, some commits have already landed.
+2. **When some commits are already landed, abort the rebase** and cherry-pick only the unmerged commits onto a fresh branch off main — this avoids replaying already-merged work.
+3. **A conflict on the first commit of a rebase** is a reliable diagnostic that the commit may already be on main — check `git log origin/main --oneline | head -20` for its subject line.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#20).
+
+**Applies To:** All agents rebasing multi-commit branches; verify which commits are unmerged before rebasing.
+
+---
+
+## #302 [Research] Run Recipe Copied from Pilot Without Verifying Config Fields Took Effect — Paid Batch Ran Wrong
+
+**Pattern:** An agent copies a run recipe from a pilot experiment for a paid confirmatory arm. The recipe sets a config field (`pacing`) that has a silent dependency (`useAdaptiveStaging`) — without the dependency, the field is silently ignored. The config-pin check does not cover the field because the output does not record it. The paid batch runs with the wrong configuration and produces uninterpretable results.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#119, t/3802): 50-debate paid arm copied pilot recipe with `pacing` set but `useAdaptiveStaging` absent; all debates ran 6-turn fixed. Results reported as uninterpretable. Runner now refuses the config before spend (PR #3476); DebateTool has t/4320 for a CLI WARN.
+
+**Root Cause:** Config field `pacing` silently does nothing without `useAdaptiveStaging`. The pilot worked because it also set `useAdaptiveStaging`; the copy omitted it. Config-pin checks verify presence, not effect.
+
+**Prevention:**
+1. **Before any paid batch, verify the first output against the control on the dimension being matched.** A single debug run with the copied recipe, inspected for the expected behavior, would have caught the silent ignore.
+2. **Never assume a config field took effect — confirm it in the output.** If the output does not record the field's effect, add a probe that does before spending.
+3. **When copying a run recipe, diff it against the control spec** and confirm every field dependency is satisfied, not just that the fields are present.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#119, t/3802).
+
+**Applies To:** All agents running paid experiment batches; verify config effect in a debug run before full spend.
+
+---
+
+## #303 [Build] Edit Left Placeholder `raise ImportError` in Analysis Script
+
+**Pattern:** An agent edits an analysis script and leaves a placeholder `raise ImportError` (or similar sentinel) in place of a real implementation. A subsequent run crashes on the placeholder rather than the intended logic.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#119): Edit left `raise ImportError` placeholder in analysis script. Restored `__main__` guard, re-ran old read to confirm output.
+
+**Root Cause:** Edit tool inserts placeholder markers (raise, pass, TODO, ...) that are valid Python syntax; they do not cause parse errors and are easy to miss before running.
+
+**Prevention:**
+1. **After any Edit to a Python script, scan for placeholder markers** (`raise`, `pass`, `TODO`, `...`, `NotImplementedError`) before running. A quick `grep` or Read of the edited section is enough.
+2. **If a script crashes with `ImportError` or `NotImplementedError` immediately after an edit**, check for a leftover placeholder before investigating the import chain.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#119).
+
+**Applies To:** All agents editing Python analysis scripts; scan for placeholder markers before running.

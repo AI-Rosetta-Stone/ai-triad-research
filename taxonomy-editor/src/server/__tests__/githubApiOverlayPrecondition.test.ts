@@ -324,3 +324,63 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — readFileWithVersion reads
     backend.shutdown();
   });
 });
+
+// t/4258/t/4295 (ServerAPI, p/541#83): getCachedEtag() keyed its manifest
+// lookup on repoPath alone, stripping the `?ref=` query — so a session-branch
+// GET reused main's cached etag. Azure hit this live: a brand-new user's
+// first write 500'd when the branch's (unedited) content happened to match
+// main's cached version and GitHub legitimately 304'd; nothing downstream
+// expected `data: null`.
+describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend — 304 Not Modified session-branch guard (t/4258/t/4295)', () => {
+  function seedMainEtagCache(backend: unknown, repoPath: string, sha: string, etag: string): void {
+    (backend as { manifest: { version: 1; generation: number; lastCommitSha: string; lastUpdated: string; files: Record<string, { sha: string; etag: string; cachedAt: string }> } }).manifest = {
+      version: 1, generation: 1, lastCommitSha: 'main-commit-sha', lastUpdated: new Date().toISOString(),
+      files: { [repoPath]: { sha, etag, cachedAt: new Date().toISOString() } },
+    };
+  }
+
+  it('a session-branch GET never sends If-None-Match for main\'s cached etag (root cause)', async () => {
+    const backend = await createBackend();
+    seedMainEtagCache(backend, 'taxonomy/nodes.json', 'main-sha', 'main-etag');
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    let sawIfNoneMatch = false;
+    const branchContent = JSON.stringify({ v: 'on-the-branch' });
+    apiHandlers.push((url, init) => {
+      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes('ref=api-session%2Falice')) {
+        return null;
+      }
+      if (init.headers && 'If-None-Match' in (init.headers as Record<string, string>)) sawIfNoneMatch = true;
+      return { status: 200, body: { content: Buffer.from(branchContent).toString('base64'), encoding: 'base64', sha: 'branch-sha' } };
+    });
+
+    const result = await backend.readFileWithVersion('/taxonomy/nodes.json');
+
+    expect(sawIfNoneMatch).toBe(false);
+    expect(result?.content).toBe(branchContent);
+    backend.shutdown();
+  });
+
+  it('a 304 against a session-branch read fails closed with the typed 503, not a raw TypeError crash (defense in depth)', async () => {
+    const backend = await createBackend();
+    seedMainEtagCache(backend, 'taxonomy/nodes.json', 'main-sha', 'main-etag');
+    backend.setSessionContext({ userId: 'alice', branchName: 'api-session/alice' });
+
+    apiHandlers.push((url, init) => {
+      if ((init?.method ?? 'GET') !== 'GET' || !url.includes('/contents/taxonomy/nodes.json') || !url.includes('ref=api-session%2Falice')) {
+        return null;
+      }
+      return { status: 304, body: null };
+    });
+
+    // Pre-fix this was an unhandled TypeError from `null.type`; post-fix it's
+    // the same documented 503 VERSION_UNAVAILABLE any other unreachable-GitHub
+    // case produces (getSessionBranchFileStatus's 'unavailable' kind) — a
+    // handled failure, never a crash on null response data.
+    const err = await backend.readFileWithVersion('/taxonomy/nodes.json')
+      .then(() => null, (e: unknown) => e) as { httpStatus?: number; code?: string } | null;
+    expect(err?.httpStatus).toBe(503);
+    expect(err?.code).toBe('VERSION_UNAVAILABLE');
+    backend.shutdown();
+  });
+});

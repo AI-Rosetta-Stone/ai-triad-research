@@ -98,15 +98,28 @@ module.exports = {
     {
       // The edge itself (SO e/250#3 condition 1): shared debate code is imported by every runtime, so it must
       // not pick a loader. It takes the resolver from its caller; each runtime's entry point chooses. Exempt:
-      // the two loaders, tests, and Node-only entry points (cli, mcp-server).
+      // the two loaders, tests, and Node-only entry points (cli, cli.helpers, mcp-server).
       name: 'lib-debate-not-to-soul-loaders',
       comment: 'Shared lib/debate code must not import soulDocLoader or tagSoulRegistry; the runtime entry point injects the resolver — t/3975.',
       severity: 'error',
       from: {
         path: '(^|[\\\\/])lib[\\\\/]debate[\\\\/]',
-        pathNot: '(^|[\\\\/])lib[\\\\/]debate[\\\\/](soulDocLoader|tagSoulRegistry|cli|mcp-server)\\.(ts|js)$|\\.test\\.(ts|tsx)$|[\\\\/]__tests__[\\\\/]',
+        pathNot: '(^|[\\\\/])lib[\\\\/]debate[\\\\/](soulDocLoader|tagSoulRegistry|cli|cli\\.helpers|mcp-server)\\.(ts|js)$|\\.test\\.(ts|tsx)$|[\\\\/]__tests__[\\\\/]',
       },
       to: { path: '(^|[\\\\/])lib[\\\\/]debate[\\\\/](soulDocLoader|tagSoulRegistry)\\.(ts|js)$' },
+    },
+    {
+      // t/4306: the companion to the rule above. Its exempt Node-only entry modules import the loaders, so shared
+      // code importing one of THEM would pull the fs loader into every runtime (the renderer included) without the
+      // direct-edge rule firing. Shared code may not depend on an entry module; entry modules may import each other.
+      name: 'lib-debate-not-to-node-entry-modules',
+      comment: 'Shared lib/debate code must not import the Node-only entry modules (cli, cli.helpers, mcp-server); they import the soul loaders — t/4306.',
+      severity: 'error',
+      from: {
+        path: '(^|[\\\\/])lib[\\\\/]debate[\\\\/]',
+        pathNot: '(^|[\\\\/])lib[\\\\/]debate[\\\\/](cli|cli\\.helpers|mcp-server)\\.(ts|js)$|\\.test\\.(ts|tsx)$|[\\\\/]__tests__[\\\\/]',
+      },
+      to: { path: '(^|[\\\\/])lib[\\\\/]debate[\\\\/](cli|cli\\.helpers|mcp-server)\\.(ts|js)$' },
     },
   ],
   options: {

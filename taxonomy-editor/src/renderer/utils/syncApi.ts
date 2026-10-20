@@ -49,6 +49,25 @@ export interface SyncStatus {
     last_poll: string;
     age_seconds: number;
   };
+  /** The user's staged-overlay commit state (t/4312, #3467). `'conflict'` (behind the server's
+   *  OVERLAY_CONFLICT_STATE_ENABLED flag) means a newer commit changed files in the staged batch: nothing
+   *  in the batch commits, and the server stops retrying until the user resolves it (t/4313). */
+  overlay_commit?: OverlayCommitStatus;
+}
+
+/** Mirrors the server's OverlayCommitStatus (storage/overlayCommitScheduler.ts, #3467 contract). */
+export interface OverlayCommitStatus {
+  state: 'pending' | 'committed' | 'failed' | 'conflict';
+  at: number;
+  error?: string;
+  /** Set, non-empty, when `state === 'conflict'`: the files changed elsewhere. */
+  conflictedPaths?: string[];
+}
+
+/** The files a save conflict is waiting on, or null when there's no conflict to resolve (t/4313). */
+export function overlayConflictPaths(status: SyncStatus): string[] | null {
+  const oc = status.overlay_commit;
+  return oc?.state === 'conflict' && (oc.conflictedPaths?.length ?? 0) > 0 ? oc.conflictedPaths! : null;
 }
 
 export type ResyncMode = 'rebase' | 'fetch-only' | 'reset-main';
@@ -113,11 +132,12 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: string, body: unknown, opts?: { timeoutMs?: number }): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    ...(opts?.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -179,6 +199,27 @@ export async function discardFile(relPath: string): Promise<void> {
 
 export async function discardAll(): Promise<void> {
   await postJson('/api/sync/discard', { all: true });
+}
+
+// ── Save-conflict resolution (t/4313; contract in #3467's body, TL p/538#97) ──
+// Both act on the user's WHOLE staged batch, never a per-file subset. Both are POSTs: never auto-retried here;
+// a failure surfaces to the banner for a manual retry (network rules). 30 s is ample: one rebase + one commit.
+const RESOLVE_TIMEOUT_MS = 30_000;
+
+/** "Use theirs": discard every staged change in the batch; those files read the newer committed version again. */
+export async function resolveOverlayConflictUseTheirs(): Promise<{ discarded: string[] }> {
+  return postJson('/api/sync/overlay-conflicts/use-theirs', {}, { timeoutMs: RESOLVE_TIMEOUT_MS });
+}
+
+/**
+ * "Keep mine": re-base the whole batch onto the current head and commit it, overwriting the newer version.
+ * A non-empty `stillConflicted` means another change landed in the gap: the caller shows the conflict again
+ * rather than calling this again.
+ */
+export async function resolveOverlayConflictKeepMine(): Promise<{
+  committed: boolean; commitSha?: string; filesCommitted?: number; stillConflicted: string[];
+}> {
+  return postJson('/api/sync/overlay-conflicts/keep-mine', {}, { timeoutMs: RESOLVE_TIMEOUT_MS });
 }
 
 export async function createPullRequest(opts: { title?: string; body?: string }): Promise<CreatePrSuccess> {

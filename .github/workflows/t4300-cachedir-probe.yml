@@ -1,0 +1,78 @@
+name: t4300-cachedir-probe
+
+# Throwaway, one-off probe (SO T2 condition C1, e/329#2/#3): proves the real prod image can
+# create and write to /home/aitriad/.cache/taxonomy-github-api as the runtime user, and that the
+# server boots to a healthy /healthz with that path. Dispatch manually, never on a schedule or
+# push trigger. Delete once C1 is recorded on t/4300.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: 'Full image ref to probe, e.g. ghcr.io/ai-rosetta-stone/taxonomy-editor:sha-b217e79d...'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull the image under probe
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
+        run: docker pull "$IMAGE_REF"
+
+      - name: C1a — runtime user, HOME, and cache-dir writability
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE_REF" -c '
+            set -e
+            echo "id: $(id)"
+            echo "HOME=$HOME"
+            mkdir -p /home/aitriad/.cache/taxonomy-github-api
+            touch /home/aitriad/.cache/taxonomy-github-api/probe-write-test
+            ls -la /home/aitriad/.cache/taxonomy-github-api
+            echo "CACHE_DIR_WRITABLE: OK"
+          '
+
+      - name: C1b — full boot with the new CACHE_DIR, check /healthz
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
+        run: |
+          set -x
+          mkdir -p /tmp/empty-data-root
+          docker run -d --name t4300-probe \
+            -p 17862:7862 \
+            -e NODE_ENV=production \
+            -e STORAGE_MODE=github-api \
+            -e AUTH_DISABLED=1 \
+            -e HOME=/home/aitriad \
+            -e AI_TRIAD_DATA_ROOT=/mnt/empty-data-root \
+            -e TAXONOMY_CACHE_DIR=/home/aitriad/.cache/taxonomy-github-api \
+            -e PORT=7862 \
+            -v /tmp/empty-data-root:/mnt/empty-data-root:ro \
+            "$IMAGE_REF" || { echo "::warning::Container failed to start — logging what we have"; docker logs t4300-probe 2>&1 || true; exit 1; }
+          # Give it a real boot window, then poll /healthz.
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:17862/healthz; then ok=1; break; fi
+            sleep 2
+          done
+          echo "--- container logs ---"
+          docker logs t4300-probe 2>&1 | tail -100
+          docker rm -f t4300-probe || true
+          if [ "$ok" != "1" ]; then
+            echo "::error::/healthz never returned 200 within the boot window"
+            exit 1
+          fi
+          echo "HEALTHZ_200: OK"
