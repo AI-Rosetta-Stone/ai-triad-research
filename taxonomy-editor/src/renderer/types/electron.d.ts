@@ -9,6 +9,7 @@ import type { UserPreferences, BriefExportRequest, BriefExportJobView, BriefExpo
 import type { BriefArtifactName } from '../../../../lib/brief/types';
 import type { StopReason } from '@lib/ai-client/types';
 import type { OpEdSet, OpEdSetSummary } from '@lib/oped/types';
+import type { SourceReference, SourceCardMeta } from '@lib/sourceIndex/types';
 
 export interface ElectronAPI {
   // Inquiry — desktop parity (t/3579). idempotencyKey accepted for signature parity with the
@@ -85,6 +86,9 @@ export interface ElectronAPI {
   bulkUpdateEdges: (indices: number[], status: string) => Promise<unknown>;
   buildNodeSourceIndex: () => Promise<unknown>;
   buildPolicySourceIndex: () => Promise<unknown>;
+  // t/4335: optional — ElectronMain's IPC handler (main/ipc/taxonomyHandlers.ts + preload.cts)
+  // hasn't landed yet (child ticket filed); electron-bridge.ts falls back when absent.
+  getNodeSources?: (nodeId: string) => Promise<{ sources: SourceReference[]; cards: Record<string, SourceCardMeta>; indexVersion: number }>;
 
   // Conflict CRUD
   loadConflictFiles: () => Promise<unknown[]>;

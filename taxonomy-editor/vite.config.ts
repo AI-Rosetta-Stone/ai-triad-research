@@ -196,6 +196,7 @@ export default defineConfig({
       '@lib/inquiry': path.resolve(import.meta.dirname, '../lib/inquiry'),
       '@lib/entities': path.resolve(import.meta.dirname, '../lib/entities'),
       '@lib/policy': path.resolve(import.meta.dirname, '../lib/policy'),
+      '@lib/sourceIndex': path.resolve(import.meta.dirname, '../lib/sourceIndex'),
       '@lib/oped': path.resolve(import.meta.dirname, '../lib/oped'),
       '@lib/schema': path.resolve(import.meta.dirname, '../lib/schema'), // t/3955: validatePovTags for the renderer save schema
       '@lib/userPreferencesSchema': path.resolve(import.meta.dirname, '../lib/userPreferencesSchema.ts'),

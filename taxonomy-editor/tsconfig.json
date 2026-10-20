@@ -38,6 +38,7 @@
       "@lib/inquiry/*": ["../lib/inquiry/*"],
       "@lib/entities/*": ["../lib/entities/*"],
       "@lib/policy/*": ["../lib/policy/*"],
+      "@lib/sourceIndex/*": ["../lib/sourceIndex/*"],
       "@lib/oped/*": ["../lib/oped/*"],
       "@lib/schema/*": ["../lib/schema/*"],
       "@lib/userPreferencesSchema": ["../lib/userPreferencesSchema.ts"],
