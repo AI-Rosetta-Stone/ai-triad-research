@@ -1,0 +1,50 @@
+/* SaveConflictBanner.css — t/4314 save-conflict banner styles */
+
+.save-conflict-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-top: 2px solid var(--danger, #d32f2f);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.save-conflict-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.save-conflict-banner-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.save-conflict-banner-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.save-conflict-banner-error {
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  color: var(--danger, #d32f2f);
+}
+
+.save-conflict-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.save-conflict-banner-btn {
+  white-space: nowrap;
+}
+
+.save-conflict-confirm {
+  max-width: 440px;
+}
