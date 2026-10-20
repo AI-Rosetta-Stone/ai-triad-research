@@ -83,3 +83,22 @@ later on top of B.
 **G7:** `acc-beliefs-115` vs `-116`, the same label on two related claims. 115 is broader and has 10
 edges; 116 is narrower and has 5. Either supersede 116 by 115, or relabel 115 to separate them. It's an
 editorial call, so it isn't in the mechanical set.
+
+## Second Opinion (e/343#2): proceed with B under conditions C1–C5, no dissent
+
+| Condition | Owner | Status |
+|---|---|---|
+| **C1:** filter at the load boundary. Selection gets only selectable nodes; lookup by ID still resolves superseded ones. TS loader, editor and PS reader each get a test. T1, deployed **before** the write. | per t/4278 TL breakdown (t/4354–t/4356) | open |
+| **C2:** AI producers exclude superseded nodes, and t/4353 is extended to flag live references to superseded IDs | PowerShell, DevOps | open |
+| **C3:** edges re-pointed onto the survivor, deduplicated by (source, target, type), self-loops dropped, originals kept | CL | **done:** `build_manifest.py`. 27 edges to add, 0 self-loops. |
+| **C4:** a reversal manifest plus a dry-run undo | CL | **done:** `reversal_manifest.json`; `dryrun_apply_undo.py` shows apply changes exactly 14 nodes and 27 edges, and undo is byte-identical on all 4 files |
+| **C5:** `superseded_by` survives every writer: editor save, server PUT, PS funnel | per TL breakdown | open |
+| **Q3:** self-declaration ranks first in the survivor rule; 237 goes to the editorial pass | CL | **done:** 236 retired into 235 by self-declaration. 237 held; the CL text check prefers 235's text. |
+
+**A write-method constraint the dry run found:** `skeptic.json` and `edges.json` **don't round-trip** through a canonical `json.dumps(indent=2)`.
+- `skeptic.json` nodes start with an inline `{"pov_tags":[...],` prefix, left by the t/3962 tag write.
+- `edges.json` stores each edge compactly on one line.
+
+Reserialising would rewrite every line (`edges.json`: 16.6M → 19.9M characters). **So the real write must make minimal text insertions** that preserve each file's existing format, checked by the structural and textual 0-collateral comparisons. `safetyist.json` and `accelerationist.json` do round-trip.
+
+**Mechanical set after Q3:** 8 superseded nodes, 8 survivors. **Held for the PI:** `saf-intentions-237` (recommend retiring it into 235), and G7's `acc-beliefs-115` vs `-116`.
