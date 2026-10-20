@@ -208,6 +208,10 @@ export interface PovNode {
   /** Forward grounding links to dictionary concepts (term:*) (t/3157). Optional; {@link ConceptLinkRef}
    *  (no match_level — a concept ref already names a kind). */
   concept_refs?: ConceptLinkRef[];
+  /** ID of the node that supersedes this one. Selection skips superseded nodes; resolveNode still
+   *  returns them. Chains resolve to the final non-superseded node; cycles and dangling targets
+   *  resolve to the node itself. See taxonomyLoader.ts › loadTaxonomy. */
+  superseded_by?: string;
   _edit_meta?: NodeEditMeta;
   _edit_history?: EditHistoryEntry[];
 }

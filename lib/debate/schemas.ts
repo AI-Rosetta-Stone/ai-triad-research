@@ -143,6 +143,8 @@ export const PovNodeSchema = z.object({
   // (kebab-case, unique, registered under this node's POV) run in the superRefine below, via the one
   // shared rule validatePovTags. Absent or empty = untagged (see taxonomy-schema.json node_fields).
   pov_tags: z.array(z.string()).optional(),
+  // Selection skips superseded nodes; resolveNode still returns them. See taxonomyLoader.ts › loadTaxonomy.
+  superseded_by: z.string().optional(),
 }).superRefine((node, ctx) => {
   for (const message of validatePovTags(node.id, node.pov_tags)) {
     ctx.addIssue({ code: 'custom', path: ['pov_tags'], message });

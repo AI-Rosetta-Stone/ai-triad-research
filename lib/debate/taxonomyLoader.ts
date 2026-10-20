@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { PovNode, SituationNode, EdgesFile } from './taxonomyTypes.js';
+import type { PovNode, SituationNode, EdgesFile, Edge } from './taxonomyTypes.js';
 import type { PolicyRef, SituationStatements } from './taxonomyContext.js';
 import { ActionableError } from './errors.js';
 import { parseNpy, extractNodeVectors } from '../npy.js';
@@ -31,15 +31,32 @@ export interface NodeEmbedding {
 }
 
 export interface LoadedTaxonomy {
+  /** Selectable POV nodes only (no superseded_by). */
   accelerationist: { nodes: PovNode[] };
+  /** Selectable POV nodes only (no superseded_by). */
   safetyist: { nodes: PovNode[] };
+  /** Selectable POV nodes only (no superseded_by). */
   skeptic: { nodes: PovNode[] };
   situations: { nodes: SituationNode[] };
+  /** Full edge set including edges to/from superseded nodes. Use selectableEdges for traversal. */
   edges: EdgesFile | null;
+  /** Embeddings for selectable nodes only. Superseded node embeddings are excluded. */
   embeddings: Record<string, NodeEmbedding>;
   policyRegistry: PolicyRef[];
   /** Lineage category data (L1 + L2 cluster mapping). Absent if file not found. */
   lineageCategories?: LineageCategoryData;
+  /** All nodes by ID including superseded. Use for historical lookups and resolveNode. */
+  allNodesById: Map<string, PovNode>;
+  /**
+   * Resolve a node ID to its effective non-superseded node.
+   * - Non-superseded node: returns itself.
+   * - Superseded node with a valid chain to a non-superseded node: returns the chain endpoint.
+   * - Superseded node in a cycle or with a dangling target: returns the node itself.
+   * - Unknown ID: returns undefined.
+   */
+  resolveNode: (id: string) => PovNode | undefined;
+  /** Edges where both source and target are selectable (non-superseded) nodes. */
+  selectableEdges: Edge[] | null;
 }
 
 export interface ConflictFile {
@@ -299,15 +316,115 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
     };
   }
 
+  // ── Supersession: chain resolution + cycle/dangling detection ────────────────
+  const allPovNodes: PovNode[] = [
+    ...(acc.nodes ?? []),
+    ...(saf.nodes ?? []),
+    ...(skp.nodes ?? []),
+  ];
+  const allNodesById = new Map<string, PovNode>(allPovNodes.map(n => [n.id, n]));
+
+  // resolutionCache: supersededId → ultimate non-superseded id (or null for cycle/dangling)
+  const resolutionCache = new Map<string, string | null>();
+  const recorder = getGlobalRecorder();
+
+  for (const startNode of allPovNodes) {
+    if (!startNode.superseded_by || resolutionCache.has(startNode.id)) continue;
+
+    const chain: string[] = [];
+    const chainSet = new Set<string>();
+    let cur = startNode.id;
+
+    while (!resolutionCache.has(cur)) {
+      if (chainSet.has(cur)) {
+        // Cycle detected — all cycle members resolve to themselves
+        const cycleStart = chain.indexOf(cur);
+        const cycleMembers = chain.slice(cycleStart);
+        recorder?.record({
+          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+          message: `loadTaxonomy: supersession cycle: ${[...cycleMembers, cur].join(' → ')} — members excluded from selection`,
+        });
+        for (const id of cycleMembers) resolutionCache.set(id, null);
+        // Nodes before the cycle start (chain-into-cycle) also have no survivor
+        for (let i = 0; i < cycleStart; i++) resolutionCache.set(chain[i], null);
+        break;
+      }
+
+      chain.push(cur);
+      chainSet.add(cur);
+
+      const curNode = allNodesById.get(cur);
+      if (!curNode?.superseded_by) {
+        // Terminal — all prior chain members resolve to cur
+        if (chain.length > 2) {
+          recorder?.record({
+            type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+            message: `loadTaxonomy: supersession chain ${chain.join(' → ')} — resolves to ${cur}`,
+          });
+        }
+        for (const id of chain) {
+          if (id !== cur) resolutionCache.set(id, cur);
+        }
+        break;
+      }
+
+      const nextId = curNode.superseded_by;
+      if (!allNodesById.has(nextId)) {
+        // Dangling target — no survivor
+        recorder?.record({
+          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+          message: `loadTaxonomy: node ${cur} superseded_by "${nextId}" not found in taxonomy — treating as no survivor`,
+        });
+        for (const id of chain) resolutionCache.set(id, null);
+        break;
+      }
+
+      cur = nextId;
+    }
+
+    // If the loop exited because cur was already cached, propagate that resolution backward
+    if (resolutionCache.has(cur)) {
+      const existingRes = resolutionCache.get(cur) ?? null;
+      for (const id of chain) {
+        if (!resolutionCache.has(id)) resolutionCache.set(id, existingRes);
+      }
+    }
+  }
+
+  const resolveNode = (id: string): PovNode | undefined => {
+    const node = allNodesById.get(id);
+    if (!node) return undefined;
+    if (!node.superseded_by) return node;
+    const resolved = resolutionCache.get(id);
+    if (!resolved) return node; // cycle or dangling — return self
+    return allNodesById.get(resolved) ?? node;
+  };
+
+  const selectableIds = new Set(allPovNodes.filter(n => !n.superseded_by).map(n => n.id));
+
+  // Filter embeddings to selectable nodes only
+  const selectableEmbeddings: Record<string, NodeEmbedding> = {};
+  for (const [id, emb] of Object.entries(embeddings)) {
+    if (selectableIds.has(id)) selectableEmbeddings[id] = emb;
+  }
+
+  // Filter edges to both-selectable endpoints
+  const selectableEdges: Edge[] | null = edges
+    ? edges.edges.filter(e => selectableIds.has(e.source) && selectableIds.has(e.target))
+    : null;
+
   return {
-    accelerationist: { nodes: acc.nodes ?? [] },
-    safetyist: { nodes: saf.nodes ?? [] },
-    skeptic: { nodes: skp.nodes ?? [] },
+    accelerationist: { nodes: (acc.nodes ?? []).filter(n => !n.superseded_by) },
+    safetyist: { nodes: (saf.nodes ?? []).filter(n => !n.superseded_by) },
+    skeptic: { nodes: (skp.nodes ?? []).filter(n => !n.superseded_by) },
     situations: { nodes: sit.nodes ?? [] },
     edges,
-    embeddings,
+    embeddings: selectableEmbeddings,
     policyRegistry,
     lineageCategories,
+    allNodesById,
+    resolveNode,
+    selectableEdges,
   };
 }
 

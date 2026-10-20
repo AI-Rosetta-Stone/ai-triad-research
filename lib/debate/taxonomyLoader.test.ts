@@ -27,7 +27,7 @@ vi.mock('../npy.js', () => ({
   extractNodeVectors: vi.fn(() => ({})),
 }));
 
-import { loadConflicts, fetchUrlContent } from './taxonomyLoader.js';
+import { loadConflicts, fetchUrlContent, loadTaxonomy } from './taxonomyLoader.js';
 
 const FAKE_DATA_ROOT = path.resolve('/fake/data');
 const FAKE_ROOT = '/fake/repo';
@@ -146,5 +146,124 @@ describe('fetchUrlContent (L10 SSRF regression — t/2528)', () => {
     await expect(fetchUrlContent('https://unreachable.example.com')).rejects.toMatchObject({
       goal: 'Fetch debate source URL',
     });
+  });
+});
+
+// ── loadTaxonomy — supersession (t/4354) ─────────────────────────────────────
+
+function makeAccNode(id: string, label: string, superseded_by?: string): object {
+  return {
+    id, label, category: 'Beliefs',
+    description: 'A Beliefs within accelerationist discourse that does something.',
+    parent_id: null, children: [], situation_refs: [],
+    ...(superseded_by !== undefined ? { superseded_by } : {}),
+  };
+}
+
+function setupTaxonomyMocks(
+  accNodes: object[],
+  embeddings: Record<string, { pov: string; vector: number[] }> = {},
+  edges: object[] = [],
+) {
+  const taxDir = '/fake/data/taxonomy';
+  mockExistsSync.mockImplementation((p: string) => {
+    if (p === FAKE_DATA_ROOT) return true;
+    if (p.endsWith('.aitriad.json')) return true;
+    if (p.endsWith('accelerationist.json')) return true;
+    if (p.endsWith('embeddings.json')) return true;
+    if (p.endsWith('edges.json')) return edges.length > 0;
+    return false; // safetyist, skeptic, situations, policy, lineage, synthetic — all missing
+  });
+  mockReadFileSync.mockImplementation((p: string) => {
+    if (p.endsWith('.aitriad.json')) return JSON.stringify(FAKE_CONFIG);
+    if (p.endsWith('accelerationist.json')) return JSON.stringify({ nodes: accNodes });
+    if (p.endsWith('embeddings.json')) return JSON.stringify({ nodes: embeddings });
+    if (p.endsWith('edges.json')) return JSON.stringify({
+      _schema_version: '1', _doc: '', last_modified: '', edge_types: [],
+      edges,
+    });
+    return '{}';
+  });
+}
+
+describe('loadTaxonomy — supersession (t/4354)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.AI_TRIAD_DATA_ROOT = FAKE_DATA_ROOT;
+  });
+  afterEach(() => {
+    delete process.env.AI_TRIAD_DATA_ROOT;
+  });
+
+  it('superseded node is absent from selectable nodes and embeddings, present in allNodesById', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active'), makeAccNode('acc-beliefs-002', 'Retired', 'acc-beliefs-001')],
+      { 'acc-beliefs-001': { pov: 'acc', vector: [1, 0] }, 'acc-beliefs-002': { pov: 'acc', vector: [0, 1] } },
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    const selectableIds = result.accelerationist.nodes.map(n => n.id);
+    expect(selectableIds).toContain('acc-beliefs-001');
+    expect(selectableIds).not.toContain('acc-beliefs-002');
+    expect(result.allNodesById.has('acc-beliefs-002')).toBe(true);
+    expect(result.embeddings['acc-beliefs-001']).toBeDefined();
+    expect(result.embeddings['acc-beliefs-002']).toBeUndefined();
+  });
+
+  it('resolveNode returns non-superseded node for a normal node', () => {
+    setupTaxonomyMocks([makeAccNode('acc-beliefs-001', 'Active')]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('unknown-id')).toBeUndefined();
+  });
+
+  it('resolveNode follows a supersession chain to the final non-superseded node', () => {
+    // Chain: 003 → 002 → 001 (001 is the active endpoint)
+    setupTaxonomyMocks([
+      makeAccNode('acc-beliefs-001', 'Active'),
+      makeAccNode('acc-beliefs-002', 'Mid', 'acc-beliefs-001'),
+      makeAccNode('acc-beliefs-003', 'Old', 'acc-beliefs-002'),
+    ]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.resolveNode('acc-beliefs-003')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('acc-beliefs-002')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    // Chain members are absent from selectable nodes
+    expect(result.accelerationist.nodes.map(n => n.id)).toEqual(['acc-beliefs-001']);
+  });
+
+  it('cycle: both members absent from selection, resolveNode returns each node itself', () => {
+    // Cycle: 001 → 002 → 001
+    setupTaxonomyMocks([
+      makeAccNode('acc-beliefs-001', 'CycleA', 'acc-beliefs-002'),
+      makeAccNode('acc-beliefs-002', 'CycleB', 'acc-beliefs-001'),
+    ]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.accelerationist.nodes).toHaveLength(0);
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('acc-beliefs-002')?.id).toBe('acc-beliefs-002');
+  });
+
+  it('dangling target: node excluded from selection, resolveNode returns node itself', () => {
+    setupTaxonomyMocks([makeAccNode('acc-beliefs-001', 'Dangling', 'acc-beliefs-MISSING')]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.accelerationist.nodes).toHaveLength(0);
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+  });
+
+  it('selectableEdges excludes edges with a superseded endpoint', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active'), makeAccNode('acc-beliefs-002', 'Retired', 'acc-beliefs-001')],
+      {},
+      [
+        { source: 'acc-beliefs-001', target: 'acc-beliefs-002', type: 'SUPPORTS', bidirectional: false, confidence: 0.8, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+        { source: 'acc-beliefs-001', target: 'acc-beliefs-001', type: 'SUPPORTS', bidirectional: false, confidence: 0.9, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+      ],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.selectableEdges).toHaveLength(1);
+    expect(result.selectableEdges![0].source).toBe('acc-beliefs-001');
+    expect(result.selectableEdges![0].target).toBe('acc-beliefs-001');
+    // Full edge set is unchanged
+    expect(result.edges!.edges).toHaveLength(2);
   });
 });
