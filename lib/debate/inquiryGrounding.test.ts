@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi } from 'vitest';
@@ -49,6 +49,10 @@ function makeTaxonomy(overrides: Partial<GroundingTaxonomy> = {}): GroundingTaxo
     'acc-beliefs-001': { pov: 'acc', vector: unitVec(8, 0) },
     'acc-beliefs-002': { pov: 'acc', vector: unitVec(8, 1) },
     'saf-beliefs-001': { pov: 'saf', vector: unitVec(8, 2) },
+    // Situation nodes must be precomputed — production code reads nodeEmbeddings[s.id]
+    // instead of re-embedding. sit-001 gets vec[0] so it wins when question is vec[0].
+    'sit-001': { pov: 'acc', vector: unitVec(8, 0) },
+    'sit-002': { pov: 'acc', vector: unitVec(8, 1) },
     'saf-beliefs-002': { pov: 'saf', vector: unitVec(8, 3) },
     'skp-beliefs-001': { pov: 'skp', vector: unitVec(8, 4) },
     'cc-beliefs-001':  { pov: 'cc',  vector: unitVec(8, 5) },
