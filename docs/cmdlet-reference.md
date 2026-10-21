@@ -96,6 +96,7 @@ Get-Help <CmdletName> -Full                     # full docs for any cmdlet
 |--------|----------|
 | `Import-AITriadDocument` | Ingest a PDF/DOCX/HTML source |
 | `Save-AITSource` / `Find-AITSource` | Store/retrieve source records |
+| `Export-SourcesIndex` | Build `sources-index.json` (card fields + `content_sha256` + URL/provenance per doc) for hosts that can't read `ai-triad-sources`; byte-stable, writes only on change (t/4334) |
 | `Get-IntellectualLineage` | Trace a node's source lineage |
 | `Get-PovLineage` | POV-specific lineage |
 | `Get-IngestionPriority` | Score sources by ingestion value |

@@ -1,0 +1,28 @@
+{
+  "id": "beta-2026",
+  "title": "Beta",
+  "url": "https://example.org/beta",
+  "resolved_url": "https://www.example.org/beta/",
+  "authors": [
+    "Ada One",
+    "Bo Two"
+  ],
+  "date_published": "2026-01-15",
+  "one_liner": "A beta.",
+  "topic_tags": [
+    "governance"
+  ],
+  "import_time": "2026-06-02T06:35:18.2831215+02:00",
+  "provenance": [
+    {
+      "scheme": "url",
+      "id": "https://example.org/beta",
+      "confidence": "search"
+    },
+    {
+      "scheme": "doi",
+      "id": "10.1234/beta",
+      "confidence": "verified"
+    }
+  ]
+}
