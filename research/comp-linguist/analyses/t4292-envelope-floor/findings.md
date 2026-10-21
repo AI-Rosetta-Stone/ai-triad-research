@@ -109,3 +109,30 @@ as its treatment.
   what's *harmful*. A blind topical-fit rating of the selections is the next measurement if a filter is
   pursued.
 - Cross-cutting nodes aren't included.
+
+## Step 2: cross-encoder rerank (2026-10-20, offline, no model spend)
+
+**Result: the rerank doesn't survive. Don't take it to the paid replication.**
+
+**Method:** `rerank_cross_encoder.py` writes `rerank.json`.
+- **Candidates:** the cosine ranking is re-derived in Python (all-MiniLM-L6-v2 against `embeddings.json`, label-deduped as in t/4352). Its top 3 **matches the production selection in `scores.json` on 45/45** camp sets. The top 10 per camp are the candidates.
+- **Scoring:** each candidate is scored as (question, "label. description") by `cross-encoder/ms-marco-MiniLM-L-6-v2`. That is the base model of the CL cross-encoder. The fine-tuned CL weights aren't on this machine, and they are trained for claim-to-node attribution, a different task.
+
+| Labelled-bad node (observed, t/4254) | Cosine rank | Rerank rank |
+|---|---|---|
+| q2 acc `acc-intentions-127` (off-topic) | 2 | **8** (demoted) |
+| q2 acc `acc-intentions-071` (off-topic) | 3 | **1** (promoted to the top) |
+| q3 saf `saf-beliefs-206` (generic) | 1 | 7 |
+| q3 saf `saf-desires-001` (generic) | 2 | 5 |
+
+**Why it fails:**
+1. **Off-topic mode: 1 of 2 is demoted, and the other is promoted to #1.** "Secure Early Access to Human-Generated Training Data" ranks first for a question about datacenters benefiting their community.
+2. **Generic mode: the replacement has the same framing.** q3 saf's new #1 is `saf-beliefs-094`, "Frontier AI Could Cause Irreversible Civilizational Harm". That is the civilizational-harm framing the t/4254 debates inherited. The cross-encoder can't add coverage the taxonomy lacks.
+3. **It's unstable where it matters.** The rerank changes the top-3 set in **43/45** camp sets. Most candidate logits are below −5, so the model judges nearly every candidate irrelevant, and the order among them is noise. An example of collateral damage: q1 skp drops "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks" (cosine #1) for an AI-harms-court question.
+
+**What this leaves:**
+- **The off-topic mode has no free fix with the models available.** Cosine on labels, and a general-purpose passage reranker, both fail on the one observed case. A further treatment (an LLM relevance judge, or a reranker fine-tuned on question-to-position pairs) first needs **labelled data:** a blind topical-fit rating of the 135 selections. Without it, n = 2 off-topic cases can't support a treatment choice.
+- **Recommendation 3 (the `low_coverage` signal) stands,** and is now the only treatment worth building. The best cross-encoder logit is not a cleaner coverage signal than cosine max. The forecasting camp sets all score low on both, but so do some policy sets (m04 acc best logit −8.2). Keep cosine max at about 0.45, stipulated.
+- **No paid R-1 replication of a selection treatment is warranted now.**
+
+**Limitations:** the same n = 4 labelled-bad nodes. Only one cross-encoder was tried, and it is out of domain (web-passage QA). The 0.45 coverage threshold is still stipulated.
