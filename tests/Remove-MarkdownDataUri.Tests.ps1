@@ -75,12 +75,75 @@ Describe 'Remove-MarkdownDataUri (t/4385)' -Tag 'unit' {
 
 Describe 'Invoke-OrgStanceExtraction strips data URIs before truncating (t/4385)' -Tag 'unit' {
 
-    It 'calls Remove-MarkdownDataUri before applying MaxDocChars' {
+    It 'reads the snapshot through Read-SnapshotForModel before applying MaxDocChars' {
         $src = Get-Content -Raw "$PSScriptRoot/../scripts/AITriad/Public/Invoke-OrgStanceExtraction.ps1"
-        $strip = $src.IndexOf('Remove-MarkdownDataUri -Text')
+        $strip = $src.IndexOf('Read-SnapshotForModel -Path')
         $trunc = $src.IndexOf('$docText.Substring(0, $MaxDocChars)')
         $strip | Should -BeGreaterThan 0
         $trunc | Should -BeGreaterThan $strip -Because 'the window must be cut from the stripped text'
+    }
+}
+
+Describe 'Guard: no PowerShell reader feeds snapshot text to a model unstripped (t/4385#3)' -Tag 'unit' {
+    # Every file under scripts/ that touches a snapshot must either strip (it uses one of the
+    # helpers below) or be listed here with the reason it never sends snapshot text to a model.
+    # A NEW reader fails this test until it is classified. A listed file that starts calling a
+    # model fails too: the allowlist only covers files with no model call.
+    BeforeAll {
+        $script:Helpers = 'Read-SnapshotForModel', 'Remove-MarkdownDataUri', 'Read-POVSummarySnapshot'
+        $script:NoModel = @{
+            'AITriad/Private/Get-SourcesIndexEntry.ps1'      = 'index metadata and content hash: must read the file as written'
+            'AITriad/Private/SourceIdentity.ps1'             = 'content_sha256 is over the snapshot as written (spec 1.1)'
+            'AITriad/Private/SourceDedupe.ps1'               = 'dedupe hashes: must read the file as written'
+            'AITriad/Public/Export-SourcesIndex.ps1'         = 'writes sources-index.json (hashes), no model'
+            'AITriad/Private/New-AITSourceFromMetadata.ps1'  = 'builds the source object (path only), no model'
+            'AITriad/Private/New-BatchDocEntry.ps1'          = 'existence/emptiness check; the summarizer reads via Read-SnapshotForModel'
+            'AITriad/Private/Split-DocumentChunks.ps1'       = 'pure chunker over text it is given (callers strip)'
+            'AITriad/Private/Measure-DensityDistribution.ps1' = 'word counts for a density report, no model'
+            'AITriad/Public/Get-ImportReport.ps1'            = 'import report display, no model'
+            'AITriad/Public/Get-TaxonomySnapshot.ps1'        = 'downloads taxonomy snapshots (unrelated "snapshot")'
+            'AITriad/Public/Export-TriadDebateBrief.ps1'     = 'brief export, no model'
+            'AITriad/Public/Invoke-AITDebate.ps1'            = 'passes -DocPath to the TS debate CLI; the TS stack strips (lib/debate)'
+            'AITriad/Public/Invoke-DebateAB.ps1'             = 'passes -DocPath to the TS debate CLI; the TS stack strips (lib/debate)'
+            'AITriad/Public/Repair-Markdown.ps1'             = 'snapshot text repair (writes the file), no model'
+            'AITriad/Public/Update-Snapshot.ps1'             = 're-converts and writes the snapshot; must stay as converted'
+            'DocConverters.psm1'                             = 'converters write the snapshot; must stay as converted'
+            'PdfOptimizer.psm1'                              = 'PDF compression, no model'
+            'New-SourceIdentityFixture.ps1'                  = 'test-fixture hashes over the file as written'
+        }
+        $script:ScriptsRoot = (Resolve-Path "$PSScriptRoot/../scripts").Path
+        $script:Readers = @(Get-ChildItem $script:ScriptsRoot -Recurse -File -Include *.ps1, *.psm1 |
+            Where-Object { $_.FullName -notmatch '[\\/]archive[\\/]' -and $_.Name -ne 'Remove-MarkdownDataUri.ps1' } |
+            Where-Object { Select-String -LiteralPath $_.FullName -Pattern 'snapshot\.md|SnapshotFile|SnapshotPath|SnapPath|\.Snapshot\b' -Quiet } |
+            ForEach-Object {
+                $rel = $_.FullName.Substring($script:ScriptsRoot.Length + 1) -replace '\\', '/'
+                $src = Get-Content -Raw -LiteralPath $_.FullName
+                [pscustomobject]@{
+                    Rel       = $rel
+                    Strips    = [bool]($script:Helpers | Where-Object { $src -match [regex]::Escape($_) })
+                    CallsModel = $src -match 'Invoke-AIApi|Get-AIMetadata|Invoke-SummaryPipeline|Get-Prompt\s'
+                }
+            })
+    }
+
+    It 'finds the known snapshot readers (the scan works)' {
+        @($script:Readers).Count | Should -BeGreaterThan 10
+        @($script:Readers.Rel) | Should -Contain 'AITriad/Public/Invoke-OrgStanceExtraction.ps1'
+    }
+
+    It 'every snapshot reader either strips or is listed as never feeding a model' {
+        $unclassified = @($script:Readers | Where-Object { -not $_.Strips -and -not $script:NoModel.ContainsKey($_.Rel) } | ForEach-Object Rel)
+        $unclassified | Should -BeNullOrEmpty -Because 'a new snapshot reader must use Read-SnapshotForModel, or be added to the allowlist with a reason'
+    }
+
+    It 'no snapshot reader that calls a model goes without the strip helper' {
+        $unguarded = @($script:Readers | Where-Object { $_.CallsModel -and -not $_.Strips } | ForEach-Object Rel)
+        $unguarded | Should -BeNullOrEmpty
+    }
+
+    It 'the allowlist has no stale entries' {
+        $stale = @($script:NoModel.Keys | Where-Object { $_ -notin @($script:Readers.Rel) })
+        $stale | Should -BeNullOrEmpty -Because 'remove an entry when its file no longer touches snapshots'
     }
 }
 
