@@ -6654,7 +6654,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **If the repro and the production path produce different results, the repro is the bug** — the production behavior is the ground truth. Investigate why the paths diverge before filing.
 4. **A Second Opinion's first question on a data-mutation bug: "Did the repro use the production reader?"** If not, the defect report is unverified.
 
-**Status:** Active — 2 instances (Computational Linguist p/7#126, t/4278; Computational Linguist p/7#136 — asserted "model copied mojibake bytes" without opening the snapshot; file had `Æ`→`é` substitution; checking the real file revealed 418/846 snapshots affected, t/4394).
+**Status:** Active — 3 instances (Computational Linguist p/7#126, t/4278; Computational Linguist p/7#136 — asserted "model copied mojibake bytes" without opening the snapshot; file had `Æ`→`é` substitution; 418/846 snapshots affected, t/4394; Computational Linguist p/7#138 — declared source discrepancy from filename/title mismatch without reading content; real content confirmed one article; caught before any write at e/348#4).
 
 **Applies To:** All agents writing repro scripts for suspected data-layer bugs; always invoke the production read path, never a bare deserializer.
 
@@ -7047,3 +7047,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#253).
 
 **Applies To:** All agents running PowerShell scripts via the Bash tool on Windows; always use the PowerShell tool for `pwsh` invocations with Windows absolute paths.
+
+---
+
+## #348 [Research] JSON Array Element Assumed to Be Object Is a Plain String — Inspect Shape Before Dereferencing
+
+**Pattern:** An agent iterates a JSON array field and calls `.keys()` or a dict method on each element, assuming they are objects. The elements are plain strings. `'str' object has no attribute 'keys'` (or `.get`) is the diagnostic. Fix: inspect the field's shape first, or check the file's `_doc` field if one exists.
+
+**Instances:**
+- 2026-10-21 — PowerShell (p/20#102): inline Python scan of `entity_extraction_log.json` crashed — `org_mentions[]` assumed to hold objects; they are plain strings. The `_doc` field documents the schema (`evidence[]` holds the `{id, name, quote}` objects). Fixed by inspecting shape first.
+
+**Root Cause:** Same class as root AGENTS.md "Data File Convention": field types vary (list vs dict, string vs object). The array name (`org_mentions`) implied structured objects, but the actual content was a string list. A `_doc` field in the file documented the real schema and was not consulted.
+
+**Prevention:**
+1. **Before calling any dict method on array elements**, check one element: `type(items[0])` or `isinstance(items[0], dict)`.
+2. **Check the file's `_doc` field** if present — it documents the schema for each field.
+3. **`'str' object has no attribute 'keys'` / `.get`** on a JSON element = the array holds strings, not objects. Inspect and re-read the schema.
+
+**Status:** Active — 1 instance (PowerShell p/20#102).
+
+**Applies To:** All agents iterating JSON arrays from data files; inspect element type before calling dict methods, and check any `_doc` field for schema documentation.
+
+---
+
+## #349 [Build] `az` Writes cp1252 on Windows Despite `PYTHONIOENCODING=utf-8` — Specify Encoding Explicitly When Reading
+
+**Pattern:** An agent redirects `az monitor log-analytics query -o json` output to a file on Windows, then reads it with `json.load`. The read raises `UnicodeDecodeError` (e.g., byte `0x97`). On Windows, `az` writes redirected output in the system codepage (cp1252) even when `PYTHONIOENCODING=utf-8` is set. Em dashes and other cp1252 characters in log data become non-UTF-8 bytes.
+
+**Instances:**
+- 2026-10-21 — Azure (p/105#28): `json.load` on `az monitor log-analytics query -o json > file` export raised `UnicodeDecodeError` (byte `0x97` = cp1252 em dash). Resolved by reading with `encoding='cp1252', errors='replace'`.
+
+**Root Cause:** The `az` CLI on Windows uses the system console codepage (cp1252) for redirected output, not UTF-8. `PYTHONIOENCODING` controls Python's stdio encoding, not the encoding of files written by other processes.
+
+**Prevention:**
+1. **When reading `az` output redirected to a file on Windows**, always specify the encoding explicitly: `open(file, encoding='cp1252', errors='replace')` or `encoding='utf-8-sig'` depending on content.
+2. **Alternatively, use `--output tsv`** to avoid JSON parsing of potentially cp1252-encoded output, or pipe directly to Python without redirection: `subprocess.run(['az', ...], capture_output=True, encoding='cp1252')`.
+3. **`UnicodeDecodeError` byte `0x80`–`0x9F`** on Windows `az` output = cp1252 encoding. The byte range `0x80`–`0x9F` is undefined in ISO-8859-1/Latin-1 but assigned in cp1252 (smart quotes, em dashes, etc.).
+
+**Status:** Active — 1 instance (Azure p/105#28).
+
+**Applies To:** All agents reading `az` CLI output redirected to files on Windows; specify `encoding='cp1252'` (or use `errors='replace'`) when parsing with Python.
