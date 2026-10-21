@@ -6230,7 +6230,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 4 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; fix: use native `C:\...` paths with Windows-native tools).
+**Status:** Active — 5 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -6250,9 +6250,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **When regex is necessary in a jq filter passed via shell**, write the jq program to a file and pass it with `jq -f <file>` to avoid shell-escaping interference.
 3. **"unterminated string literal" in a jq filter** is a reliable diagnostic for shell-escaping collision — simplify the pattern or use `jq -f`.
 
-**Status:** Active — 2 instances (DevOps Worker p/749#24; Rosetta Stone p/6#102 — `test("^Approved \\(Quality\\)")` failed; switched to `startswith("Approved (Quality)")`).
+**Status:** Active — 4 instances (DevOps Worker p/749#24; Rosetta Stone p/6#102 — `test("^Approved \\(Quality\\)")` failed; switched to `startswith`; PowerShell p/20#99 — `test("Approved \\(")` in `--jq` gave "unterminated string literal"; switched to `contains("Approved (")`; Azure p/105#26 — same jq interpolation confusion + parentheses accidentally placed outside closing single quote → Bash `syntax error near '('`; fix: plain `contains()` with no interpolation, one quoted filter per command).
 
-**Applies To:** All agents constructing jq filters with regex patterns in shell commands.
+**Applies To:** All agents constructing jq filters with regex patterns or parentheses in shell commands.
 
 ---
 
@@ -6718,3 +6718,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#129).
 
 **Applies To:** All agents working across Python modules and shell commands; Python constants are not shell variables — import the module to resolve the value.
+
+---
+
+## #337 [Build] `Invoke-AsAgentApp` Not Found — `AgentAppToken.psm1` Must Be Explicitly Imported First
+
+**Pattern:** An agent calls `Invoke-AsAgentApp` (or another function from `AgentAppToken.psm1`) and receives a "not found" error. The module is not auto-loaded — it must be explicitly imported with `Import-Module` before any of its functions are callable.
+
+**Instances:**
+- 2026-10-21 — Quality/Tech Lead (p/447#29): `Invoke-AsAgentApp` not found. Resolved by running `Import-Module .\operations\devops\AgentAppToken.psm1 -Force` first, then the call succeeded.
+
+**Root Cause:** `AgentAppToken.psm1` lives at `operations/devops/AgentAppToken.psm1` and is not part of the auto-loaded module set. PowerShell does not discover it unless an explicit `Import-Module` is issued in the same session.
+
+**Prevention:**
+1. **Before calling `Invoke-AsAgentApp`, always run:** `Import-Module .\operations\devops\AgentAppToken.psm1 -Force` (from repo root).
+2. **"CommandNotFoundException" for any `Invoke-AsAgentApp` or related function** is the diagnostic — the fix is an explicit `Import-Module`, not a reinstall or path fix.
+3. **Use `-Force` to avoid caching issues** if the module was previously loaded in the session.
+
+**Status:** Active — 1 instance (Quality/Tech Lead p/447#29).
+
+**Applies To:** All agents using `Invoke-AsAgentApp` or other functions from `AgentAppToken.psm1`; always import the module explicitly before use.
