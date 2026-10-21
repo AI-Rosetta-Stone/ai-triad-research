@@ -1,0 +1,22 @@
+{
+  "note": "SO e/344#13 / TL e/344#14: the summary fields C9 counts as a doc -> taxonomy-node link, enumerated from the schema definitions and checked against every node-id-valued field in the 870 real summaries (2026-10-21). Recounting C9 with all four link fields leaves the at-risk count unchanged at 23 references / 15 deferred docs.",
+  "sources": [
+    "scripts/AITriad/Prompts/pov-summary-schema.prompt (the AI output schema)",
+    "summary-viewer/src/renderer/types/types.ts (the summary type)",
+    "corpus scan: every JSON path in ai-triad-data/summaries/*.json whose value matches a node id"
+  ],
+  "link_fields": [
+    { "path": "pov_summaries.<pov>.key_points[].taxonomy_node_id", "source": "schema", "corpus_occurrences": 11424 },
+    { "path": "factual_claims[].linked_taxonomy_nodes[]", "source": "schema", "corpus_occurrences": 5252 },
+    { "path": "unmapped_concepts[].resolved_node_id", "source": "summary type; written by Repair-UnmappedConcepts; CL ruling t/4380#1", "corpus_occurrences": 329 },
+    { "path": "factual_claims[].potential_taxonomy_nodes[]", "source": "legacy field name (not in the current schema); counted conservatively", "corpus_occurrences": 1 }
+  ],
+  "not_links": [
+    { "path": "pov_summaries.<pov>.key_points[].taxonomy_node_candidates[].id", "why": "retrieval candidates with scores, not an asserted link", "corpus_occurrences": 3729 },
+    { "path": "pov_summaries.<pov>.key_points[].mechanism5_candidates[].id", "why": "candidate suggestions, not an asserted link", "corpus_occurrences": 1341 },
+    { "path": "pov_summaries.<pov>.key_points[]._backfill.previous_id", "why": "superseded mapping history", "corpus_occurrences": 824 },
+    { "path": "pov_summaries.<pov>.key_points[].vocabulary_terms[]", "why": "incidental pattern matches on vocabulary strings", "corpus_occurrences": 35 },
+    { "path": "unmapped_concepts[].suggested_label", "why": "incidental pattern match on a label", "corpus_occurrences": 17 },
+    { "path": "factual_claims[].potential_conflict_id", "why": "a conflict id, not a node", "corpus_occurrences": 1 }
+  ]
+}
