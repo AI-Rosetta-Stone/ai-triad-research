@@ -96,7 +96,9 @@ function Invoke-DocumentSummary {
     Write-Host "  │  pov: $($Doc.PovTags -join ', ')  |  model: $Model" -ForegroundColor Gray
 
     # -- Load snapshot --------------------------------------------------------
-    $SnapshotText = Get-Content $Doc.SnapshotFile -Raw
+    # Inline base64 images stripped before the RAG query (the doc's first 2,000 chars) and the
+    # chunking decision (a Length/4 token estimate) (t/4386).
+    $SnapshotText = Read-SnapshotForModel -Path $Doc.SnapshotFile -CallerName 'Invoke-DocumentSummary'
     if ([string]::IsNullOrWhiteSpace($SnapshotText)) {
         Write-Host "  └─ SKIP $ThisDocId — snapshot.md is empty" -ForegroundColor Yellow
         return @{ Success = $false; DocId = $ThisDocId; Error = 'EmptySnapshot' }
@@ -194,7 +196,8 @@ function Invoke-ChunkedSummary {
 
     $ThisDocId = $Doc.DocId
     $Meta      = $Doc.Meta
-    $SnapshotText = Get-Content $Doc.SnapshotFile -Raw
+    # Inline base64 images stripped, so no chunk or chunk RAG query is made of base64 (t/4386).
+    $SnapshotText = Read-SnapshotForModel -Path $Doc.SnapshotFile -CallerName 'Invoke-ChunkedSummary'
 
     # -- Split into chunks ----------------------------------------------------
     $Chunks = @(Split-DocumentChunks -Text $SnapshotText -MaxChunkTokens 6000 -MinChunkTokens 1500)

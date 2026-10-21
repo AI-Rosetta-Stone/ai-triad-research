@@ -127,7 +127,8 @@ function Get-POVSummaryTaxonomyVersion {
 
 function Read-POVSummarySnapshot {
     param([string]$SnapshotFile, $Metadata)
-    $SnapshotText    = Get-Content $SnapshotFile -Raw
+    # Inline base64 images stripped before the RAG query and token estimate (t/4386).
+    $SnapshotText    = Read-SnapshotForModel -Path $SnapshotFile -CallerName 'Invoke-POVSummary'
     $SnapshotLength  = $SnapshotText.Length
     $EstimatedTokens = [int]($SnapshotLength / 4)
 

@@ -83,3 +83,50 @@ Describe 'Invoke-OrgStanceExtraction strips data URIs before truncating (t/4385)
         $trunc | Should -BeGreaterThan $strip -Because 'the window must be cut from the stripped text'
     }
 }
+
+Describe 'The POV summarizer reads snapshots with data URIs stripped (t/4386)' -Tag 'unit' {
+
+    BeforeAll {
+        $script:B64 = ('QUJD' * 4500)
+        $script:Snap = Join-Path $TestDrive 'snapshot.md'
+        Set-Content -LiteralPath $script:Snap -Encoding utf8NoBOM -Value "![](data:image/svg+xml;base64,$($script:B64))`n`n# The Real Title`n`nThe argument of the essay begins here."
+    }
+
+    It 'Read-SnapshotForModel returns the text without the image, WARNs, and leaves the file unchanged' {
+        $before = Get-FileHash -LiteralPath $script:Snap
+        InModuleScope AITriad -Parameters @{ P = $script:Snap } {
+            param($P)
+            $t = Read-SnapshotForModel -Path $P -CallerName 'Test' -WarningVariable w 3>$null
+            $t.TrimStart() | Should -Match '^# The Real Title'
+            $t | Should -Not -Match 'base64'
+            ($w -join "`n") | Should -Match 'Test: stripped \d+ chars of inline data: URIs'
+        }
+        (Get-FileHash -LiteralPath $script:Snap).Hash | Should -Be $before.Hash -Because 'content_sha256 is over the file as written'
+    }
+
+    It 'a doc whose first 2,000 chars are base64 reaches the pipeline (and its RAG query) as text' {
+        InModuleScope AITriad -Parameters @{ P = $script:Snap } {
+            param($P)
+            $script:CapturedSnapshot = $null
+            Mock Invoke-SummaryPipeline { $script:CapturedSnapshot = $SnapshotText; throw 'stop-after-capture' }
+            $doc = @{ DocId = 'fixture-doc'; SnapshotFile = $P; PovTags = @(); Meta = [pscustomobject]@{ title = 'T'; pov_tags = @() } }
+            try {
+                $null = Invoke-DocumentSummary -Doc $doc -ApiKey 'k' -Model 'gemini-3.5-flash-lite' -Temperature 0.1 `
+                    -TaxonomyVersion 'v' -TaxonomyJson '{}' -SystemPromptTemplate 's' -OutputSchema '{}' `
+                    -SummariesDir $TestDrive -Now '2026-10-21T00:00:00Z' 3>$null
+            } catch { if ($_.Exception.Message -notmatch 'stop-after-capture') { throw } }
+            $script:CapturedSnapshot | Should -Not -BeNullOrEmpty
+            $query = $script:CapturedSnapshot.TrimStart()
+            if ($query.Length -gt 2000) { $query = $query.Substring(0, 2000) }
+            $query | Should -Match '^# The Real Title'
+            $query | Should -Not -Match 'base64'
+        }
+    }
+
+    It 'every summarizer snapshot load goes through Read-SnapshotForModel' {
+        $files = 'Private/Invoke-DocumentSummary.ps1', 'Private/InvokePOVSummarySteps.ps1' |
+            ForEach-Object { Get-Content -Raw "$PSScriptRoot/../scripts/AITriad/$_" }
+        ($files -join "`n") | Should -Not -Match 'SnapshotText\s*=\s*Get-Content'
+        ([regex]::Matches(($files -join "`n"), 'Read-SnapshotForModel -Path')).Count | Should -Be 3
+    }
+}
