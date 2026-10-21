@@ -321,8 +321,10 @@ function Import-AITriadDocument {
 
         if (-not $SkipAiMeta -and $AIKeyStatus.HasKey) {
             try {
+                # The model sees the text with inline base64 images stripped; the snapshot written
+                # below stays as converted, because content_sha256 covers it (t/4385).
                 $AiMeta = Get-AIMetadata `
-                    -MarkdownText  $MarkdownText `
+                    -MarkdownText  (Remove-MarkdownDataUri -Text ([string]$MarkdownText)).Text `
                     -SourceUrl     $SourceUrl `
                     -FallbackTitle $Title `
                     -Model         $Model
