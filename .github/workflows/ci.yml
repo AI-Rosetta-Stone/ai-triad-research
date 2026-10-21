@@ -187,6 +187,13 @@ jobs:
               - 'ai-models.json'
               - '.github/workflows/ci.yml'
               - 'scripts/AITriad/Prompts/**'  # promptCatalog.lint validates this dir; must re-run when prompts change here (t/2915)
+              # tests/fixtures/** (t/4367) — lib/sourceIndex/sourceIdentityFixture.test.ts (run by
+              # test-electron's vitest) reads tests/fixtures/source-identity-cases.json, a shared
+              # input also read by the PS Pester suite. #3546 changed only this fixture + PS/docs
+              # files, matched NO electron path, test-electron SKIPPED, and main's CI reported
+              # success while 8 TS tests were failing. Every path a test-electron test READS must
+              # be in this list (the t/3189/t/4058 rule, same soundness class).
+              - 'tests/fixtures/**'
               # root pnpm-lock.yaml — the license-notices staleness gate (t/2918) lives INSIDE
               # this job and reads the @img/sharp-* set directly from the ROOT lockfile
               # (generate-notices.cjs:224 → path.resolve('..','pnpm-lock.yaml')). A root-lock-only
@@ -215,6 +222,9 @@ jobs:
               - 'lib/**'
               - 'pnpm-lock.yaml'        # ESLint version bump skips lib-lint otherwise (t/3443 shape)
               - '.github/workflows/ci.yml'
+              # tests/fixtures/** (t/4367) — same shared-input gap as 'electron' above:
+              # lib/sourceIndex/sourceIdentityFixture.test.ts reads this fixture too.
+              - 'tests/fixtures/**'
             # 'embeddings' gates embedding-onnx-equivalence (t/3198): the real-ONNX bit-exact
             # worker↔in-thread check. Narrower than 'lib' — only the embeddings subtree (worker,
             # in-thread module, harness) or a ci.yml edit can change the equivalence outcome, so
