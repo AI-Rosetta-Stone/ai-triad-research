@@ -35,6 +35,9 @@ export interface GroundingOptions {
 
 const DEFAULT_TOP_PER_CAMP = 3;
 
+/** Raw cosine score below which a camp is flagged as low-coverage (t/4374, stipulated; see provenance register). */
+const LOW_COVERAGE_THRESHOLD = 0.45;
+
 // Maps both file-name stamps (what embedding producers write, e.g. "skeptic") and
 // camp codes (pass-through, e.g. "skp") to the canonical Camp type (t/4255).
 const POV_NAME_TO_CAMP: Readonly<Record<string, Camp>> = {
@@ -84,6 +87,21 @@ function scoreEmbeddingsByCamp(
  * layer (runInquiryPipeline) whenever an embedding corpus exists — an all-camps-empty
  * result with a non-empty embedding map is silent degradation, not graceful fallback.
  */
+/** Compute per-camp coverage signal — best pre-boost cosine score and low-coverage flag (t/4374).
+ *  Emits a WARN via the caller's warn callback when coverage is low but non-empty. */
+function computeCampCoverage(
+  camp: Camp,
+  eligibleScoredEntries: { score: number }[],
+  warn: (msg: string) => void,
+): { bestRawScore: number; lowCoverage: boolean } {
+  if (eligibleScoredEntries.length === 0) return { bestRawScore: 0, lowCoverage: true };
+  const bestRawScore = Math.max(...eligibleScoredEntries.map(s => s.score));
+  const lowCoverage = bestRawScore < LOW_COVERAGE_THRESHOLD;
+  if (lowCoverage) {
+    warn(`buildGroundingEnvelope: camp '${camp}' low coverage — best raw score ${bestRawScore.toFixed(3)} (threshold ${LOW_COVERAGE_THRESHOLD})`);
+  }
+  return { bestRawScore, lowCoverage };
+}
 export async function buildGroundingEnvelope(
   question: string,
   taxonomy: GroundingTaxonomy,
@@ -152,6 +170,7 @@ export async function buildGroundingEnvelope(
   const byCamp = scoreEmbeddingsByCamp(taxonomy.nodeEmbeddings, nodeById, questionVec, warn);
 
   const nodesByCamp: Partial<Record<Camp, NodeRef[]>> = {};
+  const campCoverage: Partial<Record<Camp, { bestRawScore: number; lowCoverage: boolean }>> = {};
 
   // Tag scoping uses the same normalization table (t/3965 / t/4255).
   const tagCamp = opts.tagSelection ? POV_NAME_TO_CAMP[opts.tagSelection.pov] : undefined;
@@ -201,6 +220,7 @@ export async function buildGroundingEnvelope(
 
   for (const [camp, scored] of byCamp.entries()) {
     let activeScoredEntries = scored;
+    let eligibleScoredEntries = scored; // pre-boost eligible set for coverage signal (t/4374)
 
     if (opts.tagSelection && camp === tagCamp) {
       const sel = opts.tagSelection;
@@ -209,6 +229,7 @@ export async function buildGroundingEnvelope(
       if (sel.mode === 'scope') {
         const filteredIds = new Set(filteredNodes.map(n => n.id));
         activeScoredEntries = scored.filter(s => filteredIds.has(s.node.id));
+        eligibleScoredEntries = activeScoredEntries; // scope narrows the eligible set
         if (excludedCount > 0) {
           warn(`buildGroundingEnvelope: scope tag '${sel.tag}' on '${sel.pov}' excluded ${excludedCount} nodes not tagged ${sel.tag} from grounding`);
         }
@@ -219,8 +240,12 @@ export async function buildGroundingEnvelope(
           boostSet.has(s.node.id) ? { ...s, score: s.score + TAG_BOOST_INCREMENT } : s,
         );
         appliedTag = { pov: sel.pov, tag: sel.tag, mode: sel.mode, included: boostIds.length, excludedUntagged: 0 };
+        // eligibleScoredEntries stays as scored — prioritize doesn't filter, uses unboosted scores
       }
     }
+
+    campCoverage[camp] = computeCampCoverage(camp, eligibleScoredEntries, warn);
+
 
     activeScoredEntries.sort((a, b) => b.score - a.score);
     const seenCampLabels = new Set<string>();
@@ -244,10 +269,13 @@ export async function buildGroundingEnvelope(
     const refs = nodesByCamp[camp];
     if (!refs || refs.length === 0) {
       warn(`buildGroundingEnvelope: zero nodes selected for camp '${camp}' — embedding corpus may be incomplete`);
+      campCoverage[camp] ??= { bestRawScore: 0, lowCoverage: true };
+
     }
   }
 
   const envelope: GroundingEnvelope = { nodesByCamp };
+  if (Object.keys(campCoverage).length > 0) envelope.campCoverage = campCoverage;
   if (anchorSituationId !== undefined) envelope.anchorSituationId = anchorSituationId;
   if (anchorSummary !== undefined) envelope.anchorSummary = anchorSummary;
 
