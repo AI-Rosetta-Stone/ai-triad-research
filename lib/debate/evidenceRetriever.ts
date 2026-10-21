@@ -14,6 +14,7 @@ import path from 'path';
 import { cosineSimilarity } from './taxonomyRelevance.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { stripDataUris } from './stripDataUris.js';
+import { repairSnapshotMojibake } from '../sanitize/repairSnapshotMojibake.js';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -136,7 +137,7 @@ function extractRelevantParagraphs(
 ): string[] {
   let content: string;
   try {
-    content = fs.readFileSync(snapshotPath, 'utf-8');
+    content = repairSnapshotMojibake(fs.readFileSync(snapshotPath, 'utf-8')).text;
     content = stripDataUris(content).text;
   } catch (err) {
     getGlobalRecorder()?.record({ type: 'system.error', component: 'evidence-retriever', level: 'warn', message: 'snapshot file unreadable — returning empty evidence. err=' + String(err) });

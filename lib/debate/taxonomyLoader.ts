@@ -16,6 +16,7 @@ import { getGlobalRecorder } from '../flight-recorder/index.js';
 import { stripDataUris } from './stripDataUris.js';
 import { fetchUrlForPrompt } from '../url-fetch/fetchUrlForPrompt.js';
 import { buildSupersessionIndex } from './supersession.js';
+import { repairSnapshotMojibake } from '../sanitize/repairSnapshotMojibake.js';
 
 // ── Types ────────────────────────────────────────────────
 
@@ -469,7 +470,7 @@ export async function convertToMarkdown(filePath: string): Promise<string> {
 
   if (resolved.endsWith('.md')) {
     try {
-      return stripDataUris(fs.readFileSync(fd, 'utf-8')).text;
+      return stripDataUris(repairSnapshotMojibake(fs.readFileSync(fd, 'utf-8')).text).text;
     } finally {
       fs.closeSync(fd);
     }
