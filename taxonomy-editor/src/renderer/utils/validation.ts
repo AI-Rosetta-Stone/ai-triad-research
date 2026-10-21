@@ -36,6 +36,9 @@ const povNodeSchema = z.object({
   // report a bare string (a one-element array unrolled by PowerShell) by name, rather than a generic
   // type error. Absent or empty = untagged.
   pov_tags: z.unknown().optional(),
+  // t/4355: the node this one was superseded by. The editor holds superseded nodes out of selection and
+  // writes them back unchanged (hooks/useTaxonomyStore/superseded.ts); lookup by id still finds them.
+  superseded_by: z.string().regex(/^(acc|saf|skp)-(desires|beliefs|intentions)-\d{3}$/, 'superseded_by must be a POV node id').optional(),
 }).passthrough().superRefine((node, ctx) => {
   // Structural problems only (shape, scalar unroll, duplicates, kebab-case, non-POV node): those block
   // every save. Registry membership is gated per node in save() (t/3973), so a tag the registry later
