@@ -135,6 +135,16 @@ function lenientUtf8Decode(bytes: Uint8Array, originalBody: string): string {
   return parts.join('');
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/** Split at the first YAML-rule separator; wrapper (head) is clean UTF-8 and never touched. */
+function splitAtFirstRule(text: string): { head: string; body: string } {
+  const m = /\r?\n---\r?\n/.exec(text);
+  return m
+    ? { head: text.slice(0, m.index + m[0].length), body: text.slice(m.index + m[0].length) }
+    : { head: '', body: text };
+}
+
 // ── Main export ───────────────────────────────────────────────────────────
 
 /**
@@ -145,9 +155,7 @@ export function repairSnapshotMojibake(text: string): SnapshotRepairResult {
   if (!text) return { text, variant: 'none' };
 
   // 1. Split at the first '\n---\n' rule: the wrapper is clean UTF-8, never touched.
-  const ruleMatch = /\r?\n---\r?\n/.exec(text);
-  const head = ruleMatch ? text.slice(0, ruleMatch.index + ruleMatch[0].length) : '';
-  const body = ruleMatch ? text.slice(ruleMatch.index + ruleMatch[0].length) : text;
+  const { head, body } = splitAtFirstRule(text);
 
   // 2. Only a body with non-ASCII that is wholly CP437-encodable can be this mojibake.
   if (!/[^\x00-\x7F]/.test(body)) return { text, variant: 'none' };
