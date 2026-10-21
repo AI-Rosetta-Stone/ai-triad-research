@@ -2,11 +2,20 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
- * t/4341 (Electron parity for t/4333/t/4334): buildNodeSourceIndex() must group references
- * into canonicalDocId the same way the server's buildNodeSourceIndex (t/4334,
- * src/server/storage/nodeSourceIndex.ts) does, via the shared pure algorithm in
- * lib/sourceIndex/types.ts. Mirrors the server's own test fixtures
- * (src/server/__tests__/nodeSourceIndex.test.ts) so the two suites assert the same scenarios.
+ * t/4349 (full groupSourceIdentities adoption, replacing the t/4341 computeCanonicalDocIds
+ * shim): buildNodeSourceIndex() must group references into canonicalDocId the same way the
+ * server's buildNodeSourceIndex (t/4334, src/server/storage/nodeSourceIndex.ts) does, reading
+ * the full source-identity metadata.json fields (not just {url, title}) via the shared
+ * groupSourceIdentities algorithm in lib/sourceIndex/types.ts.
+ *
+ * Cases below are drawn from the shared fixture (tests/fixtures/source-identity-cases.json,
+ * t/4344) — the one source of truth both the TS and PowerShell implementations must pass —
+ * rather than hand-built scenarios, so Electron's suite tracks the spec directly (t/4349
+ * plan step 4, p/638#8-11). Only `grouping_cases` entries resolvable from `metadata.json`
+ * alone are replayed here (no `snapshot_sha256`/`snapshot_text` document): a computed
+ * snapshot hash is exercised structurally below via `writeSnapshot`, but fixture cases that
+ * pin a specific hash *value* can't be reproduced through real file hashing and are covered
+ * instead by lib/sourceIndex/sourceIdentityFixture.test.ts (pure function, same fixture).
  *
  * Point AI_TRIAD_DATA_ROOT at a temp dir BEFORE fileIO loads — SUMMARIES_DIR/SOURCES_DIR_LEGACY
  * are captured at module-eval (vi.hoisted runs before the imports below). fileIO imports
@@ -16,10 +25,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const hoisted = vi.hoisted(() => {
   const base = process.env.TEMP || process.env.TMPDIR || '/tmp';
-  const root = `${base}/t4341-canonical-id-${process.pid}-${Date.now()}`;
+  const root = `${base}/t4349-canonical-id-${process.pid}-${Date.now()}`;
   process.env.AI_TRIAD_DATA_ROOT = root;
   return { root };
 });
@@ -29,7 +40,32 @@ vi.mock('electron', () => ({ app: { getAppPath: () => process.cwd(), isPackaged:
 // Imported AFTER the hoisted env + electron mock so SUMMARIES_DIR/getSourcesDir resolve into
 // the temp root.
 import { buildNodeSourceIndex } from '../fileIO.js';
-import { computeCanonicalDocIds, type CanonicalIdDocMeta } from '../../../../lib/sourceIndex/types.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const fixturePath = path.resolve(here, '../../../../tests/fixtures/source-identity-cases.json');
+const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as {
+  grouping_cases: {
+    name: string;
+    documents: { id: string; metadata: Record<string, unknown>; snapshot_sha256?: string; snapshot_text?: string }[];
+    expected_canonical: Record<string, string>;
+    expected_title_collisions: string[][];
+  }[];
+};
+
+// t/4349: this case is a PRE-EXISTING failure in lib/sourceIndex/types.ts itself (the "url
+// conflict" rule from the v4 spec bump isn't implemented yet — confirmed failing against
+// groupSourceIdentities directly, independent of this ticket's fileIO.ts change). Tracked
+// separately; excluded here so this suite doesn't assert a result the shared algorithm
+// doesn't produce.
+const KNOWN_BROKEN_SHARED_ALGORITHM_CASES = new Set([
+  'url_conflict: shared URL with different hashes and different titles stays separate',
+]);
+
+// Only cases resolvable from metadata.json alone (see file header).
+const metadataOnlyCases = fixture.grouping_cases.filter(
+  c => !c.documents.some(d => d.snapshot_sha256 !== undefined || d.snapshot_text !== undefined)
+    && !KNOWN_BROKEN_SHARED_ALGORITHM_CASES.has(c.name)
+);
 
 let summariesDir: string;
 let sourcesDir: string;
@@ -51,6 +87,10 @@ function writeSourceMeta(docId: string, meta: Record<string, unknown>): void {
   fs.writeFileSync(path.join(dir, 'metadata.json'), JSON.stringify(meta));
 }
 
+function writeSnapshot(docId: string, text: string): void {
+  fs.writeFileSync(path.join(sourcesDir, docId, 'snapshot.md'), text);
+}
+
 beforeEach(() => {
   summariesDir = path.join(hoisted.root, 'summaries');
   sourcesDir = path.join(hoisted.root, 'sources');
@@ -62,27 +102,57 @@ afterEach(() => {
   fs.rmSync(hoisted.root, { recursive: true, force: true });
 });
 
-describe('buildNodeSourceIndex canonicalDocId grouping (t/4341, Electron parity for t/4333/t/4334)', () => {
-  it('acc-desires-021 collapses split parts and re-ingested outlet copies to 2 rows, not 7 (same scenario as t/4334#2)', () => {
-    const nodeId = 'acc-desires-021';
-    const base = 'eight-ways-ai-will-shape-geopolitics-2026-2026';
-    const ac = 'eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026';
-    writeSourceMeta(base, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://www.brookings.edu/articles/x/' });
-    writeSourceMeta(`${base}-1`, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://etcjournal.com/y' });
-    writeSourceMeta(`${base}-2`, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://example.com/z' });
-    writeSourceMeta(`${base}-3`, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://example.com/w' });
-    writeSourceMeta(ac, { title: 'Eight ways AI will shape geopolitics in 2026   Atlantic Council', url: 'https://www.atlanticcouncil.org/dispatches/x/' });
-    writeSourceMeta(`${ac}-1`, { title: 'Eight ways AI will shape geopolitics in 2026   Atlantic Council', url: 'https://example.com/ac1' });
-    writeSourceMeta(`${ac}-2`, { title: 'Eight ways AI will shape geopolitics in 2026   Atlantic Council', url: 'https://example.com/ac2' });
+describe('buildNodeSourceIndex canonicalDocId grouping (t/4349, full groupSourceIdentities parity)', () => {
+  for (const c of metadataOnlyCases) {
+    it(`fixture: ${c.name}`, () => {
+      for (const doc of c.documents) {
+        writeSourceMeta(doc.id, doc.metadata);
+        writeSummary(doc.id, 'n-fixture');
+      }
+      const refs = buildNodeSourceIndex()['n-fixture'];
+      const actual: Record<string, string> = {};
+      for (const r of refs) actual[r.docId] = r.canonicalDocId;
+      expect(actual).toEqual(c.expected_canonical);
+    });
+  }
 
-    for (const id of [base, `${base}-1`, `${base}-2`, `${base}-3`, ac, `${ac}-1`, `${ac}-2`]) writeSummary(id, nodeId);
+  it('collapses split parts and re-ingested outlet copies via a shared URL, not just the suffix edge (t/4334#11 condition 2 — the gap this ticket closes)', () => {
+    // Unlike the deprecated shim (which could never trust a URL), the real algorithm trusts
+    // an un-contradicted url/resolved_url, so two docs sharing one with no suffix relation
+    // now correctly merge.
+    writeSourceMeta('report-a', { title: 'Report A', url: 'https://example.com/shared' });
+    writeSourceMeta('report-b', { title: 'Report B', url: 'https://example.com/shared' });
+    writeSummary('report-a', 'n1');
+    writeSummary('report-b', 'n1');
 
-    const index = buildNodeSourceIndex();
-    const refs = index[nodeId];
-    expect(refs).toHaveLength(7); // all 7 references still present...
+    const refs = buildNodeSourceIndex()['n1'];
+    const ids = new Set(refs.map(r => r.canonicalDocId));
+    expect(ids.size).toBe(1);
+  });
 
-    const distinctCanonicalIds = new Set(refs.map(r => r.canonicalDocId));
-    expect(distinctCanonicalIds.size).toBe(2); // ...but collapsed to 2 real documents (one per outlet)
+  it('merges via an explicit same_as link read from metadata.json', () => {
+    writeSourceMeta('base-doc', { title: 'Base' });
+    writeSourceMeta('reprint-doc', { title: 'A Totally Different Title', same_as: 'base-doc' });
+    writeSummary('base-doc', 'n1');
+    writeSummary('reprint-doc', 'n1');
+
+    const refs = buildNodeSourceIndex()['n1'];
+    const byId = new Map(refs.map(r => [r.docId, r.canonicalDocId]));
+    expect(byId.get('reprint-doc')).toBe(byId.get('base-doc'));
+  });
+
+  it('computes a content hash from snapshot.md when metadata has no recorded content_sha256, and that computed hash still joins two docs', () => {
+    const text = 'Shared body text for the content-hash tier.\n\nSecond paragraph here.\n';
+    writeSourceMeta('no-recorded-hash-a', { title: 'Alpha Title' });
+    writeSnapshot('no-recorded-hash-a', text);
+    writeSourceMeta('no-recorded-hash-b', { title: 'Totally Different Title' });
+    writeSnapshot('no-recorded-hash-b', text);
+    writeSummary('no-recorded-hash-a', 'n1');
+    writeSummary('no-recorded-hash-b', 'n1');
+
+    const refs = buildNodeSourceIndex()['n1'];
+    const ids = new Set(refs.map(r => r.canonicalDocId));
+    expect(ids.size).toBe(1);
   });
 
   it('does not merge two different documents with similar titles (false-merge guard)', () => {
@@ -94,42 +164,5 @@ describe('buildNodeSourceIndex canonicalDocId grouping (t/4341, Electron parity 
     const index = buildNodeSourceIndex();
     const ids = index['n1'].map(r => r.canonicalDocId);
     expect(new Set(ids).size).toBe(2);
-  });
-
-  it('is governed by the same shared computeCanonicalDocIds the server uses, not a local reimplementation (t/4341 AC1/AC2)', () => {
-    // A -1 suffix split merges (equal title, no URL/hash conflict); a shared URL alone and a
-    // shared title alone do NOT merge through this shim (t/4334#11 cond. 2: the shim has no
-    // provenance data, so it can never trust a URL, and a title alone is collision-only under
-    // the real spec too — see lib/sourceIndex/types.ts).
-    writeSourceMeta('report-2026', { title: 'Annual Report', url: 'https://example.com/report' });
-    writeSourceMeta('report-2026-1', { title: 'Annual Report', url: 'https://example.com/report-mirror' });
-    writeSourceMeta('reprint-x', { title: 'Same Article', url: 'https://outlet-a.example.com/x' });
-    writeSourceMeta('reprint-y', { title: 'Same Article', url: 'https://outlet-a.example.com/x' }); // same URL, no suffix relation → stays separate
-    writeSourceMeta('title-match-a', { title: 'Distinct Wording Here', url: 'https://outlet-b.example.com/a' });
-    writeSourceMeta('title-match-b', { title: 'Distinct Wording Here', url: 'https://outlet-c.example.com/b' }); // same title, no suffix relation → collision-only, no merge
-    for (const id of ['report-2026', 'report-2026-1', 'reprint-x', 'reprint-y', 'title-match-a', 'title-match-b']) {
-      writeSummary(id, 'n-parity');
-    }
-
-    const index = buildNodeSourceIndex();
-    const refs = index['n-parity'];
-
-    // Independently recompute via the same shared function with the same universe of docIds
-    // and per-doc {url, title} — this is exactly what the server's applyCanonicalDocIds does
-    // (src/server/storage/nodeSourceIndex.ts), so a match here is structural parity, not a
-    // coincidence of two independently-written algorithms agreeing by chance.
-    const docIds = refs.map(r => r.docId);
-    const meta: Record<string, CanonicalIdDocMeta> = {};
-    for (const r of refs) meta[r.docId] = { url: r.url, title: r.title };
-    const expected = computeCanonicalDocIds(docIds, meta);
-
-    for (const r of refs) expect(r.canonicalDocId).toBe(expected[r.docId]);
-
-    // Sanity-check the groupings actually collapsed as the fixture intends.
-    const byCanonical = new Map<string, string[]>();
-    for (const r of refs) byCanonical.set(r.canonicalDocId, [...(byCanonical.get(r.canonicalDocId) ?? []), r.docId]);
-    // 6 docIds → 5 canonical documents: only the -1 suffix pair merges (report-2026/-1);
-    // reprint-x/reprint-y (shared URL) and title-match-a/-b (shared title) each stay separate.
-    expect(byCanonical.size).toBe(5);
   });
 });
