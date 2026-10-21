@@ -7,6 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
+import { log } from './logger.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -50,6 +51,14 @@ export function serveStatic(
     // image predating the route) returns a clean 404 instead of a 200 index.html page — the
     // deploy warm-gate treats a non-{status:ready} 200 as not-warm anyway (block), but a real
     // 404 is unambiguous and keeps the gate's health signal honest.
+    // t/4406: /.auth/* belongs to the Easy Auth sidecar. One that reaches the app means the
+    // sidecar didn't handle it; serving index.html as a 200 hid that (curl /.auth/me looked
+    // like a working page). 404 it and WARN. /.auth/anonymous is the app's own route,
+    // handled in server.ts before static serving.
+    if (url.pathname.startsWith('/.auth/')) {
+      log.server.warn({ component: 'static', path: url.pathname }, '/.auth/* path reached the app (not handled by Easy Auth) — 404');
+      return false;
+    }
     if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/ws/')
         && !url.pathname.startsWith('/health') && !url.pathname.startsWith('/readyz')) {
       filePath = path.join(staticDir, 'index.html');
