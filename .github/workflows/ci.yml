@@ -2465,12 +2465,105 @@ jobs:
     #   cheap file reads, not scoped to a subsystem). `if: always() && !cancelled()` runs the job
     #   even when an upstream need (e.g. `changes`) fails, so its only skip is a user-cancelled
     #   run — not the silent-partial-coverage species this rule guards against.
+    permissions:
+      contents: read
+      pull-requests: write  # t/4368: posts a PR comment only when a shared-input gap is found
     runs-on: ubuntu-latest
     steps:
       - name: Report gated job results
         run: echo "gated results -> ${{ join(needs.*.result, ' ') }}"
+
+      - name: Skipped-job visibility summary (t/4368 deliverable 3)
+        # Always runs, every event -- a false-green skip must be visible in the PR UI, not
+        # implicit (t/4367). Separate from "Report gated job results" above (plain log line,
+        # kept for continuity): this writes a human-scannable table to the job summary, with
+        # every `skipped` result visually flagged.
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON);
+            const lines = ["### Gated job results", "", "| Job | Result |", "|---|---|"];
+            for (const [name, info] of Object.entries(needs)) {
+              const flag = info.result === "skipped" ? " ⚠️ SKIPPED" : "";
+              lines.push(`| \`${name}\` | ${info.result}${flag} |`);
+            }
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          '
+
       - name: Block on any failed/cancelled gated job
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
           echo "::error::ci-gate: a gated job did not pass (see results above)"
           exit 1
+
+      - name: CI shared-input coverage check (t/4368 deliverable 2)
+        # PR-only: on a push event (post-merge main run) there is no PR to comment on, and the
+        # merge gate already ran this check pre-merge. Advisory only -- never fails the job.
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0
+
+      - name: Evaluate shared-input coverage
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          FILTER_OUTPUTS: ${{ toJSON(needs.changes.outputs) }}
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const os = require('os');
+            const path = require('path');
+
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const prNumber = context.payload.pull_request.number;
+            const MARKER = '<!-- ci-shared-input-coverage:verdict -->';
+
+            async function postComment(body) {
+              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
+              const existing = comments.find((c) => c.body?.includes(MARKER));
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: `${MARKER}\n${body}` });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: `${MARKER}\n${body}` });
+              }
+            }
+
+            try {
+              // Loaded from the BASE branch's live tip, never the PR's own head (same
+              // anti-self-narrowing posture as tier-check/cl-path-check, e/291 C1): a PR must
+              // not be able to narrow the registry to exempt its own under-filtered path.
+              execSync(`git fetch origin ${JSON.stringify(context.payload.pull_request.base.ref)}`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const baseTipSha = execSync('git rev-parse FETCH_HEAD', { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' }).trim();
+
+              const registryText = execSync(`git show ${baseTipSha}:operations/devops/ci-shared-inputs.json`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const predicateText = execSync(`git show ${baseTipSha}:operations/devops/ci-shared-input-coverage-predicate.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+              const matcherText = execSync(`git show ${baseTipSha}:operations/devops/cl-path-check-predicate.mjs`, { cwd: process.env.GITHUB_WORKSPACE, encoding: 'utf8' });
+
+              const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-shared-input-coverage-'));
+              fs.writeFileSync(path.join(tmpDir, 'cl-path-check-predicate.mjs'), matcherText);
+              const predicatePath = path.join(tmpDir, 'ci-shared-input-coverage-predicate.mjs');
+              fs.writeFileSync(predicatePath, predicateText);
+              const { evaluateCoverage, formatCoverageComment } = await import(pathToFileURL(predicatePath).href);
+
+              const registry = JSON.parse(registryText);
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
+              const changedPaths = files.map((f) => f.filename);
+              const filterOutputs = JSON.parse(process.env.FILTER_OUTPUTS);
+
+              const { underCovered } = evaluateCoverage(registry, changedPaths, filterOutputs);
+              core.info(`ci-shared-input-coverage: ${underCovered.length} under-covered entr${underCovered.length === 1 ? 'y' : 'ies'}`);
+
+              const commentBody = formatCoverageComment(underCovered);
+              if (commentBody) {
+                await postComment(commentBody);
+              }
+            } catch (err) {
+              // A crash must never silently read as clean -- post it, but never fail this
+              // advisory job (t/4103's lesson, applied here too).
+              core.warning(`ci-shared-input-coverage CRASHED: ${err && err.stack ? err.stack : String(err)}`);
+              await postComment(`**ci-shared-input-coverage: CANNOT EVALUATE** — ${String(err && err.message ? err.message : err)}`);
+            }
