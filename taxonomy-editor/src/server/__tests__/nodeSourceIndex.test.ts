@@ -16,12 +16,12 @@ import { log } from '../logger.js';
 let dataRoot: string;
 let sourcesRoot: string;
 
-function writeSummary(docId: string, nodeIds: string | string[], overrides: Partial<{ stance: string; point: string }> = {}): void {
+function writeSummary(docId: string, nodeIds: string | string[], overrides: Partial<{ stance: string; point: string; verbatim: string }> = {}): void {
   const ids = Array.isArray(nodeIds) ? nodeIds : [nodeIds];
   const summary = {
     pov_summaries: {
       accelerationist: {
-        key_points: ids.map(nodeId => ({ taxonomy_node_id: nodeId, stance: overrides.stance ?? 'supports', point: overrides.point ?? 'a point', verbatim: 'v', excerpt_context: 'c' })),
+        key_points: ids.map(nodeId => ({ taxonomy_node_id: nodeId, stance: overrides.stance ?? 'supports', point: overrides.point ?? 'a point', verbatim: overrides.verbatim ?? 'v', excerpt_context: 'c' })),
       },
     },
   };
@@ -240,5 +240,38 @@ describe('buildNodeSourceIndex / getNodeSources: duplicate_of (t/4357)', () => {
     const { sources } = await fileIO.getNodeSources('n1');
     expect(sources).toHaveLength(2);
     expect(new Set(sources.map(s => s.canonicalDocId))).toEqual(new Set(['base-2026']));
+  });
+
+  // t/4337 section 7 (the post-apply gap, t/4337#60): a copy's run over
+  // byte-identical text often extracts a genuinely distinct key_point the
+  // canonical's run didn't. The old presence/absence dedupe (t/4357) dropped
+  // it entirely; the quote-level union keeps it, attributed to the
+  // canonical, alongside the canonical's own point — reproducing the real
+  // acc-desires-021 recovery (TL t/4337#59/#62: 8 → 2 → back to the real
+  // count once the union lands).
+  it('a marked copy\'s distinct quote is recovered, attributed to the canonical, not dropped (t/4337#60)', async () => {
+    writeSourceMeta('canonical-2026', { title: 'Canonical', url: 'https://example.com/canonical' });
+    writeSourceMeta('copy-2026', { title: 'Copy', url: 'https://example.com/copy', duplicate_of: 'canonical-2026' });
+    writeSummary('canonical-2026', 'n1', { verbatim: 'US will double down on exporting its tech stack.' });
+    writeSummary('copy-2026', 'n1', { verbatim: 'Nations are seeking sovereign AI capabilities.' });
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(2); // both distinct quotes survive...
+    expect(sources.every(s => s.docId === 'canonical-2026' && s.canonicalDocId === 'canonical-2026')).toBe(true); // ...both attributed to the canonical
+    expect(new Set(sources.map(s => s.verbatim))).toEqual(new Set([
+      'US will double down on exporting its tech stack.',
+      'Nations are seeking sovereign AI capabilities.',
+    ]));
+  });
+
+  it("a marked copy's near-equal quote is still deduped — the canonical's wording wins the tie", async () => {
+    writeSourceMeta('canonical-2026', { title: 'Canonical', url: 'https://example.com/canonical' });
+    writeSourceMeta('copy-2026', { title: 'Copy', url: 'https://example.com/copy', duplicate_of: 'canonical-2026' });
+    writeSummary('canonical-2026', 'n1', { verbatim: 'The US will double down on exporting its tech stack.' });
+    writeSummary('copy-2026', 'n1', { verbatim: 'the US will double-down on exporting its tech stack' });
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].verbatim).toBe('The US will double down on exporting its tech stack.');
   });
 });
