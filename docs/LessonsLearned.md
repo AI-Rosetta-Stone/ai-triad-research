@@ -6532,9 +6532,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **On a probe or test PR, do not arm `--auto` if the checks are already green and merging to `main` is not desired.** Use a draft PR or a separate test repo for live-fire experiments.
 3. **There is no undo for a completed merge.** If an unintended merge lands, open a follow-up PR to revert; do not attempt a force-reset or direct push to `main`.
 
-**Status:** Active — 1 instance (DevOps Worker p/749#32).
+**Status:** Active — 2 instances (DevOps Worker p/749#32 — `--disable-auto` refused when PR merged instantly; DevOps Worker p/749#36 — `--auto` arm refused with "Pull request is in clean status (enablePullRequestAutoMerge)" when PR already CLEAN; fix: check `mergeStateStatus` first, use direct merge on CLEAN).
 
-**Applies To:** All agents arming auto-merge; when mergeStateStatus is CLEAN, arming --auto merges immediately — verify intent first.
+**Applies To:** All agents arming or disarming auto-merge; when mergeStateStatus is CLEAN, `--auto` is refused and a direct `--squash --match-head-commit` is correct.
 
 ---
 
@@ -6901,3 +6901,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#244).
 
 **Applies To:** All agents piping `az` extension command output into JSON parsers; always redirect stderr with `2>/dev/null` to isolate clean JSON.
+
+---
+
+## #341 [Build] `gh api` GHCR Package Endpoint Returns 403 — CLI Token Lacks `read:packages` Scope
+
+**Pattern:** An agent queries the GitHub Container Registry via `gh api orgs/.../packages/container/.../versions` and receives a 403 "need at least read:packages scope." The CLI's default `gh auth` token does not include the packages scope, so all GHCR package API calls fail.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#246): `gh api orgs/.../packages/container/taxonomy-editor/versions` returned 403. Resolved by skipping the manual GHCR check — `deploy-azure.yml` resolves the image tag/digest itself and fails closed if absent.
+
+**Root Cause:** The default `gh auth` token is scoped to repo operations. GHCR package API endpoints require the `read:packages` (or `write:packages`) scope, which agents cannot add without PI authorization.
+
+**Prevention:**
+1. **Do not manually query GHCR package endpoints via `gh api`.** The deploy pipeline (`deploy-azure.yml`) resolves and validates the image tag/digest itself — trust it to fail closed if the image is absent.
+2. **403 "need at least read:packages scope"** = token scope gap, not a permissions misconfiguration. The workaround is to rely on the pipeline, not to attempt re-auth.
+3. **Adding scopes to `gh auth` requires PI authorization** — do not attempt `gh auth refresh` or `gh auth login` to add scopes without explicit approval.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#246).
+
+**Applies To:** All agents attempting to inspect GHCR container image versions via `gh api`; rely on the deploy pipeline for image validation instead.
+
+---
+
+## #342 [Platform] `submit_feedback` Always Fails — Record Orca Platform Issues as Tickets or Lessons Instead
+
+**Pattern:** An agent calls `submit_feedback` to report an Orca platform problem. The call always fails with "file not found: ~/.orca/beta/license.json" (broken since approximately 2026-10-07). The PI has confirmed the license issue will not be fixed.
+
+**Instances:**
+- 2026-10-21 — PI decision (via TL p/335#178): `submit_feedback` has been broken since ~2026-10-07 with "file not found: ~/.orca/beta/license.json". PI confirmed: won't fix.
+
+**Root Cause:** The Orca beta license file is missing from the environment. `submit_feedback` requires it and fails immediately. This is a permanent platform limitation for this workspace.
+
+**Prevention:**
+1. **Never call `submit_feedback`.** It always fails — do not retry.
+2. **To report an Orca platform problem**, record it as a ticket (for tracking) or as a lessons entry (for patterns). Ping the TL if immediate escalation is needed.
+3. **Never inspect or attempt to fix `~/.orca/` directly.** The license file's absence is a known permanent state; attempting to recreate or modify it is out of scope for agents.
+
+**Status:** Active — permanent platform limitation (PI decision 2026-10-21, p/335#178).
+
+**Applies To:** All agents; `submit_feedback` is permanently broken — use tickets or lessons entries for Orca platform issues.
