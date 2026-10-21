@@ -209,6 +209,13 @@ function Invoke-OrgStanceExtraction {
     $promptSubs = [System.Collections.Generic.List[PSObject]]::new()
     foreach ($item in $workItems) {
         $docText = Get-Content $item.Snapshot -Raw
+        # Strip inline base64 images BEFORE truncating, or the window can be mostly base64 and the
+        # model invents its claims (t/4385).
+        $stripped = Remove-MarkdownDataUri -Text ([string]$docText)
+        if ($stripped.StrippedChars -gt 1000) {
+            Write-Warning "Invoke-OrgStanceExtraction: stripped $($stripped.StrippedChars) chars of inline data: URIs ($($stripped.UriCount)) from '$($item.Snapshot)' before the $MaxDocChars-char window (t/4385)."
+        }
+        $docText = $stripped.Text
         if ($docText.Length -gt $MaxDocChars) { $docText = $docText.Substring(0, $MaxDocChars) }
         $rendered = Get-Prompt -Name 'org-stance-extraction' -Replacements @{
             org_name = $item.OrgName
