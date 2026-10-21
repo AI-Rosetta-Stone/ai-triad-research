@@ -2,8 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { POV_KEYS } from '@lib/debate/types';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById } from '../../hooks/useTaxonomyStore/superseded';
 import { PROMPT_CATALOG, type PromptCatalogEntry, type PromptGroup } from '../../data/promptCatalog';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
@@ -41,14 +41,12 @@ export function PromptsPanel({ onSelectPrompt, onInspectorToggle }: PromptsPanel
     (s) => {
       const nodeId = s.selectedNodeId;
       if (!nodeId) return null;
-      for (const pov of [...POV_KEYS, 'situations'] as const) {
-        const file = s[pov] as { nodes: Array<{ id: string; label: string; description: string }> } | null;
-        if (file) {
-          const node = file.nodes.find(n => n.id === nodeId);
-          if (node) return node;
-        }
-      }
-      return null;
+      // t/4359 — state.<pov>.nodes holds only selectable nodes post-t/4355; a cited/selected id
+      // may be superseded, so look it up across the full set (superseded included), not the
+      // selectable list. Situations aren't held aside, so they stay a plain array lookup.
+      const node = allNodesById(s).get(nodeId);
+      if (node) return node;
+      return s.situations?.nodes.find(n => n.id === nodeId) ?? null;
     },
   );
 
@@ -184,19 +182,11 @@ export function PromptDetailPanel({ entry }: PromptDetailPanelProps) {
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null;
     const s = useTaxonomyStore.getState();
-    for (const pov of POV_KEYS) {
-      const file = s[pov];
-      if (file) {
-        const node = file.nodes.find(n => n.id === selectedNodeId);
-        if (node) return node;
-      }
-    }
-    const sit = s['situations'];
-    if (sit) {
-      const node = sit.nodes.find(n => n.id === selectedNodeId);
-      if (node) return node;
-    }
-    return null;
+    // t/4359 — same fix as PromptsPanel's selector above: look up across the full node set
+    // (superseded included), not just the selectable state.<pov>.nodes list.
+    const node = allNodesById(s).get(selectedNodeId);
+    if (node) return node;
+    return s.situations?.nodes.find(n => n.id === selectedNodeId) ?? null;
   }, [selectedNodeId]);
 
   const [editText, setEditText] = useState('');
