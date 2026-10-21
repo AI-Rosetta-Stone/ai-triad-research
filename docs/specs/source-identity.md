@@ -1,6 +1,6 @@
 # Source-document identity: hash, URL and link rules
 
-**Status:** contract, fixture version 5. **Tickets:** t/4337 (ingestion dedupe, PowerShell) and t/4334 (canonical source index, TypeScript). **Fixture:** `tests/fixtures/source-identity-cases.json`.
+**Status:** contract, fixture version 5. **Tickets:** t/4337 (ingestion dedupe, PowerShell) and t/4334 (canonical source index, TypeScript). **Fixture:** `tests/fixtures/source-identity-cases.json`. Section 7 (evidence union) has its own fixture, `tests/fixtures/evidence-union-cases.json`, version 1.
 
 This spec defines how a source document in `ai-triad-sources/<doc-id>/` is identified. The PowerShell ingester (`scripts/AITriad/Private/SourceIdentity.ps1`) and the TypeScript index (`lib/sourceIndex`) implement it. Both must pass every case in the fixture.
 
@@ -216,3 +216,62 @@ Every citation has two ids, and each has its own use. This mirrors the taxonomy'
 
 - **A consumer may show both** (for example "cited as X, now Y"). It must never replace a stored exact id with the resolved id.
 - **Why:** the mark is the reviewed fact, and grouping is a heuristic that can change with the spec. Keeping the exact id means removing or correcting a mark restores the original attribution, with no data repair.
+
+## 7. Evidence union across a duplicate group
+
+*Fixture `tests/fixtures/evidence-union-cases.json`, version 1. From the t/4337 post-apply gap (t/4337#60) and the Second Opinion's conditions on it (e/347#2), accepted by the TL (e/347#3).* A marked copy's summary is a separate model run over byte-identical text, so it often cites passages and nodes the canonical's run didn't. Section 6.3 attributes evidence to `resolve(id)`. This section says what that evidence **is**: the de-duplicated union of every group member's links, not the canonical's links alone.
+
+### 7.1 Group and links
+- **The group of a canonical `C`** is `C` followed by every document whose **valid** mark (6.1) targets `C`, ordered by id (ordinal). A document with an invalid mark isn't in the group, because it resolves to itself (6.2).
+- **A link** is one `(node, quote)` taken from a member's summary, in file order, from these fields (the C9 link fields, `scripts/data-mutations/t4337/c9-link-fields.json`):
+
+| Field | `node` | `quote` |
+|---|---|---|
+| `pov_summaries.<pov>.key_points[]` | `taxonomy_node_id` | `verbatim`, else `point` |
+| `factual_claims[]` | each of `linked_taxonomy_nodes[]`, then legacy `potential_taxonomy_nodes[]` | `claim` |
+| `unmapped_concepts[]` | `resolved_node_id` | the first non-empty of `verbatim`, `suggested_description`, `description`, `concept`, `suggested_label` |
+
+  `pov_summaries` keys are taken in file order. Empty or non-string node ids are not links.
+
+### 7.2 De-duplication key
+`key(quote)` applies these steps in order. **It is used only to compare quotes.** A displayed or stored quote is never the key.
+1. **Repair the t/4394 mojibake, before NFKC** (NFKC turns `ª` into `a`).
+   - **Variant B** (UTF-8 read as cp437): replace each three-character sequence with ASCII: `ΓÇÖ` and `ΓÇÿ` → `'`, `ΓÇ£` and `ΓÇ¥` → `"`, `ΓÇô` and `ΓÇö` → `-`, `ΓÇª` → `...`.
+   - **Variant A** (cp1252 read as cp437): replace `Æ` and `æ` → `'`, `ô` and `ö` → `"`, `û` and `ù` → `-`. (`à` and `Θ` aren't mapped; they occur in real French and Greek text.)
+2. **NFKC.**
+3. **Fold typography:** `‘ ’` → `'`, `“ ”` → `"`, `– —` → `-`.
+4. **Lowercase** (invariant culture; JavaScript `toLowerCase()`).
+5. **Replace every character that isn't a letter (`\p{L}`) or a decimal digit (`\p{Nd}`) with a space.**
+6. **Collapse whitespace runs** to one space, and trim.
+
+Repairing mojibake only in the key is safe because every member of a group has byte-identical text. Only a model's own "correction" makes two members differ.
+
+### 7.3 Near-equal
+`near(a, b)` on two keys is **false** if either is empty. Otherwise it's **true** when any of these holds:
+1. `a == b`, or one contains the other as a substring;
+2. **token Jaccard** of the two space-split token sets is **≥ 0.8**, computed in integers as `5 × |A ∩ B| ≥ 4 × |A ∪ B|`;
+3. **normalized Levenshtein similarity** `1 − lev(a, b) / max(len(a), len(b))` is **≥ 0.85**, computed in integers as `20 × (m − lev) ≥ 17 × m`, with `m = max(len(a), len(b))`. The distance counts unit-cost insertions, deletions and substitutions over UTF-16 code units, which is what PowerShell and JavaScript strings index.
+
+Both thresholds are integer comparisons, so floating-point rounding can't make the two stacks disagree at a boundary.
+
+*Arm 3 replaces Python `difflib`'s ratio, which t/4337#60's measure used. The ratio can't be ported exactly without its matching-block tie-breaks. On the real corpus (data `0bf4b9a1`), the two arms disagree on 16 of 2,046 copy links (0.8%).*
+
+### 7.4 Union
+For each canonical `C` and each node `n`:
+1. **Keep all of `C`'s own links on `n`,** in order and unchanged, including repeats. They are what 6.3 already shows.
+2. **Then, for each marked member in group order and each of its links on `n` in order,** keep the link only if it isn't `near` to any link already kept on `n`. **The canonical wins ties,** because its links are kept first.
+3. **Every kept link is attributed to `C`.** A link kept from a marked member also carries **`via`: that member's exact id** (6.4).
+
+The result is keyed by node; node order isn't significant. Within a node, the order is the order of steps 1 and 2.
+
+**The union never removes a `(node, group)` attribution.** If any member links `n`, at least one kept link does. Matching only decides how many quotes appear.
+
+### 7.5 Counting
+- **A per-node count of documents counts distinct resolved ids** (citations, health metrics, evidence doc counts, topic frequency, `source_diversity`, conflict counts). The union can't change it except to add a group that only a copy linked.
+- **A display count of claims** (the Sources panel's `'count'` sort) counts kept links after 7.4.
+- **Conflict analysis excludes pairs within a group:** a document can't conflict with its own copy.
+
+### 7.6 `via`
+`via` is provenance. It's shown nowhere and never stored over an exact id.
+- **It has exactly one branching reader:** entity extraction skips facts with `via` set, as well as facts whose `doc_id` isn't selectable (TL, e/347#7). Copies' facts stay out of paid extraction.
+- **Any new branching reader of `via` is a contract change to this section.**
