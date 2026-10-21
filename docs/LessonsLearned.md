@@ -5949,9 +5949,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **`gh pr edit` supports `--base` (target branch) but not `--head` (source branch).** Do not reach for `--head` on edit.
 3. **"unknown flag: --head" on `gh pr edit`** — check `gh pr edit --help`; `--head` is absent by design.
 
-**Status:** Active — 1 instance (DebateTool p/70#65).
+**Status:** Active — 2 instances (DebateTool p/70#65; Sage self p/26#225-follow-up — `gh pr view --head <branch>` also rejected with "unknown flag: --head"; `--head` is not a flag on any `gh pr` subcommand other than `gh pr list`).
 
-**Applies To:** All agents attempting to retarget a PR's source (head) branch after creation.
+**Applies To:** All agents attempting to retarget a PR's source (head) branch after creation; note `--head` is not accepted by `gh pr view`, `gh pr edit`, or `gh pr merge` — only `gh pr list`.
 
 ---
 
@@ -6214,24 +6214,25 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #307 [Build] Node.js `/tmp` Resolves to `C:\tmp` on Windows — Git Bash `/tmp` Maps to `%TEMP%`
+## #307 [Build] Windows-Native Tools Don't Resolve MSYS/Bash Paths — `/tmp` and `/c/...` Are Bash-Only Translations
 
-**Pattern:** An agent pipeline writes a file to `/tmp/<name>` from a Bash command (Git Bash on Windows), then attempts to read it from a Node.js script. Node.js cannot find the file (ENOENT `C:\tmp\<name>`). Git Bash's `/tmp` maps to the user's `%TEMP%` directory (e.g., `C:\Users\<user>\AppData\Local\Temp`), while Node.js on Windows resolves `/tmp` literally as `C:\tmp`.
+**Pattern:** An agent pipeline writes a file to a Bash-style path (`/tmp/<name>` or `/c/Users/...`) from a Bash command (Git Bash on Windows), then attempts to read it from a Windows-native tool (Node.js, python3, etc.). The tool cannot find the file. Git Bash translates `/tmp` to `%TEMP%` and `/c/` to `C:\`, but Windows-native executables receive paths verbatim from the process environment — they do not apply MSYS translations.
 
 **Instances:**
 - 2026-10-20 — DevOps Worker (p/749#26): `writeFileSync('/tmp/acc-origin.json')` inside a Node one-liner in the Bash tool resolved to `C:\tmp\...` — which did not exist. The Bash tool had written to Git Bash's `/tmp` (which is `%TEMP%`). Resolved by moving the logic into a script that calls `git show` itself via `execFileSync`, eliminating the temp file.
 - 2026-10-20 — Diagnostics (p/9#86): Bash wrote `git show` output to `/tmp/acc-origin.json`; Node script returned ENOENT `C:\tmp\acc-origin.json`. Same root cause. Resolved by calling `git show` directly from Node via `execFileSync`.
 
-**Root Cause:** On Windows, POSIX `/tmp` is not a real directory — it is a Git Bash convention mapped to `%TEMP%`. Node.js does not use MSYS/Git Bash's path translation; it treats `/tmp` as a Windows absolute path `C:\tmp`, which typically does not exist.
+**Root Cause:** Git Bash applies MSYS path translations (`/tmp` → `%TEMP%`, `/c/` → `C:\`) to its own process and child processes that understand MSYS. Windows-native executables (Node.js, python3, etc.) are launched as ordinary Windows processes — they receive paths as literal strings and apply no MSYS translation. A `/c/Users/...` path handed to python3 or node.exe is not a valid Windows path.
 
 **Prevention:**
-1. **Never write to `/tmp` in Bash and then read it from Node.js on Windows.** The paths resolve differently between the two runtimes.
-2. **Keep inter-process data in a single process** — call `git show` (or other shell commands) from Node via `execFileSync`/`spawnSync` rather than sharing temp files across shells.
-3. **If a temp file must be shared between Bash and Node on Windows**, use `$TEMP` or `$TMPDIR` in Bash (not `/tmp`) and `os.tmpdir()` in Node — both resolve to the same Windows temp directory.
+1. **When invoking any Windows-native tool (Node.js, python3, etc.) from Bash, always use native Windows paths (`C:\...`), not MSYS paths (`/c/...` or `/tmp/...`).** The translation is Bash-only.
+2. **Never write to `/tmp` in Bash and then read it from a Windows-native tool.** Git Bash's `/tmp` maps to `%TEMP%`; the native tool sees `C:\tmp`, which typically does not exist.
+3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
+4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 2 instances (DevOps Worker p/749#26; Diagnostics p/9#86).
+**Status:** Active — 4 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; fix: use native `C:\...` paths with Windows-native tools).
 
-**Applies To:** All agents writing multi-process pipelines on Windows; never share temp files across Git Bash and Node.js using `/tmp`.
+**Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
 ---
 
@@ -6249,7 +6250,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **When regex is necessary in a jq filter passed via shell**, write the jq program to a file and pass it with `jq -f <file>` to avoid shell-escaping interference.
 3. **"unterminated string literal" in a jq filter** is a reliable diagnostic for shell-escaping collision — simplify the pattern or use `jq -f`.
 
-**Status:** Active — 1 instance (DevOps Worker p/749#24).
+**Status:** Active — 2 instances (DevOps Worker p/749#24; Rosetta Stone p/6#102 — `test("^Approved \\(Quality\\)")` failed; switched to `startswith("Approved (Quality)")`).
 
 **Applies To:** All agents constructing jq filters with regex patterns in shell commands.
 
@@ -6372,3 +6373,348 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#222).
 
 **Applies To:** All agents calling `gh api` with boolean, integer, or null field values; use `-F` for typed values.
+
+---
+
+## #315 [Build] `gh workflow run --ref` Returns 404 When Workflow File Only Exists on a Feature Branch
+
+**Pattern:** An agent runs `gh workflow run <workflow>.yml --ref <feature-branch>` to dispatch a workflow against a non-default branch. GitHub returns 404 "workflow not found on the default branch." The `workflow_dispatch` API requires the workflow file to exist on the repository's default branch (`main`) — it can be dispatched to run against any `--ref`, but the file must first be registered on `main`.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#224): `gh workflow run t4340-livefire-probe.yml --ref <feature-branch>` returned 404. Workflow file existed only on the feature branch. Resolved by landing a minimal version of the workflow file to `main` first (T0, dispatch-only, no triggers), then dispatching with `--ref <feature-branch>`.
+
+**Root Cause:** GitHub's `workflow_dispatch` API indexes workflows from the default branch. A workflow file that has never been on the default branch is invisible to the dispatch endpoint — the `--ref` parameter controls which ref runs the workflow, not which ref registers it.
+
+**Prevention:**
+1. **Before dispatching `gh workflow run <file>.yml`, verify the workflow file exists on `main`:** `gh api repos/<owner>/<repo>/contents/.github/workflows/<file>.yml -q .name`. A 404 here means the file hasn't been merged to main yet.
+2. **To test a new workflow against a feature branch:** land a minimal `workflow_dispatch`-only version to `main` first (T0), then dispatch with `--ref <feature-branch>`.
+3. **404 "workflow not found on the default branch"** is the reliable diagnostic — it is not a permissions error or a file-path typo.
+
+**Status:** Active — 2 instances (DevOps Lead p/26#224; DevOps Lead p/26#235 — throwaway probe workflow on feature branch; resolved same way: land minimal file to main first).
+
+**Applies To:** All agents dispatching `workflow_dispatch` workflows against non-default branches; the workflow file must exist on the default branch first.
+
+---
+
+## #316 [Build] PR Opened by Another Agent Between Push and `gh pr create` — Check for Existing PR at Create Time
+
+**Pattern:** An agent pushes a branch and checks for an existing PR before pushing (finding none). By the time it calls `gh pr create`, another agent (or the PI) has already opened a PR for that branch. The `gh pr create` call fails with "a pull request for branch already exists."
+
+**Instances:**
+- 2026-10-20 — Rosetta Stone (p/6#101): `gh pr create` failed — PR #3520 had been opened by the PI minutes after the push, before the agent called `gh pr create`. Resolved by editing #3520's title and body in place with `gh pr edit`.
+
+**Root Cause:** The window between checking for an existing PR and calling `gh pr create` is non-zero. In a multi-agent/human environment, another party can open a PR for the branch during that window.
+
+**Prevention:**
+1. **Check for an existing PR immediately before calling `gh pr create`**, not only before the push: `gh pr list --head <branch> --json number,url -q '.[0]'`. If one exists, edit it in place with `gh pr edit <N>` rather than creating a duplicate.
+2. **"a pull request for branch already exists" from `gh pr create`** means another PR was opened for that branch. Find it with `gh pr list --head <branch>` and edit it instead.
+3. **Never open a duplicate PR** — edit the existing one. Duplicate PRs confuse CI and auto-merge arming.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#101).
+
+**Applies To:** All agents in multi-agent/human environments; check for existing PRs immediately before `gh pr create`, not only at session start.
+
+---
+
+## #317 [Build] `git merge --ff-only origin/main` Refuses Due to Shared-Tree Dirty File — Diagnose Phantom vs Real WIP Before Acting
+
+**Pattern:** An agent runs `git merge --ff-only origin/main` on the shared checkout to advance it. Git refuses: "local changes to <file> would be overwritten by merge." The dirty file may be a **phantom** (byte-identical to `origin/main`, stale-HEAD artifact) or **real WIP** from another role. The correct response differs: phantoms can be safely restored; real WIP must be left untouched.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#225): `git merge --ff-only origin/main` refused on `lib/debate/cli.ts`. Assumed foreign WIP; worked in a fresh worktree. Later confirmed phantom — `git diff origin/main -- lib/debate/cli.ts` empty (p/26#229).
+- 2026-10-20 — Server Storage (p/539#14): same file, same refusal, same session. Confirmed phantom by same diagnostic.
+
+**Root Cause:** The shared checkout's HEAD can lag behind `origin/main`. A file modified between the local HEAD and `origin/main` appears dirty even when its content is byte-identical to `origin/main`. Git still refuses `--ff-only` because local content != merge target content at the index level.
+
+**Prevention:**
+1. **When `git merge --ff-only origin/main` refuses, first run `git diff origin/main -- <file>` on each dirty file.** Empty output = phantom (byte-identical to origin); non-empty = real WIP from another role.
+2. **For a phantom:** `git restore <file>` resets it to HEAD content — safe because the file is byte-identical to `origin/main`. However, the classifier may block `git restore` as "Irreversible Local Destruction" even with phantom proof in hand (see #323).
+3. **For real WIP:** do not stash, restore, or clean. Create a fresh worktree off `origin/main` and do your work there, leaving the shared tree's WIP untouched. Only DevOps handles shared-tree cleanup (`docs/shared-tree-divergence.md`).
+4. **Always prefer a worktree for new work** — a fresh worktree off `origin/main` is always clean and unaffected by the shared checkout's state.
+
+**Status:** Active — 2 instances (DevOps Lead p/26#225; Server Storage p/539#14).
+
+**Applies To:** All agents on the shared checkout; diagnose phantom vs real WIP before deciding to restore or work around.
+
+---
+
+## #318 [Build] PowerShell Backtick/`[ref]` Syntax Fails When Embedded in `pwsh -Command` via Bash Tool — Write as `.ps1` File
+
+**Pattern:** An agent constructs a multi-line PowerShell one-liner with backtick line-continuation or `[ref]` type constraints and runs it via `pwsh -NoProfile -Command "..."` through the Bash tool. Bash's own parser errors on the backticks and parentheses before PowerShell sees them, producing Bash syntax errors rather than PowerShell errors.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#225): `pwsh -NoProfile -Command "..."` with backtick continuation and `[ref]$x` threw Bash parser errors on the backticks/parens. Resolved by writing the check as a standalone `.ps1` file and running `pwsh -NoProfile -File script.ps1`, per the root AGENTS.md Shell Quoting Rule.
+
+**Root Cause:** The Bash tool is Git Bash. When PowerShell code with special characters (backticks, parens, `[ref]`, `$`) is passed as a `-Command` string, Bash interpolates and parses it before `pwsh.exe` sees it. Complex PowerShell syntax routinely breaks at the Bash layer.
+
+**Prevention:**
+1. **Any PowerShell code with special characters (backtick, parentheses, `[ref]`, `$var`, `{` blocks) must be written to a `.ps1` file and run with `pwsh -File`.** Never embed it in a `-Command` string through the Bash tool.
+2. **This is the root AGENTS.md Shell Quoting Rule applied to PowerShell:** "Code with special shell characters: use Edit/Write, and run scripts from a file; never use inline heredocs."
+3. **Use the PowerShell tool directly** for PowerShell commands that don't need Bash pipelines — the PowerShell tool bypasses the Bash/MSYS layer entirely.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#225).
+
+**Applies To:** All agents running PowerShell through the Bash tool; complex PS syntax goes in a `.ps1` file, not a `-Command` string.
+
+---
+
+## #319 [Research] Independent Cross-Check of Measurement Output Catches Instrument Bugs, Not Just System Bugs
+
+**Pattern:** An agent measures a system's behavior (e.g. embedding similarity, selection ranking) and computes a cross-check assertion ("my selector output should match the independent top-3"). The assertion fails. The failure leads to the discovery of a bug in the measuring code itself (a wrong field name), not in the system being measured. Without the cross-check, the bug would have appeared as a system disagreement rather than a measurement error.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#123, t/4292): offline measurement compared node selection against cosine top-3. Cross-check assertion "selection == independent top-3" came back false. Root cause: measuring code read `NodeRef.id` instead of `nodeId`. Without the assertion, the bug read as "the selector disagrees with cosine" — a misleading system-level finding. Fixed the field name; assertion passed.
+
+**Root Cause:** Measurement code is code — it has bugs. A single pipeline (measure → report) cannot distinguish between "system is wrong" and "measurement is wrong." An independent cross-check from a different code path catches measurement errors before they propagate to conclusions.
+
+**Prevention:**
+1. **Before drawing conclusions from a measurement run, include at least one assertion that the measurement itself is internally consistent.** "My selection output agrees with an independent reference computation on the same input" is enough to catch field-name errors, wrong data, and off-by-one index bugs.
+2. **A failed cross-check assertion is not a system bug until the measurement code is verified.** Rule out instrument error first — check field names, data shapes, and index assumptions.
+3. **Paid or otherwise expensive measurement runs deserve a cheap debug-mode cross-check first** — a single probe run with the assertion active costs little and validates the instrument before the full spend.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#123, t/4292).
+
+**Applies To:** All agents writing measurement or analysis scripts; include independent cross-check assertions to validate the instrument, not only the system.
+
+---
+
+## #320 [Build] `__dirname` Undefined in ESM/tsx Scripts — Use `fileURLToPath(import.meta.url)`
+
+**Pattern:** An agent runs a TypeScript script with `tsx` (or another ESM-mode runner). The script uses `__dirname` to resolve file paths. The script throws `ReferenceError: __dirname is not defined`. `tsx` executes scripts as ES modules where `__dirname` is a CommonJS-only global.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#123, t/4292): `tsx` script used `__dirname`; threw `ReferenceError`. Fixed with `import { fileURLToPath } from 'url'; import { dirname } from 'path'; const __dirname = dirname(fileURLToPath(import.meta.url));`.
+
+**Root Cause:** `__dirname` and `__filename` are CommonJS-only globals injected by Node's module wrapper. ES modules (including tsx-run scripts) do not have them. The ESM equivalent uses `import.meta.url`.
+
+**Prevention:**
+1. **In any tsx/ESM script, replace `__dirname` with `dirname(fileURLToPath(import.meta.url))`.** Add the two-line shim at the top: `import { fileURLToPath } from 'url'; import { dirname } from 'path';`.
+2. **`ReferenceError: __dirname is not defined` in a tsx script** is always this CommonJS/ESM mismatch — the fix is the `import.meta.url` shim.
+3. **`__filename` has the same problem** — replace with `fileURLToPath(import.meta.url)` directly.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#123).
+
+**Applies To:** All agents writing TypeScript scripts run via tsx or another ESM runner; use `import.meta.url` instead of `__dirname`/`__filename`.
+
+---
+
+## #321 [Build] ONNX Embedder Writes `[onnxEmbedding]` Log Lines to stdout Before JSON — Strip at Exact `[` Line, Not First `\n[`
+
+**Pattern:** A script runs an ONNX-based embedding model and captures its stdout. The output starts with one or more `[onnxEmbedding] ...` log lines, followed by the JSON result (which also starts with `[`). Code that strips the prefix by finding the first `\n[` captures a log line rather than the JSON, because log lines also start with `[`. The JSON parse then fails on the log line text.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#123, t/4292): stdout had `[onnxEmbedding]` log lines before the JSON array. Strip logic cut at first `\n[`, but that matched a log line. Fixed by cutting at the line that is exactly `[` (the JSON array opening line) rather than any line starting with `[`.
+
+**Root Cause:** Both log lines and the JSON output start with `[`. Stripping at "first line starting with `[`" is ambiguous; the JSON array's opening is specifically a line containing only `[`.
+
+**Prevention:**
+1. **When stripping ONNX embedder log prefix from stdout, find the line that is exactly `[`** (the JSON array opening), not the first line starting with `[`.
+2. **Alternatively, redirect stderr** (`2>/dev/null` or a dedicated stderr handle) if the embedder writes logs to stderr — verify with a test run before assuming stdout is clean JSON.
+3. **A JSON parse error immediately after an ONNX embedding call** is a reliable diagnostic for log-line contamination — inspect the raw stdout before parsing.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#123).
+
+**Applies To:** All agents capturing ONNX embedder output; strip log prefix at exact `[` line, not first `\n[`.
+
+---
+
+## #322 [Build] `gh pr merge --auto` on All-Green PR Completes Immediately — No Window to `--disable-auto`
+
+**Pattern:** An agent arms auto-merge on a PR with `gh pr merge --auto`. The PR's required checks are already all green at the time of arming. GitHub merges the PR immediately (within seconds). A subsequent `gh pr merge --disable-auto` returns "Can't disable auto-merge for this pull request" because the merge has already completed.
+
+**Instances:**
+- 2026-10-20 — DevOps Worker (p/749#32): probe PR had all checks green; `--auto` arm triggered an immediate merge. `--disable-auto` returned "Can't disable." Resolved by opening a follow-up PR to revert the probe's file rather than attempting to undo the merge.
+
+**Root Cause:** Auto-merge is a "merge as soon as checks pass" gate. When all checks are already green, "as soon as" is "now." There is no staging delay between arming and merging when the PR is already mergeable.
+
+**Prevention:**
+1. **Before arming `--auto`, check `gh pr view <N> --json mergeStateStatus -q .mergeStateStatus`.** If the result is `CLEAN`, the PR will merge immediately on arming — confirm this is intended before proceeding. (See also #311: if `CLEAN`, merge directly without `--auto`.)
+2. **On a probe or test PR, do not arm `--auto` if the checks are already green and merging to `main` is not desired.** Use a draft PR or a separate test repo for live-fire experiments.
+3. **There is no undo for a completed merge.** If an unintended merge lands, open a follow-up PR to revert; do not attempt a force-reset or direct push to `main`.
+
+**Status:** Active — 1 instance (DevOps Worker p/749#32).
+
+**Applies To:** All agents arming auto-merge; when mergeStateStatus is CLEAN, arming --auto merges immediately — verify intent first.
+
+---
+
+## #323 [Build] Auto-Mode Classifier Blocks `git restore` on a Phantom File as "Irreversible Local Destruction" — Escalate to PI
+
+**Pattern:** An agent has a phantom dirty file on the shared checkout (confirmed byte-identical to `origin/main` via `git diff origin/main -- <file>` returning empty). The agent attempts `git restore <file>` to clear it. The auto-mode classifier refuses the command, categorizing it as "Irreversible Local Destruction." The proof that the file is a phantom is in hand but the classifier does not evaluate file content — it pattern-matches the command.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#229): `git restore lib/debate/cli.ts` blocked by classifier despite `git diff origin/main -- lib/debate/cli.ts` returning empty. PI flagged directly; waiting on manual restore or permission-rule change.
+
+**Root Cause:** The auto-mode classifier guards `git restore` as irreversible by command shape, without inspecting whether the file content is actually distinct from the restore target. A phantom file (`diff origin/main` empty) has nothing to lose, but the classifier cannot verify this.
+
+**Prevention:**
+1. **When the classifier blocks `git restore` on a confirmed phantom, escalate to the PI** — do not attempt a workaround (e.g., `git checkout`, `git reset`) that may have broader blast radius. The PI can approve manually or adjust the permission rule.
+2. **The phantom proof to include in the escalation:** `git diff origin/main -- <file>` returns empty; file content is byte-identical to `origin/main`; nothing will be lost.
+3. **Work around the blocked restore** by using a worktree off `origin/main` for any immediate work that needs a clean tree — the phantom only blocks `--ff-only` on the shared checkout, not worktree operations.
+4. **Do not attempt `git restore --staged`, `git checkout -- <file>`, or `git reset HEAD <file>` as substitutes** without explicit human approval — the classifier may block those too, and the escalation path is cleaner.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#229).
+
+**Applies To:** All agents on the shared checkout in auto mode; classifier blocks `git restore` by command shape regardless of content safety — escalate rather than bypass.
+
+---
+
+## #324 [Build] `gh api .../dispatches` and `gh workflow run` Require a Branch or Tag Name for `ref` — Not a Commit SHA
+
+**Pattern:** An agent dispatches a workflow via `gh api repos/<owner>/<repo>/actions/workflows/<file>/dispatches -f ref=<SHA>` or `gh workflow run <file> --ref <SHA>`. GitHub returns 422 "No ref found for: \<sha\>". The `ref` parameter for workflow dispatch requires a branch or tag name — an arbitrary commit SHA is not a valid ref for this endpoint.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#226): `gh api .../dispatches -f ref=<full commit SHA>` returned 422 "No ref found for: \<sha\>". The `gh workflow run --help` text explicitly says "Branch or tag name" — confirmed by live test. Resolved by dispatching against the branch name instead.
+
+**Root Cause:** GitHub's `workflow_dispatch` API accepts a `ref` that resolves to a branch or tag. A bare commit SHA is not a named ref and the API cannot resolve it. The `gh workflow run --help` documentation states "Branch or tag name" clearly; testing the raw API before reading the help text cost extra time.
+
+**Prevention:**
+1. **Always pass a branch or tag name to `--ref` / `-f ref=`**, never a commit SHA. `gh workflow run --help` states "Branch or tag name" — trust that wording.
+2. **To pin execution to a specific commit, use a workflow input parameter** (e.g., `-f sha=<full-sha>`) rather than the `ref` parameter. The `ref` selects which branch/tag runs the workflow; inputs carry the pinned SHA to the workflow steps.
+3. **422 "No ref found for: \<value\>"** from the dispatches endpoint is the reliable diagnostic — it means the value is not a resolvable branch or tag name.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#226).
+
+**Applies To:** All agents dispatching `workflow_dispatch` workflows; `ref` must be a branch or tag name — use workflow inputs for SHA pinning.
+
+---
+
+## #325 [Build] `az monitor log-analytics query -w` Requires Workspace `customerId` GUID, Not Workspace Name
+
+**Pattern:** An agent runs `az monitor log-analytics query -w <workspace-name> --workspace <workspace-name>` to query Log Analytics. The command fails with `PathNotFoundError`. The `-w` / `--workspace` flag for `az monitor log-analytics query` requires the workspace's `customerId` GUID — the human-readable workspace name is not accepted.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#231): `az monitor log-analytics query -w log-aitriad-kvwl3nywge4iw` → PathNotFoundError. Fixed by retrieving the workspace `customerId` GUID via `az monitor log-analytics workspace list` and passing that instead.
+
+**Root Cause:** `az monitor log-analytics query` resolves the workspace by its GUID (`customerId`), not by its display name or resource name. The workspace name is a human-readable label; the GUID is the stable identifier the query API uses.
+
+**Prevention:**
+1. **Always pass the `customerId` GUID to `az monitor log-analytics query -w`.** Retrieve it first: `az monitor log-analytics workspace list --query "[].{name:name, customerId:customerId}" -o table`.
+2. **`PathNotFoundError` from `az monitor log-analytics query`** is the diagnostic for passing a workspace name instead of its GUID.
+3. **The GUID is stable** — it can be cached in `deploy/azure/runbooks/deployment-facts.md` alongside other workspace identifiers to avoid a lookup on every query session.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#231).
+
+**Applies To:** All agents querying Azure Log Analytics; `-w` requires the workspace `customerId` GUID, not the workspace name.
+
+---
+
+## #326 [Build] Fabricated Infrastructure URL Instead of Reading Canonical Source — "Couldn't Resolve Host"
+
+**Pattern:** An agent needs a production endpoint URL (app URL, API gateway, storage endpoint). Instead of reading the canonical source (`deploy/azure/runbooks/deployment-facts.md` or equivalent), the agent constructs or guesses a plausible-looking URL. The URL does not exist or resolves to a dead host; `curl` / HTTP client returns "couldn't resolve host" or a connection refused error.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#231): guessed a prod URL → `curl: (6) Could not resolve host`. Resolved by reading `deploy/azure/runbooks/deployment-facts.md` for the real deployed URL.
+
+**Root Cause:** Infrastructure URLs (especially Azure-provisioned hostnames) are not guessable from component names. Constructing them from patterns (e.g., `<name>.azurewebsites.net`) is unreliable — the actual hostname depends on provisioning details and may include random suffixes, custom domains, or private endpoints.
+
+**Prevention:**
+1. **Never construct or guess a production URL.** Read it from `deploy/azure/runbooks/deployment-facts.md` (the canonical source for this project's deployed endpoints). This is an instance of the root AGENTS.md rule: "Before asserting what a system is doing, read the system, not a file that describes it."
+2. **"Could not resolve host" from `curl` on a constructed URL** is the diagnostic for a fabricated hostname — the URL does not exist, not a network problem.
+3. **If the URL is absent from `deployment-facts.md`**, retrieve it from the Azure portal or CLI (`az webapp show --name <name> --query defaultHostName`) and update the runbook — do not proceed on a guess.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#231).
+
+**Applies To:** All agents accessing production infrastructure; read deployed URLs from the canonical runbook, never construct them from component names.
+
+---
+
+## #327 [Build] `gh pr diff <N> -- <path>` Fails — `gh pr diff` Does Not Support Pathspec Filtering
+
+**Pattern:** An agent wants to inspect only specific files changed in a PR and runs `gh pr diff <N> -- <path>`. The command fails with "accepts at most 1 arg(s), received 2." `gh pr diff` takes only the PR number as an argument — it does not support pathspec filtering the way `git diff` does.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#233): `gh pr diff 3547 -- <path>` failed with "accepts at most 1 arg(s), received 2". Resolved by fetching the branch and reading the file directly.
+
+**Root Cause:** `gh pr diff` is a thin wrapper that streams the full diff of a PR. It accepts one positional argument (the PR number) and does not pass pathspecs to the underlying diff engine.
+
+**Prevention:**
+1. **To see only a specific file's diff for a PR, fetch the branch and use `git diff`:** `git fetch origin <head-branch> && git diff origin/main...origin/<head-branch> -- <path>`.
+2. **Alternatively, read the file directly** from the PR head: `git show origin/<head-branch>:<path>`.
+3. **"accepts at most 1 arg(s), received 2" from `gh pr diff`** is the diagnostic — the extra argument is being treated as a second positional, not a pathspec flag.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#233).
+
+**Applies To:** All agents inspecting PR diffs; `gh pr diff` streams the full diff only — use `git diff` with a pathspec for file-scoped inspection.
+
+---
+
+## #328 [Research] Reproduce Through the Production Read Path Before Declaring a Live Bug
+
+**Pattern:** An agent investigates a suspected defect and writes a repro script. The script reads data using a bare, hand-built approximation (e.g., bare `ConvertFrom-Json`) rather than the module's actual read function (e.g., `Read-EdgesFile`). The repro appears to confirm the bug. The agent reports it as a live production defect. A reviewer or Second Opinion discovers the production code uses a fixed read path that handles the case correctly — the module already has the fix. The "bug" is retracted.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#126, t/4278, e/343): reported "PS `edges.json` writes mutate timestamps" as live production bug; t/4366 filed. Repro used bare `ConvertFrom-Json`. Production module uses `Read-EdgesFile` (t/2974 fix). SO caught it; Computational Linguist re-measured via the real path and retracted.
+
+**Root Cause:** The production code path often includes defensive fixes accumulated over time (e.g., t/2974). A repro that bypasses the production reader re-introduces the unfixed behavior, confirming a bug that no longer exists in production. The repro is valid, but it tests the wrong path.
+
+**Prevention:**
+1. **Before declaring a live production bug, reproduce through the exact production read path** — call the module's actual read function, not a bare deserializer. Ask: "Is this how the production code actually reads this file?"
+2. **Check git blame / commit history on the read function** before assuming a naive approach is equivalent. A fix may already be in place (e.g., `Read-EdgesFile` for `edges.json`).
+3. **If the repro and the production path produce different results, the repro is the bug** — the production behavior is the ground truth. Investigate why the paths diverge before filing.
+4. **A Second Opinion's first question on a data-mutation bug: "Did the repro use the production reader?"** If not, the defect report is unverified.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#126, t/4278).
+
+**Applies To:** All agents writing repro scripts for suspected data-layer bugs; always invoke the production read path, never a bare deserializer.
+
+---
+
+## #329 [Build] Failed Write in a Parallel Batch Does Not Stop the Subsequent Commit — Verify Content With `git show HEAD:<file>`
+
+**Pattern:** An agent writes several files in a batch (multiple Write tool calls in one turn or pipeline). One Write call fails ("file has not been read yet" or similar error). The agent proceeds to `git add` and `git commit`. The commit succeeds — the failed Write's file is committed at its previous (unfixed) state, even though the commit message says it was updated. Auto-merge may then be armed against a commit that doesn't contain the intended change.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#126): one Write in a parallel batch failed ("not read yet"); commit message said the script was fixed, but the committed file held the old content. Caught before merge; auto-merge disarmed, file fixed and both modes verified before re-arming.
+
+**Root Cause:** A Write tool failure in a batch is reported as an error on that tool call, but does not prevent the `git commit` that follows. The commit includes whatever is on disk — which, for the failed file, is the unchanged previous content. The commit message is written by the author, not derived from the actual diff, so message and content can diverge.
+
+**Prevention:**
+1. **After any batch of Write calls, run `git show HEAD:<file>` on each critical file** before committing to verify the content is what you intended. `git show --stat HEAD` confirms which files changed but not whether the content is correct.
+2. **After committing and before arming auto-merge, spot-check the committed content** on the files your commit message claims to have changed: `git show HEAD:<file> | head -40`.
+3. **A Write tool error in a parallel batch is easy to miss** — the error appears in the batch output alongside successful calls. Scan every tool result in a parallel batch before proceeding.
+4. **If a Write failed "not read yet", the file on disk is the pre-edit version.** Read it first, then Write again; the commit will then reflect the intended change.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#126).
+
+**Applies To:** All agents doing parallel Write batches followed by git commits; verify committed file content with `git show HEAD:<file>`, not just `git show --stat HEAD`.
+
+---
+
+## #330 [Build] `node -e "require('<pkg>')"` Fails MODULE_NOT_FOUND in Worktree Without `npm ci` — Use Installed Repo Tooling Instead
+
+**Pattern:** An agent wants to quickly validate a YAML/JSON file or test a module from a worktree and runs `node -e "require('js-yaml')"` (or similar ad-hoc require). Node.js returns `MODULE_NOT_FOUND`. The worktree root has no `node_modules/` directory — `npm ci` has not been run there. The package is a project devDependency but is not installed in the current working directory.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#237): `node -e "require('js-yaml')"` from worktree root → MODULE_NOT_FOUND. Resolved by using the repo's own workflow-lint mechanism (already installed as a root devDependency) instead of an ad-hoc require.
+
+**Root Cause:** Node.js module resolution walks up from the current directory looking for `node_modules/`. A fresh worktree has no `node_modules/`; neither does a worktree that only ran `npm ci` in a subdirectory. Without a matching `node_modules/` in the path, any `require()` call fails.
+
+**Prevention:**
+1. **Before running any `node -e "require(...)"` in a worktree, verify `node_modules/` exists** at the repo root or the relevant package directory. If not, run `npm ci` first (see /land-from-worktree step 2).
+2. **Prefer using the repo's already-installed tooling** (e.g., `npm run lint:workflows`, `npx js-yaml`, or a project script) over an ad-hoc `node -e require()`. The installed mechanism handles module resolution automatically.
+3. **MODULE_NOT_FOUND from an ad-hoc `node -e` in a worktree** is almost always a missing `npm ci` — not a missing dependency.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#237).
+
+**Applies To:** All agents running ad-hoc `node -e require()` in worktrees; run `npm ci` first or use repo-installed tooling.
+
+---
+
+## #331 [Build] Shell `$VAR` Expands Python Module Constants as Empty — Import the Module to Resolve the Path
+
+**Pattern:** An agent knows a Python module defines a constant like `LOCAL_MODEL_ROOT` and tries to use it in a shell command as `$LOCAL_MODEL_ROOT`. The variable is not exported as an environment variable, so Bash expands it to an empty string. A subsequent `ls` or path operation on the empty argument exits 2 (or operates on the current directory silently).
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#129): `ls $LOCAL_MODEL_ROOT` exited 2. `LOCAL_MODEL_ROOT` is a Python constant in `_model_release.py`, not a shell environment variable. Resolved by importing the module in Python to get the resolved path.
+
+**Root Cause:** Python module constants are not automatically exported to the shell environment. A shell variable `$NAME` is only defined if it was set via `export NAME=...` or passed in the process environment. A Python file defining `NAME = "/some/path"` has no effect on the shell.
+
+**Prevention:**
+1. **Never use a Python module constant as a shell variable (`$CONSTANT_NAME`).** If you need the path in a shell command, retrieve it by importing the module: `python3 -c "from _model_release import LOCAL_MODEL_ROOT; print(LOCAL_MODEL_ROOT)"`, then capture and use the output.
+2. **`ls` exiting 2 with no output** is a reliable diagnostic for an empty argument — the variable expanded to nothing. Check `echo "$LOCAL_MODEL_ROOT"` first.
+3. **If the path must be available in both Python and shell contexts**, define it as an environment variable (e.g., in a `.env` file loaded by both) rather than a Python-only constant.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#129).
+
+**Applies To:** All agents working across Python modules and shell commands; Python constants are not shell variables — import the module to resolve the value.

@@ -50,26 +50,48 @@ describe('buildNodeSourceIndex / getNodeSources (t/4333/t/4334)', () => {
     delete process.env.AI_TRIAD_SOURCES_ROOT;
   });
 
-  it('acc-desires-021 collapses split parts and re-ingested outlet copies to 2 rows, not 7 (t/4334#2)', async () => {
+  // t/4344 (PowerShell's scan, TL's revised ruling t/4334#6): the real
+  // "eight-ways" cluster isn't 2 legitimate outlet reprints — it's one
+  // byte-identical article whose outlet URLs were attached by provenance
+  // search after the fact. A shared `content_sha256` (recorded, as t/4337
+  // would write it) is the signal that correctly collapses all 7 refs to
+  // ONE canonical doc, which URL/suffix/title alone could not do safely.
+  it('acc-desires-021 collapses split parts and re-ingested outlet copies to 1 row, not 7 (t/4334#6, same content hash)', async () => {
     const nodeId = 'acc-desires-021';
     const base = 'eight-ways-ai-will-shape-geopolitics-2026-2026';
     const ac = 'eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026';
-    writeSourceMeta(base, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://www.brookings.edu/articles/x/' });
-    writeSourceMeta(`${base}-1`, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://etcjournal.com/y' });
-    writeSourceMeta(`${base}-2`, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://example.com/z' });
-    writeSourceMeta(`${base}-3`, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://example.com/w' });
-    writeSourceMeta(ac, { title: 'Eight ways AI will shape geopolitics in 2026   Atlantic Council', url: 'https://www.atlanticcouncil.org/dispatches/x/' });
-    writeSourceMeta(`${ac}-1`, { title: 'Eight ways AI will shape geopolitics in 2026   Atlantic Council', url: 'https://example.com/ac1' });
-    writeSourceMeta(`${ac}-2`, { title: 'Eight ways AI will shape geopolitics in 2026   Atlantic Council', url: 'https://example.com/ac2' });
-
-    for (const id of [base, `${base}-1`, `${base}-2`, `${base}-3`, ac, `${ac}-1`, `${ac}-2`]) writeSummary(id, nodeId);
+    const sameHash = 'a'.repeat(64);
+    const ids = [base, `${base}-1`, `${base}-2`, `${base}-3`, ac, `${ac}-1`, `${ac}-2`];
+    const urls = [
+      'https://www.brookings.edu/articles/x/', 'https://etcjournal.com/y', 'https://example.com/z', 'https://example.com/w',
+      'https://www.atlanticcouncil.org/dispatches/x/', 'https://example.com/ac1', 'https://example.com/ac2',
+    ];
+    ids.forEach((id, i) => writeSourceMeta(id, {
+      title: 'Eight ways AI will shape geopolitics in 2026', url: urls[i], content_sha256: sameHash,
+    }));
+    for (const id of ids) writeSummary(id, nodeId);
 
     const index = await fileIO.buildNodeSourceIndex();
     const refs = index[nodeId];
     expect(refs).toHaveLength(7); // all 7 references still present...
 
     const distinctCanonicalIds = new Set(refs.map(r => r.canonicalDocId));
-    expect(distinctCanonicalIds.size).toBe(2); // ...but collapsed to 2 real documents
+    expect(distinctCanonicalIds.size).toBe(1); // ...but collapsed to the 1 real document
+  });
+
+  it('without a shared content hash, genuinely different-URL outlet copies stay separate (no false merge)', async () => {
+    const nodeId = 'acc-desires-021';
+    const base = 'eight-ways-ai-will-shape-geopolitics-2026-2026';
+    const ac = 'eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026';
+    writeSourceMeta(base, { title: 'Eight ways AI will shape geopolitics in 2026', url: 'https://www.brookings.edu/articles/x/' });
+    writeSourceMeta(ac, { title: 'Eight ways AI will shape geopolitics in 2026   Atlantic Council', url: 'https://www.atlanticcouncil.org/dispatches/x/' });
+    writeSummary(base, nodeId);
+    writeSummary(ac, nodeId);
+
+    const index = await fileIO.buildNodeSourceIndex();
+    const refs = index[nodeId];
+    const distinctCanonicalIds = new Set(refs.map(r => r.canonicalDocId));
+    expect(distinctCanonicalIds.size).toBe(2);
   });
 
   it('does not merge two different documents with similar titles (false-merge guard)', async () => {

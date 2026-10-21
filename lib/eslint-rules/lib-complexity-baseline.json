@@ -133,7 +133,7 @@
     "countOver": 1
   },
   "debate/cli.ts": {
-    "max": 105,
+    "max": 107,
     "countOver": 3
   },
   "debate/computeInterpretationDivergence.ts": {

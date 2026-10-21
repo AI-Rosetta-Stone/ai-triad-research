@@ -132,6 +132,12 @@
   padding: 4px 16px 8px 36px;
 }
 
+.rc-section-description {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
 /* ── Fields ── */
 
 .rc-field {
@@ -174,6 +180,12 @@
 
 .rc-field-input:focus-visible {
   border-color: var(--info, #3b82f6);
+}
+
+.rc-field-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .rc-field-hint {

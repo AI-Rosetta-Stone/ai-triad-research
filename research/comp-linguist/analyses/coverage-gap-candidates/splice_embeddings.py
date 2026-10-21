@@ -36,7 +36,8 @@ Usage:
         [--out <path>] [--gate-only] [--dry-run]
 
     --taxonomy-dir  dir containing embeddings.json (+ POV json for the proof).
-    --out           where to write the spliced embeddings.json (default: in place).
+    --out           where to write the spliced candidate (REQUIRED; in-place corpus writes are refused,
+                    t/4353 / e/343#19).
     --gate-only     run the byte-stability gate (both arms) and exit.
     --dry-run       run gate + compose + proof but DO NOT write.
 """
@@ -316,7 +317,20 @@ def main():
     new_text = original[:idx] + entries_text + original[idx:]
     new_text = new_text.replace(old_nc, f'"node_count": {new_count}', 1)
 
-    out_path = Path(args.out).resolve() if args.out else emb_path
+    # Retired as an in-place corpus writer (TL e/343#19, t/4353): analysis scripts don't write corpus
+    # files in place. embeddings.json's canonical writer is its scheduled producer
+    # (lib/data-formats/file-writers.json). Write a candidate file instead; landing it goes through that
+    # producer or a /data-mutation write.
+    if not args.out or Path(args.out).resolve() == emb_path.resolve():
+        print("ERROR: in-place write refused.\n"
+              "  Goal: splice new embedding entries.\n"
+              "  Problem: --out is missing or points at the corpus embeddings.json; this script is retired as an\n"
+              "           in-place corpus writer (t/4353, e/343#19).\n"
+              f"  Location: {emb_path}\n"
+              "  Next steps: pass --out <candidate path> outside the taxonomy dir, then land it through the\n"
+              "              scheduled embeddings producer or a /data-mutation write.", file=sys.stderr)
+        sys.exit(6)
+    out_path = Path(args.out).resolve()
     # newline="" — write bytes verbatim (no CRLF translation); the source file is
     # LF and we must preserve it exactly so the diff stays byte-clean on Windows.
     with open(out_path, "w", encoding="utf-8", newline="") as fh:

@@ -276,6 +276,21 @@ function logLineageBoostResult(injectionManifest: Record<string, unknown>, total
   });
 }
 
+/** t/4369 gap 3: WARN when per-turn selection skipped label twins. Each `label_dedup` entry, set by
+ *  lib's selectRelevantTaxonomy, names the skipped id, the twin it duplicates and their shared label.
+ *  The skip is correct; the WARN is how duplicate taxonomy nodes stay visible until they're merged (t/4278). */
+export function logLabelDedup(injectionManifest: Record<string, unknown>): void {
+  const skipped = injectionManifest.label_dedup;
+  if (!Array.isArray(skipped) || skipped.length === 0) return;
+  getGlobalRecorder()?.record({
+    type: 'state.change',
+    component: 'debate-store',
+    level: 'warn',
+    message: `Relevance selection skipped ${skipped.length} node(s) with a duplicate label: ${skipped.slice(0, 3).join('; ')}${skipped.length > 3 ? ` + ${skipped.length - 3} more` : ''}`,
+    data: { label_dedup: skipped.slice(0, 20), skipped_count: skipped.length },
+  });
+}
+
 /** Log what the exclude-well-tested mode did, from the manifest's `testing_selection`. WARN when the
  *  mode was on but well-tested nodes are still the majority of the selection (re-eligible leak-in). */
 function logTestingSelection(injectionManifest: Record<string, unknown>, totalSelected: number): void {
@@ -433,6 +448,7 @@ export async function getRelevantTaxonomyContext(
 
     console.log(`[taxonomy] Relevance-filtered: ${filteredPov.length} POV nodes (from ${allPovNodes.length}), ${filteredCC.length} CC nodes (from ${allCCNodes.length})`);
     logLineageBoostResult(result.injectionManifest, filteredPov.length, allPovNodes.length);
+    logLabelDedup(result.injectionManifest);
     logTestingSelection(result.injectionManifest, result.povNodes.length);
     recordSituationDivergence(filteredCC, allCCNodes);
 

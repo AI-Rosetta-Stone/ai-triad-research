@@ -6,7 +6,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateT1ApprovalGuard } from './t1-approval-guard-predicate.mjs';
+import { evaluateT1ApprovalGuard, ownerSlugFromBranch } from './t1-approval-guard-predicate.mjs';
 
 const PUSH = '2026-10-17T18:00:00Z';
 const BEFORE_PUSH = '2026-10-17T17:00:00Z';
@@ -258,4 +258,18 @@ test('a bot review with an APPROVED state but no "Approved (<role>):" body text 
   });
   assert.equal(r.pass, false);
   assert.equal(r.reason, 'no-post-push-approval');
+});
+
+// t/4351: ownerSlugFromBranch exported for pr-triage.yml's CI-green nudge reuse (the author-App
+// switch-over makes pr.user.login a bot handle, no longer a notifiable human).
+test('ownerSlugFromBranch: derives the leading path segment, lowercased, letters only', () => {
+  assert.equal(ownerSlugFromBranch('devops/t4351-author-identity'), 'devops');
+  assert.equal(ownerSlugFromBranch('DevOps/t4247-t1-approval-guard'), 'devops');
+});
+
+test('ownerSlugFromBranch: no slash, empty, or null all resolve safely without throwing', () => {
+  assert.equal(ownerSlugFromBranch('main'), 'main');
+  assert.equal(ownerSlugFromBranch(''), '');
+  assert.equal(ownerSlugFromBranch(null), '');
+  assert.equal(ownerSlugFromBranch(undefined), '');
 });

@@ -177,8 +177,8 @@ function situationsBdiGate(
 // t/4229 (t/4167 part B): the hosted web app writes go through github-api; a prod rollback runbook
 // can set STORAGE_MODE=filesystem on hosted prod, so mode alone would fail OPEN there. NODE_ENV
 // pins this to genuine desktop/local-server use (TL review, p/522#390).
-// t/4372 (t/4264#2, TL): converges on the shared config.ts predicate instead of re-deriving it —
-// this and config.ts's own callers must not drift apart.
+// t/4316: delegates to config.ts's isLocalDeployment() — same predicate, converged rather than
+// re-derived, per t/4234's own callers-should-converge note.
 function isPovTagsGateExempt(): boolean {
   return isLocalDeployment();
 }

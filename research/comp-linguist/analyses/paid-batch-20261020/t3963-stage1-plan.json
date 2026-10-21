@@ -1,5 +1,6 @@
 {
   "name": "t3963-stage1",
+  "approval_ref": "t/3802#6",
   "output_dir": "C:\\Users\\jsnov\\repos\\ai-triad-data\\debates\\t3963-tag-pilot-stage1",
   "base_config": {
     "model": "gemini-3.5-flash-lite",

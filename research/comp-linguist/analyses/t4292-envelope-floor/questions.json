@@ -1,0 +1,17 @@
+[
+  {"id": "q1", "kind": "policy", "source": "observed: t/4254 #1 (110e32fb)", "text": "In the context of setting up a AI Harms court modeled on the US Vaccine court, what constitutes an AI harm?"},
+  {"id": "q2", "kind": "policy", "source": "observed: t/4254 #2 (a753dc6f); acc envelope had 2 off-topic nodes", "text": "What change would make an AI datacenter be a blessing to the community they exist in."},
+  {"id": "q3", "kind": "forecasting", "source": "observed: t/4254 #3 (d37713d1); generic saf node imported civilizational-harm framing, 2 of 2 grounded runs", "text": "How long until 1,000 people are killed by AI?"},
+  {"id": "m01", "kind": "policy", "source": "constructed: t/3963 motion", "text": "Should frontier AI developers be legally liable for harms caused by their deployed models?"},
+  {"id": "m02", "kind": "policy", "source": "constructed: t/3963 motion", "text": "Should the largest AI model training runs require a government licence?"},
+  {"id": "m03", "kind": "policy", "source": "constructed: t/3963 motion", "text": "Should the weights of the most capable AI models be released publicly?"},
+  {"id": "m04", "kind": "policy", "source": "constructed: t/3963 motion", "text": "Should governments break up vertically integrated AI companies that own chips, cloud and models?"},
+  {"id": "m05", "kind": "policy", "source": "constructed: t/3963 motion", "text": "Should AI systems be barred from making final decisions in hiring and lending?"},
+  {"id": "m06", "kind": "forecasting", "source": "constructed: t/3963 motion", "text": "Will generative AI raise or lower overall employment in office work over the next decade?"},
+  {"id": "m07", "kind": "empirical", "source": "constructed: t/3963 motion", "text": "Is current AI progress driven mainly by scaling compute, or by algorithmic advances?"},
+  {"id": "m08", "kind": "empirical", "source": "constructed: t/3963 motion", "text": "Has AI measurably increased productivity in the firms that have adopted it?"},
+  {"id": "m09", "kind": "empirical", "source": "constructed: t/3963 motion", "text": "Do AI benchmark scores predict real-world usefulness?"},
+  {"id": "m10", "kind": "empirical", "source": "constructed: t/3963 motion", "text": "Is the market for frontier AI models becoming more concentrated or more competitive?"},
+  {"id": "f1", "kind": "forecasting", "source": "constructed: forecasting probe", "text": "In what year will an AI system first be credited with a major scientific discovery?"},
+  {"id": "f2", "kind": "forecasting", "source": "constructed: forecasting probe", "text": "How many years until most new software is written by AI?"}
+]

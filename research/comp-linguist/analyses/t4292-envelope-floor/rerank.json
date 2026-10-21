@@ -1,0 +1,4388 @@
+[
+  {
+    "id": "q1",
+    "kind": "policy",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-072",
+          "acc-intentions-103",
+          "acc-beliefs-074"
+        ],
+        "rerank_top3": [
+          "acc-beliefs-072",
+          "acc-beliefs-071",
+          "acc-beliefs-074"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-072",
+            "label": "Courts Lack the Expertise to Weigh AI's Diffuse Benefits Against Its Visible Harms",
+            "cos": 0.663,
+            "ce": 1.228,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-intentions-103",
+            "label": "Prohibit Vendors from Imposing Safety Restrictions Beyond the Law on Government AI",
+            "cos": 0.586,
+            "ce": -7.636,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-074",
+            "label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
+            "cos": 0.568,
+            "ce": -2.101,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-intentions-009",
+            "label": "Discredit AI Safety Discourse as Irrational or Faith-Based",
+            "cos": 0.54,
+            "ce": -7.335,
+            "cos_rank": 4,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-071",
+            "label": "Quantifiable AI Harms Turn Fairness Into a Business Imperative, Not Just an Ethical One",
+            "cos": 0.536,
+            "ce": -1.6,
+            "cos_rank": 5,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-intentions-104",
+            "label": "Reframe AI Bias as a Quantifiable Business Risk to Drive Corporate Investment",
+            "cos": 0.528,
+            "ce": -8.585,
+            "cos_rank": 6,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-intentions-074",
+            "label": "Federalize AI Regulation to Prevent State-by-State Fragmentation",
+            "cos": 0.523,
+            "ce": -7.912,
+            "cos_rank": 7,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-intentions-090",
+            "label": "Focus AI Misinformation Rules on Checkable Procedures, Not Truth Judgments",
+            "cos": 0.52,
+            "ce": -8.967,
+            "cos_rank": 8,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-intentions-051",
+            "label": "Build an Evolving Catalog of AI Failure Modes",
+            "cos": 0.517,
+            "ce": -7.577,
+            "cos_rank": 9,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-beliefs-044",
+            "label": "Technical Challenges and Tradeoffs in Building Safe, Advanced AI",
+            "cos": 0.514,
+            "ce": -8.259,
+            "cos_rank": 10,
+            "ce_rank": 8
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-210",
+          "saf-beliefs-127",
+          "saf-intentions-084"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-210",
+          "saf-beliefs-127",
+          "saf-intentions-102"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-210",
+            "label": "AI Liability and Legal Accountability",
+            "cos": 0.651,
+            "ce": -1.005,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-127",
+            "label": "An AI System's Damage Potential Scales with Its Access and Permissions",
+            "cos": 0.631,
+            "ce": -2.274,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-intentions-084",
+            "label": "Mapping the Blast Radius of AI Integration Failures",
+            "cos": 0.605,
+            "ce": -6.034,
+            "cos_rank": 3,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-desires-009",
+            "label": "Doctors Decide, Not Algorithms",
+            "cos": 0.598,
+            "ce": -8.306,
+            "cos_rank": 4,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-intentions-140",
+            "label": "Containing the Blast Radius of Autonomous AI",
+            "cos": 0.594,
+            "ce": -4.954,
+            "cos_rank": 5,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-217",
+            "label": "Inadequacy of the Reasonable Person Standard for Algorithmic Negligence",
+            "cos": 0.593,
+            "ce": -7.062,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-desires-010",
+            "label": "Legal Comprehension as a Core AI Capability",
+            "cos": 0.588,
+            "ce": -6.668,
+            "cos_rank": 7,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-intentions-007",
+            "label": "Designing good AI as a shield against bad AI",
+            "cos": 0.585,
+            "ce": -4.884,
+            "cos_rank": 8,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-intentions-115",
+            "label": "Assign Trust Duties to Every Actor in the AI Supply Chain",
+            "cos": 0.584,
+            "ce": -7.606,
+            "cos_rank": 9,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-intentions-102",
+            "label": "Recruit Health Professionals to Frame AI Risks as Public Health Threats",
+            "cos": 0.583,
+            "ce": -4.797,
+            "cos_rank": 10,
+            "ce_rank": 3
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-047",
+          "skp-intentions-074",
+          "skp-beliefs-043"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-041",
+          "skp-beliefs-029",
+          "skp-intentions-055"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-047",
+            "label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+            "cos": 0.633,
+            "ce": -3.683,
+            "cos_rank": 1,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-intentions-074",
+            "label": "Enforce Legally Binding Civil Rights Constraints on AI Development",
+            "cos": 0.593,
+            "ce": -7.072,
+            "cos_rank": 2,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-beliefs-043",
+            "label": "Reliance on AI Degrades Human Critical Thinking and Decision-Making",
+            "cos": 0.579,
+            "ce": -3.557,
+            "cos_rank": 3,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-040",
+            "label": "Deployers of Autonomous AI Should Be Liable Even for Unintended Outcomes",
+            "cos": 0.577,
+            "ce": -6.493,
+            "cos_rank": 4,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-intentions-055",
+            "label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
+            "cos": 0.573,
+            "ce": -3.444,
+            "cos_rank": 5,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-031",
+            "label": "Perfect Enforcement Through AI Removes the Safety Valve of Selective Prosecution",
+            "cos": 0.571,
+            "ce": -5.853,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-140",
+            "label": "AI Agents Engineered for Principal-Loyal Lawbreaking",
+            "cos": 0.571,
+            "ce": -4.884,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-029",
+            "label": "Victims of AI Harm Cannot Access the Technical Knowledge Needed to Prove Causation",
+            "cos": 0.569,
+            "ce": -0.904,
+            "cos_rank": 8,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-041",
+            "label": "AI Bias and Harm Are Well-Documented, Not Hypothetical",
+            "cos": 0.568,
+            "ce": -0.57,
+            "cos_rank": 9,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-intentions-143",
+            "label": "Agentic Authority Demarcation",
+            "cos": 0.557,
+            "ce": -7.235,
+            "cos_rank": 10,
+            "ce_rank": 10
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "q2",
+    "kind": "policy",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-067",
+          "acc-intentions-127",
+          "acc-intentions-071"
+        ],
+        "rerank_top3": [
+          "acc-intentions-071",
+          "acc-intentions-018",
+          "acc-intentions-068"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-067",
+            "label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+            "cos": 0.518,
+            "ce": -7.941,
+            "cos_rank": 1,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-intentions-127",
+            "label": "Argue That Existing Laws Govern Software Harms While Requiring Physical Utility Mandates",
+            "cos": 0.515,
+            "ce": -8.777,
+            "cos_rank": 2,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-intentions-071",
+            "label": "Secure Early Access to Human-Generated Training Data as a Strategic Asset",
+            "cos": 0.486,
+            "ce": -5.023,
+            "cos_rank": 3,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-intentions-114",
+            "label": "Accelerate AI Through Open, Decentralized, and Unrestricted Experimentation",
+            "cos": 0.478,
+            "ce": -7.527,
+            "cos_rank": 4,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-intentions-068",
+            "label": "Replace Legacy IT with Adaptive AI Infrastructure",
+            "cos": 0.478,
+            "ce": -6.656,
+            "cos_rank": 5,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-intentions-100",
+            "label": "Tie AI Governance Milestones to Empirical Compute Scaling Benchmarks",
+            "cos": 0.464,
+            "ce": -10.339,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-desires-021",
+            "label": "National Self-Sufficiency in AI Infrastructure",
+            "cos": 0.46,
+            "ce": -6.718,
+            "cos_rank": 7,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-intentions-018",
+            "label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
+            "cos": 0.447,
+            "ce": -5.24,
+            "cos_rank": 8,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-027",
+            "label": "The Weakest Link in AI Development Is the Human Developer",
+            "cos": 0.446,
+            "ce": -7.941,
+            "cos_rank": 9,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-desires-037",
+            "label": "Maximize AI Capability Growth by Removing All Scaling Constraints",
+            "cos": 0.446,
+            "ce": -8.914,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-044",
+          "saf-beliefs-017",
+          "saf-beliefs-056"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-044",
+          "saf-beliefs-119",
+          "saf-beliefs-017"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-044",
+            "label": "AI Companies Reduce Costs by Locating Compute in Pollution Havens",
+            "cos": 0.628,
+            "ce": -2.249,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-017",
+            "label": "AI Deployment Speed Erodes Organizational Visibility and Control",
+            "cos": 0.434,
+            "ce": -7.438,
+            "cos_rank": 2,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-056",
+            "label": "AI Dependency Corrodes Trust, Deskills Workers, and Destabilizes Livelihoods",
+            "cos": 0.429,
+            "ce": -8.745,
+            "cos_rank": 3,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-intentions-237",
+            "label": "Mandating Hardware-Level Data Governance for Children's Connected Devices",
+            "cos": 0.428,
+            "ce": -8.48,
+            "cos_rank": 4,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-119",
+            "label": "AI Amplifies the Repressive Power of Autocratic States",
+            "cos": 0.412,
+            "ce": -7.1,
+            "cos_rank": 5,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-intentions-013",
+            "label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
+            "cos": 0.409,
+            "ce": -9.784,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-beliefs-033",
+            "label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
+            "cos": 0.409,
+            "ce": -7.571,
+            "cos_rank": 7,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-250",
+            "label": "Hardware Sensor Stack Governance Gap in AI Toy Regulation",
+            "cos": 0.405,
+            "ce": -9.577,
+            "cos_rank": 8,
+            "ce_rank": 7
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-231",
+          "skp-intentions-004",
+          "skp-intentions-044"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-231",
+          "skp-desires-081",
+          "skp-intentions-044"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-231",
+            "label": "Industrial Concentration of AI Infrastructure",
+            "cos": 0.628,
+            "ce": -4.684,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-intentions-004",
+            "label": "Build Shared-Ownership Structures for AI Production",
+            "cos": 0.508,
+            "ce": -7.056,
+            "cos_rank": 2,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-intentions-044",
+            "label": "Eliminate the Regulatory Double Standard in AI Infrastructure Environmental Reporting",
+            "cos": 0.485,
+            "ce": -6.362,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-desires-078",
+            "label": "Foundational AI as a Public Good",
+            "cos": 0.46,
+            "ce": -8.617,
+            "cos_rank": 4,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-281",
+            "label": "Capital-Intensive Infrastructure Bottlenecks",
+            "cos": 0.449,
+            "ce": -9.01,
+            "cos_rank": 5,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-042",
+            "label": "AI Is Reshaping Work in Multiple Ways, Not Simply Eliminating Jobs",
+            "cos": 0.449,
+            "ce": -6.804,
+            "cos_rank": 6,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-intentions-055",
+            "label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
+            "cos": 0.449,
+            "ce": -9.325,
+            "cos_rank": 7,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-desires-081",
+            "label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
+            "cos": 0.445,
+            "ce": -5.268,
+            "cos_rank": 8,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-047",
+            "label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+            "cos": 0.444,
+            "ce": -8.317,
+            "cos_rank": 9,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-146",
+            "label": "AI Adoption Fails at the Integration Stage, Not the Pilot Stage",
+            "cos": 0.443,
+            "ce": -9.578,
+            "cos_rank": 10,
+            "ce_rank": 10
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "q3",
+    "kind": "forecasting",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-desires-001",
+          "acc-beliefs-084",
+          "acc-beliefs-027"
+        ],
+        "rerank_top3": [
+          "acc-desires-001",
+          "acc-desires-040",
+          "acc-beliefs-039"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-desires-001",
+            "label": "AI-Powered Abundance and Global Problem-Solving",
+            "cos": 0.496,
+            "ce": -8.481,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-084",
+            "label": "Naturalistic Inevitability of Machine Intelligence",
+            "cos": 0.465,
+            "ce": -10.503,
+            "cos_rank": 2,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-beliefs-027",
+            "label": "The Weakest Link in AI Development Is the Human Developer",
+            "cos": 0.445,
+            "ce": -9.981,
+            "cos_rank": 3,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-intentions-015",
+            "label": "Abolishing Safety Constraints Because AI's Emergence Is Inevitable",
+            "cos": 0.442,
+            "ce": -9.735,
+            "cos_rank": 4,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-024",
+            "label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
+            "cos": 0.433,
+            "ce": -10.36,
+            "cos_rank": 5,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-desires-040",
+            "label": "Deploy AI to Defeat Aging and Offset Demographic Decline",
+            "cos": 0.429,
+            "ce": -9.217,
+            "cos_rank": 6,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-desires-009",
+            "label": "Automate Society's Operating System",
+            "cos": 0.421,
+            "ce": -10.928,
+            "cos_rank": 7,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-beliefs-039",
+            "label": "AI Is on an Exponential Trajectory Toward Superhuman Intelligence Through Recursive Self-Improvement",
+            "cos": 0.417,
+            "ce": -9.279,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-beliefs-044",
+            "label": "Technical Challenges and Tradeoffs in Building Safe, Advanced AI",
+            "cos": 0.403,
+            "ce": -10.023,
+            "cos_rank": 9,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-intentions-018",
+            "label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
+            "cos": 0.393,
+            "ce": -10.304,
+            "cos_rank": 10,
+            "ce_rank": 7
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-206",
+          "saf-desires-001",
+          "saf-beliefs-094"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-094",
+          "saf-beliefs-119",
+          "saf-beliefs-056"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-206",
+            "label": "Scaling AI Without Safeguards Creates a Non-Trivial Path to Irreversible Civilizational Harm",
+            "cos": 0.448,
+            "ce": -8.883,
+            "cos_rank": 1,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-desires-001",
+            "label": "Humanity's Survival Above All Else",
+            "cos": 0.444,
+            "ce": -8.45,
+            "cos_rank": 2,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-094",
+            "label": "Frontier AI Could Cause Irreversible Civilizational Harm",
+            "cos": 0.441,
+            "ce": -7.533,
+            "cos_rank": 3,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-intentions-078",
+            "label": "Rapidly Evolving Social Norms to Keep Up with AI",
+            "cos": 0.428,
+            "ce": -9.609,
+            "cos_rank": 4,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-119",
+            "label": "AI Amplifies the Repressive Power of Autocratic States",
+            "cos": 0.424,
+            "ce": -7.899,
+            "cos_rank": 5,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-056",
+            "label": "AI Dependency Corrodes Trust, Deskills Workers, and Destabilizes Livelihoods",
+            "cos": 0.412,
+            "ce": -8.088,
+            "cos_rank": 6,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-intentions-016",
+            "label": "Screening AI Threats for Unrecoverable Harm",
+            "cos": 0.405,
+            "ce": -8.155,
+            "cos_rank": 7,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-intentions-013",
+            "label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
+            "cos": 0.403,
+            "ce": -9.271,
+            "cos_rank": 8,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-intentions-084",
+            "label": "Mapping the Blast Radius of AI Integration Failures",
+            "cos": 0.401,
+            "ce": -8.755,
+            "cos_rank": 9,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-desires-008",
+            "label": "Every AI Agent Needs a Clear Duty of Care",
+            "cos": 0.392,
+            "ce": -9.098,
+            "cos_rank": 10,
+            "ce_rank": 8
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-043",
+          "skp-beliefs-022",
+          "skp-beliefs-026"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-291",
+          "skp-beliefs-043",
+          "skp-beliefs-240"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-043",
+            "label": "Reliance on AI Degrades Human Critical Thinking and Decision-Making",
+            "cos": 0.403,
+            "ce": -8.859,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-022",
+            "label": "The AI-Human Cost Crossover Point Limits Automation's Reach",
+            "cos": 0.399,
+            "ce": -9.621,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-026",
+            "label": "Human-in-the-Loop Safeguards Fail Because Automation Erodes the Skills They Require",
+            "cos": 0.397,
+            "ce": -9.36,
+            "cos_rank": 3,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-desires-081",
+            "label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
+            "cos": 0.393,
+            "ce": -9.983,
+            "cos_rank": 4,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-002",
+            "label": "Observable Labor Market Contraction from AI",
+            "cos": 0.39,
+            "ce": -9.123,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-desires-011",
+            "label": "Life-Centered Computing Ethics",
+            "cos": 0.388,
+            "ce": -10.552,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-intentions-055",
+            "label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
+            "cos": 0.388,
+            "ce": -10.261,
+            "cos_rank": 7,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-240",
+            "label": "AI Henchmen as Tyranny Enablers",
+            "cos": 0.388,
+            "ce": -9.069,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-desires-083",
+            "label": "Human and Planetary Flourishing as the Governing Metric for AI Development",
+            "cos": 0.386,
+            "ce": -10.492,
+            "cos_rank": 9,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-beliefs-291",
+            "label": "Congressional Gridlock as Structural Barrier to AI Liability Reform",
+            "cos": 0.385,
+            "ce": -7.815,
+            "cos_rank": 10,
+            "ce_rank": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m01",
+    "kind": "policy",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-intentions-130",
+          "acc-beliefs-074",
+          "acc-beliefs-093"
+        ],
+        "rerank_top3": [
+          "acc-intentions-130",
+          "acc-beliefs-074",
+          "acc-intentions-099"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-intentions-130",
+            "label": "Bifurcating Upstream Interface Access from Downstream Tort Liability",
+            "cos": 0.545,
+            "ce": 0.876,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-074",
+            "label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
+            "cos": 0.524,
+            "ce": -0.634,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-093",
+            "label": "Downstream Liability Bounded by What the Deployer Can Detect and Price",
+            "cos": 0.5,
+            "ce": -1.768,
+            "cos_rank": 3,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-106",
+            "label": "Continuous versioning makes AI system-state evidence temporally unstable for legal proceedings",
+            "cos": 0.497,
+            "ce": -2.837,
+            "cos_rank": 4,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-beliefs-044",
+            "label": "Technical Challenges and Tradeoffs in Building Safe, Advanced AI",
+            "cos": 0.477,
+            "ce": -6.083,
+            "cos_rank": 5,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-intentions-099",
+            "label": "Integrating Mandatory Pre-Deployment Auditing with Strict Liability Enforcement",
+            "cos": 0.473,
+            "ce": -1.593,
+            "cos_rank": 6,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-beliefs-097",
+            "label": "Asymmetric Remediation Velocity",
+            "cos": 0.466,
+            "ce": -7.223,
+            "cos_rank": 7,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-intentions-103",
+            "label": "Prohibit Vendors from Imposing Safety Restrictions Beyond the Law on Government AI",
+            "cos": 0.466,
+            "ce": -9.164,
+            "cos_rank": 8,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-intentions-104",
+            "label": "Reframe AI Bias as a Quantifiable Business Risk to Drive Corporate Investment",
+            "cos": 0.465,
+            "ce": -10.979,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-beliefs-078",
+            "label": "Targeted Real-Time Safety Investment Is More Efficient Than Front-Loading",
+            "cos": 0.464,
+            "ce": -9.362,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-203",
+          "saf-beliefs-270",
+          "saf-beliefs-217"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-203",
+          "saf-beliefs-126",
+          "saf-intentions-215"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-203",
+            "label": "Frontier AI Risks Can Be Irreversible, Making Post-Hoc Governance Insufficient",
+            "cos": 0.63,
+            "ce": 3.809,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-270",
+            "label": "Withholding Diagnostic Telemetry as an Actionable Design Defect",
+            "cos": 0.613,
+            "ce": -4.375,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-beliefs-217",
+            "label": "Inadequacy of the Reasonable Person Standard for Algorithmic Negligence",
+            "cos": 0.605,
+            "ce": -5.716,
+            "cos_rank": 3,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-intentions-215",
+            "label": "Shielding Compliant Open-Weight Releases from Downstream Misuse Liability",
+            "cos": 0.58,
+            "ce": 0.526,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-210",
+            "label": "AI Liability and Legal Accountability",
+            "cos": 0.58,
+            "ce": -0.834,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-127",
+            "label": "An AI System's Damage Potential Scales with Its Access and Permissions",
+            "cos": 0.578,
+            "ce": -4.934,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-126",
+            "label": "Fault Fragments Across Designers, Deployers, and Users When AI Fails",
+            "cos": 0.553,
+            "ce": 0.784,
+            "cos_rank": 7,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-214",
+            "label": "Direct Liability for AI-Generated Content",
+            "cos": 0.535,
+            "ce": -2.633,
+            "cos_rank": 8,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-desires-012",
+            "label": "No Profit Without Accountability",
+            "cos": 0.53,
+            "ce": -6.254,
+            "cos_rank": 9,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-intentions-084",
+            "label": "Mapping the Blast Radius of AI Integration Failures",
+            "cos": 0.515,
+            "ce": -9.678,
+            "cos_rank": 10,
+            "ce_rank": 10
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-intentions-146",
+          "skp-beliefs-047",
+          "skp-intentions-074"
+        ],
+        "rerank_top3": [
+          "skp-intentions-146",
+          "skp-beliefs-040",
+          "skp-intentions-029"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-intentions-146",
+            "label": "Implementing Performance-Gated Independent AI Auditing",
+            "cos": 0.547,
+            "ce": 4.959,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-047",
+            "label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+            "cos": 0.519,
+            "ce": -4.529,
+            "cos_rank": 2,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-intentions-074",
+            "label": "Enforce Legally Binding Civil Rights Constraints on AI Development",
+            "cos": 0.518,
+            "ce": -1.92,
+            "cos_rank": 3,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-desires-087",
+            "label": "Anchoring AI accountability in human decisions and material power relations rather than system mental states",
+            "cos": 0.511,
+            "ce": -1.745,
+            "cos_rank": 4,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-intentions-029",
+            "label": "Shift AI Compliance Liability from Developers to Deployers via Contract",
+            "cos": 0.498,
+            "ce": -0.245,
+            "cos_rank": 5,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-040",
+            "label": "Deployers of Autonomous AI Should Be Liable Even for Unintended Outcomes",
+            "cos": 0.493,
+            "ce": 2.883,
+            "cos_rank": 6,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-044",
+            "label": "AI's True Financial and Environmental Costs Are Systematically Obscured",
+            "cos": 0.479,
+            "ce": -3.415,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-273",
+            "label": "Intent-based legal requirements serving as corporate liability shields",
+            "cos": 0.478,
+            "ce": -5.706,
+            "cos_rank": 8,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-234",
+            "label": "Withholding Diagnostic Interfaces as Upstream Design Defect",
+            "cos": 0.473,
+            "ce": -6.898,
+            "cos_rank": 9,
+            "ce_rank": 9
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m02",
+    "kind": "policy",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-intentions-103",
+          "acc-intentions-061",
+          "acc-intentions-114"
+        ],
+        "rerank_top3": [
+          "acc-intentions-103",
+          "acc-intentions-047",
+          "acc-desires-018"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-intentions-103",
+            "label": "Prohibit Vendors from Imposing Safety Restrictions Beyond the Law on Government AI",
+            "cos": 0.506,
+            "ce": -7.788,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-intentions-061",
+            "label": "Argue That Scaling General Models Outperforms Building Specialized AI",
+            "cos": 0.48,
+            "ce": -10.648,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-intentions-114",
+            "label": "Accelerate AI Through Open, Decentralized, and Unrestricted Experimentation",
+            "cos": 0.479,
+            "ce": -10.945,
+            "cos_rank": 3,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-intentions-047",
+            "label": "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones",
+            "cos": 0.477,
+            "ce": -10.157,
+            "cos_rank": 4,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-desires-039",
+            "label": "Democratize AI Through Open-Source Proliferation to Prevent Oligarchic Control",
+            "cos": 0.476,
+            "ce": -10.415,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-intentions-074",
+            "label": "Federalize AI Regulation to Prevent State-by-State Fragmentation",
+            "cos": 0.473,
+            "ce": -10.753,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-desires-018",
+            "label": "Build Crisis-Proof Institutions with AI",
+            "cos": 0.467,
+            "ce": -10.385,
+            "cos_rank": 7,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-desires-027",
+            "label": "Defining Who Controls and Distributes AI",
+            "cos": 0.463,
+            "ce": -10.636,
+            "cos_rank": 8,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-desires-021",
+            "label": "National Self-Sufficiency in AI Infrastructure",
+            "cos": 0.456,
+            "ce": -11.118,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-desires-028",
+            "label": "Accelerating Core AI Capabilities",
+            "cos": 0.454,
+            "ce": -10.853,
+            "cos_rank": 10,
+            "ce_rank": 8
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-intentions-125",
+          "saf-intentions-113",
+          "saf-intentions-143"
+        ],
+        "rerank_top3": [
+          "saf-intentions-159",
+          "saf-intentions-125",
+          "saf-intentions-143"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-intentions-125",
+            "label": "Design Licensing Schemes Where Safer Models Earn More",
+            "cos": 0.505,
+            "ce": -5.857,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-intentions-113",
+            "label": "Match Oversight Intensity to Agentic AI Risk Tiers",
+            "cos": 0.44,
+            "ce": -11.086,
+            "cos_rank": 2,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-intentions-143",
+            "label": "Governing How AI Models Ingest, Retain, and Protect Data",
+            "cos": 0.433,
+            "ce": -7.825,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-intentions-159",
+            "label": "Require AI Safety Standards as a Condition for Government Grants and Infrastructure Permits",
+            "cos": 0.426,
+            "ce": -5.829,
+            "cos_rank": 4,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-desires-026",
+            "label": "Uniform Disclosure Standards for AI Development",
+            "cos": 0.424,
+            "ce": -10.435,
+            "cos_rank": 5,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-desires-012",
+            "label": "No Profit Without Accountability",
+            "cos": 0.422,
+            "ce": -10.823,
+            "cos_rank": 6,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-236",
+            "label": "Model-Based Grid Sabotage Simulation",
+            "cos": 0.415,
+            "ce": -10.679,
+            "cos_rank": 7,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-intentions-204",
+            "label": "Train AI on Constitutional Principles to Generalize Safety Beyond Narrow Rules",
+            "cos": 0.415,
+            "ce": -8.639,
+            "cos_rank": 8,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-desires-010",
+            "label": "Legal Comprehension as a Core AI Capability",
+            "cos": 0.415,
+            "ce": -10.687,
+            "cos_rank": 9,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-beliefs-213",
+            "label": "Open-Weight Model Release Is an Irreversible Deployment Decision",
+            "cos": 0.414,
+            "ce": -10.64,
+            "cos_rank": 10,
+            "ce_rank": 6
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-intentions-148",
+          "skp-beliefs-054",
+          "skp-desires-076"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-054",
+          "skp-intentions-148",
+          "skp-desires-076"
+        ],
+        "matches_production": true,
+        "top3_changed": false,
+        "candidates": [
+          {
+            "id": "skp-intentions-148",
+            "label": "AI Public Option",
+            "cos": 0.498,
+            "ce": -6.066,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-054",
+            "label": "The Environmental Externalities of AI Model Training Are Systematically Underreported",
+            "cos": 0.477,
+            "ce": -3.204,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-desires-076",
+            "label": "Public Right to Know What AI Was Trained On",
+            "cos": 0.467,
+            "ce": -8.809,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-047",
+            "label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+            "cos": 0.467,
+            "ce": -10.946,
+            "cos_rank": 4,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-beliefs-031",
+            "label": "Perfect Enforcement Through AI Removes the Safety Valve of Selective Prosecution",
+            "cos": 0.461,
+            "ce": -10.682,
+            "cos_rank": 5,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-intentions-102",
+            "label": "Operationalize Pragmatic AI Governance Through Concrete Policy Mechanisms",
+            "cos": 0.444,
+            "ce": -10.642,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-intentions-142",
+            "label": "Guarantee AI Training Data Is Transparent, Ethically Sourced, and Free of Encoded Bias",
+            "cos": 0.441,
+            "ce": -9.916,
+            "cos_rank": 7,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-intentions-108",
+            "label": "Oppose AI Regulations That Entrench Incumbents Through Compliance Costs",
+            "cos": 0.438,
+            "ce": -10.44,
+            "cos_rank": 8,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-desires-081",
+            "label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
+            "cos": 0.43,
+            "ce": -10.727,
+            "cos_rank": 9,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-beliefs-163",
+            "label": "AI Is a Powerful Tool That Cannot Achieve Genuine Understanding",
+            "cos": 0.428,
+            "ce": -9.826,
+            "cos_rank": 10,
+            "ce_rank": 4
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m03",
+    "kind": "policy",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-intentions-002",
+          "acc-intentions-022",
+          "acc-beliefs-027"
+        ],
+        "rerank_top3": [
+          "acc-intentions-002",
+          "acc-intentions-022",
+          "acc-desires-037"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-intentions-002",
+            "label": "Distributing Model Weights to Prevent Power Concentration",
+            "cos": 0.506,
+            "ce": -3.609,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-intentions-022",
+            "label": "Lobby for International Legal Shields for Open-Weight AI",
+            "cos": 0.443,
+            "ce": -4.729,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-027",
+            "label": "The Weakest Link in AI Development Is the Human Developer",
+            "cos": 0.439,
+            "ce": -9.544,
+            "cos_rank": 3,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-intentions-061",
+            "label": "Argue That Scaling General Models Outperforms Building Specialized AI",
+            "cos": 0.423,
+            "ce": -8.36,
+            "cos_rank": 4,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-129",
+            "label": "Industrial-Scale Knowledge Distillation Campaigns",
+            "cos": 0.42,
+            "ce": -8.308,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-067",
+            "label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+            "cos": 0.42,
+            "ce": -10.287,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-desires-037",
+            "label": "Maximize AI Capability Growth by Removing All Scaling Constraints",
+            "cos": 0.415,
+            "ce": -7.677,
+            "cos_rank": 7,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-desires-028",
+            "label": "Accelerating Core AI Capabilities",
+            "cos": 0.414,
+            "ce": -8.313,
+            "cos_rank": 8,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-intentions-091",
+            "label": "Regulate AI Distribution Channels Like Critical Infrastructure",
+            "cos": 0.411,
+            "ce": -10.952,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-desires-021",
+            "label": "National Self-Sufficiency in AI Infrastructure",
+            "cos": 0.408,
+            "ce": -10.853,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-213",
+          "saf-intentions-215",
+          "saf-beliefs-220"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-213",
+          "saf-intentions-259",
+          "saf-beliefs-131"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-213",
+            "label": "Open-Weight Model Release Is an Irreversible Deployment Decision",
+            "cos": 0.595,
+            "ce": 2.937,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-intentions-215",
+            "label": "Shielding Compliant Open-Weight Releases from Downstream Misuse Liability",
+            "cos": 0.515,
+            "ce": -0.534,
+            "cos_rank": 2,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-220",
+            "label": "Weight-Based Model Fingerprinting",
+            "cos": 0.511,
+            "ce": -3.933,
+            "cos_rank": 3,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-desires-006",
+            "label": "AI Must Not Spread Beyond Human Control",
+            "cos": 0.456,
+            "ce": -4.375,
+            "cos_rank": 4,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-intentions-259",
+            "label": "Gating Frontier Weight Release at Audited Capability Thresholds",
+            "cos": 0.431,
+            "ce": 1.034,
+            "cos_rank": 5,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-003",
+            "label": "Limits of Mechanistic Interpretability at Scale",
+            "cos": 0.428,
+            "ce": -10.719,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-desires-026",
+            "label": "Uniform Disclosure Standards for AI Development",
+            "cos": 0.422,
+            "ce": -9.744,
+            "cos_rank": 7,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-131",
+            "label": "Open-Weight Release Asymmetry and Enforcement Failure",
+            "cos": 0.416,
+            "ce": -0.343,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-intentions-166",
+            "label": "Enforce Safety Under Distribution Shift by Constraining to Credal Sets",
+            "cos": 0.414,
+            "ce": -10.283,
+            "cos_rank": 9,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-222",
+            "label": "Algorithmic Shadow Persistence",
+            "cos": 0.4,
+            "ce": -10.146,
+            "cos_rank": 10,
+            "ce_rank": 8
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-076",
+          "skp-desires-076",
+          "skp-beliefs-276"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-076",
+          "skp-beliefs-074",
+          "skp-intentions-148"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-076",
+            "label": "Open Weights Are a Necessary but Insufficient Condition for Meaningful AI Safety Transparency",
+            "cos": 0.495,
+            "ce": 1.684,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-desires-076",
+            "label": "Public Right to Know What AI Was Trained On",
+            "cos": 0.482,
+            "ce": -8.269,
+            "cos_rank": 2,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-276",
+            "label": "Forensic Discovery of Training-Time Artifacts as an Evidentiary Prerequisite",
+            "cos": 0.461,
+            "ce": -8.115,
+            "cos_rank": 3,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-281",
+            "label": "Capital-Intensive Infrastructure Bottlenecks",
+            "cos": 0.448,
+            "ce": -10.838,
+            "cos_rank": 4,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-intentions-148",
+            "label": "AI Public Option",
+            "cos": 0.429,
+            "ce": -6.06,
+            "cos_rank": 5,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-054",
+            "label": "The Environmental Externalities of AI Model Training Are Systematically Underreported",
+            "cos": 0.426,
+            "ce": -6.856,
+            "cos_rank": 6,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-260",
+            "label": "Patching Latency in Complex Model Architectures",
+            "cos": 0.425,
+            "ce": -10.603,
+            "cos_rank": 7,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-intentions-154",
+            "label": "Operationalize Decentralized Participatory Auditing",
+            "cos": 0.424,
+            "ce": -6.919,
+            "cos_rank": 8,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-146",
+            "label": "AI Adoption Fails at the Integration Stage, Not the Pilot Stage",
+            "cos": 0.402,
+            "ce": -9.962,
+            "cos_rank": 9,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-074",
+            "label": "When AI Saturates Capability Benchmarks, Human Distinctiveness Becomes Harder to Demonstrate",
+            "cos": 0.402,
+            "ce": -5.671,
+            "cos_rank": 10,
+            "ce_rank": 2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m04",
+    "kind": "policy",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-067",
+          "acc-beliefs-083",
+          "acc-desires-021"
+        ],
+        "rerank_top3": [
+          "acc-intentions-103",
+          "acc-desires-039",
+          "acc-beliefs-083"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-067",
+            "label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+            "cos": 0.518,
+            "ce": -9.311,
+            "cos_rank": 1,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-beliefs-083",
+            "label": "Acceptable Use Policies Protect Platforms from Liability, Not People from Harm",
+            "cos": 0.51,
+            "ce": -8.863,
+            "cos_rank": 2,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-desires-021",
+            "label": "National Self-Sufficiency in AI Infrastructure",
+            "cos": 0.509,
+            "ce": -9.058,
+            "cos_rank": 3,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-intentions-047",
+            "label": "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones",
+            "cos": 0.49,
+            "ce": -10.817,
+            "cos_rank": 4,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-intentions-103",
+            "label": "Prohibit Vendors from Imposing Safety Restrictions Beyond the Law on Government AI",
+            "cos": 0.479,
+            "ce": -8.213,
+            "cos_rank": 5,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-024",
+            "label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
+            "cos": 0.474,
+            "ce": -10.713,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-beliefs-061",
+            "label": "Corporate AI Strategy Follows Consumer Technology Adoption Patterns",
+            "cos": 0.473,
+            "ce": -10.307,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-intentions-100",
+            "label": "Tie AI Governance Milestones to Empirical Compute Scaling Benchmarks",
+            "cos": 0.469,
+            "ce": -10.557,
+            "cos_rank": 8,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-desires-039",
+            "label": "Democratize AI Through Open-Source Proliferation to Prevent Oligarchic Control",
+            "cos": 0.468,
+            "ce": -8.783,
+            "cos_rank": 9,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-desires-009",
+            "label": "Automate Society's Operating System",
+            "cos": 0.468,
+            "ce": -10.718,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-044",
+          "saf-beliefs-017",
+          "saf-intentions-047"
+        ],
+        "rerank_top3": [
+          "saf-intentions-173",
+          "saf-intentions-047",
+          "saf-beliefs-263"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-044",
+            "label": "AI Companies Reduce Costs by Locating Compute in Pollution Havens",
+            "cos": 0.469,
+            "ce": -9.627,
+            "cos_rank": 1,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-017",
+            "label": "AI Deployment Speed Erodes Organizational Visibility and Control",
+            "cos": 0.459,
+            "ce": -10.598,
+            "cos_rank": 2,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-intentions-047",
+            "label": "Overseeing How AI Systems Manage Trade-Offs Across Complex Networks",
+            "cos": 0.454,
+            "ce": -7.596,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-intentions-237",
+            "label": "Mandating Hardware-Level Data Governance for Children's Connected Devices",
+            "cos": 0.452,
+            "ce": -9.929,
+            "cos_rank": 4,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-211",
+            "label": "Governance Enforcement and Institutional Design",
+            "cos": 0.435,
+            "ce": -10.613,
+            "cos_rank": 5,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-040",
+            "label": "AI Deployment Speed Outpaces Security Governance",
+            "cos": 0.434,
+            "ce": -10.458,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-097",
+            "label": "AI's Architectural Complexity Generates Qualitatively New Security Risks",
+            "cos": 0.428,
+            "ce": -10.242,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-intentions-173",
+            "label": "Giving Every Nation a Verified Way to Halt Dangerous AI",
+            "cos": 0.426,
+            "ce": -7.257,
+            "cos_rank": 8,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-119",
+            "label": "AI Amplifies the Repressive Power of Autocratic States",
+            "cos": 0.425,
+            "ce": -10.839,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-263",
+            "label": "Cloud Infrastructure Enforcement Is Necessary but Insufficient for Reaching Foreign Deployers",
+            "cos": 0.425,
+            "ce": -8.412,
+            "cos_rank": 10,
+            "ce_rank": 3
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-231",
+          "skp-desires-081",
+          "skp-beliefs-047"
+        ],
+        "rerank_top3": [
+          "skp-intentions-148",
+          "skp-beliefs-231",
+          "skp-beliefs-146"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-231",
+            "label": "Industrial Concentration of AI Infrastructure",
+            "cos": 0.56,
+            "ce": -5.697,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-desires-081",
+            "label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
+            "cos": 0.525,
+            "ce": -9.316,
+            "cos_rank": 2,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-047",
+            "label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+            "cos": 0.518,
+            "ce": -10.02,
+            "cos_rank": 3,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-beliefs-146",
+            "label": "AI Adoption Fails at the Integration Stage, Not the Pilot Stage",
+            "cos": 0.517,
+            "ce": -8.576,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-119",
+            "label": "Disproportionate AI Gains Erode the Social Contract",
+            "cos": 0.515,
+            "ce": -10.676,
+            "cos_rank": 5,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-intentions-148",
+            "label": "AI Public Option",
+            "cos": 0.512,
+            "ce": -4.564,
+            "cos_rank": 6,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-031",
+            "label": "Perfect Enforcement Through AI Removes the Safety Valve of Selective Prosecution",
+            "cos": 0.509,
+            "ce": -9.098,
+            "cos_rank": 7,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-intentions-102",
+            "label": "Operationalize Pragmatic AI Governance Through Concrete Policy Mechanisms",
+            "cos": 0.507,
+            "ce": -9.964,
+            "cos_rank": 8,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-034",
+            "label": "AI's Environmental Impact Is Displaced, Not Reduced, Through Regulatory Arbitrage",
+            "cos": 0.503,
+            "ce": -9.785,
+            "cos_rank": 9,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-277",
+            "label": "Domain Expertise Deficits of Horizontal Regulators",
+            "cos": 0.502,
+            "ce": -9.379,
+            "cos_rank": 10,
+            "ce_rank": 6
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m05",
+    "kind": "policy",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-desires-001",
+          "acc-desires-018",
+          "acc-beliefs-071"
+        ],
+        "rerank_top3": [
+          "acc-intentions-103",
+          "acc-desires-018",
+          "acc-beliefs-044"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-desires-001",
+            "label": "AI-Powered Abundance and Global Problem-Solving",
+            "cos": 0.541,
+            "ce": -10.473,
+            "cos_rank": 1,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-desires-018",
+            "label": "Build Crisis-Proof Institutions with AI",
+            "cos": 0.521,
+            "ce": -7.396,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-071",
+            "label": "Quantifiable AI Harms Turn Fairness Into a Business Imperative, Not Just an Ethical One",
+            "cos": 0.52,
+            "ce": -10.159,
+            "cos_rank": 3,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-044",
+            "label": "Technical Challenges and Tradeoffs in Building Safe, Advanced AI",
+            "cos": 0.518,
+            "ce": -9.229,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-intentions-074",
+            "label": "Federalize AI Regulation to Prevent State-by-State Fragmentation",
+            "cos": 0.515,
+            "ce": -10.127,
+            "cos_rank": 5,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-intentions-103",
+            "label": "Prohibit Vendors from Imposing Safety Restrictions Beyond the Law on Government AI",
+            "cos": 0.513,
+            "ce": -6.177,
+            "cos_rank": 6,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-intentions-024",
+            "label": "Create Regulatory Sandboxes to Accelerate AI Development",
+            "cos": 0.507,
+            "ce": -10.604,
+            "cos_rank": 7,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-beliefs-035",
+            "label": "AI Is Creating a Market for Algorithmically Managed Intimacy",
+            "cos": 0.501,
+            "ce": -10.522,
+            "cos_rank": 8,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-intentions-075",
+            "label": "Automate Permits, Licenses, and Compliance Checks with AI Agents",
+            "cos": 0.501,
+            "ce": -9.391,
+            "cos_rank": 9,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-desires-009",
+            "label": "Automate Society's Operating System",
+            "cos": 0.495,
+            "ce": -11.195,
+            "cos_rank": 10,
+            "ce_rank": 10
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-desires-012",
+          "saf-desires-008",
+          "saf-beliefs-211"
+        ],
+        "rerank_top3": [
+          "saf-desires-012",
+          "saf-desires-008",
+          "saf-beliefs-046"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-desires-012",
+            "label": "No Profit Without Accountability",
+            "cos": 0.584,
+            "ce": -6.987,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-desires-008",
+            "label": "Every AI Agent Needs a Clear Duty of Care",
+            "cos": 0.52,
+            "ce": -7.162,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-211",
+            "label": "Governance Enforcement and Institutional Design",
+            "cos": 0.518,
+            "ce": -9.843,
+            "cos_rank": 3,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-desires-025",
+            "label": "Fiduciary Duty Survives Automation",
+            "cos": 0.517,
+            "ce": -8.9,
+            "cos_rank": 4,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-desires-010",
+            "label": "Legal Comprehension as a Core AI Capability",
+            "cos": 0.514,
+            "ce": -9.571,
+            "cos_rank": 5,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-intentions-051",
+            "label": "Designing AI Governance to Resist Adversarial Manipulation",
+            "cos": 0.508,
+            "ce": -9.876,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-056",
+            "label": "AI Dependency Corrodes Trust, Deskills Workers, and Destabilizes Livelihoods",
+            "cos": 0.505,
+            "ce": -9.65,
+            "cos_rank": 7,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-intentions-115",
+            "label": "Assign Trust Duties to Every Actor in the AI Supply Chain",
+            "cos": 0.504,
+            "ce": -9.61,
+            "cos_rank": 8,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-046",
+            "label": "AI Talent Scarcity Constrains Both Development and Safety Efforts",
+            "cos": 0.504,
+            "ce": -8.552,
+            "cos_rank": 9,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-122",
+            "label": "AI Performs Consequential Acts That No One Bears Responsibility For",
+            "cos": 0.504,
+            "ce": -9.227,
+            "cos_rank": 10,
+            "ce_rank": 5
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-001",
+          "skp-beliefs-031",
+          "skp-intentions-102"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-001",
+          "skp-beliefs-047",
+          "skp-desires-082"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-001",
+            "label": "Market Failure in Algorithmic Fairness",
+            "cos": 0.622,
+            "ce": -4.354,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-031",
+            "label": "Perfect Enforcement Through AI Removes the Safety Valve of Selective Prosecution",
+            "cos": 0.587,
+            "ce": -9.413,
+            "cos_rank": 2,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-intentions-102",
+            "label": "Operationalize Pragmatic AI Governance Through Concrete Policy Mechanisms",
+            "cos": 0.583,
+            "ce": -10.659,
+            "cos_rank": 3,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-desires-082",
+            "label": "Eradicate Algorithmic Bias and Prevent AI from Entrenching Historical Injustice",
+            "cos": 0.581,
+            "ce": -6.043,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-047",
+            "label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+            "cos": 0.57,
+            "ce": -5.486,
+            "cos_rank": 5,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-170",
+            "label": "AI Corporations Systematically Evade Effective Regulation",
+            "cos": 0.564,
+            "ce": -7.392,
+            "cos_rank": 6,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-147",
+            "label": "Human Costs of AI Deployment Are Unevenly Distributed Across Social Groups",
+            "cos": 0.551,
+            "ce": -9.054,
+            "cos_rank": 7,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-140",
+            "label": "AI Agents Engineered for Principal-Loyal Lawbreaking",
+            "cos": 0.549,
+            "ce": -8.395,
+            "cos_rank": 8,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-212",
+            "label": "Legal and Regulatory Gaps in AI Governance",
+            "cos": 0.547,
+            "ce": -6.934,
+            "cos_rank": 9,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-desires-059",
+            "label": "Pluralistic AI Ethics and Governance",
+            "cos": 0.542,
+            "ce": -10.623,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m06",
+    "kind": "forecasting",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-086",
+          "acc-beliefs-053",
+          "acc-beliefs-124"
+        ],
+        "rerank_top3": [
+          "acc-beliefs-053",
+          "acc-beliefs-086",
+          "acc-beliefs-037"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-086",
+            "label": "AI as Structurally Inevitable Economic Transformation",
+            "cos": 0.514,
+            "ce": -7.816,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-053",
+            "label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
+            "cos": 0.471,
+            "ce": -7.677,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-124",
+            "label": "Frontier Firm Productivity Multipliers",
+            "cos": 0.464,
+            "ce": -10.592,
+            "cos_rank": 3,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-beliefs-089",
+            "label": "Sovereign Debt Compression via AI Growth",
+            "cos": 0.46,
+            "ce": -9.723,
+            "cos_rank": 4,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-beliefs-024",
+            "label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
+            "cos": 0.457,
+            "ce": -10.979,
+            "cos_rank": 5,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-beliefs-037",
+            "label": "The AI Boom Will Create Permanent Upward Pressure on Interest Rates",
+            "cos": 0.449,
+            "ce": -8.208,
+            "cos_rank": 6,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-desires-025",
+            "label": "Closing the Talent Gap with AI Tools",
+            "cos": 0.426,
+            "ce": -10.307,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-067",
+            "label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+            "cos": 0.419,
+            "ce": -10.72,
+            "cos_rank": 8,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-beliefs-136",
+            "label": "R&D Effort Aggregator Framework",
+            "cos": 0.416,
+            "ce": -11.366,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-desires-040",
+            "label": "Deploy AI to Defeat Aging and Offset Demographic Decline",
+            "cos": 0.405,
+            "ce": -9.554,
+            "cos_rank": 10,
+            "ce_rank": 4
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-064",
+          "saf-beliefs-207",
+          "saf-beliefs-046"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-063",
+          "saf-beliefs-046",
+          "saf-beliefs-056"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-064",
+            "label": "AI Investment Is Outrunning Actual Productivity Returns",
+            "cos": 0.457,
+            "ce": -9.983,
+            "cos_rank": 1,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-207",
+            "label": "AI Dependency Creates a Reinforcing Cycle of Skill Atrophy and Increased Reliance",
+            "cos": 0.456,
+            "ce": -9.661,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-beliefs-046",
+            "label": "AI Talent Scarcity Constrains Both Development and Safety Efforts",
+            "cos": 0.433,
+            "ce": -8.856,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-056",
+            "label": "AI Dependency Corrodes Trust, Deskills Workers, and Destabilizes Livelihoods",
+            "cos": 0.388,
+            "ce": -9.02,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-137",
+            "label": "Productivity Metrics Miss the Slow Collapse of Institutional Trust",
+            "cos": 0.385,
+            "ce": -10.77,
+            "cos_rank": 5,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-119",
+            "label": "AI Amplifies the Repressive Power of Autocratic States",
+            "cos": 0.377,
+            "ce": -10.102,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-intentions-013",
+            "label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
+            "cos": 0.361,
+            "ce": -9.612,
+            "cos_rank": 7,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-063",
+            "label": "Synthetic Data Feedback Loops Cause Permanent Model Degradation",
+            "cos": 0.349,
+            "ce": -7.912,
+            "cos_rank": 8,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-100",
+            "label": "AI Will Erode Skills, Destabilize Economies, and Fracture Social Trust",
+            "cos": 0.344,
+            "ce": -9.295,
+            "cos_rank": 9,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-033",
+            "label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
+            "cos": 0.338,
+            "ce": -10.65,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-053",
+          "skp-beliefs-042",
+          "skp-beliefs-002"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-169",
+          "skp-beliefs-042",
+          "skp-beliefs-204"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-053",
+            "label": "Reduced Entry-Level Recruitment Is an Early Empirical Signal of AI Labor Displacement",
+            "cos": 0.58,
+            "ce": -8.53,
+            "cos_rank": 1,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-042",
+            "label": "AI Is Reshaping Work in Multiple Ways, Not Simply Eliminating Jobs",
+            "cos": 0.572,
+            "ce": -5.865,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-002",
+            "label": "Observable Labor Market Contraction from AI",
+            "cos": 0.566,
+            "ce": -8.488,
+            "cos_rank": 3,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-169",
+            "label": "AI Deployment Intensifies Labor by Ratcheting Up Productivity Expectations",
+            "cos": 0.561,
+            "ce": -5.056,
+            "cos_rank": 4,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-204",
+            "label": "AI-Driven Productivity Ratchet Intensifies Work Without Reducing Labor Burdens",
+            "cos": 0.54,
+            "ce": -6.431,
+            "cos_rank": 5,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-202",
+            "label": "AI Inverts Historical Automation by Displacing Cognitive Workers First",
+            "cos": 0.513,
+            "ce": -9.977,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-beliefs-214",
+            "label": "Labor, Work Transformation, and Economic Impact",
+            "cos": 0.497,
+            "ce": -7.601,
+            "cos_rank": 7,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-022",
+            "label": "The AI-Human Cost Crossover Point Limits Automation's Reach",
+            "cos": 0.497,
+            "ce": -8.654,
+            "cos_rank": 8,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-166",
+            "label": "Quantitative Labor Indices Can Capture AI-Driven Workforce Restructuring",
+            "cos": 0.495,
+            "ce": -9.35,
+            "cos_rank": 9,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-beliefs-018",
+            "label": "GDP Growth from AI Overstates Tangible Societal Benefit",
+            "cos": 0.486,
+            "ce": -8.821,
+            "cos_rank": 10,
+            "ce_rank": 8
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m07",
+    "kind": "empirical",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-027",
+          "acc-desires-037",
+          "acc-beliefs-039"
+        ],
+        "rerank_top3": [
+          "acc-beliefs-039",
+          "acc-intentions-100",
+          "acc-beliefs-067"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-027",
+            "label": "The Weakest Link in AI Development Is the Human Developer",
+            "cos": 0.572,
+            "ce": -2.086,
+            "cos_rank": 1,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-desires-037",
+            "label": "Maximize AI Capability Growth by Removing All Scaling Constraints",
+            "cos": 0.563,
+            "ce": -0.315,
+            "cos_rank": 2,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-039",
+            "label": "AI Is on an Exponential Trajectory Toward Superhuman Intelligence Through Recursive Self-Improvement",
+            "cos": 0.558,
+            "ce": 1.634,
+            "cos_rank": 3,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-intentions-100",
+            "label": "Tie AI Governance Milestones to Empirical Compute Scaling Benchmarks",
+            "cos": 0.555,
+            "ce": 0.106,
+            "cos_rank": 4,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-intentions-061",
+            "label": "Argue That Scaling General Models Outperforms Building Specialized AI",
+            "cos": 0.527,
+            "ce": -4.585,
+            "cos_rank": 5,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-beliefs-124",
+            "label": "Frontier Firm Productivity Multipliers",
+            "cos": 0.516,
+            "ce": -7.94,
+            "cos_rank": 6,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-beliefs-024",
+            "label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
+            "cos": 0.501,
+            "ce": -8.836,
+            "cos_rank": 7,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-desires-028",
+            "label": "Accelerating Core AI Capabilities",
+            "cos": 0.499,
+            "ce": -3.489,
+            "cos_rank": 8,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-084",
+            "label": "Naturalistic Inevitability of Machine Intelligence",
+            "cos": 0.496,
+            "ce": -5.044,
+            "cos_rank": 9,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-beliefs-067",
+            "label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+            "cos": 0.491,
+            "ce": -0.037,
+            "cos_rank": 10,
+            "ce_rank": 3
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-284",
+          "saf-beliefs-146",
+          "saf-beliefs-033"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-146",
+          "saf-beliefs-033",
+          "saf-beliefs-284"
+        ],
+        "matches_production": true,
+        "top3_changed": false,
+        "candidates": [
+          {
+            "id": "saf-beliefs-284",
+            "label": "Narrow Versus Broad Capability Decoupling",
+            "cos": 0.434,
+            "ce": -6.596,
+            "cos_rank": 1,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-146",
+            "label": "AI Risk Emerges from Capability Combinations, Not Raw Scale",
+            "cos": 0.403,
+            "ce": -2.941,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-033",
+            "label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
+            "cos": 0.402,
+            "ce": -4.78,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-118",
+            "label": "The Treacherous Turn: AI Transitions from Compliant Tool to Deceptive Agent",
+            "cos": 0.399,
+            "ce": -10.519,
+            "cos_rank": 4,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-intentions-078",
+            "label": "Rapidly Evolving Social Norms to Keep Up with AI",
+            "cos": 0.389,
+            "ce": -7.955,
+            "cos_rank": 5,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-intentions-113",
+            "label": "Match Oversight Intensity to Agentic AI Risk Tiers",
+            "cos": 0.367,
+            "ce": -10.646,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-intentions-013",
+            "label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
+            "cos": 0.361,
+            "ce": -10.612,
+            "cos_rank": 7,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-119",
+            "label": "AI Amplifies the Repressive Power of Autocratic States",
+            "cos": 0.36,
+            "ce": -9.344,
+            "cos_rank": 8,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-003",
+            "label": "Limits of Mechanistic Interpretability at Scale",
+            "cos": 0.358,
+            "ce": -8.94,
+            "cos_rank": 9,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-beliefs-137",
+            "label": "Productivity Metrics Miss the Slow Collapse of Institutional Trust",
+            "cos": 0.356,
+            "ce": -7.671,
+            "cos_rank": 10,
+            "ce_rank": 4
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-260",
+          "skp-beliefs-021",
+          "skp-beliefs-146"
+        ],
+        "rerank_top3": [
+          "skp-desires-083",
+          "skp-beliefs-204",
+          "skp-beliefs-146"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-260",
+            "label": "Patching Latency in Complex Model Architectures",
+            "cos": 0.492,
+            "ce": -8.195,
+            "cos_rank": 1,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-021",
+            "label": "AI Deployment Is Routine Engineering, Not Civilizational Rupture",
+            "cos": 0.47,
+            "ce": -8.286,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-146",
+            "label": "AI Adoption Fails at the Integration Stage, Not the Pilot Stage",
+            "cos": 0.469,
+            "ce": -5.002,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-204",
+            "label": "AI-Driven Productivity Ratchet Intensifies Work Without Reducing Labor Burdens",
+            "cos": 0.467,
+            "ce": -3.866,
+            "cos_rank": 4,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-281",
+            "label": "Capital-Intensive Infrastructure Bottlenecks",
+            "cos": 0.467,
+            "ce": -6.364,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-131",
+            "label": "The Capability-Deployment Gap in AI Systems",
+            "cos": 0.432,
+            "ce": -10.407,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-beliefs-054",
+            "label": "The Environmental Externalities of AI Model Training Are Systematically Underreported",
+            "cos": 0.428,
+            "ce": -8.887,
+            "cos_rank": 7,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-152",
+            "label": "Executive AI Expectations Systematically Diverge from Engineering Reality",
+            "cos": 0.428,
+            "ce": -9.655,
+            "cos_rank": 8,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-desires-083",
+            "label": "Human and Planetary Flourishing as the Governing Metric for AI Development",
+            "cos": 0.423,
+            "ce": -2.419,
+            "cos_rank": 9,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-042",
+            "label": "AI Is Reshaping Work in Multiple Ways, Not Simply Eliminating Jobs",
+            "cos": 0.421,
+            "ce": -8.668,
+            "cos_rank": 10,
+            "ce_rank": 7
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m08",
+    "kind": "empirical",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-124",
+          "acc-beliefs-053",
+          "acc-beliefs-037"
+        ],
+        "rerank_top3": [
+          "acc-beliefs-124",
+          "acc-beliefs-037",
+          "acc-beliefs-086"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-124",
+            "label": "Frontier Firm Productivity Multipliers",
+            "cos": 0.569,
+            "ce": 1.559,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-053",
+            "label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
+            "cos": 0.511,
+            "ce": -9.231,
+            "cos_rank": 2,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-beliefs-037",
+            "label": "The AI Boom Will Create Permanent Upward Pressure on Interest Rates",
+            "cos": 0.493,
+            "ce": -4.041,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-061",
+            "label": "Corporate AI Strategy Follows Consumer Technology Adoption Patterns",
+            "cos": 0.472,
+            "ce": -5.904,
+            "cos_rank": 4,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-089",
+            "label": "Sovereign Debt Compression via AI Growth",
+            "cos": 0.463,
+            "ce": -9.853,
+            "cos_rank": 5,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-067",
+            "label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+            "cos": 0.452,
+            "ce": -10.456,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-beliefs-090",
+            "label": "Infrastructure-Bound Option Value Modeling",
+            "cos": 0.444,
+            "ce": -10.785,
+            "cos_rank": 7,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-beliefs-086",
+            "label": "AI as Structurally Inevitable Economic Transformation",
+            "cos": 0.443,
+            "ce": -5.451,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-intentions-005",
+            "label": "Letting Free Markets Steer Technological Advancement",
+            "cos": 0.43,
+            "ce": -10.87,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-beliefs-087",
+            "label": "Roundabout Data Production",
+            "cos": 0.424,
+            "ce": -10.784,
+            "cos_rank": 10,
+            "ce_rank": 8
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-064",
+          "saf-beliefs-137",
+          "saf-beliefs-284"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-137",
+          "saf-beliefs-064",
+          "saf-beliefs-207"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-064",
+            "label": "AI Investment Is Outrunning Actual Productivity Returns",
+            "cos": 0.486,
+            "ce": -3.86,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-137",
+            "label": "Productivity Metrics Miss the Slow Collapse of Institutional Trust",
+            "cos": 0.477,
+            "ce": -3.846,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-284",
+            "label": "Narrow Versus Broad Capability Decoupling",
+            "cos": 0.411,
+            "ce": -11.248,
+            "cos_rank": 3,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-207",
+            "label": "AI Dependency Creates a Reinforcing Cycle of Skill Atrophy and Increased Reliance",
+            "cos": 0.365,
+            "ce": -7.436,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-046",
+            "label": "AI Talent Scarcity Constrains Both Development and Safety Efforts",
+            "cos": 0.352,
+            "ce": -8.936,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-212",
+            "label": "Knowledge-Collapse Steady State",
+            "cos": 0.35,
+            "ce": -9.785,
+            "cos_rank": 6,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-218",
+            "label": "Complementarity Between Automation and Repression",
+            "cos": 0.33,
+            "ce": -11.083,
+            "cos_rank": 7,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-033",
+            "label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
+            "cos": 0.328,
+            "ce": -10.302,
+            "cos_rank": 8,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-intentions-013",
+            "label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
+            "cos": 0.317,
+            "ce": -10.785,
+            "cos_rank": 9,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-intentions-086",
+            "label": "Countering AI-Driven Skill Decay and Cognitive Displacement",
+            "cos": 0.31,
+            "ce": -10.777,
+            "cos_rank": 10,
+            "ce_rank": 7
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-169",
+          "skp-beliefs-204",
+          "skp-beliefs-018"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-204",
+          "skp-beliefs-169",
+          "skp-beliefs-042"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-169",
+            "label": "AI Deployment Intensifies Labor by Ratcheting Up Productivity Expectations",
+            "cos": 0.611,
+            "ce": -1.563,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-204",
+            "label": "AI-Driven Productivity Ratchet Intensifies Work Without Reducing Labor Burdens",
+            "cos": 0.585,
+            "ce": 1.984,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-018",
+            "label": "GDP Growth from AI Overstates Tangible Societal Benefit",
+            "cos": 0.562,
+            "ce": -4.006,
+            "cos_rank": 3,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-042",
+            "label": "AI Is Reshaping Work in Multiple Ways, Not Simply Eliminating Jobs",
+            "cos": 0.501,
+            "ce": -3.692,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-310",
+            "label": "Tax Revenue Lag from Labor Share Compression",
+            "cos": 0.486,
+            "ce": -9.518,
+            "cos_rank": 5,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-002",
+            "label": "Observable Labor Market Contraction from AI",
+            "cos": 0.475,
+            "ce": -9.639,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-046",
+            "label": "History Shows That New Technologies Are Adopted Slowly and Bubble Quickly",
+            "cos": 0.466,
+            "ce": -7.702,
+            "cos_rank": 7,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-166",
+            "label": "Quantitative Labor Indices Can Capture AI-Driven Workforce Restructuring",
+            "cos": 0.449,
+            "ce": -8.694,
+            "cos_rank": 8,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-170",
+            "label": "AI Corporations Systematically Evade Effective Regulation",
+            "cos": 0.443,
+            "ce": -10.009,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-beliefs-044",
+            "label": "AI's True Financial and Environmental Costs Are Systematically Obscured",
+            "cos": 0.441,
+            "ce": -9.704,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m09",
+    "kind": "empirical",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-070",
+          "acc-intentions-036",
+          "acc-beliefs-076"
+        ],
+        "rerank_top3": [
+          "acc-intentions-036",
+          "acc-beliefs-076",
+          "acc-desires-001"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-070",
+            "label": "Output-Based Verification in Ground-Truth Independent Domains",
+            "cos": 0.501,
+            "ce": -10.894,
+            "cos_rank": 1,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-intentions-036",
+            "label": "Replace Static Strategic Plans with AI-Driven Real-Time Steering",
+            "cos": 0.484,
+            "ce": -6.116,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-076",
+            "label": "AI-Authored Code Review Should Use Dynamic Triggers, Not Fixed Quotas",
+            "cos": 0.484,
+            "ce": -7.893,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-desires-001",
+            "label": "AI-Powered Abundance and Global Problem-Solving",
+            "cos": 0.464,
+            "ce": -8.708,
+            "cos_rank": 4,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-intentions-004",
+            "label": "Mandating Show-Your-Work Transparency in AI-Driven Science",
+            "cos": 0.462,
+            "ce": -9.941,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-intentions-117",
+            "label": "Inference-Time Compute Scaling",
+            "cos": 0.448,
+            "ce": -11.099,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-beliefs-055",
+            "label": "Domain-Specific AI Beats Broadly Competent AI in Practice",
+            "cos": 0.445,
+            "ce": -10.306,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-intentions-018",
+            "label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
+            "cos": 0.444,
+            "ce": -10.149,
+            "cos_rank": 8,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-beliefs-069",
+            "label": "Output Evidence Suffices Only for Metric-Legible Harm Classes",
+            "cos": 0.444,
+            "ce": -10.556,
+            "cos_rank": 9,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-intentions-061",
+            "label": "Argue That Scaling General Models Outperforms Building Specialized AI",
+            "cos": 0.436,
+            "ce": -11.076,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-intentions-225",
+          "saf-beliefs-051",
+          "saf-beliefs-200"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-051",
+          "saf-intentions-031",
+          "saf-intentions-225"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-intentions-225",
+            "label": "PrIME-LLM Scoring Methodology",
+            "cos": 0.498,
+            "ce": -7.406,
+            "cos_rank": 1,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-051",
+            "label": "Measured AI Biases Are Leading Indicators of Discriminatory Outcomes",
+            "cos": 0.467,
+            "ce": 2.239,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-beliefs-200",
+            "label": "AI Systematically Optimizes Proxy Metrics at the Expense of Intended Outcomes",
+            "cos": 0.455,
+            "ce": -10.097,
+            "cos_rank": 3,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-beliefs-057",
+            "label": "AI Models Carry Unfixable Defects That Resist Detection and Degrade Over Time",
+            "cos": 0.437,
+            "ce": -10.38,
+            "cos_rank": 4,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-beliefs-064",
+            "label": "AI Investment Is Outrunning Actual Productivity Returns",
+            "cos": 0.426,
+            "ce": -8.068,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-intentions-031",
+            "label": "Testing Whether AI Can Override Its Own Learned Patterns",
+            "cos": 0.42,
+            "ce": -5.16,
+            "cos_rank": 6,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-286",
+            "label": "Unmeasured Benefits Are Deployer Claims, Not Evidence",
+            "cos": 0.42,
+            "ce": -11.039,
+            "cos_rank": 7,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-146",
+            "label": "AI Risk Emerges from Capability Combinations, Not Raw Scale",
+            "cos": 0.415,
+            "ce": -9.897,
+            "cos_rank": 8,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-093",
+            "label": "Proxy Optimization Reliably Produces Outcomes Nobody Actually Wanted",
+            "cos": 0.411,
+            "ce": -10.517,
+            "cos_rank": 9,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-119",
+            "label": "AI Amplifies the Repressive Power of Autocratic States",
+            "cos": 0.41,
+            "ce": -10.195,
+            "cos_rank": 10,
+            "ce_rank": 7
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-074",
+          "skp-beliefs-145",
+          "skp-beliefs-064"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-074",
+          "skp-beliefs-145",
+          "skp-intentions-144"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-074",
+            "label": "When AI Saturates Capability Benchmarks, Human Distinctiveness Becomes Harder to Demonstrate",
+            "cos": 0.585,
+            "ce": 3.034,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-145",
+            "label": "Model-Graded Benchmarks Mask Hallucination and Error Rates",
+            "cos": 0.526,
+            "ce": -1.126,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-064",
+            "label": "AI Competence Is Jagged and Advances Unevenly Across Tasks",
+            "cos": 0.524,
+            "ce": -6.19,
+            "cos_rank": 3,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-intentions-087",
+            "label": "Systematize AI Model Evaluation Through Benchmarking, Auditing, and Experimentation",
+            "cos": 0.519,
+            "ce": -6.112,
+            "cos_rank": 4,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-099",
+            "label": "Short-Term AI Productivity Metrics Mask Long-Term Erosion of Trust and Social Value",
+            "cos": 0.509,
+            "ce": -10.003,
+            "cos_rank": 5,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-intentions-148",
+            "label": "AI Public Option",
+            "cos": 0.487,
+            "ce": -7.162,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-171",
+            "label": "Claims That AI Benefits Outweigh Harms Lack Falsifiable Criteria",
+            "cos": 0.48,
+            "ce": -6.218,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-intentions-144",
+            "label": "Automated Fairness and Bias Benchmarking",
+            "cos": 0.474,
+            "ce": -4.353,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-014",
+            "label": "Performance-Competence Gap in AI-Assisted Work",
+            "cos": 0.472,
+            "ce": -9.592,
+            "cos_rank": 9,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-115",
+            "label": "AI Generality Exists on a Spectrum Rather Than as a Binary Threshold",
+            "cos": 0.47,
+            "ce": -10.464,
+            "cos_rank": 10,
+            "ce_rank": 10
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "m10",
+    "kind": "empirical",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-053",
+          "acc-beliefs-024",
+          "acc-beliefs-067"
+        ],
+        "rerank_top3": [
+          "acc-desires-039",
+          "acc-beliefs-124",
+          "acc-desires-037"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-053",
+            "label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
+            "cos": 0.527,
+            "ce": -7.08,
+            "cos_rank": 1,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-beliefs-024",
+            "label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
+            "cos": 0.509,
+            "ce": -5.948,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-067",
+            "label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
+            "cos": 0.502,
+            "ce": -2.779,
+            "cos_rank": 3,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-intentions-005",
+            "label": "Letting Free Markets Steer Technological Advancement",
+            "cos": 0.462,
+            "ce": -7.873,
+            "cos_rank": 4,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-desires-039",
+            "label": "Democratize AI Through Open-Source Proliferation to Prevent Oligarchic Control",
+            "cos": 0.461,
+            "ce": -0.872,
+            "cos_rank": 5,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-124",
+            "label": "Frontier Firm Productivity Multipliers",
+            "cos": 0.459,
+            "ce": -0.925,
+            "cos_rank": 6,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-061",
+            "label": "Corporate AI Strategy Follows Consumer Technology Adoption Patterns",
+            "cos": 0.445,
+            "ce": -8.829,
+            "cos_rank": 7,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-desires-037",
+            "label": "Maximize AI Capability Growth by Removing All Scaling Constraints",
+            "cos": 0.443,
+            "ce": -1.652,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-beliefs-086",
+            "label": "AI as Structurally Inevitable Economic Transformation",
+            "cos": 0.43,
+            "ce": -5.608,
+            "cos_rank": 9,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-intentions-061",
+            "label": "Argue That Scaling General Models Outperforms Building Specialized AI",
+            "cos": 0.422,
+            "ce": -6.452,
+            "cos_rank": 10,
+            "ce_rank": 7
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-046",
+          "saf-beliefs-064",
+          "saf-beliefs-137"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-277",
+          "saf-beliefs-203",
+          "saf-beliefs-204"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-046",
+            "label": "AI Talent Scarcity Constrains Both Development and Safety Efforts",
+            "cos": 0.47,
+            "ce": -6.398,
+            "cos_rank": 1,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-064",
+            "label": "AI Investment Is Outrunning Actual Productivity Returns",
+            "cos": 0.458,
+            "ce": -7.381,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-beliefs-137",
+            "label": "Productivity Metrics Miss the Slow Collapse of Institutional Trust",
+            "cos": 0.44,
+            "ce": -9.942,
+            "cos_rank": 3,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-beliefs-033",
+            "label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
+            "cos": 0.423,
+            "ce": -6.669,
+            "cos_rank": 4,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-284",
+            "label": "Narrow Versus Broad Capability Decoupling",
+            "cos": 0.414,
+            "ce": -10.47,
+            "cos_rank": 5,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-203",
+            "label": "Frontier AI Risks Can Be Irreversible, Making Post-Hoc Governance Insufficient",
+            "cos": 0.399,
+            "ce": -3.087,
+            "cos_rank": 6,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-100",
+            "label": "AI Will Erode Skills, Destabilize Economies, and Fracture Social Trust",
+            "cos": 0.388,
+            "ce": -8.494,
+            "cos_rank": 7,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-204",
+            "label": "Competitive Dynamics Among AI Systems Select for Power-Seeking Over Safety",
+            "cos": 0.38,
+            "ce": -5.151,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-212",
+            "label": "Knowledge-Collapse Steady State",
+            "cos": 0.376,
+            "ce": -10.856,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-277",
+            "label": "Industrial-Scale Model Distillation Campaigns",
+            "cos": 0.376,
+            "ce": -2.974,
+            "cos_rank": 10,
+            "ce_rank": 1
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-281",
+          "skp-beliefs-042",
+          "skp-beliefs-231"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-281",
+          "skp-beliefs-001",
+          "skp-beliefs-231"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-281",
+            "label": "Capital-Intensive Infrastructure Bottlenecks",
+            "cos": 0.563,
+            "ce": -1.358,
+            "cos_rank": 1,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-042",
+            "label": "AI Is Reshaping Work in Multiple Ways, Not Simply Eliminating Jobs",
+            "cos": 0.483,
+            "ce": -6.354,
+            "cos_rank": 2,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-231",
+            "label": "Industrial Concentration of AI Infrastructure",
+            "cos": 0.462,
+            "ce": -4.433,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-001",
+            "label": "Market Failure in Algorithmic Fairness",
+            "cos": 0.457,
+            "ce": -4.365,
+            "cos_rank": 4,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-002",
+            "label": "Observable Labor Market Contraction from AI",
+            "cos": 0.452,
+            "ce": -8.204,
+            "cos_rank": 5,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-030",
+            "label": "Unprofitable AI Business Models Create Systemic Risk of an Industry-Wide Correction",
+            "cos": 0.447,
+            "ce": -5.163,
+            "cos_rank": 6,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-204",
+            "label": "AI-Driven Productivity Ratchet Intensifies Work Without Reducing Labor Burdens",
+            "cos": 0.443,
+            "ce": -9.507,
+            "cos_rank": 7,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-046",
+            "label": "History Shows That New Technologies Are Adopted Slowly and Bubble Quickly",
+            "cos": 0.432,
+            "ce": -10.091,
+            "cos_rank": 8,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-beliefs-044",
+            "label": "AI's True Financial and Environmental Costs Are Systematically Obscured",
+            "cos": 0.432,
+            "ce": -8.148,
+            "cos_rank": 9,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-099",
+            "label": "Short-Term AI Productivity Metrics Mask Long-Term Erosion of Trust and Social Value",
+            "cos": 0.431,
+            "ce": -10.146,
+            "cos_rank": 10,
+            "ce_rank": 10
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "f1",
+    "kind": "forecasting",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-084",
+          "acc-beliefs-039",
+          "acc-intentions-004"
+        ],
+        "rerank_top3": [
+          "acc-beliefs-039",
+          "acc-intentions-004",
+          "acc-desires-001"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-084",
+            "label": "Naturalistic Inevitability of Machine Intelligence",
+            "cos": 0.551,
+            "ce": -10.055,
+            "cos_rank": 1,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-039",
+            "label": "AI Is on an Exponential Trajectory Toward Superhuman Intelligence Through Recursive Self-Improvement",
+            "cos": 0.516,
+            "ce": -5.432,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-intentions-004",
+            "label": "Mandating Show-Your-Work Transparency in AI-Driven Science",
+            "cos": 0.452,
+            "ce": -9.032,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-024",
+            "label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
+            "cos": 0.428,
+            "ce": -10.715,
+            "cos_rank": 4,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-beliefs-008",
+            "label": "Biology and Technology Are Merging into a Single Evolutionary System",
+            "cos": 0.423,
+            "ce": -9.924,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-136",
+            "label": "R&D Effort Aggregator Framework",
+            "cos": 0.418,
+            "ce": -11.253,
+            "cos_rank": 6,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-intentions-114",
+            "label": "Accelerate AI Through Open, Decentralized, and Unrestricted Experimentation",
+            "cos": 0.404,
+            "ce": -9.984,
+            "cos_rank": 7,
+            "ce_rank": 5
+          },
+          {
+            "id": "acc-intentions-071",
+            "label": "Secure Early Access to Human-Generated Training Data as a Strategic Asset",
+            "cos": 0.402,
+            "ce": -10.955,
+            "cos_rank": 8,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-desires-001",
+            "label": "AI-Powered Abundance and Global Problem-Solving",
+            "cos": 0.402,
+            "ce": -9.502,
+            "cos_rank": 9,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-beliefs-044",
+            "label": "Technical Challenges and Tradeoffs in Building Safe, Advanced AI",
+            "cos": 0.4,
+            "ce": -10.174,
+            "cos_rank": 10,
+            "ce_rank": 7
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-245",
+          "saf-intentions-013",
+          "saf-beliefs-090"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-013",
+          "saf-beliefs-245",
+          "saf-beliefs-090"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-245",
+            "label": "Engineered Process Inspectability Under Manufacturing Precedent",
+            "cos": 0.418,
+            "ce": -7.922,
+            "cos_rank": 1,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-intentions-013",
+            "label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
+            "cos": 0.353,
+            "ce": -10.755,
+            "cos_rank": 2,
+            "ce_rank": 6
+          },
+          {
+            "id": "saf-beliefs-090",
+            "label": "AI Lowers the Barrier to Designing and Producing WMDs",
+            "cos": 0.348,
+            "ce": -8.949,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-intentions-078",
+            "label": "Rapidly Evolving Social Norms to Keep Up with AI",
+            "cos": 0.346,
+            "ce": -10.777,
+            "cos_rank": 4,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-intentions-146",
+            "label": "Expanding Civil Discovery Rights to Pierce Customer-Held Datasets and Audits",
+            "cos": 0.344,
+            "ce": -11.149,
+            "cos_rank": 5,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-beliefs-013",
+            "label": "Early AI Failures Will Be Dismissed Until a Catastrophic One Cannot Be",
+            "cos": 0.341,
+            "ce": -6.529,
+            "cos_rank": 6,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-intentions-168",
+            "label": "Preventing AI-Assisted Creation of Dangerous Physical Materials",
+            "cos": 0.335,
+            "ce": -10.814,
+            "cos_rank": 7,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-intentions-016",
+            "label": "Screening AI Threats for Unrecoverable Harm",
+            "cos": 0.335,
+            "ce": -9.946,
+            "cos_rank": 8,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-desires-008",
+            "label": "Every AI Agent Needs a Clear Duty of Care",
+            "cos": 0.332,
+            "ce": -10.538,
+            "cos_rank": 9,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-beliefs-146",
+            "label": "AI Risk Emerges from Capability Combinations, Not Raw Scale",
+            "cos": 0.329,
+            "ce": -10.975,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-desires-083",
+          "skp-beliefs-008",
+          "skp-beliefs-146"
+        ],
+        "rerank_top3": [
+          "skp-beliefs-289",
+          "skp-beliefs-274",
+          "skp-beliefs-146"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-desires-083",
+            "label": "Human and Planetary Flourishing as the Governing Metric for AI Development",
+            "cos": 0.396,
+            "ce": -10.675,
+            "cos_rank": 1,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-008",
+            "label": "Precarious Human Labor Behind the Automation Facade",
+            "cos": 0.384,
+            "ce": -11.099,
+            "cos_rank": 2,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-beliefs-146",
+            "label": "AI Adoption Fails at the Integration Stage, Not the Pilot Stage",
+            "cos": 0.38,
+            "ce": -10.277,
+            "cos_rank": 3,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-intentions-141",
+            "label": "Regulate AI for Documented Harms, Not Science-Fiction Scenarios",
+            "cos": 0.38,
+            "ce": -10.438,
+            "cos_rank": 4,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-desires-076",
+            "label": "Public Right to Know What AI Was Trained On",
+            "cos": 0.379,
+            "ce": -10.385,
+            "cos_rank": 5,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-021",
+            "label": "AI Deployment Is Routine Engineering, Not Civilizational Rupture",
+            "cos": 0.376,
+            "ce": -10.733,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-beliefs-004",
+            "label": "Recursive Data Contamination by AI Output",
+            "cos": 0.373,
+            "ce": -10.476,
+            "cos_rank": 7,
+            "ce_rank": 6
+          },
+          {
+            "id": "skp-beliefs-289",
+            "label": "Recursive Opacity in AI Discovery",
+            "cos": 0.373,
+            "ce": -9.241,
+            "cos_rank": 8,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-274",
+            "label": "Recursive opacity in AI document discovery",
+            "cos": 0.373,
+            "ce": -9.694,
+            "cos_rank": 9,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-051",
+            "label": "AI-Generated Content Converges on Similar Outputs, Reducing Creative Diversity",
+            "cos": 0.365,
+            "ce": -10.752,
+            "cos_rank": 10,
+            "ce_rank": 9
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "f2",
+    "kind": "forecasting",
+    "camps": {
+      "acc": {
+        "cosine_top3": [
+          "acc-beliefs-084",
+          "acc-beliefs-106",
+          "acc-beliefs-027"
+        ],
+        "rerank_top3": [
+          "acc-beliefs-076",
+          "acc-beliefs-027",
+          "acc-intentions-068"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "acc-beliefs-084",
+            "label": "Naturalistic Inevitability of Machine Intelligence",
+            "cos": 0.516,
+            "ce": -11.111,
+            "cos_rank": 1,
+            "ce_rank": 10
+          },
+          {
+            "id": "acc-beliefs-106",
+            "label": "Continuous versioning makes AI system-state evidence temporally unstable for legal proceedings",
+            "cos": 0.508,
+            "ce": -9.832,
+            "cos_rank": 2,
+            "ce_rank": 4
+          },
+          {
+            "id": "acc-beliefs-027",
+            "label": "The Weakest Link in AI Development Is the Human Developer",
+            "cos": 0.491,
+            "ce": -9.47,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "acc-beliefs-076",
+            "label": "AI-Authored Code Review Should Use Dynamic Triggers, Not Fixed Quotas",
+            "cos": 0.474,
+            "ce": -8.139,
+            "cos_rank": 4,
+            "ce_rank": 1
+          },
+          {
+            "id": "acc-beliefs-129",
+            "label": "Industrial-Scale Knowledge Distillation Campaigns",
+            "cos": 0.456,
+            "ce": -10.71,
+            "cos_rank": 5,
+            "ce_rank": 8
+          },
+          {
+            "id": "acc-beliefs-024",
+            "label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
+            "cos": 0.452,
+            "ce": -10.918,
+            "cos_rank": 6,
+            "ce_rank": 9
+          },
+          {
+            "id": "acc-intentions-068",
+            "label": "Replace Legacy IT with Adaptive AI Infrastructure",
+            "cos": 0.436,
+            "ce": -9.645,
+            "cos_rank": 7,
+            "ce_rank": 3
+          },
+          {
+            "id": "acc-beliefs-039",
+            "label": "AI Is on an Exponential Trajectory Toward Superhuman Intelligence Through Recursive Self-Improvement",
+            "cos": 0.435,
+            "ce": -10.096,
+            "cos_rank": 8,
+            "ce_rank": 6
+          },
+          {
+            "id": "acc-beliefs-044",
+            "label": "Technical Challenges and Tradeoffs in Building Safe, Advanced AI",
+            "cos": 0.435,
+            "ce": -10.181,
+            "cos_rank": 9,
+            "ce_rank": 7
+          },
+          {
+            "id": "acc-desires-001",
+            "label": "AI-Powered Abundance and Global Problem-Solving",
+            "cos": 0.424,
+            "ce": -10.034,
+            "cos_rank": 10,
+            "ce_rank": 5
+          }
+        ]
+      },
+      "saf": {
+        "cosine_top3": [
+          "saf-beliefs-245",
+          "saf-intentions-258",
+          "saf-beliefs-058"
+        ],
+        "rerank_top3": [
+          "saf-beliefs-058",
+          "saf-intentions-258",
+          "saf-intentions-237"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "saf-beliefs-245",
+            "label": "Engineered Process Inspectability Under Manufacturing Precedent",
+            "cos": 0.409,
+            "ce": -11.029,
+            "cos_rank": 1,
+            "ce_rank": 10
+          },
+          {
+            "id": "saf-intentions-258",
+            "label": "Behavioral Age Estimation Defaults for Minors",
+            "cos": 0.389,
+            "ce": -9.349,
+            "cos_rank": 2,
+            "ce_rank": 2
+          },
+          {
+            "id": "saf-beliefs-058",
+            "label": "AI Coding Assistants Inject Phantom Dependencies Into Software",
+            "cos": 0.388,
+            "ce": -7.718,
+            "cos_rank": 3,
+            "ce_rank": 1
+          },
+          {
+            "id": "saf-intentions-078",
+            "label": "Rapidly Evolving Social Norms to Keep Up with AI",
+            "cos": 0.387,
+            "ce": -10.927,
+            "cos_rank": 4,
+            "ce_rank": 9
+          },
+          {
+            "id": "saf-beliefs-146",
+            "label": "AI Risk Emerges from Capability Combinations, Not Raw Scale",
+            "cos": 0.387,
+            "ce": -10.7,
+            "cos_rank": 5,
+            "ce_rank": 7
+          },
+          {
+            "id": "saf-beliefs-046",
+            "label": "AI Talent Scarcity Constrains Both Development and Safety Efforts",
+            "cos": 0.386,
+            "ce": -10.709,
+            "cos_rank": 6,
+            "ce_rank": 8
+          },
+          {
+            "id": "saf-beliefs-213",
+            "label": "Open-Weight Model Release Is an Irreversible Deployment Decision",
+            "cos": 0.382,
+            "ce": -10.486,
+            "cos_rank": 7,
+            "ce_rank": 5
+          },
+          {
+            "id": "saf-intentions-237",
+            "label": "Mandating Hardware-Level Data Governance for Children's Connected Devices",
+            "cos": 0.381,
+            "ce": -10.359,
+            "cos_rank": 8,
+            "ce_rank": 3
+          },
+          {
+            "id": "saf-beliefs-203",
+            "label": "Frontier AI Risks Can Be Irreversible, Making Post-Hoc Governance Insufficient",
+            "cos": 0.381,
+            "ce": -10.39,
+            "cos_rank": 9,
+            "ce_rank": 4
+          },
+          {
+            "id": "saf-beliefs-033",
+            "label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
+            "cos": 0.378,
+            "ce": -10.597,
+            "cos_rank": 10,
+            "ce_rank": 6
+          }
+        ]
+      },
+      "skp": {
+        "cosine_top3": [
+          "skp-beliefs-002",
+          "skp-desires-076",
+          "skp-beliefs-231"
+        ],
+        "rerank_top3": [
+          "skp-desires-076",
+          "skp-beliefs-231",
+          "skp-beliefs-042"
+        ],
+        "matches_production": true,
+        "top3_changed": true,
+        "candidates": [
+          {
+            "id": "skp-beliefs-002",
+            "label": "Observable Labor Market Contraction from AI",
+            "cos": 0.454,
+            "ce": -10.742,
+            "cos_rank": 1,
+            "ce_rank": 8
+          },
+          {
+            "id": "skp-desires-076",
+            "label": "Public Right to Know What AI Was Trained On",
+            "cos": 0.452,
+            "ce": -8.846,
+            "cos_rank": 2,
+            "ce_rank": 1
+          },
+          {
+            "id": "skp-beliefs-231",
+            "label": "Industrial Concentration of AI Infrastructure",
+            "cos": 0.443,
+            "ce": -9.51,
+            "cos_rank": 3,
+            "ce_rank": 2
+          },
+          {
+            "id": "skp-beliefs-146",
+            "label": "AI Adoption Fails at the Integration Stage, Not the Pilot Stage",
+            "cos": 0.442,
+            "ce": -9.787,
+            "cos_rank": 4,
+            "ce_rank": 4
+          },
+          {
+            "id": "skp-beliefs-260",
+            "label": "Patching Latency in Complex Model Architectures",
+            "cos": 0.435,
+            "ce": -10.502,
+            "cos_rank": 5,
+            "ce_rank": 5
+          },
+          {
+            "id": "skp-beliefs-131",
+            "label": "The Capability-Deployment Gap in AI Systems",
+            "cos": 0.435,
+            "ce": -10.627,
+            "cos_rank": 6,
+            "ce_rank": 7
+          },
+          {
+            "id": "skp-beliefs-042",
+            "label": "AI Is Reshaping Work in Multiple Ways, Not Simply Eliminating Jobs",
+            "cos": 0.423,
+            "ce": -9.685,
+            "cos_rank": 7,
+            "ce_rank": 3
+          },
+          {
+            "id": "skp-beliefs-099",
+            "label": "Short-Term AI Productivity Metrics Mask Long-Term Erosion of Trust and Social Value",
+            "cos": 0.419,
+            "ce": -10.786,
+            "cos_rank": 8,
+            "ce_rank": 9
+          },
+          {
+            "id": "skp-desires-083",
+            "label": "Human and Planetary Flourishing as the Governing Metric for AI Development",
+            "cos": 0.416,
+            "ce": -10.918,
+            "cos_rank": 9,
+            "ce_rank": 10
+          },
+          {
+            "id": "skp-beliefs-021",
+            "label": "AI Deployment Is Routine Engineering, Not Civilizational Rupture",
+            "cos": 0.415,
+            "ce": -10.585,
+            "cos_rank": 10,
+            "ce_rank": 6
+          }
+        ]
+      }
+    }
+  }
+]

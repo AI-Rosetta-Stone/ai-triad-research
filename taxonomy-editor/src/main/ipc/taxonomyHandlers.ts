@@ -25,6 +25,7 @@ import {
   setActiveTaxonomyDir,
   buildNodeSourceIndex,
   buildPolicySourceIndex,
+  getNodeSources,
   readPolicyRegistry,
   acquirePolicyRegistryLock,
   releasePolicyRegistryLock,
@@ -253,6 +254,20 @@ function guardSituationsBdiSave(newNodes: unknown[]): void {
       + lines.map(l => `• ${l}`).join('\n'),
     location: 'ipc/taxonomyHandlers.ts → save-taxonomy-file (situations BDI gate)',
     nextSteps: ['Complete the listed belief/desire/intention fields, or delete the situation', 'Retry the save'],
+  });
+}
+
+/** t/4369 gap 3 (this handler's caller leg): relevanceSelection.ts's per-camp label dedup
+ *  writes injectionManifest.label_dedup but — same gap on the server route — nothing logged
+ *  it, so a dropped twin was invisible outside a manual diff. Mirrors the analogous WARN the
+ *  server's Pino-based route must add on its own leg. */
+function warnOnLabelDedup(injectionManifest: Record<string, unknown> | undefined): void {
+  const labelDedup = injectionManifest?.label_dedup;
+  if (!Array.isArray(labelDedup) || labelDedup.length === 0) return;
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'ipc-handlers', level: 'warn',
+    message: `fetch-relevant-nodes: ${labelDedup.length} label-duplicate node(s) skipped (t/4369)`,
+    data: { labelDedup },
   });
 }
 
@@ -538,6 +553,12 @@ export function registerTaxonomyHandlers(): void {
     return buildPolicySourceIndex();
   });
 
+  // t/4342 — Electron leg of the per-node source-index transport trio (t/4335).
+  // Matches the server's GET /api/node-source-index/:nodeId (ServerAPI, PR #3512).
+  ipcMain.handle('get-node-sources', (_event, nodeId: string) => {
+    return getNodeSources(nodeId);
+  });
+
   ipcMain.handle('load-edges', () => {
     // t/2949 defense-in-depth: return the FULL edges (rationale included) so the renderer's
     // in-memory set is COMPLETE — a whole-file save physically cannot drop what it never lost.
@@ -784,12 +805,14 @@ export function registerTaxonomyHandlers(): void {
       greatestHitsList: b.session?.greatestHitsList,
     };
 
-    return selectRelevantTaxonomy({
+    const result = await selectRelevantTaxonomy({
       povNodes, situationNodes, policyRegistry, nodeEmbeddings, lineageMapping, doctrinalBoundaries,
       session,
       params: { pov, topic, recentTranscript, threshold: b.threshold, tagSelection: b.tagSelection },
       embed: queryEmbed,
     });
+    warnOnLabelDedup(result.injectionManifest);
+    return result;
   });
 
   // t/3322: compute-attribution — main-process mirror of server routes/attribution.ts.

@@ -808,7 +808,7 @@ function DebateSettingsDialog({
                             disabled={refreshing}
                             onClick={async () => {
                               setRefreshing(true);
-                              try { await api.refreshAIModels(); await initAIModels(); } catch { /* telemetry — silent by design */ }
+                              try { await api.refreshAIModels({ dryRun: true }); await initAIModels(); } catch { /* telemetry — silent by design */ }
                               setRefreshing(false);
                             }}
                           >{refreshing ? 'Refreshing…' : 'Refresh models'}</button>

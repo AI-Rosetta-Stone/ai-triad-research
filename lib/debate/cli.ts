@@ -270,6 +270,17 @@ async function main(): Promise<void> {
       innerError: err,
     });
   }
+  if (config.pacing != null && !config.useAdaptiveStaging) {
+    throw new ActionableError({
+      goal: 'Run headless debate',
+      problem: `'pacing' is set to '${config.pacing}' but 'useAdaptiveStaging' is not enabled — pacing has no effect in fixed-round mode`,
+      location: 'cli.main',
+      nextSteps: [
+        "Set 'useAdaptiveStaging: true' to enable adaptive staging with the specified pacing.",
+        "Or remove 'pacing' from the config to run fixed rounds (use 'rounds' to control the count).",
+      ],
+    });
+  }
   const startTime = Date.now();
 
   // Resolve repo root
@@ -588,13 +599,12 @@ async function main(): Promise<void> {
       ...(config.url ? { url: config.url } : {}),
       ...(config.name ? { name: config.name } : {}),
       model: config.model ?? model,
-      rounds: config.rounds ?? 3,
       protocol: config.protocolId ?? 'structured',
       audience: config.audience,
       activePovers: config.activePovers,
       responseLength: config.responseLength ?? 'medium',
       ...(config.temperature != null ? { temperature: config.temperature } : {}),
-      ...(config.useAdaptiveStaging ? { adaptiveStaging: true, pacing: config.pacing ?? 'moderate' } : {}),
+      ...(config.useAdaptiveStaging ? { adaptiveStaging: true, pacing: config.pacing ?? 'moderate' } : { adaptiveStaging: false, rounds: config.rounds ?? 3 }),
     },
   };
 

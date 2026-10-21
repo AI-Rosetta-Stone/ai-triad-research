@@ -131,6 +131,10 @@ function ConvertFrom-JsonPreserveShape {
         ConvertFrom-Json result with a Write-Verbose note (mirrors ConvertFrom-EdgesJson, t/2974#3).
     .PARAMETER Json
         The raw JSON text.
+    .PARAMETER AsOrderedHashtable
+        Return a top-level JSON object as an [ordered] dictionary in source key order (nested
+        values keep the preserved shape). For read-modify-write callers that set and remove keys
+        the way `ConvertFrom-Json -AsHashtable` callers do, without its datetime coercion (t/4366).
     .OUTPUTS
         The parsed document with datetime fields + single-element arrays preserved verbatim.
     #>
@@ -139,9 +143,19 @@ function ConvertFrom-JsonPreserveShape {
     param(
         [Parameter(Mandatory)]
         [AllowEmptyString()]
-        [string]$Json
+        [string]$Json,
+
+        [switch]$AsOrderedHashtable
     )
     Set-StrictMode -Version Latest
+
+    if ($AsOrderedHashtable) {
+        $shaped = ConvertFrom-JsonPreserveShape -Json $Json
+        if ($shaped -isnot [System.Management.Automation.PSCustomObject]) { return $shaped }
+        $ordered = [ordered]@{}
+        foreach ($p in $shaped.PSObject.Properties) { $ordered[$p.Name] = $p.Value }
+        return $ordered
+    }
 
     $obj = $Json | ConvertFrom-Json
     if ($null -eq $obj) { return $obj }

@@ -21,6 +21,7 @@ import type { InquiryRequest, InquiryResult } from '../../../lib/inquiry/index.j
 import type { NodeDeleteLogEntry } from './nodeDeleteLog.js';
 import type { RecountPolicyMembersResult } from '../../../lib/policy/registryRecount.js';
 import type { RefreshResult } from '../../../lib/electron-shared/modelDiscovery.js';
+import type { SourceReference, SourceCardMeta } from '../../../lib/sourceIndex/types.js';
 
 // t/3532: mirrors bridge/types.ts's FetchRelevantNodesPayload/FetchClaimAttributionPayload/
 // ClaimAttributionResponse structurally (those are defined directly in bridge/types.ts, not
@@ -522,6 +523,10 @@ function buildElectronApi() {
   // Policy ↔ Source index
   buildPolicySourceIndex: (): Promise<unknown> =>
     ipcRenderer.invoke('build-policy-source-index'),
+
+  // t/4342: per-node source index — Electron leg of t/4335's transport trio.
+  getNodeSources: (nodeId: string): Promise<{ sources: SourceReference[]; cards: Record<string, SourceCardMeta>; indexVersion: number }> =>
+    ipcRenderer.invoke('get-node-sources', nodeId),
 
   // Edges
   loadEdges: (): Promise<unknown> =>

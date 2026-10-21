@@ -17,7 +17,7 @@ import type { Entity } from '../../../lib/entities/types.js';
 import { serializeEdgesJson } from '../../../lib/edges/serializeEdges.js';
 import type { ContainerMentions, EntityMentionsFile } from '../../../lib/entities/mentionTypes.js';
 import { serializePovTagProposals, type PovTagProposalsFile } from '../../../lib/schema/povTagProposals.js';
-import { computeCanonicalDocIds, type SourceReference as SharedSourceReference, type CanonicalIdDocMeta } from '../../../lib/sourceIndex/types.js';
+import { computeCanonicalDocIds, type SourceReference as SharedSourceReference, type SourceCardMeta as SharedSourceCardMeta, type CanonicalIdDocMeta } from '../../../lib/sourceIndex/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -956,6 +956,10 @@ export function writeEdgesFile(data: unknown): void {
 // same-looking interface that could drift.
 export type SourceReference = SharedSourceReference;
 
+// t/4342: re-exports the shared card shape (lib/sourceIndex/types.ts) — same parity
+// rationale as SourceReference above, with the server's SourceCardMeta (nodeSourceIndex.ts).
+export type SourceCardMeta = SharedSourceCardMeta;
+
 export type NodeSourceIndex = Record<string, SourceReference[]>;
 
 /**
@@ -967,6 +971,7 @@ export type NodeSourceIndex = Record<string, SourceReference[]>;
 type SourceMetaJson = {
   title?: string; url?: string; source_type?: string;
   date_published?: string; source_time?: string; date_ingested?: string;
+  authors?: string[]; topic_tags?: string[]; one_liner?: string;
 };
 
 /**
@@ -990,7 +995,10 @@ function loadSourceMetadata<T>(mapMeta: (meta: SourceMetaJson, name: string) => 
   return out;
 }
 
-type NodeSourceMeta = { title: string; url: string | null; sourceType: string; datePublished: string };
+type NodeSourceMeta = {
+  title: string; url: string | null; sourceType: string; datePublished: string;
+  authors: string[]; topicTags: string[]; oneLiner: string | null;
+};
 type SummaryFile = {
   pov_summaries?: Record<string, {
     key_points?: Array<{
@@ -1048,10 +1056,12 @@ function applyCanonicalDocIds(index: NodeSourceIndex, metaCache: Record<string, 
   }
 }
 
-export function buildNodeSourceIndex(): NodeSourceIndex {
+/** Shared by `buildNodeSourceIndex` and `getNodeSources` (t/4342) so the per-node lookup
+ *  doesn't re-scan the sources dir a second time for card metadata. */
+function buildNodeSourceIndexWithMeta(): { index: NodeSourceIndex; metaCache: Record<string, NodeSourceMeta> } {
   const index: NodeSourceIndex = {};
 
-  if (!fs.existsSync(SUMMARIES_DIR)) return index;
+  if (!fs.existsSync(SUMMARIES_DIR)) return { index, metaCache: {} };
 
   // Pre-load source metadata for titles/URLs
   const metaCache = loadSourceMetadata((meta, name): NodeSourceMeta => ({
@@ -1059,6 +1069,9 @@ export function buildNodeSourceIndex(): NodeSourceIndex {
     url: meta.url || null,
     sourceType: meta.source_type || 'unknown',
     datePublished: meta.date_published || meta.source_time || '',
+    authors: Array.isArray(meta.authors) ? meta.authors : [],
+    topicTags: Array.isArray(meta.topic_tags) ? meta.topic_tags : [],
+    oneLiner: meta.one_liner || null,
   }));
 
   // Scan all summary files
@@ -1071,12 +1084,57 @@ export function buildNodeSourceIndex(): NodeSourceIndex {
       summary = JSON.parse(fs.readFileSync(path.join(SUMMARIES_DIR, file), 'utf-8'));
     } catch { /* telemetry — silent by design */ continue; }
 
-    const meta = metaCache[docId] || { title: docId, url: null, sourceType: 'unknown', datePublished: '' };
+    const meta = metaCache[docId] || { title: docId, url: null, sourceType: 'unknown', datePublished: '', authors: [], topicTags: [], oneLiner: null };
     indexSummaryKeyPoints(index, docId, meta, summary);
   }
 
   applyCanonicalDocIds(index, metaCache);
-  return index;
+  return { index, metaCache };
+}
+
+export function buildNodeSourceIndex(): NodeSourceIndex {
+  return buildNodeSourceIndexWithMeta().index;
+}
+
+/** One source card per canonical document, same shape/fallback order as the server's
+ *  identically-named helper (src/server/storage/nodeSourceIndex.ts:cardMetaFor) — kept as
+ *  its own function rather than inlined so getNodeSources stays under the complexity
+ *  budget (t/4342, CI: local/complexity-budget). */
+function cardMetaFor(ref: SourceReference, metaCache: Record<string, NodeSourceMeta>): SourceCardMeta {
+  const m = metaCache[ref.docId] ?? metaCache[ref.canonicalDocId];
+  return {
+    title: m?.title ?? ref.title,
+    url: m?.url ?? ref.url,
+    authors: m?.authors ?? [],
+    datePublished: m?.datePublished ?? ref.datePublished,
+    topicTags: m?.topicTags ?? [],
+    oneLiner: m?.oneLiner ?? null,
+  };
+}
+
+/** One card per canonical document referenced by `sources`, not one per reference —
+ *  extracted from getNodeSources alongside cardMetaFor for the same complexity-budget
+ *  reason. */
+function buildCardsForSources(sources: SourceReference[], metaCache: Record<string, NodeSourceMeta>): Record<string, SourceCardMeta> {
+  const cards: Record<string, SourceCardMeta> = {};
+  for (const ref of sources) {
+    if (!cards[ref.canonicalDocId]) cards[ref.canonicalDocId] = cardMetaFor(ref, metaCache);
+  }
+  return cards;
+}
+
+/**
+ * t/4342 — Electron-side equivalent of the server's per-node lookup
+ * (src/server/storage/nodeSourceIndex.ts:getNodeSources). No build-once cache on this
+ * side yet (unlike the server's invalidate-on-listing-change cache) — each call re-scans,
+ * mirroring the existing uncached `buildNodeSourceIndex` IPC handler; `indexVersion` is
+ * therefore always 0 (nothing to compare it against yet on this leg).
+ */
+export function getNodeSources(nodeId: string): { sources: SourceReference[]; cards: Record<string, SourceCardMeta>; indexVersion: number } {
+  const { index, metaCache } = buildNodeSourceIndexWithMeta();
+  const sources = index[nodeId] ?? [];
+  const cards = buildCardsForSources(sources, metaCache);
+  return { sources, cards, indexVersion: 0 };
 }
 
 // ── Policy ↔ Source reverse index ─────────────────────────────────────────────

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "source_commit": null,
+  "doc_count": 5,
+  "docs": [
+    {
+      "id": "alpha-2026",
+      "title": "Alpha",
+      "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "same_as": "beta-2026"
+    },
+    {
+      "id": "alpha-2026-1",
+      "snapshot_sha256": "c67ea998c74da17639f6b02dd791367e0f44694f7a9a5972c6e4e15afe96fc67"
+    },
+    {
+      "id": "beta-2026",
+      "title": "Beta",
+      "url": "https://example.org/beta",
+      "resolved_url": "https://www.example.org/beta/",
+      "authors": [
+        "Ada One",
+        "Bo Two"
+      ],
+      "date_published": "2026-01-15",
+      "one_liner": "A beta.",
+      "topic_tags": [
+        "governance"
+      ],
+      "snapshot_sha256": "bfc50dcffa1f2c1db16aac9f4905d4af1c03acf42379f1f4540206295ee713e4",
+      "provenance": [
+        {
+          "scheme": "url",
+          "id": "https://example.org/beta",
+          "confidence": "search"
+        },
+        {
+          "scheme": "doi",
+          "id": "10.1234/beta",
+          "confidence": "verified"
+        }
+      ]
+    },
+    {
+      "id": "delta-2026",
+      "title": "Beta (copy)",
+      "duplicate_of": "beta-2026",
+      "duplicate_of_ref": "t4337-cleanup-2026-10#1"
+    },
+    {
+      "id": "gamma-2026",
+      "title": "Gamma",
+      "parent_doc_id": "beta-2026"
+    }
+  ]
+}
