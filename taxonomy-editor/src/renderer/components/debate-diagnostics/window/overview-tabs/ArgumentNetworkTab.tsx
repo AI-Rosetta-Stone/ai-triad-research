@@ -8,6 +8,7 @@ import type { WeightHistoryEntry } from '../../../../types/taxonomy';
 import { computeQbafStrengths } from '@lib/debate/qbaf';
 import type { QbafNode, QbafEdge } from '@lib/debate/qbaf';
 import { useTaxonomyStore } from '../../../../hooks/useTaxonomyStore';
+import { allPovNodes } from '../../../../hooks/useTaxonomyStore/superseded';
 import { INodeRow } from '../shared';
 import { TheoryLink } from '../../../shared/TheoryLink';
 import { Highlight, speakerLabel } from '../helpers';
@@ -383,13 +384,13 @@ function collectHistoryImpacts(
 }
 
 /** Gather confidence/priority/operationality history impacts for a debate from the taxonomy store. */
-function collectConfidenceImpacts(debateId: string): ConfidenceImpact[] {
+export function collectConfidenceImpacts(debateId: string): ConfidenceImpact[] {
   const taxState = useTaxonomyStore.getState();
   const impacts: ConfidenceImpact[] = [];
   for (const pov of ['accelerationist', 'safetyist', 'skeptic'] as const) {
-    const file = taxState[pov];
-    if (!file) continue;
-    for (const n of file.nodes) {
+    // t/4361: the full set (selectable + superseded) — a node superseded since this debate ran must
+    // still surface the confidence-history impacts it recorded then (t/4355 holds it out of .nodes).
+    for (const n of allPovNodes(taxState, pov)) {
       collectHistoryImpacts(n.confidence_history, n, pov, debateId, impacts);
       collectHistoryImpacts(n.priority_history, n, pov, debateId, impacts);
       collectHistoryImpacts(n.operationality_history, n, pov, debateId, impacts);

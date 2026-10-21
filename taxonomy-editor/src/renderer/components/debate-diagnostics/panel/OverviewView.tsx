@@ -18,6 +18,7 @@ import { DocumentCoverageSection } from './DocumentCoverageSection';
 import { VerificationSection } from './VerificationSection';
 import { useDescriptionMode, DescriptionToggle } from '../../shared/DescriptionToggle';
 import { useTaxonomyStore } from '../../../hooks/useTaxonomyStore';
+import { allNodesById } from '../../../hooks/useTaxonomyStore/superseded';
 import { generatePlainPreview } from '../../../utils/regeneratePlainDescription';
 
 type DebateState = ReturnType<typeof useDebateStore.getState>;
@@ -866,23 +867,22 @@ function ExclusionGuardSection({ entries }: { entries: DiagEntries | undefined }
   );
 }
 
+// t/4361: look up by exact id across the full set (selectable + superseded) — a suggestion can
+// reference a node an old debate cited that's since been superseded, which the per-pov node list
+// no longer holds (t/4355).
+export function getStoredPlainDescription(nodeId: string): string | null {
+  const node = allNodesById(useTaxonomyStore.getState()).get(nodeId);
+  return node?.plain_description ?? null;
+}
+
 function TaxonomySuggestionsSection({ suggestions }: { suggestions: NonNullable<ActiveDebate['taxonomy_suggestions']> }) {
   const [descMode, setDescMode] = useDescriptionMode();
-  const taxState = useTaxonomyStore(useShallow(s => ({
-    accelerationist: s.accelerationist, safetyist: s.safetyist, skeptic: s.skeptic, situations: s.situations,
-  })));
 
   const [plainPreviews, setPlainPreviews] = useState<Record<string, string | null>>({});
   const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({});
   const inflightRef = useRef<Set<string>>(new Set());
 
-  const lookupPlainDescription = useCallback((nodeId: string, pov: string): string | null => {
-    const povKey = pov as keyof typeof taxState;
-    const file = taxState[povKey];
-    if (!file?.nodes) return null;
-    const node = (file.nodes as any[]).find((n: any) => n.id === nodeId);
-    return node?.plain_description ?? null;
-  }, [taxState]);
+  const lookupPlainDescription = useCallback(getStoredPlainDescription, []);
 
   useEffect(() => {
     if (descMode !== 'plain' || !suggestions?.length) return;
@@ -912,7 +912,7 @@ function TaxonomySuggestionsSection({ suggestions }: { suggestions: NonNullable<
         let afterGenerating = false;
 
         if (descMode === 'plain') {
-          const storedPlain = lookupPlainDescription(sug.node_id, sug.node_pov);
+          const storedPlain = lookupPlainDescription(sug.node_id);
           if (storedPlain) {
             beforeText = storedPlain;
           } else if (sug.current_description) {
