@@ -8,9 +8,11 @@
 .DESCRIPTION
     Keys are emitted in a fixed order and only when present (an absent field is omitted, never null),
     so the index is byte-stable and small. Strings are copied verbatim: metadata.json is read
-    shape-preserving, so ISO timestamps are not re-formatted (t/4366). content_sha256 is the recorded
-    value, else the hash of snapshot.md under docs/specs/source-identity.md section 1, which can be
-    absent (empty body, placeholder, or under the 100-word floor).
+    shape-preserving, so ISO timestamps are not re-formatted (t/4366). content_sha256 is the RECORDED
+    hash only; snapshot_sha256 is the hash computed from snapshot.md under
+    docs/specs/source-identity.md section 1 when nothing is recorded, and can be absent (empty body,
+    placeholder, or under the 100-word floor). They stay separate because spec 4.4 lets only a
+    recorded hash veto a suffix edge.
 #>
 function Get-SourcesIndexEntry {
     [CmdletBinding()]
@@ -53,12 +55,17 @@ function Get-SourcesIndexEntry {
         if ($list.Count -gt 0) { $entry['topic_tags'] = $list }
     }
 
-    $hash = [string](& $field 'content_sha256')
-    if ([string]::IsNullOrEmpty($hash)) {
+    # Recorded and computed hashes stay distinct (spec 4.0 / 4.4: only a RECORDED hash may veto a
+    # suffix edge; review of #3560). content_sha256 = recorded only; snapshot_sha256 = computed from
+    # snapshot.md under spec section 1, present only when nothing is recorded (absent under the floor).
+    $recorded = [string](& $field 'content_sha256')
+    if (-not [string]::IsNullOrEmpty($recorded)) {
+        $entry['content_sha256'] = $recorded
+    } else {
         $snap = Join-Path $DocDir 'snapshot.md'
-        $hash = if (Test-Path -LiteralPath $snap) { Get-SourceContentHash -Text ([System.IO.File]::ReadAllText($snap)) } else { $null }
+        $computed = if (Test-Path -LiteralPath $snap) { Get-SourceContentHash -Text ([System.IO.File]::ReadAllText($snap)) } else { $null }
+        if ($computed) { $entry['snapshot_sha256'] = $computed }
     }
-    if ($hash) { $entry['content_sha256'] = $hash }
 
     $prov = & $field 'provenance'
     if ($null -ne $prov) {

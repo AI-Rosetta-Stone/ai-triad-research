@@ -55,7 +55,7 @@ Describe 'Export-SourcesIndex (t/4334#18)' -Tag 'sources-index' {
     It 'maps the card and identity fields, omitting absent ones' {
         Export-SourcesIndex -SourcesDir $script:Src -OutputPath $script:Out 3>$null | Out-Null
         $beta = (Get-Content $script:Out -Raw | ConvertFrom-Json -AsHashtable).docs | Where-Object { $_.id -eq 'beta-2026' }
-        @($beta.Keys) | Should -Be @('id', 'title', 'url', 'authors', 'date_published', 'one_liner', 'topic_tags', 'content_sha256', 'provenance')
+        @($beta.Keys) | Should -Be @('id', 'title', 'url', 'authors', 'date_published', 'one_liner', 'topic_tags', 'snapshot_sha256', 'provenance')
         , $beta.authors | Should -BeOfType [object[]]
         $beta.authors[0] | Should -BeExactly 'Solo Author'
         , $beta.topic_tags | Should -BeOfType [object[]]
@@ -63,21 +63,24 @@ Describe 'Export-SourcesIndex (t/4334#18)' -Tag 'sources-index' {
         $beta.Keys | Should -Not -Contain 'import_time'
     }
 
-    It 'uses a recorded content_sha256, computes one from snapshot.md otherwise, and omits it under the floor' {
+    It 'keeps a recorded content_sha256, puts a computed hash in snapshot_sha256, and omits both under the floor' {
         Export-SourcesIndex -SourcesDir $script:Src -OutputPath $script:Out 3>$null | Out-Null
         $docs = @((Get-Content $script:Out -Raw | ConvertFrom-Json).docs)
         ($docs | Where-Object id -eq 'alpha-2026').content_sha256 | Should -BeExactly ('a' * 64)
         ($docs | Where-Object id -eq 'alpha-2026').same_as | Should -BeExactly 'beta-2026'
         $expected = InModuleScope AITriad -Parameters @{ T = "# Alpha copy`n`n$script:Long`n" } { param($T) Get-SourceContentHash -Text $T }
-        ($docs | Where-Object id -eq 'alpha-2026-1').content_sha256 | Should -BeExactly $expected
-        ($docs | Where-Object id -eq 'gamma-2026').PSObject.Properties.Name | Should -Not -Contain 'content_sha256'
+        ($docs | Where-Object id -eq 'alpha-2026-1').snapshot_sha256 | Should -BeExactly $expected
+        ($docs | Where-Object id -eq 'alpha-2026-1').PSObject.Properties.Name | Should -Not -Contain 'content_sha256' -Because 'a computed hash is never reported as recorded (spec 4.4)'
+        ($docs | Where-Object id -eq 'alpha-2026').PSObject.Properties.Name | Should -Not -Contain 'snapshot_sha256' -Because 'a recorded hash suppresses the computed one'
+        @(($docs | Where-Object id -eq 'gamma-2026').PSObject.Properties.Name) | Should -Not -Contain 'content_sha256'
+        @(($docs | Where-Object id -eq 'gamma-2026').PSObject.Properties.Name) | Should -Not -Contain 'snapshot_sha256'
     }
 
     It 'indexes a dir with no metadata.json by id and hash only, and warns' {
         $w = $null
         Export-SourcesIndex -SourcesDir $script:Src -OutputPath $script:Out -WarningVariable w -WarningAction SilentlyContinue | Out-Null
         $copy = @((Get-Content $script:Out -Raw | ConvertFrom-Json).docs) | Where-Object id -eq 'alpha-2026-1'
-        @($copy.PSObject.Properties.Name) | Should -Be @('id', 'content_sha256')
+        @($copy.PSObject.Properties.Name) | Should -Be @('id', 'snapshot_sha256')
         ($w -join "`n") | Should -Match '1 source dir\(s\) have no readable metadata.json'
     }
 
@@ -96,6 +99,17 @@ Describe 'Export-SourcesIndex (t/4334#18)' -Tag 'sources-index' {
         $r = Export-SourcesIndex -SourcesDir $script:Src -OutputPath $script:Out -WhatIf 3>$null 6>$null
         Test-Path $script:Out | Should -BeFalse
         $r.DocCount | Should -Be 4 -Because 'a dry run must build the same index it would write'
+    }
+
+    It 'reproduces the committed sample exactly (the contract fixture the TS reader also parses)' {
+        # tests/fixtures/sources-index/{src,expected.json}: Server Storage's reader parses
+        # expected.json against lib/sourceIndex/sourcesIndexSchema.ts, so a field rename on either side
+        # breaks a test, not prod (review of #3560). Line endings are normalized for Windows checkouts.
+        $fx = Join-Path $PSScriptRoot 'fixtures' 'sources-index'
+        $r = Export-SourcesIndex -SourcesDir (Join-Path $fx 'src') -OutputPath $script:Out 3>$null
+        $r.DocCount | Should -Be 4
+        $expected = [IO.File]::ReadAllText((Join-Path $fx 'expected.json')).Replace("`r`n", "`n")
+        [IO.File]::ReadAllText($script:Out) | Should -BeExactly $expected
     }
 
     It 'throws an actionable error when the sources directory is missing' {

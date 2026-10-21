@@ -9,9 +9,10 @@ function Export-SourcesIndex {
     .DESCRIPTION
         Hosted (github-api mode) reads only ai-triad-data, so it has no source metadata. This
         cmdlet reads ai-triad-sources and writes a precomputed index into ai-triad-data holding,
-        per document, the source-card fields, content_sha256 (recorded, else computed from
-        snapshot.md under docs/specs/source-identity.md section 1, so it can be absent) and the URL
-        and provenance fields the identity grouping needs.
+        per document, the source-card fields, the content hash (content_sha256 when recorded in
+        metadata.json, else snapshot_sha256 computed from snapshot.md under
+        docs/specs/source-identity.md section 1, which can be absent) and the URL and provenance
+        fields the identity grouping needs. Schema: lib/sourceIndex/sourcesIndexSchema.ts.
 
         The output is byte-stable: documents sorted ordinally by id, a fixed key order, LF line
         endings and no generation timestamp (source_commit identifies the input instead). The file is
@@ -67,7 +68,7 @@ function Export-SourcesIndex {
     foreach ($id in $ids) {
         $entry = Get-SourcesIndexEntry -DocDir (Join-Path $SourcesDir $id) -DocId $id
         if (-not $entry.Contains('title')) { $noMetadata++ }
-        if ($entry.Contains('content_sha256')) { $hashed++ }
+        if ($entry.Contains('content_sha256') -or $entry.Contains('snapshot_sha256')) { $hashed++ }
         $docs.Add($entry)
     }
     if ($noMetadata -gt 0) {
