@@ -46,6 +46,7 @@ function makeConfig(overrides?: Partial<RuntimeConfig>): RuntimeConfig {
     },
     cache: { defaultTtlMs: 300000 },
     generation: { opedVoiceTimeoutMs: 360000 },
+    pollGate: { enabled: false },
     ...overrides,
   };
 }
@@ -180,5 +181,25 @@ describe('RuntimeConfigPanel', () => {
     const checkbox = screen.getByLabelText(/Modified only/);
     await user.click(checkbox);
     expect(checkbox).toBeChecked();
+  });
+
+  // ── t/4371: Poll Gate toggle ──
+
+  it('renders the Poll Gate section with its help text', () => {
+    render(<RuntimeConfigPanel />);
+    expect(screen.getByText('Poll Gate')).toBeInTheDocument();
+    expect(screen.getByText(/Stop background polling in hidden or idle tabs/)).toBeInTheDocument();
+  });
+
+  it('round-trips pollGate.enabled through a checkbox', async () => {
+    const user = userEvent.setup();
+    render(<RuntimeConfigPanel />);
+    const label = screen.getByText('Enabled');
+    const checkbox = label.closest('.rc-field')!.querySelector('input[type="checkbox"]')!;
+    expect(checkbox).not.toBeChecked();
+
+    await user.click(checkbox);
+
+    expect(mockSetField).toHaveBeenCalledWith('pollGate.enabled', true);
   });
 });

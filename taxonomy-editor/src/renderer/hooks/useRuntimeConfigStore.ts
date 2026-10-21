@@ -87,6 +87,9 @@ export interface RuntimeConfig {
   generation: {
     opedVoiceTimeoutMs: number;
   };
+  pollGate: {
+    enabled: boolean;
+  };
 }
 
 export interface ConfigState {
