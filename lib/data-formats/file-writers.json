@@ -1,0 +1,56 @@
+{
+  "_comment": "The single file-to-writer registry for ai-triad-data corpus files (TL t/4353#9, SO e/343#18). Each corpus file's canonical format is the one its owning writer produces; the t/4353 drift check (ai-triad-data CI, warn-only) compares each file against its own writer, and scripts/json-canonical.mjs (t/4356) reads the same map, so the per-file rule can't fork. Measured by the CL (round-trips at ai-triad-data 7dc19c88; research/comp-linguist/analyses/t4278-duplicate-nodes/). Writer refs are <lang>:<repo path> <entry point>; lib/data-formats/fileWriters.test.ts checks every referenced path exists. Change it by PR (T1: consumers branch on it).",
+  "schema": 1,
+  "measured_at_data_rev": "7dc19c88",
+  "files": {
+    "taxonomy/Origin/accelerationist.json": {
+      "format": "pretty2-lf-nl",
+      "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
+      "writers": [
+        "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)",
+        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; see known_mismatches)"
+      ],
+      "measured": {"ts-pretty2-lf-nl": "byte-identical"},
+      "known_mismatches": ["ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile omits the trailing '\\n' (pretty2-lf, no final newline); fix filed with Server Storage (t/4353 follow-up)"]
+    },
+    "taxonomy/Origin/safetyist.json": {
+      "format": "pretty2-lf-nl",
+      "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
+      "writers": [
+        "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)",
+        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; see known_mismatches)"
+      ],
+      "measured": {"ts-pretty2-lf-nl": "byte-identical"},
+      "known_mismatches": ["ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile omits the trailing '\\n' (pretty2-lf, no final newline); fix filed with Server Storage (t/4353 follow-up)"]
+    },
+    "taxonomy/Origin/skeptic.json": {
+      "format": "pretty2-lf-nl",
+      "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
+      "writers": [
+        "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)",
+        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; see known_mismatches)"
+      ],
+      "measured": {"ts-pretty2-lf-nl": "NOT identical at 7dc19c88: inline pov_tags prefix from the t/3962 write; this is the one file to normalise (t/4353)"},
+      "known_mismatches": ["ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile omits the trailing '\\n' (pretty2-lf, no final newline); fix filed with Server Storage (t/4353 follow-up)"]
+    },
+    "taxonomy/Origin/edges.json": {
+      "format": "edges-hybrid",
+      "definition": "lib/edges/serializeEdges.ts serializeEdgesJson; docs/edges-json-format.md",
+      "writers": [
+        "ts:lib/edges/serializeEdges.ts serializeEdgesJson (writeEdgesFile, modulateEdgeWeights)",
+        "ps:scripts/AITriad/Private/Write-EdgesFile.ps1"
+      ],
+      "measured": {
+        "ts-serializeEdgesJson": "byte-identical",
+        "ps-Write-EdgesFile": "NOT identical: the format matches, but the READ side changes values. On PS 7.4.21 (no ConvertFrom-Json -DateKind) ISO strings are parsed to DateTime and re-emitted without trailing millisecond zeros (e.g. ...33.440Z -> ...33.44Z): 28 of 34,321 edges' discovered_at changed. The fix is in t/4356: a non-date-parsing read (PS 7.5+ -DateKind String, raw pass-through to Node, or System.Text.Json)."
+      }
+    },
+    "taxonomy/Origin/embeddings.json": {
+      "format": "producer-python",
+      "definition": "scripts/embed_taxonomy.py generate's Python json output (floats such as 1.0 kept); not a TS format",
+      "writers": ["py:scripts/embed_taxonomy.py generate (callers: .github/workflows/cluster-conflicts.yml 'Regenerate embeddings', and Update-TaxEmbeddings.ps1, which shells out to the same script)"],
+      "retired_writers": ["py:research/comp-linguist/analyses/coverage-gap-candidates/splice_embeddings.py (in-place writes refused, e/343#19)"],
+      "measured": {"ts-pretty2-lf-nl": "NOT identical (number format), as expected: TS is not this file's writer"}
+    }
+  }
+}
