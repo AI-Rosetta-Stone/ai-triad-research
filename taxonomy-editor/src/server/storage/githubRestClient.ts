@@ -160,7 +160,7 @@ export class GitHubRestClient {
     pathAndQuery: string,
     body?: unknown,
     callId?: string,
-    apiOpts?: { optional?: boolean },
+    apiOpts?: { optional?: boolean; raw?: boolean },
   ): Promise<ApiResult> {
     // t/803: correlate GitHub API calls to the originating HTTP request. Never
     // embed the user's email/principal in the id (it was PII in every log line).
@@ -172,7 +172,11 @@ export class GitHubRestClient {
 
       try {
         const url = `${GITHUB_API}${pathAndQuery}`;
-        const headers = this.buildRequestHeaders(creds, method, pathAndQuery, body, requestId);
+        // t/4286: pass apiOpts through as-is (not `apiOpts?.x` here) — each distinct
+        // optional-chain read is its own branch for local/complexity-budget, and
+        // request() is already at its budget; buildRequestHeaders/parseAndLogResponse
+        // read the fields themselves instead.
+        const headers = this.buildRequestHeaders(creds, method, pathAndQuery, body, requestId, apiOpts);
         // t/4307: counted here, the one spot every outbound call (incl. retries)
         // passes through, regardless of which backend method initiated it.
         this.countRequest(pathAndQuery);
@@ -192,7 +196,7 @@ export class GitHubRestClient {
         }
 
         const { data, text } = await this.parseAndLogResponse(
-          res, method, pathAndQuery, durationMs, callId, requestId, !!apiOpts?.optional,
+          res, method, pathAndQuery, durationMs, callId, requestId, apiOpts,
         );
 
         if (res.ok) {
@@ -241,10 +245,13 @@ export class GitHubRestClient {
 
   private buildRequestHeaders(
     creds: SyncCredentials, method: string, pathAndQuery: string,
-    body: unknown, requestId: string,
+    body: unknown, requestId: string, apiOpts: { raw?: boolean } | undefined,
   ): Record<string, string> {
     const headers: Record<string, string> = {
-      Accept: 'application/vnd.github+json',
+      // t/4286: raw asks the Contents API for the file's bytes directly — no JSON
+      // envelope, no base64. Only meaningful on a 2xx; GitHub always returns a
+      // normal JSON error body regardless of Accept on a non-2xx response.
+      Accept: apiOpts?.raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json',
       Authorization: `Bearer ${creds.token}`,
       'User-Agent': USER_AGENT,
       'X-GitHub-Api-Version': API_VERSION,
@@ -276,13 +283,32 @@ export class GitHubRestClient {
 
   private async parseAndLogResponse(
     res: Response, method: string, pathAndQuery: string,
-    durationMs: number, callId: string | undefined, requestId: string, isOptional: boolean,
+    durationMs: number, callId: string | undefined, requestId: string,
+    apiOpts: { optional?: boolean; raw?: boolean } | undefined,
   ): Promise<{ data: unknown; text: string }> {
+    // t/4286: a raw 2xx response IS the file's bytes — res.text()+JSON.parse below
+    // would be a second synchronous full-body pass on top of fetch's own buffering,
+    // and for a binary file res.text() would additionally corrupt it via UTF-8
+    // decoding. arrayBuffer() is the only safe read here. A non-2xx response is
+    // unaffected: GitHub always returns JSON on error regardless of Accept, so it
+    // falls through to the normal parse below (kept in one function, rather than a
+    // branch in request(), so this stays the only place response bytes are read —
+    // local/complexity-budget).
+    if (apiOpts?.raw && res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      this.deps.record({
+        type: 'github.api.response', component: 'github-api', level: 'debug',
+        duration_ms: durationMs, call_id: callId, request_id: requestId,
+        data: { status: res.status, method, endpoint: pathAndQuery, bytes: buf.length, rate_remaining: this.rateLimit.remaining },
+      });
+      return { data: buf, text: '' };
+    }
+
     const text = await res.text();
     let data: unknown = null;
     try { data = text ? JSON.parse(text) : null; } catch { /* telemetry — silent by design */ data = text; }
 
-    const is404Optional = !res.ok && res.status === 404 && isOptional;
+    const is404Optional = !res.ok && res.status === 404 && !!apiOpts?.optional;
     this.deps.record({
       type: res.ok ? 'github.api.response' : (is404Optional ? 'github.api.miss' : 'github.api.error'),
       component: 'github-api',

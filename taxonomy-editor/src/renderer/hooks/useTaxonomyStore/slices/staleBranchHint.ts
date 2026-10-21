@@ -39,7 +39,8 @@ export interface BranchContext {
   behind_by: number | null;
 }
 
-const UNKNOWN: BranchContext = { session_branch: null, behind_by: null };
+// Shared by every caller that times out, so frozen: no caller can mutate the fallback for the next (Quality, #3525).
+const UNKNOWN: BranchContext = Object.freeze({ session_branch: null, behind_by: null });
 export const BRANCH_CONTEXT_TIMEOUT_MS = 3_000;
 
 /**

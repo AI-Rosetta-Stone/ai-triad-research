@@ -13,17 +13,33 @@ Config pins (t/3790#16 run-gate 2): every debate's recorded model / protocol / a
 and the build identity (app_version, generated_with_prompt_version), must match the plan and the plan's first
 debate. On any mismatch the runner exits 3 and the batch stops.
 
+Approval gate (t/3963#9): a plan must carry `approval_ref`, the recorded approval of its spend, as a
+ticket comment `t/KEY#N` or a ping `p/N#M`. A plan-level `hard_stop_usd` override must cite one in its
+`hard_stop_ref`. "Approved in chat" is not a record; the runner refuses such a plan before any spend (exit 5).
+
 Usage:
   python paid_batch_runner.py --plan <plan.json> --ledger <ledger.json> --code-root <frozen worktree>
   python paid_batch_runner.py --ledger <ledger.json> --report
 Exit codes: 0 ran one debate; 10 nothing left in this plan; 11 a hard stop refused the next debate;
-3 a pin mismatch (abort); 4 the debate run failed.
+3 a pin mismatch (abort); 4 the debate run failed; 5 the plan has no recorded approval (refused).
 """
-import argparse, glob, json, os, subprocess, sys, time
+import argparse, glob, json, os, re, subprocess, sys, time
 from datetime import datetime, timezone
 
 WORST_CASE_USD = 0.25        # pilot max was $0.218 per debate (t/3802#5); rounded up
 DEBATE_TIMEOUT_SEC = 570     # stays under the 10-minute foreground cap
+RECORDED_REF = re.compile(r"(?<![\w/])(?:t/[A-Za-z0-9-]+#\d+|p/\d+#\d+)(?!\w)")
+
+
+def approval_problem(plan):
+    """Why the plan's spend approval isn't a recorded reference, or None when it is."""
+    ref = plan.get("approval_ref")
+    if not isinstance(ref, str) or not RECORDED_REF.fullmatch(ref.strip()):
+        return (f"approval_ref is {ref!r}, not a recorded ticket comment (t/KEY#N) or ping (p/N#M)"
+                + (f"; approval_status: {plan['approval_status']}" if plan.get("approval_status") else ""))
+    if "hard_stop_usd" in plan and not RECORDED_REF.search(str(plan.get("hard_stop_ref", ""))):
+        return f"hard_stop_usd {plan['hard_stop_usd']} overrides the cap, but hard_stop_ref cites no t/KEY#N or p/N#M"
+    return None
 
 
 def load(path, default=None):
@@ -119,12 +135,25 @@ def main():
     ap.add_argument("--plan"); ap.add_argument("--ledger", required=True)
     ap.add_argument("--code-root"); ap.add_argument("--budget", type=float, default=15.0)
     ap.add_argument("--max-debates", type=int, default=56); ap.add_argument("--report", action="store_true")
+    ap.add_argument("--reserve", type=float, default=WORST_CASE_USD,
+                    help="per-debate spend reserved before starting one; size it to the format's max cost")
+    ap.add_argument("--timeout", type=int, default=DEBATE_TIMEOUT_SEC)
     a = ap.parse_args()
     ledger = load(a.ledger, {"budget": a.budget, "max_debates": a.max_debates, "debates": []})
     if a.report:
         report(ledger); return 0
 
     plan = load(a.plan)
+    problem = approval_problem(plan)
+    if problem:
+        sys.stderr.write(
+            "ERROR paid_batch_runner: refusing the plan before any spend.\n"
+            f"  Goal: run the next debate of paid plan '{plan.get('name')}'.\n"
+            f"  Problem: {problem.rstrip('.')}.\n"
+            f"  Location: {a.plan}\n"
+            "  Next Steps: get the spend approved by the PI and recorded on a ticket comment or ping, then set "
+            "approval_ref to that reference (t/3963#9).\n")
+        return 5
     out_dir = plan["output_dir"]
     os.makedirs(out_dir, exist_ok=True)
     done = {os.path.basename(p)[:-len("-debate.json")] for p in glob.glob(os.path.join(out_dir, "*-debate.json"))}
@@ -142,13 +171,26 @@ def main():
     if not todo:
         print(f"PLAN COMPLETE: {plan['name']} ({len(plan['debates'])} debates)"); return 10
 
-    spent = sum(r.get("usd") or 0 for r in ledger["debates"])
-    used = sum(1 for r in ledger["debates"] if counted(r))
+    spent = sum(r.get("usd") or 0 for r in ledger["debates"])  # every dollar, killed attempts included
+    # `count_cap_on: "completed"` (a plan-level ruling, re-read each debate) counts only completed debates
+    # toward max_debates; the default counts every paid attempt. Spend is never exempted either way.
+    if plan.get("count_cap_on") == "completed":
+        used = sum(1 for r in ledger["debates"] if r.get("status") == "ok")
+    else:
+        used = sum(1 for r in ledger["debates"] if counted(r))
+    # A PI-approved cap change is recorded in the plan (`hard_stop_usd`, with its approval ref), which a
+    # running loop re-reads every debate. The ledger's own `budget` is rewritten by whichever process saves
+    # last, so it can't carry a mid-run change safely.
+    budget = plan.get("hard_stop_usd", ledger["budget"])
+    if budget != ledger["budget"]:
+        sys.stderr.write(f"WARN paid_batch_runner: hard stop ${budget:.2f} from the plan "
+                         f"({plan.get('hard_stop_ref', 'no ref')}) overrides the ledger's ${ledger['budget']:.2f}\n")
+        ledger["budget"] = budget
     if used >= ledger["max_debates"]:
         print(f"HARD STOP: {used} debates counted, the cap is {ledger['max_debates']}"); return 11
-    if spent + WORST_CASE_USD > ledger["budget"]:
-        print(f"HARD STOP: spent ${spent:.2f}; one more debate (worst ${WORST_CASE_USD}) could pass "
-              f"${ledger['budget']:.2f}"); return 11
+    if spent + a.reserve > budget:
+        print(f"HARD STOP: spent ${spent:.2f}; one more debate (reserve ${a.reserve}) could pass "
+              f"${budget:.2f}"); return 11
 
     item = todo[0]
     cfg = dict(plan["base_config"]); cfg.update(item.get("config", {}))
@@ -162,16 +204,25 @@ def main():
         return 3
     cfg_path = os.path.join(out_dir, f"{item['slug']}-config.json")
     save(cfg_path, cfg)
-    print(f"RUN {plan['name']} {item['slug']} ({len(done) + 1}/{len(plan['debates'])}); spent so far ${spent:.2f}")
+    print(f"RUN {plan['name']} {item['slug']} ({len(done) + 1}/{len(plan['debates'])}); spent so far ${spent:.2f}",
+          flush=True)
+    # Book the reserve BEFORE running. If this process is killed mid-debate (e.g. by a low-memory reaper),
+    # the saved in-flight row keeps the reserve in the ledger, so the hard stop never undercounts. A
+    # returning run replaces it with the measured row.
+    inflight = {"plan": plan["name"], "slug": item["slug"], "usd": a.reserve, "status": "in-flight",
+                "note": "booked at --reserve before the run; a row left in this state means the run was killed",
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    ledger["debates"].append(inflight); save(a.ledger, ledger)
     t0 = time.time()
     try:
         proc = subprocess.run(["npx", "tsx", "lib/debate/cli.ts", "--config", cfg_path], cwd=a.code_root,
                               capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              timeout=DEBATE_TIMEOUT_SEC, shell=(os.name == "nt"))
+                              timeout=a.timeout, shell=(os.name == "nt"))
         rc, tail = proc.returncode, (proc.stdout + proc.stderr)[-1500:]
     except subprocess.TimeoutExpired:
         rc, tail = "timeout", ""
     secs = round(time.time() - t0)
+    ledger["debates"].remove(inflight)  # replaced below by the measured (or failed) row
     cost = debate_cost(os.path.join(out_dir, f"{item['slug']}-flight-recorder.jsonl"), price_table(a.code_root))
     row = {"plan": plan["name"], "slug": item["slug"], "usd": cost["usd"], "calls": cost["calls"],
            "in": cost["in"], "out": cost["out"], "secs": secs, "rc": rc,
@@ -181,9 +232,20 @@ def main():
     if rc != 0 or debate is None:
         if cost["usd"] is None:  # no flight recorder: fall back to the partial's own AI-call count
             partial = load(os.path.join(out_dir, f"{item['slug']}-partial.json")) or {}
-            n_calls = ((partial.get("diagnostics") or {}).get("overview") or {}).get("total_ai_calls")
-            row["usd"] = 0.0 if n_calls == 0 else WORST_CASE_USD  # unknown spend is booked at the worst case
-            row["note"] = f"no flight recorder; partial total_ai_calls={n_calls}"
+            overview = (partial.get("diagnostics") or {}).get("overview") or {}
+            n_calls = overview.get("total_ai_calls")
+            n_in = overview.get("total_input_tokens") or 0
+            n_turns = len(partial.get("transcript") or [])
+            # `total_ai_calls` can read 0 on a run that spent (t3790a32: 0 calls, 583,910 input tokens,
+            # 14 turns), so it is only "no spend" when the tokens and the transcript agree. Unknown spend
+            # is booked at the worst case.
+            zero_spend = n_calls == 0 and n_in == 0 and n_turns == 0
+            row["usd"] = 0.0 if zero_spend else a.reserve
+            row["note"] = (f"no flight recorder; partial total_ai_calls={n_calls}, "
+                           f"total_input_tokens={n_in}, transcript turns={n_turns}")
+            if not zero_spend and n_calls == 0:
+                sys.stderr.write(f"WARN paid_batch_runner: {item['slug']} partial reports 0 AI calls but "
+                                 f"{n_in} input tokens and {n_turns} turns; booked at the reserve ${a.reserve}\n")
         row["status"] = "failed"; ledger["debates"].append(row); save(a.ledger, ledger)
         print(f"FAILED {item['slug']} rc={rc} after {secs}s, booked ${row['usd']}\n--- CLI output tail ---\n{tail}")
         return 4

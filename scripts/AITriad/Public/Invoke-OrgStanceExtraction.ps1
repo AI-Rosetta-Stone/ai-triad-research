@@ -141,15 +141,22 @@ function Invoke-OrgStanceExtraction {
     $skippedAlreadyDone = 0
     $skippedNoOrg      = 0
 
+    # duplicate_of (t/4337 C1): an edge to a marked copy is read through its canonical doc, and one
+    # org reads each resolved doc once. Existing claims keep the ids they were extracted under, so
+    # "covered" accepts either the exact or the resolved id (spec 6.4).
+    $resolution = Get-SourceResolution -SourcesDir $sourcesRoot
+    $queued = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($e in $approved) {
         $orgId    = [string]$e.source
-        $sourceId = [string]$e.target
+        $exactId  = [string]$e.target
+        $sourceId = Resolve-SourceId -Resolution $resolution -Id $exactId
         $key      = "$orgId::$sourceId"
 
-        if (-not $Force -and $covered.ContainsKey($key)) {
+        if (-not $Force -and ($covered.ContainsKey($key) -or $covered.ContainsKey("$orgId::$exactId"))) {
             $skippedAlreadyDone++
             continue
         }
+        if (-not $queued.Add($key)) { $skippedAlreadyDone++; continue }
 
         if (-not $orgById.ContainsKey($orgId)) {
             $skippedNoOrg++
@@ -413,6 +420,26 @@ function Invoke-OrgStanceExtraction {
     }
 
     Write-Progress -Id $ProgressId -Activity 'Extracting stance claims' -Completed
+
+    # ── text_verbatim (t/4382) ───────────────────────────────────────────
+    # Computed here, after collection, so both the sequential and the parallel path get it (the
+    # parallel runspaces can't call module helpers). FORENSIC FIELD: NO consumer branches on
+    # text_verbatim. THE EXEMPTION LAPSES the moment a consumer branches on it (root AGENTS.md, T0).
+    # It records whether `text` is a verbatim span of the source snapshot (Test-StanceTextVerbatim);
+    # a paraphrase passed downstream as a quote can blur Invoke-OrgClaimMatching's polarity signal.
+    $snapshotBySource = @{}; foreach ($w in @($workItems)) { $snapshotBySource[[string]$w.SourceId] = [string]$w.Snapshot }
+    $snapshotText = @{}; $notVerbatim = 0
+    foreach ($c in @($newClaims)) {
+        $sp = $snapshotBySource[[string]$c.source_id]
+        if ($sp -and -not $snapshotText.ContainsKey($sp)) { $snapshotText[$sp] = [System.IO.File]::ReadAllText($sp) }
+        $isVerbatim = [bool]($sp -and (Test-StanceTextVerbatim -Text ([string]$c.text) -Snapshot $snapshotText[$sp]))
+        $c | Add-Member -NotePropertyName 'text_verbatim' -NotePropertyValue $isVerbatim -Force
+        if (-not $isVerbatim) {
+            $notVerbatim++
+            $t = [string]$c.text; $preview = if ($t.Length -gt 80) { $t.Substring(0, 80) + '…' } else { $t }
+            Write-Warning "Invoke-OrgStanceExtraction: claim text for $($c.org_id)::$($c.source_id) is not a verbatim span of its snapshot (paraphrase?): '$preview'"
+        }
+    }
 
     # ── Merge + persist ──────────────────────────────────────────────────
     $writtenNew   = @($newClaims).Count

@@ -19,6 +19,7 @@ import type { ServerCtx } from './context.js';
 import { json, error, statusForError, codeForError } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getTaxonomyDir, getBackend, readTaxonomyFile, readFileWithVersionOrFallback } from '../storage/fileIO.js';
+import { getDataRoot, getStateRoot } from '../config.js';
 import { scheduleOverlayCommit } from '../storage/overlayCommitScheduler.js';
 import { isAnonymousUser, getCurrentUserId } from '../security/userContext.js';
 import {
@@ -126,7 +127,13 @@ export function registerPolicyRegistryRoutes(router: Router, ctx: ServerCtx): vo
 
     const taxDir = getTaxonomyDir();
     const registryPath = path.join(taxDir, 'policy_actions.json');
-    const lockPath = path.join(taxDir, 'policy_actions.lock');
+    // t/4372 (t/4264): the lock is pure same-environment coordination, not the data-of-record
+    // write itself (that goes through getBackend().writeFile(registryPath, …) above, already
+    // sanctioned) — so it belongs under getStateRoot(), never getDataRoot()/taxDir directly.
+    // A staging deployment sharing /mnt/shared would otherwise fs.open/unlink a lock file
+    // directly on PROD's share, racing prod's own concurrent recounts (the t/4264 failure
+    // class). getStateRoot() defaults to getDataRoot() on prod/local, so this is a no-op there.
+    const lockPath = path.join(getStateRoot(), path.relative(getDataRoot(), taxDir), 'policy_actions.lock');
 
     const { timedOut, onDisk } = await acquirePolicyActionsLock(lockPath);
     try {

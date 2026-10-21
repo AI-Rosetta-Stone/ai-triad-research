@@ -909,6 +909,7 @@ Export-ModuleMember -Function @(
     'Get-LatestFlightRecorderDump'
     'Get-AzureFlightRecorder'
     'Show-FlightRecorder'
+    'Export-SourcesIndex',
     'Update-AITSourceIndex'
     'Get-PovLineage'
     'Get-IntellectualLineage'

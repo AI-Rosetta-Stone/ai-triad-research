@@ -126,6 +126,9 @@ function Invoke-OrgPublishedSeeding {
     # ── Walk sources ─────────────────────────────────────────────────────
     $sourceDirs = @(Get-ChildItem -Path $SourcesPath -Directory -ErrorAction SilentlyContinue |
                     Where-Object { $_.Name -notlike '_*' -and $_.Name -notlike '.*' })
+    # duplicate_of (t/4337 C1): no PUBLISHED edge is proposed to a marked copy; its canonical gets one.
+    $resolution = Get-SourceResolution -SourcesDir $SourcesPath
+    $sourceDirs = @($sourceDirs | Where-Object { Test-SourceSelectable -Resolution $resolution -Id $_.Name })
 
     $proposalsPerOrg = @{}
     $proposed = [System.Collections.Generic.List[PSObject]]::new()

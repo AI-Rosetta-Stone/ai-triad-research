@@ -11,7 +11,7 @@
 
 import type { Router } from '../httpKit.js';
 import type { ServerCtx } from './context.js';
-import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForError, codeForError, requireBaseVersion } from '../httpKit.js';
+import { json, error, param, jsonStringifyChunked, sendJsonBuffer, statusForError, codeForError, requireBaseVersion, type SerializeStats } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import * as fileIO from '../storage/fileIO.js';
 import { stampNodeAuthorship, diffNodes } from '../storage/editMeta.js';
@@ -61,7 +61,12 @@ async function getSyntheticEmbeddingsBuffer(): Promise<Buffer> {
     const data = await fileIO.loadSyntheticEmbeddings();
     const loadMs = Date.now() - t0;
     const t1 = Date.now();
-    const buffer = await jsonStringifyChunked(data); // yields the loop during the cold serialize
+    // t/4286: serializeStats names the slicing the same way extractNodeVectorsAsync's
+    // ExtractStats does — item-count yielding alone let one slice run ~700ms unyielded on this
+    // corpus's uneven node sizes (t/4286#35); serialize_max_slice_ms proves whether that's fixed,
+    // instead of inferring it from the total like the canary had to before this.
+    const serializeStats: SerializeStats = { slices: 0, maxSliceMs: 0 };
+    const buffer = await jsonStringifyChunked(data, 256, serializeStats); // yields the loop during the cold serialize
     const serializeMs = Date.now() - t1;
     // Generation-guard (t/3237): publish to the cache ONLY if no invalidation landed mid-build. Else this
     // build's bytes are stale — still hand them to the current awaiters (they requested pre-invalidation),
@@ -72,6 +77,7 @@ async function getSyntheticEmbeddingsBuffer(): Promise<Buffer> {
     log.api.info({
       component: 'api', route: 'synthetic-embeddings', cache: 'cold', load_ms: loadMs, serialize_ms: serializeMs, bytes: buffer.length,
       node_count: data ? Object.keys(data).length : 0,
+      serialize_slices: serializeStats.slices, serialize_max_slice_ms: Math.round(serializeStats.maxSliceMs),
       heap_before: heapBefore, heap_after: process.memoryUsage().heapUsed,
     }, 'synthetic-embeddings built + serialized + cached (cold path)');
     return buffer;

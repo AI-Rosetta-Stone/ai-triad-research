@@ -34,50 +34,126 @@ const CLOSE_BRACE = Buffer.from('}');
 const COMMA = Buffer.from(',');
 const COLON = Buffer.from(':');
 
+const yieldToLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+
+// t/4286 (canary re-run, p/793#39): item-COUNT yielding (every `yieldEvery` entries) doesn't
+// bound the WORK between yields when items vary wildly in size — the synthetic-embeddings
+// corpus's 831 nodes range from a handful of vectors to 90, so 256 node-entries between yields
+// could still be ~700ms of synchronous JSON.stringify work (the exact block the canary kept
+// finding after load/extract/concat were all ruled out and fixed). Same class of bug Shared
+// Lib fixed in extractNodeVectorsAsync (node-count → float-count yielding, t/4286#22) — this is
+// the equivalent fix one level up, in the stringify loop itself: yield on cumulative OUTPUT
+// BYTES as well as item count, whichever comes first, so one big item can't blow the budget.
+const YIELD_BYTES_THRESHOLD = 2 * 1024 * 1024; // ~2MB — small enough to keep any single gap well under the gate's margin
+
+/** Filled by jsonStringifyChunked when passed: how the work was sliced (t/4286 diagnosis,
+ *  same shape as lib/npy.ts's ExtractStats). */
+export interface SerializeStats {
+  /** Number of synchronous slices (yields + 1). */
+  slices: number;
+  /** The longest synchronous slice, in ms: the event-loop block this call can cause. */
+  maxSliceMs: number;
+}
+
+/** t/4286 (canary re-run, p/793#25): `Buffer.concat(chunks)` is ONE synchronous native memcpy
+ *  over the full output size — for the ~300MB synthetic-embeddings payload that alone measured
+ *  ~700ms (canary: window-gate max 732ms at prod size, after t/3165/t/3415's stringify-loop and
+ *  string-join fixes had already landed). `Buffer.concat` is a single call; there's no way to
+ *  yield mid-call, so this copies each chunk into a preallocated buffer itself, in the SAME
+ *  yielding cadence as the caller's stringify loop. Byte-identical output to `Buffer.concat`. */
+export async function concatChunked(chunks: readonly Buffer[], yieldEvery: number): Promise<Buffer> {
+  let total = 0;
+  for (const c of chunks) total += c.length;
+  const out = Buffer.allocUnsafe(total);
+  let offset = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    offset += chunks[i].copy(out, offset);
+    if ((i + 1) % yieldEvery === 0) await yieldToLoop();
+  }
+  return out;
+}
+
 /** t/3165/t/4286: serialize a large array or plain object to a JSON Buffer WITHOUT a single
- *  un-yielded JSON.stringify OR a single un-yielded string-join. A ~4144-entry synthetic-
+ *  un-yielded JSON.stringify, string-join, OR buffer-concat. A ~4144-entry synthetic-
  *  embeddings map (or a big number[][]) stringified at once blocked the prod event loop ~3s —
  *  t/3165 fixed that by chunk-yielding the per-item JSON.stringify calls, but still assembled
  *  the final payload with ONE synchronous `parts.join(',')` + string concatenation over the
  *  full ~400MB result. V8 string concatenation at that size is itself a multi-second, un-
  *  yieldable block (t/4286: canary found 1.7-3.8s depending on vCPU) — chunking the stringify
- *  loop did nothing to shrink it. Fix: convert each item straight to a UTF-8 Buffer as it's
- *  built (already inside the yielding loop) and assemble the result with `Buffer.concat` — a
- *  native byte copy, not a JS string operation, so there's no second un-yielded pass. Output is
+ *  loop did nothing to shrink it. t/3415 fixed that by converting each item straight to a UTF-8
+ *  Buffer as it's built (already inside the yielding loop) — but the one remaining
+ *  `Buffer.concat(chunks)` assembly step is ITSELF a single un-yielded native copy over the
+ *  whole output; `concatChunked` (above) replaces it with the same yielding cadence. Output is
  *  byte-identical to JSON.stringify for arrays / plain objects of JSON-safe values (same key
  *  order, no whitespace, undefined/function-valued keys omitted, array holes → null). Non-array/
  *  non-object values fall back to a direct stringify.
  *  CAVEAT (t/3237): assumes a PLAIN top-level array/object — a top-level `toJSON()` is NOT honored
  *  (the top level is iterated by entries/elements directly). Nested `toJSON()` IS honored (handled by
  *  the inner JSON.stringify of each value). Callers with a custom top-level toJSON should use json(). */
-export async function jsonStringifyChunked(value: unknown, yieldEvery = 256): Promise<Buffer> {
-  const yieldToLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
-  if (Array.isArray(value)) {
-    if (value.length === 0) return Buffer.from('[]');
-    const chunks: Buffer[] = [OPEN_BRACKET];
-    for (let i = 0; i < value.length; i++) {
-      if (i > 0) chunks.push(COMMA);
-      chunks.push(Buffer.from(JSON.stringify(value[i]) ?? 'null', 'utf-8')); // array slot of undefined/function → null
-      if ((i + 1) % yieldEvery === 0) await yieldToLoop();
-    }
-    chunks.push(CLOSE_BRACKET);
-    return Buffer.concat(chunks);
+/** Tracks slice timing for `SerializeStats` (t/4286) and decides, after each chunk is pushed,
+ *  whether the stringify loop should yield now — every `yieldEvery` items (unchanged behavior
+ *  for uniform-size payloads) OR whenever cumulative bytes since the last yield cross
+ *  `YIELD_BYTES_THRESHOLD` (bounds the worst case for wildly uneven item sizes). Extracted out of
+ *  jsonStringifyChunked's two branches so each branch's own complexity stays within budget. */
+class SliceTracker {
+  private bytesSinceYield = 0;
+  private sliceStart = performance.now();
+  constructor(private readonly stats?: SerializeStats) {
+    if (stats) { stats.slices = 1; stats.maxSliceMs = 0; }
   }
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
-    const chunks: Buffer[] = [OPEN_BRACE];
-    let emitted = 0;
-    for (let i = 0; i < entries.length; i++) {
-      const sv = JSON.stringify(entries[i][1]);
-      if (sv === undefined) continue; // undefined/function/symbol values are omitted, like JSON.stringify
-      if (emitted > 0) chunks.push(COMMA);
-      chunks.push(Buffer.from(JSON.stringify(entries[i][0]), 'utf-8'), COLON, Buffer.from(sv, 'utf-8'));
-      emitted++;
-      if ((i + 1) % yieldEvery === 0) await yieldToLoop();
-    }
-    chunks.push(CLOSE_BRACE);
-    return Buffer.concat(chunks);
+  /** Call after pushing one chunk. Yields (and starts a new slice) if this chunk's position or
+   *  the accumulated bytes cross either threshold. */
+  async afterChunk(itemIndex1Based: number, yieldEvery: number, chunkBytes: number): Promise<void> {
+    this.bytesSinceYield += chunkBytes;
+    if (itemIndex1Based % yieldEvery !== 0 && this.bytesSinceYield < YIELD_BYTES_THRESHOLD) return;
+    if (this.stats) { this.stats.maxSliceMs = Math.max(this.stats.maxSliceMs, performance.now() - this.sliceStart); this.stats.slices++; }
+    await yieldToLoop();
+    this.sliceStart = performance.now();
+    this.bytesSinceYield = 0;
   }
+  /** Call once after the loop ends, to capture the final (possibly never-yielded) slice. */
+  finish(): void {
+    if (this.stats) this.stats.maxSliceMs = Math.max(this.stats.maxSliceMs, performance.now() - this.sliceStart);
+  }
+}
+
+async function stringifyArrayChunked(value: unknown[], yieldEvery: number, tracker: SliceTracker): Promise<Buffer> {
+  if (value.length === 0) return Buffer.from('[]');
+  const chunks: Buffer[] = [OPEN_BRACKET];
+  for (let i = 0; i < value.length; i++) {
+    if (i > 0) chunks.push(COMMA);
+    const chunk = Buffer.from(JSON.stringify(value[i]) ?? 'null', 'utf-8'); // array slot of undefined/function → null
+    chunks.push(chunk);
+    await tracker.afterChunk(i + 1, yieldEvery, chunk.length);
+  }
+  chunks.push(CLOSE_BRACKET);
+  tracker.finish();
+  return concatChunked(chunks, yieldEvery);
+}
+
+async function stringifyObjectChunked(value: Record<string, unknown>, yieldEvery: number, tracker: SliceTracker): Promise<Buffer> {
+  const entries = Object.entries(value);
+  const chunks: Buffer[] = [OPEN_BRACE];
+  let emitted = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const sv = JSON.stringify(entries[i][1]);
+    if (sv === undefined) continue; // undefined/function/symbol values are omitted, like JSON.stringify
+    if (emitted > 0) chunks.push(COMMA);
+    const keyChunk = Buffer.from(JSON.stringify(entries[i][0]), 'utf-8');
+    const valChunk = Buffer.from(sv, 'utf-8');
+    chunks.push(keyChunk, COLON, valChunk);
+    emitted++;
+    await tracker.afterChunk(i + 1, yieldEvery, keyChunk.length + valChunk.length);
+  }
+  chunks.push(CLOSE_BRACE);
+  tracker.finish();
+  return concatChunked(chunks, yieldEvery);
+}
+
+export async function jsonStringifyChunked(value: unknown, yieldEvery = 256, stats?: SerializeStats): Promise<Buffer> {
+  const tracker = new SliceTracker(stats);
+  if (Array.isArray(value)) return stringifyArrayChunked(value, yieldEvery, tracker);
+  if (value !== null && typeof value === 'object') return stringifyObjectChunked(value as Record<string, unknown>, yieldEvery, tracker);
   return Buffer.from(JSON.stringify(value) ?? 'null');
 }
 

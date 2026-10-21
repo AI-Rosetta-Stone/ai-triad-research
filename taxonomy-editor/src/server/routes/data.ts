@@ -41,8 +41,25 @@ export function registerDataRoutes(r: Router, ctx: ServerCtx): void {
     json(res, fileIO.getDataRootPath());
   });
 
+  // t/4372 (t/4264#2, TL): a desktop/local-server-only feature — refuse on hosted before ever
+  // touching process.env. Keyed on isLocalDeployment() (STORAGE_MODE==='filesystem' &&
+  // NODE_ENV!=='production'), not STORAGE_MODE alone, because the prod rollback runbook can set
+  // STORAGE_MODE=filesystem on hosted prod (t/4229's exact trap) — same predicate as
+  // /api/models/refresh's `accept` gate and taxonomy.ts's isPovTagsGateExempt().
   post('/api/data/set-root', (_req, res, body) => {
     if (!requireAdmin(res)) return; // L2 (t/720): mutating the data root is admin-only
+    if (!isLocalDeployment()) {
+      const notLocal = new ActionableError({
+        goal: 'Re-point this process\'s data root to a different local directory',
+        problem: 'Hosted deployments read taxonomy data through a fixed, provisioned root (github-api or a managed share) — re-pointing it is a desktop/local-server-only feature.',
+        location: 'server/routes/data.ts → POST /api/data/set-root',
+        nextSteps: ['Apply this change from the desktop app instead.'],
+      });
+      log.server.warn({ component: 'data-set-root' }, 'set-root refused on hosted (t/4372)');
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'data-set-root', level: 'warn', message: notLocal.message, error: { name: notLocal.name, message: notLocal.message, stack: notLocal.stack } });
+      error(res, String(notLocal), 409, notLocal, { code: 'SET_ROOT_NOT_SUPPORTED_ON_HOSTED' });
+      return;
+    }
     const { newRoot } = body as { newRoot: string };
     try {
       if (!fs.existsSync(newRoot)) {

@@ -128,11 +128,15 @@ function Wait-RevisionActivation {
     $verdict     = $null
     $result      = $null
     $lastRefusal = $null
+    $stateReads  = 0   # rounds where the state read returned a runningState
+    $logReads    = 0   # rounds where the log read returned text
     do {
         $round++
         $state   = & $GetState
         if (-not $state) { $state = [pscustomobject]@{ r = $null; h = $null } }  # az call failed: keep waiting
+        if ($state.r) { $stateReads++ }
         $logTail = & $GetLogTail
+        if (-not [string]::IsNullOrWhiteSpace([string]$logTail)) { $logReads++ }
         $result  = & $Probe
         $healthy = [bool]($result -and $result.Healthy)
         $verdict = Get-RevisionActivationVerdict -RunningState $state.r -HealthState $state.h -LogTail $logTail -ProbeHealthy $healthy
@@ -145,6 +149,16 @@ function Wait-RevisionActivation {
     } while ((Get-Date) -lt $deadline)
 
     $final = if ($verdict.Verdict -eq 'waiting') { 'timeout' } else { $verdict.Verdict }
+
+    # t/4158 follow-up (SO C4, #3217): if the state or log read came back empty on EVERY round, the loop
+    # silently degraded to probe-only — it could not have failed fast on ActivationFailed or the mint 404.
+    # Say so. The log check needs 2+ rounds: a revision healthy on round 1 may simply have no log yet.
+    if ($stateReads -eq 0) {
+        Write-Host "::warning::t/4158: the revision state read returned nothing on all $round round(s) — this health check ran probe-only and could not fail fast on ActivationFailed."
+    }
+    if ($round -ge 2 -and $logReads -eq 0) {
+        Write-Host "::warning::t/4158: the revision log read returned nothing on all $round rounds — this health check could not detect a fatal startup log line (e.g. the App token mint 404)."
+    }
 
     # t/4249: GetState/GetLogTail/GetProbe each run a native `az`/curl call every round, including
     # the round that resolves to 'healthy'. A deploy run (39061815653, 2026-10-17) failed its
@@ -163,6 +177,10 @@ function Wait-RevisionActivation {
         Message     = $verdict.Message
         LastRefusal = $lastRefusal
         Rounds      = $round
+        # StateReads/LogReads (t/4158): diagnostics for tests and logs only. NO consumer branches on them;
+        # THE T0 EXEMPTION LAPSES the moment a workflow or caller branches on either value.
+        StateReads  = $stateReads
+        LogReads    = $logReads
         Result      = $result
     }
 }

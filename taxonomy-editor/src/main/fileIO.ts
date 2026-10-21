@@ -3,6 +3,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 
 import { app } from 'electron';
@@ -17,7 +18,11 @@ import type { Entity } from '../../../lib/entities/types.js';
 import { serializeEdgesJson } from '../../../lib/edges/serializeEdges.js';
 import type { ContainerMentions, EntityMentionsFile } from '../../../lib/entities/mentionTypes.js';
 import { serializePovTagProposals, type PovTagProposalsFile } from '../../../lib/schema/povTagProposals.js';
-import { computeCanonicalDocIds, type SourceReference as SharedSourceReference, type SourceCardMeta as SharedSourceCardMeta, type CanonicalIdDocMeta } from '../../../lib/sourceIndex/types.js';
+import {
+  groupSourceIdentities, computeSourceContentHash,
+  type SourceReference as SharedSourceReference, type SourceCardMeta as SharedSourceCardMeta,
+  type SourceIdentityDoc, type SourceIdentityMeta,
+} from '../../../lib/sourceIndex/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -972,6 +977,10 @@ type SourceMetaJson = {
   title?: string; url?: string; source_type?: string;
   date_published?: string; source_time?: string; date_ingested?: string;
   authors?: string[]; topic_tags?: string[]; one_liner?: string;
+  // t/4349: source-identity fields (docs/specs/source-identity.md, t/4344).
+  resolved_url?: string; provenance?: SourceIdentityMeta['provenance'];
+  content_sha256?: string; same_as?: string; parent_doc_id?: string;
+  duplicate_of?: string; // t/4377 (spec section 6)
 };
 
 /**
@@ -1036,24 +1045,138 @@ function indexSummaryKeyPoints(index: NodeSourceIndex, docId: string, meta: Node
   }
 }
 
-/** t/4341: fills in canonicalDocId (set to each ref's own docId by indexSummaryKeyPoints)
- *  using the shared tier 1-4 algorithm — mirrors the server's applyCanonicalDocIds
- *  (src/server/storage/nodeSourceIndex.ts) so both builds group identically for the same
- *  data. Every docId seen anywhere in the index participates, so a split part reachable
- *  only via one node still resolves against the full known-id set. */
-function applyCanonicalDocIds(index: NodeSourceIndex, metaCache: Record<string, NodeSourceMeta>): void {
-  const allDocIds = new Set<string>();
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+}
+
+/** Spec section 4.0: a doc with no *recorded* `content_sha256` gets a *computed* one from
+ *  `snapshot.md`, mirroring the server's computeSnapshotHash (src/server/storage/
+ *  nodeSourceIndex.ts) minus its persisted blob-sha cache — that cache exists only to avoid
+ *  re-normalizing on every request against a remote storage backend; Electron reads the
+ *  local filesystem directly and only computes this once per buildNodeSourceIndex call. */
+function computeElectronSnapshotHash(docId: string): string | null {
+  const snapshot = loadSnapshot(docId);
+  if (snapshot === null) return null;
+  return computeSourceContentHash(snapshot, sha256Hex);
+}
+
+function buildIdentityMetaFromRawJson(meta: SourceMetaJson): SourceIdentityMeta {
+  return {
+    title: meta.title ?? null,
+    url: meta.url ?? null,
+    resolved_url: meta.resolved_url ?? null,
+    provenance: Array.isArray(meta.provenance) ? meta.provenance : [],
+    content_sha256: meta.content_sha256 ?? null,
+    same_as: meta.same_as ?? null,
+    parent_doc_id: meta.parent_doc_id ?? null,
+    duplicate_of: meta.duplicate_of ?? null, // t/4377 (spec section 6)
+  };
+}
+
+/** t/4349: scans the sources dir once, building both the card-metadata cache and the
+ *  source-identity metadata (+ computed snapshot hash when no recorded one exists) — the
+ *  Electron-side twin of the server's loadNodeMetaCache (src/server/storage/
+ *  nodeSourceIndex.ts), so canonical grouping reads the same `metadata.json` fields the
+ *  server reads, not just `{url, title}` (t/4334#11 condition 2). */
+function loadSourceMetaAndIdentity(): {
+  metaCache: Record<string, NodeSourceMeta>;
+  identityMeta: Record<string, SourceIdentityMeta>;
+  snapshotHashes: Record<string, string | null>;
+} {
+  const metaCache: Record<string, NodeSourceMeta> = {};
+  const identityMeta: Record<string, SourceIdentityMeta> = {};
+  const snapshotHashes: Record<string, string | null> = {};
+  const srcDir = getSourcesDir();
+  if (!srcDir) return { metaCache, identityMeta, snapshotHashes };
+
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const metaPath = path.join(srcDir, entry.name, 'metadata.json');
+    try {
+      if (!fs.existsSync(metaPath)) continue;
+      const raw = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as SourceMetaJson;
+      metaCache[entry.name] = {
+        title: raw.title || entry.name,
+        url: raw.url || null,
+        sourceType: raw.source_type || 'unknown',
+        datePublished: raw.date_published || raw.source_time || '',
+        authors: Array.isArray(raw.authors) ? raw.authors : [],
+        topicTags: Array.isArray(raw.topic_tags) ? raw.topic_tags : [],
+        oneLiner: raw.one_liner || null,
+      };
+      const identity = buildIdentityMetaFromRawJson(raw);
+      identityMeta[entry.name] = identity;
+      snapshotHashes[entry.name] = identity.content_sha256 ? null : computeElectronSnapshotHash(entry.name);
+    } catch { /* telemetry — silent by design;  skip */ }
+  }
+  return { metaCache, identityMeta, snapshotHashes };
+}
+
+/** t/4377 (spec section 6.3), ported verbatim from the server's identically-named helper
+ *  (src/server/storage/nodeSourceIndex.ts): a `duplicate_of`-marked entry (`resolved[docId]
+ *  !== docId`) is dropped whenever its resolved id already has its own, unmarked entry in
+ *  this node's list — "a duplicate pair gives one evidence unit, not two" (SO condition C2).
+ *  When no unmarked entry exists for that id (only the mark cites this node), exactly one
+ *  marked entry survives instead of vanishing, re-attributed to the resolved id using its
+ *  own card metadata when known. Unmarked entries, and grouping-only duplicates with no
+ *  mark (e.g. split parts), are never touched — only a mark changes row count. */
+function dedupeByResolvedId(
+  index: NodeSourceIndex, resolved: Record<string, string>, metaCache: Record<string, NodeSourceMeta>,
+): void {
+  for (const [nodeId, refs] of Object.entries(index)) {
+    const hasOwnEntry = new Set(refs.filter(r => (resolved[r.docId] ?? r.docId) === r.docId).map(r => r.docId));
+    const seenViaMark = new Set<string>();
+    const kept: SourceReference[] = [];
+    for (const r of refs) {
+      const resolvedId = resolved[r.docId] ?? r.docId;
+      if (resolvedId === r.docId) { kept.push(r); continue; }
+      if (hasOwnEntry.has(resolvedId) || seenViaMark.has(resolvedId)) continue;
+      seenViaMark.add(resolvedId);
+      const target = metaCache[resolvedId];
+      kept.push({
+        ...r, docId: resolvedId, canonicalDocId: resolvedId,
+        title: target?.title ?? r.title, url: target?.url ?? r.url,
+      });
+    }
+    index[nodeId] = kept;
+  }
+}
+
+/** t/4341/t/4349/t/4377: fills in canonicalDocId (set to each ref's own docId by
+ *  indexSummaryKeyPoints) using the shared source-identity algorithm — mirrors the server's
+ *  applyCanonicalDocIds (src/server/storage/nodeSourceIndex.ts) so both builds group
+ *  identically for the same data. Every doc under the sources dir participates (not just
+ *  docs cited by a summary today) — a `duplicate_of` target otherwise cited by nothing would
+ *  wrongly validate as `missing_target` (t/4377, same fix as server-side #3590), and a split
+ *  part reachable only via one node still resolves against the full known-id set. Also
+ *  applies t/4377's section 6: a valid `duplicate_of` mark collapses that node's two evidence
+ *  rows into one (`dedupeByResolvedId`), attributed to the resolved id. Returns the
+ *  title-collision (spec 4.5) and duplicate-of-error (spec 6.1) reports for the caller to
+ *  log — both are signals for a human, never applied as a merge. */
+function applyCanonicalDocIds(
+  index: NodeSourceIndex, identityMeta: Record<string, SourceIdentityMeta>, snapshotHashes: Record<string, string | null>,
+  metaCache: Record<string, NodeSourceMeta>,
+): { titleCollisions: string[][]; duplicateOfErrorCount: number } {
+  const allDocIds = new Set<string>(Object.keys(identityMeta));
   for (const refs of Object.values(index)) for (const r of refs) allDocIds.add(r.docId);
-  const docIds = [...allDocIds];
-  const canonicalMeta: Record<string, CanonicalIdDocMeta> = {};
-  for (const id of docIds) {
-    const m = metaCache[id];
-    canonicalMeta[id] = { url: m?.url ?? null, title: m?.title ?? id };
-  }
-  const canonicalIds = computeCanonicalDocIds(docIds, canonicalMeta);
+  const docs: SourceIdentityDoc[] = [...allDocIds].map(id => ({
+    id,
+    metadata: identityMeta[id] ?? { title: id },
+    snapshotSha256: snapshotHashes[id] ?? null,
+  }));
+  const { canonical, titleCollisions, resolved, duplicateOfErrors } = groupSourceIdentities(docs);
   for (const refs of Object.values(index)) {
-    for (const r of refs) r.canonicalDocId = canonicalIds[r.docId] ?? r.docId;
+    for (const r of refs) r.canonicalDocId = canonical[r.docId] ?? r.docId;
   }
+  dedupeByResolvedId(index, resolved, metaCache);
+  if (duplicateOfErrors.length > 0) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'file-io', level: 'warn',
+      message: `buildNodeSourceIndex: ${duplicateOfErrors.length} invalid duplicate_of mark(s) found (treated as absent)`,
+      data: { duplicateOfErrors },
+    });
+  }
+  return { titleCollisions, duplicateOfErrorCount: duplicateOfErrors.length };
 }
 
 /** Shared by `buildNodeSourceIndex` and `getNodeSources` (t/4342) so the per-node lookup
@@ -1063,16 +1186,8 @@ function buildNodeSourceIndexWithMeta(): { index: NodeSourceIndex; metaCache: Re
 
   if (!fs.existsSync(SUMMARIES_DIR)) return { index, metaCache: {} };
 
-  // Pre-load source metadata for titles/URLs
-  const metaCache = loadSourceMetadata((meta, name): NodeSourceMeta => ({
-    title: meta.title || name,
-    url: meta.url || null,
-    sourceType: meta.source_type || 'unknown',
-    datePublished: meta.date_published || meta.source_time || '',
-    authors: Array.isArray(meta.authors) ? meta.authors : [],
-    topicTags: Array.isArray(meta.topic_tags) ? meta.topic_tags : [],
-    oneLiner: meta.one_liner || null,
-  }));
+  // Pre-load source metadata for titles/URLs, plus the full source-identity metadata.
+  const { metaCache, identityMeta, snapshotHashes } = loadSourceMetaAndIdentity();
 
   // Scan all summary files
   for (const file of fs.readdirSync(SUMMARIES_DIR)) {
@@ -1088,7 +1203,14 @@ function buildNodeSourceIndexWithMeta(): { index: NodeSourceIndex; metaCache: Re
     indexSummaryKeyPoints(index, docId, meta, summary);
   }
 
-  applyCanonicalDocIds(index, metaCache);
+  const { titleCollisions } = applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
+  if (titleCollisions.length > 0) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'file-io', level: 'warn',
+      message: `buildNodeSourceIndex: ${titleCollisions.length} title collision(s) found (no merge applied, human review needed)`,
+      data: { titleCollisions },
+    });
+  }
   return { index, metaCache };
 }
 

@@ -28,9 +28,18 @@ const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as {
   title_cases: { name: string; input: string | null; expected: string }[];
   grouping_cases: {
     name: string;
-    documents: { id: string; metadata: Record<string, unknown>; snapshot_sha256?: string }[];
+    documents: { id: string; metadata: Record<string, unknown>; snapshot_sha256?: string; snapshot_text?: string }[];
     expected_canonical: Record<string, string>;
     expected_title_collisions: string[][];
+    expected_url_conflicts: { url_key: string; ids: [string, string] }[];
+  }[];
+  duplicate_of_cases: {
+    name: string;
+    documents: { id: string; metadata: Record<string, unknown>; snapshot_sha256?: string; snapshot_text?: string }[];
+    expected_canonical: Record<string, string>;
+    expected_resolved: Record<string, string>;
+    expected_selectable: string[];
+    expected_duplicate_of_errors: { id: string; target: string; kind: string }[];
   }[];
 };
 
@@ -77,11 +86,36 @@ describe(`source-identity fixture v${fixture.version} (t/4344)`, () => {
         const docs: SourceIdentityDoc[] = c.documents.map(d => ({
           id: d.id,
           metadata: d.metadata as SourceIdentityDoc['metadata'],
-          snapshotSha256: d.snapshot_sha256 ?? null,
+          snapshotSha256: d.snapshot_text !== undefined
+            ? computeSourceContentHash(d.snapshot_text, sha256Hex)
+            : d.snapshot_sha256 ?? null,
         }));
         const result = groupSourceIdentities(docs);
         expect(result.canonical).toEqual(c.expected_canonical);
         expect(result.titleCollisions).toEqual(c.expected_title_collisions);
+        expect(result.urlConflicts).toEqual(c.expected_url_conflicts);
+      });
+    }
+  });
+
+  // t/4357: section 6 (duplicate_of). A separate list from grouping_cases
+  // (no grouping_case carries duplicate_of), so this describe block is the
+  // only place these run.
+  describe('duplicate_of_cases', () => {
+    for (const c of fixture.duplicate_of_cases) {
+      it(c.name, () => {
+        const docs: SourceIdentityDoc[] = c.documents.map(d => ({
+          id: d.id,
+          metadata: d.metadata as SourceIdentityDoc['metadata'],
+          snapshotSha256: d.snapshot_text !== undefined
+            ? computeSourceContentHash(d.snapshot_text, sha256Hex)
+            : d.snapshot_sha256 ?? null,
+        }));
+        const result = groupSourceIdentities(docs);
+        expect(result.canonical).toEqual(c.expected_canonical);
+        expect(result.resolved).toEqual(c.expected_resolved);
+        expect(result.selectable).toEqual(c.expected_selectable);
+        expect(result.duplicateOfErrors).toEqual(c.expected_duplicate_of_errors);
       });
     }
   });

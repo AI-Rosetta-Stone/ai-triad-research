@@ -42,6 +42,10 @@ function Get-AITSource {
         # Sources whose title matches either pattern.
     .PARAMETER Today
         Return only sources whose date_ingested is today.
+    .PARAMETER IncludeDuplicates
+        Also list documents marked duplicate_of another document (docs/specs/source-identity.md
+        section 6). A listing leaves them out by default. An exact -DocId (no wildcard) is a
+        lookup and always finds the document, marked or not.
     .EXAMPLE
         Get-AITSource -Status pending
         # Sources whose summary is pending.
@@ -79,7 +83,9 @@ function Get-AITSource {
 
         [string]$SourceType,
 
-        [switch]$Today
+        [switch]$Today,
+
+        [switch]$IncludeDuplicates
     )
 
     Set-StrictMode -Version Latest
@@ -91,6 +97,12 @@ function Get-AITSource {
         Write-Warning "Sources directory not found: $SourcesDir"
         return
     }
+
+    # duplicate_of (t/4337 C1, spec 6.2/6.3): a listing skips marked copies; an exact -DocId is a
+    # lookup and finds the document either way.
+    $IsLookup = $DocId -and -not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($DocId)
+    $Resolution = if ($IncludeDuplicates -or $IsLookup) { $null } else { Get-SourceResolution -SourcesDir $SourcesDir }
+    $Listed = { param($Id) $null -eq $Resolution -or (Test-SourceSelectable -Resolution $Resolution -Id ([string]$Id)) }
 
     # ── Fast path: read from _index.json when fresh ──────────────────────────
     $IndexPath = Join-Path $SourcesDir '_index.json'
@@ -112,6 +124,7 @@ function Get-AITSource {
         $TodayStr = if ($Today) { Get-Date -Format 'yyyy-MM-dd' } else { $null }
 
         foreach ($Entry in $Index.sources) {
+            if (-not (& $Listed $Entry.id)) { continue }
             if (-not (Test-AITSourceFilterMatch -Meta $Entry -DocId $DocId -Title $Title -Pov $Pov `
                     -Topic $Topic -Status $Status -SourceType $SourceType -Today:$Today -TodayStr $TodayStr)) {
                 continue
@@ -143,6 +156,7 @@ function Get-AITSource {
                 continue
             }
 
+            if (-not (& $Listed $Folder.Name)) { continue }
             if (-not (Test-AITSourceFilterMatch -Meta $Meta -DocId $DocId -Title $Title -Pov $Pov `
                     -Topic $Topic -Status $Status -SourceType $SourceType -Today:$Today -TodayStr $TodayStr)) {
                 continue

@@ -97,6 +97,8 @@ function Set-TriadConfig {
         try {
             $Current = Invoke-RestMethod -Uri "$($Req.BaseUrl)/api/admin/config" `
                 -Method GET -Headers $Req.Headers -ErrorAction Stop
+            Assert-TriadConfigResponse -Response $Current -Goal 'Fetch current runtime config for diff' `
+                -Uri "$($Req.BaseUrl)/api/admin/config" -CallerName 'Set-TriadConfig'
             $CurrentJson = ($Current.config | ConvertTo-Json -Depth 10).Split("`n")
             $LocalJson = ($ConfigObj | ConvertTo-Json -Depth 10).Split("`n")
 
@@ -155,6 +157,9 @@ function Set-TriadConfig {
                          'Check server logs for detailed validation errors',
                          "Endpoint: $($UploadParams.Uri)"))
     }
+
+    Assert-TriadConfigResponse -Response $Response -Goal 'Upload runtime config to taxonomy-editor' `
+        -Uri $UploadParams.Uri -CallerName 'Set-TriadConfig'
 
     Write-Output "Config uploaded successfully."
 

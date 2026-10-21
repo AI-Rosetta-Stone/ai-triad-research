@@ -29,6 +29,9 @@ function Get-AITClaim {
         Filter key_points by stance (aligned, neutral, opposed).
     .PARAMETER TemporalScope
         Filter factual claims by temporal scope (historical, predictive, timeless).
+    .PARAMETER IncludeDuplicates
+        Also return claims from documents marked duplicate_of another document. They're left out
+        by default, so a copy's claims aren't returned twice; an exact -DocId always finds them.
     .EXAMPLE
         Get-AITClaim
         # All claims from all summaries.
@@ -80,7 +83,9 @@ function Get-AITClaim {
 
         [string]$Stance,
 
-        [string]$TemporalScope
+        [string]$TemporalScope,
+
+        [switch]$IncludeDuplicates
     )
 
     Set-StrictMode -Version Latest
@@ -93,7 +98,8 @@ function Get-AITClaim {
         return
     }
 
-    $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+    # duplicate_of (t/4337 C1): a listing skips marked copies' summaries.
+    $SummaryFiles = @(Get-ListedSummaryFile -SummariesDir $SummariesDir -DocId $DocId -IncludeDuplicates:$IncludeDuplicates -Caller 'Get-AITClaim')
     if ($SummaryFiles.Count -eq 0) {
         Write-Warning "No summary files found in $SummariesDir"
         return

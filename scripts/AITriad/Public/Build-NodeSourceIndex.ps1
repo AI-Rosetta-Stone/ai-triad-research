@@ -87,6 +87,9 @@ function Build-NodeSourceIndex {
         [Parameter()]
         [string]$OutputPath,
 
+        [Parameter()]
+        [string]$SourcesDir,
+
         [switch]$PassThru
     )
 
@@ -94,11 +97,15 @@ function Build-NodeSourceIndex {
     $ErrorActionPreference = 'Stop'
 
     $SchemaVersion = 1
-    $BuilderVersion = '1.0.0'   # bump on any output-shape/serialization change (NOT per run)
+    $BuilderVersion = '1.1.0'   # bump on any output-shape/serialization change (NOT per run); 1.1.0: marksHash (t/4337)
 
     if (-not $SummariesDir) { $SummariesDir = Get-SummariesDir }
     if (-not $TaxonomyDir)  { $TaxonomyDir  = Get-TaxonomyDir }
     if (-not $OutputPath)   { $OutputPath   = Join-Path $TaxonomyDir 'source_index.json' }
+    if (-not $SourcesDir) {
+        try { $SourcesDir = Get-SourcesDir }
+        catch { Write-Warning "Build-NodeSourceIndex: no sources directory resolved ($($_.Exception.Message)); duplicate_of marks are not applied."; $SourcesDir = '' }
+    }
 
     if (-not (Test-Path -LiteralPath $SummariesDir)) {
         throw (New-ActionableError -PassThru `
@@ -141,12 +148,17 @@ function Build-NodeSourceIndex {
     foreach ($id in $Live) { $byNode[$id] = [System.Collections.Generic.List[object]]::new() }
     $nKp = 0; $nFc = 0
 
-    $files = Get-ChildItem -LiteralPath $SummariesDir -Filter '*.json' -File | Sort-Object Name
+    # duplicate_of (spec section 6, t/4337 C1): a marked copy's summary is skipped, so each
+    # resolved doc contributes one set of entries. Stored source ids are never rewritten.
+    $resolution = Get-SourceResolution -SourcesDir $SourcesDir
+    $files = @(Get-ChildItem -LiteralPath $SummariesDir -Filter '*.json' -File | Sort-Object Name)
+    $files = @(Select-SelectableSummaryFile -Files $files -Resolution $resolution)
     foreach ($file in $files) {
         $raw = [System.IO.File]::ReadAllBytes($file.FullName)
         $s = [System.Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xFEFF) | ConvertFrom-Json
         if (-not $s.PSObject.Properties['doc_id'] -or -not $s.doc_id) { continue }
         $sourceId = [string]$s.doc_id
+        if (-not (Test-SourceSelectable -Resolution $resolution -Id $sourceId)) { continue }   # file named differently from its doc_id
 
         if ($s.PSObject.Properties['pov_summaries'] -and $s.pov_summaries) {
             foreach ($pov in $s.pov_summaries.PSObject.Properties.Name) {
@@ -186,6 +198,9 @@ function Build-NodeSourceIndex {
     }
 
     $inputHash = Get-SummariesInputHash -SummariesDir $SummariesDir
+    # Separate from inputHash so the citation gate can still check summaries when no sources
+    # checkout exists (-SkipSourceResolution); it compares marksHash only when sources resolve.
+    $marksHash = Get-SourceMarksHash -Resolution $resolution
 
     # ── Dedup + ordinal sort per node ───────────────────────────────────────────
     # Dedup key: source_id | quote | link_source | doc_position (SO cond 2 / CL #4).
@@ -236,6 +251,7 @@ function Build-NodeSourceIndex {
         builder       = 'Build-NodeSourceIndex'
         builderVersion = $BuilderVersion
         inputHash     = $inputHash
+        marksHash     = $marksHash
         totals        = [ordered]@{
             nodes   = $nodeIds.Count
             entries = $totalEntries

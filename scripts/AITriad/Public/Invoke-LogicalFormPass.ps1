@@ -118,8 +118,10 @@ function Invoke-LogicalFormPass {
     else {
         $summDir = Get-SummariesDir
         if (Test-Path -LiteralPath $summDir) {
-            $summaryFiles = @(Get-ChildItem -LiteralPath $summDir -Filter '*.json' -File |
-                    Sort-Object -Property Name | ForEach-Object { $_.FullName })
+            # duplicate_of (t/4337 C1): no AI pass over a marked copy's summary.
+            $all = @(Get-ChildItem -LiteralPath $summDir -Filter '*.json' -File | Sort-Object -Property Name)
+            $summaryFiles = @(Select-SelectableSummaryFile -Files $all -Resolution (Get-DefaultSourceResolution -Caller 'Invoke-LogicalFormPass') |
+                    ForEach-Object { $_.FullName })
         }
         else {
             Write-Warning "Invoke-LogicalFormPass: summaries dir not found ($summDir); nothing to process."
