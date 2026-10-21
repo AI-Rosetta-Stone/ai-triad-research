@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // Grounding envelope builder for the inquiry pipeline (t/3577).
@@ -87,6 +87,21 @@ function scoreEmbeddingsByCamp(
  * layer (runInquiryPipeline) whenever an embedding corpus exists — an all-camps-empty
  * result with a non-empty embedding map is silent degradation, not graceful fallback.
  */
+/** Compute per-camp coverage signal — best pre-boost cosine score and low-coverage flag (t/4374).
+ *  Emits a WARN via the caller's warn callback when coverage is low but non-empty. */
+function computeCampCoverage(
+  camp: Camp,
+  eligibleScoredEntries: { score: number }[],
+  warn: (msg: string) => void,
+): { bestRawScore: number; lowCoverage: boolean } {
+  if (eligibleScoredEntries.length === 0) return { bestRawScore: 0, lowCoverage: true };
+  const bestRawScore = Math.max(...eligibleScoredEntries.map(s => s.score));
+  const lowCoverage = bestRawScore < LOW_COVERAGE_THRESHOLD;
+  if (lowCoverage) {
+    warn(`buildGroundingEnvelope: camp '${camp}' low coverage — best raw score ${bestRawScore.toFixed(3)} (threshold ${LOW_COVERAGE_THRESHOLD})`);
+  }
+  return { bestRawScore, lowCoverage };
+}
 export async function buildGroundingEnvelope(
   question: string,
   taxonomy: GroundingTaxonomy,
@@ -229,12 +244,8 @@ export async function buildGroundingEnvelope(
       }
     }
 
-    const rawBestScore = eligibleScoredEntries.length > 0 ? Math.max(...eligibleScoredEntries.map(s => s.score)) : 0;
-    const lowCoverage = eligibleScoredEntries.length === 0 || rawBestScore < LOW_COVERAGE_THRESHOLD;
-    campCoverage[camp] = { bestRawScore: rawBestScore, lowCoverage };
-    if (lowCoverage && eligibleScoredEntries.length > 0) {
-      warn(`buildGroundingEnvelope: camp '${camp}' low coverage — best raw score ${rawBestScore.toFixed(3)} (threshold ${LOW_COVERAGE_THRESHOLD})`);
-    }
+    campCoverage[camp] = computeCampCoverage(camp, eligibleScoredEntries, warn);
+
 
     activeScoredEntries.sort((a, b) => b.score - a.score);
     const seenCampLabels = new Set<string>();
@@ -258,9 +269,8 @@ export async function buildGroundingEnvelope(
     const refs = nodesByCamp[camp];
     if (!refs || refs.length === 0) {
       warn(`buildGroundingEnvelope: zero nodes selected for camp '${camp}' — embedding corpus may be incomplete`);
-      if (!campCoverage[camp]) {
-        campCoverage[camp] = { bestRawScore: 0, lowCoverage: true };
-      }
+      campCoverage[camp] ??= { bestRawScore: 0, lowCoverage: true };
+
     }
   }
 
