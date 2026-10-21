@@ -1,6 +1,6 @@
 {
   "$schema_note": "docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.",
-  "version": 4,
+  "version": 5,
   "hash_cases": [
     {
       "name": "plain body, LF",
@@ -1693,6 +1693,387 @@
           ]
         }
       ]
+    }
+  ],
+  "duplicate_of_cases": [
+    {
+      "name": "duplicate_of: a valid mark resolves to its target, which becomes canonical",
+      "documents": [
+        {
+          "id": "zeta-copy-2026",
+          "metadata": {
+            "duplicate_of": "zeta-report-2026",
+            "title": "Zeta"
+          }
+        },
+        {
+          "id": "zeta-report-2026",
+          "metadata": {
+            "title": "Zeta"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "zeta-copy-2026": "zeta-report-2026",
+        "zeta-report-2026": "zeta-report-2026"
+      },
+      "expected_resolved": {
+        "zeta-copy-2026": "zeta-report-2026",
+        "zeta-report-2026": "zeta-report-2026"
+      },
+      "expected_selectable": [
+        "zeta-report-2026"
+      ],
+      "expected_duplicate_of_errors": []
+    },
+    {
+      "name": "duplicate_of: the canonical is the target, not the ordinal-smallest id",
+      "documents": [
+        {
+          "id": "aaa-mirror-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "duplicate_of": "omega-2026",
+            "title": "Omega"
+          }
+        },
+        {
+          "id": "omega-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Omega"
+          }
+        },
+        {
+          "id": "omega-2026-1",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "duplicate_of": "omega-2026",
+            "title": "Omega"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "aaa-mirror-2026": "omega-2026",
+        "omega-2026": "omega-2026",
+        "omega-2026-1": "omega-2026"
+      },
+      "expected_resolved": {
+        "aaa-mirror-2026": "omega-2026",
+        "omega-2026": "omega-2026",
+        "omega-2026-1": "omega-2026"
+      },
+      "expected_selectable": [
+        "omega-2026"
+      ],
+      "expected_duplicate_of_errors": []
+    },
+    {
+      "name": "duplicate_of: an unmarked group member stays selectable and resolves to itself",
+      "documents": [
+        {
+          "id": "chi-2026",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Chi"
+          }
+        },
+        {
+          "id": "chi-2026-1",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "duplicate_of": "chi-2026",
+            "title": "Chi"
+          }
+        },
+        {
+          "id": "chi-2026-2",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Chi"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "chi-2026": "chi-2026",
+        "chi-2026-1": "chi-2026",
+        "chi-2026-2": "chi-2026"
+      },
+      "expected_resolved": {
+        "chi-2026": "chi-2026",
+        "chi-2026-1": "chi-2026",
+        "chi-2026-2": "chi-2026-2"
+      },
+      "expected_selectable": [
+        "chi-2026",
+        "chi-2026-2"
+      ],
+      "expected_duplicate_of_errors": []
+    },
+    {
+      "name": "duplicate_of: the mark alone is a strong edge (no other evidence)",
+      "documents": [
+        {
+          "id": "psi-preprint-2026",
+          "metadata": {
+            "duplicate_of": "psi-published-2026",
+            "title": "Psi preprint"
+          }
+        },
+        {
+          "id": "psi-published-2026",
+          "metadata": {
+            "title": "Psi"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "psi-preprint-2026": "psi-published-2026",
+        "psi-published-2026": "psi-published-2026"
+      },
+      "expected_resolved": {
+        "psi-preprint-2026": "psi-published-2026",
+        "psi-published-2026": "psi-published-2026"
+      },
+      "expected_selectable": [
+        "psi-published-2026"
+      ],
+      "expected_duplicate_of_errors": []
+    },
+    {
+      "name": "duplicate_of error: missing_target is ignored and reported",
+      "documents": [
+        {
+          "id": "lone-copy-2026",
+          "metadata": {
+            "duplicate_of": "not-in-set",
+            "title": "Lone"
+          }
+        },
+        {
+          "id": "other-2026",
+          "metadata": {
+            "title": "Other"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "lone-copy-2026": "lone-copy-2026",
+        "other-2026": "other-2026"
+      },
+      "expected_resolved": {
+        "lone-copy-2026": "lone-copy-2026",
+        "other-2026": "other-2026"
+      },
+      "expected_selectable": [
+        "lone-copy-2026",
+        "other-2026"
+      ],
+      "expected_duplicate_of_errors": [
+        {
+          "id": "lone-copy-2026",
+          "target": "not-in-set",
+          "kind": "missing_target"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_of error: self mark is ignored and reported",
+      "documents": [
+        {
+          "id": "narcissus-2026",
+          "metadata": {
+            "duplicate_of": "narcissus-2026",
+            "title": "Narcissus"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "narcissus-2026": "narcissus-2026"
+      },
+      "expected_resolved": {
+        "narcissus-2026": "narcissus-2026"
+      },
+      "expected_selectable": [
+        "narcissus-2026"
+      ],
+      "expected_duplicate_of_errors": [
+        {
+          "id": "narcissus-2026",
+          "target": "narcissus-2026",
+          "kind": "self"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_of error: a chain is not followed (one hop only)",
+      "documents": [
+        {
+          "id": "chain-a-2026",
+          "metadata": {
+            "duplicate_of": "chain-b-2026",
+            "title": "Chain"
+          }
+        },
+        {
+          "id": "chain-b-2026",
+          "metadata": {
+            "duplicate_of": "chain-c-2026",
+            "title": "Chain"
+          }
+        },
+        {
+          "id": "chain-c-2026",
+          "metadata": {
+            "title": "Chain"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "chain-a-2026": "chain-c-2026",
+        "chain-b-2026": "chain-c-2026",
+        "chain-c-2026": "chain-c-2026"
+      },
+      "expected_resolved": {
+        "chain-a-2026": "chain-a-2026",
+        "chain-b-2026": "chain-c-2026",
+        "chain-c-2026": "chain-c-2026"
+      },
+      "expected_selectable": [
+        "chain-a-2026",
+        "chain-c-2026"
+      ],
+      "expected_duplicate_of_errors": [
+        {
+          "id": "chain-a-2026",
+          "target": "chain-b-2026",
+          "kind": "chain"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_of error: a two-document cycle is two chain errors",
+      "documents": [
+        {
+          "id": "loop-a-2026",
+          "metadata": {
+            "duplicate_of": "loop-b-2026",
+            "title": "Loop"
+          }
+        },
+        {
+          "id": "loop-b-2026",
+          "metadata": {
+            "duplicate_of": "loop-a-2026",
+            "title": "Loop"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "loop-a-2026": "loop-a-2026",
+        "loop-b-2026": "loop-a-2026"
+      },
+      "expected_resolved": {
+        "loop-a-2026": "loop-a-2026",
+        "loop-b-2026": "loop-b-2026"
+      },
+      "expected_selectable": [
+        "loop-a-2026",
+        "loop-b-2026"
+      ],
+      "expected_duplicate_of_errors": [
+        {
+          "id": "loop-a-2026",
+          "target": "loop-b-2026",
+          "kind": "chain"
+        },
+        {
+          "id": "loop-b-2026",
+          "target": "loop-a-2026",
+          "kind": "chain"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_of error: two targets in one group, the larger is a conflict",
+      "documents": [
+        {
+          "id": "phi-a-2026",
+          "metadata": {
+            "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "title": "Phi"
+          }
+        },
+        {
+          "id": "phi-b-2026",
+          "metadata": {
+            "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "title": "Phi"
+          }
+        },
+        {
+          "id": "phi-c-2026",
+          "metadata": {
+            "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "duplicate_of": "phi-b-2026",
+            "title": "Phi"
+          }
+        },
+        {
+          "id": "phi-d-2026",
+          "metadata": {
+            "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "duplicate_of": "phi-a-2026",
+            "title": "Phi"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "phi-a-2026": "phi-a-2026",
+        "phi-b-2026": "phi-a-2026",
+        "phi-c-2026": "phi-a-2026",
+        "phi-d-2026": "phi-a-2026"
+      },
+      "expected_resolved": {
+        "phi-a-2026": "phi-a-2026",
+        "phi-b-2026": "phi-b-2026",
+        "phi-c-2026": "phi-c-2026",
+        "phi-d-2026": "phi-a-2026"
+      },
+      "expected_selectable": [
+        "phi-a-2026",
+        "phi-b-2026",
+        "phi-c-2026"
+      ],
+      "expected_duplicate_of_errors": [
+        {
+          "id": "phi-c-2026",
+          "target": "phi-b-2026",
+          "kind": "conflict"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_of: an empty string is no mark",
+      "documents": [
+        {
+          "id": "blank-mark-2026",
+          "metadata": {
+            "duplicate_of": "",
+            "title": "Blank"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "blank-mark-2026": "blank-mark-2026"
+      },
+      "expected_resolved": {
+        "blank-mark-2026": "blank-mark-2026"
+      },
+      "expected_selectable": [
+        "blank-mark-2026"
+      ],
+      "expected_duplicate_of_errors": []
     }
   ]
 }
