@@ -6250,7 +6250,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **When regex is necessary in a jq filter passed via shell**, write the jq program to a file and pass it with `jq -f <file>` to avoid shell-escaping interference.
 3. **"unterminated string literal" in a jq filter** is a reliable diagnostic for shell-escaping collision — simplify the pattern or use `jq -f`.
 
-**Status:** Active — 4 instances (DevOps Worker p/749#24; Rosetta Stone p/6#102 — `test("^Approved \\(Quality\\)")` failed; switched to `startswith`; PowerShell p/20#99 — `test("Approved \\(")` in `--jq` gave "unterminated string literal"; switched to `contains("Approved (")`; Azure p/105#26 — same jq interpolation confusion + parentheses accidentally placed outside closing single quote → Bash `syntax error near '('`; fix: plain `contains()` with no interpolation, one quoted filter per command).
+**Status:** Active — 5 instances (DevOps Worker p/749#24; Rosetta Stone p/6#102 — `test("^Approved \\(Quality\\)")` failed; switched to `startswith`; PowerShell p/20#99 — `test("Approved \\(")` in `--jq` gave "unterminated string literal"; switched to `contains("Approved (")`; Azure p/105#26 — jq interpolation confusion + parens outside closing single quote; PowerShell p/20#101 — `\\(` inside a jq string inside a double-quoted Bash string; escape layers collapsed → `unexpected token "\"`; fix: `startswith("Approved (")` instead of `test("^Approved \\(")`).
 
 **Applies To:** All agents constructing jq filters with regex patterns or parentheses in shell commands.
 
@@ -7027,3 +7027,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#252).
 
 **Applies To:** All agents assigning RBAC for Azure Files; scope to the storage account, not the individual share path.
+
+---
+
+## #347 [Build] Bash Tool Strips Backslashes From Windows Absolute Paths Passed to `pwsh -File` — Use PowerShell Tool Instead
+
+**Pattern:** An agent runs `pwsh -NoProfile -File C:\Users\...\script.ps1` via the Bash tool. The Bash tool strips or mangles the backslashes in the Windows absolute path, causing `pwsh` to receive a malformed path. Fix: use the PowerShell tool directly with a relative path after `cd`.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#253): `pwsh -NoProfile -File C:\Users\jsnov\...\Invoke-ShareFreshnessGateCheck.ps1` via Bash tool mangled the path (backslashes stripped). Resolved by using the PowerShell tool directly with `cd` to the script's directory and a relative path.
+
+**Root Cause:** The Bash tool is a POSIX shell environment (Git Bash / MSYS). Backslashes in string arguments are treated as escape characters, not path separators. A Windows absolute path like `C:\Users\foo\bar.ps1` loses its backslashes in transit. This is a different failure mode from #73/#307 (MSYS leading-slash translation) — here it is backslash-stripping, not path rewriting.
+
+**Prevention:**
+1. **Never pass Windows absolute paths with backslashes to `pwsh -File` via the Bash tool.** Use the PowerShell tool instead — it preserves Windows path syntax natively.
+2. **Preferred pattern:** PowerShell tool with `cd C:\...\dir; .\script.ps1` or a relative path after `cd`.
+3. **If the Bash tool must be used**, convert backslashes to forward slashes: `pwsh -NoProfile -File "C:/Users/.../script.ps1"` — but the PowerShell tool is always safer for Windows-native scripts.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#253).
+
+**Applies To:** All agents running PowerShell scripts via the Bash tool on Windows; always use the PowerShell tool for `pwsh` invocations with Windows absolute paths.
