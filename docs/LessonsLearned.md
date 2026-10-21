@@ -6214,24 +6214,25 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #307 [Build] Node.js `/tmp` Resolves to `C:\tmp` on Windows — Git Bash `/tmp` Maps to `%TEMP%`
+## #307 [Build] Windows-Native Tools Don't Resolve MSYS/Bash Paths — `/tmp` and `/c/...` Are Bash-Only Translations
 
-**Pattern:** An agent pipeline writes a file to `/tmp/<name>` from a Bash command (Git Bash on Windows), then attempts to read it from a Node.js script. Node.js cannot find the file (ENOENT `C:\tmp\<name>`). Git Bash's `/tmp` maps to the user's `%TEMP%` directory (e.g., `C:\Users\<user>\AppData\Local\Temp`), while Node.js on Windows resolves `/tmp` literally as `C:\tmp`.
+**Pattern:** An agent pipeline writes a file to a Bash-style path (`/tmp/<name>` or `/c/Users/...`) from a Bash command (Git Bash on Windows), then attempts to read it from a Windows-native tool (Node.js, python3, etc.). The tool cannot find the file. Git Bash translates `/tmp` to `%TEMP%` and `/c/` to `C:\`, but Windows-native executables receive paths verbatim from the process environment — they do not apply MSYS translations.
 
 **Instances:**
 - 2026-10-20 — DevOps Worker (p/749#26): `writeFileSync('/tmp/acc-origin.json')` inside a Node one-liner in the Bash tool resolved to `C:\tmp\...` — which did not exist. The Bash tool had written to Git Bash's `/tmp` (which is `%TEMP%`). Resolved by moving the logic into a script that calls `git show` itself via `execFileSync`, eliminating the temp file.
 - 2026-10-20 — Diagnostics (p/9#86): Bash wrote `git show` output to `/tmp/acc-origin.json`; Node script returned ENOENT `C:\tmp\acc-origin.json`. Same root cause. Resolved by calling `git show` directly from Node via `execFileSync`.
 
-**Root Cause:** On Windows, POSIX `/tmp` is not a real directory — it is a Git Bash convention mapped to `%TEMP%`. Node.js does not use MSYS/Git Bash's path translation; it treats `/tmp` as a Windows absolute path `C:\tmp`, which typically does not exist.
+**Root Cause:** Git Bash applies MSYS path translations (`/tmp` → `%TEMP%`, `/c/` → `C:\`) to its own process and child processes that understand MSYS. Windows-native executables (Node.js, python3, etc.) are launched as ordinary Windows processes — they receive paths as literal strings and apply no MSYS translation. A `/c/Users/...` path handed to python3 or node.exe is not a valid Windows path.
 
 **Prevention:**
-1. **Never write to `/tmp` in Bash and then read it from Node.js on Windows.** The paths resolve differently between the two runtimes.
-2. **Keep inter-process data in a single process** — call `git show` (or other shell commands) from Node via `execFileSync`/`spawnSync` rather than sharing temp files across shells.
-3. **If a temp file must be shared between Bash and Node on Windows**, use `$TEMP` or `$TMPDIR` in Bash (not `/tmp`) and `os.tmpdir()` in Node — both resolve to the same Windows temp directory.
+1. **When invoking any Windows-native tool (Node.js, python3, etc.) from Bash, always use native Windows paths (`C:\...`), not MSYS paths (`/c/...` or `/tmp/...`).** The translation is Bash-only.
+2. **Never write to `/tmp` in Bash and then read it from a Windows-native tool.** Git Bash's `/tmp` maps to `%TEMP%`; the native tool sees `C:\tmp`, which typically does not exist.
+3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
+4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 3 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on file at Bash `/tmp`/`/c/...` path; fix: write temp file inside repo worktree where both Bash and Node resolve the same path).
+**Status:** Active — 4 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; fix: use native `C:\...` paths with Windows-native tools).
 
-**Applies To:** All agents writing multi-process pipelines on Windows; never share temp files across Git Bash and Node.js using `/tmp`.
+**Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
 ---
 
@@ -6677,3 +6678,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#126).
 
 **Applies To:** All agents doing parallel Write batches followed by git commits; verify committed file content with `git show HEAD:<file>`, not just `git show --stat HEAD`.
+
+---
+
+## #330 [Build] `node -e "require('<pkg>')"` Fails MODULE_NOT_FOUND in Worktree Without `npm ci` — Use Installed Repo Tooling Instead
+
+**Pattern:** An agent wants to quickly validate a YAML/JSON file or test a module from a worktree and runs `node -e "require('js-yaml')"` (or similar ad-hoc require). Node.js returns `MODULE_NOT_FOUND`. The worktree root has no `node_modules/` directory — `npm ci` has not been run there. The package is a project devDependency but is not installed in the current working directory.
+
+**Instances:**
+- 2026-10-20 — DevOps Lead (p/26#237): `node -e "require('js-yaml')"` from worktree root → MODULE_NOT_FOUND. Resolved by using the repo's own workflow-lint mechanism (already installed as a root devDependency) instead of an ad-hoc require.
+
+**Root Cause:** Node.js module resolution walks up from the current directory looking for `node_modules/`. A fresh worktree has no `node_modules/`; neither does a worktree that only ran `npm ci` in a subdirectory. Without a matching `node_modules/` in the path, any `require()` call fails.
+
+**Prevention:**
+1. **Before running any `node -e "require(...)"` in a worktree, verify `node_modules/` exists** at the repo root or the relevant package directory. If not, run `npm ci` first (see /land-from-worktree step 2).
+2. **Prefer using the repo's already-installed tooling** (e.g., `npm run lint:workflows`, `npx js-yaml`, or a project script) over an ad-hoc `node -e require()`. The installed mechanism handles module resolution automatically.
+3. **MODULE_NOT_FOUND from an ad-hoc `node -e` in a worktree** is almost always a missing `npm ci` — not a missing dependency.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#237).
+
+**Applies To:** All agents running ad-hoc `node -e require()` in worktrees; run `npm ci` first or use repo-installed tooling.
+
+---
+
+## #331 [Build] Shell `$VAR` Expands Python Module Constants as Empty — Import the Module to Resolve the Path
+
+**Pattern:** An agent knows a Python module defines a constant like `LOCAL_MODEL_ROOT` and tries to use it in a shell command as `$LOCAL_MODEL_ROOT`. The variable is not exported as an environment variable, so Bash expands it to an empty string. A subsequent `ls` or path operation on the empty argument exits 2 (or operates on the current directory silently).
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#129): `ls $LOCAL_MODEL_ROOT` exited 2. `LOCAL_MODEL_ROOT` is a Python constant in `_model_release.py`, not a shell environment variable. Resolved by importing the module in Python to get the resolved path.
+
+**Root Cause:** Python module constants are not automatically exported to the shell environment. A shell variable `$NAME` is only defined if it was set via `export NAME=...` or passed in the process environment. A Python file defining `NAME = "/some/path"` has no effect on the shell.
+
+**Prevention:**
+1. **Never use a Python module constant as a shell variable (`$CONSTANT_NAME`).** If you need the path in a shell command, retrieve it by importing the module: `python3 -c "from _model_release import LOCAL_MODEL_ROOT; print(LOCAL_MODEL_ROOT)"`, then capture and use the output.
+2. **`ls` exiting 2 with no output** is a reliable diagnostic for an empty argument — the variable expanded to nothing. Check `echo "$LOCAL_MODEL_ROOT"` first.
+3. **If the path must be available in both Python and shell contexts**, define it as an environment variable (e.g., in a `.env` file loaded by both) rather than a Python-only constant.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#129).
+
+**Applies To:** All agents working across Python modules and shell commands; Python constants are not shell variables — import the module to resolve the value.
