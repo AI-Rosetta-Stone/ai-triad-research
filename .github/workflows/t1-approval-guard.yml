@@ -25,6 +25,19 @@ name: t1-approval-guard
 #
 # ROLLOUT: ships warn-only (not a required context) for >=1 green cycle against real T1 PRs.
 # Promotion to required is a separate T2 PR (branch-protection-adjacent).
+#
+# t/4247 (TL, 2026-10-20): the check went stale 6x in one day after an approval arrived -- the
+# issue_comment/pull_request_review triggers above were already in place, but a workflow run
+# triggered by either event does NOT attach its check-run to the PR's head SHA (`context.sha`
+# resolves to the default branch's tip for those events, not `pr.head.sha` -- a documented
+# GitHub Actions limitation). The job's own implicit pass/fail only updates the PR's displayed
+# check for `pull_request`-triggered runs; for the other two, the PR kept showing the stale
+# check-run from its last `synchronize` event. Fixed by explicitly posting a Checks API run
+# pinned to `pr.head.sha` for every trigger, uniformly -- see postCheckRun() below. The job id
+# is renamed (`t1-approval-guard` -> `evaluate`) so GitHub's own implicit per-job check (named
+# after the job id) doesn't collide with the explicit one, which keeps the canonical name
+# `t1-approval-guard` everywhere already documented (this file's own comments, t/4247, a future
+# required-context promotion).
 
 on:
   pull_request:
@@ -38,9 +51,10 @@ on:
 permissions:
   pull-requests: write
   contents: read
+  checks: write
 
 jobs:
-  t1-approval-guard:
+  evaluate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -94,6 +108,17 @@ jobs:
               }
             }
 
+            // Explicitly posts the PR-visible check, pinned to the PR's own head SHA, for every
+            // trigger type uniformly (the fix this comment block's header explains). conclusion
+            // is 'success', 'failure', or 'neutral' (CANNOT EVALUATE -- an unknown, not a pass).
+            async function postCheckRun(headSha, conclusion, title, summary) {
+              if (!headSha) return; // nothing to pin to -- a crash before the head SHA was resolved
+              await github.rest.checks.create({
+                owner, repo, name: 't1-approval-guard', head_sha: headSha,
+                status: 'completed', conclusion, output: { title, summary },
+              });
+            }
+
             function resolvePrNumber() {
               if (context.payload.pull_request) return context.payload.pull_request.number;
               if (context.payload.issue && context.payload.issue.pull_request) return context.payload.issue.number;
@@ -114,6 +139,14 @@ jobs:
                   'The check crashed while evaluating this PR — not a pass, not a failure, an unknown.',
                   `Error: \`${String(err && err.message ? err.message : err)}\``,
                 ].join('\n'));
+                // Best-effort: re-resolve the head SHA independently of run()'s own progress, so a
+                // crash anywhere in run() still gets an explicit, PR-visible check posted.
+                try {
+                  const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                  await postCheckRun(pr.head.sha, 'neutral', 't1-approval-guard: CANNOT EVALUATE', String(err && err.message ? err.message : err));
+                } catch (postErr) {
+                  core.error(`t1-approval-guard: could not post the explicit check run either — ${postErr.message}`);
+                }
               }
               core.setFailed(`t1-approval-guard: CANNOT EVALUATE — ${String(err && err.message ? err.message : err)}`);
             }
@@ -173,7 +206,9 @@ jobs:
             core.info(`t1-approval-guard verdict: pass=${result.pass} tier=${result.tier} reason=${result.reason}`);
 
             if (result.pass) {
-              await postVerdictComment(prNumber, `${MARKER}\nt1-approval-guard: OK — ${result.reason === 'not-t1' ? 'not a T1 PR' : 'approved after the latest push'}.`);
+              const okSummary = result.reason === 'not-t1' ? 'not a T1 PR' : 'approved after the latest push';
+              await postVerdictComment(prNumber, `${MARKER}\nt1-approval-guard: OK — ${okSummary}.`);
+              await postCheckRun(pr.head.sha, 'success', 't1-approval-guard: OK', okSummary);
               return;
             }
 
@@ -185,5 +220,6 @@ jobs:
               '',
               '_This check is warn-only (not yet a required context) — see t/4247._',
             ].join('\n'));
+            await postCheckRun(pr.head.sha, 'failure', 't1-approval-guard: FAILING', `T1 PR #${prNumber} has no post-push approval.`);
             core.setFailed(`t1-approval-guard: T1 PR #${prNumber} has no post-push approval.`);
             } // end run()
