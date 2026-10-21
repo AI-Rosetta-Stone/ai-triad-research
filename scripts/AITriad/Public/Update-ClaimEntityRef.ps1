@@ -98,8 +98,10 @@ function Update-ClaimEntityRef {
     else {
         $SummDir = Get-SummariesDir
         if (Test-Path -LiteralPath $SummDir) {
-            $SummaryFiles = @(Get-ChildItem -LiteralPath $SummDir -Filter '*.json' -File |
-                    Sort-Object -Property Name | ForEach-Object { $_.FullName })
+            # duplicate_of (t/4337 C1): a marked copy's summary isn't enriched.
+            $All = @(Get-ChildItem -LiteralPath $SummDir -Filter '*.json' -File | Sort-Object -Property Name)
+            $SummaryFiles = @(Select-SelectableSummaryFile -Files $All -Resolution (Get-DefaultSourceResolution -Caller 'Update-ClaimEntityRef') |
+                    ForEach-Object { $_.FullName })
         }
         else {
             Write-Warning "Update-ClaimEntityRef: summaries dir not found ($SummDir); nothing to process."

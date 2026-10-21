@@ -116,7 +116,9 @@ function Get-TopicFrequency {
     # ── Step 1: Scan summaries and build citation counts ─────────────────────
     Write-Step "Scanning summaries for citations"
 
+    # duplicate_of (t/4337 C1): skip a marked copy's summary so each resolved doc counts once.
     $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+    $SummaryFiles = @(Select-SelectableSummaryFile -Files $SummaryFiles -Resolution (Get-DefaultSourceResolution -Caller 'Get-TopicFrequency'))
     $SummaryCount = $SummaryFiles.Count
 
     if ($SummaryCount -lt 3) {

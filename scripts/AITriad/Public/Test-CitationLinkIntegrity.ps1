@@ -230,6 +230,17 @@ function Test-CitationLinkIntegrity {
         if ($stored -ne $recomputed) {
             $cOff.Add([pscustomobject]@{ kind = 'stale-hash'; stored = $stored; recomputed = $recomputed })
         }
+        # duplicate_of mark set (t/4337 C1): a new, removed or re-pointed mark changes the correct
+        # index without touching summaries. Checked only when sources resolve; an index built before
+        # marksHash existed (no field) is current exactly when the mark set is empty.
+        if ($SourcesRoot) {
+            $marksNow = Get-SourceMarksHash -Resolution (Get-SourceResolution -SourcesDir $SourcesRoot)
+            $emptyMarks = Get-SourceMarksHash -Resolution (New-IdentitySourceResolution)
+            $marksStored = if ($ix.PSObject.Properties['marksHash']) { [string]$ix.marksHash } else { $emptyMarks }
+            if ($marksStored -ne $marksNow) {
+                $cOff.Add([pscustomobject]@{ kind = 'stale-marks'; stored = $marksStored; recomputed = $marksNow })
+            }
+        }
         # t/3896 (CL predicate correction): compare the index key SET to the live-node SET, not
         # just the count -- a swap (remove one POV node, add another) keeps counts equal while
         # the index carries a dead key and is missing the new node's key. A count-only check

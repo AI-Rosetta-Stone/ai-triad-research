@@ -20,7 +20,10 @@ function Invoke-POVSummaryReExtract {
     param([string]$ModelEscalation, [string]$ApiKey, [string]$RepoRoot, [switch]$AutoFire)
     $SourcesDir = Get-SourcesDir
     $Flagged = @()
+    # duplicate_of (t/4337 C1): a marked copy is never re-extracted.
+    $Resolution = Get-SourceResolution -SourcesDir $SourcesDir
     foreach ($DocDir in (Get-ChildItem -Path $SourcesDir -Directory)) {
+        if (-not (Test-SourceSelectable -Resolution $Resolution -Id $DocDir.Name)) { continue }
         $MetaPath = Join-Path $DocDir.FullName 'metadata.json'
         if (-not (Test-Path $MetaPath)) { continue }
         $Meta = Get-Content $MetaPath -Raw | ConvertFrom-Json
