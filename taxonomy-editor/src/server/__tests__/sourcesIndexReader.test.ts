@@ -75,7 +75,7 @@ describe('sourcesIndexReader (t/4334#18)', () => {
     }));
   });
 
-  it('end-to-end: buildNodeSourceIndex groups via the index (same_as + parent_doc_id merge alpha/beta/gamma; the untitled split part stays separate)', async () => {
+  it('end-to-end: buildNodeSourceIndex groups via the index (same_as + parent_doc_id + duplicate_of merge alpha/beta/gamma/delta; the untitled split part stays separate)', async () => {
     fs.writeFileSync(indexPath, expectedRaw);
     const fileIO = await import('../storage/fileIO.js');
     const { resetNodeSourceIndexCacheForTests } = await import('../storage/nodeSourceIndex.js');
@@ -89,13 +89,20 @@ describe('sourcesIndexReader (t/4334#18)', () => {
 
     const index = await fileIO.buildNodeSourceIndex();
     const refs = index.n1;
+    // alpha/beta/gamma/alpha-2026-1 each get their own row; delta-2026 (t/4357:
+    // duplicate_of beta-2026) collapses into beta's own row — one evidence
+    // unit, not two (SO condition C2) — so the count is unchanged at 4.
     expect(refs).toHaveLength(4);
+    expect(refs.some(r => r.docId === 'delta-2026')).toBe(false);
 
     const byId = Object.fromEntries(refs.map(r => [r.docId, r.canonicalDocId]));
-    // alpha-2026 --same_as--> beta-2026, gamma-2026 --parent_doc_id--> beta-2026: one group, canonical = ordinal-smallest id.
-    expect(byId['alpha-2026']).toBe('alpha-2026');
-    expect(byId['beta-2026']).toBe('alpha-2026');
-    expect(byId['gamma-2026']).toBe('alpha-2026');
+    // alpha-2026 --same_as--> beta-2026, gamma-2026 --parent_doc_id--> beta-2026,
+    // delta-2026 --duplicate_of--> beta-2026: one group. t/4357 (spec 4.6 rule
+    // 1): a group with a valid duplicate_of mark uses the mark's target as
+    // canonical — beta-2026, not the ordinal-smallest id (alpha-2026).
+    expect(byId['alpha-2026']).toBe('beta-2026');
+    expect(byId['beta-2026']).toBe('beta-2026');
+    expect(byId['gamma-2026']).toBe('beta-2026');
     // alpha-2026-1 has no identity data in the index (no metadata.json upstream) — no title to
     // satisfy the conditional suffix edge, so it correctly stays its own canonical id.
     expect(byId['alpha-2026-1']).toBe('alpha-2026-1');
