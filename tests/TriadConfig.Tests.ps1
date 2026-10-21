@@ -338,6 +338,76 @@ Describe 'Invoke-TriadConfigReload' -Tag 'config' {
     }
 }
 
+Describe 'Config cmdlets refuse an HTML sign-in page (t/4370)' -Tag 'config' {
+    # A hosted Easy-Auth deployment answers an unauthenticated admin call with HTTP 200 text/html.
+    # Invoke-RestMethod hands that back as a string; before t/4370 every cmdlet read it as success.
+
+    BeforeAll {
+        $env:GITHUB_TOKEN = 'test-token-for-config'
+        $script:SignInPage = "<!DOCTYPE html>`n<html><head><title>Sign in</title></head><body>Easy Auth</body></html>"
+        Mock Invoke-RestMethod -ModuleName AITriad -MockWith { $script:SignInPage }
+    }
+
+    It 'Set-TriadConfig throws and does not report success' {
+        InModuleScope AITriad {
+            $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) "html-set-$(Get-Random).json"
+            try {
+                @{ quotas = @{ defaultMaxChats = 30 } } | ConvertTo-Json -Depth 5 | Set-Content -Path $tempFile
+                $out = $null
+                $err = { $out = Set-TriadConfig -InputPath $tempFile -BaseUrl 'https://staging.example.com' -Confirm:$false } |
+                    Should -Throw -PassThru
+                $err.Exception.Message | Should -Match 'Goal:'
+                $err.Exception.Message | Should -Match 'HTML page'
+                $err.Exception.Message | Should -Match 'Runtime Config panel'
+                @($out) -join "`n" | Should -Not -Match 'uploaded successfully'
+            } finally {
+                if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
+            }
+        }
+    }
+
+    It 'Set-TriadConfig -Reload does not trigger a reload after an HTML response' {
+        Mock Invoke-TriadConfigReload -ModuleName AITriad -MockWith {}
+        InModuleScope AITriad {
+            $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) "html-reload-$(Get-Random).json"
+            try {
+                @{ quotas = @{ defaultMaxChats = 30 } } | ConvertTo-Json -Depth 5 | Set-Content -Path $tempFile
+                { Set-TriadConfig -InputPath $tempFile -BaseUrl 'https://staging.example.com' -Reload -Confirm:$false } | Should -Throw
+                Should -Invoke Invoke-TriadConfigReload -ModuleName AITriad -Times 0 -Exactly
+            } finally {
+                if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
+            }
+        }
+    }
+
+    It 'Get-TriadConfig throws and does not save the page as config' {
+        InModuleScope AITriad {
+            $outFile = Join-Path ([System.IO.Path]::GetTempPath()) "html-get-$(Get-Random).json"
+            try {
+                { Get-TriadConfig -OutputPath $outFile -BaseUrl 'https://staging.example.com' } | Should -Throw -ExpectedMessage '*HTML page*'
+                Test-Path $outFile | Should -Be $false
+            } finally {
+                if (Test-Path $outFile) { Remove-Item $outFile -Force }
+            }
+        }
+    }
+
+    It 'Invoke-TriadConfigReload throws and does not report success' {
+        InModuleScope AITriad {
+            $out = $null
+            { $out = Invoke-TriadConfigReload -BaseUrl 'https://staging.example.com' } | Should -Throw -ExpectedMessage '*HTML page*'
+            @($out) -join "`n" | Should -Not -Match 'reloaded successfully'
+        }
+    }
+
+    It 'A non-HTML string response is refused too' {
+        Mock Invoke-RestMethod -ModuleName AITriad -MockWith { 'OK' }
+        InModuleScope AITriad {
+            { Invoke-TriadConfigReload -BaseUrl 'https://staging.example.com' } | Should -Throw -ExpectedMessage '*non-JSON response*'
+        }
+    }
+}
+
 Describe 'Module Manifest - Config Cmdlets' -Tag 'config' {
 
     It 'Test-ModuleManifest passes' {
