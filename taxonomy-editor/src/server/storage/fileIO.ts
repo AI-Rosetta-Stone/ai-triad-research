@@ -379,7 +379,11 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
 
 export async function writeTaxonomyFile(pov: string, data: unknown, opts?: { baseSha?: string }): Promise<{ version: string }> {
   const filePath = await resolveTaxonomyFilePath(pov);
-  return backend.writeFile(filePath, JSON.stringify(data, null, 2), opts);
+  // t/4353 (Shared Lib, p/692#13): the canonical POV-file format is
+  // JSON.stringify(o, null, 2) + "\n" — the desktop writer's format, and
+  // what every file on disk ends in today. Omitting the trailing newline
+  // here would fork the format on the first hosted save.
+  return backend.writeFile(filePath, JSON.stringify(data, null, 2) + '\n', opts);
 }
 
 // ── Conflict CRUD ──
