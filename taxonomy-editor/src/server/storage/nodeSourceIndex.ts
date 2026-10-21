@@ -328,20 +328,50 @@ function warnMissingMetaIds(missingMetaIds: Set<string>): void {
  *  (`verbatim`, else `point`) — this index only ever carries key_points. */
 type SourceEvidenceLink = SourceReference & { node: string; quote: string };
 
+/** One resolved-id group within one node (spec 7.1's group — duplicate_of
+ *  marks only, never the section-4 hash/suffix grouping that already set
+ *  `canonicalDocId`). An "own" ref (resolvedId === docId) is never touched
+ *  — pushed exactly as it already is, repeats included, so an unmarked
+ *  group (including grouping-only duplicates like split parts, whose
+ *  shared `canonicalDocId` lives outside this pass) keeps its pre-existing
+ *  fields untouched. Own refs still feed `mergeGroupEvidence` as the
+ *  canonical member, so a marked ref's quote de-dups against them; only the
+ *  merge's `via`-tagged output (a marked ref's surviving quote) is new — an
+ *  untagged entry just mirrors an own ref already pushed. */
+function resolveGroupRefs(
+  nodeId: string, resolvedId: string, groupRefs: SourceReference[], metaCache: Record<string, NodeSourceMeta>,
+): SourceReference[] {
+  const ownRefs = groupRefs.filter(r => r.docId === resolvedId);
+  const markedRefs = groupRefs.filter(r => r.docId !== resolvedId);
+  if (markedRefs.length === 0) return ownRefs;
+
+  const byDocId = new Map<string, SourceReference[]>();
+  for (const r of markedRefs) {
+    const bucket = byDocId.get(r.docId);
+    if (bucket) bucket.push(r); else byDocId.set(r.docId, [r]);
+  }
+  const toLink = (r: SourceReference) => ({ ...r, node: nodeId, quote: r.verbatim || r.point });
+  const members: EvidenceUnionMember<SourceEvidenceLink>[] = [
+    ...(ownRefs.length > 0 ? [{ id: resolvedId, links: ownRefs.map(toLink) }] : []),
+    ...[...byDocId.entries()].map(([docId, docRefs]) => ({ id: docId, links: docRefs.map(toLink) })),
+  ];
+
+  const target = metaCache[resolvedId];
+  const kept = [...ownRefs];
+  for (const { quote: _quote, doc: _doc, via, ...r } of mergeGroupEvidence(resolvedId, members)[nodeId] ?? []) {
+    if (!via) continue; // an own ref's entry — already pushed above, unchanged
+    kept.push({
+      ...r, docId: resolvedId, canonicalDocId: resolvedId,
+      title: target?.title ?? r.title, url: target?.url ?? r.url,
+    });
+  }
+  return kept;
+}
+
 function dedupeByResolvedId(
   index: NodeSourceIndex, resolved: Record<string, string>, metaCache: Record<string, NodeSourceMeta>,
 ): void {
   for (const [nodeId, refs] of Object.entries(index)) {
-    // Group this node's refs by resolved id (spec 7.1's group — duplicate_of
-    // marks only, never the section-4 hash/suffix grouping that already set
-    // `canonicalDocId`). An "own" ref (resolvedId === docId) is never
-    // touched — pushed exactly as it already is, repeats included, so an
-    // unmarked group (including grouping-only duplicates like split parts,
-    // whose shared `canonicalDocId` lives outside this pass) keeps its
-    // pre-existing fields untouched. Own refs still feed `mergeGroupEvidence`
-    // as the canonical member, so a marked ref's quote de-dups against them;
-    // only the merge's `via`-tagged output (a marked ref's surviving quote)
-    // is new — an untagged entry just mirrors an own ref already pushed.
     const byResolvedId = new Map<string, SourceReference[]>();
     for (const r of refs) {
       const resolvedId = resolved[r.docId] ?? r.docId;
@@ -351,31 +381,7 @@ function dedupeByResolvedId(
 
     const kept: SourceReference[] = [];
     for (const [resolvedId, groupRefs] of byResolvedId) {
-      const ownRefs = groupRefs.filter(r => r.docId === resolvedId);
-      const markedRefs = groupRefs.filter(r => r.docId !== resolvedId);
-      kept.push(...ownRefs);
-      if (markedRefs.length === 0) continue;
-
-      const byDocId = new Map<string, SourceReference[]>();
-      for (const r of markedRefs) {
-        const bucket = byDocId.get(r.docId);
-        if (bucket) bucket.push(r); else byDocId.set(r.docId, [r]);
-      }
-      const members: EvidenceUnionMember<SourceEvidenceLink>[] = [
-        ...(ownRefs.length > 0 ? [{ id: resolvedId, links: ownRefs.map(r => ({ ...r, node: nodeId, quote: r.verbatim || r.point })) }] : []),
-        ...[...byDocId.entries()].map(([docId, docRefs]) => ({
-          id: docId,
-          links: docRefs.map(r => ({ ...r, node: nodeId, quote: r.verbatim || r.point })),
-        })),
-      ];
-      const target = metaCache[resolvedId];
-      for (const { quote: _quote, doc: _doc, via, ...r } of mergeGroupEvidence(resolvedId, members)[nodeId] ?? []) {
-        if (!via) continue; // an own ref's entry — already pushed above, unchanged
-        kept.push({
-          ...r, docId: resolvedId, canonicalDocId: resolvedId,
-          title: target?.title ?? r.title, url: target?.url ?? r.url,
-        });
-      }
+      kept.push(...resolveGroupRefs(nodeId, resolvedId, groupRefs, metaCache));
     }
     index[nodeId] = kept;
   }

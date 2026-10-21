@@ -134,12 +134,8 @@ export interface SummaryLike {
   unmapped_concepts?: unknown[];
 }
 
-/** Spec 7.1: the `(node, quote)` links of one summary, in file order —
- *  `pov_summaries` key order, then each field's array order. */
-export function extractSummaryEvidenceLinks(summary: SummaryLike | null | undefined): EvidenceLink[] {
+function keyPointLinks(summary: SummaryLike): EvidenceLink[] {
   const links: EvidenceLink[] = [];
-  if (!summary) return links;
-
   for (const povData of Object.values(summary.pov_summaries ?? {})) {
     for (const kp of (povData?.key_points ?? []) as unknown[]) {
       if (kp === null || typeof kp !== 'object') continue;
@@ -148,7 +144,11 @@ export function extractSummaryEvidenceLinks(summary: SummaryLike | null | undefi
       if (isNode(node)) links.push({ node, field: 'key_point', quote: firstNonEmptyText(rec, ['verbatim', 'point']) });
     }
   }
+  return links;
+}
 
+function factualClaimLinks(summary: SummaryLike): EvidenceLink[] {
+  const links: EvidenceLink[] = [];
   for (const fc of summary.factual_claims ?? []) {
     if (fc === null || typeof fc !== 'object') continue;
     const rec = fc as Record<string, unknown>;
@@ -159,7 +159,11 @@ export function extractSummaryEvidenceLinks(summary: SummaryLike | null | undefi
       }
     }
   }
+  return links;
+}
 
+function unmappedConceptLinks(summary: SummaryLike): EvidenceLink[] {
+  const links: EvidenceLink[] = [];
   for (const uc of summary.unmapped_concepts ?? []) {
     if (uc === null || typeof uc !== 'object') continue;
     const rec = uc as Record<string, unknown>;
@@ -171,8 +175,14 @@ export function extractSummaryEvidenceLinks(summary: SummaryLike | null | undefi
       });
     }
   }
-
   return links;
+}
+
+/** Spec 7.1: the `(node, quote)` links of one summary, in file order —
+ *  `pov_summaries` key order, then each field's array order. */
+export function extractSummaryEvidenceLinks(summary: SummaryLike | null | undefined): EvidenceLink[] {
+  if (!summary) return [];
+  return [...keyPointLinks(summary), ...factualClaimLinks(summary), ...unmappedConceptLinks(summary)];
 }
 
 // ── 7.4 union ──
