@@ -39,9 +39,13 @@ const NON_LETTER_DIGIT_RE = /[^\p{L}\p{Nd}]/gu;
 const WHITESPACE_RUN_RE = / +/g;
 
 /** Spec 7.2: the de-duplication key of a quote. Used only to compare
- *  quotes — a displayed or stored quote is never the key. */
+ *  quotes — a displayed or stored quote is never the key. A non-string
+ *  input (a malformed real-data field the type annotation doesn't
+ *  guarantee against) keys as empty — the safe failure mode, since an
+ *  empty key is never near-equal to anything and so never suppresses a
+ *  link; it only loses the ability to de-dup that one entry. */
 export function evidenceKey(quote: string): string {
-  if (!quote) return '';
+  if (typeof quote !== 'string' || !quote) return '';
   let s = quote;
   for (const [from, to] of MOJIBAKE_SEQUENCES) s = s.replaceAll(from, to);
   for (const [from, to] of MOJIBAKE_SINGLES) s = s.replaceAll(from, to);
