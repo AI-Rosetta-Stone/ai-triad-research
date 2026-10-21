@@ -2,7 +2,8 @@
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 # t/4406: each container app's ALLOWED_ORIGINS must name its OWN host. Staging inherited prod's
-# value from baseEnv, so every same-origin staging mutation failed the cross-origin guard.
+# value from baseEnv, so its CORS allow-origin header named prod (hygiene; same-origin requests
+# were unaffected because the guard passes Origin host == Host first, and Host is preserved).
 # Static parse of main.bicep (Get-BicepBaseEnv.ps1 skips interpolated values by design).
 
 BeforeAll {

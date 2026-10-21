@@ -663,8 +663,10 @@ var stagingEnvOverrides = [
   { name: 'ANON_SESSION_DIR',    value: '/mnt/staging-state/anon-sessions' }
   // github-api writes go to the staging branch, not main (t/2650 class-B isolation)
   { name: 'GITHUB_BRANCH',       value: 'staging' }
-  // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made every same-origin staging
-  // mutation fail enforceCrossOriginMutationGuard (networkSecurity.ts), e.g. the "Login w/ GitHub" flow.
+  // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
+  // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
+  // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this
+  // list; Host is preserved through ingress, probed t/4406#3) and is NOT the staging sign-in bounce.
   // Host MUST match the staging app's name below; tests/BicepAllowedOrigins.Tests.ps1 asserts it.
   { name: 'ALLOWED_ORIGINS',     value: 'https://taxonomy-editor-staging.${containerAppEnv.properties.defaultDomain}' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
