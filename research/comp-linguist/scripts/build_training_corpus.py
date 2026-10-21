@@ -127,11 +127,28 @@ def load_summaries(data_root: Path) -> list:
     return results
 
 
+# Inline data: URIs (base64 images) are stripped before paragraphs are split, so base64 can't
+# become a training passage (t/4385). Same two patterns as Remove-MarkdownDataUri.ps1: markdown
+# data: images first, then bare data:...;base64,... runs. The payload class has no whitespace,
+# so a bare URI stops at the first space and never swallows the prose after it.
+_DATA_URI_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*data:[^)]*\)")
+_DATA_URI_BARE = re.compile(r"data:[A-Za-z0-9.+/-]+(?:;[A-Za-z0-9=.+-]+)*;base64,[A-Za-z0-9+/=]+")
+
+
+def strip_data_uris(text: str) -> tuple[str, int]:
+    """Remove inline data: URIs; return (text, chars removed)."""
+    out = _DATA_URI_BARE.sub("", _DATA_URI_IMAGE.sub("", text))
+    return out, len(text) - len(out)
+
+
 def load_snapshot(sources_root: Path, doc_id: str) -> Optional[str]:
     snap_path = sources_root / doc_id / "snapshot.md"
     if not snap_path.exists():
         return None
-    return snap_path.read_text(encoding="utf-8", errors="replace")
+    text, stripped = strip_data_uris(snap_path.read_text(encoding="utf-8", errors="replace"))
+    if stripped:
+        log(f"WARN: stripped {stripped} chars of inline data: URIs from {doc_id}/snapshot.md (t/4385)")
+    return text
 
 
 # ---------------------------------------------------------------------------
