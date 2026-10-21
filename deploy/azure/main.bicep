@@ -822,6 +822,8 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
         // flushes every pending overlay commit (shutdownOverlayFlush.ts, 40s deadline),
         // inside the 60s terminationGracePeriodSeconds below.
         cooldownPeriod: 120
+        // Explicit at the live value: under API 2025-01-01, omitting it shows as a what-if Delete (SO C1, #3579).
+        pollingInterval: 30
         // maxReplicas capped at 1 (t/4176 incident, 2026-10-13: back from 5 to 1).
         // NOTE: the phrase "maxReplicas capped at" on this line is load-bearing —
         // Test-InMemoryJobStoreScaleGuard.ps1 uses it as a regex anchor to locate
@@ -950,6 +952,7 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
         maxReplicas: stagingLoadTestSize ? 3 : 1
         // t/4249: match prod's 120s scale-to-zero cooldown (ACA default 300s).
         cooldownPeriod: 120
+        pollingInterval: 30
         rules: stagingLoadTestSize
           ? [
               {
