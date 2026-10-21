@@ -39,6 +39,7 @@ import { QuotaBanner } from './components/shared/QuotaBanner';
 import { EmbeddingsStaleBanner } from './components/shared/EmbeddingsStaleBanner';
 import { OrphanedTagsBanner } from './components/shared/OrphanedTagsBanner';
 import { RetiredModelBanner } from './components/shared/RetiredModelBanner';
+import { FreeTierDisclosure } from './components/shared/FreeTierDisclosure';
 import { pullDataTracked } from './utils/syncApi';
 import { useFeatureFlagStore, useFlag } from './hooks/useFeatureFlags';
 import { useTheoryLinkHotkey } from './hooks/useTheoryLinkHotkey';
@@ -656,6 +657,7 @@ function MainApp() {
       <EmbeddingsStaleBanner />
       <OrphanedTagsBanner />
       <RetiredModelBanner />
+      <FreeTierDisclosure />
       {/* Data update banner */}
       {dataUpdate && (
         <div

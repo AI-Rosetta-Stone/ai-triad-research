@@ -1,0 +1,49 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved. */
+/* t/4410 item D: free-tier data-use disclosure. Mirrors RetiredModelBanner; defined tokens only. */
+
+.free-tier-disclosure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  border-left: 3px solid var(--warning);
+}
+
+.free-tier-disclosure-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.free-tier-disclosure-title {
+  font-weight: 600;
+}
+
+.free-tier-disclosure-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.free-tier-disclosure-actions button {
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.free-tier-settings-note {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  border-left: 3px solid var(--warning);
+  background: var(--bg-secondary);
+}
