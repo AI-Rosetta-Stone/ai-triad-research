@@ -103,12 +103,17 @@ export interface SourcesIndexEntry {
   provenance?: SourcesIndexProvenanceEntry[];
   same_as?: string;
   parent_doc_id?: string;
-  /** t/4337 C1 (not yet written by any ingester as of this schema's first
-   *  version) — the id of the document this one is a corpus-cleanup-
-   *  confirmed duplicate of. Readers should treat it like `same_as` once a
-   *  consumer exists (t/4357); the field is reserved here so the schema
-   *  doesn't need a version bump when that lands. */
+  /** t/4337 C1 — the id of the document this one is a corpus-cleanup-
+   *  confirmed duplicate of (spec section 6). The exporter writes the raw
+   *  mark only, with no resolution or validity filtering; the reader (t/4357)
+   *  applies section 6's valid/invalid rules and the one-hop resolver, so
+   *  both stacks validate in exactly one place. */
   duplicate_of?: string;
+  /** The mark's provenance — the frozen-list or manifest entry id the t/4337
+   *  cleanup wrote it from (e.g. `t4337-cleanup-2026-10#<n>`). Present only
+   *  alongside `duplicate_of`; omitted otherwise. Traceability only — no
+   *  reader branches on its value. */
+  duplicate_of_ref?: string;
 }
 
 /** The whole file. `docs` is sorted ordinally by `id` (byte-stability). */
