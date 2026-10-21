@@ -31,6 +31,7 @@ import noActionableErrorMessageNesting from '../lib/eslint-rules/no-actionable-e
 import noUnmanagedModuleResources from './eslint-rules/no-unmanaged-module-resources.js';
 import noInlineStyle from './eslint-rules/no-inline-style.js';
 import noRawDataRootRead from './eslint-rules/no-raw-data-root-read.js';
+import noDataRootWrite from './eslint-rules/no-data-root-write.js';
 import complexityBudget from '../lib/eslint-rules/complexity-budget.js';
 import requireWindowsHide from '../lib/eslint-rules/require-windows-hide.js';
 import noBareThrow from '../lib/eslint-rules/no-bare-throw.js';
@@ -43,6 +44,7 @@ const localPlugin = {
     'no-inline-style': noInlineStyle,
     'no-actionable-error-message-nesting': noActionableErrorMessageNesting,
     'no-raw-data-root-read': noRawDataRootRead,
+    'no-data-root-write': noDataRootWrite,
     'complexity-budget': complexityBudget,
     'require-windows-hide': requireWindowsHide,
     'no-bare-throw': noBareThrow,
@@ -159,6 +161,28 @@ export default tseslint.config(
     ],
     rules: {
       'local/no-raw-data-root-read': 'error',
+    },
+  },
+  // ── Block A-dataroot-write: data-root WRITE gate (t/4372, t/4264's AC4) ──
+  // Write-side sibling of Block A-dataroot above. Flags a raw fs write (or a literal
+  // /mnt/shared path) whose argument traces to a data-root resolver — a staging deployment
+  // sharing that root would write onto PROD's share (t/4264: staging wrote/evicted prod's
+  // anonymous sessions this way). Class-A writable state must route through
+  // getStateRoot()/resolveStatePath() instead (t/2643).
+  // Warn-first (T1, t/4372): this PR fixes every current hit, so it starts at zero on the
+  // resulting tree. Promotion to 'error' (a blocking CI gate) is T2 per the ticket's own tier
+  // note — not done here.
+  // tripwire: green != verified — a new hit is a true positive; silence it only with an inline
+  // eslint-disable + TL-approved rationale at the call site, never by baselining here.
+  {
+    files: ['src/server/**/*.ts'],
+    ignores: [
+      ...TEST_GLOBS,             // tests hit resolver + fs.write constantly — not migration remnants
+      'src/server/storage/**',   // sanctioned home for data-root-adjacent writes (the backend itself)
+      'src/server/config.ts',    // defines the resolver functions themselves
+    ],
+    rules: {
+      'local/no-data-root-write': 'warn',
     },
   },
   // ── Block A-bare-throw: no bare `throw new Error('…')` in server code (t/4153, root rule #19) ──

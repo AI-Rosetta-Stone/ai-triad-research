@@ -25,7 +25,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getDataRoot, getApiKeySource, type AIBackend } from '../config.js';
+import { getStateRoot, getApiKeySource, type AIBackend } from '../config.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { BACKEND_KEY_ENV_VARS, GENERIC_FALLBACK_ENV, GENERIC_FALLBACK_BACKEND } from '../../../../lib/ai-client/apiKeyFallback.js';
 
@@ -132,10 +132,14 @@ export function isAICallLogEnabled(): boolean {
   return !!v && /^(1|true|yes|on)$/i.test(v.trim());
 }
 
-/** Absolute path to `ai-call-log.jsonl` under the resolved data root — the SAME file the PS writer
- *  targets (`Get-DataRoot` ⟷ `getDataRoot()`). Parent dir is created lazily on first append. */
+/** Absolute path to `ai-call-log.jsonl` under the resolved STATE root (t/4372, t/4264: class-A
+ *  writable state, never `getDataRoot()` — a staging deployment must not append into prod's
+ *  shared data share). `getStateRoot()` falls back to `getDataRoot()` on prod/local/Electron,
+ *  where it stays the SAME file the PS writer targets (`Get-DataRoot` ⟷ `getDataRoot()`); only
+ *  on staging (`AI_TRIAD_STATE_ROOT` set) does this diverge from the PS desktop writer, which
+ *  never runs against a staging container anyway. Parent dir is created lazily on first append. */
 export function getAICallLogPath(): string {
-  return path.join(getDataRoot(), 'ai-call-log.jsonl');
+  return path.join(getStateRoot(), 'ai-call-log.jsonl');
 }
 
 /**
