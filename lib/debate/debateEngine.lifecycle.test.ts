@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi } from 'vitest';
@@ -1077,6 +1077,34 @@ describe('Finalization', () => {
     // but the main counted path should be close to actual
     expect(session.diagnostics!.overview.total_ai_calls).toBeGreaterThan(0);
     expect(session.diagnostics!.overview.total_ai_calls).toBeLessThanOrEqual(actualCalls);
+  });
+
+  it('error snapshot has total_ai_calls > 0 when AI calls were made before the failure (t/4373)', async () => {
+    // Adapter makes 3 successful calls then throws — simulating a mid-run FATAL (e.g. parseJsonRobust)
+    let callCount = 0;
+    const adapter: ExtendedAIAdapter = {
+      async generateText() {
+        callCount++;
+        if (callCount > 3) throw new Error('Simulated parse FATAL');
+        return JSON.stringify({ response: 'mock' });
+      },
+      registry: { backends: [], models: [] },
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let errorSnapshot: any;
+    const config = createDefaultConfig({
+      rounds: 1,
+      onSnapshot: (s: any, trigger: string) => { if (trigger === 'error') errorSnapshot = s; },
+    });
+
+    const engine = new DebateEngine(config, adapter, createMinimalTaxonomy());
+    await expect(engine.run()).rejects.toThrow('Simulated parse FATAL');
+
+    expect(errorSnapshot, 'onSnapshot must have been called with trigger=error').toBeDefined();
+    // regression guard for t/4373: partial snapshot must carry the real AI-call count,
+    // not 0 — so diagnostics consumers (paid-batch runner etc.) see the true spend
+    expect(errorSnapshot.diagnostics?.overview.total_ai_calls).toBeGreaterThan(0);
   });
 });
 
