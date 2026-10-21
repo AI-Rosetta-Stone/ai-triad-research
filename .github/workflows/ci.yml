@@ -2500,13 +2500,17 @@ jobs:
       - name: CI shared-input coverage check (t/4368 deliverable 2)
         # PR-only: on a push event (post-merge main run) there is no PR to comment on, and the
         # merge gate already ran this check pre-merge. Advisory only -- never fails the job.
-        if: github.event_name == 'pull_request'
+        # always() (live-fire catch, t/4368): the preceding Block step deliberately exits 1 when
+        # a gated job fails -- WITHOUT always(), that failure silently skips every step after it,
+        # including this one, so a coverage gap goes unreported on exactly the PRs most likely to
+        # have one. This step must run independent of Block's own outcome.
+        if: always() && github.event_name == 'pull_request'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
           fetch-depth: 0
 
       - name: Evaluate shared-input coverage
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         env:
           FILTER_OUTPUTS: ${{ toJSON(needs.changes.outputs) }}
