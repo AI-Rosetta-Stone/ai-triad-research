@@ -43,6 +43,11 @@
     Image to run instead of the serving revision's, e.g. prod's current digest. Must be an
     immutable digest reference (...@sha256:...).
 
+.PARAMETER ContainerArgs
+    Replace the container's args (the image's CMD; the ENTRYPOINT, tini, is kept). Use it for a
+    Node runtime flag NODE_OPTIONS refuses, e.g. --trace-gc (t/4286):
+    -ContainerArgs 'node','--trace-gc','dist/server/taxonomy-editor/src/server/server.js'
+
 .PARAMETER TerminationGracePeriodSeconds
     Grace between SIGTERM and SIGKILL for the test revision. Staging's template sets none (ACA
     default); prod's main.bicep sets 60, so use 60 to test shutdown behaviour as prod sees it.
@@ -70,6 +75,7 @@ param(
     [Parameter(ParameterSetName = 'Apply')][switch]$ReadOnlyShared,
     [Parameter(ParameterSetName = 'Apply')][hashtable]$SetEnv = @{},
     [Parameter(ParameterSetName = 'Apply')][ValidatePattern('^[^@\s]+@sha256:[0-9a-f]{64}$')][string]$Image,
+    [Parameter(ParameterSetName = 'Apply')][ValidateNotNullOrEmpty()][string[]]$ContainerArgs,
     [Parameter(ParameterSetName = 'Apply')][ValidateRange(0, 600)][int]$TerminationGracePeriodSeconds,
     [Parameter(ParameterSetName = 'Apply')][ValidatePattern('^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$')][string]$Suffix,
     [Parameter(ParameterSetName = 'Apply')][int]$ReadyTimeoutSec = 420,
@@ -154,6 +160,7 @@ $template | Add-Member -NotePropertyName revisionSuffix -NotePropertyValue $Suff
 $container = $template.containers[0]
 
 if ($Image) { $container.image = $Image }
+if ($ContainerArgs) { $container | Add-Member -NotePropertyName args -NotePropertyValue @($ContainerArgs) -Force }
 if ($PSBoundParameters.ContainsKey('TerminationGracePeriodSeconds')) {
     $template | Add-Member -NotePropertyName terminationGracePeriodSeconds -NotePropertyValue $TerminationGracePeriodSeconds -Force
 }
@@ -195,6 +202,7 @@ $newRevision = "$App--$Suffix"
 Write-Host "Copying $fromRevision -> $newRevision (spec: $specPath)"
 Write-Host "  image:     $($container.image)"
 Write-Host "  resources: $($container.resources | ConvertTo-Json -Compress)"
+if ($ContainerArgs) { Write-Host "  args:      $($ContainerArgs -join ' ')" }
 Write-Host "  grace:     $(if ($template.PSObject.Properties['terminationGracePeriodSeconds']) { "$($template.terminationGracePeriodSeconds)s" } else { 'platform default' })"
 Write-Host "  volumes:   $(($template.volumes | ForEach-Object { "$($_.name)->$($_.storageName)" }) -join ', ')"
 Write-Host "  env set:   $(($SetEnv.GetEnumerator() | ForEach-Object { if ($_.Key -match 'SECRET|KEY|TOKEN|PASSWORD') { "$($_.Key)=***" } else { "$($_.Key)=$($_.Value)" } }) -join ', ')"
@@ -238,6 +246,24 @@ if (-not $healthy) {
 }
 
 Invoke-Az @('containerapp', 'ingress', 'traffic', 'set', '-n', $App, '-g', $ResourceGroup, '--revision-weight', "$newRevision=100") "Move traffic to $newRevision" | Out-Null
+
+# t/4378: the traffic write re-submits the app template, and ACA can roll the new revision's pod
+# ~30 s later. A measurement started now would hit that swap mid-probe (t/4286#15). Return only
+# once the same single replica has held across 3 checks, 20 s apart.
+$settleDeadline = (Get-Date).AddSeconds($ReadyTimeoutSec)
+$prev = $null; $stable = 0
+do {
+    Start-Sleep -Seconds 20
+    $names = @(Invoke-Az @('containerapp', 'replica', 'list', '-n', $App, '-g', $ResourceGroup, '--revision', $newRevision, '--query', '[].name', '-o', 'json') "List replicas of $newRevision" | ConvertFrom-Json)
+    $cur = ($names | Sort-Object) -join ','
+    if ($names.Count -eq 1 -and $cur -eq $prev) { $stable++ } else { $stable = 0 }
+    $prev = $cur
+} while ($stable -lt 2 -and (Get-Date) -lt $settleDeadline)
+if ($stable -ge 2) {
+    Write-Host "  settled on replica $prev (unchanged across 3 checks, 20 s apart)"
+} else {
+    Write-Warning "WARN: $newRevision did not settle on one stable replica within $ReadyTimeoutSec s (last: '$prev'); a measurement started now may hit a pod swap (t/4378)."
+}
 Write-Host ""
 Write-Host "Traffic: $newRevision = 100% (was $fromRevision)."
 Write-Host "Restore with:"
