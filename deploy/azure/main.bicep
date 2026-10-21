@@ -959,6 +959,9 @@ resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
             ]
           : []
       }
+      // t/4249 (DevOps Lead review of #3579): explicit, matching prod. Unset, ACA uses 30s,
+      // shorter than the 40s SIGTERM overlay flush deadline (shutdownOverlayFlush.ts, t/4258).
+      terminationGracePeriodSeconds: 60
     }
   }
 }
