@@ -35,10 +35,13 @@ function Read-TaxonomySummaryCorpus {
         throw "Summaries directory not found: $SummariesDir"
     }
 
-    # duplicate_of (t/4337 C1): skip a marked copy's summary so citations, DocIds and unmapped
-    # concepts count each resolved doc once (spec 6.3).
-    $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
-    $SummaryFiles = @(Select-SelectableSummaryFile -Files $SummaryFiles -Resolution (Get-SourceResolution -SourcesDir $SourcesDir))
+    # duplicate_of (t/4337): a marked copy's summary isn't read as a document of its own (spec 6.3).
+    # After the main pass its key points and unmapped concepts are added back under the canonical's
+    # id, at most once per node and concept (spec 7.5), so a copy can supply a (node, group) the
+    # canonical's run missed but can't inflate a count. SummaryStats stays one row per resolved doc.
+    $AllFiles     = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+    $Resolution   = Get-SourceResolution -SourcesDir $SourcesDir
+    $SummaryFiles = @(Select-SelectableSummaryFile -Files $AllFiles -Resolution $Resolution)
     $UnmappedAgg  = @{}
     $SummaryStats = [System.Collections.Generic.List[PSObject]]::new()
 
@@ -78,6 +81,11 @@ function Read-TaxonomySummaryCorpus {
             FactualClaims = $DocClaims
             UnmappedCount = $DocUnmapped
         })
+    }
+
+    foreach ($Copy in @(Get-MarkedCopySummary -Files $AllFiles -Resolution $Resolution -Caller 'Get-TaxonomyHealthData')) {
+        [void](Add-SummaryKeyPointCitations -Summary $Copy.Summary -DocId $Copy.CanonicalId -NodeIndex $NodeIndex -OncePerDoc)
+        [void](Add-SummaryUnmappedConcepts -Summary $Copy.Summary -DocId $Copy.CanonicalId -UnmappedAgg $UnmappedAgg -OncePerDoc)
     }
 
     return [PSCustomObject]@{ SummaryStats = $SummaryStats; UnmappedAgg = $UnmappedAgg }

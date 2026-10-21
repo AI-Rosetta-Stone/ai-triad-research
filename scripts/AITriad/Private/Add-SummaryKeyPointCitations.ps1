@@ -13,6 +13,11 @@ function Add-SummaryKeyPointCitations {
         The doc id attributing citations/stances.
     .PARAMETER NodeIndex
         The citation-tracking index (from New-TaxonomyNodeIndex), mutated in place.
+    .PARAMETER OncePerDoc
+        For a marked copy's summary under the duplicate-group evidence union (spec 7.5, t/4337): a
+        key point counts only on a node where DocId (the canonical) isn't counted yet, and then
+        once (Citations +1, DocIds += DocId, no stance). The canonical's own counts are untouched,
+        so the copy can only add a (node, group) the canonical's run missed, never inflate one.
     .OUTPUTS
         [int] the total key points scanned across all POVs (mapped or not) -- the caller's
         per-doc DocKeyPoints counter.
@@ -22,7 +27,8 @@ function Add-SummaryKeyPointCitations {
     param(
         [Parameter(Mandatory)][AllowNull()]$Summary,
         [Parameter(Mandatory)][string]$DocId,
-        [Parameter(Mandatory)][hashtable]$NodeIndex
+        [Parameter(Mandatory)][hashtable]$NodeIndex,
+        [switch]$OncePerDoc
     )
 
     Set-StrictMode -Version Latest
@@ -40,6 +46,10 @@ function Add-SummaryKeyPointCitations {
             $NodeId = if ($Point.PSObject.Properties['taxonomy_node_id']) { $Point.taxonomy_node_id } else { $null }
             if (-not $NodeId) { continue }
             if (-not $NodeIndex.ContainsKey($NodeId)) { continue }
+            if ($OncePerDoc) {
+                if ($DocId -notin $NodeIndex[$NodeId].DocIds) { $NodeIndex[$NodeId].Citations++; $NodeIndex[$NodeId].DocIds.Add($DocId) }
+                continue
+            }
 
             $NodeIndex[$NodeId].Citations++
             if ($DocId -notin $NodeIndex[$NodeId].DocIds) {

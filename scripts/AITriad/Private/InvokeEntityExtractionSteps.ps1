@@ -265,14 +265,18 @@ function Read-EntityExtractionLog {
 
 function ConvertTo-EntityExtractionWorkItem {
     # One SEI entry as a work item ({ NodeId; FactsText; DocIds }), or $null when it has no claims.
-    # duplicate_of (t/4337 C1): a fact from a marked copy is skipped, so the AI sees each claim once
-    # and the entity's source_refs name only resolved docs (spec 6.3).
+    # duplicate_of (t/4337): a fact from a marked copy is skipped, so the AI sees each claim once
+    # and the entity's source_refs name only resolved docs (spec 6.3). Two ways a fact is a copy's:
+    # its doc_id is a marked id (today's index), or it carries `via` (an index built with the spec 7
+    # union re-attributes doc_id to the canonical). This is via's one branching reader (spec 7.6;
+    # TL e/347#7: no paid re-extraction of byte-identical text; the loss is tracked in t/4401).
     param([string]$NodeId, $Entry, [pscustomobject]$Resolution)
     $Facts = if ($Entry -is [hashtable] -and $Entry.ContainsKey('facts') -and $Entry['facts']) { @($Entry['facts']) } else { @() }
     $Claims = [System.Collections.Generic.List[string]]::new()
     $DocIds = [System.Collections.Generic.List[string]]::new()
     foreach ($f in $Facts) {
         if ($f -isnot [hashtable]) { continue }
+        if ($f.ContainsKey('via') -and $f['via']) { continue }
         if ($Resolution -and $f.ContainsKey('doc_id') -and $f['doc_id'] -and -not (Test-SourceSelectable -Resolution $Resolution -Id ([string]$f['doc_id']))) { continue }
         if ($f.ContainsKey('claim') -and $f['claim']) { $Claims.Add([string]$f['claim']) }
         if ($f.ContainsKey('doc_id') -and $f['doc_id']) { $DocIds.Add([string]$f['doc_id']) }

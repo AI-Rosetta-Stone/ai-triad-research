@@ -169,10 +169,11 @@ function Select-SelectableSummaryFile {
     .SYNOPSIS
         Drops summaries/<docId>.json files whose doc carries a valid duplicate_of mark.
     .DESCRIPTION
-        The evidence rule for summary-scanning producers: a marked copy's summary is skipped, so the
-        canonical's summary is the resolved doc's one evidence unit (spec 6.3). Attributing the
-        copy's key points to the canonical instead would count them twice and could credit the
-        canonical with a claim only the copy's summary holds (SO e/342#2). Files are named by doc id.
+        Selection for summary-scanning producers: a marked copy's summary is not read as a document
+        of its own (spec 6.3). Evidence producers then add the copies back with
+        Get-MarkedCopySummary under spec section 7: quote-level producers de-duplicate through
+        Merge-GroupEvidence, and per-node document counts take a copy at most once per resolved doc,
+        so nothing counts twice (t/4337#60, SO e/347#2). Files are named by doc id.
     #>
     [CmdletBinding()]
     [OutputType([System.IO.FileInfo[]])]
@@ -183,6 +184,42 @@ function Select-SelectableSummaryFile {
     $skipped = $Files.Count - $kept.Count
     if ($skipped -gt 0) { Write-Verbose "Select-SelectableSummaryFile: skipped $skipped summary file(s) of docs marked duplicate_of." }
     $kept
+}
+
+function Get-MarkedCopySummary {
+    <#
+    .SYNOPSIS
+        The parsed summaries of documents with a valid duplicate_of mark, for the spec section 7
+        evidence union (t/4337, SO e/347#2 condition 1).
+    .DESCRIPTION
+        Where summary producers find a group's copies: the complement of Select-SelectableSummaryFile
+        (a file whose name is a marked id). Each result carries the copy's exact id and its canonical
+        (resolved) id, ordered by canonical and then copy id, both ordinal: spec 7.1's group order.
+        A file that won't parse is WARNed and skipped. Emits to the pipeline; wrap the call in @().
+    .OUTPUTS
+        [pscustomobject] { CopyId; CanonicalId; Summary }
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.IO.FileInfo[]]$Files,
+        [Parameter(Mandatory)][pscustomobject]$Resolution,
+        [string]$Caller = 'AITriad'
+    )
+    Set-StrictMode -Version Latest
+    if ($Resolution.Marked.Count -eq 0) { return }
+    $found = [System.Collections.Generic.List[object]]::new()
+    foreach ($f in @($Files | Where-Object { $Resolution.Marked.Contains($_.BaseName) })) {
+        try { $s = [System.IO.File]::ReadAllText($f.FullName).TrimStart([char]0xFEFF) | ConvertFrom-Json }
+        catch { Write-Warning "${Caller}: unreadable summary $($f.Name) skipped in the duplicate_of evidence union: $($_.Exception.Message)"; continue }
+        $found.Add([pscustomobject]@{ CopyId = $f.BaseName; CanonicalId = (Resolve-SourceId -Resolution $Resolution -Id $f.BaseName); Summary = $s })
+    }
+    if ($found.Count -eq 0) { return }
+    $arr = $found.ToArray()
+    $keys = [string[]]@(foreach ($x in $arr) { "$($x.CanonicalId)`u{0001}$($x.CopyId)" })
+    # Non-generic overload: the generic one sorts a converted copy of $arr (see EvidenceUnion.ps1).
+    [Array]::Sort([Array]$keys, [Array]$arr, [System.Collections.IComparer][StringComparer]::Ordinal)
+    $arr
 }
 
 function Get-ListedSummaryFile {

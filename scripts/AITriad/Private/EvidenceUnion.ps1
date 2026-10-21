@@ -147,8 +147,8 @@ function Merge-GroupEvidence {
         output> }. They're put in spec 7.1 order here (the canonical first, then the marked members
         by ordinal id), so a caller can't change which copy's quote survives by passing them unsorted.
     .OUTPUTS
-        An ordered dictionary: node -> list of { node; field; quote; doc; via } (via only on links kept
-        from a marked member).
+        An ordered dictionary: node -> list of { node; field; quote; doc; via; payload } (via only on
+        links kept from a marked member; payload only when the input link carried one).
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -177,6 +177,8 @@ function Merge-GroupEvidence {
             }
             $entry = [ordered]@{ node = $n; field = [string]$l.field; quote = [string]$l.quote; doc = $CanonicalId }
             if (-not $own) { $entry['via'] = [string]$m.Id }
+            # A caller's own record for the link (e.g. a source-index entry), carried through untouched.
+            if ($l.PSObject.Properties['payload']) { $entry['payload'] = $l.payload }
             $out[$n].Add([pscustomobject]$entry); $keys[$n].Add($k)
         }
     }
