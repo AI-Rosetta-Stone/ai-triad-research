@@ -1,0 +1,186 @@
+# ─── Models Drift ───
+# What:  Weekly `npm run models:drift` — a dry-run, catalog-only check of whether
+#        `ai-models.json` has drifted from the vendors' live model catalogs (t/4159,
+#        t/4175). Never a completion call, never a write.
+# Why:   Four retired Groq models sat in the registry unnoticed for weeks before the
+#        first manual run caught them (t/4159).
+# Secrets: only FREE_TIER_GEMINI_KEY exists in this repo today (t/4175#5 — the
+#        original PI proposal's claim that all 4 provider secrets already existed was
+#        wrong, corrected before this workflow was built). Anthropic/Groq/DeepSeek have
+#        no key, so those 3 backends are WARN-skipped by modelsDrift.ts's own design
+#        (a keyless backend is a skip, not an error) — only all-4-skipped is exit 2.
+#        This workflow is gemini-only coverage until/unless those keys are added.
+# Exit codes (lib/electron-shared/modelsDrift.ts): 0 no drift, 1 drift found,
+#        2 nothing could be checked (every backend skipped), 3 unhandled crash.
+
+name: Models Drift
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'  # weekly, Monday 13:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  OWNER_HANDLE: 'jpsnover'
+
+jobs:
+  models-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install Node dependencies
+        run: |
+          for i in 1 2 3; do
+            pnpm install --frozen-lockfile && break
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "pnpm install failed after 3 attempts"; exit 1
+            fi
+          done
+
+      - name: Run models:drift
+        id: drift
+        continue-on-error: true
+        env:
+          GEMINI_API_KEY: ${{ secrets.FREE_TIER_GEMINI_KEY }}
+        run: |
+          set +e
+          npm run models:drift > drift-output.txt 2>&1
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "----- models:drift output -----"
+          cat drift-output.txt
+          {
+            echo "output<<DRIFT_EOF"
+            cat drift-output.txt
+            echo "DRIFT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update drift issue (exit 1 — drift found)
+        if: steps.drift.outputs.exit_code == '1'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          OUTPUT: ${{ steps.drift.outputs.output }}
+        with:
+          script: |
+            const body = [
+              `## models:drift found drift against vendor catalogs`,
+              ``,
+              `**Time:** ${new Date().toISOString()}`,
+              `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ``,
+              '```',
+              process.env.OUTPUT,
+              '```',
+              ``,
+              `### Fix`,
+              `Run the Settings refresh (or \`refreshAIModels\`) to review the proposal, then \`npm run verify:config\`.`,
+              ``,
+              `cc @${process.env.OWNER_HANDLE || 'jpsnover'}`
+            ].join('\n');
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'models-drift-alert', per_page: 1
+            });
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open.data[0].number, body
+              });
+              console.log(`Refreshed models-drift-alert issue #${open.data[0].number}`);
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: `models:drift — ${new Date().toISOString().slice(0, 10)}`,
+                body, labels: ['models-drift-alert']
+              });
+              console.log('Opened new models-drift-alert issue');
+            }
+
+      - name: Alert on nothing-could-be-checked (exit 2/3 — alarm, not routine drift)
+        if: steps.drift.outputs.exit_code == '2' || steps.drift.outputs.exit_code == '3'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          OUTPUT: ${{ steps.drift.outputs.output }}
+          EXIT_CODE: ${{ steps.drift.outputs.exit_code }}
+        with:
+          script: |
+            const body = [
+              `## models:drift could not check anything (exit ${process.env.EXIT_CODE})`,
+              ``,
+              `Every backend was skipped, or the check crashed — this is an alarm, not routine drift. Likely cause: the Gemini key is missing/rejected, or a network-wide failure.`,
+              ``,
+              `**Time:** ${new Date().toISOString()}`,
+              `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ``,
+              '```',
+              process.env.OUTPUT,
+              '```',
+              ``,
+              `cc @${process.env.OWNER_HANDLE || 'jpsnover'}`
+            ].join('\n');
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'models-drift-alert', per_page: 1
+            });
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open.data[0].number, body
+              });
+              console.log(`Refreshed models-drift-alert issue #${open.data[0].number} (UNREADABLE)`);
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: `models:drift — UNREADABLE (exit ${process.env.EXIT_CODE}) — ${new Date().toISOString().slice(0, 10)}`,
+                body, labels: ['models-drift-alert']
+              });
+              console.log('Opened new models-drift-alert issue (UNREADABLE)');
+            }
+
+      - name: Auto-close on recovery (exit 0 — no drift)
+        if: steps.drift.outputs.exit_code == '0'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'models-drift-alert', per_page: 10
+            });
+            for (const issue of open.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Recovered at ${new Date().toISOString()} — models:drift clean (no drift found). Auto-closing.`
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed'
+              });
+              console.log(`Auto-closed models-drift-alert issue #${issue.number}`);
+            }
+
+      - name: Fail the job on unexpected exit code
+        if: steps.drift.outputs.exit_code != '0' && steps.drift.outputs.exit_code != '1' && steps.drift.outputs.exit_code != '2' && steps.drift.outputs.exit_code != '3'
+        run: |
+          echo "::error::models:drift exited with unrecognized code ${{ steps.drift.outputs.exit_code }}"
+          exit 1
