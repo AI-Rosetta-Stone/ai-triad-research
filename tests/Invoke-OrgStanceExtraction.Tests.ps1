@@ -192,4 +192,42 @@ Describe 'Invoke-OrgStanceExtraction (t/1553 Stage 1)' -Tag 'taxonomy' {
             $r.Failed        | Should -Be 0
         }
     }
+
+    It 'records text_verbatim per claim and WARNs on a paraphrase (t/4382)' {
+        InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
+            param($ClaimsPath)
+            # Snapshot body: "Body of src-a — plausible policy paragraph." One claim quotes it with a line
+            # break and markdown emphasis (verbatim); the other rewords it (a paraphrase).
+            Mock Invoke-AIByUsage -MockWith {
+                [PSCustomObject]@{
+                    Text = '{"claims":[{"text":"plausible\n*policy* paragraph","canonical_proposition":"X ought Y","polarity":"asserts","extraction_confidence":0.9},{"text":"a reasonable paragraph about policy","canonical_proposition":"Z ought W","polarity":"asserts","extraction_confidence":0.8}]}'
+                    Model = 'stub'
+                }
+            }
+            $r = Invoke-OrgStanceExtraction -Concurrency 1 -OutputPath $ClaimsPath -Confirm:$false -WarningVariable w 6>$null 3>$null
+            $r.ClaimsWritten | Should -Be 4
+            $stored = @((Get-Content $ClaimsPath -Raw | ConvertFrom-Json).claims)
+            @($stored | Where-Object { $_.text -like 'plausible*' -and $_.text_verbatim -eq $true }).Count | Should -Be 2
+            @($stored | Where-Object { $_.text -like 'a reasonable*' -and $_.text_verbatim -eq $false }).Count | Should -Be 2
+            @($w | Where-Object { "$_" -match 'not a verbatim span' }).Count | Should -Be 2
+        }
+    }
+}
+
+Describe 'Test-StanceTextVerbatim (t/4382)' -Tag 'taxonomy' {
+    It '<Name>' -ForEach @(
+        @{ Name = 'exact span';                         Text = 'policy paragraph';                      Expected = $true }
+        @{ Name = 'differs only in whitespace';         Text = "policy`n   paragraph";                  Expected = $true }
+        # Curly quotes built from code points: PowerShell treats U+2018/U+2019 as string delimiters.
+        @{ Name = 'differs only in curly vs straight quotes'; Text = ('the ' + [char]0x201C + 'Act' + [char]0x201D + ' isn' + [char]0x2019 + 't enough'); Expected = $true }
+        @{ Name = 'differs only in markdown emphasis';  Text = 'the "**Act**" isn''t _enough_';         Expected = $true }
+        @{ Name = 'paraphrase';                         Text = 'the law is insufficient';               Expected = $false }
+        @{ Name = 'empty text';                         Text = '';                                      Expected = $false }
+    ) {
+        InModuleScope AITriad -Parameters @{ T = $Text; E = $Expected } {
+            param($T, $E)
+            $snapshot = "Intro.`n`nA policy paragraph says the ""Act"" isn't enough.`n"
+            Test-StanceTextVerbatim -Text $T -Snapshot $snapshot | Should -Be $E
+        }
+    }
 }
