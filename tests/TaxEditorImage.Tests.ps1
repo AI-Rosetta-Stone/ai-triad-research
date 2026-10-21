@@ -199,10 +199,13 @@ Describe 'Deploy-TaxEditorImage deactivates only after a fresh t/4242 verdict (t
         $script:Deactivated = [System.Collections.Generic.List[string]]::new()
         Mock Get-Command { @{ Name = 'az' } } -ParameterFilter { $Name -eq 'az' } -ModuleName AITriad
         Mock Get-TaxEditorRevision { $script:OldRevisions } -ModuleName AITriad
+        $script:FailStep = $null   # 'activate' or 'traffic': that rollback step exits non-zero
         Mock -CommandName 'az' -ModuleName AITriad -MockWith {
             $global:LASTEXITCODE = 0
             $a = @($args)
             $rev = $null; $i = [array]::IndexOf($a, '--revision'); if ($i -ge 0) { $rev = $a[$i + 1] }
+            if ($script:FailStep -eq 'activate' -and $a -contains 'activate') { $global:LASTEXITCODE = 1; return $null }
+            if ($script:FailStep -eq 'traffic' -and $a -contains 'traffic' -and $a -contains 'set' -and ((@($a) -join ' ') -match [regex]::Escape($script:Old))) { $global:LASTEXITCODE = 1; return $null }
             if ($a -contains 'deactivate') { $script:Deactivated.Add($rev); return $null }
             if ($a -contains 'update') { return (@{ properties = @{ latestRevisionName = $script:New } } | ConvertTo-Json -Depth 5) }
             if ($a -contains 'revision' -and $a -contains 'show') {
@@ -259,6 +262,19 @@ Describe 'Deploy-TaxEditorImage deactivates only after a fresh t/4242 verdict (t
         Mock Test-TaxEditorHealth { [PSCustomObject]@{ Healthy = $false; AverageMs = 0 } } -ModuleName AITriad
         $null = Deploy-TaxEditorImage -Tag '0.8.1-bad' -Confirm:$false 3>$null
         @($script:Deactivated) | Should -Be @($script:New)
+    }
+
+    It 'rollback: a failed <_> step throws, never claims a rollback, and deactivates nothing' -ForEach @('activate', 'traffic') {
+        $script:FailStep = $_
+        $script:RevWeight[$script:Old] = 0
+        $script:RevWeight[$script:New] = 0
+        $script:Ingress = @(@{ revisionName = $script:New; weight = 100 })
+        Mock Test-TaxEditorHealth { [PSCustomObject]@{ Healthy = $false; AverageMs = 0 } } -ModuleName AITriad
+        $err = { Deploy-TaxEditorImage -Tag '0.8.1-bad' -Confirm:$false -WarningVariable w 3>$null } | Should -Throw -PassThru
+        $err.Exception.Message | Should -Match 'was NOT rolled back|NOT shifted'
+        $err.Exception.Message | Should -Match 'Goal:'
+        @($w | Where-Object { "$_" -match 'Rolled back to' }).Count | Should -Be 0
+        @($script:Deactivated) | Should -Not -Contain $script:New -Because 'the unhealthy revision still serves; nothing is deactivated after a failed step'
     }
 
     It 'fails closed before deploying when the shared guard predicate cannot be found' {
