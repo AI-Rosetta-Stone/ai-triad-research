@@ -22,7 +22,12 @@ name: Sources Index
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # every 30 minutes (TL decision, t/4334: freshness is fine for this)
+    # t/4334: the cron trigger never registered a single `schedule`-event run after merge,
+    # confirmed not a repo-wide GitHub Actions outage (health-monitor.yml fires fine in the same
+    # window). A later disable/enable toggle via the API also didn't fix it. This is a real content
+    # edit to the workflow file itself (not just the toggle) to force GitHub to re-register the
+    # schedule trigger from scratch -- cron value is unchanged, every 30 minutes.
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
