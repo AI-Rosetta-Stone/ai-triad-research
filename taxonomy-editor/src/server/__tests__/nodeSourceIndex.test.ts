@@ -145,3 +145,67 @@ describe('buildNodeSourceIndex / getNodeSources (t/4333/t/4334)', () => {
     expect(second.indexVersion).toBe(first.indexVersion);
   });
 });
+
+// t/4357 (t/4337 C1, spec section 6): a `duplicate_of` mark collapses a
+// node's evidence to one row per resolved id, attributed to the canonical,
+// while by-id lookups (card metadata) keep working for the marked doc too.
+describe('buildNodeSourceIndex / getNodeSources: duplicate_of (t/4357)', () => {
+  beforeEach(() => {
+    dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't4357-data-'));
+    sourcesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't4357-sources-'));
+    fs.mkdirSync(path.join(dataRoot, 'summaries'), { recursive: true });
+    process.env.AI_TRIAD_DATA_ROOT = dataRoot;
+    process.env.AI_TRIAD_SOURCES_ROOT = sourcesRoot;
+    resetNodeSourceIndexCacheForTests();
+  });
+
+  afterEach(() => {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+    fs.rmSync(sourcesRoot, { recursive: true, force: true });
+    delete process.env.AI_TRIAD_DATA_ROOT;
+    delete process.env.AI_TRIAD_SOURCES_ROOT;
+  });
+
+  it('a duplicate pair gives one evidence unit, attributed to the canonical (SO C2)', async () => {
+    writeSourceMeta('report-2026', { title: 'The Report', url: 'https://example.com/report' });
+    writeSourceMeta('copy-2026', { title: 'The Report (mirror)', url: 'https://example.com/mirror', duplicate_of: 'report-2026' });
+    writeSummary('report-2026', 'n1', { point: 'from the original' });
+    writeSummary('copy-2026', 'n1', { point: 'from the mirror' });
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].docId).toBe('report-2026');
+    expect(sources[0].title).toBe('The Report');
+  });
+
+  it("the duplicate's id still resolves by id — a card is still produced, keyed by the canonical", async () => {
+    writeSourceMeta('report-2026', { title: 'The Report', url: 'https://example.com/report' });
+    writeSourceMeta('copy-2026', { title: 'Mirror', url: 'https://example.com/mirror', duplicate_of: 'report-2026' });
+    writeSummary('copy-2026', 'n1'); // ONLY the marked doc cites this node — its content must not vanish
+
+    const { sources, cards } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].docId).toBe('report-2026');
+    expect(cards['report-2026']).toMatchObject({ title: 'The Report' });
+  });
+
+  it('an invalid mark (self) is treated as absent — the doc stays its own row', async () => {
+    writeSourceMeta('solo-2026', { title: 'Solo', duplicate_of: 'solo-2026' });
+    writeSummary('solo-2026', 'n1');
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].docId).toBe('solo-2026');
+  });
+
+  it('an unmarked split part is unaffected — still a separate row, grouped by canonicalDocId only', async () => {
+    writeSourceMeta('base-2026', { title: 'Base', content_sha256: 'h1' });
+    writeSourceMeta('base-2026-1', { title: 'Base', content_sha256: 'h1' });
+    writeSummary('base-2026', 'n1', { point: 'part one' });
+    writeSummary('base-2026-1', 'n1', { point: 'part two' });
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(2);
+    expect(new Set(sources.map(s => s.canonicalDocId))).toEqual(new Set(['base-2026']));
+  });
+});

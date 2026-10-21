@@ -99,6 +99,7 @@ function buildIdentityMetaFromRawJson(meta: Record<string, unknown>): SourceIden
     content_sha256: (meta.content_sha256 as string) ?? null,
     same_as: (meta.same_as as string) ?? null,
     parent_doc_id: (meta.parent_doc_id as string) ?? null,
+    duplicate_of: (meta.duplicate_of as string) ?? null, // t/4337 C1 (spec section 6)
   };
 }
 
@@ -220,29 +221,82 @@ async function indexSummaryFiles(
   );
 }
 
+/** t/4357 (spec section 6.3): a `duplicate_of`-marked entry (`resolved[docId]
+ *  !== docId`) is dropped whenever its resolved id already has its own,
+ *  unmarked entry in this node's list — "a duplicate pair gives one
+ *  evidence unit, not two" (SO condition C2). When no unmarked entry exists
+ *  for that id (only the mark cites this node), exactly one marked entry
+ *  survives instead of vanishing, re-attributed to the resolved id using
+ *  its own card metadata when known, so the row reads as a citation of the
+ *  canonical document. Unmarked entries are never touched or deduped
+ *  against each other — multiple citations of the same real document is a
+ *  pre-existing, duplicate_of-unrelated pattern this ticket doesn't change.
+ *  Grouping-only duplicates (no mark, e.g. split parts) are likewise
+ *  untouched — only a mark changes row count. */
+function dedupeByResolvedId(
+  index: NodeSourceIndex, resolved: Record<string, string>, metaCache: Record<string, NodeSourceMeta>,
+): void {
+  for (const [nodeId, refs] of Object.entries(index)) {
+    // An "own" entry (resolvedId === docId, i.e. unmarked) is never touched
+    // — including multiple own entries for the same doc, a pre-existing,
+    // duplicate_of-unrelated pattern. A duplicate-marked entry only
+    // surfaces when NO own entry already represents its resolved id —
+    // otherwise two citations of the same real document (one direct, one
+    // via its mark) would count as two evidence units, not the one the SO
+    // asked for.
+    const hasOwnEntry = new Set(refs.filter(r => (resolved[r.docId] ?? r.docId) === r.docId).map(r => r.docId));
+    const seenViaMark = new Set<string>();
+    const kept: SourceReference[] = [];
+    for (const r of refs) {
+      const resolvedId = resolved[r.docId] ?? r.docId;
+      if (resolvedId === r.docId) { kept.push(r); continue; }
+      if (hasOwnEntry.has(resolvedId) || seenViaMark.has(resolvedId)) continue;
+      seenViaMark.add(resolvedId);
+      const target = metaCache[resolvedId];
+      kept.push({
+        ...r, docId: resolvedId, canonicalDocId: resolvedId,
+        title: target?.title ?? r.title, url: target?.url ?? r.url,
+      });
+    }
+    index[nodeId] = kept;
+  }
+}
+
 /** Fills in `canonicalDocId` (today it's set to each ref's own `docId` by
  *  `indexSummaryFile`) using the shared source-identity algorithm
  *  (`docs/specs/source-identity.md`, t/4344), mutating `index` in place.
  *  Every `docId` seen anywhere in the index participates, so a split part
  *  reachable only via one node still resolves against the full known-id
- *  set. Returns the title-collision and url-conflict reports (spec 4.5) for
- *  the caller to log — both are signals for a human cleanup pass, never
- *  applied as a merge. */
+ *  set. Also applies t/4357's section 6: a valid `duplicate_of` mark
+ *  collapses that node's two evidence rows into one (`dedupeByResolvedId`),
+ *  attributed to the resolved id. Returns the title-collision, url-conflict
+ *  (spec 4.5) and duplicate-of-error (spec 6.1) reports for the caller to
+ *  log — all three are signals for a human, never applied as a merge. */
 function applyCanonicalDocIds(
   index: NodeSourceIndex, identityMeta: Record<string, SourceIdentityMeta>, snapshotHashes: Record<string, string | null>,
-): { titleCollisions: string[][]; urlConflicts: SourceUrlConflict[] } {
-  const allDocIds = new Set<string>();
+  metaCache: Record<string, NodeSourceMeta>,
+): { titleCollisions: string[][]; urlConflicts: SourceUrlConflict[]; duplicateOfErrorCount: number } {
+  // t/4357: every doc under sourcesDir participates, not just the ones cited
+  // by a summary today — a `duplicate_of` target otherwise cited by nothing
+  // would wrongly validate as `missing_target` (it genuinely IS in the
+  // corpus; it just has no key-point referencing this particular build).
+  const allDocIds = new Set<string>(Object.keys(identityMeta));
   for (const refs of Object.values(index)) for (const r of refs) allDocIds.add(r.docId);
   const docs: SourceIdentityDoc[] = [...allDocIds].map(id => ({
     id,
     metadata: identityMeta[id] ?? { title: id },
     snapshotSha256: snapshotHashes[id] ?? null,
   }));
-  const { canonical, titleCollisions, urlConflicts } = groupSourceIdentities(docs);
+  const { canonical, titleCollisions, urlConflicts, resolved, duplicateOfErrors } = groupSourceIdentities(docs);
   for (const refs of Object.values(index)) {
     for (const r of refs) r.canonicalDocId = canonical[r.docId] ?? r.docId;
   }
-  return { titleCollisions, urlConflicts };
+  dedupeByResolvedId(index, resolved, metaCache);
+  if (duplicateOfErrors.length > 0) {
+    // spec 6.1: WARN, never throw — an invalid mark is visible and treated as absent.
+    log.server.warn({ duplicateOfErrors }, 'Node source index: invalid duplicate_of marks found (treated as absent)');
+  }
+  return { titleCollisions, urlConflicts, duplicateOfErrorCount: duplicateOfErrors.length };
 }
 
 /**
@@ -260,7 +314,7 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
 
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  applyCanonicalDocIds(index, identityMeta, snapshotHashes);
+  applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
   return index;
 }
 
@@ -319,7 +373,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const summaryFiles = await getBackend().listDirectory(summariesDir);
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  const { titleCollisions, urlConflicts } = applyCanonicalDocIds(index, identityMeta, snapshotHashes);
+  const { titleCollisions, urlConflicts, duplicateOfErrorCount } = applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
   const cards = buildCardMetaByCanonicalId(index, metaCache);
   nodeSourceIndexGeneration += 1;
 
@@ -330,7 +384,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   log.server.info(
     {
       coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,
-      titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length, ...coverage,
+      titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length, duplicateOfErrorCount, ...coverage,
     },
     'Node source index rebuilt',
   );
