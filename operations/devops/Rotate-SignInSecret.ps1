@@ -89,7 +89,8 @@ function New-ActionableError {
 $providerMap = @{
     aad    = @{ GitHubSecret = 'AAD_CLIENT_SECRET'; ContainerSecret = 'aad-client-secret'; DisplayName = 'Microsoft (AAD)' }
     google = @{ GitHubSecret = 'GOOGLE_CLIENT_SECRET'; ContainerSecret = 'google-client-secret'; DisplayName = 'Google' }
-    github = @{ GitHubSecret = 'GITHUB_CLIENT_SECRET'; ContainerSecret = 'github-client-secret'; DisplayName = 'GitHub' }
+    # t/4418: GH_OAUTH_CLIENT_SECRET is what deploy-azure.yml's apply reads; GitHub rejects GITHUB_* secret names.
+    github = @{ GitHubSecret = 'GH_OAUTH_CLIENT_SECRET'; ContainerSecret = 'github-client-secret'; DisplayName = 'GitHub' }
 }
 $cfg = $providerMap[$Provider]
 $apps = @($ContainerAppName, "$ContainerAppName-staging")

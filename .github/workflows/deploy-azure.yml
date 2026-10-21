@@ -340,14 +340,17 @@ jobs:
         env:
           AAD_CLIENT_SECRET: ${{ secrets.AAD_CLIENT_SECRET }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+          # t/4418: the SAME source the Bicep apply writes (githubClientSecret below). GitHub forbids
+          # repo secret names starting GITHUB_, so secrets.GITHUB_CLIENT_SECRET was always empty and
+          # this step silently skipped GitHub on every deploy.
+          GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
         run: |
           ./operations/devops/Test-SignInSecretDrift.ps1 `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
             -DeploySourceValues @{
               'aad-client-secret'    = $env:AAD_CLIENT_SECRET
               'google-client-secret' = $env:GOOGLE_CLIENT_SECRET
-              'github-client-secret' = $env:GITHUB_CLIENT_SECRET
+              'github-client-secret' = $env:GH_OAUTH_CLIENT_SECRET
             }
 
       - name: Validate auth config — tokenStore safety (warn-only — t/4133)
