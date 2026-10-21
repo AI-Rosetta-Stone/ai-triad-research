@@ -16,12 +16,12 @@ import { TypeaheadSelect } from '../shared/TypeaheadSelect';
 import { LinkedItemPreview, toggleLinkedSelection, type SelectedLinkedItem } from './linkedItemPreview';
 import { generateConflictResearchPrompt } from '../../utils/researchPrompt';
 import { useDebateStore } from '../../hooks/useDebateStore';
-import { POV_KEYS } from '@lib/debate/types';
 import { api } from '@bridge';
 import { summarizeStances } from './stanceSummary';
 import { EditableField } from './EditableField';
 import { InlineConfirm } from './InlineConfirm';
 import { earliestInstanceDate, campColorVarForNodeId } from './conflictMeta';
+import { allNodesById, isSuperseded } from '../../hooks/useTaxonomyStore/superseded';
 import './ConflictDetail.css';
 
 interface ConflictDetailProps {
@@ -176,6 +176,12 @@ export function ConflictDetail({ conflict, readOnly, onPin, chipDepth = 0 }: Con
     [linkedNodes, policyRegistry],
   );
 
+  // Mark (don't hide) a linked node that's been superseded (TL ruling, t/4355/t/4360).
+  const supersededLinkedIds = useMemo(
+    () => computeSupersededLinkedIds(linkedNodes, useTaxonomyStore.getState()),
+    [linkedNodes],
+  );
+
   const addLinked = (id: string) => {
     if (id && !linkedNodes.includes(id)) {
       update({ linked_taxonomy_nodes: [...linkedNodes, id] });
@@ -249,6 +255,7 @@ export function ConflictDetail({ conflict, readOnly, onPin, chipDepth = 0 }: Con
           selectedItem={selectedItem}
           setSelectedItem={setSelectedItem}
           getLabelForId={getLabelForId}
+          supersededLinkedIds={supersededLinkedIds}
           removeLinked={removeLinked}
           addLinked={addLinked}
           allNodeIds={allNodeIds}
@@ -332,29 +339,36 @@ type RelatedPolicy = { id: string; action: string };
 type StoreState = ReturnType<typeof useTaxonomyStore.getState>;
 
 /**
- * Scan the store's POV + situations files for the policy_action ids referenced by
- * any of the given linked nodes. Split out of computeRelatedPolicies so each stays
- * under the complexity gate (t/1919) — behavior is unchanged.
+ * Collect the policy_action ids referenced by the conflict's linked taxonomy nodes.
+ * Resolves each linked id directly — via `allNodesById` for POV nodes (t/4355: the
+ * exact node, superseded included, since a superseded node's own file no longer
+ * carries it) and a situations lookup otherwise — rather than scanning every file.
+ * Split out of computeRelatedPolicies so each stays under the complexity gate (t/1919).
  */
 function collectLinkedPolicyIds(linkedNodes: string[]): Set<string> {
   const state = useTaxonomyStore.getState();
+  const byId = allNodesById(state);
   const policyIdSet = new Set<string>();
 
-  for (const povKey of [...POV_KEYS, 'situations'] as const) {
-    const file = povKey === 'situations' ? state.situations : state[povKey];
-    if (!file?.nodes) continue;
-    for (const node of file.nodes) {
-      if (!linkedNodes.includes(node.id)) continue;
-      const ga = (node as { graph_attributes?: { policy_actions?: { policy_id?: string }[] } }).graph_attributes;
-      if (ga?.policy_actions) {
-        for (const action of ga.policy_actions) {
-          if (action.policy_id) policyIdSet.add(action.policy_id);
-        }
+  for (const id of linkedNodes) {
+    const node = byId.get(id) ?? state.situations?.nodes.find(n => n.id === id);
+    if (!node) continue;
+    const ga = (node as { graph_attributes?: { policy_actions?: { policy_id?: string }[] } }).graph_attributes;
+    if (ga?.policy_actions) {
+      for (const action of ga.policy_actions) {
+        if (action.policy_id) policyIdSet.add(action.policy_id);
       }
     }
   }
 
   return policyIdSet;
+}
+
+/** Linked ids (POV only) that are superseded — for marking, not hiding (TL ruling, t/4360). */
+function computeSupersededLinkedIds(linkedNodes: string[], state: ReturnType<typeof useTaxonomyStore.getState>): Set<string> {
+  const ids = new Set<string>();
+  for (const id of linkedNodes) if (isSuperseded(state, id)) ids.add(id);
+  return ids;
 }
 
 /**
@@ -530,6 +544,7 @@ interface LinkedNodesSectionProps {
   selectedItem: SelectedLinkedItem | null;
   setSelectedItem: React.Dispatch<React.SetStateAction<SelectedLinkedItem | null>>;
   getLabelForId: StoreState['getLabelForId'];
+  supersededLinkedIds: Set<string>;
   removeLinked: (id: string) => void;
   addLinked: (id: string) => void;
   allNodeIds: string[];
@@ -544,6 +559,7 @@ function LinkedNodesSection({
   selectedItem,
   setSelectedItem,
   getLabelForId,
+  supersededLinkedIds,
   removeLinked,
   addLinked,
   allNodeIds,
@@ -557,6 +573,7 @@ function LinkedNodesSection({
         {linkedNodes.map((id) => {
           const label = getLabelForId(id);
           const isSelected = selectedItem?.kind === 'node' && selectedItem.id === id;
+          const superseded = supersededLinkedIds.has(id);
           return (
             <div key={id} className={`cd-node-row${isSelected ? ' cd-row-selected' : ''}`}>
               <span className="cd-node-tick" style={{ background: campColorVarForNodeId(id) }} aria-hidden="true" />
@@ -568,6 +585,7 @@ function LinkedNodesSection({
                 title={`Preview ${label || id}`}
               >
                 <span className={`cd-node-label${label ? '' : ' cd-node-unlabeled'}`}>{label || '(unlabeled node)'}</span>
+                {superseded && <span className="cd-node-superseded-badge" title="This node has been superseded">Superseded</span>}
                 <span className="cd-node-id">{id}</span>
               </button>
               {!readOnly && (
