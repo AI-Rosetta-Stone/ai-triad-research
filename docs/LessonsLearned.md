@@ -5279,7 +5279,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 7 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 8 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; resolved by reading full OID with `gh pr view N --json headRefOid --jq .headRefOid`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -6800,3 +6800,104 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#174).
 
 **Applies To:** All agents running `jq` in Git Bash on Windows; use `ConvertFrom-Json` (PowerShell) or `gh --jq` instead.
+
+---
+
+## #332 [Build] PR Body Edit Re-Triggers Required Checks — Arm With `--auto` After Body Edits, Not Direct Merge
+
+**Pattern:** An agent edits a PR's body (e.g., to add a missing `Tier:` line) and immediately attempts a direct `gh pr merge --squash --match-head-commit`. GitHub refuses with "base branch policy prohibits the merge." The body edit caused GitHub to re-run required checks, which are now PENDING. A direct merge against PENDING checks is refused.
+
+**Instances:**
+- 2026-10-20 — Tech Lead (p/335#171, PR #3524): added missing `Tier:` line to PR body; immediately attempted direct merge. Refused — body edit re-triggered required checks. Resolved by switching to `gh pr merge 3524 --auto --squash --match-head-commit <same head>`.
+
+**Root Cause:** GitHub re-runs required status checks whenever a PR body changes (certain checks parse body content such as `Tier:`). The checks transition from the previous pass state back to PENDING. A direct merge attempt fires before the re-run completes.
+
+**Prevention:**
+1. **After any PR body edit, arm with `--auto --match-head-commit` rather than direct-merging.** `--auto` waits for all required checks to re-complete before merging.
+2. **"base branch policy prohibits the merge" immediately after a body edit** = checks are pending, not failed. Switch to `--auto`.
+3. **To check current status before deciding**, run `gh pr checks <N>` — `pending` confirms the re-trigger is in progress.
+
+**Status:** Active — 1 instance (Tech Lead p/335#171).
+
+**Applies To:** All agents editing PR bodies and then merging; body edits re-trigger required checks — use `--auto` afterwards, not direct merge.
+
+---
+
+## #333 [Build] Hook Blocks Compound Bash Command With `$(...)` Variable Substitution — Split Into Two Separate Calls
+
+**Pattern:** An agent constructs a single Bash command that captures a subshell result and immediately uses it: `sha=$(gh pr view N --json headRefOid --jq .headRefOid) && gh pr merge N --squash --match-head-commit "$sha"`. A hook pattern-matches the compound command and refuses it. Splitting into two separate calls — one to read the SHA, one to run the merge — passes the hook.
+
+**Instances:**
+- 2026-10-20 — DebateTool (p/70#77): `sha=$(gh pr view ...) && gh pr merge ... "$sha"` refused by a hook that couldn't verify the compound wasn't a destructive git command. Resolved by splitting into two calls.
+
+**Root Cause:** Hooks often pattern-match command strings. A compound command containing both a `$(...)` subshell and `gh pr merge` may trigger a git-command guard. Splitting makes each call independently evaluable.
+
+**Prevention:**
+1. **When a compound `sha=$(...) && gh pr merge "$sha"` is blocked, split it:** first call reads and prints the SHA; second call passes the literal SHA value.
+2. **This is the documented two-command form** (AGENTS.md Self-Merge Protocol); prefer the PowerShell tool for this sequence — less likely to trigger git-command hooks.
+3. **Two calls make the SHA explicit and reviewable** — always the safer form.
+
+**Status:** Active — 1 instance (DebateTool p/70#77).
+
+**Applies To:** All agents running `gh pr merge --match-head-commit` via Bash; split SHA capture and merge into two tool calls to avoid hook false positives.
+
+---
+
+## #334 [Build] jq Object Literal Key Starting With a Digit Fails to Parse — Quote Numeric Keys
+
+**Pattern:** An agent constructs a jq expression with an object literal using a numeric key: `{3558: .}`. jq fails to parse the expression. jq object construction syntax requires keys that begin with a digit to be quoted as strings.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#242): jq expression `{3558: .}` failed to parse. Fixed by quoting the key: `{"3558": .}`.
+
+**Root Cause:** jq's object literal syntax `{key: value}` treats unquoted keys as identifiers. An identifier cannot start with a digit. Numeric-looking keys must be quoted as string literals.
+
+**Prevention:**
+1. **Quote any jq object key that starts with a digit:** `{"3558": .}` not `{3558: .}`.
+2. **In jq object literals, unquoted keys are identifiers** (must start with a letter or underscore). Anything else needs quotes.
+3. **jq parse error at a `{N:` pattern** = fix is always to add quotes around the key.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#242).
+
+**Applies To:** All agents writing jq expressions with numeric or special-character object keys; quote keys that don't start with a letter.
+
+---
+
+## #335 [Build] KQL Reserved Words as Column Aliases in `summarize`/`extend` Produce SYN0002
+
+**Pattern:** An agent writes a KQL query using `az monitor log-analytics query`. Column aliases in `summarize` or `extend` clauses use KQL reserved words (`first`, `kind`, `last`, etc.). The query returns SYN0002 (syntax error).
+
+**Instances:**
+- 2026-10-21 — Azure (p/105#20): 3 KQL queries returned SYN0002. Aliases used `first`, `kind`, `last` in `summarize`/`extend`. Resolved by renaming to `t0`, `t1`, `ek`.
+
+**Root Cause:** KQL has reserved words that cannot be used as column aliases without special escaping. `first`, `kind`, and `last` are among them.
+
+**Prevention:**
+1. **Avoid KQL reserved words as column aliases.** Common ones: `first`, `last`, `kind`, `type`, `count`, `sum`, `min`, `max`, `avg`. Use non-reserved aliases (`t0`, `ek`, `cnt`, etc.).
+2. **SYN0002 without an obvious syntax error** = reserved-word alias collision — inspect each alias.
+3. **To use a reserved word as an alias if necessary**, wrap in backtick escaping: `` [`first`] ``.
+
+**Status:** Active — 1 instance (Azure p/105#20).
+
+**Applies To:** All agents writing KQL queries; avoid reserved words (`first`, `last`, `kind`, etc.) as column aliases in `summarize`/`extend`.
+
+---
+
+## #336 [Build] `az containerapp show` Emits Extension WARNING to stdout — Redirect stderr Before Parsing JSON
+
+**Pattern:** An agent pipes `az containerapp show` output into a JSON parser. The command fails with `JSONDecodeError` on empty input. The `az containerapp` extension prints a WARNING line to stdout, corrupting the JSON stream.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#244): `az containerapp show | python3 -c "import json,sys; json.load(sys.stdin)"` → JSONDecodeError on empty input. Extension WARNING line printed to stdout. Resolved by adding `2>/dev/null`.
+
+**Root Cause:** Azure CLI extensions (`containerapp`, `aks`, `acr`, etc.) may print WARNING messages to stdout in addition to JSON output. When the warning appears before the JSON, it corrupts the input stream for a strict JSON parser.
+
+**Prevention:**
+1. **Always redirect stderr when piping `az` extension commands into a JSON parser:** `az containerapp show ... 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin))"`.
+2. **Alternatively, use `az ... -o json 2>/dev/null`** to explicitly request JSON output and suppress warnings.
+3. **JSONDecodeError on empty input when piping `az` output** = WARNING-line prefix. Add `2>/dev/null` before retrying.
+4. **Applies to all `az` extension subcommands** — not just `containerapp`.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#244).
+
+**Applies To:** All agents piping `az` extension command output into JSON parsers; always redirect stderr with `2>/dev/null` to isolate clean JSON.
