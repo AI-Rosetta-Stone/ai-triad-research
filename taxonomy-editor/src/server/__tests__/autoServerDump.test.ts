@@ -118,8 +118,10 @@ describe('POST /api/flight-recorder/dump — auto-server-dump (t/3049)', () => {
     await dumpHandler({} as IncomingMessage, res, { ndjson: CLIENT_NDJSON, dumpId: DUMP_ID });
 
     expect(writeDump).toHaveBeenCalledTimes(2);
-    expect(writeDump).toHaveBeenCalledWith('/fake/data', 'client', DUMP_ID, CLIENT_NDJSON);
-    expect(writeDump).toHaveBeenCalledWith('/fake/data', 'server', DUMP_ID, SERVER_NDJSON);
+    // t/4372 (t/4264): flight-recorder dumps are class-A writable state — getStateRoot(), never
+    // getDataRoot() (a staging deployment sharing /mnt/shared must not write dumps onto prod's share).
+    expect(writeDump).toHaveBeenCalledWith('/fake/state', 'client', DUMP_ID, CLIENT_NDJSON);
+    expect(writeDump).toHaveBeenCalledWith('/fake/state', 'server', DUMP_ID, SERVER_NDJSON);
     expect(res._body).toMatchObject({ dumpId: DUMP_ID, serverDumpWritten: true });
   });
 

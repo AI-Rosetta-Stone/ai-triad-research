@@ -16,7 +16,7 @@ import type { ServerCtx } from './context.js';
 import { json, error, param, query } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
-import { getDataRoot, getStateRoot, getProjectRoot, rotateApiKeyMaterial, STORAGE_MODE, getPaidGeminiFallbackKey, setPaidGeminiFallbackKey, deletePaidGeminiFallbackKey } from '../config.js';
+import { getStateRoot, getProjectRoot, rotateApiKeyMaterial, STORAGE_MODE, getPaidGeminiFallbackKey, setPaidGeminiFallbackKey, deletePaidGeminiFallbackKey } from '../config.js';
 import { loadUsageRegistry } from '../../../../lib/ai-client/usageTypes.js';
 import { getConfig, getConfigState, writeConfig, forceReload as reloadRuntimeConfig, diffFromDefaults } from '../runtimeConfig.js';
 import { requireAdmin, getReviewQueue, getReviewStats, getReviewDetail, executeReviewAction } from '../community/admin/reviewRegistry.js';
@@ -240,7 +240,7 @@ export function registerAdminRoutes(r: Router, ctx: ServerCtx): void {
       const { dumpId } = (body ?? {}) as { dumpId?: string };
       if (!isValidDumpId(dumpId)) { error(res, 'dumpId must be a UUID-safe string', 400); return; }
       const ndjson = appendServerLogs(serverRecorder.buildDump('manual').ndjson);
-      const filePath = await writeDump(getDataRoot(), 'server', dumpId, ndjson);
+      const filePath = await writeDump(getStateRoot(), 'server', dumpId, ndjson); // t/4372 (t/4264): class-A writable state, never getDataRoot()
       log.fr.info({ filePath, dumpId }, 'Correlated server dump written');
       json(res, { ok: true, filename: path.basename(filePath), dumpId });
     } catch (err) {

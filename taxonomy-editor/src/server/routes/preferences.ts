@@ -59,6 +59,11 @@ export function registerPreferencesRoutes(r: Router, _ctx: ServerCtx): void {
       }
       const filePath = resolveDataPath(path.join('preferences', `${getStorageUserId()}.json`));
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      // t/4372 finding, NOT fixed here: this write bypasses the storage backend GET already uses
+      // (readDataFile → getBackend()), so a naive getStateRoot() swap would desync the read/write
+      // pair on staging. Needs investigation of whether getBackend() even serves preferences
+      // correctly on hosted mode first — tracked in t/4375, remove this disable when that lands.
+      // eslint-disable-next-line local/no-data-root-write -- see comment above
       fs.writeFileSync(filePath, JSON.stringify(parsed.data), 'utf8');
       json(res, null, 204);
     } catch (err) {

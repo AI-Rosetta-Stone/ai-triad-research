@@ -1237,6 +1237,11 @@ export async function updateNodeEmbeddings(nodes: { id: string; text: string; po
   // condition previously threw a raw exception with no FR record and no ActionableError.
   // Record + wrap so the failure is diagnosable and carries recovery guidance.
   try {
+    // embeddings.json is genuine data-of-record (not class-A state), the write-side mirror of
+    // readDataFile.ts's own documented large-file exception: 63 MB exceeds the GitHub Contents
+    // API's 1 MB limit, so this bypasses the storage backend by design on both read
+    // (largeFile:true) and write. getDataRoot() is correct here.
+    // eslint-disable-next-line local/no-data-root-write -- see comment above
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
     getGlobalRecorder()?.record({
