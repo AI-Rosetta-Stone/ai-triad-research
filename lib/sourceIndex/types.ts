@@ -69,6 +69,11 @@ export interface SourceIdentityMeta {
   content_sha256?: string | null;
   same_as?: string | null;
   parent_doc_id?: string | null;
+  /** t/4337 C1 (spec section 6) — a reviewed corpus-cleanup mark, never
+   *  inferred. An empty string is the same as absent. Validated and
+   *  resolved by `groupSourceIdentities`/`resolveDuplicateOf` below, never
+   *  by the caller. */
+  duplicate_of?: string | null;
 }
 
 /** One document as input to `groupSourceIdentities` (spec section 4). */
@@ -89,8 +94,26 @@ export interface SourceUrlConflict {
   ids: [string, string];
 }
 
+/** Spec section 6.1: the first check a `duplicate_of` mark fails, or absent
+ *  for a valid mark. `self`: the target is the document itself. `missing_target`:
+ *  the target isn't in the input set. `chain`: the target carries a mark of
+ *  its own (one hop only — no chains, no cycles). `conflict`: the target is a
+ *  valid mark in this group, but not the group's chosen canonical (4.6 rule 1
+ *  — the ordinal-smallest of the group's valid targets). */
+export type DuplicateOfErrorKind = 'self' | 'missing_target' | 'chain' | 'conflict';
+
+/** Spec 6.1: one invalid `duplicate_of` mark, reported for a human — never
+ *  thrown. Sorted by `id`, ordinal. */
+export interface DuplicateOfError {
+  id: string;
+  target: string;
+  kind: DuplicateOfErrorKind;
+}
+
 export interface SourceIdentityGroupResult {
-  /** docId → canonical (ordinal-smallest) id in its connected component. */
+  /** docId → canonical id in its connected component: a group with a valid
+   *  `duplicate_of` mark uses the mark's target (spec 4.6 rule 1); any other
+   *  group uses the ordinal-smallest id in it (rule 2). */
   canonical: Record<string, string>;
   /** Equal non-empty title keys spanning 2+ groups — a report for a human
    *  (t/4337's cleanup pass), never a merge (spec 4.5). Each inner array is
@@ -101,6 +124,21 @@ export interface SourceIdentityGroupResult {
    *  even if other edges still put both documents in one group. Sorted by
    *  `url_key`, then by `ids`, all ordinal. */
   urlConflicts: SourceUrlConflict[];
+  /** Spec 6.2: docId → the id a by-id lookup should actually use — the
+   *  mark's target when `docId` has a *valid* mark, `docId` itself
+   *  otherwise. Reads the mark only, never grouping: an unmarked group
+   *  member resolves to itself even when its group's canonical is another
+   *  document (t/4357, p/803#2/#4 — the mark-only cleanup's blast radius
+   *  stays exactly the one document a human signed off on). */
+  resolved: Record<string, string>;
+  /** Spec 6.3: the documents with no valid `duplicate_of` mark, ordinal-
+   *  sorted — what selection, evidence retrieval and the node-source index
+   *  should iterate, instead of every doc id. */
+  selectable: string[];
+  /** Spec 6.1: every invalid mark, sorted by `id`, ordinal. WARN on these;
+   *  never throw — an invalid mark is visible (reported) and harmless
+   *  (treated as absent everywhere), not a build failure. */
+  duplicateOfErrors: DuplicateOfError[];
 }
 
 const BOM = '﻿';
@@ -376,8 +414,10 @@ function unionAllEdges(uf: DocIdUnionFind, known: Set<string>, docs: SourceIdent
   const { titleKeys, urlKeys, recordedHashes } = derived;
   const byKey = new Map<string, string>();
   for (const d of docs) {
-    for (const link of ['parent_doc_id', 'same_as'] as const) {
+    for (const link of ['parent_doc_id', 'same_as', 'duplicate_of'] as const) {
       const target = d.metadata[link];
+      // Spec 6.1: an invalid mark (e.g. a chain) still makes this edge — it
+      // only loses its effect on the canonical, the resolver and selection.
       if (target && known.has(target)) uf.union(d.id, target);
     }
     unionByKey(uf, byKey, 'hash', effectiveHash(d), d.id);
@@ -418,6 +458,79 @@ function sortUrlConflicts(conflicts: SourceUrlConflict[]): SourceUrlConflict[] {
   });
 }
 
+/** Spec 6.1, checks 1-3 only (`self`/`missing_target`/`chain`) — `conflict`
+ *  (check 4) needs the group's canonical, which isn't known until after
+ *  this pass (spec's "evaluate in two passes" note, #3589). */
+function classifyMarks(docs: SourceIdentityDoc[]): { mark: Map<string, string>; kind: Map<string, DuplicateOfErrorKind> } {
+  const known = new Set(docs.map(d => d.id));
+  const byId = new Map(docs.map(d => [d.id, d] as const));
+  const mark = new Map<string, string>();
+  const kind = new Map<string, DuplicateOfErrorKind>();
+  for (const d of docs) {
+    const target = d.metadata.duplicate_of;
+    if (!target) continue; // spec: an empty string is the same as absent
+    mark.set(d.id, target);
+    if (target === d.id) kind.set(d.id, 'self');
+    else if (!known.has(target)) kind.set(d.id, 'missing_target');
+    else if (byId.get(target)!.metadata.duplicate_of) kind.set(d.id, 'chain'); // one hop only
+  }
+  return { mark, kind };
+}
+
+/** Spec 6.1 check 4 (`conflict`) and 4.6 rule 1: the group's canonical
+ *  target is the ordinal-smallest target among its still-valid marks;
+ *  every other valid mark in the group becomes a `conflict`. Mutates
+ *  `kind` in place with any newly-found `conflict`s. */
+function resolveGroupTargets(
+  mark: Map<string, string>, kind: Map<string, DuplicateOfErrorKind>, canonical: Record<string, string>,
+): Map<string, string> {
+  const groupTarget = new Map<string, string>();
+  for (const [id, target] of mark) {
+    if (kind.has(id)) continue;
+    const root = canonical[id];
+    const existing = groupTarget.get(root);
+    if (existing === undefined || target < existing) groupTarget.set(root, target);
+  }
+  for (const [id, target] of mark) {
+    if (!kind.has(id) && target !== groupTarget.get(canonical[id])) kind.set(id, 'conflict');
+  }
+  return groupTarget;
+}
+
+/** Spec section 6 — validates every `duplicate_of` mark against `canonical`
+ *  (the grouping `unionAllEdges` already produced, duplicate_of edges
+ *  included), then overrides a marked group's canonical to its valid
+ *  target (4.6 rule 1) and derives the one-hop resolver, the selectable
+ *  set and the error report. Mutates nothing — returns overrides for the
+ *  caller to apply, so the pre-override `canonical` (grouping alone) is
+ *  never silently lost mid-function. */
+function resolveDuplicateOfMarks(
+  docs: SourceIdentityDoc[], canonical: Record<string, string>,
+): { canonicalOverrides: Record<string, string>; resolved: Record<string, string>; selectable: string[]; duplicateOfErrors: DuplicateOfError[] } {
+  const known = docs.map(d => d.id);
+  const { mark, kind } = classifyMarks(docs);
+  const groupTarget = resolveGroupTargets(mark, kind, canonical);
+
+  const canonicalOverrides: Record<string, string> = {};
+  for (const id of known) {
+    const override = groupTarget.get(canonical[id]);
+    if (override !== undefined) canonicalOverrides[id] = override;
+  }
+
+  const resolved: Record<string, string> = {};
+  const selectable: string[] = [];
+  const duplicateOfErrors: DuplicateOfError[] = [];
+  for (const id of [...known].sort()) {
+    const valid = mark.has(id) && !kind.has(id);
+    resolved[id] = valid ? mark.get(id)! : id;
+    if (!valid) selectable.push(id);
+    const errKind = kind.get(id);
+    if (errKind) duplicateOfErrors.push({ id, target: mark.get(id)!, kind: errKind });
+  }
+
+  return { canonicalOverrides, resolved, selectable, duplicateOfErrors };
+}
+
 export function groupSourceIdentities(docs: SourceIdentityDoc[]): SourceIdentityGroupResult {
   const ids = docs.map(d => d.id);
   const known = new Set(ids);
@@ -431,7 +544,10 @@ export function groupSourceIdentities(docs: SourceIdentityDoc[]): SourceIdentity
 
   const titleCollisions = findTitleCollisions(ids, derived.titleKeys, canonical);
 
-  return { canonical, titleCollisions, urlConflicts: sortUrlConflicts(urlConflicts) };
+  const { canonicalOverrides, resolved, selectable, duplicateOfErrors } = resolveDuplicateOfMarks(docs, canonical);
+  for (const [id, override] of Object.entries(canonicalOverrides)) canonical[id] = override;
+
+  return { canonical, titleCollisions, urlConflicts: sortUrlConflicts(urlConflicts), resolved, selectable, duplicateOfErrors };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
