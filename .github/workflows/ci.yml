@@ -2526,12 +2526,12 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const MARKER = '<!-- ci-shared-input-coverage:verdict -->';
 
-            async function postComment(body) {
+            async function postComment(body, { createIfAbsent } = { createIfAbsent: true }) {
               const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: prNumber, per_page: 100 });
               const existing = comments.find((c) => c.body?.includes(MARKER));
               if (existing) {
                 await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: `${MARKER}\n${body}` });
-              } else {
+              } else if (createIfAbsent) {
                 await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: `${MARKER}\n${body}` });
               }
             }
@@ -2603,5 +2603,13 @@ jobs:
               const commentBody = formatCoverageComment(underCovered);
               if (commentBody) {
                 await postComment(commentBody);
+                return;
               }
+              // Live-fire caught this (t/4368): a clean result never called postComment at all,
+              // so a prior run's gap-found comment (e.g. after the path's filter got fixed by a
+              // later push) stayed stale forever. createIfAbsent:false still clears it via the
+              // existing-comment update branch, but never spams a "clean" comment onto a PR that
+              // was never flagged in the first place -- same createIfAbsent precedent as
+              // tier-check.yml's own clean path.
+              await postComment('_ci-shared-input-coverage: clean — no advisory findings._', { createIfAbsent: false });
             } // end run()
