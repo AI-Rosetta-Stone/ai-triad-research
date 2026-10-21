@@ -5,6 +5,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById } from '../../hooks/useTaxonomyStore/superseded';
 import { useShallow } from 'zustand/react/shallow';
 import type { ReflectionEdit, ReflectionResult } from '../../hooks/useDebateStore';
 import type { NewPovItemProposal } from '@lib/debate/types/session';
@@ -852,11 +853,8 @@ function EditCard({ edit, pover, editIndex }: {
   const [descMode, setDescMode] = useDescriptionMode();
   const currentNode = useTaxonomyStore(useShallow(s => {
     if (!edit.node_id || edit.edit_type === 'add') return null;
-    const prefix = edit.node_id.split('-')[0];
-    const pov = PREFIX_TO_POV[prefix];
-    if (!pov) return null;
-    const file = s[pov];
-    return file?.nodes?.find((n: { id: string }) => n.id === edit.node_id) ?? null;
+    // t/4355: a persisted reflection edit names the node it was about, which may since have been superseded.
+    return allNodesById(s).get(edit.node_id) ?? null;
   }));
   const [fixing, setFixing] = useState(false);
   // Integrity failures (e.g. dangling CONVERGES_WITH edges) are auto-fixable via "Fix it".

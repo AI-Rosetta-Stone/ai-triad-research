@@ -3,9 +3,9 @@
 
 import type { EntityRef, EntityDetail } from '@lib/entities/types';
 import type { PolicyAction } from '@lib/policy/types';
-import { POV_KEYS } from '@lib/debate/types';
 import { api } from '@bridge';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById } from '../../hooks/useTaxonomyStore/superseded';
 
 /**
  * Resolve an {@link EntityRef} to its {@link EntityDetail} for the DetailPane
@@ -53,12 +53,9 @@ export async function resolveRef(ref: EntityRef): Promise<EntityDetail> {
 }
 
 function resolveNode(ref: Extract<EntityRef, { kind: 'node' }>): EntityDetail {
-  const state = useTaxonomyStore.getState();
-  for (const pov of POV_KEYS) {
-    const node = state[pov]?.nodes.find(n => n.id === ref.id);
-    if (node) return { kind: 'node', ref, record: node };
-  }
-  return { kind: 'not_found', ref };
+  // t/4355: a citation shows the exact node it cited, superseded or not (historical display).
+  const node = allNodesById(useTaxonomyStore.getState()).get(ref.id);
+  return node ? { kind: 'node', ref, record: node } : { kind: 'not_found', ref };
 }
 
 function resolveSituation(ref: Extract<EntityRef, { kind: 'situation' }>): EntityDetail {

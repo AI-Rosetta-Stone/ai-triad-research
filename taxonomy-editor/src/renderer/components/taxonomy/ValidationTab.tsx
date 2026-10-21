@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useCallback, useRef, useState, type MouseEvent } from 'react';
 import { useValidationStore, filterClaims, claimUid } from '../../hooks/useValidationStore';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById } from '../../hooks/useTaxonomyStore/superseded';
 import { useResizablePanel, useResizableRightPanel } from '../../hooks/useResizablePanel';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { GoldenClaim, Verdict, SpeakerFilter, VerdictFilter } from '../../types/validation';
@@ -66,12 +67,9 @@ function nodePovBadge(nodeId: string): string {
   return POV_ABBREV[prefix] ?? prefix.toUpperCase();
 }
 
+/** t/4355: a claim's attributed node is history, so it resolves to the exact node, superseded included. */
 function resolveNode(nodeId: string, store: ReturnType<typeof useTaxonomyStore>): PovNode | null {
-  const prefix = nodeId.split('-')[0];
-  const pov = PREFIX_TO_POV[prefix];
-  if (!pov) return null;
-  const file = (store as unknown as Record<string, { nodes?: PovNode[] }>)[pov];
-  return file?.nodes?.find((n: PovNode) => n.id === nodeId) ?? null;
+  return allNodesById(store as Parameters<typeof allNodesById>[0]).get(nodeId) ?? null;
 }
 
 // ── Claim List Sidebar (Col 1) ──────────────────────────────────────────────
