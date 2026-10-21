@@ -54,7 +54,6 @@ export function UpdatePrompt() {
   useEffect(() => {
     if (needRefresh) recordSw('new app version waiting; showing the reload prompt', 'info', { unsaved_edits: hasUnsavedEdits });
     // Record once per new version, not on every dirty-state change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needRefresh]);
 
   if (!needRefresh) return null;
