@@ -331,17 +331,12 @@ export class DebateEngine {
 
   private getKnownNodeIds(): Set<string> {
     if (this._knownNodeIds) return this._knownNodeIds;
-    // Use allNodesById (full set including superseded) so fuzzyCorrectNodeId never
-    // re-attributes a model-cited superseded ID to a different node (t/4354).
     const s = new Set<string>(this.taxonomy.allNodesById.keys());
     for (const n of this.taxonomy.situations?.nodes ?? []) s.add(n.id);
     this._knownNodeIds = s;
     return s;
   }
-
-  private getResolveRef(): (id: string) => string {
-    return (id: string) => this.taxonomy.resolveNode(id)?.id ?? id;
-  }
+  private getResolveRef = (): (id: string) => string => id => this.taxonomy.resolveNode(id)?.id ?? id;
 
   private getPolicyIds(): Set<string> {
     if (this._policyIds) return this._policyIds;
