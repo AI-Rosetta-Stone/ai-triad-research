@@ -99,6 +99,10 @@ function Deploy-TaxEditorImage {
         return
     }
 
+    # The t/4242 guard predicate must be loadable BEFORE anything changes, so a missing predicate
+    # fails the call up front instead of leaving a half-done deploy (t/4308).
+    Import-RevisionDeactivationVerdict -CallerName $CallerName
+
     # ── Get current active revisions for rollback ────────────────────────
     $OldRevisions = @(Get-TaxEditorRevision -ResourceGroup $ResourceGroup -AppName $AppName)
     $OldActive = @($OldRevisions | Where-Object { $_.Active })
@@ -145,14 +149,13 @@ function Deploy-TaxEditorImage {
     }
 
     # ── Deactivate old revisions ─────────────────────────────────────────
+    # t/4308 (the t/4242 class): each deactivate goes through a FRESH re-check of both the revision's
+    # trafficWeight and the ingress traffic config. A revision still holding weight (the traffic set
+    # hasn't propagated, or someone changed the split) is skipped with a WARN, never deactivated.
     foreach ($OldName in $OldActiveNames) {
         if ($OldName -ne $NewRevName) {
-            Write-Verbose "Deactivating previous revision '$OldName'..."
-            & az containerapp revision deactivate -g $ResourceGroup -n $AppName `
-                --revision $OldName 2>$null
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning "Failed to deactivate revision '$OldName' — manual cleanup may be needed."
-            }
+            $null = Invoke-GuardedRevisionDeactivate -ResourceGroup $ResourceGroup -AppName $AppName `
+                -RevisionName $OldName -ServingRevisionName $NewRevName -CallerName $CallerName
         }
     }
 
@@ -176,8 +179,10 @@ function Deploy-TaxEditorImage {
                     --revision $RollbackRev 2>$null
                 & az containerapp ingress traffic set -g $ResourceGroup -n $AppName `
                     --revision-weight "${RollbackRev}=100" 2>$null
-                & az containerapp revision deactivate -g $ResourceGroup -n $AppName `
-                    --revision $NewRevName 2>$null
+                # The same guard on the rollback path: the failed new revision is deactivated only
+                # once a fresh re-check confirms it no longer holds traffic (t/4308).
+                $null = Invoke-GuardedRevisionDeactivate -ResourceGroup $ResourceGroup -AppName $AppName `
+                    -RevisionName $NewRevName -ServingRevisionName $RollbackRev -CallerName $CallerName
                 Write-Warning "Rolled back to '$RollbackRev'. Run Test-TaxEditorHealth to verify."
             }
             else {
