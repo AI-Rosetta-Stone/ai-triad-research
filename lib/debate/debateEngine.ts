@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 /**
  * Pure debate orchestration engine — no UI, Zustand, or Electron dependencies.
@@ -595,11 +595,11 @@ export class DebateEngine {
       if (this.config.signal?.aborted) {
         this.session.phase = 'cancelled';
         this.session.updated_at = nowISO();
-        this.session.diagnostics!.overview.total_ai_calls = this.apiCallCount;
-        this.session.diagnostics!.overview.total_response_time_ms = this.totalResponseTimeMs;
+        Object.assign(this.session.diagnostics!.overview, { total_ai_calls: this.apiCallCount, total_response_time_ms: this.totalResponseTimeMs });
         getGlobalRecorder()?.record({ type: 'lifecycle', component: 'debate-engine', level: 'info', debate_id: this.session.id, message: 'Debate cancelled via AbortSignal' });
         return this.session;
       }
+      Object.assign(this.session.diagnostics!.overview, { total_ai_calls: this.apiCallCount, total_response_time_ms: this.totalResponseTimeMs });
       this.emitSnapshot('error');
       getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-engine', level: 'error', debate_id: this.session?.id, message: 'Debate run failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       throw err;
@@ -607,8 +607,7 @@ export class DebateEngine {
 
     // Finalize
     this.session.updated_at = nowISO();
-    this.session.diagnostics!.overview.total_ai_calls = this.apiCallCount;
-    this.session.diagnostics!.overview.total_response_time_ms = this.totalResponseTimeMs;
+    Object.assign(this.session.diagnostics!.overview, { total_ai_calls: this.apiCallCount, total_response_time_ms: this.totalResponseTimeMs });
 
     // Compute cumulative context-rot retention
     if (this.session.context_rot && this.session.context_rot.stages.length > 0) {
