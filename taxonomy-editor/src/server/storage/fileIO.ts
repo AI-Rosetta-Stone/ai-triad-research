@@ -432,9 +432,13 @@ export async function readAggregatedCruxesWithVersion(): Promise<{ data: unknown
   } catch (err: unknown) { getGlobalRecorder()?.record({ type: 'system.error', component: 'file-io', level: 'warn', message: 'readAggregatedCruxesWithVersion: read/parse failed, returning null', data: { error: String(err) } }); return null; }
 }
 
+// t/4391: _conflict-clusters.json is pipeline-generated (an AI clustering pass
+// over conflicting node pairs) — a user never writes it directly, so it's
+// pinned to main like organizations.json/organization_edges.json above,
+// not read via the caller's session branch.
 export async function readConflictClusters(): Promise<unknown | null> {
   const filePath = path.join(getConflictsDir(), '_conflict-clusters.json');
-  const raw = await backend.readFile(filePath);
+  const raw = await backend.readFile(filePath, { ref: 'main' });
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
@@ -442,7 +446,7 @@ export async function readConflictClusters(): Promise<unknown | null> {
 /** t/4190: like readConflictClusters, also returns the version (ETag). */
 export async function readConflictClustersWithVersion(): Promise<{ data: unknown; version: string } | null> {
   try {
-    const result = await readFileWithVersionOrFallback(path.join(getConflictsDir(), '_conflict-clusters.json'));
+    const result = await readFileWithVersionOrFallback(path.join(getConflictsDir(), '_conflict-clusters.json'), { ref: 'main' });
     if (result === null) return null;
     return { data: JSON.parse(result.content), version: result.version };
   } catch (err: unknown) { getGlobalRecorder()?.record({ type: 'system.error', component: 'file-io', level: 'warn', message: 'readConflictClustersWithVersion: read/parse failed, returning null', data: { error: String(err) } }); return null; }
@@ -450,9 +454,11 @@ export async function readConflictClustersWithVersion(): Promise<{ data: unknown
 
 // ── Lineage categories ──
 
+// t/4391: lineage_categories.json is pipeline-generated (AI-computed lineage
+// taxonomy), never user-written — pinned to main, not the session branch.
 export async function readLineageCategories(): Promise<unknown | null> {
   const filePath = path.join(getTaxonomyDir(), 'lineage_categories.json');
-  const raw = await backend.readFile(filePath);
+  const raw = await backend.readFile(filePath, { ref: 'main' });
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
@@ -464,6 +470,12 @@ let lineageInfoCache: Record<string, unknown> | null = null;
 export async function readLineageEnrichments(): Promise<Record<string, unknown>> {
   if (lineageInfoCache) return lineageInfoCache;
   const filePath = path.join(getDataRoot(), 'calibration', 'core', 'lineage-enrichments.json');
+  // t/4391: NOT pinned to main, despite looking pipeline-generated —
+  // calibrationStore.ts's promoteLineageEnrichments() writes this exact file
+  // through the backend with no ref (lands on the caller's session branch,
+  // same as every other unpinned write), so pinning the read here would
+  // break read-after-write for whoever just promoted an entry (TL p/538#161:
+  // "pin only where no path writes that file through the session backend").
   const raw = await backend.readFile(filePath, { optional: true });
   if (raw === null) return {};
   try {
@@ -530,6 +542,12 @@ export async function readOrganizationEdges(): Promise<OrganizationEdge[] | null
   }
 }
 
+// t/4391: NOT pinned to main, despite sitting next to organizations.json/
+// organization_edges.json above (which correctly do pin it) — routes/
+// policyRegistry.ts's POST /api/policy-registry/recount writes
+// policy_actions.json back through the backend with no ref (lands on the
+// caller's session branch), so pinning this read would break read-after-
+// write for the next recount's baseSha (TL p/538#161).
 export async function readPolicyRegistry(): Promise<unknown | null> {
   try {
     const taxDir = getTaxonomyDir();
@@ -807,13 +825,15 @@ async function buildNodeToPoliciesMap(): Promise<Map<string, string[]>> {
   return nodeToPolicies;
 }
 
+// t/4391: source metadata.json (ingestion output) is pipeline-generated, not
+// user-written — pinned to main like nodeSourceIndex.ts's own copy of this read.
 async function loadPolicyMetaCache(sourcesDir: string | null): Promise<Record<string, { dateIngested: string; sourceTime: string }>> {
   const metaCache: Record<string, { dateIngested: string; sourceTime: string }> = {};
-  const sourceEntries = sourcesDir ? await backend.listDirectory(sourcesDir) : [];
+  const sourceEntries = sourcesDir ? await backend.listDirectory(sourcesDir, { ref: 'main' }) : [];
   for (const name of sourceEntries) {
     const metaPath = path.join(sourcesDir!, name, 'metadata.json');
     try {
-      const metaRaw = await backend.readFile(metaPath);
+      const metaRaw = await backend.readFile(metaPath, { ref: 'main' });
       if (metaRaw !== null) {
         const meta = JSON.parse(metaRaw);
         metaCache[name] = {
@@ -1067,14 +1087,15 @@ export async function discoverSources(): Promise<DiscoveredSource[]> {
   if (!sourcesDir) return []; // sources unavailable (web mode or repo not cloned)
   const summariesDir = getSummariesDir();
 
-  const sourceEntries = await backend.listDirectory(sourcesDir);
+  // t/4391: source metadata/summaries are pipeline-generated, not user-written.
+  const sourceEntries = await backend.listDirectory(sourcesDir, { ref: 'main' });
   if (sourceEntries.length === 0) return [];
 
   const sources: DiscoveredSource[] = [];
   for (const name of sourceEntries) {
     const metaPath = path.join(sourcesDir, name, 'metadata.json');
     try {
-      const metaRaw = await backend.readFile(metaPath);
+      const metaRaw = await backend.readFile(metaPath, { ref: 'main' });
       if (metaRaw === null) continue; // not a source directory (no metadata)
       const meta = JSON.parse(metaRaw);
       const summaryPath = path.join(summariesDir, `${name}.json`);
@@ -1094,19 +1115,21 @@ export async function discoverSources(): Promise<DiscoveredSource[]> {
   return sources.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''));
 }
 
+// t/4391: AI-written summaries are pipeline-generated, not user-written.
 export async function loadSummary(docId: string): Promise<unknown | null> {
   assertSafeId(docId, 'document id');
   const filePath = path.join(getSummariesDir(), `${docId}.json`);
-  const raw = await backend.readFile(filePath);
+  const raw = await backend.readFile(filePath, { ref: 'main' });
   if (raw === null) return null;
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
 
+// t/4391: an ingested source snapshot is pipeline-generated, not user-written.
 export async function loadSnapshot(sourceId: string): Promise<string | null> {
   assertSafeId(sourceId, 'source id');
   const sourcesDir = getSourcesDir();
   if (!sourcesDir) return null; // sources unavailable
-  return backend.readFile(path.join(sourcesDir, sourceId, 'snapshot.md'));
+  return backend.readFile(path.join(sourcesDir, sourceId, 'snapshot.md'), { ref: 'main' });
 }
 
 // ── Source document resolution ──
@@ -1122,12 +1145,13 @@ export interface SourceDocumentResolution {
   path?: string;
 }
 
-/** Find the raw PDF inside a source's `raw/` directory. Returns absolute path or null. */
+/** Find the raw PDF inside a source's `raw/` directory. Returns absolute path or null.
+ *  t/4391: an ingested source's raw file is pipeline-generated, not user-written. */
 async function findRawPdfPath(docId: string): Promise<string | null> {
   const sourcesDir = getSourcesDir();
   if (!sourcesDir) return null;
   const rawDir = path.join(sourcesDir, docId, 'raw');
-  const entries = await backend.listDirectory(rawDir);
+  const entries = await backend.listDirectory(rawDir, { ref: 'main' });
   const pdf = entries.find(e => e.toLowerCase().endsWith('.pdf'));
   return pdf ? path.join(rawDir, pdf) : null;
 }
@@ -1152,7 +1176,8 @@ export async function resolveSourceDocument(docId: string): Promise<SourceDocume
   // Read metadata best-effort to learn the original document type.
   let sourceType = '';
   try {
-    const metaRaw = await backend.readFile(path.join(docDir, 'metadata.json'));
+    // t/4391: ingested source metadata/snapshot are pipeline-generated.
+    const metaRaw = await backend.readFile(path.join(docDir, 'metadata.json'), { ref: 'main' });
     if (metaRaw) sourceType = String(JSON.parse(metaRaw).source_type ?? '').toLowerCase();
   } catch (err) {
     // Malformed/missing metadata — fall back to content detection below.
@@ -1166,7 +1191,7 @@ export async function resolveSourceDocument(docId: string): Promise<SourceDocume
   }
 
   const pdfPath = await findRawPdfPath(docId);
-  const snapshot = await backend.readFile(path.join(docDir, 'snapshot.md'));
+  const snapshot = await backend.readFile(path.join(docDir, 'snapshot.md'), { ref: 'main' });
   const fileUrl = `/api/source-documents/${encodeURIComponent(docId)}/file`;
 
   // Prefer markdown snapshot — renders inline with claim highlighting and
