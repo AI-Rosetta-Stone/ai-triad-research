@@ -430,7 +430,30 @@ export async function selectRelevantTaxonomy(input: SelectRelevantTaxonomyInput)
   const scoredPov = selectRelevantNodes(effectivePovNodes, scores, opts);
   const scoredCC = selectRelevantSituationNodes(situationNodes, scores, threshold, 3, 15);
 
+  // Deduplicate by normalized label (t/4352): skip nodes whose trimmed-lowercased label
+  // duplicates an already-selected one. Splicing in-place preserves the diagnostic stashes
+  // (_lineageBoost, _povDiversity, etc.) that selectRelevantNodes attaches to the array.
+  const labelDupSkipped: Array<{ skippedId: string; keptId: string; label: string }> = [];
+  {
+    const seenLabels = new Map<string, string>();
+    let i = 0;
+    while (i < scoredPov.length) {
+      const normLabel = scoredPov[i].node.label.trim().toLowerCase();
+      const keptId = seenLabels.get(normLabel);
+      if (keptId !== undefined) {
+        labelDupSkipped.push({ skippedId: scoredPov[i].node.id, keptId, label: scoredPov[i].node.label });
+        scoredPov.splice(i, 1);
+      } else {
+        seenLabels.set(normLabel, scoredPov[i].node.id);
+        i++;
+      }
+    }
+  }
+
   const manifest = buildManifest(scoredPov, scoredCC, threshold);
+  if (labelDupSkipped.length > 0) {
+    manifest.label_dedup = labelDupSkipped.map(d => `${d.skippedId} (dup of ${d.keptId}: "${d.label}")`);
+  }
   if (params.tagSelection) {
     const taggedSelectedCount = scoredPov.filter(s =>
       (s.node.pov_tags ?? []).includes(params.tagSelection!.tag),

@@ -223,11 +223,20 @@ export async function buildGroundingEnvelope(
     }
 
     activeScoredEntries.sort((a, b) => b.score - a.score);
-    nodesByCamp[camp] = activeScoredEntries.slice(0, topN).map(({ node }) => ({
-      nodeId: node.id,
-      label: node.label,
-      camp,
-    }));
+    const seenCampLabels = new Set<string>();
+    const campNodes: NodeRef[] = [];
+    for (const { node } of activeScoredEntries) {
+      if (campNodes.length >= topN) break;
+      const normLabel = node.label.trim().toLowerCase();
+      if (seenCampLabels.has(normLabel)) {
+        const keptTwin = campNodes.find(n => n.label.trim().toLowerCase() === normLabel);
+        warn(`buildGroundingEnvelope: skipping ${node.id} — label "${node.label}" duplicates already-selected ${keptTwin?.nodeId ?? '(unknown)'} in ${camp} camp`);
+        continue;
+      }
+      seenCampLabels.add(normLabel);
+      campNodes.push({ nodeId: node.id, label: node.label, camp });
+    }
+    nodesByCamp[camp] = campNodes;
   }
 
   // ADR-001: warn when a camp returns zero nodes (embedding corpus gap)

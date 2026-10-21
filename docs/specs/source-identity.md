@@ -46,9 +46,13 @@ At ingest, the PowerShell side hashes that same string in memory, before writing
 The document gets no `content_sha256`, and so no hash identity, when:
 - the body is empty;
 - the body starts with `# PDF EXTRACTION FAILED` (the `DocConverters` failure placeholder);
-- the body is exactly `# <one line>`, then an empty line, then `[Binary file — no text extraction available]`.
+- the body is exactly `# <one line>`, then an empty line, then `[Binary file — no text extraction available]`;
+- **the body has fewer than 100 words** (version 4, TL ruling p/801#17).
+  - **What counts as a word:** split the body on runs of ASCII whitespace (space, `\t`, `\n`, `\r`, `\f`, `\v`) and count the non-empty tokens. **Not** Unicode `\s`: .NET and JS disagree on that set.
+  - **Why:** a body this small is a cookie wall, a paywall stub or an error page more often than a document. Two different documents that both converted to the same stub would otherwise share a hash.
+  - **Current corpus:** no hashed document is under 100 words (the smallest shared body is 310 words), so the floor changes nothing today.
 
-Placeholders describe the failure, not the document, so two different documents would collide.
+Placeholders and stubs describe the failure, not the document, so two different documents would collide.
 
 ### 1.4 Digest
 
@@ -97,6 +101,14 @@ The groups are the **connected components** over every edge (union, not "first m
 1. **Explicit link (4.1):** `parent_doc_id` or `same_as` joins the document to that id. **The link is ignored if the target id isn't in the set.**
 2. **Content hash (4.2):** equal hashes, where a document's hash is its recorded `content_sha256`, or else its snapshot hash. Absent means no edge (section 1.3).
 3. **URL (4.3):** an equal trusted URL key (section 3). Every trusted key of a document counts.
+   - **URL edges are pairwise.** Every pair of documents sharing a key is considered, so one pair can be dropped.
+   - **The conflict veto** (TL ruling t/4337#8): a pair sharing a URL key does **not** join when **both** of these hold:
+     - **the hashes differ:** both documents have an **effective hash** (the recorded `content_sha256`, else the snapshot hash) and the two differ;
+     - **the titles differ:** both title keys (4.5) are non-empty and differ.
+   - **A vetoed pair is reported as a `url_conflict`** (4.5), never merged.
+   - **Why:** a valid-looking but truncated identifier, such as the DOI `10.1073/pnas`, can be attached to two different papers. A real re-ingestion keeps its title, so it still joins.
+   - **Why the effective hash and not only the recorded one:** the veto needs **two** differences, so conversion-noise copies (same title) still join. And documents ingested before t/4337 have no recorded hash.
+   - **The veto removes one edge, not a group.** A vetoed pair still ends up in one group if other edges connect them, for example both share a hash with a third copy.
 
 ### 4.4 Conditional suffix edge
 **Which documents qualify:** a document `X-N`, meaning its id matches `^(.+)-(\d+)$`, whose captured base `X` is also an id in the set.
@@ -108,12 +120,18 @@ The groups are the **connected components** over every edge (union, not "first m
 
 **Why:** t/4337 now deliberately mints `-N` for a genuine slug collision with different content and records its hash, and rule 3 keeps that document separate. Rule 1 also removes t/4334's year-suffix limitation: `foo-2026` joins `foo` only when their titles match.
 
-### 4.5 Title key and the `title_collision` report
+### 4.5 Title key, and the `title_collision` and `url_conflict` reports
 **The title key:** lowercase (invariant), then replace `+` with a space, then **delete every character that isn't ASCII `[a-z0-9_]` or ASCII whitespace** (space, `\t`, `\n`, `\r`, `\f`, `\v`), then collapse ASCII whitespace runs to one space, then trim.
 - Non-ASCII letters are deleted, not kept, because .NET `\w` is Unicode and JS `\w` is ASCII.
 - **No id fallback:** a missing or empty title gives an empty key.
 
 **A title on its own adds no edge.** Generic titles ("AI Policy Bulletin", "Executive Summary") and non-ASCII titles that reduce to the same ASCII key would otherwise chain distinct documents together.
+
+**Grouping also reports every `url_conflict`:** a pair the 4.3 veto kept from joining, as `{url_key, ids: [a, b]}`.
+- `a` sorts before `b` ordinally.
+- The list is sorted by `url_key` and then by the ids, all ordinal.
+- A pair is reported even if other edges put both documents in one group.
+- It's input for the same human pass as `title_collision`.
 
 **Instead, grouping reports a `title_collision`:** for each non-empty title key whose documents fall in two or more groups, it lists those documents' ids.
 - Ids within a collision are sorted ordinally, and collisions are sorted by their first id.
@@ -131,10 +149,11 @@ The canonical id of a document is the **ordinal-smallest id** (UTF-16 code units
 - `url_cases`: `{name, input, expected}`, where `expected` may be `null`;
 - `trust_cases`: `{name, metadata, expected}`, where `expected` is an array of keys;
 - `title_cases`: `{name, input, expected}`;
-- `grouping_cases`: `{name, documents: [{id, metadata, snapshot_sha256?}], expected_canonical: {id: canonicalId}, expected_title_collisions: [[id, …], …]}`.
+- `grouping_cases`: `{name, documents: [{id, metadata, snapshot_sha256?, snapshot_text?}], expected_canonical: {id: canonicalId}, expected_title_collisions: [[id, …], …], expected_url_conflicts: [{url_key, ids: [a, b]}, …]}`.
   - `metadata.content_sha256` is a **recorded** hash, and `snapshot_sha256` is a **computed** one (4.0).
+  - `snapshot_text`, when present, is the document's `snapshot.md` text. The consumer computes the snapshot hash from it with section 1, which can be no hash at all (1.3). Then it groups. It's never given together with `snapshot_sha256`.
   - Real-corpus cases carry the documents' actual metadata. No corpus document records a hash yet, so each one's hash, computed from the real `snapshot.md`, is in `snapshot_sha256`.
 
-The fixture's `version` is bumped whenever a rule changes an expected value (version 2: the section 4 revision).
+The fixture's `version` is bumped whenever a rule changes an expected value (version 2: the section 4 revision; version 3: the 4.3 URL conflict veto and the `url_conflict` report; version 4: the 1.3 100-word body floor and `snapshot_text`).
 
 Expected values are generated by one implementation and **independently confirmed** by a second, from-spec implementation in the other runtime before they are committed.

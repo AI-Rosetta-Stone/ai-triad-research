@@ -6389,7 +6389,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **To test a new workflow against a feature branch:** land a minimal `workflow_dispatch`-only version to `main` first (T0), then dispatch with `--ref <feature-branch>`.
 3. **404 "workflow not found on the default branch"** is the reliable diagnostic — it is not a permissions error or a file-path typo.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#224).
+**Status:** Active — 2 instances (DevOps Lead p/26#224; DevOps Lead p/26#235 — throwaway probe workflow on feature branch; resolved same way: land minimal file to main first).
 
 **Applies To:** All agents dispatching `workflow_dispatch` workflows against non-default branches; the workflow file must exist on the default branch first.
 
@@ -6635,3 +6635,45 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#233).
 
 **Applies To:** All agents inspecting PR diffs; `gh pr diff` streams the full diff only — use `git diff` with a pathspec for file-scoped inspection.
+
+---
+
+## #328 [Research] Reproduce Through the Production Read Path Before Declaring a Live Bug
+
+**Pattern:** An agent investigates a suspected defect and writes a repro script. The script reads data using a bare, hand-built approximation (e.g., bare `ConvertFrom-Json`) rather than the module's actual read function (e.g., `Read-EdgesFile`). The repro appears to confirm the bug. The agent reports it as a live production defect. A reviewer or Second Opinion discovers the production code uses a fixed read path that handles the case correctly — the module already has the fix. The "bug" is retracted.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#126, t/4278, e/343): reported "PS `edges.json` writes mutate timestamps" as live production bug; t/4366 filed. Repro used bare `ConvertFrom-Json`. Production module uses `Read-EdgesFile` (t/2974 fix). SO caught it; Computational Linguist re-measured via the real path and retracted.
+
+**Root Cause:** The production code path often includes defensive fixes accumulated over time (e.g., t/2974). A repro that bypasses the production reader re-introduces the unfixed behavior, confirming a bug that no longer exists in production. The repro is valid, but it tests the wrong path.
+
+**Prevention:**
+1. **Before declaring a live production bug, reproduce through the exact production read path** — call the module's actual read function, not a bare deserializer. Ask: "Is this how the production code actually reads this file?"
+2. **Check git blame / commit history on the read function** before assuming a naive approach is equivalent. A fix may already be in place (e.g., `Read-EdgesFile` for `edges.json`).
+3. **If the repro and the production path produce different results, the repro is the bug** — the production behavior is the ground truth. Investigate why the paths diverge before filing.
+4. **A Second Opinion's first question on a data-mutation bug: "Did the repro use the production reader?"** If not, the defect report is unverified.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#126, t/4278).
+
+**Applies To:** All agents writing repro scripts for suspected data-layer bugs; always invoke the production read path, never a bare deserializer.
+
+---
+
+## #329 [Build] Failed Write in a Parallel Batch Does Not Stop the Subsequent Commit — Verify Content With `git show HEAD:<file>`
+
+**Pattern:** An agent writes several files in a batch (multiple Write tool calls in one turn or pipeline). One Write call fails ("file has not been read yet" or similar error). The agent proceeds to `git add` and `git commit`. The commit succeeds — the failed Write's file is committed at its previous (unfixed) state, even though the commit message says it was updated. Auto-merge may then be armed against a commit that doesn't contain the intended change.
+
+**Instances:**
+- 2026-10-20 — Computational Linguist (p/7#126): one Write in a parallel batch failed ("not read yet"); commit message said the script was fixed, but the committed file held the old content. Caught before merge; auto-merge disarmed, file fixed and both modes verified before re-arming.
+
+**Root Cause:** A Write tool failure in a batch is reported as an error on that tool call, but does not prevent the `git commit` that follows. The commit includes whatever is on disk — which, for the failed file, is the unchanged previous content. The commit message is written by the author, not derived from the actual diff, so message and content can diverge.
+
+**Prevention:**
+1. **After any batch of Write calls, run `git show HEAD:<file>` on each critical file** before committing to verify the content is what you intended. `git show --stat HEAD` confirms which files changed but not whether the content is correct.
+2. **After committing and before arming auto-merge, spot-check the committed content** on the files your commit message claims to have changed: `git show HEAD:<file> | head -40`.
+3. **A Write tool error in a parallel batch is easy to miss** — the error appears in the batch output alongside successful calls. Scan every tool result in a parallel batch before proceeding.
+4. **If a Write failed "not read yet", the file on disk is the pre-edit version.** Read it first, then Write again; the commit will then reflect the intended change.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#126).
+
+**Applies To:** All agents doing parallel Write batches followed by git commits; verify committed file content with `git show HEAD:<file>`, not just `git show --stat HEAD`.

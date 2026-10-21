@@ -20,7 +20,9 @@ function Set-BatchDocCurrent {
     foreach ($Item in $Doc) {
         try {
             $MetaRaw     = Get-Content $Item.MetaFile -Raw
-            $MetaUpdated = $MetaRaw | ConvertFrom-Json -AsHashtable
+            # Shape-preserving read (t/4366): a bare -AsHashtable read coerces ISO strings such as
+            # import_time to [datetime], which this whole-object rewrite re-emits in the local offset.
+            $MetaUpdated = ConvertFrom-JsonPreserveShape -Json $MetaRaw -AsOrderedHashtable
             $MetaUpdated['summary_version'] = $TaxonomyVersion
             $MetaUpdated['summary_status']  = 'current'
             $MetaUpdated['summary_updated'] = $Now

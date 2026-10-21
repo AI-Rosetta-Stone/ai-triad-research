@@ -16,9 +16,15 @@ BeforeAll {
         New-Item -ItemType Directory -Path (Join-Path $d '_inbox') -Force | Out-Null
         $d
     }
-    function script:New-MdFile([string]$Dir, [string]$Name, [string]$Text) {
+    # Spec 1.3 (v4): a body under 100 words gets no content hash. Every test body gets the same
+    # 100-word paragraph appended, so identical texts stay identical and different texts differ.
+    # Bodies already end in "`n", so a single leading "`n" gives exactly one blank line; ingestion's
+    # Repair-Markdown collapses runs of blank lines, which would otherwise differ from a hand-made snapshot.
+    $script:Pad = "`n" + ((1..100 | ForEach-Object { "pad$_" }) -join ' ') + "`n"
+    function script:New-MdFile([string]$Dir, [string]$Name, [string]$Text, [switch]$NoPad) {
         $p = Join-Path $Dir $Name
-        [System.IO.File]::WriteAllText($p, $Text, [System.Text.UTF8Encoding]::new($false))
+        $content = if ($NoPad) { $Text } else { $Text + $script:Pad }
+        [System.IO.File]::WriteAllText($p, $content, [System.Text.UTF8Encoding]::new($false))
         $p
     }
     function script:Get-DocDirs([string]$Sources) {
@@ -99,6 +105,13 @@ Describe 'Import-AITriadDocument duplicate detection (t/4337)' -Tag 'ingestion' 
         $m2.content_sha256 | Should -Not -Be $m1.content_sha256
     }
 
+    It 'records no content_sha256 for a body under 100 words (spec 1.3 floor)' {
+        $short = New-MdFile $script:Work 'stub.md' "# Subscribe to keep reading`n`nThis article is for subscribers only.`n" -NoPad
+        $id = Invoke-TestIngest $script:Sources @{ File = $short }
+        $meta = Get-Content (Join-Path $script:Sources "$id\metadata.json") -Raw | ConvertFrom-Json
+        @($meta.PSObject.Properties.Name) | Should -Not -Contain 'content_sha256'
+    }
+
     It 'ingests a different document whose file name matches an existing raw file, with a warning' {
         $sub = Join-Path $script:Work 'other-folder'
         New-Item -ItemType Directory -Path $sub -Force | Out-Null
@@ -112,7 +125,7 @@ Describe 'Import-AITriadDocument duplicate detection (t/4337)' -Tag 'ingestion' 
         $legacy = Join-Path $script:Sources 'legacy-doc-2026'
         New-Item -ItemType Directory -Path $legacy -Force | Out-Null
         '{"id":"legacy-doc-2026","title":"Legacy"}' | Set-Content (Join-Path $legacy 'metadata.json') -Encoding utf8NoBOM
-        $legacySnap = "<!--`r`n  AI Triad Research Project — Document Snapshot`r`n  Captured   : 2026-04-11`r`n-->`r`n`r`n# Legacy`r`n`r`n---`r`n`r`n" + "Only in the legacy doc.`n"
+        $legacySnap = "<!--`r`n  AI Triad Research Project — Document Snapshot`r`n  Captured   : 2026-04-11`r`n-->`r`n`r`n# Legacy`r`n`r`n---`r`n`r`n" + "Only in the legacy doc.`n" + $script:Pad
         [System.IO.File]::WriteAllText((Join-Path $legacy 'snapshot.md'), $legacySnap)
         $f = New-MdFile $script:Work 'legacy-again.md' "Only in the legacy doc.`n"
         { Invoke-TestIngest $script:Sources @{ File = $f } } | Should -Throw -ExpectedMessage "*already ingested as 'legacy-doc-2026'*"

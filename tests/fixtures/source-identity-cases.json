@@ -1,76 +1,76 @@
 {
   "$schema_note": "docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.",
-  "version": 2,
+  "version": 4,
   "hash_cases": [
     {
       "name": "plain body, LF",
-      "text": "Para one about AI.\n\nPara two.\n",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "Para one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "same body, CRLF (equals plain)",
-      "text": "Para one about AI.\r\n\r\nPara two.\r\n",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "Para one about AI.\r\n\r\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\r\n\r\nPara two.\r\n",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "same body, lone CR (equals plain)",
-      "text": "Para one about AI.\r\rPara two.\r",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "Para one about AI.\r\rw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\r\rPara two.\r",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "same body with BOM (equals plain)",
-      "text": "﻿Para one about AI.\n\nPara two.\n",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "﻿Para one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "same body, trailing spaces/tabs (equals plain)",
-      "text": "Para one about AI.  \t\n\nPara two. \n",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "Para one about AI.  \t\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two. \n",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "same body, extra edge blank lines (equals plain)",
-      "text": "\n\n  \nPara one about AI.\n\nPara two.\n\n\n",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "\n\n  \nPara one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n\n\n",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "interior blank lines are kept (differs)",
-      "text": "Para one about AI.\n\n\nPara two.\n",
-      "expected_sha256": "30be5a5085b2ff0af386fa51e932a49cd3451672683e76221b04ea16f2a7ea26"
+      "text": "Para one about AI.\n\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "a0f8d15183d15febef6d0ac7c2d9b1746d9a44df5fd986709d121ac3ca65701d"
     },
     {
       "name": "non-breaking space is not trimmed (differs)",
-      "text": "Para one about AI. \n\nPara two.\n",
-      "expected_sha256": "57724254c1af40639a5fd21648eda36fa142a6bb13abbeb6ba4511699a94fda4"
+      "text": "Para one about AI. \n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "2fd97b6b2000d007a46f1b75fb6836505aa6ecc7017763f742b3b7a0668c6886"
     },
     {
       "name": "leading indentation is kept (differs)",
-      "text": "  Para one about AI.\n\nPara two.\n",
-      "expected_sha256": "df250c9e850b1cf06de8b02b5dea935483a7cf8feeb8b952761a2e5a2413aa72"
+      "text": "  Para one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "90c93b3939ddf4517e2648508e7d6aa9a4747353e2df5adc59e7f7337d83406c"
     },
     {
       "name": "header captured 2026-04-11 (equals plain)",
-      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-04-11\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-04-11\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\n\nPara two.\n",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-04-11\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-04-11\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "header captured 2026-09-22 (equals plain)",
-      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-09-22\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-09-22\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\n\nPara two.\n",
-      "expected_sha256": "288fc1390fd6c20dccb263a819f71b617d86083d0f96484a9ba1848456f5fd07"
+      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-09-22\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-09-22\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "70bbf9c653a7f94579ed545d65099b831518baa5221ef427200399a28d304bee"
     },
     {
       "name": "header without closing rule is kept (differs)",
-      "text": "<!--\n  AI Triad Research Project\n-->\n\nPara one about AI.\n\nPara two.\n",
-      "expected_sha256": "68282bcb71fc8321375b8f5b8a2dcfdfe18003c36b06be84fa7cc625f430c8e0"
+      "text": "<!--\n  AI Triad Research Project\n-->\n\nPara one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n",
+      "expected_sha256": "cb56c445f56dd452b5e73be1fc605c1f9bbce9bd96953f192dfa06604eec39e7"
     },
     {
       "name": "non-ASCII NFC",
-      "text": "# Café résumé\n\nBody.\n",
-      "expected_sha256": "526af0185a6adff1c85fd573d651ddaf81161096e7cbf999e9f7cfced42f05f6"
+      "text": "# Café résumé\n\nBody.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n",
+      "expected_sha256": "a125686134a8ec3877fb6a3245dc049c096ab0784a9c3c63899caea48b9c181d"
     },
     {
       "name": "non-ASCII NFD (equals NFC)",
-      "text": "# Café résumé\n\nBody.\n",
-      "expected_sha256": "526af0185a6adff1c85fd573d651ddaf81161096e7cbf999e9f7cfced42f05f6"
+      "text": "# Café résumé\n\nBody.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n",
+      "expected_sha256": "a125686134a8ec3877fb6a3245dc049c096ab0784a9c3c63899caea48b9c181d"
     },
     {
       "name": "empty",
@@ -93,14 +93,44 @@
       "expected_sha256": null
     },
     {
+      "name": "PDF extraction failure placeholder over the floor still gets no hash",
+      "text": "# PDF EXTRACTION FAILED\n\nSource: C:\\inbox\\a.pdf\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100",
+      "expected_sha256": null
+    },
+    {
       "name": "binary placeholder",
       "text": "# report.docx\n\n[Binary file — no text extraction available]",
       "expected_sha256": null
     },
     {
       "name": "body that quotes the binary placeholder text (hashed)",
-      "text": "# Notes\n\nThe tool printed [Binary file — no text extraction available] once.\n",
-      "expected_sha256": "38e5beadee0b57e0f00179d8a4da0d6006390c964a1f952dd8b55d23de08c41d"
+      "text": "# Notes\n\nThe tool printed [Binary file — no text extraction available] once.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n",
+      "expected_sha256": "9f15421212bf84a5ea2bd1cfa4fe59597aa2a67cf4676479a7dca88ee9dc986a"
+    },
+    {
+      "name": "floor: 99 words gets no hash",
+      "text": "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22 w23 w24 w25 w26 w27 w28 w29 w30 w31 w32 w33 w34 w35 w36 w37 w38 w39 w40 w41 w42 w43 w44 w45 w46 w47 w48 w49 w50 w51 w52 w53 w54 w55 w56 w57 w58 w59 w60 w61 w62 w63 w64 w65 w66 w67 w68 w69 w70 w71 w72 w73 w74 w75 w76 w77 w78 w79 w80 w81 w82 w83 w84 w85 w86 w87 w88 w89 w90 w91 w92 w93 w94 w95 w96 w97 w98 w99",
+      "expected_sha256": null
+    },
+    {
+      "name": "floor: exactly 100 words is hashed",
+      "text": "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 w21 w22 w23 w24 w25 w26 w27 w28 w29 w30 w31 w32 w33 w34 w35 w36 w37 w38 w39 w40 w41 w42 w43 w44 w45 w46 w47 w48 w49 w50 w51 w52 w53 w54 w55 w56 w57 w58 w59 w60 w61 w62 w63 w64 w65 w66 w67 w68 w69 w70 w71 w72 w73 w74 w75 w76 w77 w78 w79 w80 w81 w82 w83 w84 w85 w86 w87 w88 w89 w90 w91 w92 w93 w94 w95 w96 w97 w98 w99 w100",
+      "expected_sha256": "3c8c3b7a710c4e47cc77e5d57488f3f34c90e24fc129e6e316434a941239c444"
+    },
+    {
+      "name": "floor: words split on ASCII whitespace only (NBSP-joined pairs count as one word)",
+      "text": "a1 b1 a2 b2 a3 b3 a4 b4 a5 b5 a6 b6 a7 b7 a8 b8 a9 b9 a10 b10 a11 b11 a12 b12 a13 b13 a14 b14 a15 b15 a16 b16 a17 b17 a18 b18 a19 b19 a20 b20 a21 b21 a22 b22 a23 b23 a24 b24 a25 b25 a26 b26 a27 b27 a28 b28 a29 b29 a30 b30 a31 b31 a32 b32 a33 b33 a34 b34 a35 b35 a36 b36 a37 b37 a38 b38 a39 b39 a40 b40 a41 b41 a42 b42 a43 b43 a44 b44 a45 b45 a46 b46 a47 b47 a48 b48 a49 b49 a50 b50 a51 b51 a52 b52 a53 b53 a54 b54 a55 b55 a56 b56 a57 b57 a58 b58 a59 b59 a60 b60 a61 b61 a62 b62 a63 b63 a64 b64 a65 b65 a66 b66 a67 b67 a68 b68 a69 b69 a70 b70 a71 b71 a72 b72 a73 b73 a74 b74 a75 b75",
+      "expected_sha256": null
+    },
+    {
+      "name": "floor: a cookie wall gets no hash",
+      "text": "We value your privacy\n\nWe use cookies to improve your experience. By clicking Accept all you agree to our use of cookies.\n\nAccept all    Reject all    Manage preferences\n",
+      "expected_sha256": null
+    },
+    {
+      "name": "floor: a cookie wall under a snapshot header gets no hash",
+      "text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-04-11\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-04-11\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nWe value your privacy\n\nWe use cookies to improve your experience. By clicking Accept all you agree to our use of cookies.\n\nAccept all    Reject all    Manage preferences\n",
+      "expected_sha256": null
     }
   ],
   "url_cases": [
@@ -402,7 +432,8 @@
         "alpha-brookings-2026": "alpha-2026",
         "beta-2026": "beta-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "computed snapshot hash joins like a recorded one",
@@ -426,7 +457,8 @@
         "new-ingest-elsewhere-2026": "new-ingest-elsewhere-2026",
         "old-ingest-2026": "new-ingest-elsewhere-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "search-provenance URL does not join",
@@ -464,7 +496,8 @@
         "one-2026": "one-2026",
         "two-2026": "two-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "trusted URL joins, query param order ignored",
@@ -488,7 +521,8 @@
         "hn-a-2026": "hn-a-2026",
         "hn-b-2026": "hn-a-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "different query ids stay distinct",
@@ -512,7 +546,8 @@
         "yt-a-2026": "yt-a-2026",
         "yt-b-2026": "yt-b-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "explicit same_as and parent_doc_id join; dangling link ignored",
@@ -551,7 +586,8 @@
         "part-two": "base-doc",
         "reprint-elsewhere": "base-doc"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "strong edges union transitively (union, not first matching tier)",
@@ -584,7 +620,8 @@
         "aa-2026": "a-2026",
         "b-2026": "a-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix joins with an equal title",
@@ -606,7 +643,8 @@
         "gamma-2026": "gamma-2026",
         "gamma-2026-1": "gamma-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix needs the base to exist",
@@ -633,7 +671,8 @@
           "delta-2026-2",
           "delta-2026-3"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix with a different title stays separate",
@@ -655,7 +694,8 @@
         "epsilon-2026": "epsilon-2026",
         "epsilon-2026-1": "epsilon-2026-1"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "suffix with no title on either side stays separate",
@@ -673,7 +713,8 @@
         "eta-2026": "eta-2026",
         "eta-2026-1": "eta-2026-1"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "genuine -N collision: different recorded content_sha256 stays separate",
@@ -702,7 +743,8 @@
           "annual-report-2026",
           "annual-report-2026-1"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "recorded hash on one side only does not veto",
@@ -725,7 +767,8 @@
         "theta-2026": "theta-2026",
         "theta-2026-1": "theta-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "computed snapshot hashes that differ do not veto (conversion noise)",
@@ -749,7 +792,8 @@
         "iota-2026": "iota-2026",
         "iota-2026-1": "iota-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "conflicting trusted URLs veto the suffix",
@@ -778,7 +822,8 @@
           "kappa-2026",
           "kappa-2026-1"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "a trusted URL on one side only does not veto",
@@ -801,7 +846,8 @@
         "lambda-2026": "lambda-2026",
         "lambda-2026-1": "lambda-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "a trusted URL on the -N side only does not veto",
@@ -824,7 +870,8 @@
         "pi-2026": "pi-2026",
         "pi-2026-1": "pi-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "search-provenance URL does not count as a conflicting URL",
@@ -855,7 +902,8 @@
         "mu-2026": "mu-2026",
         "mu-2026-1": "mu-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "year suffix: foo-2026 with a different title does not join foo",
@@ -877,7 +925,8 @@
         "foo": "foo",
         "foo-2026": "foo-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "year suffix: foo-2026 with an equal title joins foo",
@@ -899,7 +948,8 @@
         "bar": "bar",
         "bar-2026": "bar"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "two distinct docs titled AI Policy Bulletin stay separate (title_collision)",
@@ -928,7 +978,8 @@
           "ai-policy-bulletin-april-2026",
           "ai-policy-bulletin-march-2026"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "non-ASCII titles that reduce to the same ASCII key stay separate (title_collision)",
@@ -955,7 +1006,8 @@
           "zh-policy-2026",
           "zh-rules-2026"
         ]
-      ]
+      ],
+      "expected_url_conflicts": []
     },
     {
       "name": "missing titles do not fall back to the id (no title_collision)",
@@ -973,7 +1025,8 @@
         "ai-act-2026": "ai-act-2026",
         "aiact-2026": "aiact-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "equal titles inside one group are not reported",
@@ -997,7 +1050,250 @@
         "nu-2026": "nu-2026",
         "nu-mirror-2026": "nu-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "url_conflict: shared URL with different hashes and different titles stays separate",
+      "documents": [
+        {
+          "id": "paper-alpha-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Paper Alpha",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        },
+        {
+          "id": "paper-beta-2026",
+          "metadata": {
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "title": "Paper Beta",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "paper-alpha-2026": "paper-alpha-2026",
+        "paper-beta-2026": "paper-beta-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "paper-alpha-2026",
+            "paper-beta-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "url_conflict veto uses computed snapshot hashes too",
+      "documents": [
+        {
+          "id": "snap-alpha-2026",
+          "metadata": {
+            "title": "Snap Alpha",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "snap-beta-2026",
+          "metadata": {
+            "title": "Snap Beta",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "snap-alpha-2026": "snap-alpha-2026",
+        "snap-beta-2026": "snap-beta-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "snap-alpha-2026",
+            "snap-beta-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shared URL with the same title joins even if hashes differ (conversion noise)",
+      "documents": [
+        {
+          "id": "sigma-2026",
+          "metadata": {
+            "title": "Sigma",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "sigma-mirror-2026",
+          "metadata": {
+            "title": "Sigma",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "sigma-2026": "sigma-2026",
+        "sigma-mirror-2026": "sigma-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "shared URL with different titles but no hash on one side joins",
+      "documents": [
+        {
+          "id": "tau-2026",
+          "metadata": {
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Tau",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        },
+        {
+          "id": "tau-preprint-2026",
+          "metadata": {
+            "title": "Tau preprint",
+            "url": "https://doi.org/10.1073/pnas"
+          }
+        }
+      ],
+      "expected_canonical": {
+        "tau-2026": "tau-2026",
+        "tau-preprint-2026": "tau-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "shared URL with different hashes but an empty title on one side joins",
+      "documents": [
+        {
+          "id": "upsilon-2026",
+          "metadata": {
+            "title": "Upsilon",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "upsilon-scan-2026",
+          "metadata": {
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "upsilon-2026": "upsilon-2026",
+        "upsilon-scan-2026": "upsilon-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "a vetoed pair is still grouped through a third copy, and still reported",
+      "documents": [
+        {
+          "id": "rho-2026",
+          "metadata": {
+            "title": "Rho",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "id": "rho-2026-1",
+          "metadata": {
+            "title": "Rho"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "id": "rho-preprint-2026",
+          "metadata": {
+            "title": "Rho preprint",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "expected_canonical": {
+        "rho-2026": "rho-2026",
+        "rho-2026-1": "rho-2026",
+        "rho-preprint-2026": "rho-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "rho-2026",
+            "rho-preprint-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "floor: two different documents that both converted to the same cookie wall do not merge",
+      "documents": [
+        {
+          "id": "times-op-ed-2026",
+          "metadata": {
+            "title": "The Case for Slowing Down"
+          },
+          "snapshot_text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-04-11\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-04-11\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nWe value your privacy\n\nWe use cookies to improve your experience. By clicking Accept all you agree to our use of cookies.\n\nAccept all    Reject all    Manage preferences\n"
+        },
+        {
+          "id": "guardian-analysis-2026",
+          "metadata": {
+            "title": "Why Regulation Lags"
+          },
+          "snapshot_text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-05-02\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-05-02\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nWe value your privacy\n\nWe use cookies to improve your experience. By clicking Accept all you agree to our use of cookies.\n\nAccept all    Reject all    Manage preferences\n"
+        }
+      ],
+      "expected_canonical": {
+        "guardian-analysis-2026": "guardian-analysis-2026",
+        "times-op-ed-2026": "times-op-ed-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "snapshot_text over the floor still merges on an equal hash",
+      "documents": [
+        {
+          "id": "long-report-2026",
+          "metadata": {
+            "title": "Long Report"
+          },
+          "snapshot_text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-04-11\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-04-11\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\n\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\n\nPara two.\n"
+        },
+        {
+          "id": "long-report-reprint-2026",
+          "metadata": {
+            "title": "Long Report (reprint)"
+          },
+          "snapshot_text": "<!--\r\n  AI Triad Research Project — Document Snapshot\r\n  Title      : Eight ways AI will shape geopolitics in 2026\r\n  Source     : \r\n  Type       : pdf\r\n  Captured   : 2026-09-22\r\n  This file is a Markdown shadow copy for AI summarisation and POViewer display.\r\n  The original file lives in raw/ for fidelity (charts, tables, exact layout).\r\n-->\r\n\r\n# Eight ways AI will shape geopolitics in 2026\r\n\r\n> **Snapshot captured:** 2026-09-22\r\n> **Source:** \r\n> **Type:** pdf\r\n\r\n---\r\n\r\nPara one about AI.\r\n\r\nw001 w002 w003 w004 w005 w006 w007 w008 w009 w010 w011 w012 w013 w014 w015 w016 w017 w018 w019 w020 w021 w022 w023 w024 w025 w026 w027 w028 w029 w030 w031 w032 w033 w034 w035 w036 w037 w038 w039 w040 w041 w042 w043 w044 w045 w046 w047 w048 w049 w050 w051 w052 w053 w054 w055 w056 w057 w058 w059 w060 w061 w062 w063 w064 w065 w066 w067 w068 w069 w070 w071 w072 w073 w074 w075 w076 w077 w078 w079 w080 w081 w082 w083 w084 w085 w086 w087 w088 w089 w090 w091 w092 w093 w094 w095 w096 w097 w098 w099 w100\r\n\r\nPara two.\r\n"
+        }
+      ],
+      "expected_canonical": {
+        "long-report-2026": "long-report-2026",
+        "long-report-reprint-2026": "long-report-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "REAL: 7 query-string documents stay distinct",
@@ -1124,7 +1420,8 @@
         "evaluating-impact-ai-labor-market-current-state-affairs-2026": "evaluating-impact-ai-labor-market-current-state-affairs-2026",
         "generative-ai-copyright-training-creation-regulation-2026": "generative-ai-copyright-training-creation-regulation-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
     },
     {
       "name": "REAL: eight-ways (7 docs, 2 outlets) collapses to one",
@@ -1251,7 +1548,151 @@
         "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-1": "eight-ways-ai-will-shape-geopolitics-2026-2026",
         "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-2": "eight-ways-ai-will-shape-geopolitics-2026-2026"
       },
-      "expected_title_collisions": []
+      "expected_title_collisions": [],
+      "expected_url_conflicts": []
+    },
+    {
+      "name": "REAL: url_conflict - two PNAS papers sharing a truncated DOI stay separate",
+      "documents": [
+        {
+          "id": "explicitly-unbiased-large-language-models-still-form-biased-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "doi:10.1073/pnas",
+                "scheme": "doi"
+              }
+            ],
+            "resolved_url": "https://doi.org/10.1073/pnas",
+            "title": "Explicitly unbiased large language models still form biased associations",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "c18fad01992b5ab6aa69cdca180987d4cd6cd8996825ef40a2749d435d5a1240"
+        },
+        {
+          "id": "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "doi:10.1073/pnas",
+                "scheme": "doi"
+              }
+            ],
+            "resolved_url": "https://doi.org/10.1073/pnas",
+            "title": "hoes gilardi 2025 existential risk narratives about ai do not distract from its immediate harms",
+            "url": "https://doi.org/10.1073/pnas"
+          },
+          "snapshot_sha256": "f6bea25cd74243e44b063e4d38b8f1955147f017987666ef66a47bbfa88fd706"
+        }
+      ],
+      "expected_canonical": {
+        "explicitly-unbiased-large-language-models-still-form-biased-2026": "explicitly-unbiased-large-language-models-still-form-biased-2026",
+        "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026": "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "doi.org/10.1073/pnas",
+          "ids": [
+            "explicitly-unbiased-large-language-models-still-form-biased-2026",
+            "hoes-gilardi-2025-existential-risk-narratives-about-ai-do-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "REAL: arXiv-number slug and titled copies stay one group despite url_conflict pairs",
+      "documents": [
+        {
+          "id": "170306856v3-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "1703.06856v3",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "118e65a0f2f11e1ba6bdcbd207e2474dd2b9721c344c67238dc86447018f7fd7"
+        },
+        {
+          "id": "counterfactual-fairness-2026",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "Counterfactual Fairness",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "712ed01b70de4d49d83b3a9e8e9357f70d90e65aedfa97e3b34cb39038d3c7b8"
+        },
+        {
+          "id": "counterfactual-fairness-2026-1",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "Counterfactual Fairness",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "118e65a0f2f11e1ba6bdcbd207e2474dd2b9721c344c67238dc86447018f7fd7"
+        },
+        {
+          "id": "counterfactual-fairness-2026-2",
+          "metadata": {
+            "provenance": [
+              {
+                "confidence": "verified",
+                "id": "arXiv:1703.06856v3",
+                "scheme": "arxiv"
+              }
+            ],
+            "resolved_url": "https://arxiv.org/abs/1703.06856v3",
+            "title": "Counterfactual Fairness",
+            "url": "https://arxiv.org/abs/1703.06856v3"
+          },
+          "snapshot_sha256": "712ed01b70de4d49d83b3a9e8e9357f70d90e65aedfa97e3b34cb39038d3c7b8"
+        }
+      ],
+      "expected_canonical": {
+        "170306856v3-2026": "170306856v3-2026",
+        "counterfactual-fairness-2026": "170306856v3-2026",
+        "counterfactual-fairness-2026-1": "170306856v3-2026",
+        "counterfactual-fairness-2026-2": "170306856v3-2026"
+      },
+      "expected_title_collisions": [],
+      "expected_url_conflicts": [
+        {
+          "url_key": "arxiv.org/abs/1703.06856v3",
+          "ids": [
+            "170306856v3-2026",
+            "counterfactual-fairness-2026"
+          ]
+        },
+        {
+          "url_key": "arxiv.org/abs/1703.06856v3",
+          "ids": [
+            "170306856v3-2026",
+            "counterfactual-fairness-2026-2"
+          ]
+        }
+      ]
     }
   ]
 }

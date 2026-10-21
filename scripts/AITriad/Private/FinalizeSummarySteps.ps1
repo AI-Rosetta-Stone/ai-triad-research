@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 # Steps of Finalize-Summary (Invoke-DocumentSummary.ps1), extracted for t/4136 PR B1 (plan t/3910#37):
@@ -580,7 +580,10 @@ function Update-SummaryMetadata {
     }
     try {
         $MetaRaw     = Get-Content $Doc.MetaFile -Raw
-        $MetaUpdated = $MetaRaw | ConvertFrom-Json -AsHashtable
+        # Shape-preserving read (t/4366): a bare ConvertFrom-Json -AsHashtable coerces ISO strings
+        # such as import_time to [datetime], and this whole-object rewrite would re-emit them in the
+        # running machine's offset.
+        $MetaUpdated = ConvertFrom-JsonPreserveShape -Json $MetaRaw -AsOrderedHashtable
         $MetaUpdated['summary_version'] = $TaxonomyVersion
         $MetaUpdated['summary_status']  = 'current'
         $MetaUpdated['summary_updated'] = $Now
