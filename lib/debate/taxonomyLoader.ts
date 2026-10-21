@@ -38,8 +38,10 @@ export interface LoadedTaxonomy {
   /** Selectable POV nodes only (no superseded_by). */
   skeptic: { nodes: PovNode[] };
   situations: { nodes: SituationNode[] };
-  /** Full edge set including edges to/from superseded nodes. Use selectableEdges for traversal. */
+  /** Selectable edge set — both source and target are non-superseded. Default for all consumers. */
   edges: EdgesFile | null;
+  /** Full edge set including edges to/from superseded nodes. Use for history, display and QBAF readers. */
+  allEdges: EdgesFile | null;
   /** Embeddings for selectable nodes only. Superseded node embeddings are excluded. */
   embeddings: Record<string, NodeEmbedding>;
   policyRegistry: PolicyRef[];
@@ -62,8 +64,6 @@ export interface LoadedTaxonomy {
    * resolveNode follows the chain to give the current canonical node for new reasoning.
    */
   resolveNode: (id: string) => PovNode | undefined;
-  /** Edges where both source and target are selectable (non-superseded) nodes. */
-  selectableEdges: Edge[] | null;
 }
 
 export interface ConflictFile {
@@ -374,7 +374,7 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
   const saf = loadJsonSafe<{ nodes: PovNode[] }>(path.join(taxonomyDir, 'safetyist.json'), { nodes: [] });
   const skp = loadJsonSafe<{ nodes: PovNode[] }>(path.join(taxonomyDir, 'skeptic.json'), { nodes: [] });
   const sit = loadJsonSafe<{ nodes: SituationNode[] }>(path.join(taxonomyDir, 'situations.json'), { nodes: [] });
-  const edges = loadJsonSafe<EdgesFile | null>(path.join(taxonomyDir, 'edges.json'), null);
+  const allEdges = loadJsonSafe<EdgesFile | null>(path.join(taxonomyDir, 'edges.json'), null);
 
   // Embeddings: { model, dimension, node_count, nodes: { [id]: { pov, vector } } }
   const embeddingsRaw = loadJsonSafe<{ nodes?: Record<string, { pov: string; vector: number[] }> }>(
@@ -439,9 +439,9 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
     if (selectableIds.has(id)) selectableEmbeddings[id] = emb;
   }
 
-  // Filter edges to both-selectable endpoints
-  const selectableEdges: Edge[] | null = edges
-    ? edges.edges.filter(e => selectableIds.has(e.source) && selectableIds.has(e.target))
+  // Build selectable edge set — both endpoints must be non-superseded.
+  const edges: EdgesFile | null = allEdges
+    ? { ...allEdges, edges: allEdges.edges.filter(e => selectableIds.has(e.source) && selectableIds.has(e.target)) }
     : null;
 
   return {
@@ -450,12 +450,12 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
     skeptic: { nodes: (skp.nodes ?? []).filter(n => !n.superseded_by) },
     situations: { nodes: sit.nodes ?? [] },
     edges,
+    allEdges,
     embeddings: selectableEmbeddings,
     policyRegistry,
     lineageCategories,
     allNodesById,
     resolveNode,
-    selectableEdges,
   };
 }
 

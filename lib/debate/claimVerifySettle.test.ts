@@ -68,7 +68,7 @@ function createMinimalTaxonomy(): LoadedTaxonomy {
     policyRegistry: [],
     allNodesById: new Map(),
     resolveNode: (_id: string) => undefined,
-    selectableEdges: null,
+    allEdges: null,
   };
 }
 

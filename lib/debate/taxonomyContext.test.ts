@@ -3,8 +3,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { formatTaxonomyContext } from './taxonomyContext.js';
+import { formatDebaterEdgeContext } from './debateEngine/taxonomyContext.js';
 import type { SituationStatements } from './taxonomyContext.js';
 import type { PovNode, SituationNode } from './taxonomyTypes.js';
+import type { DebateEngineInternals } from './debateEngine/internals.js';
 
 function makeSit(id: string, label: string, parentId?: string | null): SituationNode {
   return {
@@ -430,5 +432,27 @@ describe('formatTaxonomyContext — tagSelection (t/3996)', () => {
     const taggedIdx = output.indexOf('[acc-bel-130]');
     const highIdx = output.indexOf('[acc-bel-131]');
     expect(taggedIdx).toBeLessThan(highIdx);
+  });
+});
+
+// ── C1 edge-default: consumer-level proof (t/4354) ───────────────────────────
+
+describe('formatDebaterEdgeContext — edges default is selectable-only (t/4354 C1)', () => {
+  function makeEngine(edgeArray: { source: string; target: string; type: string; bidirectional: boolean; confidence: number; status: string; discovered_at: string; model: string }[]): DebateEngineInternals {
+    return {
+      taxonomy: {
+        edges: { _schema_version: '1', _doc: '', last_modified: '', edge_types: [], edges: edgeArray },
+      },
+    } as unknown as DebateEngineInternals;
+  }
+
+  it('never emits a superseded-endpoint ID when edges contains only selectable edges', () => {
+    // loadTaxonomy already removed the superseded-endpoint edge from edges.
+    // This confirms the consumer (formatDebaterEdgeContext) only ever sees the selectable set.
+    const selectableEdge = { source: 'acc-beliefs-001', target: 'saf-beliefs-001', type: 'CONTRADICTS', bidirectional: false, confidence: 0.9, status: 'approved', discovered_at: '', model: 'test' };
+    const engine = makeEngine([selectableEdge]);
+    const { text } = formatDebaterEdgeContext(engine, 'accelerationist');
+    expect(text).not.toContain('acc-beliefs-RETIRED');
+    expect(text).toContain('acc-beliefs-001');
   });
 });

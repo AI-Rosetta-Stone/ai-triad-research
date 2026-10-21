@@ -271,7 +271,7 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
     expect(warnCalls.some(m => m.includes('acc-beliefs-MISSING'))).toBe(true);
   });
 
-  it('selectableEdges excludes edges with a superseded endpoint', () => {
+  it('edges excludes edges with a superseded endpoint; allEdges retains them', () => {
     setupTaxonomyMocks(
       [makeAccNode('acc-beliefs-001', 'Active'), makeAccNode('acc-beliefs-002', 'Retired', 'acc-beliefs-001')],
       {},
@@ -281,10 +281,11 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
       ],
     );
     const result = loadTaxonomy(FAKE_ROOT);
-    expect(result.selectableEdges).toHaveLength(1);
-    expect(result.selectableEdges![0].source).toBe('acc-beliefs-001');
-    expect(result.selectableEdges![0].target).toBe('acc-beliefs-001');
-    // Full edge set is unchanged
-    expect(result.edges!.edges).toHaveLength(2);
+    // Selectable set: only the self-edge (both endpoints non-superseded)
+    expect(result.edges!.edges).toHaveLength(1);
+    expect(result.edges!.edges[0].source).toBe('acc-beliefs-001');
+    expect(result.edges!.edges[0].target).toBe('acc-beliefs-001');
+    // Full set in allEdges: both edges present
+    expect(result.allEdges!.edges).toHaveLength(2);
   });
 });
