@@ -1,0 +1,31 @@
+{
+  "_comment": "t/4368 (t/4367 parts 2+3): a registry of shared inputs read by more than one ci.yml path-filter group, so a new shared file can't silently slip through one group's filter while covered in another (the #3546 class: tests/fixtures/source-identity-cases.json changed, test-electron SKIPPED, ci-gate treated the skip as satisfied). consumerJobs here are ci.yml CHANGES-JOB FILTER-GROUP NAMES (needs.changes.outputs.<group>), not literal job IDs -- multiple jobs share one group's boolean output, so checking the group is both necessary and sufficient. Advisory only: a match produces a warning, never a failure (t/4367's own tier note; promotion to blocking is a separate T2 change).",
+  "version": 1,
+  "entries": [
+    {
+      "_comment": "t/4367/#3546: Pester reads tests/fixtures/** (powershell, via tests/**); vitest suites in taxonomy-editor/poviewer/summary-viewer and lib/** also read fixtures under this path. As of this registry's authoring, electron/lib's ci.yml filters do NOT yet include tests/fixtures/** -- PR #3562 (t/4367 part 1) adds it. This entry intentionally reflects the INTENDED final state, so it correctly warns until #3562 lands.",
+      "path": "tests/fixtures/**",
+      "consumerJobs": ["powershell", "electron", "lib"]
+    },
+    {
+      "_comment": "t/2090: the AI registry completeness gates run inside all three families -- powershell (Test-AIModelsConfig/ModelLiteralLint), electron (keysValidation/resolveApiModelId/configInvariant/modelDiscovery), debate (aiAdapter reads it at runtime for golden evals).",
+      "path": "ai-models.json",
+      "consumerJobs": ["powershell", "electron", "debate"]
+    },
+    {
+      "_comment": "t/4029: the ONLY input of research/comp-linguist/tools/test_render_soul_md.py's _SOUL_DIR. A soul-JSON-only PR must run test-python or ci-gate false-greens a stale .soul.md view.",
+      "path": "lib/debate/soul-docs/**",
+      "consumerJobs": ["python"]
+    },
+    {
+      "_comment": "schema is the schema-of-record validator job; container's Dockerfile COPYs taxonomy/schemas/** into the prod image (t/2094 soundness rule).",
+      "path": "taxonomy/schemas/**",
+      "consumerJobs": ["schema", "container"]
+    },
+    {
+      "_comment": "t/3189: the G7 grounding reconciler (reconcile_grounding.py) + its selftest, run by test-python; also COPYd into the container's prod image (Dockerfile, t/2094).",
+      "path": "research/comp-linguist/scripts/**",
+      "consumerJobs": ["python", "container"]
+    }
+  ]
+}
