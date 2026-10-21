@@ -118,27 +118,44 @@ function Invoke-QbafConflictAnalysis {
         }
         $SummaryFiles = @(Get-Item $Path)
     }
-    else {
-        $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File | Sort-Object Name)
-        # duplicate_of (t/4337 C1): a marked copy's claims would conflict with themselves.
-        $SummaryFiles = @(Select-SelectableSummaryFile -Files $SummaryFiles -Resolution (Get-DefaultSourceResolution -Caller 'Invoke-QbafConflictAnalysis'))
+    $Resolution = $null
+    $AllSummaryFiles = @()
+    if (-not $DocId) {
+        $AllSummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File | Sort-Object Name)
+        # duplicate_of (t/4337): a marked copy isn't read as a document of its own. Its distinct claims
+        # are added after the main pass under the canonical's DocId (spec 7.4), so the same-document
+        # skip below also keeps a doc from "conflicting" with its own copy (spec 7.5).
+        $Resolution = Get-DefaultSourceResolution -Caller 'Invoke-QbafConflictAnalysis'
+        $SummaryFiles = @(Select-SelectableSummaryFile -Files $AllSummaryFiles -Resolution $Resolution)
     }
 
     $AllClaims = [System.Collections.Generic.List[PSObject]]::new()
-    $ClaimIdx = 0
+    $Counter = @{ N = 0 }   # the claim index; a hashtable so the loader scriptblock can advance it
+    $GroupKeys = @{}   # canonical doc id -> de-dup keys of the claims already loaded for its group
+    $Canonicals = if ($Resolution) { [System.Collections.Generic.HashSet[string]]::new([string[]]@($Resolution.Resolved.Values), [System.StringComparer]::Ordinal) } else { $null }
 
-    foreach ($File in $SummaryFiles) {
-        try {
-            $Summary = Get-Content -Raw -Path $File.FullName | ConvertFrom-Json
-        }
-        catch { continue }
-
+    # Loads one summary's factual claims under $ClaimDocId. With $Via (a marked copy's exact id), a
+    # claim near-equal to one already loaded for the group is skipped.
+    $AddClaims = {
+        param($Summary, [string]$ClaimDocId, [string]$Via)
         # Guarded (t/4010): a bare dot-access on an absent key throws under StrictMode.
-        if (-not ($Summary.PSObject.Properties['factual_claims'] -and $Summary.factual_claims)) { continue }
+        if (-not ($Summary.PSObject.Properties['factual_claims'] -and $Summary.factual_claims)) { return }
+        $Track = $Via -or ($Canonicals -and $Canonicals.Contains($ClaimDocId))
+        if ($Track -and -not $GroupKeys.ContainsKey($ClaimDocId)) { $GroupKeys[$ClaimDocId] = [System.Collections.Generic.List[string]]::new() }
 
         foreach ($Claim in @($Summary.factual_claims)) {
-            $ClaimIdx++
             if ($Claim.PSObject.Properties['claim']) { $ClaimText = $Claim.claim } else { $ClaimText = '' }
+            if ($Track) {
+                $Key = ConvertTo-EvidenceKey -Quote ([string]$ClaimText)
+                if ($Via) {
+                    $Dup = $false
+                    foreach ($K in $GroupKeys[$ClaimDocId]) { if (Test-EvidenceNearEqual -A $Key -B $K) { $Dup = $true; break } }
+                    if ($Dup) { continue }
+                }
+                $GroupKeys[$ClaimDocId].Add($Key)
+            }
+            $Counter.N++
+            $ClaimIdx = $Counter.N
             if ($Claim.PSObject.Properties['claim_label']) { $Label = $Claim.claim_label } else { $Label = "claim-$ClaimIdx" }
             if ($Claim.PSObject.Properties['linked_taxonomy_nodes']) { $Nodes = @($Claim.linked_taxonomy_nodes) } else { $Nodes = @() }
             if ($Claim.PSObject.Properties['doc_position']) { $Position = $Claim.doc_position } else { $Position = 'neutral' }
@@ -162,7 +179,8 @@ function Invoke-QbafConflictAnalysis {
 
             $AllClaims.Add([PSCustomObject]@{
                 Id            = "qc-$ClaimIdx"
-                DocId         = $File.BaseName
+                DocId         = $ClaimDocId
+                Via           = if ($Via) { $Via } else { $null }   # provenance only (spec 7.6)
                 Label         = $Label
                 Text          = $ClaimText
                 Category      = $Category
@@ -173,6 +191,22 @@ function Invoke-QbafConflictAnalysis {
             })
         }
     }
+
+    foreach ($File in $SummaryFiles) {
+        try {
+            $Summary = Get-Content -Raw -Path $File.FullName | ConvertFrom-Json
+        }
+        catch { continue }
+        & $AddClaims $Summary $File.BaseName $null
+    }
+    $UnionCount = $AllClaims.Count
+    if ($Resolution) {
+        foreach ($Copy in @(Get-MarkedCopySummary -Files $AllSummaryFiles -Resolution $Resolution -Caller 'Invoke-QbafConflictAnalysis')) {
+            & $AddClaims $Copy.Summary $Copy.CanonicalId $Copy.CopyId
+        }
+    }
+    $UnionCount = $AllClaims.Count - $UnionCount
+    if ($UnionCount -gt 0) { Write-Verbose "Invoke-QbafConflictAnalysis: $UnionCount distinct claim(s) from marked copies added under their canonical (spec 7.4)." }
 
     Write-OK "Loaded $($AllClaims.Count) claims from $($SummaryFiles.Count) summaries"
 
@@ -511,7 +545,7 @@ function Invoke-QbafConflictAnalysis {
         qbaf_iterations = if ($QbafResult) { $QbafResult.iterations } else { 0 }
         claims = @($AllClaims | ForEach-Object {
             if ($StrengthMap.ContainsKey($_.Id)) { $CS = $StrengthMap[$_.Id] } else { $CS = $_.BaseStrength }
-            [ordered]@{
+            $Rec = [ordered]@{
                 id               = $_.Id
                 doc_id           = $_.DocId
                 label            = $_.Label
@@ -521,6 +555,9 @@ function Invoke-QbafConflictAnalysis {
                 strength_delta   = [Math]::Round($CS - $_.BaseStrength, 4)
                 linked_nodes     = $_.Nodes
             }
+            # Only on a claim taken from a marked copy (spec 7.4), so output without marks is unchanged.
+            if ($_.Via) { $Rec['via'] = $_.Via }
+            $Rec
         })
         edges = @($Edges | ForEach-Object {
             [ordered]@{

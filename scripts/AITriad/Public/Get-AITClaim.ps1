@@ -30,8 +30,10 @@ function Get-AITClaim {
     .PARAMETER TemporalScope
         Filter factual claims by temporal scope (historical, predictive, timeless).
     .PARAMETER IncludeDuplicates
-        Also return claims from documents marked duplicate_of another document. They're left out
-        by default, so a copy's claims aren't returned twice; an exact -DocId always finds them.
+        Also return claims from documents marked duplicate_of another document, each under its own
+        DocId. By default a listing returns a copy's claims only where they add to its canonical:
+        a claim not near-equal to one the canonical's summary already has is listed with DocId =
+        the canonical and Via = the copy (t/4337, spec 7.4). An exact -DocId always finds a copy.
     .EXAMPLE
         Get-AITClaim
         # All claims from all summaries.
@@ -108,6 +110,37 @@ function Get-AITClaim {
     $IncludeFactual  = (-not $Type -or $Type -eq 'FactualClaim') -and -not $Stance -and -not $Pov
     $IncludeKeyPoint = (-not $Type -or $Type -eq 'KeyPoint') -and -not $DocPosition -and -not $TemporalScope
 
+    # duplicate_of (t/4337, spec 7.4): in a listing, a marked copy's claims are added after the main
+    # pass under the canonical's DocId, with Via = the copy, unless near-equal to a claim of the same
+    # type already in the group (compared against ALL the canonical's claims, before the filters, so a
+    # filter can't let a copy's duplicate through). A lookup or -IncludeDuplicates is unchanged.
+    $IsLookup = $DocId -and -not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($DocId)
+    $Resolution = if ($IncludeDuplicates -or $IsLookup) { $null } else { Get-DefaultSourceResolution -Caller 'Get-AITClaim' }
+    $Canonicals = if ($Resolution) { [System.Collections.Generic.HashSet[string]]::new([string[]]@($Resolution.Resolved.Values), [System.StringComparer]::Ordinal) } else { $null }
+    $GroupKeys = @{}   # canonical doc id -> @{ FactualClaim = List[key]; KeyPoint = List[key] }
+    $NewKeySet = { @{ FactualClaim = [System.Collections.Generic.List[string]]::new(); KeyPoint = [System.Collections.Generic.List[string]]::new() } }
+    $AddSummaryKeys = {
+        param($Summary, $Keys)
+        if ($Summary.PSObject.Properties['factual_claims']) {
+            foreach ($fc in @($Summary.factual_claims)) { if ($fc -and $fc.PSObject.Properties['claim']) { $Keys.FactualClaim.Add((ConvertTo-EvidenceKey -Quote ([string]$fc.claim))) } }
+        }
+        if ($Summary.PSObject.Properties['pov_summaries'] -and $Summary.pov_summaries) {
+            foreach ($p in $Summary.pov_summaries.PSObject.Properties) {
+                if (-not $p.Value -or -not $p.Value.PSObject.Properties['key_points']) { continue }
+                foreach ($kp in @($p.Value.key_points)) { if ($kp -and $kp.PSObject.Properties['point']) { $Keys.KeyPoint.Add((ConvertTo-EvidenceKey -Quote ([string]$kp.point))) } }
+            }
+        }
+    }
+    # A claim from a copy is emitted only when no claim of its type in the group is near-equal to it.
+    $IsNewForGroup = {
+        param($Claim, $Keys)
+        $k = ConvertTo-EvidenceKey -Quote ([string]$Claim.Text)
+        foreach ($kk in $Keys[$Claim.Type]) { if (Test-EvidenceNearEqual -A $k -B $kk) { return $false } }
+        $Keys[$Claim.Type].Add($k)
+        $true
+    }
+
+    $Sources = [System.Collections.Generic.List[object]]::new()
     foreach ($File in $SummaryFiles) {
         try {
             $Summary = Get-Content -Raw -Path $File.FullName | ConvertFrom-Json
@@ -116,8 +149,24 @@ function Get-AITClaim {
             Write-Warning "Failed to parse $($File.Name): $_"
             continue
         }
+        $Sources.Add([pscustomobject]@{ Summary = $Summary; DocId = $Summary.doc_id; Via = $null })
+        if ($Canonicals -and $Summary.doc_id -and $Canonicals.Contains([string]$Summary.doc_id)) {
+            $GroupKeys[[string]$Summary.doc_id] = & $NewKeySet
+            & $AddSummaryKeys $Summary $GroupKeys[[string]$Summary.doc_id]
+        }
+    }
+    if ($Resolution) {
+        $AllFiles = [System.IO.FileInfo[]]@(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+        foreach ($Copy in @(Get-MarkedCopySummary -Files $AllFiles -Resolution $Resolution -Caller 'Get-AITClaim')) {
+            if (-not $GroupKeys.ContainsKey($Copy.CanonicalId)) { $GroupKeys[$Copy.CanonicalId] = & $NewKeySet }
+            $Sources.Add([pscustomobject]@{ Summary = $Copy.Summary; DocId = $Copy.CanonicalId; Via = $Copy.CopyId })
+        }
+    }
 
-        $SummaryDocId = $Summary.doc_id
+    foreach ($Src in $Sources) {
+        $Summary = $Src.Summary
+        $SummaryDocId = $Src.DocId
+        $Via = $Src.Via
         if ($DocId -and $SummaryDocId -notlike $DocId) { continue }
 
         # ── Factual Claims ──────────────────────────────────────────
@@ -167,6 +216,8 @@ function Get-AITClaim {
                 $claim.Specificity    = $specificity
                 $claim.HasWarrant     = $hasWarrant
                 $claim.EvidenceLevel  = $evidenceLevel
+                $claim.Via            = $Via
+                if ($Via -and -not (& $IsNewForGroup $claim $GroupKeys[$SummaryDocId])) { continue }
                 $claim | Write-Output
             }
         }
@@ -206,6 +257,8 @@ function Get-AITClaim {
                             $claim.Verbatim = $kp.verbatim
                         }
                     }
+                    $claim.Via = $Via
+                    if ($Via -and -not (& $IsNewForGroup $claim $GroupKeys[$SummaryDocId])) { continue }
                     $claim | Write-Output
                 }
             }

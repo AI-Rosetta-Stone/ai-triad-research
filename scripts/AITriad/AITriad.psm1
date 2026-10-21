@@ -194,6 +194,7 @@ class AITClaim {
     [bool]     $HasWarrant      # evidence_criteria.has_warrant (FactualClaim only)
     [string]   $EvidenceLevel   # evidence_criteria.category_criteria.evidence_level (FactualClaim only)
     [string]   $Verbatim        # verbatim quote (KeyPoint only)
+    [string]   $Via             # a marked copy's exact id when the claim came from it (t/4337 spec 7.4); DocId is then the canonical. Provenance only.
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -416,3 +416,67 @@ Describe 'Entity extraction never re-extracts a copy''s fact (TL e/347#7, spec 7
         }
     }
 }
+
+Describe 'Claim listing and conflict analysis take a copy''s distinct claims under the canonical (spec 7.4/7.5, t/4337)' -Tag 'source-identity' {
+    BeforeEach {
+        $script:F = script:New-Fixture
+        # The canonical supports a claim; the copy repeats it (near-equal, more confident) and adds
+        # a distinct claim that disputes the same node.
+        script:WriteJson (Join-Path $script:F.Sum 'report-2026.json') @{
+            doc_id = 'report-2026'; generated_at = '2026-10-01T00:00:00Z'
+            pov_summaries = @{ accelerationist = @{ key_points = @() }; skeptic = @{ key_points = @() }; safetyist = @{ key_points = @() } }
+            factual_claims = @(@{ claim = 'Same claim'; linked_taxonomy_nodes = @('saf-beliefs-001'); doc_position = 'supports'; extraction_confidence = 0.7 })
+        }
+        script:WriteJson (Join-Path $script:F.Sum 'report-2026-1.json') @{
+            doc_id = 'report-2026-1'; generated_at = '2026-10-01T00:00:00Z'
+            pov_summaries = @{ accelerationist = @{ key_points = @() }; skeptic = @{ key_points = @() }; safetyist = @{ key_points = @() } }
+            factual_claims = @(
+                @{ claim = 'Same claim.'; linked_taxonomy_nodes = @('saf-beliefs-001'); doc_position = 'supports'; extraction_confidence = 0.95 }
+                @{ claim = 'A different claim the copy run found'; linked_taxonomy_nodes = @('saf-beliefs-001'); doc_position = 'disputes'; extraction_confidence = 0.8 })
+        }
+        Mock Get-SourcesDir   -ModuleName AITriad { $script:F.Src }
+        Mock Get-SummariesDir -ModuleName AITriad { $script:F.Sum }
+    }
+    AfterEach { Remove-Item $script:F.Root -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'Get-AITClaim lists a copy''s distinct claim under the canonical with Via, and not its near-duplicate' {
+        $c = @(Get-AITClaim -Type FactualClaim 3>$null | Where-Object DocId -like 'report*')
+        @($c.Text | Sort-Object) | Should -Be @('A different claim the copy run found', 'Same claim')
+        ($c | Where-Object Text -eq 'A different claim the copy run found').DocId | Should -BeExactly 'report-2026'
+        ($c | Where-Object Text -eq 'A different claim the copy run found').Via | Should -BeExactly 'report-2026-1'
+        ($c | Where-Object Text -eq 'Same claim').Via | Should -BeNullOrEmpty
+    }
+
+    It 'Get-AITClaim: a filter can''t let a copy''s near-duplicate through' {
+        # Only the copy's version clears -MinConfidence 0.9, but it is near-equal to the canonical's claim.
+        @(Get-AITClaim -Type FactualClaim -MinConfidence 0.9 3>$null | Where-Object DocId -like 'report*').Count | Should -Be 0
+    }
+
+    It 'Get-AITClaim -IncludeDuplicates and an exact -DocId still return the copy as itself' {
+        @(Get-AITClaim -Type FactualClaim -IncludeDuplicates 3>$null | Where-Object DocId -eq 'report-2026-1').Count | Should -Be 2
+        $own = @(Get-AITClaim -DocId 'report-2026-1' -Type FactualClaim 3>$null)
+        $own.Count | Should -Be 2
+        @($own | Where-Object { $_.Via }).Count | Should -Be 0
+    }
+
+    It 'QBAF: the copy''s distinct claim is loaded under the canonical and never conflicts with its own canonical' {
+        InModuleScope AITriad -Parameters @{ F = $script:F } {
+            Mock Get-DataRoot      { $F.Root }
+            Mock Get-TextEmbedding { $null }
+            $r = Invoke-QbafConflictAnalysis -DryRun -PassThru 6>$null 3>$null
+            $r.ClaimCount | Should -Be 2 -Because 'the canonical''s claim and the copy''s distinct one; the near-duplicate is dropped'
+            $r.AttackCount | Should -Be 0 -Because 'a supports/disputes pair inside one group is the same document (spec 7.5)'
+        }
+    }
+
+    It 'QBAF control arm: with the mark removed, the copy is its own doc and the pair is an attack' {
+        [IO.File]::WriteAllText((Join-Path $script:F.Src 'report-2026-1' 'metadata.json'), (@{ id = 'report-2026-1'; title = 'Report' } | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+        InModuleScope AITriad -Parameters @{ F = $script:F } {
+            Mock Get-DataRoot      { $F.Root }
+            Mock Get-TextEmbedding { $null }
+            $r = Invoke-QbafConflictAnalysis -DryRun -PassThru 6>$null 3>$null
+            $r.ClaimCount | Should -Be 3
+            $r.AttackCount | Should -Be 1
+        }
+    }
+}
