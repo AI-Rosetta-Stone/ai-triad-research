@@ -48,12 +48,13 @@ function Remove-MarkdownDataUri {
 function Read-SnapshotForModel {
     <#
     .SYNOPSIS
-        Reads a snapshot.md for use as model input, with inline data: URIs stripped (t/4386).
+        Reads a snapshot.md for use as model input: console-code-page mojibake repaired (t/4394) and
+        inline data: URIs stripped (t/4386).
     .DESCRIPTION
         Used where a snapshot feeds a model, a RAG query or a token estimate. WARNs (naming the
-        caller) when more than 1,000 characters were stripped. The file on disk is unchanged:
-        content_sha256 is computed over the snapshot exactly as written (source-identity spec
-        1.1), so stripping happens on read, never on write.
+        caller) when it repairs mojibake (Repair-SnapshotMojibake) or strips more than 1,000
+        characters. The file on disk is unchanged: content_sha256 is computed over the snapshot
+        exactly as written (source-identity spec 1.1), so both happen on read, never on write.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -62,7 +63,13 @@ function Read-SnapshotForModel {
         [string]$CallerName = 'Read-SnapshotForModel'
     )
     Set-StrictMode -Version Latest
-    $raw = [string](Get-Content -LiteralPath $Path -Raw)
+    # Explicit UTF-8: Windows PowerShell 5.1's default is the ANSI code page, the same class of misread.
+    $raw = [string](Get-Content -LiteralPath $Path -Raw -Encoding utf8)
+    $repair = Repair-SnapshotMojibake -Text $raw
+    if ($repair.Variant -ne 'none') {
+        Write-Warning "${CallerName}: repaired $($repair.Variant) mojibake in '$Path' before model input; the file on disk is unchanged (t/4394)."
+        $raw = $repair.Text
+    }
     $stripped = Remove-MarkdownDataUri -Text $raw
     if ($stripped.StrippedChars -gt 1000) {
         Write-Warning "${CallerName}: stripped $($stripped.StrippedChars) chars of inline data: URIs ($($stripped.UriCount)) from '$Path' before model input (t/4385)."
