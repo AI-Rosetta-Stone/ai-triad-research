@@ -7,8 +7,14 @@
 // the required same-origin exemption (browser fetch always sends Origin, even
 // same-origin, so the server-serves-renderer case must not self-block; TL t/2532#2).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type http from 'http';
+
+const { securityWarn, recordMock } = vi.hoisted(() => ({ securityWarn: vi.fn(), recordMock: vi.fn() }));
+vi.mock('../logger.js', () => ({ log: { security: { warn: securityWarn, info: vi.fn(), error: vi.fn() } } }));
+vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
+beforeEach(() => { securityWarn.mockClear(); recordMock.mockClear(); });
+
 import {
   resolveBindHost, isNonLoopbackDevBind, resolveAllowedOrigins, corsOriginFor,
   isSameOrigin, isDisallowedCrossOriginMutation, isWebSocketOriginAllowed,
@@ -130,5 +136,21 @@ describe('t/2532 — enforceCrossOriginMutationGuard (pipeline wrapper)', () => 
     const { req, res, out } = mk('POST', 'http://localhost:7862'); // Origin == Host
     expect(enforceCrossOriginMutationGuard(req, res, false, allow)).toBe(false);
     expect(out.wrote).toBe(false);
+  });
+  // t/4406: the rejection must be greppable in logs, not only visible in the response.
+  it('a rejection logs a WARN + FR record naming cross_origin_blocked, origin and host', () => {
+    const { req, res } = mk('POST', 'https://evil.example');
+    enforceCrossOriginMutationGuard(req, res, false, allow);
+    expect(securityWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: 'https://evil.example', host: 'localhost:7862', method: 'POST' }),
+      expect.stringContaining('cross_origin_blocked'),
+    );
+    expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', message: 'cross_origin_blocked' }));
+  });
+  it('a pass (same-origin) logs nothing', () => {
+    const { req, res } = mk('POST', 'http://localhost:7862');
+    enforceCrossOriginMutationGuard(req, res, false, allow);
+    expect(securityWarn).not.toHaveBeenCalled();
+    expect(recordMock).not.toHaveBeenCalled();
   });
 });

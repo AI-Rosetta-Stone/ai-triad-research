@@ -112,3 +112,17 @@ describe('serveStatic /readyz SPA-fallback exclusion (t/3114)', () => {
     expect(res.statusCode).toBe(200);     // index.html served — proves the exclusion is /readyz-specific
   });
 });
+
+// t/4406 — a /.auth/* path reaching the app means Easy Auth didn't handle it. Serving
+// index.html as a 200 hid that (`curl /.auth/me` looked like a working page). Now 404 + WARN.
+describe('serveStatic /.auth/* SPA-fallback exclusion (t/4406)', () => {
+  const staticDir = path.resolve('/fake/static');
+
+  it.each(['/.auth/me', '/.auth/login/github', '/.auth/logout'])('%s → returns false (404 path), NOT index.html', (p) => {
+    mockExistsSync.mockReturnValue(false);
+    const res = makeRes();
+    const handled = serveStatic(makeReq('GET', p), res as unknown as http.ServerResponse, staticDir);
+    expect(handled).toBe(false);
+    expect(res.statusCode).toBe(0);
+  });
+});
