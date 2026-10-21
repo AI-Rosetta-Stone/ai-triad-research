@@ -28,7 +28,7 @@
  * every key's presence meaningful (a reader checks `'title' in entry`, not
  * `entry.title !== null`).
  *
- * **`content_sha256` vs `snapshot_sha256` (v2):** the index keeps the
+ * **`content_sha256` vs `snapshot_sha256`:** the index keeps the
  * recorded-vs-computed hash distinction the live algorithm depends on
  * (`SourceIdentityDoc.metadata.content_sha256` vs `.snapshotSha256`,
  * `docs/specs/source-identity.md` section 4.0/4.4) — never merge them into
@@ -125,9 +125,11 @@ export interface SourcesIndexFile {
   docs: SourcesIndexEntry[];
 }
 
-/** v2: split the single `content_sha256` field into `content_sha256`
- *  (recorded only) and `snapshot_sha256` (computed only) — v1 conflated them,
- *  silently disabling the spec 4.4 suffix-veto's recorded-hash check for
- *  every index-sourced reader (p/783#12). */
-export const SOURCES_INDEX_SCHEMA_VERSION = 2;
+/** Still 1: the `content_sha256`/`snapshot_sha256` hash split (p/783#12) was
+ *  caught and fixed in both the generator (#3558) and this schema before
+ *  either ever shipped or had a real consumer, so there's no compatibility
+ *  concern to version-bump against — `schema_version` tracks the first
+ *  actually-consumed shape, which is this one. Matches PowerShell's
+ *  committed contract sample (`tests/fixtures/sources-index/expected.json`). */
+export const SOURCES_INDEX_SCHEMA_VERSION = 1;
 export const SOURCES_INDEX_FILENAME = 'sources-index.json';
