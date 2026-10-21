@@ -205,16 +205,82 @@ UNION_INPUTS = [
 ]
 
 
+POV_CODES = [("accelerationist", "acc"), ("safetyist", "saf"), ("skeptic", "skp")]
+
+
+def containers(summary, doc):
+    """Summary mention containers (mentionTypes.ts registry; Get-MentionContainerText kp/fc): key -> NFC text."""
+    out = {}
+    povs = summary.get("pov_summaries") or {}
+    for pov, code in POV_CODES:
+        kps = (povs.get(pov) or {}).get("key_points") or []
+        for n, kp in enumerate(kps):
+            p = kp.get("point") if isinstance(kp, dict) else None
+            t = unicodedata.normalize("NFC", p) if isinstance(p, str) and p != "" else ""
+            if t:
+                out[f"summary:{doc}#{code}-kp-{n}"] = t
+    for i, fc in enumerate(summary.get("factual_claims") or []):
+        c = fc.get("claim") if isinstance(fc, dict) else None
+        t = unicodedata.normalize("NFC", c) if isinstance(c, str) and c != "" else ""
+        if t:
+            out[f"summary:{doc}#fc-{i}"] = t
+    return out
+
+
+def mention_union(canonical, summaries):
+    """Spec 7.7: the union containers a group adds, keyed summary:<canonical>#via-<copy>-<item>."""
+    keys = [key(t) for t in containers(summaries.get(canonical, {}), canonical).values()]
+    out = {}
+    for copy in sorted((i for i in summaries if i != canonical), key=utf16_sort):
+        for cid, text in containers(summaries[copy], "x").items():
+            k = key(text)
+            if any(near(k, kk) for kk in keys):
+                continue
+            keys.append(k)
+            out[f"summary:{canonical}#via-{copy}-{cid[len('summary:x#'):]}"] = text
+    return out
+
+
+def S(kps=(), fcs=(), pov="safetyist"):
+    return {"pov_summaries": {pov: {"key_points": [{"point": p} for p in kps]}}, "factual_claims": [{"claim": c} for c in fcs]}
+
+
+MENTION_INPUTS = [
+    ("a distinct key point and claim get via keys with the copy's own indices; a near-duplicate gets none", "c-2026",
+     {"c-2026": S(["The plan exports the US stack."], ["Claim one."]),
+      "c-2026-1": S(["The plan exports the US stack", "Countries want sovereign AI."], ["Claim one", "A claim only the copy found."])}),
+    ("two copies with the same distinct item: only the ordinal-first copy's (-1 < -10 < -2)", "c-2026",
+     {"c-2026": S(["Canonical point."]), "c-2026-2": S(["Shared distinct point."]), "c-2026-10": S(["Shared distinct point."]), "c-2026-1": S(["Shared distinct point!"])}),
+    ("an empty item makes no container but still advances its index", "c-2026",
+     {"c-2026": S(["Canonical point."]), "c-2026-1": S(["", "Second point is new."], pov="skeptic")}),
+    ("a group whose canonical has no summary: copy items still land under the canonical's namespace", "c-2026",
+     {"c-2026-1": S([], ["Only claim."])}),
+]
+
+DERIVED_KEY_CASES = [
+    ("summary:a-2026#fc-0", False), ("summary:a-2026#saf-kp-2", False),
+    ("summary:a-2026#via-a-2026-1-fc-0", True), ("summary:a-2026#via-b-2026-10-acc-kp-3", True),
+    ("sei:acc-beliefs-001", False), ("node:saf-beliefs-001", False), ("debate-1#entry-2", False),
+    # 'via-' outside the derived position is not a derived key.
+    ("summary:via-report-2026#fc-0", False), ("node:via-x-2026", False), ("summary:a-2026#acc-kp-0-via-b", False),
+]
+
+
 def main():
     fixture = {
         "spec": "docs/specs/source-identity.md section 7",
-        "version": 1,
+        "version": 2,
         "generator": "scripts/new_evidence_union_fixture.py",
         "key_cases": [{"name": n, "quote": q, "expected_key": key(q)} for n, q in KEY_INPUTS],
         "near_cases": [{"name": n, "a": a, "b": b, "expected": near(a, b)} for n, a, b in NEAR_INPUTS],
         "link_cases": [{"name": "the C9 link fields, in file order", "summary": EXTRACT_SUMMARY, "expected_links": links(EXTRACT_SUMMARY)}],
         "union_cases": [{"name": n, "canonical": c, "members": [{"id": i, "links": ls} for i, ls in m.items()],
                          "expected": union(c, m)} for n, c, m in UNION_INPUTS],
+        # v2 (spec 7.7, TL p/360#661): the mention-container form of the union, and the derived-key test.
+        "mention_key_cases": [{"name": n, "canonical": c, "summaries": [{"id": i, "summary": s} for i, s in m.items()],
+                               "expected_containers": mention_union(c, m)} for n, c, m in MENTION_INPUTS],
+        "derived_key_regex": "^summary:[^#]+#via-",
+        "derived_key_cases": [{"key": k, "derived": d} for k, d in DERIVED_KEY_CASES],
     }
     # Self-checks on the intended outcome of each boundary case, so a generator bug can't silently
     # bake a wrong expectation into the fixture.
@@ -241,6 +307,15 @@ def main():
     assert len(u["an empty quote has an empty key, is never near, and is kept"]["n1"]) == 2
     first = u["the canonical goes first even when a copy's id sorts before it (spec 6: the target, not the smallest id)"]["n1"]
     assert [(e["quote"], e.get("via")) for e in first] == [("AI plan 2025 (draft)", None)]
+    mk = {c["name"]: c["expected_containers"] for c in fixture["mention_key_cases"]}
+    assert mk["a distinct key point and claim get via keys with the copy's own indices; a near-duplicate gets none"] == {
+        "summary:c-2026#via-c-2026-1-saf-kp-1": "Countries want sovereign AI.", "summary:c-2026#via-c-2026-1-fc-1": "A claim only the copy found."}
+    assert list(mk["two copies with the same distinct item: only the ordinal-first copy's (-1 < -10 < -2)"]) == ["summary:c-2026#via-c-2026-1-saf-kp-0"]
+    assert list(mk["an empty item makes no container but still advances its index"]) == ["summary:c-2026#via-c-2026-1-skp-kp-1"]
+    assert list(mk["a group whose canonical has no summary: copy items still land under the canonical's namespace"]) == ["summary:c-2026#via-c-2026-1-fc-0"]
+    import re
+    for c in fixture["derived_key_cases"]:
+        assert bool(re.match(fixture["derived_key_regex"], c["key"])) == c["derived"], c["key"]
 
     path = os.path.join("tests", "fixtures", "evidence-union-cases.json")
     with open(path, "w", encoding="utf-8", newline="\n") as f:

@@ -27,8 +27,8 @@ BeforeAll {
 
 Describe 'Evidence union fixture (spec section 7)' -Tag 'evidence-union' {
 
-    It 'is version 1 of the section 7 fixture' {
-        $script:Fixture.version | Should -Be 1
+    It 'is version 2 of the section 7 fixture' {
+        $script:Fixture.version | Should -Be 2
         $script:Fixture.spec | Should -BeExactly 'docs/specs/source-identity.md section 7'
     }
 

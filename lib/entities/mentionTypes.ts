@@ -33,6 +33,10 @@
 //   sei:<sei_key>            Curated fact bucket. <sei_key> = the source_evidence_index.json
 //                            top-level key (a POV node id, e.g. "acc-desires-001").
 //   node:<node_id>           Curated POV/situation node bucket. <node_id> = the node id.
+//   summary:<doc>#<pov>-kp-<n> | summary:<doc>#fc-<n>   One summary key point / factual claim (t/3122).
+//   summary:<canonical>#via-<copy>-<pov>-kp-<n> | …#via-<copy>-fc-<n>   A marked duplicate's distinct item
+//                            (t/4337, source-identity spec 7.4): text rebuilt from summaries/<copy>.json.
+//                            DERIVED: appears/disappears as duplicate_of marks change — never persist a reference.
 //   <debate_id>#<entry_id>   Live debate turn (§5, Phase 2b) — one bucket per turn. Reserved
 //                            for the live-extraction path; not produced by the batch re-index.
 //
