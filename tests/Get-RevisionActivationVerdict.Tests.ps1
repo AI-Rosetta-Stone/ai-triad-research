@@ -138,6 +138,54 @@ Describe 'Get-RevisionActivationVerdict' {
         }
     }
 
+    Context 't/4158 follow-up: warn when the loop silently degraded to probe-only' {
+        BeforeAll { Mock Start-Sleep {} }
+
+        It 'FIRE ARM: the state read returned nothing on every round -> a probe-only ::warning:: is emitted' {
+            Mock Write-Host {}
+            $script:q = 0
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { $null } `
+                -GetLogTail { '{"msg":"starting"}' } `
+                -Probe      { $script:q++; [pscustomobject]@{ Healthy = ($script:q -ge 2); Checks = @() } }
+            $w.StateReads | Should -Be 0
+            Should -Invoke Write-Host -ParameterFilter { $Object -like '::warning::t/4158: the revision state read returned nothing*' } -Times 1 -Exactly
+        }
+
+        It 'FIRE ARM: the log read returned nothing on every one of 2+ rounds -> a ::warning:: is emitted' {
+            Mock Write-Host {}
+            $script:p = 0
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { [pscustomobject]@{ r = 'Running'; h = 'Healthy' } } `
+                -GetLogTail { '' } `
+                -Probe      { $script:p++; [pscustomobject]@{ Healthy = ($script:p -ge 3); Checks = @() } }
+            $w.LogReads | Should -Be 0
+            Should -Invoke Write-Host -ParameterFilter { $Object -like '::warning::t/4158: the revision log read returned nothing*' } -Times 1 -Exactly
+        }
+
+        It 'GREEN: reads that worked (even once) emit no t/4158 warning' {
+            Mock Write-Host {}
+            $script:s = 0
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { $script:s++; if ($script:s -ge 2) { [pscustomobject]@{ r = 'Running'; h = 'Healthy' } } else { $null } } `
+                -GetLogTail { if ($script:s -ge 2) { '{"msg":"listening"}' } else { '' } } `
+                -Probe      { [pscustomobject]@{ Healthy = ($script:s -ge 2); Checks = @() } }
+            $w.StateReads | Should -Be 1
+            $w.LogReads   | Should -Be 1
+            Should -Invoke Write-Host -ParameterFilter { $Object -like '::warning::t/4158*' } -Times 0 -Exactly
+        }
+
+        It 'a revision healthy on round 1 with no log yet is NOT warned about (one round is too few to judge the log)' {
+            Mock Write-Host {}
+            $w = Wait-RevisionActivation -IntervalSeconds 0 `
+                -GetState   { [pscustomobject]@{ r = 'Activating'; h = 'None' } } `
+                -GetLogTail { '' } `
+                -Probe      { [pscustomobject]@{ Healthy = $true; Checks = @() } }
+            $w.Rounds | Should -Be 1
+            Should -Invoke Write-Host -ParameterFilter { $Object -like '::warning::t/4158*' } -Times 0 -Exactly
+        }
+    }
+
     Context 't/4249: the step''s exit code comes from the verdict, never a leftover $LASTEXITCODE' {
         BeforeAll { Mock Start-Sleep {} }
 
