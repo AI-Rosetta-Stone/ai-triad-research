@@ -6593,7 +6593,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **`PathNotFoundError` from `az monitor log-analytics query`** is the diagnostic for passing a workspace name instead of its GUID.
 3. **The GUID is stable** — it can be cached in `deploy/azure/runbooks/deployment-facts.md` alongside other workspace identifiers to avoid a lookup on every query session.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#231).
+**Status:** Active — 2 instances (DevOps Lead p/26#231; DevOps Lead p/26#250 — `log-aitriad-kvwl3nywge4iw` by name; fix: `az monitor log-analytics workspace show --query customerId` first).
 
 **Applies To:** All agents querying Azure Log Analytics; `-w` requires the workspace `customerId` GUID, not the workspace name.
 
@@ -6654,7 +6654,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **If the repro and the production path produce different results, the repro is the bug** — the production behavior is the ground truth. Investigate why the paths diverge before filing.
 4. **A Second Opinion's first question on a data-mutation bug: "Did the repro use the production reader?"** If not, the defect report is unverified.
 
-**Status:** Active — 1 instance (Computational Linguist p/7#126, t/4278).
+**Status:** Active — 2 instances (Computational Linguist p/7#126, t/4278; Computational Linguist p/7#136 — asserted "model copied mojibake bytes" without opening the snapshot; file had `Æ`→`é` substitution; checking the real file revealed 418/846 snapshots affected, t/4394).
 
 **Applies To:** All agents writing repro scripts for suspected data-layer bugs; always invoke the production read path, never a bare deserializer.
 
@@ -7007,3 +7007,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#180).
 
 **Applies To:** All agents running lint/tsc/vitest in fresh worktrees; create `node_modules` junctions via PowerShell before running any JS/TS toolchain.
+
+---
+
+## #346 [Build] Azure Files Shares Are Not Valid ARM RBAC Scopes — Use Storage-Account-Level Scope Instead
+
+**Pattern:** An agent attempts to assign an Azure RBAC role scoped to an Azure Files share resource ID (`.../fileshares/<name>`). The operation returns `MissingSubscription` or a similar ARM validation error. Azure Files shares are not addressable as ARM resource IDs for RBAC scoping.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#252): `az role assignment create --scope .../fileshares/taxonomy-data` → MissingSubscription. Fell back to storage-account-level scope per the SO's own fallback condition.
+
+**Root Cause:** Azure Files shares exist as a storage construct but are not exposed as ARM resources that can serve as RBAC scope targets. RBAC for Azure Files must be scoped to the storage account (or higher), not to an individual share.
+
+**Prevention:**
+1. **When assigning RBAC for Azure Files access**, always scope to the storage account: `--scope /subscriptions/.../resourceGroups/.../providers/Microsoft.Storage/storageAccounts/<name>`.
+2. **`MissingSubscription` from `az role assignment create`** with a `/fileshares/` path = invalid scope level. Move the scope up to the storage account.
+3. **Share-level access control** in Azure Files uses share-level SAS tokens or SMB ACLs, not ARM RBAC — they are separate mechanisms.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#252).
+
+**Applies To:** All agents assigning RBAC for Azure Files; scope to the storage account, not the individual share path.
