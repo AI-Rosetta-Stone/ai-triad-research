@@ -80,7 +80,11 @@ function Get-SourcesIndexEntry {
         }
         if ($items.Count -gt 0) { $entry['provenance'] = $items.ToArray() }
     }
-    foreach ($name in 'same_as', 'parent_doc_id', 'duplicate_of') {
+    # Raw marks only (t/4337, agreed with Server Storage p/783#18): no validity filtering or
+    # resolution here. Each stack's loader applies spec section 6 itself, so a hosted reader, which
+    # sees marks only through this index, validates them with the same rules as everything else.
+    # duplicate_of_ref is the mark's provenance (its frozen-list entry), copied verbatim.
+    foreach ($name in 'same_as', 'parent_doc_id', 'duplicate_of', 'duplicate_of_ref') {
         $v = & $field $name
         if (-not [string]::IsNullOrEmpty([string]$v)) { $entry[$name] = [string]$v }
     }
