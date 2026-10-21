@@ -110,11 +110,13 @@ export default defineConfig({
     rendererNodeBuiltinGate(),
     react(),
     ...(isWeb ? [VitePWA({
-      registerType: 'autoUpdate',
+      // t/4387: 'prompt', not 'autoUpdate' + skipWaiting/clientsClaim. A new service worker waits until the
+      // user reloads from UpdatePrompt, so an open tab is never taken over mid-session (its later lazy chunks
+      // would come from the new build) and never auto-reloads over unsaved edits. UpdatePrompt also re-checks
+      // for a new sw.js hourly and on returning to the tab; without that, a long-lived tab never saw deploys.
+      registerType: 'prompt',
       workbox: {
         navigateFallbackDenylist: [/^\/api\//, /^\/.auth\//],
-        skipWaiting: true,
-        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         runtimeCaching: [

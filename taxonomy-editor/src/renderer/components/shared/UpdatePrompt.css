@@ -1,0 +1,6 @@
+/* t/4387: shown in the update toast while unsaved edits hold back the reload. */
+.pwa-update-hint {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  margin: 0 6px;
+}
