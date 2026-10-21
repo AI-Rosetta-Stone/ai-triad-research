@@ -16,6 +16,10 @@ BeforeDiscovery {
         @{ Name = $_.name; Documents = @($_.documents); Expected = $_.expected_canonical
            ExpectedCollisionsJson = (ConvertTo-Json -InputObject @($_.expected_title_collisions | ForEach-Object { , [string[]]@($_) }) -Compress -Depth 4)
            ExpectedConflictsJson  = (ConvertTo-Json -InputObject @($_.expected_url_conflicts | ForEach-Object { [ordered]@{ url_key = [string]$_.url_key; ids = [string[]]@($_.ids) } }) -Compress -Depth 4) } })
+    $script:DuplicateOfCases = @($fixture.duplicate_of_cases | ForEach-Object {
+        @{ Name = $_.name; Documents = @($_.documents); Expected = $_.expected_canonical; ExpectedResolved = $_.expected_resolved
+           ExpectedSelectableJson = (ConvertTo-Json -InputObject ([string[]]@($_.expected_selectable)) -Compress -AsArray)
+           ExpectedErrorsJson = (ConvertTo-Json -InputObject @($_.expected_duplicate_of_errors | ForEach-Object { [ordered]@{ id = [string]$_.id; target = [string]$_.target; kind = [string]$_.kind } }) -Compress -Depth 4) } })
 }
 
 BeforeAll {
@@ -25,8 +29,9 @@ BeforeAll {
 
 Describe 'Source identity fixture (docs/specs/source-identity.md)' -Tag 'source-identity' {
 
-    It 'is version 4 and non-vacuous' {
-        $script:Fixture.version | Should -Be 4
+    It 'is version 5 and non-vacuous' {
+        $script:Fixture.version | Should -Be 5
+        @($script:Fixture.duplicate_of_cases).Count | Should -BeGreaterThan 5
         @($script:Fixture.hash_cases).Count  | Should -BeGreaterThan 10
         @($script:Fixture.url_cases).Count   | Should -BeGreaterThan 10
         @($script:Fixture.trust_cases).Count | Should -BeGreaterThan 3
@@ -34,20 +39,22 @@ Describe 'Source identity fixture (docs/specs/source-identity.md)' -Tag 'source-
 
     It 'covers the cases where runtimes could diverge (TL list, p/801#3)' {
         $names = @($script:Fixture.hash_cases.name) + @($script:Fixture.url_cases.name) + @($script:Fixture.trust_cases.name)
-        $names += @($script:Fixture.grouping_cases.name)
+        $names += @($script:Fixture.grouping_cases.name) + @($script:Fixture.duplicate_of_cases.name)
         # Plus the section 4 revision cases the TL required on #3522 (p/801#6).
         foreach ($needle in 'CRLF', 'BOM', 'non-ASCII', 'utm', 'query order', 'fragment', 'search', 'REAL: 7 query-string', 'REAL: eight-ways', 'union',
             'AI Policy Bulletin', 'non-ASCII titles that reduce', 'genuine -N collision', 'year suffix', 'title_collision',
             # And the 4.3 URL conflict veto cases the TL required (t/4337#8).
             'url_conflict', 'REAL: url_conflict - two PNAS papers', 'REAL: arXiv-number slug',
             # And the 1.3 body floor the TL required (p/801#17).
-            'floor: 99 words', 'floor: exactly 100 words', 'NBSP-joined', 'same cookie wall do not merge') {
+            'floor: 99 words', 'floor: exactly 100 words', 'NBSP-joined', 'same cookie wall do not merge',
+            # And the section 6 duplicate marks the SO required (e/342#2, C1/C2/C6).
+            'missing_target', 'self mark', 'chain is not followed', 'cycle', 'conflict', 'unmarked group member', 'not the ordinal-smallest') {
             @($names | Where-Object { $_ -match [regex]::Escape($needle) }).Count | Should -BeGreaterThan 0 -Because "the fixture must cover '$needle'"
         }
     }
 
     It 'has no duplicate case names' {
-        foreach ($list in 'hash_cases', 'url_cases', 'trust_cases', 'title_cases', 'grouping_cases') {
+        foreach ($list in 'hash_cases', 'url_cases', 'trust_cases', 'title_cases', 'grouping_cases', 'duplicate_of_cases') {
             $n = @($script:Fixture.$list.name)
             @($n | Sort-Object -Unique).Count | Should -Be $n.Count -Because "$list names must be unique"
         }
@@ -98,5 +105,21 @@ Describe 'Get-SourceIdentityGroup matches the fixture' -Tag 'source-identity' {
         $gotJson | Should -BeExactly $ExpectedCollisionsJson -Because 'title_collision report'
         $gotConflicts = ConvertTo-Json -InputObject @($got.UrlConflicts | ForEach-Object { [ordered]@{ url_key = [string]$_.url_key; ids = [string[]]@($_.ids) } }) -Compress -Depth 4
         $gotConflicts | Should -BeExactly $ExpectedConflictsJson -Because 'url_conflict report'
+    }
+}
+
+Describe 'Get-SourceIdentityGroup duplicate marks match the fixture (spec section 6)' -Tag 'source-identity' {
+    It '<Name>' -ForEach $script:DuplicateOfCases {
+        $docs = @($Documents | ForEach-Object {
+            [pscustomobject]@{ Id = [string]$_.id; Metadata = $_.metadata
+                               SnapshotSha256 = $(if ($_.PSObject.Properties['snapshot_sha256']) { [string]$_.snapshot_sha256 }) } })
+        $got = Get-SourceIdentityGroup -Documents $docs
+        foreach ($id in @($Expected.PSObject.Properties.Name)) {
+            $got.Canonical[$id] | Should -BeExactly ([string]$Expected.$id) -Because "canonical id of '$id'"
+            $got.Resolved[$id]  | Should -BeExactly ([string]$ExpectedResolved.$id) -Because "resolved id of '$id'"
+        }
+        (ConvertTo-Json -InputObject ([string[]]$got.Selectable) -Compress -AsArray) | Should -BeExactly $ExpectedSelectableJson -Because 'selectable ids'
+        $gotErrors = ConvertTo-Json -InputObject @($got.DuplicateOfErrors | ForEach-Object { [ordered]@{ id = [string]$_.id; target = [string]$_.target; kind = [string]$_.kind } }) -Compress -Depth 4
+        $gotErrors | Should -BeExactly $ExpectedErrorsJson -Because 'duplicate_of_error report'
     }
 }
