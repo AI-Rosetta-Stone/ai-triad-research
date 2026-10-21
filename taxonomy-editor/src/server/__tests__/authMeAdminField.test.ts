@@ -16,6 +16,7 @@ import { registerSessionRoutes } from '../routes/session.js';
 
 let prevAuth: string | undefined;
 let prevAdmin: string | undefined;
+let prevPresenceDiag: string | undefined;
 
 function mockReq(headers: Record<string, string> = {}): http.IncomingMessage {
   return { headers, url: '/api/auth/me' } as unknown as http.IncomingMessage;
@@ -39,12 +40,17 @@ function handlerFor(method: string, path: string) {
 beforeEach(() => {
   prevAuth = process.env.WEBSITE_AUTH_ENABLED; process.env.WEBSITE_AUTH_ENABLED = 'true';
   prevAdmin = process.env.ADMIN_USERS; process.env.ADMIN_USERS = 'jpsnover';
+  // The temporary auth-presence diagnostic (t/4409) also logs INFO on /api/auth/me
+  // whenever WEBSITE_AUTH_ENABLED is true; switch it off so these exact counts see only
+  // t/4327's own line. Its behaviour is covered in authPresenceDiag.test.ts.
+  prevPresenceDiag = process.env.AUTH_PRESENCE_DIAG; process.env.AUTH_PRESENCE_DIAG = '0';
   warnMock.mockReset();
   infoMock.mockReset();
 });
 afterEach(() => {
   if (prevAuth === undefined) delete process.env.WEBSITE_AUTH_ENABLED; else process.env.WEBSITE_AUTH_ENABLED = prevAuth;
   if (prevAdmin === undefined) delete process.env.ADMIN_USERS; else process.env.ADMIN_USERS = prevAdmin;
+  if (prevPresenceDiag === undefined) delete process.env.AUTH_PRESENCE_DIAG; else process.env.AUTH_PRESENCE_DIAG = prevPresenceDiag;
 });
 
 describe('t/4327 — GET /api/auth/me admin + storageUserId', () => {
