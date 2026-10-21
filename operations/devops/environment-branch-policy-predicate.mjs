@@ -31,7 +31,13 @@ export const EXEMPT_ENVIRONMENTS = [];
  */
 export function workflowEnvironmentNames(workflowFiles) {
   const names = new Set();
-  const re = /^\s*environment:\s*([^\s#][^\n]*)$/gm;
+  // t/4058 (issue #3333): `\s` matches `\n`, so `environment:\s*` could cross a line boundary
+  // when `environment:` is a bare YAML mapping key (nothing after the colon on its own line,
+  // e.g. a workflow_dispatch input block) and slurp the NEXT line's content as if it were the
+  // value -- it matched deploy-azure.yml's `description: '...'` child line this way. `[ \t]*`
+  // (no `\n`) keeps the match confined to the same line, so a bare mapping key correctly yields
+  // no match instead of a false positive.
+  const re = /^[ \t]*environment:[ \t]*([^\s#][^\n]*)$/gm;
   for (const { text } of workflowFiles ?? []) {
     for (const m of (text ?? '').matchAll(re)) {
       const raw = m[1].trim();
