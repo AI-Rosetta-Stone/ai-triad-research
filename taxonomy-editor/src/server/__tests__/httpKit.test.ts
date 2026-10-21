@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { ServerResponse } from 'http';
-import { error, json, withEndpointTimeout, statusForError, codeForError, concatChunked, jsonStringifyChunked } from '../httpKit.js';
+import { error, json, withEndpointTimeout, statusForError, codeForError, concatChunked, jsonStringifyChunked, type SerializeStats } from '../httpKit.js';
 import { log } from '../logger.js';
 import { setGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/flightRecorder.js';
@@ -239,5 +239,29 @@ describe('concatChunked — yields during assembly, not just during stringify (t
     const big = Array.from({ length: 300 }, (_, i) => ({ id: `node-${i}`, vectors: [[i, i + 0.5]] }));
     const buf = await jsonStringifyChunked(big, 16);
     expect(JSON.parse(buf.toString('utf-8'))).toEqual(big);
+  });
+
+  it('yields on a BYTE threshold even when far under the item-count threshold (t/4286#35: uneven item sizes)', async () => {
+    // One huge item (well past YIELD_BYTES_THRESHOLD's 2MB on its own) followed by many tiny
+    // ones. yieldEvery=1000 (never hit by count here) — only the byte threshold can trigger a yield.
+    const hugeArray = new Array(2_000_000).fill(12); // ~2 bytes/entry + comma ≈ 6MB stringified
+    const value = { huge: hugeArray, a: 1, b: 2, c: 3 };
+    const stats: SerializeStats = { slices: 0, maxSliceMs: 0 };
+    const buf = await jsonStringifyChunked(value, 1000, stats);
+    expect(JSON.parse(buf.toString('utf-8'))).toEqual(value);
+    expect(stats.slices).toBeGreaterThan(1); // the byte threshold forced at least one yield
+  });
+
+  it('reports slice stats byte-identical in shape to ExtractStats (slices, maxSliceMs)', async () => {
+    const stats: SerializeStats = { slices: 0, maxSliceMs: 0 };
+    await jsonStringifyChunked([1, 2, 3], 2, stats);
+    expect(stats.slices).toBeGreaterThanOrEqual(1);
+    expect(stats.maxSliceMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a single never-yielded call (small payload) still reports exactly 1 slice', async () => {
+    const stats: SerializeStats = { slices: 0, maxSliceMs: 0 };
+    await jsonStringifyChunked({ a: 1 }, 256, stats);
+    expect(stats.slices).toBe(1);
   });
 });
