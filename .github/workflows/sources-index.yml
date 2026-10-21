@@ -43,6 +43,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
           repository: AI-Rosetta-Stone/ai-triad-sources
+          ref: main
+          # Explicit `ref` (t/4334 live-fire): without it, checkout's "determine default branch"
+          # step calls GET /repos/{owner}/{repo} with DATA_REPO_TOKEN, which 404s even though the
+          # repo and token are both confirmed valid (gh auth, probe #3556). Pinning the ref skips
+          # that lookup entirely -- diagnosing whether content access (refs/contents endpoints)
+          # works even though the generic repo-metadata endpoint doesn't.
           path: ai-triad-sources
           token: ${{ secrets.DATA_REPO_TOKEN }}  # Scope: contents:read on AI-Rosetta-Stone/ai-triad-sources
           fetch-depth: 1
