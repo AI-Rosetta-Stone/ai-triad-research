@@ -37,4 +37,75 @@ Describe 'Get-DigestParityVerdict' {
         $v = Get-DigestParityVerdict -ProdImage '' -StagingImage ''
         $v.Determinable | Should -Be $false
     }
+
+    It 'an UNKNOWN verdict carries the resolver reason in its message' {
+        $v = Get-DigestParityVerdict -ProdImage 'img@sha256:aaa' -StagingImage '' -StagingReason 'traffic is split'
+        $v.Determinable | Should -Be $false
+        $v.Message | Should -Match 'staging: traffic is split'
+    }
+}
+
+# t/4399: parity must compare the revisions each app SERVES, never the app template.
+Describe 'Get-ServingImage' {
+    BeforeAll {
+        $X = 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:5b0aa967'
+        $Y = 'ghcr.io/ai-rosetta-stone/taxonomy-editor@sha256:f6649470'
+        function New-Traffic([string]$Rev, [int]$Weight, [switch]$Latest) {
+            if ($Latest) { [PSCustomObject]@{ latestRevision = $true; weight = $Weight } }
+            else { [PSCustomObject]@{ revisionName = $Rev; weight = $Weight } }
+        }
+    }
+
+    It 'resolves the single weighted revision to its image' {
+        $s = Get-ServingImage -Traffic @((New-Traffic 'app--a' 100), (New-Traffic 'app--b' 0)) -RevisionImages @{ 'app--a' = $X; 'app--b' = $Y }
+        $s.Image | Should -Be $X
+        $s.Revisions | Should -Be @('app--a=100%')
+    }
+
+    It 'resolves latestRevision:true through latestRevisionName' {
+        $s = Get-ServingImage -Traffic @(New-Traffic -Latest -Weight 100) -LatestRevisionName 'app--new' -RevisionImages @{ 'app--new' = $Y }
+        $s.Image | Should -Be $Y
+    }
+
+    It 'a split across DIFFERENT images is UNKNOWN, with a split reason' {
+        $s = Get-ServingImage -Traffic @((New-Traffic 'app--a' 50), (New-Traffic 'app--b' 50)) -RevisionImages @{ 'app--a' = $X; 'app--b' = $Y }
+        $s.Image | Should -BeNullOrEmpty
+        $s.Reason | Should -Match 'split'
+    }
+
+    It 'a split across revisions on the SAME image resolves to that image' {
+        $s = Get-ServingImage -Traffic @((New-Traffic 'app--a' 50), (New-Traffic 'app--b' 50)) -RevisionImages @{ 'app--a' = $X; 'app--b' = $X }
+        $s.Image | Should -Be $X
+    }
+
+    It 'no weighted traffic is UNKNOWN' {
+        $s = Get-ServingImage -Traffic @(New-Traffic 'app--a' 0) -RevisionImages @{ 'app--a' = $X }
+        $s.Image | Should -BeNullOrEmpty
+        $s.Reason | Should -Match 'weight > 0'
+    }
+
+    It 'null/empty traffic is UNKNOWN, not a throw' {
+        (Get-ServingImage -Traffic @($null) -RevisionImages @{}).Image | Should -BeNullOrEmpty
+        (Get-ServingImage -Traffic @() -RevisionImages @{}).Image | Should -BeNullOrEmpty
+    }
+
+    It 'a serving revision with no resolvable image is UNKNOWN' {
+        $s = Get-ServingImage -Traffic @(New-Traffic 'app--a' 100) -RevisionImages @{}
+        $s.Image | Should -BeNullOrEmpty
+        $s.Reason | Should -Match 'app--a'
+    }
+
+    It 'REGRESSION (10-21 run 39621165861): templates both name X, but staging traffic is pinned to a Y revision -> MISMATCH' {
+        # After a prod Bicep apply, prod's image X is in BOTH templates and a new staging revision on X
+        # exists at 0%; staging traffic stays pinned to its previous revision on Y. The old template
+        # read said PARITY-OK here.
+        $prod = Get-ServingImage -Traffic @(New-Traffic 'taxonomy-editor--deploy-6789ee9' 100) -RevisionImages @{ 'taxonomy-editor--deploy-6789ee9' = $X }
+        $staging = Get-ServingImage -Traffic @((New-Traffic 'taxonomy-editor-staging--staging-deac973' 100), (New-Traffic 'taxonomy-editor-staging--0000253' 0)) `
+            -RevisionImages @{ 'taxonomy-editor-staging--staging-deac973' = $Y; 'taxonomy-editor-staging--0000253' = $X }
+        $v = Get-DigestParityVerdict -ProdImage $prod.Image -StagingImage $staging.Image `
+            -ProdRevisions ($prod.Revisions -join ', ') -StagingRevisions ($staging.Revisions -join ', ')
+        $v.Determinable | Should -Be $true
+        $v.Match | Should -Be $false
+        $v.Message | Should -Match 'staging-deac973=100%'
+    }
 }
