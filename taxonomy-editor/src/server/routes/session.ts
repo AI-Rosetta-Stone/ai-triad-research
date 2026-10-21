@@ -28,6 +28,7 @@ import { requireAdmin } from '../community/admin/reviewRegistry.js';
 import { isAdmin } from '../community/community.js';
 import * as analytics from '../community/analytics.js';
 import { parseCookies } from '../httpCookies.js';
+import { logAuthPresenceIfEnabled } from '../authPresenceDiag.js';
 import { anonSessionCreatedCookie, readValidCreatedMs } from './anonSessionCreated.js';
 import * as allowlistStore from '../storage/allowlistStore.js';
 import type { UserSession } from '../../../../lib/allowlist/types.js';
@@ -110,6 +111,7 @@ export function registerSessionRoutes(r: Router, ctx: ServerCtx): void {
   // ── Analytics ──
 
   get('/api/auth/me', (req, res) => {
+    logAuthPresenceIfEnabled(req); // t/4406 TEMPORARY diagnostic — remove after the re-test
     const azureAuth = process.env.WEBSITE_AUTH_ENABLED === 'True'
       || process.env.WEBSITE_AUTH_ENABLED === 'true';
     const principalName = azureAuth
