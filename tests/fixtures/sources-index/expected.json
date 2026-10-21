@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": null,
-  "doc_count": 4,
+  "doc_count": 5,
   "docs": [
     {
       "id": "alpha-2026",
@@ -40,6 +40,12 @@
           "confidence": "verified"
         }
       ]
+    },
+    {
+      "id": "delta-2026",
+      "title": "Beta (copy)",
+      "duplicate_of": "beta-2026",
+      "duplicate_of_ref": "t4337-cleanup-2026-10#1"
     },
     {
       "id": "gamma-2026",
