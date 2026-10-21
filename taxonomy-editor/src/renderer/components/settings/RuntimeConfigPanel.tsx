@@ -17,7 +17,7 @@ const KNOWN_BACKENDS = ['gemini', 'claude', 'groq'];
 interface FieldDef {
   key: string;
   label: string;
-  type: 'number' | 'factor' | 'string' | 'backends';
+  type: 'number' | 'factor' | 'string' | 'backends' | 'bool';
   unit?: string;
 }
 
@@ -25,6 +25,8 @@ interface SectionDef {
   key: string;
   label: string;
   fields: FieldDef[];
+  /** Short explanatory line shown under the section title (t/4371). */
+  description?: string;
 }
 
 const SECTIONS: SectionDef[] = [
@@ -123,6 +125,13 @@ const SECTIONS: SectionDef[] = [
       { key: 'opedVoiceTimeoutMs', label: 'Op-Ed Voice Timeout', type: 'number', unit: 'ms' },
     ],
   },
+  {
+    key: 'pollGate', label: 'Poll Gate',
+    description: 'Stop background polling in hidden or idle tabs (t/4251). Off = poll as before.',
+    fields: [
+      { key: 'enabled', label: 'Enabled', type: 'bool' },
+    ],
+  },
 ];
 
 const TIER_KEYS = ['platform', 'byok', 'anonymous', 'free'] as const;
@@ -203,6 +212,17 @@ function BackendsInput({ path, draftValue, onSet }: {
   );
 }
 
+function BoolInput({ path, draftValue, onSet }: {
+  path: string;
+  draftValue: unknown;
+  onSet: (path: string, value: unknown) => void;
+}) {
+  return (
+    <input type="checkbox" className="rc-field-checkbox" checked={Boolean(draftValue)}
+      onChange={e => onSet(path, e.target.checked)} />
+  );
+}
+
 function StringInput({ path, draftValue, onSet }: {
   path: string;
   draftValue: unknown;
@@ -243,6 +263,7 @@ function FieldInput({ path, field, draftValue, onSet }: {
 }) {
   if (field.type === 'backends') return <BackendsInput path={path} draftValue={draftValue} onSet={onSet} />;
   if (field.type === 'string') return <StringInput path={path} draftValue={draftValue} onSet={onSet} />;
+  if (field.type === 'bool') return <BoolInput path={path} draftValue={draftValue} onSet={onSet} />;
   return <NumberInput path={path} field={field} draftValue={draftValue} onSet={onSet} />;
 }
 
@@ -308,6 +329,7 @@ function ConfigSection({ section, draft, serverState, modifiedOnly, onSet, onRes
       </div>
       {!collapsed && (
         <div className="rc-section-body">
+          {section.description && <div className="rc-section-description">{section.description}</div>}
           {visibleFields.map(f => (
             <FieldRow key={f.key} path={`${section.key}.${f.key}`} field={f}
               draft={draft} serverState={serverState} onSet={onSet} onReset={onReset} />
