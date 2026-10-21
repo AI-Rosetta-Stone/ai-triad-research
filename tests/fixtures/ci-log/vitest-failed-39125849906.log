@@ -1,0 +1,113 @@
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:18.2377217Z  ^[[32m✓^[[39m components/community/AnonymousBanner.test.tsx ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 95^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:18.3749418Z  ^[[32m✓^[[39m bridge/__tests__/cancellation.test.ts ^[[2m(^[[22m^[[2m5 tests^[[22m^[[2m)^[[22m^[[32m 9^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:19.7586057Z  ^[[32m✓^[[39m components/shared/FieldHelp.test.tsx ^[[2m(^[[22m^[[2m5 tests^[[22m^[[2m)^[[22m^[[33m 420^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:19.7615875Z    ^[[32m✓^[[39m FieldHelp ^[[2m(5)^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:19.7645936Z      ^[[33m^[[2m✓^[[22m^[[39m renders the help button with "?" text^[[33m 309^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:19.8241973Z  ^[[32m✓^[[39m ../../../lib/brief/errorMapping.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 14^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:20.4610807Z  ^[[32m✓^[[39m components/shared/QuotaBanner.test.tsx ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 267^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:21.4896401Z  ^[[32m✓^[[39m components/debate/popoutLoad.test.ts ^[[2m(^[[22m^[[2m7 tests^[[22m^[[2m)^[[22m^[[32m 11^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:22.6566576Z  ^[[32m✓^[[39m hooks/useDebateStore/__tests__/loadDebateFromDataReadOnly.test.ts ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 11^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:22.9455651Z  ^[[32m✓^[[39m components/debate/DebateConfigSection.test.tsx ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 63^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:23.2248004Z  ^[[32m✓^[[39m components/debate/sourceSearch.test.ts ^[[2m(^[[22m^[[2m6 tests^[[22m^[[2m)^[[22m^[[32m 11^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:24.6455449Z  ^[[32m✓^[[39m ../../../lib/debate/computeInterpretationDivergence.test.ts ^[[2m(^[[22m^[[2m5 tests^[[22m^[[2m)^[[22m^[[32m 8^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:24.8207297Z  ^[[32m✓^[[39m hooks/useDebateStore/__tests__/saveDebateReadOnly.test.ts ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 12^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:24.8656496Z  ^[[32m✓^[[39m components/chat/ChatScroll.test.tsx ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:26.3603570Z  ^[[32m✓^[[39m ../../../lib/oped/parse.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 9^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:26.4506524Z  ^[[32m✓^[[39m ../../../lib/debate/bdiPrefix.test.ts ^[[2m(^[[22m^[[2m5 tests^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:26.5426316Z  ^[[32m✓^[[39m components/opeds/OpEdTab.filter.test.ts ^[[2m(^[[22m^[[2m5 tests^[[22m^[[2m)^[[22m^[[32m 9^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:27.0636554Z  ^[[32m✓^[[39m ../server/__tests__/paidGeminiFallback.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 10^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:27.9830715Z  ^[[32m✓^[[39m lib/__tests__/parseHash.test.ts ^[[2m(^[[22m^[[2m6 tests^[[22m^[[2m)^[[22m^[[32m 10^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:28.3089081Z  ^[[32m✓^[[39m components/chat/ChatTab.filter.test.ts ^[[2m(^[[22m^[[2m5 tests^[[22m^[[2m)^[[22m^[[32m 18^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:28.6837006Z  ^[[32m✓^[[39m hooks/useDebateStore/shared/compressionTrigger.test.ts ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 9^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:29.5862095Z  ^[[32m✓^[[39m ../../scripts/__tests__/generate-notices-guard.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 16^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:29.8776369Z  ^[[32m✓^[[39m ../server/__tests__/rateLimitResponse.test.ts ^[[2m(^[[22m^[[2m5 tests^[[22m^[[2m)^[[22m^[[32m 9^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:31.3006764Z  ^[[32m✓^[[39m bridge/byokKeys.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 11^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:31.5379288Z  ^[[32m✓^[[39m components/community/CommunityCard.tag.test.tsx ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 87^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:31.7667773Z  ^[[32m✓^[[39m components/shared/RetiredModelBanner.test.tsx ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 266^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:33.2126533Z  ^[[32m✓^[[39m ../../../lib/debate/normalizeNodeId.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 10^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:33.4393947Z  ^[[32m✓^[[39m ../../../lib/electron-shared/resolveRepoRootForApp.test.ts ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 8^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:33.4696561Z  ^[[32m✓^[[39m components/debate-workspace/RemoteDriverOverlay.test.tsx ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[33m 314^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:34.4319418Z  ^[[32m✓^[[39m ../server/__tests__/anonSessionKey.test.ts ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 18^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:34.9476696Z  ^[[32m✓^[[39m components/opeds/OpEdCampTags.test.tsx ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 57^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:35.1396986Z  ^[[32m✓^[[39m ../../../lib/debate/__tests__/edgesSerializer.test.ts ^[[2m(^[[22m^[[2m1 test^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:36.1379697Z  ^[[32m✓^[[39m components/taxonomy/PovTagFilterSelect.test.tsx ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 45^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:36.7146559Z  ^[[32m✓^[[39m ../../../lib/oped/__tests__/outletBands.test.ts ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 18^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:36.9012346Z  ^[[32m✓^[[39m ../main/__tests__/debateWindowUrl.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:37.8526675Z  ^[[32m✓^[[39m components/debate/cruxState.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:37.9807211Z  ^[[32m✓^[[39m ../server/__tests__/dataSshConversion.test.ts ^[[2m(^[[22m^[[2m4 tests^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:38.3822522Z  ^[[32m✓^[[39m ../../../lib/ai-client/allApiKeyBackends.test.ts ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 8^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:38.6527008Z  ^[[32m✓^[[39m ../server/__tests__/requestId.test.ts ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 8^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:39.6033322Z  ^[[32m✓^[[39m utils/shareLinks.test.ts ^[[2m(^[[22m^[[2m2 tests^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:39.8813483Z  ^[[32m✓^[[39m ../../../lib/debate/argumentNetwork/utils.test.ts ^[[2m(^[[22m^[[2m3 tests^[[22m^[[2m)^[[22m^[[32m 7^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:40.1551759Z  ^[[32m✓^[[39m lib/__tests__/clientConfig.pollGate.test.ts ^[[2m(^[[22m^[[2m1 test^[[22m^[[2m)^[[22m^[[32m 4^[[2mms^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0058171Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0059375Z ^[[31m⎯⎯⎯⎯⎯⎯⎯^[[39m^[[1m^[[41m Failed Tests 2 ^[[49m^[[22m^[[31m⎯⎯⎯⎯⎯⎯⎯^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0059811Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0064702Z ^[[41m^[[1m FAIL ^[[22m^[[49m ../../../lib/debate/taxonomyRelevance.wellTestedMode.test.ts^[[2m > ^[[22mselectRelevantTaxonomy — exclude-well-tested mode (app/server path)^[[2m > ^[[22mexcludes well_tested nodes even when no greatest-hits list is passed
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0072263Z ^[[31m^[[1mAssertionError^[[22m: expected [ 'acc-beliefs-001', …(2) ] to not include 'acc-beliefs-001'^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0074676Z ^[[36m ^[[2m❯^[[22m ../../../lib/debate/taxonomyRelevance.wellTestedMode.test.ts:^[[2m151:52^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0121727Z     ^[[90m149|^[[39m   it('excludes well_tested nodes even when no greatest-hits list is pa…
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0123038Z     ^[[90m150|^[[39m     const result = await run({ excludeGreatestHits: true });
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0124361Z     ^[[90m151|^[[39m     expect(result.povNodes.map(n => n.nodeId)).not.toContain('acc-beli…
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0125989Z     ^[[90m   |^[[39m                                                    ^[[31m^^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0127217Z     ^[[90m152|^[[39m     const ts = result.injectionManifest.testing_selection as { well_te…
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0128382Z     ^[[90m153|^[[39m     expect(ts.well_tested_excluded).toBe(1);
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0128861Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0136111Z ^[[31m^[[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0136743Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0137293Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0139972Z ^[[41m^[[1m FAIL ^[[22m^[[49m ../../../lib/debate/taxonomyRelevance.wellTestedMode.test.ts^[[2m > ^[[22mselectRelevantTaxonomy — exclude-well-tested mode (app/server path)^[[2m > ^[[22munions the curated greatest-hits list with the tier exclusion
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0142944Z ^[[31m^[[1mAssertionError^[[22m: expected [ Array(2) ] to deeply equal [ 'acc-desires-001' ]^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0143891Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0144370Z ^[[32m- Expected^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0145336Z ^[[31m+ Received^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0145813Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0146203Z ^[[2m  [^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0147009Z ^[[31m+   "acc-beliefs-001",^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0147887Z ^[[2m    "acc-desires-001",^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0148660Z ^[[2m  ]^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0149116Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0150317Z ^[[36m ^[[2m❯^[[22m ../../../lib/debate/taxonomyRelevance.wellTestedMode.test.ts:^[[2m158:48^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0152033Z     ^[[90m156|^[[39m   it('unions the curated greatest-hits list with the tier exclusion', …
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0153700Z     ^[[90m157|^[[39m     const result = await run({ excludeGreatestHits: true, greatestHits…
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0155575Z     ^[[90m158|^[[39m     expect(result.povNodes.map(n => n.nodeId)).toEqual(['acc-desires-0…
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0156992Z     ^[[90m   |^[[39m                                                ^[[31m^^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0157962Z     ^[[90m159|^[[39m   });
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0158663Z     ^[[90m160|^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0159099Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0159746Z ^[[31m^[[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯^[[22m^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0160909Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0185448Z ^[[2m Test Files ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m935 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m4 skipped^[[39m^[[90m (940)^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0292451Z ^[[2m      Tests ^[[22m ^[[1m^[[31m2 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m11637 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m15 skipped^[[39m^[[90m (11654)^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0293701Z ^[[2m   Start at ^[[22m 12:07:54
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0314733Z ^[[2m   Duration ^[[22m 589.85s^[[2m (environment 46%, tests 19%, setup 19%, import 9%, transform 4%, worker 3%)^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0326036Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0327382Z ^[[2mEnvironment ^[[22m ^[[33mjsdom was created 940 times^[[39m^[[2m · 704.39s total, 46% of tracked time^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0329678Z ^[[2m            ^[[22m ^[[2mcreate it once per worker with ^[[22m^[[33mpool: 'vmThreads'^[[39m^[[2m (keeps per-file isolation) or ^[[22m^[[33misolate: false^[[39m^[[2m (shares it across files)^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0331587Z ^[[2m            ^[[22m ^[[2mlearn more: https://vitest.dev/guide/improving-performance#test-environments^[[22m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0332023Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0434034Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0455610Z ##[error]AssertionError: expected [ 'acc-beliefs-001', …(2) ] to not include 'acc-beliefs-001'
+test-electron (taxonomy-editor)	UNKNOWN STEP	 ❯ ../../../lib/debate/taxonomyRelevance.wellTestedMode.test.ts:151:52
+test-electron (taxonomy-editor)	UNKNOWN STEP	
+test-electron (taxonomy-editor)	UNKNOWN STEP	
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0458065Z 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0462649Z ##[error]AssertionError: expected [ Array(2) ] to deeply equal [ 'acc-desires-001' ]
+test-electron (taxonomy-editor)	UNKNOWN STEP	
+test-electron (taxonomy-editor)	UNKNOWN STEP	- Expected
+test-electron (taxonomy-editor)	UNKNOWN STEP	+ Received
+test-electron (taxonomy-editor)	UNKNOWN STEP	
+test-electron (taxonomy-editor)	UNKNOWN STEP	  [
+test-electron (taxonomy-editor)	UNKNOWN STEP	+   "acc-beliefs-001",
+test-electron (taxonomy-editor)	UNKNOWN STEP	    "acc-desires-001",
+test-electron (taxonomy-editor)	UNKNOWN STEP	  ]
+test-electron (taxonomy-editor)	UNKNOWN STEP	
+test-electron (taxonomy-editor)	UNKNOWN STEP	 ❯ ../../../lib/debate/taxonomyRelevance.wellTestedMode.test.ts:158:48
+test-electron (taxonomy-editor)	UNKNOWN STEP	
+test-electron (taxonomy-editor)	UNKNOWN STEP	
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.0707547Z ^[[34m % ^[[39m^[[2mCoverage report from ^[[22m^[[33mv8^[[39m
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.1107917Z -------------------|---------|----------|---------|---------|-------------------
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.1109074Z File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.1110144Z -------------------|---------|----------|---------|---------|-------------------
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.1130492Z All files          |   49.88 |    40.63 |   45.14 |   51.88 |                   
+test-electron (taxonomy-editor)	UNKNOWN STEP	2026-10-18T12:17:44.1132211Z  renderer          |   23.34 |    10.46 |   10.74 |   26.38 |                   
