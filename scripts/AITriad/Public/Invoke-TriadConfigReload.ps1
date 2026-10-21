@@ -10,6 +10,11 @@ function Invoke-TriadConfigReload {
         server re-reads its runtime configuration without a redeploy. Requires admin
         credentials (GITHUB_TOKEN). Use after Set-TriadConfig when you did not pass
         -Reload, or to force the server to pick up an out-of-band config change.
+
+        Works against a local server only. A hosted (Easy-Auth-fronted) deployment does not
+        accept the GITHUB_TOKEN bearer header and answers with its sign-in page; the cmdlet
+        then fails with an actionable error instead of reporting a reload (t/4370). For staging
+        or prod, sign in as an admin and use the Runtime Config panel.
     .PARAMETER BaseUrl
         Base URL of the taxonomy-editor deployment. Defaults to the configured endpoint.
     .PARAMETER PassThru
