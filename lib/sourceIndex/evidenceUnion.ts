@@ -253,3 +253,77 @@ export function mergeGroupEvidence<T extends EvidenceLinkLike>(
 
   return out;
 }
+
+// ── 7.7 entity-mention containers ──
+// Port of Add-EmiUnionContainers/Add-EmiKeyPointContainers/Add-EmiFactualClaimContainers
+// (scripts/AITriad/Private/EntityMentionIndexSteps.ps1, PR #3688). No TS reader parses
+// `summary:` keys today — this is fixture parity only (t/4419), not wired into any consumer.
+
+const POV_CODE: Record<string, string> = { accelerationist: 'acc', safetyist: 'saf', skeptic: 'skp' };
+const POV_ORDER = ['accelerationist', 'safetyist', 'skeptic'] as const;
+
+interface MentionContainerItem {
+  /** The suffix after `summary:<doc>#` — e.g. `saf-kp-0`, `fc-1`. */
+  suffix: string;
+  text: string;
+}
+
+/** Spec 7.7: one doc's mention-container items, in `Add-EmiKeyPointContainers` /
+ *  `Add-EmiFactualClaimContainers` order. A key_point's text is its `point` field
+ *  only — never `verbatim`, unlike the citation quote (spec 7.1). The per-POV
+ *  index advances on every key_point, including one with no text: an empty or
+ *  absent `point` consumes its index but emits no item. */
+function mentionContainerItems(summary: SummaryLike): MentionContainerItem[] {
+  const items: MentionContainerItem[] = [];
+  const povSummaries = (summary.pov_summaries ?? {}) as Record<string, { key_points?: unknown[] } | null | undefined>;
+  for (const pov of POV_ORDER) {
+    const keyPoints = povSummaries[pov]?.key_points ?? [];
+    let index = 0;
+    for (const kp of keyPoints) {
+      const point = kp !== null && typeof kp === 'object' ? (kp as Record<string, unknown>).point : undefined;
+      if (typeof point === 'string' && point !== '') items.push({ suffix: `${POV_CODE[pov]}-kp-${index}`, text: point });
+      index++;
+    }
+  }
+  (summary.factual_claims ?? []).forEach((fc, index) => {
+    const claim = fc !== null && typeof fc === 'object' ? (fc as Record<string, unknown>).claim : undefined;
+    if (typeof claim === 'string' && claim !== '') items.push({ suffix: `fc-${index}`, text: claim });
+  });
+  return items;
+}
+
+/** Spec 7.7: a derived entity-mention container key (`summary:<canonical>#via-<copy>-…`).
+ *  These keys appear or disappear as marks or the union change — nothing may persist a
+ *  reference to one; a reader that parses `summary:` keys must handle this form or fail
+ *  loudly on it. */
+export function isDerivedMentionContainerKey(key: string): boolean {
+  return /^summary:[^#]+#via-/.test(key);
+}
+
+/**
+ * Spec 7.7: the duplicate-group union for entity-mention containers. For each doc other
+ * than the canonical (ordinal order), every mention-container item whose text isn't
+ * near-equal (7.3) to an item already in the group — the canonical's own items first,
+ * then earlier copies' kept items — gets a container in the canonical's namespace:
+ * `summary:<canonical>#via-<copy>-<suffix>`. No `summary:<copy>` key is made, and the
+ * canonical's own containers (built by the per-doc indexer, not here) never change.
+ * Returns only the new `via-` containers, keyed by their full container id.
+ */
+export function deriveEntityMentionContainers(
+  canonicalId: string, summaries: ReadonlyArray<{ id: string; summary: SummaryLike }>,
+): Record<string, string> {
+  const canonicalEntry = summaries.find(s => s.id === canonicalId);
+  const groupKeys: string[] = canonicalEntry ? mentionContainerItems(canonicalEntry.summary).map(i => evidenceKey(i.text)) : [];
+
+  const copies = [...summaries.filter(s => s.id !== canonicalId)].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const containers: Record<string, string> = {};
+  for (const copy of copies) {
+    for (const item of mentionContainerItems(copy.summary)) {
+      const key = evidenceKey(item.text);
+      if (groupKeys.some(k => evidenceNearEqual(key, k))) continue;
+      groupKeys.push(key);
+      containers[`summary:${canonicalId}#via-${copy.id}-${item.suffix}`] = item.text;
+    }
+  }
+  return containers;
+}
