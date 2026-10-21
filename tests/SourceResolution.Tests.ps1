@@ -42,16 +42,16 @@ BeforeAll {
         script:WriteJson (Join-Path $tax 'skeptic.json') @{ nodes = @() }
         foreach ($id in 'report-2026', 'report-2026-1') {
             script:WriteJson (Join-Path $sum "$id.json") @{
-                doc_id = $id
+                doc_id = $id; generated_at = '2026-10-01T00:00:00Z'
                 pov_summaries = @{ accelerationist = @{ key_points = @() }; skeptic = @{ key_points = @() }
-                                   safetyist = @{ key_points = @(@{ taxonomy_node_id = 'saf-beliefs-001'; verbatim = 'Same quote'; extraction_confidence = 0.8; stance = 'supports' }) } }
+                                   safetyist = @{ key_points = @(@{ taxonomy_node_id = 'saf-beliefs-001'; verbatim = 'Same quote'; extraction_confidence = 0.8; stance = 'supports'; category = 'Beliefs'; point = 'Same point' }) } }
                 factual_claims = @(@{ claim = 'Same claim'; linked_taxonomy_nodes = @('saf-beliefs-001'); extraction_confidence = 0.7 })
             }
         }
         script:WriteJson (Join-Path $sum 'other-2026.json') @{
-            doc_id = 'other-2026'
+            doc_id = 'other-2026'; generated_at = '2026-10-01T00:00:00Z'
             pov_summaries = @{ accelerationist = @{ key_points = @() }; skeptic = @{ key_points = @() }
-                               safetyist = @{ key_points = @(@{ taxonomy_node_id = 'saf-beliefs-001'; verbatim = 'Other quote'; extraction_confidence = 0.6 }) } }
+                               safetyist = @{ key_points = @(@{ taxonomy_node_id = 'saf-beliefs-001'; verbatim = 'Other quote'; extraction_confidence = 0.6; stance = 'supports'; category = 'Beliefs'; point = 'Other point' }) } }
         }
         [pscustomobject]@{ Root = $root; Src = $src; Sum = $sum; Tax = $tax; NoIndex = (Join-Path $root 'no-sources-index.json') }
     }
@@ -194,6 +194,63 @@ Describe 'Evidence producers count a duplicate pair once (C2)' -Tag 'source-iden
             @($w.DocIds) | Should -Be @('report-2026')
             @($w.FactsText -split "`n").Count | Should -Be 1
         }
+    }
+}
+
+Describe 'Listings skip a marked copy; an exact id still finds it (PR 2)' -Tag 'source-identity' {
+    BeforeEach {
+        $script:F = script:New-Fixture
+        Mock Get-SourcesDir   -ModuleName AITriad { $script:F.Src }
+        Mock Get-SummariesDir -ModuleName AITriad { $script:F.Sum }
+    }
+    AfterEach { Remove-Item $script:F.Root -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'Get-AITSource: listing leaves the copy out; exact -DocId and -IncludeDuplicates find it' {
+        @(Get-AITSource 3>$null | ForEach-Object DocId | Sort-Object) | Should -Be @('other-2026', 'report-2026')
+        @(Get-AITSource 'report*' 3>$null | ForEach-Object DocId) | Should -Be @('report-2026')
+        @(Get-AITSource 'report-2026-1' 3>$null | ForEach-Object DocId) | Should -Be @('report-2026-1')
+        @(Get-AITSource -IncludeDuplicates 3>$null).Count | Should -Be 3
+    }
+
+    It 'Get-Summary: listing leaves the copy out; exact -DocId and -IncludeDuplicates find it' {
+        @(Get-Summary 3>$null | ForEach-Object DocId | Sort-Object) | Should -Be @('other-2026', 'report-2026')
+        @(Get-Summary 'report-2026-1' 3>$null | ForEach-Object DocId) | Should -Be @('report-2026-1')
+        @(Get-Summary -IncludeDuplicates 3>$null).Count | Should -Be 3
+    }
+
+    It 'Get-AITClaim: a copy''s claims aren''t returned twice' {
+        @(Get-AITClaim -Type FactualClaim 3>$null | Where-Object DocId -like 'report*').Count | Should -Be 1
+        @(Get-AITClaim -Type FactualClaim -IncludeDuplicates 3>$null | Where-Object DocId -like 'report*').Count | Should -Be 2
+    }
+
+    It 'Find-AITSource: the copy isn''t listed beside its canonical' {
+        $ids = @(Find-AITSource -Id 'saf-beliefs-001' 3>$null 6>$null | ForEach-Object DocId | Sort-Object -Unique)
+        $ids | Should -Not -Contain 'report-2026-1'
+        $ids | Should -Contain 'report-2026'
+    }
+
+    It 'Update-AITSourceIndex records the raw mark in _index.json' {
+        Update-AITSourceIndex -Quiet 3>$null 6>$null | Out-Null
+        $ix = Get-Content (Join-Path $script:F.Src '_index.json') -Raw | ConvertFrom-Json
+        ($ix.sources | Where-Object id -eq 'report-2026-1').duplicate_of | Should -BeExactly 'report-2026'
+        ($ix.sources | Where-Object id -eq 'report-2026').duplicate_of | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Ingest identity index names the canonical doc (PR 2)' -Tag 'source-identity' {
+    It 'prefers an unmarked doc over a marked copy enumerated first, for hash and URL' {
+        $root = Join-Path ([IO.Path]::GetTempPath()) "ait-ingidx-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        try {
+            $body = "# Twin`n`n$script:Long`n"
+            script:New-SrcDoc $root 'aaa-copy-2026' @{ title = 'Twin'; url = 'https://example.org/twin'; duplicate_of = 'twin-2026' } $body
+            script:New-SrcDoc $root 'twin-2026'     @{ title = 'Twin'; url = 'https://example.org/twin' } $body
+            InModuleScope AITriad -Parameters @{ Root = $root } {
+                $ix = Get-SourceIdentityIndex -SourcesDir $Root
+                @($ix.ByHash.Values) | Should -Be @('twin-2026')
+                $ix.ByUrl['example.org/twin'] | Should -BeExactly 'twin-2026'
+                $ix.Marked['aaa-copy-2026'] | Should -BeExactly 'twin-2026'
+            }
+        } finally { Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

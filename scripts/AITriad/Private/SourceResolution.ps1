@@ -185,6 +185,28 @@ function Select-SelectableSummaryFile {
     $kept
 }
 
+function Get-ListedSummaryFile {
+    <#
+    .SYNOPSIS
+        The summaries/*.json files a listing cmdlet should read (t/4337 C1, spec 6.2/6.3).
+    .DESCRIPTION
+        A listing skips summaries of docs marked duplicate_of. An exact -DocId (no wildcard) is a
+        lookup and keeps them, as does -IncludeDuplicates. Emits to the pipeline; wrap in @().
+    #>
+    [CmdletBinding()]
+    [OutputType([System.IO.FileInfo[]])]
+    param(
+        [Parameter(Mandatory)][string]$SummariesDir,
+        [AllowEmptyString()][string]$DocId,
+        [switch]$IncludeDuplicates,
+        [string]$Caller = 'AITriad'
+    )
+    $all = [System.IO.FileInfo[]]@(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+    $isLookup = $DocId -and -not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($DocId)
+    if ($IncludeDuplicates -or $isLookup -or $all.Count -eq 0) { return $all }
+    Select-SelectableSummaryFile -Files $all -Resolution (Get-DefaultSourceResolution -Caller $Caller)
+}
+
 function Get-SourceMarksHash {
     <#
     .SYNOPSIS

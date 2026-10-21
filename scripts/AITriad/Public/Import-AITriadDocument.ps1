@@ -164,6 +164,11 @@ function Import-AITriadDocument {
                 -Location  'Import-AITriadDocument' `
                 -NextSteps @("Find the doc id with: Find-AITSource <words from its title>", "Pass the exact id, e.g. $($Link.Name) 'some-title-2026'"))
         }
+        # A link to a marked copy still works (the copy resolves to its canonical doc), but the
+        # canonical is the doc to name (t/4337 C1, spec 6.2).
+        if ($Link.Value -and (& $GetIdentityIndex).Marked.ContainsKey($Link.Value)) {
+            Write-Warning "Import-AITriadDocument: $($Link.Name) '$($Link.Value)' is marked duplicate_of '$((& $GetIdentityIndex).Marked[$Link.Value])'; consider linking to that document instead."
+        }
     }
 
     # =========================================================================

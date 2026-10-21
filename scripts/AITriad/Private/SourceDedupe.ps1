@@ -21,6 +21,7 @@ function Get-SourceIdentityIndex {
 
     $index = [pscustomobject]@{
         Ids       = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        Marked    = @{}   # id -> its duplicate_of target, for docs that carry the mark (t/4337)
         ByHash    = @{}
         ByUrl     = @{}
         ByTitle   = @{}
@@ -64,11 +65,20 @@ function Add-SourceIdentityIndexEntry {
         $snap = Join-Path $DocDir 'snapshot.md'
         if (Test-Path -LiteralPath $snap) { $hash = Get-SourceContentHash -Text ([System.IO.File]::ReadAllText($snap)) }
     }
-    if ($hash -and -not $Index.ByHash.ContainsKey($hash)) { $Index.ByHash[$hash] = $id }
+    if ($null -ne $meta -and $meta.PSObject.Properties['duplicate_of'] -and -not [string]::IsNullOrEmpty([string]$meta.duplicate_of)) {
+        $Index.Marked[$id] = [string]$meta.duplicate_of
+    }
+    # A refusal names the doc a person should use: an unmarked doc replaces a marked copy that was
+    # enumerated first (t/4337 C1), instead of keeping the first id seen.
+    $claim = {
+        param([hashtable]$Map, [string]$Key)
+        if (-not $Map.ContainsKey($Key) -or ($Index.Marked.ContainsKey($Map[$Key]) -and -not $Index.Marked.ContainsKey($id))) { $Map[$Key] = $id }
+    }
+    if ($hash) { & $claim $Index.ByHash $hash }
 
     if ($null -ne $meta) {
         foreach ($k in [string[]](Get-TrustedSourceUrlKey -Metadata $meta)) {
-            if (-not $Index.ByUrl.ContainsKey($k)) { $Index.ByUrl[$k] = $id }
+            & $claim $Index.ByUrl $k
         }
         $title = if ($meta.PSObject.Properties['title']) { [string]$meta.title } else { '' }
         $tk = ConvertTo-SourceTitleKey -Title $title
