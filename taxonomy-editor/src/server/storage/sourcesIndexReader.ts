@@ -18,6 +18,15 @@
  * `ai-triad-sources` HEAD is the generator workflow's job (DevOps wiring it
  * to run on push plus nightly), not something a reader with no access to
  * that repo can independently check.
+ *
+ * **Always reads `ref: 'main'`, never the caller's session branch.** This is
+ * shared, pipeline-generated data — like community submissions and
+ * calibration logs, the other `ref: 'main'` reads in this codebase — not
+ * per-user content. Without the pin, `readFile`'s default (the request's
+ * effective session-branch ref) 404s until that user's branch happens to
+ * include the commit that added the file, hiding every newer `main` file
+ * from them indefinitely (t/4334#48 — caught live on prod: the index existed
+ * on `main` but every real request still read it as missing).
  */
 
 import path from 'path';
@@ -55,7 +64,7 @@ export async function loadSourcesIndex(): Promise<SourcesIndexFile | null> {
   const indexPath = sourcesIndexPath();
   let raw: string | null;
   try {
-    raw = await getBackend().readFile(indexPath, { optional: true });
+    raw = await getBackend().readFile(indexPath, { ref: 'main', optional: true });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'node-source-index', level: 'warn',
