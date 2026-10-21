@@ -1,0 +1,738 @@
+{
+  "spec": "docs/specs/source-identity.md section 7",
+  "version": 1,
+  "generator": "scripts/new_evidence_union_fixture.py",
+  "key_cases": [
+    {
+      "name": "ascii punctuation",
+      "quote": "The U.S. will 'double down' — now!",
+      "expected_key": "the u s will double down now"
+    },
+    {
+      "name": "typographic quotes and dashes",
+      "quote": "government’s “AI” plan – 2025",
+      "expected_key": "government s ai plan 2025"
+    },
+    {
+      "name": "variant A mojibake (cp1252 read as cp437)",
+      "quote": "governmentÆs ôAIö plan û 2025",
+      "expected_key": "government s ai plan 2025"
+    },
+    {
+      "name": "variant B mojibake (UTF-8 read as cp437)",
+      "quote": "governmentΓÇÖs ΓÇ£AIΓÇ¥ plan ΓÇô 2025",
+      "expected_key": "government s ai plan 2025"
+    },
+    {
+      "name": "variant B ellipsis is repaired before NFKC turns U+00AA into 'a'",
+      "quote": "wait ΓÇª what",
+      "expected_key": "wait what"
+    },
+    {
+      "name": "NFKC: ligature and fullwidth",
+      "quote": "ﬁnance ＡＩ",
+      "expected_key": "finance ai"
+    },
+    {
+      "name": "NFKC: superscript digit and roman numeral",
+      "quote": "x² chapter Ⅻ",
+      "expected_key": "x2 chapter xii"
+    },
+    {
+      "name": "a real French a-grave is kept; o-circumflex is mapped (key only)",
+      "quote": "voilà le côté",
+      "expected_key": "voilà le c té"
+    },
+    {
+      "name": "Greek capital theta is not mapped; it lowercases",
+      "quote": "caf Θ",
+      "expected_key": "caf θ"
+    },
+    {
+      "name": "digits and decimal separators",
+      "quote": "1,234.5 percent",
+      "expected_key": "1 234 5 percent"
+    },
+    {
+      "name": "Cyrillic letters are kept",
+      "quote": "Привет мир",
+      "expected_key": "привет мир"
+    },
+    {
+      "name": "underscore is a separator",
+      "quote": "snake_case",
+      "expected_key": "snake case"
+    },
+    {
+      "name": "combining acute composes under NFKC",
+      "quote": "café",
+      "expected_key": "café"
+    },
+    {
+      "name": "whitespace only",
+      "quote": "  \t \n ",
+      "expected_key": ""
+    },
+    {
+      "name": "empty",
+      "quote": "",
+      "expected_key": ""
+    }
+  ],
+  "near_cases": [
+    {
+      "name": "either key empty is never near",
+      "a": "",
+      "b": "anything",
+      "expected": false
+    },
+    {
+      "name": "equal",
+      "a": "the us tech stack",
+      "b": "the us tech stack",
+      "expected": true
+    },
+    {
+      "name": "containment",
+      "a": "double down on exporting",
+      "b": "the us will double down on exporting the stack",
+      "expected": true
+    },
+    {
+      "name": "token Jaccard exactly 0.8 (4 of 5) is near",
+      "a": "alpha beta gamma delta",
+      "b": "delta gamma beta alpha epsilon",
+      "expected": true
+    },
+    {
+      "name": "token Jaccard 4 of 6 is not near",
+      "a": "alpha beta gamma delta zeta",
+      "b": "delta gamma beta alpha epsilon",
+      "expected": false
+    },
+    {
+      "name": "Levenshtein exactly at the bound (m=20, lev=3) is near",
+      "a": "abcdefghijklmnopqrst",
+      "b": "abcXefghiXklmnoXqrst",
+      "expected": true
+    },
+    {
+      "name": "Levenshtein one past the bound (m=20, lev=4) is not near",
+      "a": "abcdefghijklmnopqrst",
+      "b": "abcXefghiXklmnoXqrsX",
+      "expected": false
+    },
+    {
+      "name": "length-difference bound: lev=4 with 3 deletions is not near",
+      "a": "abcdefghijklmnopqrst",
+      "b": "xbcdefghijklmnopq",
+      "expected": false
+    },
+    {
+      "name": "tokens compare as sets (repeats don't count twice)",
+      "a": "risk risk risk policy",
+      "b": "policy risk",
+      "expected": true
+    }
+  ],
+  "link_cases": [
+    {
+      "name": "the C9 link fields, in file order",
+      "summary": {
+        "doc_id": "ex-2026",
+        "pov_summaries": {
+          "skeptic": {
+            "key_points": [
+              {
+                "taxonomy_node_id": "skp-beliefs-001",
+                "point": "Point only, no verbatim."
+              },
+              {
+                "taxonomy_node_id": "",
+                "verbatim": "an empty node id is not a link"
+              }
+            ]
+          },
+          "accelerationist": {
+            "key_points": [
+              {
+                "taxonomy_node_id": "acc-desires-021",
+                "verbatim": "Verbatim wins.",
+                "point": "Not this."
+              },
+              {
+                "taxonomy_node_id": 42,
+                "verbatim": "a non-string node id is not a link"
+              }
+            ]
+          }
+        },
+        "factual_claims": [
+          {
+            "claim": "Two nodes and a legacy one.",
+            "linked_taxonomy_nodes": [
+              "acc-beliefs-025",
+              "saf-beliefs-017"
+            ],
+            "potential_taxonomy_nodes": [
+              "skp-beliefs-041"
+            ]
+          },
+          {
+            "claim": "No nodes.",
+            "linked_taxonomy_nodes": []
+          }
+        ],
+        "unmapped_concepts": [
+          {
+            "suggested_label": "Label fallback",
+            "resolved_node_id": "saf-intentions-081"
+          },
+          {
+            "suggested_label": "Unresolved",
+            "resolved_node_id": null
+          }
+        ]
+      },
+      "expected_links": [
+        {
+          "node": "skp-beliefs-001",
+          "field": "key_point",
+          "quote": "Point only, no verbatim."
+        },
+        {
+          "node": "acc-desires-021",
+          "field": "key_point",
+          "quote": "Verbatim wins."
+        },
+        {
+          "node": "acc-beliefs-025",
+          "field": "factual_claim",
+          "quote": "Two nodes and a legacy one."
+        },
+        {
+          "node": "saf-beliefs-017",
+          "field": "factual_claim",
+          "quote": "Two nodes and a legacy one."
+        },
+        {
+          "node": "skp-beliefs-041",
+          "field": "factual_claim",
+          "quote": "Two nodes and a legacy one."
+        },
+        {
+          "node": "saf-intentions-081",
+          "field": "unmapped_concept",
+          "quote": "Label fallback"
+        }
+      ]
+    }
+  ],
+  "union_cases": [
+    {
+      "name": "the canonical's own repeats are all kept",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Same quote."
+            },
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Same quote."
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Same quote.",
+            "doc": "c-2026"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Same quote.",
+            "doc": "c-2026"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a near-equal copy link is dropped; a distinct one is kept with via",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "The US will double down on exporting its tech stack."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "the US will double-down on exporting its tech stack"
+            },
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Countries think they must control AI before it controls them."
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The US will double down on exporting its tech stack.",
+            "doc": "c-2026"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Countries think they must control AI before it controls them.",
+            "doc": "c-2026",
+            "via": "c-2026-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the canonical wins a containment tie",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "AI plan 2025 (draft)"
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "AI plan 2025"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "AI plan 2025 (draft)",
+            "doc": "c-2026"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a node only a copy links keeps its group attribution",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Canonical point."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n9",
+              "field": "factual_claim",
+              "quote": "Only the copy saw this."
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Canonical point.",
+            "doc": "c-2026"
+          }
+        ],
+        "n9": [
+          {
+            "node": "n9",
+            "field": "factual_claim",
+            "quote": "Only the copy saw this.",
+            "doc": "c-2026",
+            "via": "c-2026-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two copies with the same distinct quote: the ordinal-first copy is kept",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": []
+        },
+        {
+          "id": "c-2026-2",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Shared distinct claim."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-10",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Shared distinct claim."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Shared distinct claim!"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Shared distinct claim!",
+            "doc": "c-2026",
+            "via": "c-2026-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "members are ordered by the function, not the caller (ordinal: -1 < -10 < -2)",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026-2",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Beta claim about policy."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-10",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Alpha claim about compute."
+            }
+          ]
+        },
+        {
+          "id": "c-2026",
+          "links": []
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Gamma claim about safety."
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Gamma claim about safety.",
+            "doc": "c-2026",
+            "via": "c-2026-1"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Alpha claim about compute.",
+            "doc": "c-2026",
+            "via": "c-2026-10"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Beta claim about policy.",
+            "doc": "c-2026",
+            "via": "c-2026-2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mojibake in a copy is matched to the clean canonical",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "The government’s “AI” plan – 2025."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "The governmentÆs ôAIö plan û 2025."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-2",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "The governmentΓÇÖs ΓÇ£AIΓÇ¥ plan ΓÇô 2025."
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "The government’s “AI” plan – 2025.",
+            "doc": "c-2026"
+          }
+        ]
+      }
+    },
+    {
+      "name": "de-dup is per node: the same quote on another node is kept",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "One claim."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n2",
+              "field": "key_point",
+              "quote": "One claim."
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "One claim.",
+            "doc": "c-2026"
+          }
+        ],
+        "n2": [
+          {
+            "node": "n2",
+            "field": "key_point",
+            "quote": "One claim.",
+            "doc": "c-2026",
+            "via": "c-2026-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a copy link is compared with kept copy links too (greedy, in order)",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Unrelated canonical text about compute governance."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "Export controls on advanced chips will tighten in 2026."
+            }
+          ]
+        },
+        {
+          "id": "c-2026-2",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "export controls on advanced chips will tighten in 2026"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Unrelated canonical text about compute governance.",
+            "doc": "c-2026"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "Export controls on advanced chips will tighten in 2026.",
+            "doc": "c-2026",
+            "via": "c-2026-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an empty quote has an empty key, is never near, and is kept",
+      "canonical": "c-2026",
+      "members": [
+        {
+          "id": "c-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": ""
+            }
+          ]
+        },
+        {
+          "id": "c-2026-1",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": ""
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "",
+            "doc": "c-2026"
+          },
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "",
+            "doc": "c-2026",
+            "via": "c-2026-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the canonical goes first even when a copy's id sorts before it (spec 6: the target, not the smallest id)",
+      "canonical": "omega-2026",
+      "members": [
+        {
+          "id": "aaa-mirror-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "AI plan 2025"
+            }
+          ]
+        },
+        {
+          "id": "omega-2026",
+          "links": [
+            {
+              "node": "n1",
+              "field": "key_point",
+              "quote": "AI plan 2025 (draft)"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "n1": [
+          {
+            "node": "n1",
+            "field": "key_point",
+            "quote": "AI plan 2025 (draft)",
+            "doc": "omega-2026"
+          }
+        ]
+      }
+    }
+  ]
+}
