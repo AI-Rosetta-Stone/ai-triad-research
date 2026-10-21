@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Get-TopicFrequency {
@@ -116,9 +116,11 @@ function Get-TopicFrequency {
     # ── Step 1: Scan summaries and build citation counts ─────────────────────
     Write-Step "Scanning summaries for citations"
 
-    # duplicate_of (t/4337 C1): skip a marked copy's summary so each resolved doc counts once.
-    $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
-    $SummaryFiles = @(Select-SelectableSummaryFile -Files $SummaryFiles -Resolution (Get-DefaultSourceResolution -Caller 'Get-TopicFrequency'))
+    # duplicate_of (t/4337): a marked copy's summary isn't counted as a document of its own; its
+    # citations are added back under the canonical after the scan, at most once per node (spec 7.5).
+    $AllSummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+    $Resolution      = Get-DefaultSourceResolution -Caller 'Get-TopicFrequency'
+    $SummaryFiles    = @(Select-SelectableSummaryFile -Files $AllSummaryFiles -Resolution $Resolution)
     $SummaryCount = $SummaryFiles.Count
 
     if ($SummaryCount -lt 3) {
@@ -192,6 +194,40 @@ function Get-TopicFrequency {
                             $Citations[$Camp][$NodeId].DocIds.Add($DocId)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    # Duplicate-group union (spec 7.5, t/4337): a copy's model run may cite a node its canonical's
+    # run missed. Count that node for the canonical once; never add to a node it already counts,
+    # so a doc and its copies can't make a topic look more frequent.
+    $AddOncePerDoc = {
+        param([string]$Camp, [string]$NodeId, [string]$Canonical)
+        if (-not $Citations[$Camp].ContainsKey($NodeId)) {
+            $Citations[$Camp][$NodeId] = @{ Count = 0; DocIds = [System.Collections.Generic.List[string]]::new() }
+        }
+        if ($Canonical -notin $Citations[$Camp][$NodeId].DocIds) {
+            $Citations[$Camp][$NodeId].Count++
+            $Citations[$Camp][$NodeId].DocIds.Add($Canonical)
+        }
+    }
+    foreach ($Copy in @(Get-MarkedCopySummary -Files $AllSummaryFiles -Resolution $Resolution -Caller 'Get-TopicFrequency')) {
+        $CopyProps = $Copy.Summary.PSObject.Properties
+        $PovSummaries = if ($CopyProps['pov_summaries']) { $Copy.Summary.pov_summaries } else { $null }
+        foreach ($Camp in $CampKeys) {
+            $CampData = if ($PovSummaries -and $PovSummaries.PSObject.Properties[$Camp]) { $PovSummaries.$Camp } else { $null }
+            if (-not $CampData -or -not $CampData.PSObject.Properties['key_points'] -or -not $CampData.key_points) { continue }
+            foreach ($KP in @($CampData.key_points)) {
+                $NodeId = if ($KP.PSObject.Properties['taxonomy_node_id']) { $KP.taxonomy_node_id } else { $null }
+                if ($NodeId) { & $AddOncePerDoc $Camp $NodeId $Copy.CanonicalId }
+            }
+        }
+        if ($IncludeFactualClaims -and $CopyProps['factual_claims'] -and $Copy.Summary.factual_claims) {
+            foreach ($Claim in @($Copy.Summary.factual_claims)) {
+                if (-not ($Claim.PSObject.Properties['linked_taxonomy_nodes'] -and $Claim.linked_taxonomy_nodes)) { continue }
+                foreach ($NodeId in @($Claim.linked_taxonomy_nodes)) {
+                    if ($NodeId) { foreach ($Camp in $CampKeys) { & $AddOncePerDoc $Camp $NodeId $Copy.CanonicalId } }
                 }
             }
         }

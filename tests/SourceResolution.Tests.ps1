@@ -130,14 +130,60 @@ Describe 'Evidence producers count a duplicate pair once (C2)' -Tag 'source-iden
     BeforeEach { $script:F = script:New-Fixture }
     AfterEach { Remove-Item $script:F.Root -Recurse -Force -ErrorAction SilentlyContinue }
 
-    It 'Build-NodeSourceIndex: entries only from the canonical, marksHash in the header' {
+    It 'Build-NodeSourceIndex: a copy repeating the canonical adds nothing; marksHash in the header' {
         $out = Join-Path $script:F.Root 'source_index.json'
         $ix = Build-NodeSourceIndex -SummariesDir $script:F.Sum -TaxonomyDir $script:F.Tax -SourcesDir $script:F.Src -OutputPath $out -PassThru 3>$null 6>$null
         $ids = @($ix.index.'saf-beliefs-001' | ForEach-Object source_id | Sort-Object -Unique)
         $ids | Should -Be @('other-2026', 'report-2026')
         @($ix.index.'saf-beliefs-001' | Where-Object { $_.quote -eq 'Same quote' }).Count | Should -Be 1
+        @($ix.index.'saf-beliefs-001' | Where-Object { $_.PSObject.Properties['via'] }).Count | Should -Be 0 -Because 'every copy link is near-equal to a canonical one'
         $ix.marksHash | Should -Match '^[0-9a-f]{64}$'
-        $ix.builderVersion | Should -Be '1.1.0'
+        $ix.builderVersion | Should -Be '1.2.0'
+    }
+
+    It 'Build-NodeSourceIndex: the union adds a copy''s distinct links to the canonical with via (spec 7.4)' {
+        # The copy's own model run found one more claim on the shared node, and a node the canonical never linked.
+        script:WriteJson (Join-Path $script:F.Sum 'report-2026-1.json') @{
+            doc_id = 'report-2026-1'; generated_at = '2026-10-01T00:00:00Z'
+            pov_summaries = @{ accelerationist = @{ key_points = @(@{ taxonomy_node_id = 'acc-beliefs-001'; verbatim = 'Only the copy saw this'; extraction_confidence = 0.5 }) }; skeptic = @{ key_points = @() }
+                               safetyist = @{ key_points = @(
+                                   @{ taxonomy_node_id = 'saf-beliefs-001'; verbatim = 'Same quote'; extraction_confidence = 0.99 }   # near-equal: dropped, canonical kept even at higher confidence
+                                   @{ taxonomy_node_id = 'saf-beliefs-001'; verbatim = 'A distinct claim from the copy run'; extraction_confidence = 0.6 }) } }
+            factual_claims = @(@{ claim = 'Same claim'; linked_taxonomy_nodes = @('saf-beliefs-001'); extraction_confidence = 0.7 })
+        }
+        $ix = Build-NodeSourceIndex -SummariesDir $script:F.Sum -TaxonomyDir $script:F.Tax -SourcesDir $script:F.Src -OutputPath (Join-Path $script:F.Root 'si.json') -PassThru 3>$null 6>$null
+        $saf = @($ix.index.'saf-beliefs-001')
+        $added = @($saf | Where-Object { $_.PSObject.Properties['via'] })
+        $added.Count | Should -Be 1
+        $added[0].quote | Should -BeExactly 'A distinct claim from the copy run'
+        $added[0].source_id | Should -BeExactly 'report-2026' -Because 'attributed to the canonical (spec 7.4 step 3)'
+        $added[0].via | Should -BeExactly 'report-2026-1'
+        $same = @($saf | Where-Object { $_.quote -eq 'Same quote' })
+        $same.Count | Should -Be 1
+        $same[0].extraction_confidence | Should -Be 0.8 -Because 'the canonical wins ties'
+        $same[0].PSObject.Properties.Name | Should -Not -Contain 'via'
+        $acc = @($ix.index.'acc-beliefs-001')
+        $acc.Count | Should -Be 1 -Because 'a node only the copy linked keeps its (node, group) attribution'
+        $acc[0].source_id | Should -BeExactly 'report-2026'
+        @($ix.index.PSObject.Properties | ForEach-Object { @($_.Value) } | ForEach-Object source_id | Sort-Object -Unique) | Should -Not -Contain 'report-2026-1'
+    }
+
+    It 'Build-NodeSourceIndex: a union entry never displaces the canonical''s own on an exact-key collision' {
+        # Key points without verbatim: the union compares their points (distinct, so the copy's is
+        # kept), but both are written with quote '' and collide on the exact de-dup key. The copy's
+        # higher confidence must not replace the canonical's entry (spec 7.4: the canonical wins).
+        foreach ($p in @(@('report-2026', 'Canonical point about compute governance', 0.4), @('report-2026-1', 'A wholly different point about export controls', 0.95))) {
+            script:WriteJson (Join-Path $script:F.Sum "$($p[0]).json") @{
+                doc_id = $p[0]; generated_at = '2026-10-01T00:00:00Z'
+                pov_summaries = @{ accelerationist = @{ key_points = @() }; skeptic = @{ key_points = @() }
+                                   safetyist = @{ key_points = @(@{ taxonomy_node_id = 'saf-beliefs-001'; point = $p[1]; extraction_confidence = $p[2] }) } }
+            }
+        }
+        $ix = Build-NodeSourceIndex -SummariesDir $script:F.Sum -TaxonomyDir $script:F.Tax -SourcesDir $script:F.Src -OutputPath (Join-Path $script:F.Root 'si.json') -PassThru 3>$null 6>$null
+        $mine = @($ix.index.'saf-beliefs-001' | Where-Object source_id -eq 'report-2026')
+        $mine.Count | Should -Be 1
+        $mine[0].extraction_confidence | Should -Be 0.4
+        $mine[0].PSObject.Properties.Name | Should -Not -Contain 'via'
     }
 
     It 'Build-NodeSourceIndex: a marked copy''s summary is skipped even when its file name differs from its doc_id' {
@@ -271,6 +317,102 @@ Describe 'Selection sites skip a marked copy (C1)' -Tag 'source-identity' {
             $r = Get-SourceResolution -SourcesDir $F.Src -IndexPath $F.NoIndex 3>$null
             $all = [System.IO.FileInfo[]]@(Get-ChildItem $F.Sum -Filter *.json)
             @(Select-SelectableSummaryFile -Files $all -Resolution $r | ForEach-Object BaseName | Sort-Object) | Should -Be @('other-2026', 'report-2026')
+        }
+    }
+}
+
+Describe 'Duplicate-group evidence union: per-node document counts take a copy at most once (spec 7.5, t/4337)' -Tag 'source-identity' {
+    BeforeEach {
+        $script:F = script:New-Fixture
+        # The copy's model run repeats the canonical's node and concept, and adds a node and a concept
+        # the canonical's run missed (twice each, to prove repetition doesn't count).
+        script:WriteJson (Join-Path $script:F.Sum 'report-2026-1.json') @{
+            doc_id = 'report-2026-1'; generated_at = '2026-10-01T00:00:00Z'
+            pov_summaries = @{ skeptic = @{ key_points = @() }
+                               accelerationist = @{ key_points = @(
+                                   @{ taxonomy_node_id = 'acc-beliefs-001'; point = 'copy-only node'; stance = 'supports' }
+                                   @{ taxonomy_node_id = 'acc-beliefs-001'; point = 'copy-only node again'; stance = 'supports' }) }
+                               safetyist = @{ key_points = @(@{ taxonomy_node_id = 'saf-beliefs-001'; verbatim = 'Same quote'; point = 'Same point'; stance = 'supports' }) } }
+            unmapped_concepts = @(@{ concept = 'Shared Concept' }, @{ concept = 'Copy-only concept' }, @{ concept = 'copy-only   CONCEPT' })
+        }
+        $canon = Get-Content -Raw (Join-Path $script:F.Sum 'report-2026.json') | ConvertFrom-Json -AsHashtable
+        $canon['unmapped_concepts'] = @(@{ concept = 'Shared concept' })
+        script:WriteJson (Join-Path $script:F.Sum 'report-2026.json') $canon
+    }
+    AfterEach { Remove-Item $script:F.Root -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'health: a node only the copy cites counts once for the canonical; a shared node is unchanged; one stats row per doc' {
+        InModuleScope AITriad -Parameters @{ F = $script:F } {
+            $ni = @{}
+            foreach ($n in 'saf-beliefs-001', 'acc-beliefs-001') { $ni[$n] = @{ Citations = 0; DocIds = [System.Collections.Generic.List[string]]::new(); Stances = [System.Collections.Generic.List[string]]::new() } }
+            $scan = Read-TaxonomySummaryCorpus -SummariesDir $F.Sum -SourcesDir $F.Src -NodeIndex $ni 3>$null
+            $ni['saf-beliefs-001'].Citations | Should -Be 2 -Because 'report-2026 and other-2026; the copy repeats a node its canonical already counts'
+            @($ni['saf-beliefs-001'].DocIds | Sort-Object) | Should -Be @('other-2026', 'report-2026')
+            $ni['acc-beliefs-001'].Citations | Should -Be 1 -Because 'the copy cites it twice, but it is one resolved doc'
+            @($ni['acc-beliefs-001'].DocIds) | Should -Be @('report-2026')
+            $ni['acc-beliefs-001'].Stances.Count | Should -Be 0 -Because 'stances stay the canonical''s own'
+            @($scan.SummaryStats).Count | Should -Be 2
+            @($scan.SummaryStats.DocId) | Should -Not -Contain 'report-2026-1'
+        }
+    }
+
+    It 'health: an unmapped concept only the copy names counts once; a shared one is unchanged (Frequency >= 3 bar)' {
+        InModuleScope AITriad -Parameters @{ F = $script:F } {
+            $ni = @{ 'saf-beliefs-001' = @{ Citations = 0; DocIds = [System.Collections.Generic.List[string]]::new(); Stances = [System.Collections.Generic.List[string]]::new() } }
+            $agg = (Read-TaxonomySummaryCorpus -SummariesDir $F.Sum -SourcesDir $F.Src -NodeIndex $ni 3>$null).UnmappedAgg
+            $agg['shared concept'].Frequency | Should -Be 1
+            @($agg['shared concept'].ContributingDocs) | Should -Be @('report-2026')
+            $agg['copy-only concept'].Frequency | Should -Be 1 -Because 'named twice by one copy of one doc'
+            @($agg['copy-only concept'].ContributingDocs) | Should -Be @('report-2026')
+        }
+    }
+
+    It 'topic frequency: a node only the copy cites counts once for the canonical; a shared node isn''t doubled' {
+        InModuleScope AITriad -Parameters @{ F = $script:F } {
+            Mock Get-SummariesDir { $F.Sum }; Mock Get-SourcesDir { $F.Src }; Mock Get-TaxonomyDir { Join-Path $F.Root 'no-taxonomy' }
+            $r = Get-TopicFrequency -NoAI 6>$null 3>$null
+            # Round-trip through JSON: topics_by_pov is a dictionary, so normalise to objects first.
+            $j = $r | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+            $nodes = @($j.topics_by_pov.PSObject.Properties | ForEach-Object { @($_.Value) } | ForEach-Object { @($_.member_nodes) })
+            @($nodes | Where-Object id -eq 'acc-beliefs-001').citations | Should -Be 1
+            @($nodes | Where-Object id -eq 'saf-beliefs-001').citations | Should -Be 2 -Because 'report-2026 and other-2026, not 3'
+            ($r | ConvertTo-Json -Depth 8) | Should -Not -Match 'report-2026-1'
+            $r.summary_count | Should -Be 2
+        }
+    }
+
+    It 'control arm: with the mark removed, the copy counts as its own doc again' {
+        [IO.File]::WriteAllText((Join-Path $script:F.Src 'report-2026-1' 'metadata.json'), (@{ id = 'report-2026-1'; title = 'Report' } | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+        InModuleScope AITriad -Parameters @{ F = $script:F } {
+            $ni = @{ 'acc-beliefs-001' = @{ Citations = 0; DocIds = [System.Collections.Generic.List[string]]::new(); Stances = [System.Collections.Generic.List[string]]::new() } }
+            [void](Read-TaxonomySummaryCorpus -SummariesDir $F.Sum -SourcesDir $F.Src -NodeIndex $ni 3>$null)
+            $ni['acc-beliefs-001'].Citations | Should -Be 2
+            @($ni['acc-beliefs-001'].DocIds) | Should -Be @('report-2026-1')
+        }
+    }
+}
+
+Describe 'Entity extraction never re-extracts a copy''s fact (TL e/347#7, spec 7.6)' -Tag 'source-identity' {
+    BeforeEach { $script:F = script:New-Fixture }
+    AfterEach { Remove-Item $script:F.Root -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'skips a copy fact under the copy''s doc_id, and one re-attributed to the canonical with via; keeps the canonical''s own' {
+        InModuleScope AITriad -Parameters @{ F = $script:F } {
+            $r = Get-SourceResolution -SourcesDir $F.Src -IndexPath $F.NoIndex 3>$null
+            $entry = @{ facts = @(
+                @{ doc_id = 'report-2026';   claim = 'Canonical claim' }
+                @{ doc_id = 'report-2026-1'; claim = 'Copy claim, today''s index' }
+                @{ doc_id = 'report-2026';   claim = 'Copy claim, union index'; via = 'report-2026-1' }) }
+            $w = ConvertTo-EntityExtractionWorkItem -NodeId 'saf-beliefs-001' -Entry $entry -Resolution $r
+            @($w.FactsText -split "`n") | Should -Be @('- Canonical claim')
+            @($w.DocIds) | Should -Be @('report-2026')
+        }
+    }
+
+    It 'a fact with via is skipped even with no resolution available' {
+        InModuleScope AITriad {
+            $w = ConvertTo-EntityExtractionWorkItem -NodeId 'n' -Entry @{ facts = @(@{ doc_id = 'c'; claim = 'x'; via = 'c-1' }) } -Resolution $null
+            $w | Should -BeNullOrEmpty
         }
     }
 }

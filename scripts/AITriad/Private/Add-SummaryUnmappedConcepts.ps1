@@ -13,6 +13,11 @@ function Add-SummaryUnmappedConcepts {
         The doc id attributing this aggregation.
     .PARAMETER UnmappedAgg
         Normalized-key -> aggregation hashtable, mutated in place.
+    .PARAMETER OncePerDoc
+        For a marked copy's summary under the duplicate-group evidence union (spec 7.5, t/4337): a
+        concept counts only when DocId (the canonical) isn't already among its ContributingDocs,
+        and then once. So a doc and its copies can never make a concept look frequent by repetition
+        (the health report's Frequency >= 3 strong-candidate bar).
     .OUTPUTS
         [int] the count of unmapped concepts seen in this summary (the caller's per-doc
         DocUnmapped counter).
@@ -22,7 +27,8 @@ function Add-SummaryUnmappedConcepts {
     param(
         [Parameter(Mandatory)][AllowNull()]$Summary,
         [Parameter(Mandatory)][string]$DocId,
-        [Parameter(Mandatory)][hashtable]$UnmappedAgg
+        [Parameter(Mandatory)][hashtable]$UnmappedAgg,
+        [switch]$OncePerDoc
     )
 
     Set-StrictMode -Version Latest
@@ -36,6 +42,7 @@ function Add-SummaryUnmappedConcepts {
         if ($Concept.PSObject.Properties['concept']) { $ConceptText = $Concept.concept } else { $ConceptText = "$Concept" }
         $NormKey = ($ConceptText -replace '\s+', ' ').Trim().ToLower()
         if (-not $NormKey) { continue }
+        if ($OncePerDoc -and $UnmappedAgg.ContainsKey($NormKey) -and $DocId -in $UnmappedAgg[$NormKey].ContributingDocs) { continue }
 
         if ($Concept.PSObject.Properties['suggested_pov'])      { $SugPov = $Concept.suggested_pov }      else { $SugPov = $null }
         if ($Concept.PSObject.Properties['suggested_category']) { $SugCat = $Concept.suggested_category } else { $SugCat = $null }

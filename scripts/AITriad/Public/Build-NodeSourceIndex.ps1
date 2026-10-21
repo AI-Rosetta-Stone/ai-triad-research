@@ -97,7 +97,7 @@ function Build-NodeSourceIndex {
     $ErrorActionPreference = 'Stop'
 
     $SchemaVersion = 1
-    $BuilderVersion = '1.1.0'   # bump on any output-shape/serialization change (NOT per run); 1.1.0: marksHash (t/4337)
+    $BuilderVersion = '1.2.0'   # bump on any output-shape/serialization change (NOT per run); 1.1.0: marksHash (t/4337); 1.2.0: duplicate-group evidence union, entries may carry via (t/4337, spec 7)
 
     if (-not $SummariesDir) { $SummariesDir = Get-SummariesDir }
     if (-not $TaxonomyDir)  { $TaxonomyDir  = Get-TaxonomyDir }
@@ -148,54 +148,59 @@ function Build-NodeSourceIndex {
     foreach ($id in $Live) { $byNode[$id] = [System.Collections.Generic.List[object]]::new() }
     $nKp = 0; $nFc = 0
 
-    # duplicate_of (spec section 6, t/4337 C1): a marked copy's summary is skipped, so each
-    # resolved doc contributes one set of entries. Stored source ids are never rewritten.
+    # duplicate_of (spec sections 6 and 7, t/4337): a marked copy's summary isn't read as its own
+    # document. Its links come back through the group evidence union below: each copy link that
+    # isn't near-equal to one already kept on that node is added, attributed to the canonical
+    # (source_id) with the copy's exact id in `via`. Stored source ids are never rewritten (6.4).
     $resolution = Get-SourceResolution -SourcesDir $SourcesDir
-    $files = @(Get-ChildItem -LiteralPath $SummariesDir -Filter '*.json' -File | Sort-Object Name)
-    $files = @(Select-SelectableSummaryFile -Files $files -Resolution $resolution)
+    $allFiles = @(Get-ChildItem -LiteralPath $SummariesDir -Filter '*.json' -File | Sort-Object Name)
+    $files = @(Select-SelectableSummaryFile -Files $allFiles -Resolution $resolution)
+    $canonicals = [System.Collections.Generic.HashSet[string]]::new([string[]]@($resolution.Resolved.Values), [System.StringComparer]::Ordinal)
+    $canonicalLinks = @{}   # canonical id -> its own links, for the union
+    $renamedCopies = [System.Collections.Generic.List[object]]::new()
     foreach ($file in $files) {
         $raw = [System.IO.File]::ReadAllBytes($file.FullName)
         $s = [System.Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xFEFF) | ConvertFrom-Json
         if (-not $s.PSObject.Properties['doc_id'] -or -not $s.doc_id) { continue }
         $sourceId = [string]$s.doc_id
-        if (-not (Test-SourceSelectable -Resolution $resolution -Id $sourceId)) { continue }   # file named differently from its doc_id
-
-        if ($s.PSObject.Properties['pov_summaries'] -and $s.pov_summaries) {
-            foreach ($pov in $s.pov_summaries.PSObject.Properties.Name) {
-                $block = $s.pov_summaries.$pov
-                if (-not ($block.PSObject.Properties['key_points'])) { continue }
-                foreach ($kp in @($block.key_points)) {
-                    if (-not $kp.PSObject.Properties['taxonomy_node_id']) { continue }
-                    $nid = [string]$kp.taxonomy_node_id
-                    if (-not $nid -or -not $Live.Contains($nid)) { continue }
-                    $ec = if ($kp.PSObject.Properties['extraction_confidence']) { $kp.extraction_confidence } else { $null }
-                    $q  = if ($kp.PSObject.Properties['verbatim']) { [string]$kp.verbatim } else { '' }
-                    $byNode[$nid].Add([pscustomobject]@{
-                        source_id = $sourceId; link_source = 'key_point'; quote = $q
-                        doc_position = $null; evidence_level = $null; extraction_confidence = $ec
-                    })
-                }
-            }
+        if (-not (Test-SourceSelectable -Resolution $resolution -Id $sourceId)) {
+            # A copy whose summary file is named differently from its doc_id: union it like the rest.
+            $renamedCopies.Add([pscustomobject]@{ CopyId = $sourceId; CanonicalId = (Resolve-SourceId -Resolution $resolution -Id $sourceId); Summary = $s })
+            continue
         }
+        $links = @(Get-NodeSourceIndexLink -Summary $s -SourceId $sourceId -Live $Live)
+        foreach ($l in $links) { $byNode[$l.node].Add($l.payload) }
+        if ($canonicals.Contains($sourceId)) { $canonicalLinks[$sourceId] = $links }
+    }
 
-        if ($s.PSObject.Properties['factual_claims'] -and $s.factual_claims) {
-            foreach ($fc in @($s.factual_claims)) {
-                if (-not $fc.PSObject.Properties['linked_taxonomy_nodes']) { continue }
-                $dp = if ($fc.PSObject.Properties['doc_position']) { $fc.doc_position } else { $null }
-                $el = if ($fc.PSObject.Properties['evidence_criteria']) { $fc.evidence_criteria } else { $null }
-                $ec = if ($fc.PSObject.Properties['extraction_confidence']) { $fc.extraction_confidence } else { $null }
-                $q  = if ($fc.PSObject.Properties['claim']) { [string]$fc.claim } else { '' }
-                foreach ($nid in @($fc.linked_taxonomy_nodes)) {
-                    $nid = [string]$nid
-                    if (-not $nid -or -not $Live.Contains($nid)) { continue }
-                    $byNode[$nid].Add([pscustomobject]@{
-                        source_id = $sourceId; link_source = 'factual_claim'; quote = $q
-                        doc_position = $dp; evidence_level = $el; extraction_confidence = $ec
-                    })
-                }
+    # ── Duplicate-group evidence union (spec 7.4) ─────────────────────────────────
+    $copies = @(Get-MarkedCopySummary -Files $allFiles -Resolution $resolution -Caller 'Build-NodeSourceIndex') + @($renamedCopies)
+    $nUnion = 0
+    foreach ($g in @($copies | Group-Object CanonicalId)) {
+        $canonicalId = [string]$g.Name
+        $members = [System.Collections.Generic.List[object]]::new()
+        $own = if ($canonicalLinks.ContainsKey($canonicalId)) { $canonicalLinks[$canonicalId] } else { @() }
+        $members.Add(@{ Id = $canonicalId; Links = @($own) })
+        foreach ($c in $g.Group) {
+            $members.Add(@{ Id = $c.CopyId; Links = @(Get-NodeSourceIndexLink -Summary $c.Summary -SourceId $canonicalId -Live $Live) })
+        }
+        $u = Merge-GroupEvidence -CanonicalId $canonicalId -Members $members.ToArray()
+        foreach ($nid in $u.Keys) {
+            foreach ($e in @($u[$nid])) {
+                if (-not $e.PSObject.Properties['via']) { continue }   # the canonical's own entries are already in
+                $p = $e.payload
+                # `via` is provenance only: NO consumer branches on it. THE EXEMPTION LAPSES the moment
+                # a reader of source_index.json branches on it (spec 7.6).
+                $byNode[$nid].Add([pscustomobject]@{
+                    source_id = $p.source_id; link_source = $p.link_source; quote = $p.quote
+                    doc_position = $p.doc_position; evidence_level = $p.evidence_level
+                    extraction_confidence = $p.extraction_confidence; via = [string]$e.via
+                })
+                $nUnion++
             }
         }
     }
+    if ($nUnion -gt 0) { Write-Verbose "Build-NodeSourceIndex: $nUnion entr(ies) added from marked copies by the spec 7 evidence union." }
 
     $inputHash = Get-SummariesInputHash -SummariesDir $SummariesDir
     # Separate from inputHash so the citation gate can still check summaries when no sources
@@ -232,6 +237,8 @@ function Build-NodeSourceIndex {
                 $seen[$k] = $keep.Count; $keep.Add($e)
             } else {
                 $ix = $seen[$k]; $cur = $keep[$ix]
+                # Spec 7.4: the canonical wins ties. A union entry (via) never displaces one of its own.
+                if ($e.PSObject.Properties['via'] -and -not $cur.PSObject.Properties['via']) { continue }
                 $newC = if ($null -eq $e.extraction_confidence) { -1 } else { [double]$e.extraction_confidence }
                 $curC = if ($null -eq $cur.extraction_confidence) { -1 } else { [double]$cur.extraction_confidence }
                 if ($newC -gt $curC) { $keep[$ix] = $e }   # survivor = max extraction_confidence (carries its evidence_level)
