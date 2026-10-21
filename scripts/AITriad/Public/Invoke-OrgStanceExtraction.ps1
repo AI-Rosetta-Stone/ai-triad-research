@@ -141,15 +141,22 @@ function Invoke-OrgStanceExtraction {
     $skippedAlreadyDone = 0
     $skippedNoOrg      = 0
 
+    # duplicate_of (t/4337 C1): an edge to a marked copy is read through its canonical doc, and one
+    # org reads each resolved doc once. Existing claims keep the ids they were extracted under, so
+    # "covered" accepts either the exact or the resolved id (spec 6.4).
+    $resolution = Get-SourceResolution -SourcesDir $sourcesRoot
+    $queued = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($e in $approved) {
         $orgId    = [string]$e.source
-        $sourceId = [string]$e.target
+        $exactId  = [string]$e.target
+        $sourceId = Resolve-SourceId -Resolution $resolution -Id $exactId
         $key      = "$orgId::$sourceId"
 
-        if (-not $Force -and $covered.ContainsKey($key)) {
+        if (-not $Force -and ($covered.ContainsKey($key) -or $covered.ContainsKey("$orgId::$exactId"))) {
             $skippedAlreadyDone++
             continue
         }
+        if (-not $queued.Add($key)) { $skippedAlreadyDone++; continue }
 
         if (-not $orgById.ContainsKey($orgId)) {
             $skippedNoOrg++

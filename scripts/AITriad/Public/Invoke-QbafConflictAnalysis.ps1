@@ -120,6 +120,8 @@ function Invoke-QbafConflictAnalysis {
     }
     else {
         $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File | Sort-Object Name)
+        # duplicate_of (t/4337 C1): a marked copy's claims would conflict with themselves.
+        $SummaryFiles = @(Select-SelectableSummaryFile -Files $SummaryFiles -Resolution (Get-DefaultSourceResolution -Caller 'Invoke-QbafConflictAnalysis'))
     }
 
     $AllClaims = [System.Collections.Generic.List[PSObject]]::new()

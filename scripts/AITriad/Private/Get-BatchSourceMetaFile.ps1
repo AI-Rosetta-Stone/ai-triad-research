@@ -20,6 +20,13 @@ function Get-BatchSourceMetaFile {
 
     $AllMetaFiles = @(Get-ChildItem -Path $SourcesDir -Filter 'metadata.json' -Recurse |
                     Where-Object { $_.FullName -notmatch '_inbox' })
+    # duplicate_of (t/4337 C1): a marked copy is never batch-summarized, so no AI spend on copies.
+    $Resolution = Get-SourceResolution -SourcesDir $SourcesDir
+    if ($Resolution.Marked.Count -gt 0) {
+        $Before = $AllMetaFiles.Count
+        $AllMetaFiles = @($AllMetaFiles | Where-Object { Test-SourceSelectable -Resolution $Resolution -Id $_.Directory.Name })
+        Write-Info "duplicate_of: skipped $($Before - $AllMetaFiles.Count) marked duplicate document(s)"
+    }
 
     if ($ImportedToday) {
         $TodayDate = Get-Date -Format 'yyyy-MM-dd'

@@ -217,7 +217,8 @@ function Invoke-EntityExtraction {
 
     $Sei = Get-Content -Raw -Path $SeiPath | ConvertFrom-Json -AsHashtable
     $Log = Read-EntityExtractionLog -Path $OutputPath
-    $Work = Get-EntityExtractionWorkList -Sei $Sei -NodeId $NodeId -Force $Force.IsPresent -ProcessedNodeIds $Log.ProcessedNodeIds -MaxNodes $MaxNodes
+    $Work = Get-EntityExtractionWorkList -Sei $Sei -NodeId $NodeId -Force $Force.IsPresent -ProcessedNodeIds $Log.ProcessedNodeIds -MaxNodes $MaxNodes `
+        -Resolution (Get-DefaultSourceResolution -Caller 'Invoke-EntityExtraction')
     $WorkItems = $Work.Items
 
     $Total = @($WorkItems).Count
