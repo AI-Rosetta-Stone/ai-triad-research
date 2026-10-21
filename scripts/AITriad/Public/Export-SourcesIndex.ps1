@@ -47,6 +47,11 @@ function Export-SourcesIndex {
             -Location  'Export-SourcesIndex' `
             -NextSteps @('Check .aitriad.json sources_root or $env:AI_TRIAD_SOURCES_ROOT', 'Or pass -SourcesDir <path to ai-triad-sources>'))
     }
+    # Full provider paths: the reads below use [System.IO.File], which resolves a relative path
+    # against the process directory, not the PowerShell location. A relative -SourcesDir used to pass
+    # Test-Path, then fail every metadata/snapshot read and write an index of bare ids.
+    $SourcesDir = (Resolve-Path -LiteralPath $SourcesDir).ProviderPath
+    $OutputPath = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($OutputPath)
 
     $sourceCommit = $null
     if (Test-Path -LiteralPath (Join-Path $SourcesDir '.git')) {

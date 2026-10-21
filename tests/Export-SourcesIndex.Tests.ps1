@@ -107,8 +107,39 @@ Describe 'Export-SourcesIndex (t/4334#18)' -Tag 'sources-index' {
         # breaks a test, not prod (review of #3560). Line endings are normalized for Windows checkouts.
         $fx = Join-Path $PSScriptRoot 'fixtures' 'sources-index'
         $r = Export-SourcesIndex -SourcesDir (Join-Path $fx 'src') -OutputPath $script:Out 3>$null
-        $r.DocCount | Should -Be 4
+        $r.DocCount | Should -Be 5
         $expected = [IO.File]::ReadAllText((Join-Path $fx 'expected.json')).Replace("`r`n", "`n")
+        [IO.File]::ReadAllText($script:Out) | Should -BeExactly $expected
+    }
+
+    It 'emits duplicate_of and duplicate_of_ref raw, with no validation (t/4337, p/783#18)' {
+        New-Doc $script:Src 'beta-2026-1' ([ordered]@{ id = 'beta-2026-1'; title = 'Beta'; duplicate_of = 'beta-2026'; duplicate_of_ref = 't4337-cleanup-2026-10#7' }) "# Beta`n`n$script:Long`n"
+        # An invalid mark (missing target) is still emitted as written: the loader applies spec section 6.
+        New-Doc $script:Src 'orphan-2026' ([ordered]@{ id = 'orphan-2026'; title = 'Orphan'; duplicate_of = 'not-in-set' }) "# Orphan`n"
+        # An empty mark is absent (spec section 0), so it's omitted, never emitted as "".
+        New-Doc $script:Src 'blank-2026' ([ordered]@{ id = 'blank-2026'; title = 'Blank'; duplicate_of = ''; duplicate_of_ref = '' }) "# Blank`n"
+        Export-SourcesIndex -SourcesDir $script:Src -OutputPath $script:Out 3>$null | Out-Null
+        $docs = (Get-Content $script:Out -Raw | ConvertFrom-Json -AsHashtable).docs
+        $dup = $docs | Where-Object { $_.id -eq 'beta-2026-1' }
+        $dup.duplicate_of | Should -BeExactly 'beta-2026'
+        $dup.duplicate_of_ref | Should -BeExactly 't4337-cleanup-2026-10#7'
+        @($dup.Keys)[-2..-1] | Should -Be @('duplicate_of', 'duplicate_of_ref')
+        ($docs | Where-Object { $_.id -eq 'orphan-2026' }).duplicate_of | Should -BeExactly 'not-in-set'
+        $blank = $docs | Where-Object { $_.id -eq 'blank-2026' }
+        $blank.Keys | Should -Not -Contain 'duplicate_of'
+        $blank.Keys | Should -Not -Contain 'duplicate_of_ref'
+    }
+
+    It 'resolves a relative -SourcesDir and -OutputPath against the PowerShell location' {
+        $abs = Export-SourcesIndex -SourcesDir $script:Src -OutputPath $script:Out -PassThru 3>$null
+        $expected = [IO.File]::ReadAllText($script:Out)
+        Remove-Item $script:Out
+        Push-Location $script:Root
+        try {
+            $rel = Export-SourcesIndex -SourcesDir 'sources' -OutputPath 'sources-index.json' -PassThru 3>$null
+        } finally { Pop-Location }
+        $rel.Path | Should -BeExactly $script:Out
+        $rel.Hashed | Should -Be $abs.Hashed -Because 'snapshot reads must not fail on a relative path'
         [IO.File]::ReadAllText($script:Out) | Should -BeExactly $expected
     }
 

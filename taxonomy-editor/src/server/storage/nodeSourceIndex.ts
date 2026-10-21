@@ -140,6 +140,22 @@ async function loadOneSourceMetaEntry(sourcesDir: string, name: string, hashCach
   return { metaCache, identityMeta, snapshotHash };
 }
 
+/** t/4334#18: a configured data directory that lists empty is a silent
+ *  failure mode, not a legitimate "nothing here yet" — e.g. `getSourcesDir()`
+ *  returning a path the backend's tree doesn't actually cover (the hosted
+ *  AC1 bug: `sources/` from a separate repo, read via a single-repo
+ *  `GitHubAPIBackend`). `dirPath === null` ("sources not configured at all")
+ *  is NOT warned here — that's a legitimate, already-handled absence. */
+function warnIfEmptyConfiguredDir(label: string, dirPath: string, entries: string[]): void {
+  if (entries.length > 0) return;
+  log.server.warn({ label, dirPath }, `Node source index: listDirectory returned no entries for a configured data directory (${label})`);
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'node-source-index', level: 'warn',
+    message: `listDirectory returned no entries for a configured data directory: ${label}`,
+    data: { label, dirPath },
+  });
+}
+
 async function loadNodeMetaCache(
   sourcesDir: string | null,
 ): Promise<{ metaCache: Record<string, NodeSourceMeta>; identityMeta: Record<string, SourceIdentityMeta>; snapshotHashes: Record<string, string | null> }> {
@@ -147,6 +163,7 @@ async function loadNodeMetaCache(
   const identityMeta: Record<string, SourceIdentityMeta> = {};
   const snapshotHashes: Record<string, string | null> = {};
   const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir) : [];
+  if (sourcesDir) warnIfEmptyConfiguredDir('sourcesDir', sourcesDir, sourceEntries);
   // t/4350: one persisted cache load/save per build, not per doc — entries
   // for docs no longer in sourceEntries are dropped on save.
   const hashCache = loadSnapshotHashCache();
@@ -179,6 +196,7 @@ function sourceCardFieldCoverage(metaCache: Record<string, NodeSourceMeta>): { a
 
 async function indexSummaryFile(
   summariesDir: string, file: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
+  missingMetaIds: Set<string>,
 ): Promise<void> {
   const backend = getBackend();
   const docId = file.replace(/\.json$/, '');
@@ -195,7 +213,9 @@ async function indexSummaryFile(
     if (raw === null) return;
     summary = JSON.parse(raw);
   } catch { /* telemetry — silent by design */ return; }
-  const meta = metaCache[docId] ?? { title: docId, url: null, sourceType: 'unknown', datePublished: '', authors: [], topicTags: [], oneLiner: null };
+  const cached = metaCache[docId];
+  if (!cached) missingMetaIds.add(docId); // t/4334#25: aggregated, not per-occurrence — logged once per build
+  const meta = cached ?? { title: docId, url: null, sourceType: 'unknown', datePublished: '', authors: [], topicTags: [], oneLiner: null };
   for (const [pov, povData] of Object.entries(summary.pov_summaries || {})) {
     for (const kp of povData.key_points || []) {
       const nodeId = kp.taxonomy_node_id;
@@ -215,9 +235,24 @@ async function indexSummaryFile(
 
 async function indexSummaryFiles(
   summaryFiles: string[], summariesDir: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
-): Promise<void> {
+): Promise<Set<string>> {
+  const missingMetaIds = new Set<string>();
   await Promise.all(
-    summaryFiles.filter(f => f.endsWith('.json')).map(file => indexSummaryFile(summariesDir, file, metaCache, index))
+    summaryFiles.filter(f => f.endsWith('.json')).map(file => indexSummaryFile(summariesDir, file, metaCache, index, missingMetaIds))
+  );
+  return missingMetaIds;
+}
+
+/** t/4334#25 (Rosetta): a per-doc fallback (no `metaCache` entry — identity
+ *  metadata never loaded for this doc, the empty-listing WARN's per-doc
+ *  counterpart) WARNs once per build with the count, never once per
+ *  occurrence — the same aggregation shape as the title-collision/
+ *  url-conflict reports below. */
+function warnMissingMetaIds(missingMetaIds: Set<string>): void {
+  if (missingMetaIds.size === 0) return;
+  log.server.warn(
+    { missingCount: missingMetaIds.size, missingDocIds: [...missingMetaIds].sort() },
+    'Node source index: some docs have no source metadata (title/url/authors fall back to the bare doc id)',
   );
 }
 
@@ -310,10 +345,13 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   const index: NodeSourceIndex = {};
 
   const summaryFiles = await backend.listDirectory(summariesDir);
-  if (summaryFiles.length === 0) return index;
+  if (summaryFiles.length === 0) {
+    warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
+    return index;
+  }
 
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
-  await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
+  warnMissingMetaIds(await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index));
   applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
   return index;
 }
@@ -371,8 +409,10 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
   const summaryFiles = await getBackend().listDirectory(summariesDir);
+  warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
-  await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
+  const missingMetaIds = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
+  warnMissingMetaIds(missingMetaIds);
   const { titleCollisions, urlConflicts, duplicateOfErrorCount } = applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
   const cards = buildCardMetaByCanonicalId(index, metaCache);
   nodeSourceIndexGeneration += 1;
@@ -384,7 +424,8 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   log.server.info(
     {
       coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,
-      titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length, duplicateOfErrorCount, ...coverage,
+      titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length,
+      missingMetaCount: missingMetaIds.size, duplicateOfErrorCount, ...coverage,
     },
     'Node source index rebuilt',
   );
