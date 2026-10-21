@@ -40,11 +40,17 @@ export function parseNpy(buffer: Buffer): { shape: [number, number]; data: Float
     throw new Error(`NPY data truncated: expected ${expected} bytes, got ${buffer.length - dataOffset}`);
   }
 
-  const aligned = Buffer.alloc(expected);
+  // t/4286: a Float32Array needs a 4-byte-aligned offset. .npy headers are padded so the data block is normally
+  // aligned already, so view it in place (zero-copy; at corpus scale this was a ~23 MB synchronous copy per file).
+  // Only an unaligned buffer pays for a copy, and then without zero-filling first (allocUnsafe: copy() writes
+  // every byte). The view aliases `buffer`; callers must not mutate it afterwards.
+  const start = buffer.byteOffset + dataOffset;
+  if (start % 4 === 0) {
+    return { shape: [rows, cols], data: new Float32Array(buffer.buffer, start, rows * cols) };
+  }
+  const aligned = Buffer.allocUnsafe(expected);
   buffer.copy(aligned, 0, dataOffset, dataOffset + expected);
-  const data = new Float32Array(aligned.buffer, aligned.byteOffset, rows * cols);
-
-  return { shape: [rows, cols], data };
+  return { shape: [rows, cols], data: new Float32Array(aligned.buffer, aligned.byteOffset, rows * cols) };
 }
 
 type ParsedNpy = { shape: [number, number]; data: Float32Array };
@@ -86,25 +92,66 @@ export function extractNodeVectors(parsed: ParsedNpy, index: NpyIndex, pov: stri
 }
 
 /**
- * Same output as extractNodeVectors, but yields to the event loop (setImmediate)
- * every `yieldEvery` nodes so a cold corpus load does not block the server's
- * event loop (t/4286; same chunk-yield pattern as httpKit's jsonStringifyChunked).
+ * Floats copied between yields. The work is per float, not per node: at corpus scale a node is ~45 rows of 384
+ * floats, so a node-count budget alone let a whole POV file (180-336 nodes, up to ~5.8M floats) run unyielded
+ * (t/4286#20). 262,144 floats is about 1 MB of float32 input, a few ms of copying.
+ */
+export const YIELD_EVERY_FLOATS = 262_144;
+
+/** Filled by extractNodeVectorsAsync when passed: how the work was sliced (t/4286 diagnosis). */
+export interface ExtractStats {
+  /** Number of synchronous slices (yields + 1). */
+  slices: number;
+  /** The longest synchronous slice, in ms: the event-loop block this call can cause. */
+  maxSliceMs: number;
+  /** Floats copied in total. */
+  floats: number;
+}
+
+/**
+ * Same output as extractNodeVectors, but yields to the event loop (setImmediate) after every `yieldEvery` nodes OR
+ * every `yieldEveryFloats` floats copied, whichever comes first, so a cold corpus load does not block the server's
+ * event loop (t/4286; same chunk-yield pattern as httpKit's jsonStringifyChunked). Pass `stats` to measure the slices.
  */
 export async function extractNodeVectorsAsync(
   parsed: ParsedNpy,
   index: NpyIndex,
   pov: string,
   yieldEvery = 256,
+  stats?: ExtractStats,
+  yieldEveryFloats = YIELD_EVERY_FLOATS,
 ): Promise<NodeVectors> {
   const yieldToLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
   const [, cols] = parsed.shape;
   const result: NodeVectors = {};
-  const step = Math.max(1, Math.floor(yieldEvery));
+  const nodeStep = Math.max(1, Math.floor(yieldEvery));
+  const floatStep = Math.max(1, Math.floor(yieldEveryFloats));
 
-  let n = 0;
+  let nodes = 0;
+  let floats = 0;
+  let total = 0;
+  let slices = 1;
+  let maxSliceMs = 0;
+  let sliceStart = performance.now();
   for (const [nodeId, { start, count }] of Object.entries(index)) {
     result[nodeId] = { pov, vectors: copyNodeRows(parsed.data, start, count, cols) };
-    if (++n % step === 0) await yieldToLoop();
+    nodes++;
+    floats += count * cols;
+    if (nodes >= nodeStep || floats >= floatStep) {
+      maxSliceMs = Math.max(maxSliceMs, performance.now() - sliceStart);
+      total += floats;
+      nodes = 0;
+      floats = 0;
+      await yieldToLoop();
+      slices++;
+      sliceStart = performance.now();
+    }
+  }
+  maxSliceMs = Math.max(maxSliceMs, performance.now() - sliceStart);
+  if (stats) {
+    stats.slices = slices;
+    stats.maxSliceMs = maxSliceMs;
+    stats.floats = total + floats;
   }
 
   return result;
