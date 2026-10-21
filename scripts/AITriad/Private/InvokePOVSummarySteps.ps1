@@ -400,7 +400,10 @@ function Write-POVSummaryMetadataFile {
           $FactualClaimCount, $UnmappedConceptCount, [object[]]$ContextRotStages, $ContextRotObj)
     try {
         $MetaRaw     = Get-Content $Paths.MetadataFile -Raw
-        $MetaUpdated = $MetaRaw | ConvertFrom-Json -AsHashtable
+        # Shape-preserving read (t/4366): a bare ConvertFrom-Json coerces ISO strings such as
+        # import_time to [datetime], and the whole-object rewrite below re-emits them in this
+        # machine's offset. Same fix as Set-BatchDocCurrent / Update-SummaryMetadata (#3553).
+        $MetaUpdated = ConvertFrom-JsonPreserveShape -Json $MetaRaw -AsOrderedHashtable
 
         $MetaUpdated["summary_version"] = $TaxonomyVersion
         $MetaUpdated["summary_status"]  = "current"
