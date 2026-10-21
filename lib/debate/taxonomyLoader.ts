@@ -287,82 +287,99 @@ function resolveSupersessionChains(
   allPovNodes: PovNode[],
   allNodesById: Map<string, PovNode>,
 ): { resolutionCache: Map<string, string | null>; depthCache: Map<string, number> } {
-  const resolutionCache = new Map<string, string | null>();
-  const depthCache = new Map<string, number>();
-  const recorder = getGlobalRecorder();
-
+  const caches: SupersessionCaches = { resolutionCache: new Map(), depthCache: new Map() };
   for (const startNode of allPovNodes) {
-    if (!startNode.superseded_by || resolutionCache.has(startNode.id)) continue;
-
-    const chain: string[] = [];
-    const chainSet = new Set<string>();
-    let cur = startNode.id;
-
-    while (!resolutionCache.has(cur)) {
-      if (chainSet.has(cur)) {
-        const cycleStart = chain.indexOf(cur);
-        const cycleMembers = chain.slice(cycleStart);
-        recorder?.record({
-          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-          message: `loadTaxonomy: supersession cycle: ${[...cycleMembers, cur].join(' → ')} — members excluded from selection`,
-        });
-        for (const id of cycleMembers) resolutionCache.set(id, null);
-        for (let i = 0; i < cycleStart; i++) resolutionCache.set(chain[i], null);
-        break;
-      }
-      chain.push(cur);
-      chainSet.add(cur);
-
-      const curNode = allNodesById.get(cur);
-      if (!curNode?.superseded_by) {
-        for (let i = 0; i < chain.length; i++) {
-          const id = chain[i];
-          if (id !== cur) {
-            resolutionCache.set(id, cur);
-            depthCache.set(id, chain.length - 1 - i);
-          }
-        }
-        if (chain.length - 1 > 1) {
-          recorder?.record({
-            type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-            message: `loadTaxonomy: supersession chain ${chain.join(' → ')} — resolves to ${cur}`,
-          });
-        }
-        break;
-      }
-
-      const nextId = curNode.superseded_by;
-      if (!allNodesById.has(nextId)) {
-        recorder?.record({
-          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-          message: `loadTaxonomy: node ${cur} superseded_by "${nextId}" not found in taxonomy — treating as no survivor`,
-        });
-        for (const id of chain) resolutionCache.set(id, null);
-        break;
-      }
-      cur = nextId;
-    }
-
-    if (resolutionCache.has(cur)) {
-      const existingRes = resolutionCache.get(cur) ?? null;
-      const cachedDepth = depthCache.get(cur) ?? 0;
-      const totalHops = chain.length + cachedDepth;
-      if (existingRes !== null && totalHops > 1) {
-        recorder?.record({
-          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-          message: `loadTaxonomy: supersession chain ${[...chain, cur].join(' → ')} — resolves to ${existingRes}`,
-        });
-      }
-      for (let i = 0; i < chain.length; i++) {
-        const id = chain[i];
-        if (!resolutionCache.has(id)) {
-          resolutionCache.set(id, existingRes ?? null);
-          if (existingRes !== null) depthCache.set(id, chain.length - i + cachedDepth);
-        }
-      }
-    }
+    if (!startNode.superseded_by || caches.resolutionCache.has(startNode.id)) continue;
+    settleWalk(walkSupersession(startNode.id, allNodesById, caches.resolutionCache), caches);
   }
-  return { resolutionCache, depthCache };
+  return caches;
+}
+
+interface SupersessionCaches {
+  resolutionCache: Map<string, string | null>;
+  depthCache: Map<string, number>;
+}
+
+/** How a supersession walk ended: at a live survivor, at an already-resolved node, in a cycle, or
+ *  at a `superseded_by` target that isn't in the taxonomy. */
+type WalkEnd = 'survivor' | 'cached' | 'cycle' | 'dangling';
+
+interface SupersessionWalk {
+  /** Visited ids in order; for `survivor` it ends with the survivor itself. */
+  chain: string[];
+  /** The node the walk stopped on. */
+  cur: string;
+  end: WalkEnd;
+  /** `dangling` only: the missing target. */
+  missingTarget?: string;
+}
+
+function warnSupersession(message: string): void {
+  getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-loader', level: 'warn', message });
+}
+
+/** Follow `superseded_by` from `startId` until a survivor, a cached node, a cycle or a dangling target. */
+function walkSupersession(
+  startId: string,
+  allNodesById: Map<string, PovNode>,
+  resolutionCache: Map<string, string | null>,
+): SupersessionWalk {
+  const chain: string[] = [];
+  const seen = new Set<string>();
+  let cur = startId;
+  while (!resolutionCache.has(cur)) {
+    if (seen.has(cur)) return { chain, cur, end: 'cycle' };
+    chain.push(cur);
+    seen.add(cur);
+    const nextId = allNodesById.get(cur)?.superseded_by;
+    if (!nextId) return { chain, cur, end: 'survivor' };
+    if (!allNodesById.has(nextId)) return { chain, cur, end: 'dangling', missingTarget: nextId };
+    cur = nextId;
+  }
+  return { chain, cur, end: 'cached' };
+}
+
+/** Record a walk's outcome in the caches, emitting the same WARNs the inline walk did. */
+function settleWalk(walk: SupersessionWalk, caches: SupersessionCaches): void {
+  const { chain, cur } = walk;
+  if (walk.end === 'cycle') {
+    const cycleMembers = chain.slice(chain.indexOf(cur));
+    warnSupersession(`loadTaxonomy: supersession cycle: ${[...cycleMembers, cur].join(' → ')} — members excluded from selection`);
+    for (const id of chain) caches.resolutionCache.set(id, null);
+  } else if (walk.end === 'dangling') {
+    warnSupersession(`loadTaxonomy: node ${cur} superseded_by "${walk.missingTarget}" not found in taxonomy — treating as no survivor`);
+    for (const id of chain) caches.resolutionCache.set(id, null);
+  } else if (walk.end === 'survivor') {
+    settleToSurvivor(chain, cur, caches);
+  } else {
+    settleToCached(chain, cur, caches);
+  }
+}
+
+/** Every chain member before the survivor resolves to it, with its hop distance. */
+function settleToSurvivor(chain: string[], survivor: string, caches: SupersessionCaches): void {
+  chain.forEach((id, i) => {
+    if (id === survivor) return;
+    caches.resolutionCache.set(id, survivor);
+    caches.depthCache.set(id, chain.length - 1 - i);
+  });
+  if (chain.length - 1 > 1) {
+    warnSupersession(`loadTaxonomy: supersession chain ${chain.join(' → ')} — resolves to ${survivor}`);
+  }
+}
+
+/** The chain joined an already-resolved node: inherit its resolution (or its null) and add the hops. */
+function settleToCached(chain: string[], cur: string, caches: SupersessionCaches): void {
+  const existingRes = caches.resolutionCache.get(cur) ?? null;
+  const cachedDepth = caches.depthCache.get(cur) ?? 0;
+  if (existingRes !== null && chain.length + cachedDepth > 1) {
+    warnSupersession(`loadTaxonomy: supersession chain ${[...chain, cur].join(' → ')} — resolves to ${existingRes}`);
+  }
+  chain.forEach((id, i) => {
+    if (caches.resolutionCache.has(id)) return;
+    caches.resolutionCache.set(id, existingRes);
+    if (existingRes !== null) caches.depthCache.set(id, chain.length - i + cachedDepth);
+  });
 }
 
 export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
