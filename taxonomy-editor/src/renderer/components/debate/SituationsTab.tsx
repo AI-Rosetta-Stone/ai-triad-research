@@ -3,8 +3,10 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
-import type { SituationNode } from '../../types/taxonomy';
+import type { PovNode, SituationNode } from '../../types/taxonomy';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, isSupersededNode } from '../../hooks/useTaxonomyStore/superseded';
+import { SupersededBanner } from '../taxonomy/SupersededBanner';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { useResizablePanel, useResizableRightPanel } from '../../hooks/useResizablePanel';
@@ -210,6 +212,10 @@ interface SituationsNormalDetailProps {
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
   selectedNode: SituationNode | null;
+  /** t/4363 (t/4355 child): selectedNodeId resolved to a held-aside POV node rather than a
+   *  situations node. Shown read-only with the "Superseded by" banner, never through
+   *  SituationDetail (its `interpretations` field is required and POV nodes don't have one). */
+  supersededPovNode: PovNode | null;
   handlePin: () => void;
   handleRelated: () => void;
   handleDebate: () => void;
@@ -220,7 +226,7 @@ interface SituationsNormalDetailProps {
 // Pane 2, final branch: the normal detail panel (+ pinned stack).
 function SituationsNormalDetail({
   detailCollapsed, setDetailCollapsed, isPhone, selectedNodeId, setSelectedNodeId,
-  selectedNode, handlePin, handleRelated, handleDebate, pinnedStack, hasToolbarPane,
+  selectedNode, supersededPovNode, handlePin, handleRelated, handleDebate, pinnedStack, hasToolbarPane,
 }: SituationsNormalDetailProps) {
   return (
     <>
@@ -243,6 +249,14 @@ function SituationsNormalDetail({
           )}
           {selectedNode ? (
             <SituationDetail node={selectedNode} onPin={handlePin} onRelated={handleRelated} onDebate={handleDebate} />
+          ) : supersededPovNode ? (
+            <>
+              <SupersededBanner node={supersededPovNode} />
+              <div className="detail-panel-superseded-readonly">
+                <h3>{supersededPovNode.label}</h3>
+                <p>{supersededPovNode.description}</p>
+              </div>
+            </>
           ) : (
             <div className="detail-panel-empty">Select a situation node to edit</div>
           )}
@@ -321,14 +335,33 @@ function SituationsDetailPane({
   );
 }
 
+/**
+ * t/4363 (t/4355 child): `selectedNodeId` is normally a situations-node id, resolved above via
+ * `situations.nodes.find`. `allNodesById` only indexes POV nodes (acc/saf/skp) — the situations/cc
+ * file is a separate slice, never held aside — so this fallback only fires if `selectedNodeId` ever
+ * resolves to a POV id while this tab is mounted, and only surfaces it when that node is superseded
+ * (a live POV node isn't this tab's business to show). Exported for direct unit testing. TL p/696#8:
+ * reads the caller's already-subscribed store state, so the component stays reactive.
+ */
+export function resolveSupersededFallback(
+  selectedSituationNode: SituationNode | null,
+  selectedNodeId: string | null,
+  taxonomyState: Parameters<typeof allNodesById>[0],
+): PovNode | null {
+  if (selectedSituationNode || !selectedNodeId) return null;
+  const node = allNodesById(taxonomyState).get(selectedNodeId);
+  return node && isSupersededNode(node) ? node : null;
+}
+
 export function SituationsTab() {
+  const taxonomyState = useTaxonomyStore();
   const {
     situations, selectedNodeId, setSelectedNodeId, createSituationNode,
     pinnedStack, pinAtDepth,
     attributeFilter, attributeInfo,
     relatedNodeId, showRelatedEdges, selectedEdge,
     toolbarPanel, setActiveTab,
-  } = useTaxonomyStore();
+  } = taxonomyState;
   const [listCollapsed, setListCollapsed] = useState(false);
   const [detailCollapsed, setDetailCollapsed] = useState(false);
   const [sitSortMode, setSitSortMode] = useState<SitSortMode>('label');
@@ -502,6 +535,7 @@ export function SituationsTab() {
   }, []);
 
   const selectedNode = situations?.nodes.find(n => n.id === selectedNodeId) || null;
+  const supersededPovNode = resolveSupersededFallback(selectedNode, selectedNodeId, taxonomyState);
 
   // Hooks must precede the `if (!situations)` early return (rules-of-hooks, t/2299).
   // selectedNode was already `... || null`, so hoisting it does not change its type.
@@ -710,6 +744,7 @@ export function SituationsTab() {
             selectedNodeId={selectedNodeId}
             setSelectedNodeId={setSelectedNodeId}
             selectedNode={selectedNode}
+            supersededPovNode={supersededPovNode}
             handlePin={handlePin}
             handleRelated={handleRelated}
             handleDebate={handleDebate}
