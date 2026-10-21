@@ -83,6 +83,25 @@ Describe 'metadata.json whole-object rewrites preserve ISO strings (t/4366)' -Ta
         $after | Should -Match '"total_facts": 3'
     }
 
+    It 'single-doc Invoke-POVSummary metadata write keeps import_time and nested timestamps verbatim' {
+        $snap = Join-Path $script:Dir 'snapshot.md'
+        [System.IO.File]::WriteAllText($snap, "# Shape test`n`nbody`n")
+        InModuleScope AITriad -Parameters @{ F = $script:MetaFile; S = $snap } {
+            param($F, $S)
+            Mock Get-POVSummaryNodeRefStat { [pscustomobject]@{ NodeRefsByPov = @{}; PrimaryPovDist = @{} } }
+            Mock Get-POVSummaryKeyPointTotal { 3 }
+            Mock Test-POVSummaryUnderExtracted { [pscustomobject]@{ Flagged = $false; SizeKB = 0 } }
+            Mock Update-AITSourceIndex {}
+            Write-POVSummaryMetadataFile -Paths @{ MetadataFile = $F; SnapshotFile = $S } -DocId 'shape-test-2026' -TaxonomyVersion 'v-new' `
+                -SummaryObject ([pscustomobject]@{}) -FactualClaimCount 0 -UnmappedConceptCount 0 -ContextRotStages @() -ContextRotObj $null 6>$null 3>$null
+        }
+        $after = [System.IO.File]::ReadAllText($script:MetaFile)
+        $after | Should -Match ([regex]::Escape('"import_time": "' + $script:ImportTime + '"'))
+        $after | Should -Match ([regex]::Escape('"last_edited_at": "' + $script:EditedAt + '"'))
+        $after | Should -Match '"summary_version": "v-new"'
+        $after | Should -Match '"total_facts": 3'
+    }
+
     It 'ConvertFrom-JsonPreserveShape -AsOrderedHashtable keeps key order, strings and single-element arrays' {
         InModuleScope AITriad -Parameters @{ J = $script:Original; T = $script:ImportTime } {
             param($J, $T)
