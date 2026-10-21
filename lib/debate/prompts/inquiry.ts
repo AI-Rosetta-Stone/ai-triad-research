@@ -63,6 +63,7 @@ FIGURES RULE (applies to every field): Do not introduce any number, percentage, 
    - "camp": the camp code
    - "verdict": 2-4 sentences summarising this camp's position on the question
    - "nodeIds": 1-3 grounding node IDs (from the list above) most relevant to this camp's answer
+   - If the grounding context has a "NOTE (<camp>)" line, begin that camp's verdict with "The taxonomy has little that speaks directly to this question; " and do not present the camp's general position as its specific answer.
 
 2. convergences — points where two or more camps agree despite different framings (0-5 items).
    - "claim": the shared claim or point of agreement, in one sentence
@@ -86,14 +87,19 @@ FIGURES RULE (applies to every field): Do not introduce any number, percentage, 
 Return ONLY the JSON object. No preamble, no commentary, no markdown fences.`;
 }
 
-/** Format the grounding envelope's per-camp nodes as context lines for the prompt. */
+/** Format the grounding envelope's per-camp nodes as context lines for the prompt.
+ * When campCoverage is provided, appends a NOTE line for any low-coverage camp (t/4374). */
 export function formatGroundingContext(
   nodesByCamp: Partial<Record<string, Array<{ nodeId: string; label: string }>>>,
+  campCoverage?: Partial<Record<string, { lowCoverage: boolean }>>,
 ): string {
   const lines: string[] = [];
   for (const [camp, refs] of Object.entries(nodesByCamp)) {
     for (const ref of refs ?? []) {
       lines.push(`  ${ref.nodeId} (${camp}): ${ref.label}`);
+    }
+    if (campCoverage?.[camp]?.lowCoverage) {
+      lines.push(`  NOTE (${camp}): the taxonomy has no position that closely matches this question. The nodes above are this camp's nearest general positions, not a direct answer.`);
     }
   }
   return lines.length > 0 ? lines.join('\n') : '(no grounding nodes available)';

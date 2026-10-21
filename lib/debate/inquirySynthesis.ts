@@ -245,7 +245,7 @@ export async function synthesizeInquiry(
   const anEdges = session.argument_network?.edges ?? [];
   const transcriptHighlights = extractTranscriptHighlights(session.transcript ?? [], anNodes);
   const anSummary = summarizeArgumentNetwork(anNodes, anEdges);
-  const groundingContext = formatGroundingContext(grounding.nodesByCamp);
+  const groundingContext = formatGroundingContext(grounding.nodesByCamp, grounding.campCoverage);
 
   const prompt = inquirySynthesisPrompt(
     request.question,

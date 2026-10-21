@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { buildGroundingEnvelope, type GroundingTaxonomy } from './inquiryGrounding.js';
+import { formatGroundingContext } from './prompts/inquiry.js';
 import type { NodeEmbeddingMap } from './relevanceSelection.js';
 import type { PovNode } from './taxonomyTypes.js';
 import { TAG_SCOPE_MINIMUM_NODES } from './debateConfig.js';
@@ -558,5 +559,63 @@ describe('buildGroundingEnvelope — low coverage (t/4374)', () => {
     expect(envelope.campCoverage?.['skp']?.lowCoverage).toBe(false);
     expect(envelope.campCoverage?.['cc']?.lowCoverage).toBe(false);
     expect((envelope.nodesByCamp['acc'] ?? []).length).toBeGreaterThan(0);
+  });
+});
+
+// ── Low coverage: SCOPE excludes the only high-scoring node (t/4374 item 1) ──
+
+describe('buildGroundingEnvelope — low coverage under SCOPE (t/4374)', () => {
+  it('SCOPE: lowCoverage=true when only node above threshold is untagged and excluded', async () => {
+    // skp has 5 tagged nodes (meets floor) all with score 0.0, and 1 untagged node with score 1.0.
+    // Under SCOPE, the untagged node is excluded — eligible set has only the 5 tagged nodes → rawBestScore=0 < 0.45.
+    const povNodes: PovNode[] = [
+      makeNode('skp-beliefs-001', 'K1', ['critical']),
+      makeNode('skp-beliefs-002', 'K2', ['critical']),
+      makeNode('skp-beliefs-003', 'K3', ['critical']),
+      makeNode('skp-beliefs-004', 'K4', ['critical']),
+      makeNode('skp-beliefs-005', 'K5', ['critical']),
+      makeNode('skp-beliefs-006', 'K6'),   // untagged — only match above threshold
+    ];
+    // question = unitVec(8,0); skp-beliefs-006 = unitVec(8,0) → score 1.0; all tagged = unitVec(8,1..5) → score 0.0
+    const nodeEmbeddings: NodeEmbeddingMap = {
+      'skp-beliefs-001': { pov: 'skp', vector: unitVec(8, 1) },
+      'skp-beliefs-002': { pov: 'skp', vector: unitVec(8, 2) },
+      'skp-beliefs-003': { pov: 'skp', vector: unitVec(8, 3) },
+      'skp-beliefs-004': { pov: 'skp', vector: unitVec(8, 4) },
+      'skp-beliefs-005': { pov: 'skp', vector: unitVec(8, 5) },
+      'skp-beliefs-006': { pov: 'skp', vector: unitVec(8, 0) }, // high-scoring but untagged
+    };
+    const taxonomy: GroundingTaxonomy = { povNodes, situationNodes: [], nodeEmbeddings };
+    const { envelope } = await buildGroundingEnvelope('q', taxonomy, distinctEmbed, {
+      tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' },
+    });
+    expect(envelope.campCoverage?.['skp']?.lowCoverage).toBe(true);
+    // The untagged high-scoring node must NOT appear in the grounded set
+    const skpIds = (envelope.nodesByCamp['skp'] ?? []).map(r => r.nodeId);
+    expect(skpIds).not.toContain('skp-beliefs-006');
+  });
+});
+
+// ── formatGroundingContext NOTE line (t/4374 item 3) ────────────────────────
+
+describe('formatGroundingContext — NOTE line for low-coverage camps (t/4374)', () => {
+  it('emits a NOTE line for a low-coverage camp', () => {
+    const nodesByCamp = { acc: [{ nodeId: 'acc-beliefs-001', label: 'A1' }] };
+    const campCoverage = { acc: { lowCoverage: true } };
+    const result = formatGroundingContext(nodesByCamp, campCoverage);
+    expect(result).toContain('NOTE (acc): the taxonomy has no position that closely matches this question.');
+  });
+
+  it('does not emit a NOTE line for a covered camp', () => {
+    const nodesByCamp = { acc: [{ nodeId: 'acc-beliefs-001', label: 'A1' }] };
+    const campCoverage = { acc: { lowCoverage: false } };
+    const result = formatGroundingContext(nodesByCamp, campCoverage);
+    expect(result).not.toContain('NOTE (acc)');
+  });
+
+  it('does not emit a NOTE line when campCoverage is omitted', () => {
+    const nodesByCamp = { acc: [{ nodeId: 'acc-beliefs-001', label: 'A1' }] };
+    const result = formatGroundingContext(nodesByCamp);
+    expect(result).not.toContain('NOTE');
   });
 });

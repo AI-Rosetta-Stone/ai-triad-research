@@ -482,6 +482,13 @@ The decision thresholds for the t/3963 primary outcome, operationalised in the p
 
 **Revisit when** the pilot reports. If within-wing distances cluster near between-wing ones on every motion, the instrument may not separate voices at all, and a different unit (crux sets, cited-node sets) should be the primary.
 
+## 21. Inquiry grounding: per-camp low-coverage threshold (t/4374, t/4292)
+
+The threshold below which a camp's grounding is flagged `lowCoverage` in `buildGroundingEnvelope` (`LOW_COVERAGE_THRESHOLD`). **It isn't a `CalibrationDataPoint` field, so it's excluded from the §5 count.**
+
+| Item | Value | Provenance | Evidence / notes |
+|---|---|---|---|
+| `LOW_COVERAGE_THRESHOLD` | best raw (unboosted) cosine over the camp's eligible nodes < 0.45 | **stipulated** | `analyses/t4292-envelope-floor/findings.md` (offline, 15 questions, 45 camp sets): the selected-node median is 0.500, the two observed generic q3 saf nodes score 0.448 and 0.444, and every forecasting camp set's best score is ≤ 0.45. **It isn't validated as a classifier:** some policy sets also score below it, and only 4 selections are labelled (n = 4). |
 ## Maintenance
 
 - Every PR adding or modifying a metric, threshold, weight, or lexicon must state its provenance class and update this register in the same PR (CL review checklist item).

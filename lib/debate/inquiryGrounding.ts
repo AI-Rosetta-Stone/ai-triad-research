@@ -205,13 +205,7 @@ export async function buildGroundingEnvelope(
 
   for (const [camp, scored] of byCamp.entries()) {
     let activeScoredEntries = scored;
-
-    const rawBestScore = scored.length > 0 ? Math.max(...scored.map(s => s.score)) : 0;
-    const lowCoverage = scored.length === 0 || rawBestScore < LOW_COVERAGE_THRESHOLD;
-    campCoverage[camp] = { bestRawScore: rawBestScore, lowCoverage };
-    if (lowCoverage && scored.length > 0) {
-      warn(`buildGroundingEnvelope: camp '${camp}' low coverage — best raw score ${rawBestScore.toFixed(3)} (threshold ${LOW_COVERAGE_THRESHOLD})`);
-    }
+    let eligibleScoredEntries = scored; // pre-boost eligible set for coverage signal (t/4374)
 
     if (opts.tagSelection && camp === tagCamp) {
       const sel = opts.tagSelection;
@@ -220,6 +214,7 @@ export async function buildGroundingEnvelope(
       if (sel.mode === 'scope') {
         const filteredIds = new Set(filteredNodes.map(n => n.id));
         activeScoredEntries = scored.filter(s => filteredIds.has(s.node.id));
+        eligibleScoredEntries = activeScoredEntries; // scope narrows the eligible set
         if (excludedCount > 0) {
           warn(`buildGroundingEnvelope: scope tag '${sel.tag}' on '${sel.pov}' excluded ${excludedCount} nodes not tagged ${sel.tag} from grounding`);
         }
@@ -230,7 +225,15 @@ export async function buildGroundingEnvelope(
           boostSet.has(s.node.id) ? { ...s, score: s.score + TAG_BOOST_INCREMENT } : s,
         );
         appliedTag = { pov: sel.pov, tag: sel.tag, mode: sel.mode, included: boostIds.length, excludedUntagged: 0 };
+        // eligibleScoredEntries stays as scored — prioritize doesn't filter, uses unboosted scores
       }
+    }
+
+    const rawBestScore = eligibleScoredEntries.length > 0 ? Math.max(...eligibleScoredEntries.map(s => s.score)) : 0;
+    const lowCoverage = eligibleScoredEntries.length === 0 || rawBestScore < LOW_COVERAGE_THRESHOLD;
+    campCoverage[camp] = { bestRawScore: rawBestScore, lowCoverage };
+    if (lowCoverage && eligibleScoredEntries.length > 0) {
+      warn(`buildGroundingEnvelope: camp '${camp}' low coverage — best raw score ${rawBestScore.toFixed(3)} (threshold ${LOW_COVERAGE_THRESHOLD})`);
     }
 
     activeScoredEntries.sort((a, b) => b.score - a.score);
