@@ -279,13 +279,28 @@ function ConvertFrom-MarkItDown {
     if (-not (Test-ExternalTool 'markitdown')) { return $null }
 
     Write-Host "   →  Using markitdown for conversion" -ForegroundColor Gray
+    # t/4394: write to a file and read it back as UTF-8. Capturing markitdown's stdout decoded it through
+    # the console code page (cp437 on Windows): U+2019 came out as U+00C6 when Python wrote cp1252, or as
+    # U+0393 U+00C7 U+00D6 when it wrote UTF-8 -- 500+ snapshots. PYTHONIOENCODING keeps any text Python
+    # still prints UTF-8 too. Existing snapshots are repaired on read (Repair-SnapshotMojibake).
+    $TempOut   = Join-Path ([System.IO.Path]::GetTempPath()) ('markitdown-{0}.md' -f [guid]::NewGuid().ToString('N'))
+    $PrevPyEnc = $env:PYTHONIOENCODING
     try {
-        $Result = & markitdown $FilePath 2>$null
-        if ($LASTEXITCODE -eq 0 -and $Result) {
-            return ($Result -join "`n").Trim()
+        $env:PYTHONIOENCODING = 'utf-8'
+        & markitdown $FilePath -o $TempOut 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $TempOut) -and (Get-Item -LiteralPath $TempOut).Length -gt 0) {
+            $Result = Get-Content -LiteralPath $TempOut -Raw -Encoding utf8
+            # LF line endings, as the old stdout capture produced, so snapshots keep their shape.
+            return ($Result -replace "`r`n", "`n").Trim()
         }
     }
-    catch { }
+    catch {
+        Write-Warning "markitdown threw for '$(Split-Path $FilePath -Leaf)': $($_.Exception.Message)"
+    }
+    finally {
+        $env:PYTHONIOENCODING = $PrevPyEnc
+        Remove-Item -LiteralPath $TempOut -Force -ErrorAction SilentlyContinue
+    }
 
     Write-Host "   ⚠  markitdown failed for '$(Split-Path $FilePath -Leaf)'" -ForegroundColor Yellow
     return $null
@@ -331,7 +346,8 @@ function ConvertFrom-Pdf {
         Write-Host "   →  Using pdftotext for PDF extraction" -ForegroundColor Gray
         $TempOut = [System.IO.Path]::GetTempFileName() + '.txt'
         try {
-            & pdftotext $PdfPath $TempOut 2>$null
+            # -enc UTF-8: the output encoding is otherwise poppler-version dependent (t/4394).
+            & pdftotext -enc UTF-8 $PdfPath $TempOut 2>$null
             if ((Test-Path $TempOut) -and (Get-Item $TempOut).Length -gt 0) {
                 $RawText = Get-Content $TempOut -Raw -Encoding UTF8
                 return (Optimize-PdfText -RawText $RawText)
@@ -343,8 +359,17 @@ function ConvertFrom-Pdf {
 
     if (Test-ExternalTool 'mutool') {
         Write-Host "   →  Using mutool for PDF extraction" -ForegroundColor Gray
-        $Result = & mutool draw -F txt $PdfPath 2>$null
-        if ($LASTEXITCODE -eq 0 -and $Result) { return $Result -join "`n" }
+        # t/4394: file output read as UTF-8, not stdout decoded through the console code page.
+        $TempOut = Join-Path ([System.IO.Path]::GetTempPath()) ('mutool-{0}.txt' -f [guid]::NewGuid().ToString('N'))
+        try {
+            & mutool draw -F txt -o $TempOut $PdfPath 2>$null
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $TempOut) -and (Get-Item -LiteralPath $TempOut).Length -gt 0) {
+                return ((Get-Content -LiteralPath $TempOut -Raw -Encoding utf8) -replace "`r`n", "`n")
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $TempOut -Force -ErrorAction SilentlyContinue
+        }
     }
 
     Write-Host "   ⚠  No PDF extraction tool found. Install markitdown ('pip install markitdown[all]'), pdftotext, or mutool." -ForegroundColor Yellow
