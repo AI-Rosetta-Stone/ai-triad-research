@@ -248,6 +248,7 @@ exports[`server.ts route table (t/1295 — zero-behaviour-change guard) > ordere
   "POST /api/policy-registry/recount",
   "POST /internal/canary/loop-sampler/start",
   "POST /internal/canary/loop-sampler/report",
+  "GET /api/diag/forwarded-headers",
 ]
 `;
 
@@ -319,6 +320,7 @@ exports[`server.ts route table (t/1295 — zero-behaviour-change guard) > route 
   "GET /api/debates/:id/comments",
   "GET /api/debates/list",
   "GET /api/debates/quota-status",
+  "GET /api/diag/forwarded-headers",
   "GET /api/dictionary",
   "GET /api/doc-titles",
   "GET /api/edges",
