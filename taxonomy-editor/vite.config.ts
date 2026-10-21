@@ -254,6 +254,7 @@ export default defineConfig({
       '../../../lib/inquiry/**/*.test.ts',   // t/3574 — inquiry result contract (Zod schemas + parseInquiryResult), fixture-based, no ai-triad-data
       '../../../lib/policy/**/*.test.ts',    // t/4034 — policy registry recount (pure, fixture-based, no ai-triad-data)
       '../../../lib/sourceIndex/**/*.test.ts', // t/4334 — canonical-doc-id algorithm (pure, fixture-based, Electron/web parity)
+      '../../../lib/data-formats/**/*.test.ts', // t/4353 — file-writers registry shape + every writer path exists
       '../../../lib/*.test.ts',
       // translation tests excluded — depend on ai-triad-data dictionary not available in CI
     ],
