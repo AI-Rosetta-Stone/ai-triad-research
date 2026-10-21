@@ -180,6 +180,7 @@ A document `X` with `duplicate_of: T` has a **valid mark** when every check belo
 - **An invalid mark is treated as absent** by the canonical rule, the resolver and selection. The document stays selectable and resolves to itself, so a bad mark is visible and hides nothing.
 - **Grouping reports every error** as `{id, target, kind}`, sorted by `id` (ordinal).
 - **Consumers WARN on errors at load and never throw.** The cleanup write is gated on **zero** errors, checked against the frozen list before anything is written.
+  - **Its `/data-mutation` proof asserts structurally that the frozen list has no chains** (TL, t/4337#13): no target is also marked, and each group has exactly one target.
 - In a two-document cycle (`A → B`, `B → A`), both marks are `chain` errors.
 
 ### 6.2 Resolver
@@ -191,3 +192,15 @@ A document `X` with `duplicate_of: T` has a **valid mark** when every check belo
 ### 6.3 Selection and evidence
 - **Selectable documents** are the documents with no valid mark. Listings, pickers, AI producer inputs, and the summary and batch pipelines use only these.
 - **Evidence and attribution** (`source_index`, `source_evidence_index`, entity indexes, citation counts) attribute each citation to `resolve(id)` and count each resolved id **once**. A duplicate pair therefore gives one evidence unit, not two.
+
+### 6.4 Exact versus resolved id
+Every citation has two ids, and each has its own use. This mirrors the taxonomy's `superseded_by` split (t/4354):
+
+| | **Exact id** (as cited) | **Resolved id** (`resolve(exact)`) |
+|---|---|---|
+| **Used for** | History: stored records, citations and provenance | New attribution: evidence counts, index entries, selection |
+| **Stored data** | **Kept as written.** A mark never rewrites an existing reference: debates, analyses, summaries and taxonomy `source_refs` keep the id they cite. | Computed at read time, never persisted over the exact id. |
+| **Display** | What the record actually cited | The document to show or open as primary |
+
+- **A consumer may show both** (for example "cited as X, now Y"). It must never replace a stored exact id with the resolved id.
+- **Why:** the mark is the reviewed fact, and grouping is a heuristic that can change with the spec. Keeping the exact id means removing or correcting a mark restores the original attribution, with no data repair.
