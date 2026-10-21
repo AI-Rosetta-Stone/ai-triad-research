@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { PovNode, SituationNode, EdgesFile } from './taxonomyTypes.js';
+import type { PovNode, SituationNode, EdgesFile, Edge } from './taxonomyTypes.js';
 import type { PolicyRef, SituationStatements } from './taxonomyContext.js';
 import { ActionableError } from './errors.js';
 import { parseNpy, extractNodeVectors } from '../npy.js';
@@ -32,15 +32,39 @@ export interface NodeEmbedding {
 }
 
 export interface LoadedTaxonomy {
+  /** Selectable POV nodes only (no superseded_by). */
   accelerationist: { nodes: PovNode[] };
+  /** Selectable POV nodes only (no superseded_by). */
   safetyist: { nodes: PovNode[] };
+  /** Selectable POV nodes only (no superseded_by). */
   skeptic: { nodes: PovNode[] };
   situations: { nodes: SituationNode[] };
+  /** Selectable edge set — both source and target are non-superseded. Default for all consumers. */
   edges: EdgesFile | null;
+  /** Full edge set including edges to/from superseded nodes. Use for history, display and QBAF readers. */
+  allEdges: EdgesFile | null;
+  /** Embeddings for selectable nodes only. Superseded node embeddings are excluded. */
   embeddings: Record<string, NodeEmbedding>;
   policyRegistry: PolicyRef[];
   /** Lineage category data (L1 + L2 cluster mapping). Absent if file not found. */
   lineageCategories?: LineageCategoryData;
+  /**
+   * All nodes by ID including superseded. Use `.get(id)` when you need the exact stored node
+   * (historical debate citations, audit trails — the node as it was when cited). Never use it
+   * to pick a node for new reasoning; use resolveNode instead.
+   */
+  allNodesById: Map<string, PovNode>;
+  /**
+   * Resolve a node ID to its canonical survivor for new attribution and reasoning.
+   * - Non-superseded node: returns itself.
+   * - Superseded node with a valid chain to a non-superseded node: returns the chain endpoint.
+   * - Superseded node in a cycle or with a dangling target: returns the node itself (WARN at load).
+   * - Unknown ID: returns undefined.
+   *
+   * Contrast with allNodesById.get(id): that returns the exact stored node for historical lookup;
+   * resolveNode follows the chain to give the current canonical node for new reasoning.
+   */
+  resolveNode: (id: string) => PovNode | undefined;
 }
 
 export interface ConflictFile {
@@ -227,6 +251,138 @@ function loadJsonSafe<T>(filePath: string, fallback: T): T {
   }
 }
 
+/** Merge synthetic multi-vector embeddings into the base embedding map in-place. */
+function loadSyntheticEmbeddings(synDir: string, embeddings: Record<string, NodeEmbedding>): void {
+  for (const pov of ['acc', 'saf', 'skp']) {
+    const npyPath = path.join(synDir, `embeddings_${pov}.npy`);
+    const idxPath = path.join(synDir, `index_${pov}.json`);
+    if (!fs.existsSync(npyPath) || !fs.existsSync(idxPath)) continue;
+    const parsed = parseNpy(fs.readFileSync(npyPath));
+    const index = loadJsonSafe<Record<string, { start: number; count: number }>>(idxPath, {});
+    const synVecs = extractNodeVectors(parsed, index, pov);
+    for (const [nodeId, entry] of Object.entries(synVecs)) {
+      if (!entry.vectors?.length) continue;
+      if (embeddings[nodeId]) {
+        embeddings[nodeId].vectors = entry.vectors;
+      } else {
+        embeddings[nodeId] = { pov: entry.pov, vector: entry.vectors[0], vectors: entry.vectors };
+      }
+    }
+  }
+}
+
+/** Normalise the lineage mapping: support both old flat-string and new {l1, l2} value formats. */
+function normalizeLineageMapping(
+  raw: Record<string, string | { l1: string; l2: string }>,
+): Record<string, { l1: string; l2: string }> {
+  const out: Record<string, { l1: string; l2: string }> = {};
+  for (const [name, val] of Object.entries(raw)) {
+    out[name] = typeof val === 'string' ? { l1: val, l2: 'uncategorized' } : val;
+  }
+  return out;
+}
+
+/** Walk supersession chains for all POV nodes, recording the ultimate survivor (or null for
+ *  cycles/dangling targets) and per-node hop depth. Emits WARN via the global flight recorder. */
+function resolveSupersessionChains(
+  allPovNodes: PovNode[],
+  allNodesById: Map<string, PovNode>,
+): { resolutionCache: Map<string, string | null>; depthCache: Map<string, number> } {
+  const caches: SupersessionCaches = { resolutionCache: new Map(), depthCache: new Map() };
+  for (const startNode of allPovNodes) {
+    if (!startNode.superseded_by || caches.resolutionCache.has(startNode.id)) continue;
+    settleWalk(walkSupersession(startNode.id, allNodesById, caches.resolutionCache), caches);
+  }
+  return caches;
+}
+
+interface SupersessionCaches {
+  resolutionCache: Map<string, string | null>;
+  depthCache: Map<string, number>;
+}
+
+/** How a supersession walk ended: at a live survivor, at an already-resolved node, in a cycle, or
+ *  at a `superseded_by` target that isn't in the taxonomy. */
+type WalkEnd = 'survivor' | 'cached' | 'cycle' | 'dangling';
+
+interface SupersessionWalk {
+  /** Visited ids in order; for `survivor` it ends with the survivor itself. */
+  chain: string[];
+  /** The node the walk stopped on. */
+  cur: string;
+  end: WalkEnd;
+  /** `dangling` only: the missing target. */
+  missingTarget?: string;
+}
+
+function warnSupersession(message: string): void {
+  getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-loader', level: 'warn', message });
+}
+
+/** Follow `superseded_by` from `startId` until a survivor, a cached node, a cycle or a dangling target. */
+function walkSupersession(
+  startId: string,
+  allNodesById: Map<string, PovNode>,
+  resolutionCache: Map<string, string | null>,
+): SupersessionWalk {
+  const chain: string[] = [];
+  const seen = new Set<string>();
+  let cur = startId;
+  while (!resolutionCache.has(cur)) {
+    if (seen.has(cur)) return { chain, cur, end: 'cycle' };
+    chain.push(cur);
+    seen.add(cur);
+    const nextId = allNodesById.get(cur)?.superseded_by;
+    if (!nextId) return { chain, cur, end: 'survivor' };
+    if (!allNodesById.has(nextId)) return { chain, cur, end: 'dangling', missingTarget: nextId };
+    cur = nextId;
+  }
+  return { chain, cur, end: 'cached' };
+}
+
+/** Record a walk's outcome in the caches, emitting the same WARNs the inline walk did. */
+function settleWalk(walk: SupersessionWalk, caches: SupersessionCaches): void {
+  const { chain, cur } = walk;
+  if (walk.end === 'cycle') {
+    const cycleMembers = chain.slice(chain.indexOf(cur));
+    warnSupersession(`loadTaxonomy: supersession cycle: ${[...cycleMembers, cur].join(' → ')} — members excluded from selection`);
+    for (const id of chain) caches.resolutionCache.set(id, null);
+  } else if (walk.end === 'dangling') {
+    warnSupersession(`loadTaxonomy: node ${cur} superseded_by "${walk.missingTarget}" not found in taxonomy — treating as no survivor`);
+    for (const id of chain) caches.resolutionCache.set(id, null);
+  } else if (walk.end === 'survivor') {
+    settleToSurvivor(chain, cur, caches);
+  } else {
+    settleToCached(chain, cur, caches);
+  }
+}
+
+/** Every chain member before the survivor resolves to it, with its hop distance. */
+function settleToSurvivor(chain: string[], survivor: string, caches: SupersessionCaches): void {
+  chain.forEach((id, i) => {
+    if (id === survivor) return;
+    caches.resolutionCache.set(id, survivor);
+    caches.depthCache.set(id, chain.length - 1 - i);
+  });
+  if (chain.length - 1 > 1) {
+    warnSupersession(`loadTaxonomy: supersession chain ${chain.join(' → ')} — resolves to ${survivor}`);
+  }
+}
+
+/** The chain joined an already-resolved node: inherit its resolution (or its null) and add the hops. */
+function settleToCached(chain: string[], cur: string, caches: SupersessionCaches): void {
+  const existingRes = caches.resolutionCache.get(cur) ?? null;
+  const cachedDepth = caches.depthCache.get(cur) ?? 0;
+  if (existingRes !== null && chain.length + cachedDepth > 1) {
+    warnSupersession(`loadTaxonomy: supersession chain ${[...chain, cur].join(' → ')} — resolves to ${existingRes}`);
+  }
+  chain.forEach((id, i) => {
+    if (caches.resolutionCache.has(id)) return;
+    caches.resolutionCache.set(id, existingRes);
+    if (existingRes !== null) caches.depthCache.set(id, chain.length - i + cachedDepth);
+  });
+}
+
 export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
   const dataRoot = resolveDataRoot(repoRoot);
   const config = loadConfig(repoRoot);
@@ -236,7 +392,7 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
   const saf = loadJsonSafe<{ nodes: PovNode[] }>(path.join(taxonomyDir, 'safetyist.json'), { nodes: [] });
   const skp = loadJsonSafe<{ nodes: PovNode[] }>(path.join(taxonomyDir, 'skeptic.json'), { nodes: [] });
   const sit = loadJsonSafe<{ nodes: SituationNode[] }>(path.join(taxonomyDir, 'situations.json'), { nodes: [] });
-  const edges = loadJsonSafe<EdgesFile | null>(path.join(taxonomyDir, 'edges.json'), null);
+  const allEdges = loadJsonSafe<EdgesFile | null>(path.join(taxonomyDir, 'edges.json'), null);
 
   // Embeddings: { model, dimension, node_count, nodes: { [id]: { pov, vector } } }
   const embeddingsRaw = loadJsonSafe<{ nodes?: Record<string, { pov: string; vector: number[] }> }>(
@@ -247,24 +403,7 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
 
   // Synthetic multi-vector embeddings (optional — produced by Export-SyntheticEmbeddings)
   const synDir = path.join(taxonomyDir, 'synthetic');
-  for (const pov of ['acc', 'saf', 'skp']) {
-    const npyPath = path.join(synDir, `embeddings_${pov}.npy`);
-    const idxPath = path.join(synDir, `index_${pov}.json`);
-    if (!fs.existsSync(npyPath) || !fs.existsSync(idxPath)) continue;
-
-    const parsed = parseNpy(fs.readFileSync(npyPath));
-    const index = loadJsonSafe<Record<string, { start: number; count: number }>>(idxPath, {});
-    const synVecs = extractNodeVectors(parsed, index, pov);
-
-    for (const [nodeId, entry] of Object.entries(synVecs)) {
-      if (!entry.vectors?.length) continue;
-      if (embeddings[nodeId]) {
-        embeddings[nodeId].vectors = entry.vectors;
-      } else {
-        embeddings[nodeId] = { pov: entry.pov, vector: entry.vectors[0], vectors: entry.vectors };
-      }
-    }
-  }
+  loadSyntheticEmbeddings(synDir, embeddings);
 
   // Policy registry
   const policyRaw = loadJsonSafe<{ policies?: { id: string; action: string; source_povs?: string[] }[] }>(
@@ -285,30 +424,57 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
 
   let lineageCategories: LineageCategoryData | undefined;
   if (lineageRaw?.mapping && lineageRaw?.level2_categories) {
-    // Normalize mapping: support both old flat string and new {l1, l2} formats
-    const normalizedMapping: Record<string, { l1: string; l2: string }> = {};
-    for (const [name, val] of Object.entries(lineageRaw.mapping)) {
-      if (typeof val === 'string') {
-        normalizedMapping[name] = { l1: val, l2: 'uncategorized' };
-      } else {
-        normalizedMapping[name] = val;
-      }
-    }
     lineageCategories = {
-      mapping: normalizedMapping,
+      mapping: normalizeLineageMapping(lineageRaw.mapping),
       level2_categories: lineageRaw.level2_categories,
     };
   }
 
+  // ── Supersession: chain resolution + cycle/dangling detection ────────────────
+  const allPovNodes: PovNode[] = [
+    ...(acc.nodes ?? []),
+    ...(saf.nodes ?? []),
+    ...(skp.nodes ?? []),
+  ];
+  const allNodesById = new Map<string, PovNode>(allPovNodes.map(n => [n.id, n]));
+
+  const { resolutionCache, depthCache } = resolveSupersessionChains(allPovNodes, allNodesById);
+
+  const resolveNode = (id: string): PovNode | undefined => {
+    const node = allNodesById.get(id);
+    if (!node) return undefined;
+    if (!node.superseded_by) return node;
+    const resolved = resolutionCache.get(id);
+    if (!resolved) return node; // cycle or dangling — return self
+    return allNodesById.get(resolved) ?? node;
+  };
+
+  // Superseded IDs only — used to exclude rather than include, so sit/policy/cc nodes pass through.
+  const supersededIds = new Set(allPovNodes.filter(n => n.superseded_by).map(n => n.id));
+
+  // Filter embeddings: drop superseded POV nodes only; keep all other node types (sit, policy, cc).
+  const selectableEmbeddings: Record<string, NodeEmbedding> = {};
+  for (const [id, emb] of Object.entries(embeddings)) {
+    if (!supersededIds.has(id)) selectableEmbeddings[id] = emb;
+  }
+
+  // Build selectable edge set: drop any edge whose source or target is superseded.
+  const edges: EdgesFile | null = allEdges
+    ? { ...allEdges, edges: allEdges.edges.filter(e => !supersededIds.has(e.source) && !supersededIds.has(e.target)) }
+    : null;
+
   return {
-    accelerationist: { nodes: acc.nodes ?? [] },
-    safetyist: { nodes: saf.nodes ?? [] },
-    skeptic: { nodes: skp.nodes ?? [] },
+    accelerationist: { nodes: (acc.nodes ?? []).filter(n => !n.superseded_by) },
+    safetyist: { nodes: (saf.nodes ?? []).filter(n => !n.superseded_by) },
+    skeptic: { nodes: (skp.nodes ?? []).filter(n => !n.superseded_by) },
     situations: { nodes: sit.nodes ?? [] },
     edges,
-    embeddings,
+    allEdges,
+    embeddings: selectableEmbeddings,
     policyRegistry,
     lineageCategories,
+    allNodesById,
+    resolveNode,
   };
 }
 

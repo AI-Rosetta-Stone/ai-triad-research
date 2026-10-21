@@ -27,7 +27,12 @@ vi.mock('../npy.js', () => ({
   extractNodeVectors: vi.fn(() => ({})),
 }));
 
-import { loadConflicts, fetchUrlContent } from './taxonomyLoader.js';
+const mockRecord = vi.fn();
+vi.mock('../flight-recorder/index.js', () => ({
+  getGlobalRecorder: () => ({ record: (...args: unknown[]) => mockRecord(...args) }),
+}));
+
+import { loadConflicts, fetchUrlContent, loadTaxonomy } from './taxonomyLoader.js';
 
 const FAKE_DATA_ROOT = path.resolve('/fake/data');
 const FAKE_ROOT = '/fake/repo';
@@ -146,5 +151,169 @@ describe('fetchUrlContent (L10 SSRF regression — t/2528)', () => {
     await expect(fetchUrlContent('https://unreachable.example.com')).rejects.toMatchObject({
       goal: 'Fetch debate source URL',
     });
+  });
+});
+
+// ── loadTaxonomy — supersession (t/4354) ─────────────────────────────────────
+
+function makeAccNode(id: string, label: string, superseded_by?: string): object {
+  return {
+    id, label, category: 'Beliefs',
+    description: 'A Beliefs within accelerationist discourse that does something.',
+    parent_id: null, children: [], situation_refs: [],
+    ...(superseded_by !== undefined ? { superseded_by } : {}),
+  };
+}
+
+function setupTaxonomyMocks(
+  accNodes: object[],
+  embeddings: Record<string, { pov: string; vector: number[] }> = {},
+  edges: object[] = [],
+) {
+  const taxDir = '/fake/data/taxonomy';
+  mockExistsSync.mockImplementation((p: string) => {
+    if (p === FAKE_DATA_ROOT) return true;
+    if (p.endsWith('.aitriad.json')) return true;
+    if (p.endsWith('accelerationist.json')) return true;
+    if (p.endsWith('embeddings.json')) return true;
+    if (p.endsWith('edges.json')) return edges.length > 0;
+    return false; // safetyist, skeptic, situations, policy, lineage, synthetic — all missing
+  });
+  mockReadFileSync.mockImplementation((p: string) => {
+    if (p.endsWith('.aitriad.json')) return JSON.stringify(FAKE_CONFIG);
+    if (p.endsWith('accelerationist.json')) return JSON.stringify({ nodes: accNodes });
+    if (p.endsWith('embeddings.json')) return JSON.stringify({ nodes: embeddings });
+    if (p.endsWith('edges.json')) return JSON.stringify({
+      _schema_version: '1', _doc: '', last_modified: '', edge_types: [],
+      edges,
+    });
+    return '{}';
+  });
+}
+
+describe('loadTaxonomy — supersession (t/4354)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecord.mockReset();
+    process.env.AI_TRIAD_DATA_ROOT = FAKE_DATA_ROOT;
+  });
+  afterEach(() => {
+    delete process.env.AI_TRIAD_DATA_ROOT;
+  });
+
+  it('superseded node is absent from selectable nodes and embeddings, present in allNodesById', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active'), makeAccNode('acc-beliefs-002', 'Retired', 'acc-beliefs-001')],
+      { 'acc-beliefs-001': { pov: 'acc', vector: [1, 0] }, 'acc-beliefs-002': { pov: 'acc', vector: [0, 1] } },
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    const selectableIds = result.accelerationist.nodes.map(n => n.id);
+    expect(selectableIds).toContain('acc-beliefs-001');
+    expect(selectableIds).not.toContain('acc-beliefs-002');
+    expect(result.allNodesById.has('acc-beliefs-002')).toBe(true);
+    expect(result.embeddings['acc-beliefs-001']).toBeDefined();
+    expect(result.embeddings['acc-beliefs-002']).toBeUndefined();
+  });
+
+  it('resolveNode returns non-superseded node for a normal node', () => {
+    setupTaxonomyMocks([makeAccNode('acc-beliefs-001', 'Active')]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('unknown-id')).toBeUndefined();
+  });
+
+  it('resolveNode follows a supersession chain to the final non-superseded node', () => {
+    // Chain: 003 → 002 → 001 (001 is the active endpoint)
+    setupTaxonomyMocks([
+      makeAccNode('acc-beliefs-001', 'Active'),
+      makeAccNode('acc-beliefs-002', 'Mid', 'acc-beliefs-001'),
+      makeAccNode('acc-beliefs-003', 'Old', 'acc-beliefs-002'),
+    ]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.resolveNode('acc-beliefs-003')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('acc-beliefs-002')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    // Chain members are absent from selectable nodes
+    expect(result.accelerationist.nodes.map(n => n.id)).toEqual(['acc-beliefs-001']);
+    // WARN emitted for the chain (length ≥ 3)
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('chain') && m.includes('acc-beliefs-003'))).toBe(true);
+  });
+
+  it('cycle: both members absent from selection, resolveNode returns each node itself', () => {
+    // Cycle: 001 → 002 → 001
+    setupTaxonomyMocks([
+      makeAccNode('acc-beliefs-001', 'CycleA', 'acc-beliefs-002'),
+      makeAccNode('acc-beliefs-002', 'CycleB', 'acc-beliefs-001'),
+    ]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.accelerationist.nodes).toHaveLength(0);
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    expect(result.resolveNode('acc-beliefs-002')?.id).toBe('acc-beliefs-002');
+    // WARN emitted for the cycle; no throw
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('cycle'))).toBe(true);
+  });
+
+  it('dangling target: node excluded from selection, resolveNode returns node itself', () => {
+    setupTaxonomyMocks([makeAccNode('acc-beliefs-001', 'Dangling', 'acc-beliefs-MISSING')]);
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.accelerationist.nodes).toHaveLength(0);
+    expect(result.resolveNode('acc-beliefs-001')?.id).toBe('acc-beliefs-001');
+    // WARN emitted for the dangling target
+    const warnCalls: string[] = mockRecord.mock.calls
+      .filter((c: unknown[]) => (c[0] as { level: string }).level === 'warn')
+      .map((c: unknown[]) => (c[0] as { message: string }).message);
+    expect(warnCalls.some(m => m.includes('acc-beliefs-MISSING'))).toBe(true);
+  });
+
+  it('edges excludes edges with a superseded endpoint; allEdges retains them', () => {
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active'), makeAccNode('acc-beliefs-002', 'Retired', 'acc-beliefs-001')],
+      {},
+      [
+        { source: 'acc-beliefs-001', target: 'acc-beliefs-002', type: 'SUPPORTS', bidirectional: false, confidence: 0.8, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+        { source: 'acc-beliefs-001', target: 'acc-beliefs-001', type: 'SUPPORTS', bidirectional: false, confidence: 0.9, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+      ],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    // Selectable set: only the self-edge (both endpoints non-superseded)
+    expect(result.edges!.edges).toHaveLength(1);
+    expect(result.edges!.edges[0].source).toBe('acc-beliefs-001');
+    expect(result.edges!.edges[0].target).toBe('acc-beliefs-001');
+    // Full set in allEdges: both edges present
+    expect(result.allEdges!.edges).toHaveLength(2);
+  });
+
+  it('zero superseded nodes: edges.length === allEdges.length and embeddings unchanged (sit/pol/cc nodes preserved)', () => {
+    // Realistic fixture: no superseded nodes, mix of POV, situation and policy-like embedding IDs
+    const allEmbeddings = {
+      'acc-beliefs-001': { pov: 'acc', vector: [1, 0] },  // POV
+      'sit-001': { pov: 'situations', vector: [0, 1] },   // situation
+      'pol-001': { pov: 'cc', vector: [0.5, 0.5] },       // policy/cc
+    };
+    const allEdgesList = [
+      { source: 'acc-beliefs-001', target: 'sit-001', type: 'CONVERGES_WITH', bidirectional: false, confidence: 0.7, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+      { source: 'sit-001', target: 'sit-001', type: 'RESPONDS_TO', bidirectional: false, confidence: 0.6, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+      { source: 'acc-beliefs-001', target: 'pol-001', type: 'SUPPORTS', bidirectional: false, confidence: 0.8, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+    ];
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active')], // no superseded nodes
+      allEmbeddings,
+      allEdgesList,
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    // No superseded nodes → edges and allEdges are identical
+    expect(result.edges!.edges).toHaveLength(allEdgesList.length);
+    expect(result.allEdges!.edges).toHaveLength(allEdgesList.length);
+    // All embedding types preserved (sit and pol not filtered out)
+    expect(result.embeddings['acc-beliefs-001']).toBeDefined();
+    expect(result.embeddings['sit-001']).toBeDefined();
+    expect(result.embeddings['pol-001']).toBeDefined();
+    expect(Object.keys(result.embeddings)).toHaveLength(3);
   });
 });

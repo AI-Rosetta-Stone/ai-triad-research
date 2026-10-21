@@ -331,14 +331,12 @@ export class DebateEngine {
 
   private getKnownNodeIds(): Set<string> {
     if (this._knownNodeIds) return this._knownNodeIds;
-    const s = new Set<string>();
-    for (const pov of POV_KEYS) {
-      for (const n of this.taxonomy[pov]?.nodes ?? []) s.add(n.id);
-    }
+    const s = new Set<string>(this.taxonomy.allNodesById.keys());
     for (const n of this.taxonomy.situations?.nodes ?? []) s.add(n.id);
     this._knownNodeIds = s;
     return s;
   }
+  private getResolveRef = (): (id: string) => string => id => this.taxonomy.resolveNode(id)?.id ?? id;
 
   private getPolicyIds(): Set<string> {
     if (this._policyIds) return this._policyIds;
@@ -856,6 +854,7 @@ export class DebateEngine {
       warn: (operation, error, recovery) => engine.warn(operation, error, recovery),
       incrementApiCallCount: () => { engine.apiCallCount++; },
       getKnownNodeIds: () => engine.getKnownNodeIds(),
+      resolveRef: engine.getResolveRef(),
       getActivatedSituations: () => engine._activatedSituations,
     });
 
@@ -1084,6 +1083,7 @@ export class DebateEngine {
       warn: (operation, error, recovery) => this.warn(operation, error, recovery),
       incrementApiCallCount: () => { this.apiCallCount++; },
       getKnownNodeIds: () => this.getKnownNodeIds(),
+      resolveRef: this.getResolveRef(),
       getActivatedSituations: () => this._activatedSituations,
     });
 

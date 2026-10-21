@@ -33,5 +33,7 @@ export interface ClaimExtractionContext {
   warn: (operation: string, error: unknown, recovery: string) => void;
   incrementApiCallCount: () => void;
   getKnownNodeIds: () => Set<string>;
+  /** Resolve a node ID to its canonical survivor (non-superseded). Same semantics as LoadedTaxonomy.resolveNode. */
+  resolveRef: (id: string) => string;
   getActivatedSituations: () => { id: string; text: string }[];
 }

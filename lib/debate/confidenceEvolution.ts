@@ -670,6 +670,7 @@ function validateProposedEdges(
   raw: RawProposedEdge[],
   knownNodeIds: Set<string>,
   debateId: string,
+  resolveRef?: (id: string) => string,
 ): ProposedReflectionEdge[] {
   const out: ProposedReflectionEdge[] = [];
   for (const e of raw) {
@@ -696,13 +697,17 @@ function validateProposedEdges(
       continue;
     }
     // Must resolve to a persisted taxonomy node id (pov-* or situation). knownNodeIds
-    // holds only persisted pov + situation ids, so unknown/hallucinated targets fall out.
-    const target_node_id = knownNodeIds.has(rawTarget)
+    // includes superseded ids (t/4354) so fuzzyCorrectNodeId never misattributes them.
+    const accepted = knownNodeIds.has(rawTarget)
       ? rawTarget
       : fuzzyCorrectNodeId(rawTarget, knownNodeIds);
-    if (!target_node_id) {
+    if (!accepted) {
       recordReflectionDrop(debateId, 'edge_unknown_target', { target: rawTarget });
       continue;
+    }
+    const target_node_id = resolveRef ? resolveRef(accepted) : accepted;
+    if (target_node_id !== accepted) {
+      console.log(`[CE] edge target superseded: ${accepted} → ${target_node_id}`);
     }
 
     const new_node_role: 'source' | 'target' =
@@ -727,8 +732,9 @@ export function newItemSuggestionsToProposals(opts: {
   pov: PovKey;
   debateId: string;
   knownNodeIds: Set<string>;
+  resolveRef?: (id: string) => string;
 }): NewPovItemProposal[] {
-  const { suggestions, pov: defaultPov, debateId, knownNodeIds } = opts;
+  const { suggestions, pov: defaultPov, debateId, knownNodeIds, resolveRef } = opts;
   const proposals: NewPovItemProposal[] = [];
 
   for (const s of suggestions) {
@@ -758,6 +764,7 @@ export function newItemSuggestionsToProposals(opts: {
       Array.isArray(s.proposed_edges) ? (s.proposed_edges as RawProposedEdge[]) : [],
       knownNodeIds,
       debateId,
+      resolveRef,
     );
 
     // Zero valid edges → dropping avoids emitting an orphan-causing proposal.

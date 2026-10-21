@@ -112,6 +112,9 @@ export interface ProcessClaimsInput {
   taxonomyEdges?: { source: string; target: string; weight?: number }[];
   /** Known valid node IDs for taxonomy ref sanitization. When provided, invalid refs are corrected or stripped. */
   knownNodeIds?: Set<string>;
+  /** Resolve a node ID to its canonical survivor. Called after knownNodeIds validation so superseded IDs are
+   *  accepted (not fuzzy-corrected to unrelated nodes) and then silently redirected to their live successor. */
+  resolveRef?: (id: string) => string;
   /** IDs of nodes identified as crux nodes. Used by marginal value filter to exempt crux-connected claims. */
   cruxNodeIds?: Set<string>;
   /** Activated situation nodes for claim-level grounding. When provided, claims with sufficient word overlap
@@ -144,21 +147,34 @@ export async function processExtractedClaims(
   const {
     claims, statement, speaker, entryId,
     turnNumber, existingNodes, existingEdgeCount, startNodeId, taxonomyEdges,
-    knownNodeIds,
+    knownNodeIds, resolveRef,
   } = input;
 
   // Sanitize taxonomy ref IDs — final safety net against hallucinated IDs
   let taxonomyRefIds = input.taxonomyRefIds;
   if (knownNodeIds && knownNodeIds.size > 0) {
     taxonomyRefIds = taxonomyRefIds.map(id => {
-      if (knownNodeIds.has(id)) return id;
-      const corrected = fuzzyCorrectNodeId(id, knownNodeIds);
-      if (corrected) {
-        console.log(`[AN] Taxonomy ref ID correction: ${id} → ${corrected}`);
-        return corrected;
+      let accepted: string;
+      if (knownNodeIds.has(id)) {
+        accepted = id;
+      } else {
+        const corrected = fuzzyCorrectNodeId(id, knownNodeIds);
+        if (corrected) {
+          console.log(`[AN] Taxonomy ref ID correction: ${id} → ${corrected}`);
+          accepted = corrected;
+        } else {
+          console.log(`[AN] Taxonomy ref ID removed (unknown): ${id}`);
+          return null;
+        }
       }
-      console.log(`[AN] Taxonomy ref ID removed (unknown): ${id}`);
-      return null;
+      if (resolveRef) {
+        const resolved = resolveRef(accepted);
+        if (resolved !== accepted) {
+          console.log(`[AN] Taxonomy ref ID superseded: ${accepted} → ${resolved}`);
+          return resolved;
+        }
+      }
+      return accepted;
     }).filter((id): id is string => id !== null);
   }
 
