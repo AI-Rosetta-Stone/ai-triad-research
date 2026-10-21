@@ -29,8 +29,12 @@ function Get-T4337MarkPlan {
         [Parameter(Mandatory)][hashtable]$HasSummary, # id -> bool
         [Parameter(Mandatory)][hashtable]$LiveRefs,   # id -> int
         [Parameter(Mandatory)][hashtable]$HasMetadata,
-        [string]$RefPrefix = 't4337-cleanup-2026-10'
+        [string]$RefPrefix = 't4337-cleanup-2026-10',
+        # SO C9 (e/344#10): twins whose mark is deferred until a person settles the references that
+        # only their own summary supports. They stay unmarked and are listed for review.
+        [string[]]$Defer = @()
     )
+    $deferSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$Defer, [StringComparer]::Ordinal)
     $ord = { param([string[]]$Ids) $a = [string[]]$Ids.Clone(); [Array]::Sort($a, [StringComparer]::Ordinal); $a }
     $c6 = { param([string[]]$Ids)
         @(& $ord $Ids | Sort-Object -Stable @{ Expression = { -[int][bool]$HasSummary[$_] } }, @{ Expression = { -[int]$LiveRefs[$_] } }) }
@@ -51,6 +55,12 @@ function Get-T4337MarkPlan {
         }
         if ($rest.Count) {
             $review.Add([pscustomobject]@{ canonical = $canon; members = [string[]]$rest; reason = 'differs-from-canonical-or-second-identical-subset' })
+        }
+        $deferred = @($twins | Where-Object { $deferSet.Contains($_) })
+        if ($deferred.Count) {
+            $review.Add([pscustomobject]@{ canonical = $canon; members = [string[]]$deferred; reason = 'c9-deferred-references-only-its-summary-supports' })
+            $twins = @($twins | Where-Object { -not $deferSet.Contains($_) })
+            if ($twins.Count -eq 0) { continue }
         }
         $n++
         foreach ($m in $twins) {

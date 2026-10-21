@@ -22,8 +22,10 @@
                      resolve(doc) == group canonical (canonicalDocId) == the frozen C6 canonical.
       -Mode Apply    The same checks, then writes. Refuses if any check fails for any file.
       -Mode Revert   Removes exactly the frozen keys from each file, checking the frozen pre-write hash.
-    -CreateMissingMetadata adds a minimal metadata.json for a marked twin that has none (decision
-    pending SO C10; off by default). Revert deletes such a file only if it is unchanged.
+    -CreateMissingMetadata adds a minimal metadata.json for a marked twin that has none. Off, and NOT
+    to be used for this write: SO C10 (e/344#10) found no reader sees those 20 partial ingests, so they
+    are left alone for a quarantine/completion pass. Revert deletes such a file only if it is unchanged.
+    Marks listed in deferred-t4337-c9.json are left unmarked until their references are settled (SO C9).
 #>
 [CmdletBinding()]
 param(
@@ -96,7 +98,12 @@ if ($Mode -eq 'Freeze') {
     $hasSum = @{}; $hash = @{}; $hasMeta = @{}
     foreach ($d in $docs) { $hasSum[$d.Id] = Test-Path (Join-Path $DataDir "summaries\$($d.Id).json"); $hash[$d.Id] = $d.SnapshotSha256; $hasMeta[$d.Id] = $d.HasMeta }
     $groups = @($g.Canonical.GetEnumerator() | Group-Object Value | Where-Object Count -gt 1 | ForEach-Object { , [string[]]@($_.Group | ForEach-Object Key) })
-    $plan = Get-T4337MarkPlan -Groups $groups -Hash $hash -HasSummary $hasSum -LiveRefs $refs -HasMetadata $hasMeta -RefPrefix $RefPrefix
+    # SO C9 deferrals (deferred-t4337-c9.json): twins left unmarked until their references are settled.
+    $deferFile = Join-Path $PSScriptRoot 'deferred-t4337-c9.json'
+    $defer = if (Test-Path -LiteralPath $deferFile) { [string[]]@((Get-Content -LiteralPath $deferFile -Raw | ConvertFrom-Json).deferred | ForEach-Object id) } else { [string[]]@() }
+    $plan = Get-T4337MarkPlan -Groups $groups -Hash $hash -HasSummary $hasSum -LiveRefs $refs -HasMetadata $hasMeta -RefPrefix $RefPrefix -Defer $defer
+    $unplaced = @($defer | Where-Object { $d = $_; -not @($plan.Review | Where-Object { $_.reason -like 'c9-*' -and $_.members -contains $d }).Count })
+    if ($unplaced.Count) { throw "deferred id(s) not found among marked twins: $($unplaced -join ', ')" }
 
     $files = [ordered]@{}; $groupInput = [ordered]@{}
     foreach ($d in ($docs | Sort-Object Id)) { if ($d.HasMeta) { $groupInput[$d.Id] = $d.SnapshotSha256 } }
@@ -112,8 +119,10 @@ if ($Mode -eq 'Freeze') {
         counts = [ordered]@{
             identity_groups = $groups.Count; groups_with_marks = $plan.GroupsWithMarks
             marks = @($plan.Marks | Where-Object has_metadata).Count; marks_without_metadata = @($plan.Marks | Where-Object { -not $_.has_metadata }).Count
-            review_groups_whole = $noTwin.Count; review_groups_remainder = @($plan.Review).Count - $noTwin.Count
-            review_docs = (@($plan.Review | ForEach-Object { $_.members.Count }) | Measure-Object -Sum).Sum }
+            review_groups_whole = $noTwin.Count
+            review_groups_remainder = @($plan.Review | Where-Object reason -eq 'differs-from-canonical-or-second-identical-subset').Count
+            deferred_c9 = @($plan.Review | Where-Object reason -like 'c9-*' | ForEach-Object { $_.members.Count } | Measure-Object -Sum).Sum
+            review_docs = (@($plan.Review | Where-Object reason -notlike 'c9-*' | ForEach-Object { $_.members.Count }) | Measure-Object -Sum).Sum }
         marks = @($plan.Marks | Where-Object has_metadata | ForEach-Object { & $strip $_ })
         marks_without_metadata = @($plan.Marks | Where-Object { -not $_.has_metadata } | ForEach-Object { & $strip $_ })
         review = @($plan.Review | ForEach-Object { [ordered]@{ canonical = $_.canonical; reason = $_.reason; members = $_.members } })
@@ -194,7 +203,7 @@ if ($Mode -ne 'Revert') {
 "mode=$Mode files_planned=$($plan.Count) marks=$(@($fz.marks).Count) failures=$($fail.Count)"
 $fail | Select-Object -First 20 | ForEach-Object { "  FAIL $_" }
 if (@($fz.marks_without_metadata).Count) {
-    "  marks_without_metadata: $(@($fz.marks_without_metadata).Count) (" + $(if ($CreateMissingMetadata) { "minimal metadata.json planned: $($created.Count)" } else { 'not written: SO C10 decision pending' }) + ")"
+    "  marks_without_metadata: $(@($fz.marks_without_metadata).Count) (" + $(if ($CreateMissingMetadata) { "minimal metadata.json planned: $($created.Count)" } else { 'left alone per SO C10 (no reader; quarantine/completion list)' }) + ")"
 }
 if ($Mode -in 'Apply', 'Revert') {
     if ($fail.Count) { throw "$Mode refused: $($fail.Count) check(s) failed; nothing written" }

@@ -2,16 +2,17 @@
   "ticket": "t/4337",
   "option": "A (mark only, no backfill)",
   "spec": "docs/specs/source-identity.md v5",
-  "frozen_at": "2026-10-21T05:41:38.5516869Z",
+  "frozen_at": "2026-10-21T06:03:43.9299756Z",
   "sources_commit": "eb384cd30877303ae5c2767414e6fa91a7f4e355",
   "canonical_rule": "SO C6 over the whole group; mark only the canonical's byte-identical twins (SO e/344#5)",
   "counts": {
     "identity_groups": 120,
-    "groups_with_marks": 100,
-    "marks": 146,
+    "groups_with_marks": 92,
+    "marks": 137,
     "marks_without_metadata": 20,
     "review_groups_whole": 20,
     "review_groups_remainder": 9,
+    "deferred_c9": 9.0,
     "review_docs": 69.0
   },
   "marks": [
@@ -100,918 +101,864 @@
       "group": 6
     },
     {
-      "id": "prompt-injection-as-role-confusion-2026",
-      "duplicate_of": "260312277v6-2026",
+      "id": "260320004v2-2026",
+      "duplicate_of": "revisql-achieving-human-level-text-sql-2026-1",
       "duplicate_of_ref": "t4337-cleanup-2026-10#g007",
       "group": 7
     },
     {
-      "id": "260320004v2-2026",
-      "duplicate_of": "revisql-achieving-human-level-text-sql-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g008",
-      "group": 8
-    },
-    {
       "id": "revisql-achieving-human-level-text-sql-2026",
       "duplicate_of": "revisql-achieving-human-level-text-sql-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g008",
-      "group": 8
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g007",
+      "group": 7
     },
     {
       "id": "revisql-achieving-human-level-text-sql-2026-2",
       "duplicate_of": "revisql-achieving-human-level-text-sql-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g008",
-      "group": 8
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g007",
+      "group": 7
     },
     {
       "id": "accountability-ai-under-law-role-explanation-2026",
       "duplicate_of": "accountability-ai-under-law-role-explanation-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g009",
-      "group": 9
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g008",
+      "group": 8
     },
     {
       "id": "adult-accounts-child-profiles-compromised-vtech-data-breach-2026-1",
       "duplicate_of": "adult-accounts-child-profiles-compromised-vtech-data-breach-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g010",
-      "group": 10
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g009",
+      "group": 9
     },
     {
       "id": "ai-chip-supply-chain-risk-2026-your-essential-guide-2026",
       "duplicate_of": "ai-chip-supply-chain-risk-2026-your-essential-guide-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g011",
-      "group": 11
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g010",
+      "group": 10
     },
     {
       "id": "ai-chip-supply-chain-risk-2026-your-essential-guide-2026-1",
       "duplicate_of": "ai-chip-supply-chain-risk-2026-your-essential-guide-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g011",
-      "group": 11
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g010",
+      "group": 10
     },
     {
       "id": "ai-companies-have-become-democratically-accountable-lse-2026",
       "duplicate_of": "ai-companies-have-become-democratically-accountable-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g012",
-      "group": 12
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g011",
+      "group": 11
     },
     {
       "id": "ai-democracy-dilemma-2026-1",
       "duplicate_of": "ai-democracy-dilemma-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
-      "group": 13
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g012",
+      "group": 12
     },
     {
       "id": "ai-democracy-dilemma-2026-2",
       "duplicate_of": "ai-democracy-dilemma-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
-      "group": 13
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g012",
+      "group": 12
     },
     {
       "id": "ai-democracy-dilemma-2026-3",
       "duplicate_of": "ai-democracy-dilemma-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
-      "group": 13
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g012",
+      "group": 12
     },
     {
       "id": "ai-democracy-dilemma-journal-democracy-2026",
       "duplicate_of": "ai-democracy-dilemma-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
-      "group": 13
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g012",
+      "group": 12
     },
     {
       "id": "ai-democracy-dilemma-journal-democracy-2026-2",
       "duplicate_of": "ai-democracy-dilemma-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
-      "group": 13
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g012",
+      "group": 12
     },
     {
       "id": "ai-democracy-mapping-intersections-2026-2",
       "duplicate_of": "ai-democracy-mapping-intersections-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g014",
-      "group": 14
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
+      "group": 13
     },
     {
       "id": "ai-democracy-mapping-intersections-2026-3",
       "duplicate_of": "ai-democracy-mapping-intersections-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g014",
-      "group": 14
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
+      "group": 13
     },
     {
       "id": "ai-democracy-mapping-intersections-carnegie-endowment-2026",
       "duplicate_of": "ai-democracy-mapping-intersections-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g014",
-      "group": 14
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
+      "group": 13
     },
     {
       "id": "ai-democracy-mapping-intersections-carnegie-endowment-2026-2",
       "duplicate_of": "ai-democracy-mapping-intersections-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g014",
-      "group": 14
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g013",
+      "group": 13
     },
     {
       "id": "ai-governance-mirage-72-lack-real-control-2026",
       "duplicate_of": "ai-governance-mirage-72-lack-real-control-d-ai-ly-brief-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g015",
-      "group": 15
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g014",
+      "group": 14
     },
     {
       "id": "ssrn-5288815-2026",
       "duplicate_of": "ai-guidelines-exploring-points-convergence-between-faith-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g016",
-      "group": 16
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g015",
+      "group": 15
     },
     {
       "id": "ai-last-mile-2026",
       "duplicate_of": "ai-last-mile-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g017",
-      "group": 17
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g016",
+      "group": 16
     },
     {
       "id": "ai-models-collapse-when-trained-recursively-generated-data-2026",
       "duplicate_of": "ai-models-collapse-when-trained-recursively-generated-data-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g018",
-      "group": 18
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g017",
+      "group": 17
     },
     {
       "id": "ai-models-collapse-when-trained-recursively-generated-data-2026-2",
       "duplicate_of": "ai-models-collapse-when-trained-recursively-generated-data-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g018",
-      "group": 18
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g017",
+      "group": 17
     },
     {
       "id": "ai-models-collapse-when-trained-recursively-generated-data-2026-3",
       "duplicate_of": "ai-models-collapse-when-trained-recursively-generated-data-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g018",
-      "group": 18
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g017",
+      "group": 17
     },
     {
       "id": "s41586-024-07566-y-2026",
       "duplicate_of": "ai-models-collapse-when-trained-recursively-generated-data-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g018",
-      "group": 18
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g017",
+      "group": 17
     },
     {
       "id": "ai-rmf-playbook-2026",
       "duplicate_of": "ai-rmf-playbook-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g019",
-      "group": 19
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g018",
+      "group": 18
     },
     {
       "id": "ai-rmf-playbook-2026-1",
       "duplicate_of": "ai-rmf-playbook-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g019",
-      "group": 19
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g018",
+      "group": 18
     },
     {
       "id": "ai-safety-debate-needs-ai-skeptics-2026-1",
       "duplicate_of": "ai-safety-debate-needs-ai-skeptics-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g020",
-      "group": 20
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g019",
+      "group": 19
     },
     {
       "id": "ai-safetys-false-choice-wait-harm-or-hit-pause-2026-1",
       "duplicate_of": "ai-safetys-false-choice-wait-harm-or-hit-pause-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g021",
-      "group": 21
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g020",
+      "group": 20
     },
     {
       "id": "ai-safetys-false-choice-wait-harm-or-hit-pause-2026-2",
       "duplicate_of": "ai-safetys-false-choice-wait-harm-or-hit-pause-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g021",
-      "group": 21
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g020",
+      "group": 20
     },
     {
       "id": "anthropic-boss-dario-amodei-calls-ai-development-slow-down-2026-1",
       "duplicate_of": "anthropic-boss-dario-amodei-calls-ai-development-slow-down-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g023",
-      "group": 23
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g022",
+      "group": 22
     },
     {
       "id": "anthropic-pays-authors-15-billion-settle-copyright-2026",
       "duplicate_of": "anthropic-pays-authors-15-billion-settle-copyright-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g024",
-      "group": 24
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g023",
+      "group": 23
     },
     {
       "id": "are-interactive-toys-spying-young-children-2026",
       "duplicate_of": "are-interactive-toys-spying-young-children-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g025",
-      "group": 25
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g024",
+      "group": 24
     },
     {
       "id": "artificial-general-intelligence-its-threat-public-health-2026",
       "duplicate_of": "artificial-general-intelligence-its-threat-public-health-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g026",
-      "group": 26
-    },
-    {
-      "id": "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1",
-      "duplicate_of": "artificial-intelligence-human-rights-law-thematic-synthesis-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g027",
-      "group": 27
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g025",
+      "group": 25
     },
     {
       "id": "artificial-intelligence-research-strategy-united-states-2026-1",
       "duplicate_of": "artificial-intelligence-research-strategy-united-states-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g028",
-      "group": 28
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g026",
+      "group": 26
     },
     {
       "id": "esrbascreport202512-aiandsystemicrisken-2026",
       "duplicate_of": "artificial-intelligence-systemic-risk-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g029",
-      "group": 29
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g027",
+      "group": 27
     },
     {
       "id": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026",
       "duplicate_of": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g031",
-      "group": 31
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g029",
+      "group": 29
     },
     {
       "id": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-2",
       "duplicate_of": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g031",
-      "group": 31
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g029",
+      "group": 29
     },
     {
       "id": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-3",
       "duplicate_of": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g031",
-      "group": 31
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g029",
+      "group": 29
     },
     {
       "id": "auditing-large-language-models-race-gender-disparities-2026",
       "duplicate_of": "auditing-large-language-models-race-gender-disparities-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g033",
-      "group": 33
-    },
-    {
-      "id": "ban-artificial-superintelligence-act-release-summary-2026-1",
-      "duplicate_of": "ban-artificial-superintelligence-act-release-summary-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g034",
-      "group": 34
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g031",
+      "group": 31
     },
     {
       "id": "baumols-cost-disease-ai-economic-growth-2026-1",
       "duplicate_of": "baumols-cost-disease-ai-economic-growth-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g035",
-      "group": 35
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g032",
+      "group": 32
     },
     {
       "id": "baumols-cost-disease-ai-economic-growth-2026-2",
       "duplicate_of": "baumols-cost-disease-ai-economic-growth-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g035",
-      "group": 35
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g032",
+      "group": 32
     },
     {
       "id": "baumols-cost-disease-long-term-economic-implications-where-2026-1",
       "duplicate_of": "baumols-cost-disease-long-term-economic-implications-where-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g036",
-      "group": 36
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g033",
+      "group": 33
     },
     {
       "id": "baumols-cost-disease-long-term-economic-implications-where-2026-2",
       "duplicate_of": "baumols-cost-disease-long-term-economic-implications-where-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g036",
-      "group": 36
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g033",
+      "group": 33
     },
     {
       "id": "california-creates-countrys-first-ai-auditor-registry-2026",
       "duplicate_of": "california-creates-countrys-first-ai-auditor-registry-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g037",
-      "group": 37
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g034",
+      "group": 34
     },
     {
       "id": "california-issues-historic-fine-over-lawyers-chatgpt-2026",
       "duplicate_of": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g038",
-      "group": 38
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g035",
+      "group": 35
     },
     {
       "id": "california-issues-historic-fine-over-lawyers-chatgpt-2026-1",
       "duplicate_of": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g038",
-      "group": 38
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g035",
+      "group": 35
     },
     {
       "id": "center-ai-standards-innovation-caisi-nist-2026-1",
       "duplicate_of": "center-ai-standards-innovation-caisi-nist-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g040",
-      "group": 40
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g037",
+      "group": 37
     },
     {
       "id": "center-ai-standards-innovation-caisi-nist-2026-2",
       "duplicate_of": "center-ai-standards-innovation-caisi-nist-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g040",
-      "group": 40
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g037",
+      "group": 37
     },
     {
       "id": "cheating-behaviour-frontier-model-evaluations-2026-1",
       "duplicate_of": "cheating-behaviour-frontier-model-evaluations-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g041",
-      "group": 41
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g038",
+      "group": 38
     },
     {
       "id": "cheating-behaviour-frontier-model-evaluations-2026-2",
       "duplicate_of": "cheating-behaviour-frontier-model-evaluations-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g041",
-      "group": 41
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g038",
+      "group": 38
     },
     {
       "id": "china-based-artificial-intelligence-companies-conducting-2026-1",
       "duplicate_of": "china-based-artificial-intelligence-companies-conducting-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g042",
-      "group": 42
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g039",
+      "group": 39
     },
     {
       "id": "data-quality-over-model-complexity-rethinking-ai-2026",
       "duplicate_of": "data-quality-over-model-complexity-rethinking-ai-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g043",
-      "group": 43
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g040",
+      "group": 40
     },
     {
       "id": "data-quality-over-model-complexity-rethinking-ai-2026-2",
       "duplicate_of": "data-quality-over-model-complexity-rethinking-ai-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g043",
-      "group": 43
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g040",
+      "group": 40
     },
     {
       "id": "dataqualityovermodelcomplexity-2026",
       "duplicate_of": "data-quality-over-model-complexity-rethinking-ai-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g043",
-      "group": 43
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g040",
+      "group": 40
     },
     {
       "id": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-1",
       "duplicate_of": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g044",
-      "group": 44
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g041",
+      "group": 41
     },
     {
       "id": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-2",
       "duplicate_of": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g044",
-      "group": 44
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g041",
+      "group": 41
     },
     {
       "id": "eight-ways-ai-will-shape-geopolitics-2026-2026",
       "duplicate_of": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g045",
-      "group": 45
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g042",
+      "group": 42
     },
     {
       "id": "eight-ways-ai-will-shape-geopolitics-2026-2026-2",
       "duplicate_of": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g045",
-      "group": 45
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g042",
+      "group": 42
     },
     {
       "id": "eight-ways-ai-will-shape-geopolitics-2026-2026-3",
       "duplicate_of": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g045",
-      "group": 45
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g042",
+      "group": 42
     },
     {
       "id": "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026",
       "duplicate_of": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g045",
-      "group": 45
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g042",
+      "group": 42
     },
     {
       "id": "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-2",
       "duplicate_of": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g045",
-      "group": 45
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g042",
+      "group": 42
     },
     {
       "id": "evolving-procedural-memory-from-user-traffic-agentic-2026",
       "duplicate_of": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g047",
-      "group": 47
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g044",
+      "group": 44
     },
     {
       "id": "evolving-procedural-memory-from-user-traffic-agentic-2026-1",
       "duplicate_of": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g047",
-      "group": 47
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g044",
+      "group": 44
     },
     {
       "id": "faq-eng20151229-1630-2026",
       "duplicate_of": "vtech-data-breach-frequently-asked-questions-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g048",
-      "group": 48
-    },
-    {
-      "id": "fiscal-impacts-ai-2026",
-      "duplicate_of": "fiscal-impacts-ai-how-potential-ai-futures-would-play-out-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g049",
-      "group": 49
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g045",
+      "group": 45
     },
     {
       "id": "governor-newsom-issues-executive-order-accelerate-2026-1",
       "duplicate_of": "governor-newsom-issues-executive-order-accelerate-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g051",
-      "group": 51
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g047",
+      "group": 47
     },
     {
       "id": "hidden-plain-sight-reconsidering-use-race-correction-2026",
       "duplicate_of": "nejmms2004740-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g052",
-      "group": 52
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g048",
+      "group": 48
     },
     {
       "id": "hidden-plain-sight-reconsidering-use-race-correction-2026-1",
       "duplicate_of": "nejmms2004740-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g052",
-      "group": 52
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g048",
+      "group": 48
     },
     {
       "id": "hidden-plain-sight-reconsidering-use-race-correction-2026-2",
       "duplicate_of": "nejmms2004740-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g052",
-      "group": 52
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g048",
+      "group": 48
     },
     {
       "id": "how-us-public-ai-experts-view-artificial-intelligence-2026",
       "duplicate_of": "pi-20250403-us-public-ai-experts-report-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g053",
-      "group": 53
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g049",
+      "group": 49
     },
     {
       "id": "how-us-public-ai-experts-view-artificial-intelligence-2026-1",
       "duplicate_of": "pi-20250403-us-public-ai-experts-report-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g053",
-      "group": 53
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g049",
+      "group": 49
     },
     {
       "id": "pi-20250403-us-public-ai-experts-report-2026",
       "duplicate_of": "pi-20250403-us-public-ai-experts-report-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g053",
-      "group": 53
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g049",
+      "group": 49
     },
     {
       "id": "pi-20250403-us-public-ai-experts-report-2026-1",
       "duplicate_of": "pi-20250403-us-public-ai-experts-report-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g053",
-      "group": 53
-    },
-    {
-      "id": "hugging-face-incident-road-ahead-2026-1",
-      "duplicate_of": "hugging-face-incident-road-ahead-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g054",
-      "group": 54
-    },
-    {
-      "id": "humanity-needs-ai-nonproliferation-treaty-2026-1",
-      "duplicate_of": "humanity-needs-ai-nonproliferation-treaty-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g055",
-      "group": 55
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g049",
+      "group": 49
     },
     {
       "id": "imminent-risk-ai-data-dead-loops-model-collapse-content-2026-1",
       "duplicate_of": "imminent-risk-ai-data-dead-loops-model-collapse-content-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g056",
-      "group": 56
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g050",
+      "group": 50
     },
     {
       "id": "imminent-risk-ai-data-dead-loops-model-collapse-content-2026-2",
       "duplicate_of": "imminent-risk-ai-data-dead-loops-model-collapse-content-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g056",
-      "group": 56
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g050",
+      "group": 50
     },
     {
       "id": "sr25629232330-2026",
       "duplicate_of": "imminent-risk-ai-data-dead-loops-model-collapse-content-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g056",
-      "group": 56
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g050",
+      "group": 50
     },
     {
       "id": "incident-report-unsanctioned-agent-behaviour-during-cyber-2026-1",
       "duplicate_of": "incident-report-unsanctioned-agent-behaviour-during-cyber-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g057",
-      "group": 57
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g051",
+      "group": 51
     },
     {
       "id": "insuring-ai-incentivising-safe-secure-deployment-2026-1",
       "duplicate_of": "insuring-ai-incentivising-safe-secure-deployment-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g058",
-      "group": 58
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g052",
+      "group": 52
     },
     {
       "id": "is-ai-sovereignty-possible-balancing-autonomy-2026-1",
       "duplicate_of": "is-ai-sovereignty-possible-balancing-autonomy-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g060",
-      "group": 60
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g054",
+      "group": 54
     },
     {
       "id": "is-that-bot-pomeranian-or-wolf-who-sue-when-it-bites-2026-1",
       "duplicate_of": "is-that-bot-pomeranian-or-wolf-who-sue-when-it-bites-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g061",
-      "group": 61
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g055",
+      "group": 55
     },
     {
       "id": "is-that-bot-pomeranian-or-wolf-who-sue-when-it-bites-2026-2",
       "duplicate_of": "is-that-bot-pomeranian-or-wolf-who-sue-when-it-bites-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g061",
-      "group": 61
-    },
-    {
-      "id": "issue-one-its-council-responsible-social-media-call-2026",
-      "duplicate_of": "issue-one-its-council-responsible-social-media-call-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g062",
-      "group": 62
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g055",
+      "group": 55
     },
     {
       "id": "it-was-never-keyboard-brookings-2026",
       "duplicate_of": "it-was-never-keyboard-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g063",
-      "group": 63
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g056",
+      "group": 56
     },
     {
       "id": "legal-personhood-ai-possible-key-unlocking-human-ai-2026-1",
       "duplicate_of": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g064",
-      "group": 64
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g057",
+      "group": 57
     },
     {
       "id": "mai-code-conduct-humanist-ai-2026",
       "duplicate_of": "mai-models-code-conduct-humanist-ai-safety-principles-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g066",
-      "group": 66
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g059",
+      "group": 59
     },
     {
       "id": "managingrisksfrominternalaisystems-2026",
       "duplicate_of": "managing-risks-from-internal-ai-systems-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g067",
-      "group": 67
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g060",
+      "group": 60
     },
     {
       "id": "marc-andreessen-manifesto-says-ai-regulation-is-form-murder-2026",
       "duplicate_of": "marc-andreessen-manifesto-says-ai-regulation-is-form-murder-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g069",
-      "group": 69
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g062",
+      "group": 62
     },
     {
       "id": "measuring-risk-2-what-eu-risk-assessments-us-litigation-2026",
       "duplicate_of": "measuring-risk-ii-what-eu-risk-assessments-us-litigation-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g070",
-      "group": 70
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g063",
+      "group": 63
     },
     {
       "id": "not-what-youve-signed-up-2026",
       "duplicate_of": "not-what-youve-signed-up-compromising-real-world-llm-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g073",
-      "group": 73
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g066",
+      "group": 66
     },
     {
       "id": "openai-hugging-face-partner-address-security-incident-2026-1",
       "duplicate_of": "openai-hugging-face-partner-address-security-incident-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g075",
-      "group": 75
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g068",
+      "group": 68
     },
     {
       "id": "openais-disconcerting-hack-huggingface-what-we-should-do-2026-1",
       "duplicate_of": "openais-disconcerting-hack-huggingface-what-we-should-do-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g076",
-      "group": 76
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g069",
+      "group": 69
     },
     {
       "id": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026",
       "duplicate_of": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g077",
-      "group": 77
-    },
-    {
-      "id": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
-      "duplicate_of": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g077",
-      "group": 77
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g070",
+      "group": 70
     },
     {
       "id": "paradox-ai-accelerationism-promise-public-interest-ai-2026-1",
       "duplicate_of": "paradox-ai-accelerationism-promise-public-interest-ai-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g078",
-      "group": 78
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g071",
+      "group": 71
     },
     {
       "id": "regulatory-tide-goes-out-what-global-ai-governance-2026",
       "duplicate_of": "regulatory-tide-goes-out-what-global-ai-governance-2026-3",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g080",
-      "group": 80
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g073",
+      "group": 73
     },
     {
       "id": "regulatory-tide-goes-out-what-global-ai-governance-2026-2",
       "duplicate_of": "regulatory-tide-goes-out-what-global-ai-governance-2026-3",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g080",
-      "group": 80
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g073",
+      "group": 73
     },
     {
       "id": "regulatory-tide-goes-out-what-global-ai-governance-2026-4",
       "duplicate_of": "regulatory-tide-goes-out-what-global-ai-governance-2026-3",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g080",
-      "group": 80
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g073",
+      "group": 73
     },
     {
       "id": "regulatory-tide-goes-out-what-global-ai-governance-2026-5",
       "duplicate_of": "regulatory-tide-goes-out-what-global-ai-governance-2026-3",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g080",
-      "group": 80
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g073",
+      "group": 73
     },
     {
       "id": "regulatory-tide-goes-out-what-global-ai-governance-2026-6",
       "duplicate_of": "regulatory-tide-goes-out-what-global-ai-governance-2026-3",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g080",
-      "group": 80
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g073",
+      "group": 73
     },
     {
       "id": "rep-clarke-sen-markey-introduce-ai-civil-rights-act-2026-1",
       "duplicate_of": "rep-clarke-sen-markey-introduce-ai-civil-rights-act-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g081",
-      "group": 81
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g074",
+      "group": 74
     },
     {
       "id": "rise-authoritarian-informationalism-escalating-surveillance-2026-2",
       "duplicate_of": "rise-authoritarian-informationalism-escalating-surveillance-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g083",
-      "group": 83
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g076",
+      "group": 76
     },
     {
       "id": "rise-authoritarian-informationalism-escalating-surveillance-2026-3",
       "duplicate_of": "rise-authoritarian-informationalism-escalating-surveillance-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g083",
-      "group": 83
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g076",
+      "group": 76
     },
     {
       "id": "rise-authoritarian-informationalism-escalating-surveillance-2026-4",
       "duplicate_of": "rise-authoritarian-informationalism-escalating-surveillance-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g083",
-      "group": 83
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g076",
+      "group": 76
     },
     {
       "id": "rise-authoritarian-informationalism-escalating-surveillance-2026-5",
       "duplicate_of": "rise-authoritarian-informationalism-escalating-surveillance-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g083",
-      "group": 83
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g076",
+      "group": 76
     },
     {
       "id": "rise-authoritarian-informationalism-escalating-surveillance-2026-6",
       "duplicate_of": "rise-authoritarian-informationalism-escalating-surveillance-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g083",
-      "group": 83
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g076",
+      "group": 76
     },
     {
       "id": "section-230-ai-driven-platforms-2026-1",
       "duplicate_of": "section-230-ai-driven-platforms-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g084",
-      "group": 84
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g077",
+      "group": 77
     },
     {
       "id": "student-generative-artificial-intelligence-survey-2026-hepi-2026",
       "duplicate_of": "student-generative-artificial-intelligence-survey-2026-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g085",
-      "group": 85
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g078",
+      "group": 78
     },
     {
       "id": "study-finds-nearly-two-thirds-ai-generated-citations-are-2026",
       "duplicate_of": "study-finds-nearly-two-thirds-ai-generated-citations-are-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g086",
-      "group": 86
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g079",
+      "group": 79
     },
     {
       "id": "study-finds-nearly-two-thirds-ai-generated-citations-are-2026-2",
       "duplicate_of": "study-finds-nearly-two-thirds-ai-generated-citations-are-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g086",
-      "group": 86
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g079",
+      "group": 79
     },
     {
       "id": "study-finds-nearly-two-thirds-ai-generated-citations-are-2026-3",
       "duplicate_of": "study-finds-nearly-two-thirds-ai-generated-citations-are-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g086",
-      "group": 86
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g079",
+      "group": 79
     },
     {
       "id": "thaler-v-vidal-2026",
       "duplicate_of": "thaler-v-vidal-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g087",
-      "group": 87
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g080",
+      "group": 80
     },
     {
       "id": "theres-good-reason-you-cant-concentrate-2026-1",
       "duplicate_of": "theres-good-reason-you-cant-concentrate-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g089",
-      "group": 89
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g082",
+      "group": 82
     },
     {
       "id": "transparency-ai-is-decline-2026-1",
       "duplicate_of": "transparency-ai-is-decline-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g091",
-      "group": 91
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g084",
+      "group": 84
     },
     {
       "id": "transparency-ai-is-decline-stanford-report-2026",
       "duplicate_of": "transparency-ai-is-decline-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g091",
-      "group": 91
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g084",
+      "group": 84
     },
     {
       "id": "transparency-ai-is-decline-stanford-report-2026-1",
       "duplicate_of": "transparency-ai-is-decline-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g091",
-      "group": 91
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g084",
+      "group": 84
     },
     {
       "id": "trust-attitudes-use-ai-global-report-2026",
       "duplicate_of": "trust-attitudes-use-ai-global-report-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g092",
-      "group": 92
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g085",
+      "group": 85
     },
     {
       "id": "trust-attitudes-use-artificial-intelligence-global-study-2026",
       "duplicate_of": "trust-attitudes-use-ai-global-report-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g092",
-      "group": 92
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g085",
+      "group": 85
     },
     {
       "id": "trust-attitudes-use-artificial-intelligence-global-study-2026-1",
       "duplicate_of": "trust-attitudes-use-ai-global-report-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g092",
-      "group": 92
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g085",
+      "group": 85
     },
     {
       "id": "trust-without-teeth-eu-ai-act-healthcare-limits-voluntary-2026",
       "duplicate_of": "trust-without-teeth-eu-ai-act-healthcare-limits-voluntary-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g093",
-      "group": 93
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g086",
+      "group": 86
     },
     {
       "id": "unacceptable-markey-reintroduces-legislation-combat-bias-2026",
       "duplicate_of": "unacceptable-markey-reintroduces-legislation-combat-bias-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g094",
-      "group": 94
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g087",
+      "group": 87
     },
     {
       "id": "universities-would-prefer-not-2026",
       "duplicate_of": "universities-would-prefer-not-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g095",
-      "group": 95
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g088",
+      "group": 88
     },
     {
       "id": "using-self-correcting-search-accelerate-materials-discovery-2026",
       "duplicate_of": "using-self-correcting-search-accelerate-materials-discovery-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g096",
-      "group": 96
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g089",
+      "group": 89
     },
     {
       "id": "using-self-correcting-search-accelerate-materials-discovery-2026-2",
       "duplicate_of": "using-self-correcting-search-accelerate-materials-discovery-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g096",
-      "group": 96
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g089",
+      "group": 89
     },
     {
       "id": "using-self-correcting-search-accelerate-materials-discovery-2026-3",
       "duplicate_of": "using-self-correcting-search-accelerate-materials-discovery-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g096",
-      "group": 96
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g089",
+      "group": 89
     },
     {
       "id": "white-house-releases-national-policy-framework-artificial-2026",
       "duplicate_of": "white-house-releases-national-policy-framework-artificial-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g098",
-      "group": 98
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g091",
+      "group": 91
     },
     {
       "id": "why-ai-needs-genie-coefficient-2026-1",
       "duplicate_of": "why-ai-needs-genie-coefficient-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g099",
-      "group": 99
-    },
-    {
-      "id": "why-new-mexico-v-meta-matters-2026-1",
-      "duplicate_of": "why-new-mexico-v-meta-matters-2026",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g100",
-      "group": 100
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g092",
+      "group": 92
     }
   ],
   "marks_without_metadata": [
     {
       "id": "algorithmic-disgorgement-destruction-artificial-2026",
       "duplicate_of": "algorithmic-disgorgement-destruction-artificial-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g022",
-      "group": 22
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g021",
+      "group": 21
     },
     {
       "id": "algorithmic-disgorgement-destruction-artificial-2026-1",
       "duplicate_of": "algorithmic-disgorgement-destruction-artificial-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g022",
-      "group": 22
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g021",
+      "group": 21
     },
     {
       "id": "assistant-axis-situating-stabilizing-character-large-2026",
       "duplicate_of": "assistant-axis-situating-stabilizing-character-large-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g030",
-      "group": 30
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g028",
+      "group": 28
     },
     {
       "id": "auditing-language-models-hidden-objectives-2026",
       "duplicate_of": "auditing-language-models-hidden-objectives-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g032",
-      "group": 32
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g030",
+      "group": 30
     },
     {
       "id": "auditing-language-models-hidden-objectives-2026-1",
       "duplicate_of": "auditing-language-models-hidden-objectives-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g032",
-      "group": 32
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g030",
+      "group": 30
     },
     {
       "id": "can-ai-models-reason-like-clinicians-2026",
       "duplicate_of": "can-ai-models-reason-like-clinicians-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g039",
-      "group": 39
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g036",
+      "group": 36
     },
     {
       "id": "emotion-concepts-their-function-large-language-model-2026",
       "duplicate_of": "emotion-concepts-their-function-large-language-model-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g046",
-      "group": 46
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g043",
+      "group": 43
     },
     {
       "id": "frontier-reasoning-models-scaling-laws-whats-actually-2026",
       "duplicate_of": "frontier-reasoning-models-scaling-laws-whats-actually-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g050",
-      "group": 50
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g046",
+      "group": 46
     },
     {
       "id": "frontier-reasoning-models-scaling-laws-whats-actually-2026-1",
       "duplicate_of": "frontier-reasoning-models-scaling-laws-whats-actually-2026-2",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g050",
-      "group": 50
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g046",
+      "group": 46
     },
     {
       "id": "interpretability-signs-introspection-large-language-models-2026",
       "duplicate_of": "interpretability-signs-introspection-large-language-models-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g059",
-      "group": 59
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g053",
+      "group": 53
     },
     {
       "id": "lets-not-forget-george-stiglers-lessons-about-regulatory-2026",
       "duplicate_of": "lets-not-forget-george-stiglers-lessons-about-regulatory-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g065",
-      "group": 65
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g058",
+      "group": 58
     },
     {
       "id": "mapping-mind-large-language-model-2026",
       "duplicate_of": "mapping-mind-large-language-model-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g068",
-      "group": 68
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g061",
+      "group": 61
     },
     {
       "id": "name-right-regime-microsoft-shareholder-suit-limits-ai-2026",
       "duplicate_of": "name-right-regime-microsoft-shareholder-suit-limits-ai-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g071",
-      "group": 71
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g064",
+      "group": 64
     },
     {
       "id": "natural-language-autoencoders-turning-claudes-thoughts-into-2026",
       "duplicate_of": "natural-language-autoencoders-turning-claudes-thoughts-into-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g072",
-      "group": 72
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g065",
+      "group": 65
     },
     {
       "id": "open-sourcing-circuit-tracing-tools-2026",
       "duplicate_of": "open-sourcing-circuit-tracing-tools-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g074",
-      "group": 74
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g067",
+      "group": 67
     },
     {
       "id": "persona-vectors-monitoring-controlling-character-traits-2026",
       "duplicate_of": "persona-vectors-monitoring-controlling-character-traits-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g079",
-      "group": 79
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g072",
+      "group": 72
     },
     {
       "id": "responsible-ai-overview-from-explainability-responsibility-2026",
       "duplicate_of": "responsible-ai-overview-from-explainability-responsibility-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g082",
-      "group": 82
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g075",
+      "group": 75
     },
     {
       "id": "theory-economic-regulation-2026",
       "duplicate_of": "theory-economic-regulation-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g088",
-      "group": 88
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g081",
+      "group": 81
     },
     {
       "id": "tracing-thoughts-large-language-model-2026",
       "duplicate_of": "tracing-thoughts-large-language-model-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g090",
-      "group": 90
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g083",
+      "group": 83
     },
     {
       "id": "verifiable-audit-evidence-ai-driven-systems-veritaschain-2026",
       "duplicate_of": "verifiable-audit-evidence-ai-driven-systems-veritaschain-2026-1",
-      "duplicate_of_ref": "t4337-cleanup-2026-10#g097",
-      "group": 97
+      "duplicate_of_ref": "t4337-cleanup-2026-10#g090",
+      "group": 90
     }
   ],
   "review": [
@@ -1047,6 +994,13 @@
       ]
     },
     {
+      "canonical": "260312277v6-2026",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "prompt-injection-as-role-confusion-2026"
+      ]
+    },
+    {
       "canonical": "ai-democracy-dilemma-2026",
       "reason": "differs-from-canonical-or-second-identical-subset",
       "members": [
@@ -1067,6 +1021,20 @@
       "members": [
         "alignment-assessment-recent-cybersecurity-incidents-2026",
         "alignment-assessment-recent-cybersecurity-incidents-2026-1"
+      ]
+    },
+    {
+      "canonical": "artificial-intelligence-human-rights-law-thematic-synthesis-2026",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1"
+      ]
+    },
+    {
+      "canonical": "ban-artificial-superintelligence-act-release-summary-2026",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "ban-artificial-superintelligence-act-release-summary-2026-1"
       ]
     },
     {
@@ -1103,6 +1071,13 @@
         "extreme-power-concentration-80000-hours-2026",
         "extreme-power-concentration-80000-hours-2026-1",
         "extreme-power-concentration-80000-hours-2026-2"
+      ]
+    },
+    {
+      "canonical": "fiscal-impacts-ai-how-potential-ai-futures-would-play-out-2026",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "fiscal-impacts-ai-2026"
       ]
     },
     {
@@ -1160,6 +1135,20 @@
       ]
     },
     {
+      "canonical": "hugging-face-incident-road-ahead-2026",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "hugging-face-incident-road-ahead-2026-1"
+      ]
+    },
+    {
+      "canonical": "humanity-needs-ai-nonproliferation-treaty-2026",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "humanity-needs-ai-nonproliferation-treaty-2026-1"
+      ]
+    },
+    {
       "canonical": "insuring-ai-role-insurance-artificial-intelligence-2026-1",
       "reason": "canonical-has-no-identical-twin",
       "members": [
@@ -1177,6 +1166,13 @@
       ]
     },
     {
+      "canonical": "issue-one-its-council-responsible-social-media-call-2026-1",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "issue-one-its-council-responsible-social-media-call-2026"
+      ]
+    },
+    {
       "canonical": "law-following-ai-designing-ai-agents-obey-human-laws-2026",
       "reason": "canonical-has-no-identical-twin",
       "members": [
@@ -1191,6 +1187,13 @@
         "outsmarting-smart-device-2026",
         "outsmarting-smart-devices-preparing-ai-liability-risks-2026",
         "outsmarting-smart-devices-preparing-ai-liability-risks-2026-1"
+      ]
+    },
+    {
+      "canonical": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-2",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1"
       ]
     },
     {
@@ -1247,6 +1250,13 @@
       "members": [
         "text-2026",
         "text-2026-1"
+      ]
+    },
+    {
+      "canonical": "why-new-mexico-v-meta-matters-2026",
+      "reason": "c9-deferred-references-only-its-summary-supports",
+      "members": [
+        "why-new-mexico-v-meta-matters-2026-1"
       ]
     },
     {
@@ -1371,9 +1381,6 @@
     "artificial-general-intelligence-its-threat-public-health-2026": {
       "pre_sha256": "fb997b6cf95627bc43b005a9b4f611e58ccb3d005f8f6446f16d16ddfe5e2cc4"
     },
-    "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1": {
-      "pre_sha256": "4db471698956aeceee5487198bbfe63b9b0a08d5a7cb9ef6e9d13c398ef53543"
-    },
     "artificial-intelligence-research-strategy-united-states-2026-1": {
       "pre_sha256": "247358a901db7553cfb8a4959c7629aa182f38180bf4ae1a9847d2b576c89d78"
     },
@@ -1388,9 +1395,6 @@
     },
     "auditing-large-language-models-race-gender-disparities-2026": {
       "pre_sha256": "ec354a7d0761a8a9dc6ceb7e5ac81d7d3d4e3fba848032f4e6319975130bdd73"
-    },
-    "ban-artificial-superintelligence-act-release-summary-2026-1": {
-      "pre_sha256": "e54508ce122e8df7d770a062b3da481c2543cb46e51cefe75fb8b2bff2b48436"
     },
     "baumols-cost-disease-ai-economic-growth-2026-1": {
       "pre_sha256": "9f19f602d948fe3d853865b63ace9faf9d6fbc7748011f72fb5b659fc5dfa478"
@@ -1473,9 +1477,6 @@
     "faq-eng20151229-1630-2026": {
       "pre_sha256": "745749aca79bfdfe55964a43fe99c2dfcbeb92e297d7d2f74c919db4b4a2f861"
     },
-    "fiscal-impacts-ai-2026": {
-      "pre_sha256": "32680a66b7b6b3eea53db2b765561dde448d8177f6b1296da01b0e6a89792967"
-    },
     "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026": {
       "pre_sha256": "56462fabce4c2308feaccf2f57e14b06ffb25f41698a300cfd76b9beb97b0cb0"
     },
@@ -1496,12 +1497,6 @@
     },
     "how-us-public-ai-experts-view-artificial-intelligence-2026-1": {
       "pre_sha256": "9c7aa2852a2e7653bd1ded717424b878aed32bcfa2aff11e4a7d0e4bacc31626"
-    },
-    "hugging-face-incident-road-ahead-2026-1": {
-      "pre_sha256": "5b3bded139d5aebd7d428bb927a93d2a7909b97e2aad2b3fb8829672a537308b"
-    },
-    "humanity-needs-ai-nonproliferation-treaty-2026-1": {
-      "pre_sha256": "b7b9c552c228eef1b547a994c1ca6f9ec73373ba9b8cee812c53851715fc4026"
     },
     "imminent-risk-ai-data-dead-loops-model-collapse-content-2026-1": {
       "pre_sha256": "9ec7391b97fe4c46150c0caa455af7f3b2416b533bc9019bf0c73112b2615efe"
@@ -1536,9 +1531,6 @@
     "is-that-bot-pomeranian-or-wolf-who-sue-when-it-bites-2026-2": {
       "pre_sha256": "fbaa548dfdad168869659377e941abfb2f713a58732829e2fb340e2c8a338441"
     },
-    "issue-one-its-council-responsible-social-media-call-2026": {
-      "pre_sha256": "2827119bca17bd77cfb86820187ca6fd5e56795198efe79b1c78f0610f08afc3"
-    },
     "it-was-never-keyboard-brookings-2026": {
       "pre_sha256": "d2fecc5c67b5749a9ebff63bd3b655d39448146c4218afa975f70421a36f1ae6"
     },
@@ -1569,9 +1561,6 @@
     "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026": {
       "pre_sha256": "a639cd7cb2986b8960e958b0ab1decd69acbd2ef70d62e7e3b743feb4f6d639a"
     },
-    "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1": {
-      "pre_sha256": "fdc7f470649f9a5435d5be907ae8a2be3cf05fd38496f337f98229ed9e7060b1"
-    },
     "paradox-ai-accelerationism-promise-public-interest-ai-2026-1": {
       "pre_sha256": "3f545d845a03ddb646c319eb3c92f7c4b5ffebf8b94ae8aea094532497a9cead"
     },
@@ -1580,9 +1569,6 @@
     },
     "pi-20250403-us-public-ai-experts-report-2026-1": {
       "pre_sha256": "d6d6a5ae4351d6db2d2a27cd8ad1e8cc093e31333e299de43396b9e0f5c2b838"
-    },
-    "prompt-injection-as-role-confusion-2026": {
-      "pre_sha256": "71158dbfe32e22dfbd33a7a7710ee75142aee0e6599d691eabc3bb1d7e968d2c"
     },
     "regulatory-tide-goes-out-what-global-ai-governance-2026": {
       "pre_sha256": "154e2f20c840e3dcff6b811e7a8e230e3b6bb243fa900c85a6a1cc5edb2f6607"
@@ -1694,9 +1680,6 @@
     },
     "why-ai-needs-genie-coefficient-2026-1": {
       "pre_sha256": "ec063e7a92ac5caaaaebfb14dd981e0b127fb63a55e83cbde6cee27143467732"
-    },
-    "why-new-mexico-v-meta-matters-2026-1": {
-      "pre_sha256": "0cff5dcb648a860ae0840fbbea1b61349a3acc8e5f0b3ac398354c28a1de2902"
     }
   },
   "group_input": {

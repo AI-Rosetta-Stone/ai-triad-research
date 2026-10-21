@@ -70,6 +70,14 @@ Describe 'Get-T4337MarkPlan' -Tag 'data-mutation' {
         (Targets $p2)['c-2026-1'] | Should -BeExactly 'c-2026'
     }
 
+    It 'leaves a C9-deferred twin unmarked and lists it for review; the group''s other twins are still marked' {
+        $ids = 'd-2026', 'd-2026-1', 'd-2026-2'
+        $meta = @{}; foreach ($id in $ids) { $meta[$id] = $true }
+        $p = Get-T4337MarkPlan -Groups @(, $ids) -Hash @{ 'd-2026' = 'h'; 'd-2026-1' = 'h'; 'd-2026-2' = 'h' } -HasSummary @{} -LiveRefs @{} -HasMetadata $meta -Defer @('d-2026-1')
+        @($p.Marks | ForEach-Object id) | Should -Be @('d-2026-2')
+        ($p.Review | Where-Object reason -like 'c9-*').members | Should -Be @('d-2026-1')
+    }
+
     It 'never marks against a canonical with no content hash' {
         $p = Plan @(, @('n-2026', 'n-2026-1')) @{ 'n-2026' = $null; 'n-2026-1' = $null }
         @($p.Marks).Count | Should -Be 0

@@ -1,0 +1,14 @@
+{
+  "note": "SO C9 (e/344#8, re-confirmed e/344#10, TL e/344#9): marks deferred because a maintained POV source_refs entry is supported only by the copy's own summary. Each stays unmarked until a person re-points or re-cites the listed references; then it is marked to its canonical.",
+  "deferred": [
+    { "id": "prompt-injection-as-role-confusion-2026", "canonical": "260312277v6-2026", "references": ["acc-desires-044", "saf-beliefs-255", "saf-beliefs-256", "saf-beliefs-257", "saf-beliefs-258", "saf-beliefs-261"] },
+    { "id": "why-new-mexico-v-meta-matters-2026-1", "canonical": "why-new-mexico-v-meta-matters-2026", "references": ["saf-beliefs-267", "saf-intentions-242"] },
+    { "id": "humanity-needs-ai-nonproliferation-treaty-2026-1", "canonical": "humanity-needs-ai-nonproliferation-treaty-2026", "references": ["saf-desires-031"] },
+    { "id": "ban-artificial-superintelligence-act-release-summary-2026-1", "canonical": "ban-artificial-superintelligence-act-release-summary-2026", "references": ["saf-desires-032"] },
+    { "id": "hugging-face-incident-road-ahead-2026-1", "canonical": "hugging-face-incident-road-ahead-2026", "references": ["saf-intentions-248"] },
+    { "id": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1", "canonical": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-2", "references": ["saf-beliefs-282"] },
+    { "id": "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1", "canonical": "artificial-intelligence-human-rights-law-thematic-synthesis-2026", "references": ["skp-beliefs-285"] },
+    { "id": "issue-one-its-council-responsible-social-media-call-2026", "canonical": "issue-one-its-council-responsible-social-media-call-2026-1", "references": ["skp-beliefs-295"] },
+    { "id": "fiscal-impacts-ai-2026", "canonical": "fiscal-impacts-ai-how-potential-ai-futures-would-play-out-2026", "references": ["skp-beliefs-306"] }
+  ]
+}
