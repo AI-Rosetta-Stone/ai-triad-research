@@ -24,9 +24,16 @@ function makeStore(overrides: Record<string, unknown> = {}) {
 vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: vi.fn(),
 }));
+vi.mock('../taxonomy/SupersededBanner', () => ({
+  SupersededBanner: ({ node }: { node: { id: string } }) => <div data-testid="superseded-banner">{node.id}</div>,
+}));
 
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 const mockStore = useTaxonomyStore as unknown as ReturnType<typeof vi.fn>;
+// The component also calls useTaxonomyStore.getState() (non-reactive, for the superseded
+// accessors) — our mock is a plain vi.fn() with no selector support, so getState() just
+// returns the same configured state as a plain useTaxonomyStore() call would.
+(mockStore as unknown as { getState: typeof mockStore }).getState = mockStore;
 
 const { BdiGroundingPanel } = await import('./BdiGroundingPanel');
 
@@ -197,6 +204,33 @@ describe('BdiGroundingPanel (t/3292)', () => {
     }));
     render(<BdiGroundingPanel />);
     expect(screen.getByText('alignment')).toBeInTheDocument();
+  });
+
+  describe('superseded nodes (t/4358)', () => {
+    it('resolves a superseded node by id and shows it, read-only, with the banner', () => {
+      mockStore.mockReturnValue(makeStore({
+        selectedNodeId: 'acc-beliefs-002',
+        accelerationist: {
+          nodes: [
+            makeNode({ id: 'acc-beliefs-001', label: 'Live node' }),
+            makeNode({ id: 'acc-beliefs-002', label: 'Old node', superseded_by: 'acc-beliefs-001', concept_refs: [CONCEPT_LINKED] }),
+          ],
+        },
+      }));
+      render(<BdiGroundingPanel />);
+      // The superseded node itself renders (not the "not found" empty state), with its own content.
+      expect(screen.getByText('alignment')).toBeInTheDocument();
+      expect(screen.getByTestId('superseded-banner')).toHaveTextContent('acc-beliefs-002');
+    });
+
+    it('does not show the banner for a live (non-superseded) node', () => {
+      mockStore.mockReturnValue(makeStore({
+        selectedNodeId: 'acc-beliefs-001',
+        accelerationist: { nodes: [makeNode()] },
+      }));
+      render(<BdiGroundingPanel />);
+      expect(screen.queryByTestId('superseded-banner')).not.toBeInTheDocument();
+    });
   });
 
   describe('Formalization section (t/3397)', () => {

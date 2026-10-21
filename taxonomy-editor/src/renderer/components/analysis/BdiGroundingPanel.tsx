@@ -3,6 +3,8 @@
 
 import { useMemo, useState } from 'react';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, isSupersededNode } from '../../hooks/useTaxonomyStore/superseded';
+import { SupersededBanner } from '../taxonomy/SupersededBanner';
 import type { PovNode } from '../../types/taxonomy';
 import type { ConceptLinkRef, EntityLinkRef } from '@lib/entities/types';
 import type { LogicalForm } from '@lib/entities/logicalForm';
@@ -68,18 +70,6 @@ function DebateGroundingSection({ text }: { text: string | undefined }) {
       )}
     </section>
   );
-}
-
-function findNodeInFiles(
-  id: string,
-  files: (({ nodes: PovNode[] } | null) | undefined)[],
-): PovNode | null {
-  for (const file of files) {
-    if (!file) continue;
-    const node = file.nodes.find(n => n.id === id);
-    if (node) return node;
-  }
-  return null;
 }
 
 function confidencePct(v: number): string {
@@ -230,7 +220,7 @@ export function BdiGroundingPanel() {
 
   const node = useMemo(() => {
     if (!selectedNodeId) return null;
-    const found = findNodeInFiles(selectedNodeId, [accelerationist, safetyist, skeptic]);
+    const found = allNodesById(useTaxonomyStore.getState()).get(selectedNodeId) ?? null;
     if (!found && selectedNodeId) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -254,6 +244,7 @@ export function BdiGroundingPanel() {
 
   return (
     <div className="bdi-gr-root">
+      {isSupersededNode(node) && <SupersededBanner node={node} />}
       <DebateGroundingSection text={debateGrounding} />
 
       <section className="bdi-gr-section">
