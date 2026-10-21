@@ -160,10 +160,12 @@ function ConvertTo-SourceTitleKey {
 <#
 .SYNOPSIS
     Groups source documents (spec section 4): returns Canonical (docId -> canonical id) and
-    TitleCollisions (equal titles across different groups, a report, never a merge).
+    TitleCollisions (equal titles across different groups, a report, never a merge), plus the
+    section 6 duplicate-mark results: Resolved (docId -> resolved id), Selectable (sorted ids)
+    and DuplicateOfErrors.
 .DESCRIPTION
     Each document is @{ Id; Metadata; SnapshotSha256 }. Metadata may carry title, url,
-    resolved_url, provenance, content_sha256 (recorded), same_as and parent_doc_id.
+    resolved_url, provenance, content_sha256 (recorded), same_as, parent_doc_id and duplicate_of.
     SnapshotSha256 is the hash computed from snapshot.md for a document with no recorded one; it
     makes a hash edge but never vetoes. Strong edges (link, hash, trusted URL) are unioned; the
     -N suffix edge is conditional (4.4); titles add no edge (4.5).
@@ -222,7 +224,7 @@ function Get-SourceIdentityGroup {
 
     foreach ($id in $ids) {
         $m = $meta[$id]
-        foreach ($link in 'parent_doc_id', 'same_as') {                         # 4.1 strong
+        foreach ($link in 'parent_doc_id', 'same_as', 'duplicate_of') {         # 4.1 strong
             $target = & $prop $m $link
             if ($target -and $known.Contains($target)) { & $union $id $target }
         }
@@ -271,6 +273,45 @@ function Get-SourceIdentityGroup {
     $canonical = @{}
     foreach ($id in $ids) { $canonical[$id] = & $find $id }
 
+    # Section 6 duplicate marks. A mark is valid when its target is another document in the set that
+    # carries no mark of its own (one hop, so no chains or cycles). The group's canonical is the
+    # ordinal-smallest valid target in it; a valid mark naming any other target is a 'conflict' and,
+    # like every invalid mark, is treated as absent by the resolver and selection.
+    $mark = @{}; $kind = @{}
+    foreach ($id in $ids) {
+        $target = & $prop $meta[$id] 'duplicate_of'
+        if (-not $target) { continue }
+        $mark[$id] = $target
+        $kind[$id] = if ($target -ceq $id) { 'self' }
+                     elseif (-not $known.Contains($target)) { 'missing_target' }
+                     elseif (& $prop $meta[$target] 'duplicate_of') { 'chain' }
+                     else { $null }
+    }
+    $groupTarget = @{}
+    foreach ($id in $mark.Keys) {
+        if ($kind[$id]) { continue }
+        $root = $canonical[$id]
+        if (-not $groupTarget.ContainsKey($root) -or [string]::CompareOrdinal($mark[$id], $groupTarget[$root]) -lt 0) { $groupTarget[$root] = $mark[$id] }
+    }
+    foreach ($id in $mark.Keys) {
+        if (-not $kind[$id] -and $mark[$id] -cne $groupTarget[$canonical[$id]]) { $kind[$id] = 'conflict' }
+    }
+    foreach ($id in $ids) {
+        if ($groupTarget.ContainsKey($canonical[$id])) { $canonical[$id] = $groupTarget[$canonical[$id]] }
+    }
+    $resolved = @{}
+    $selectable = [System.Collections.Generic.List[string]]::new()
+    $markErrors = [System.Collections.Generic.List[object]]::new()
+    $sortedIds = [string[]]$ids.ToArray(); [Array]::Sort($sortedIds, [System.StringComparer]::Ordinal)
+    foreach ($id in $sortedIds) {
+        $valid = $mark.ContainsKey($id) -and -not $kind[$id]
+        $resolved[$id] = if ($valid) { $mark[$id] } else { $id }
+        if (-not $valid) { $selectable.Add($id) }
+        if ($mark.ContainsKey($id) -and $kind[$id]) {
+            $markErrors.Add([pscustomobject]@{ id = $id; target = $mark[$id]; kind = $kind[$id] })
+        }
+    }
+
     # 4.5 title collisions: an equal non-empty title key across two or more groups (report only).
     $collisions = [System.Collections.Generic.List[object]]::new()
     $byTitle = @{}
@@ -287,5 +328,8 @@ function Get-SourceIdentityGroup {
     $ordered = [object[]]@($collisions.ToArray())
     [Array]::Sort($ordered, [System.Comparison[object]] { param($x, $y) [string]::CompareOrdinal($x[0], $y[0]) })
 
-    [pscustomobject]@{ Canonical = $canonical; TitleCollisions = $ordered; UrlConflicts = [object[]]$urlConflicts.ToArray() }
+    [pscustomobject]@{
+        Canonical = $canonical; TitleCollisions = $ordered; UrlConflicts = [object[]]$urlConflicts.ToArray()
+        Resolved = $resolved; Selectable = [string[]]$selectable.ToArray(); DuplicateOfErrors = [object[]]$markErrors.ToArray()
+    }
 }

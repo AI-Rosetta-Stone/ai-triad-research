@@ -265,12 +265,15 @@ function Read-EntityExtractionLog {
 
 function ConvertTo-EntityExtractionWorkItem {
     # One SEI entry as a work item ({ NodeId; FactsText; DocIds }), or $null when it has no claims.
-    param([string]$NodeId, $Entry)
+    # duplicate_of (t/4337 C1): a fact from a marked copy is skipped, so the AI sees each claim once
+    # and the entity's source_refs name only resolved docs (spec 6.3).
+    param([string]$NodeId, $Entry, [pscustomobject]$Resolution)
     $Facts = if ($Entry -is [hashtable] -and $Entry.ContainsKey('facts') -and $Entry['facts']) { @($Entry['facts']) } else { @() }
     $Claims = [System.Collections.Generic.List[string]]::new()
     $DocIds = [System.Collections.Generic.List[string]]::new()
     foreach ($f in $Facts) {
         if ($f -isnot [hashtable]) { continue }
+        if ($Resolution -and $f.ContainsKey('doc_id') -and $f['doc_id'] -and -not (Test-SourceSelectable -Resolution $Resolution -Id ([string]$f['doc_id']))) { continue }
         if ($f.ContainsKey('claim') -and $f['claim']) { $Claims.Add([string]$f['claim']) }
         if ($f.ContainsKey('doc_id') -and $f['doc_id']) { $DocIds.Add([string]$f['doc_id']) }
     }
@@ -286,7 +289,7 @@ function ConvertTo-EntityExtractionWorkItem {
 
 function Get-EntityExtractionWorkList {
     # The ordered work list plus the two skip counts.
-    param([hashtable]$Sei, [string[]]$NodeId, [bool]$Force, [hashtable]$ProcessedNodeIds, [int]$MaxNodes)
+    param([hashtable]$Sei, [string[]]$NodeId, [bool]$Force, [hashtable]$ProcessedNodeIds, [int]$MaxNodes, [pscustomobject]$Resolution)
     $WantedNodes = if ($NodeId) { [System.Collections.Generic.HashSet[string]]::new([string[]]$NodeId) } else { $null }
     $WorkItems = [System.Collections.Generic.List[PSObject]]::new()
     $SkippedNoFacts = 0
@@ -295,7 +298,7 @@ function Get-EntityExtractionWorkList {
     foreach ($Nid in ($Sei.Keys | Sort-Object)) {
         if ($WantedNodes -and -not $WantedNodes.Contains($Nid)) { continue }
         if (-not $Force -and $ProcessedNodeIds.ContainsKey($Nid)) { $SkippedAlreadyDone++; continue }
-        $Item = ConvertTo-EntityExtractionWorkItem -NodeId $Nid -Entry $Sei[$Nid]
+        $Item = ConvertTo-EntityExtractionWorkItem -NodeId $Nid -Entry $Sei[$Nid] -Resolution $Resolution
         if ($null -eq $Item) { $SkippedNoFacts++; continue }
         $WorkItems.Add($Item)
     }

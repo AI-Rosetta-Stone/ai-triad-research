@@ -289,6 +289,13 @@ Export-ModuleMember -Function Invoke-AIByUsage, ConvertFrom-TruncatableJson
         }
         Mock Get-TaxonomyDir -ModuleName AITriad { Join-Path $script:RootFixture 'taxonomy' }
         Mock Get-DataRoot    -ModuleName AITriad { $script:RootFixture }
+        # An empty, existing sources dir (no duplicate_of marks): the transcript is then identical with
+        # or without a real ai-triad-sources checkout. Without it, CI (no checkout) adds a "marks are
+        # not applied" WARN that a dev machine doesn't (t/4337 C1). It sits outside the fixture root
+        # because the transcript records that tree.
+        $script:EmptySources = Join-Path $TestDrive ('sources-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:EmptySources -Force | Out-Null
+        Mock Get-SourcesDir  -ModuleName AITriad { $script:EmptySources }
         Mock Invoke-AIApi    -ModuleName AITriad { throw 'live AI call attempted in a characterization test' }
         Mock Get-UsageRegistry -ModuleName AITriad {
             switch ($script:S['Usage']) {

@@ -120,6 +120,11 @@ function Invoke-POVSummary {
     $script:ContextRotStages = @()
 
     $metadata = Get-Content $paths.MetadataFile -Raw | ConvertFrom-Json
+    # duplicate_of (t/4337 C1): an explicit -DocId is a lookup, so a marked copy is still summarized
+    # when asked for, but batch runs skip it and its summary isn't counted as evidence.
+    if ($metadata.PSObject.Properties['duplicate_of'] -and -not [string]::IsNullOrEmpty([string]$metadata.duplicate_of)) {
+        Write-Warning "Invoke-POVSummary: '$DocId' is marked duplicate_of '$($metadata.duplicate_of)'. Summarizing it as asked, but evidence producers skip a marked copy's summary; summarize '$($metadata.duplicate_of)' instead."
+    }
     if (Test-POVSummaryAlreadyCurrent -Metadata $metadata -Force:$Force -DryRun:$DryRun) { return }
 
     if (-not $DryRun) {

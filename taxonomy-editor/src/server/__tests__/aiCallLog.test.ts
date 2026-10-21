@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource, type AICallLogEntry } from '../ai/aiCallLog.js';
+import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource, getAICallLogPath, type AICallLogEntry } from '../ai/aiCallLog.js';
 
 const SCHEMA_FIELDS = ['ID', 'Datetime', 'Scenario', 'PromptID', 'PromptStart', 'RetryCount', 'Status', 'Model', 'Backend', 'KeySource'];
 
@@ -50,6 +50,32 @@ describe('isAICallLogEnabled', () => {
     }
     delete process.env.AI_CALL_LOG_ENABLED;
     expect(isAICallLogEnabled(), 'unset → off').toBe(false);
+  });
+});
+
+describe('t/4372 (t/4264) — getAICallLogPath arm-B: routes through getStateRoot(), not getDataRoot()', () => {
+  const SAVED: Record<string, string | undefined> = {};
+  const KEYS = ['AI_TRIAD_DATA_ROOT', 'AI_TRIAD_STATE_ROOT'];
+  beforeEach(() => { for (const k of KEYS) SAVED[k] = process.env[k]; });
+  afterEach(() => { for (const k of KEYS) { if (SAVED[k] === undefined) delete process.env[k]; else process.env[k] = SAVED[k]; } });
+
+  it('defaults to getDataRoot() when AI_TRIAD_STATE_ROOT is unset (prod/local unchanged)', () => {
+    process.env.AI_TRIAD_DATA_ROOT = tmpDir;
+    delete process.env.AI_TRIAD_STATE_ROOT;
+    expect(getAICallLogPath()).toBe(path.join(tmpDir, 'ai-call-log.jsonl'));
+  });
+
+  it('isolates to AI_TRIAD_STATE_ROOT when set — a staging deployment never appends to the data root (prod\'s share)', () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aicalllog-state-'));
+    try {
+      process.env.AI_TRIAD_DATA_ROOT = tmpDir;
+      process.env.AI_TRIAD_STATE_ROOT = stateDir;
+      const resolved = getAICallLogPath();
+      expect(resolved).toBe(path.join(stateDir, 'ai-call-log.jsonl'));
+      expect(resolved).not.toBe(path.join(tmpDir, 'ai-call-log.jsonl'));
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 });
 

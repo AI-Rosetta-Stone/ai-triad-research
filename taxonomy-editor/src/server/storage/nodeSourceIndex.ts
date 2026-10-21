@@ -22,11 +22,14 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import {
   groupSourceIdentities, computeSourceContentHash,
   type SourceReference, type SourceCardMeta, type NodeSourceIndex, type SourceIdentityDoc, type SourceIdentityMeta,
+  type SourceUrlConflict,
 } from '../../../../lib/sourceIndex/types.js';
 import { getBackend, getSourcesDir } from './fileIO.js';
 import {
   type SnapshotHashCache, gitBlobSha, loadSnapshotHashCache, lookupCachedHash, recordHash, pruneAndSaveSnapshotHashCache,
 } from './snapshotHashCache.js';
+import { loadSourcesIndex } from './sourcesIndexReader.js';
+import type { SourcesIndexFile } from '../../../../lib/sourceIndex/sourcesIndexSchema.js';
 
 export type { SourceReference, SourceCardMeta, NodeSourceIndex };
 
@@ -98,6 +101,7 @@ function buildIdentityMetaFromRawJson(meta: Record<string, unknown>): SourceIden
     content_sha256: (meta.content_sha256 as string) ?? null,
     same_as: (meta.same_as as string) ?? null,
     parent_doc_id: (meta.parent_doc_id as string) ?? null,
+    duplicate_of: (meta.duplicate_of as string) ?? null, // t/4337 C1 (spec section 6)
   };
 }
 
@@ -138,13 +142,75 @@ async function loadOneSourceMetaEntry(sourcesDir: string, name: string, hashCach
   return { metaCache, identityMeta, snapshotHash };
 }
 
-async function loadNodeMetaCache(
-  sourcesDir: string | null,
-): Promise<{ metaCache: Record<string, NodeSourceMeta>; identityMeta: Record<string, SourceIdentityMeta>; snapshotHashes: Record<string, string | null> }> {
+type LoadedNodeMeta = { metaCache: Record<string, NodeSourceMeta>; identityMeta: Record<string, SourceIdentityMeta>; snapshotHashes: Record<string, string | null> };
+
+function cardMetaFromSourcesIndexEntry(entry: SourcesIndexFile['docs'][number]): NodeSourceMeta {
+  return {
+    title: entry.title || entry.id,
+    url: entry.url || null,
+    sourceType: 'unknown', // not carried by the index — no card consumer reads it
+    datePublished: entry.date_published || '',
+    authors: entry.authors ?? [],
+    topicTags: entry.topic_tags ?? [],
+    oneLiner: entry.one_liner ?? null,
+  };
+}
+
+function identityMetaFromSourcesIndexEntry(entry: SourcesIndexFile['docs'][number]): SourceIdentityMeta {
+  return {
+    title: entry.title ?? null,
+    url: entry.url ?? null,
+    resolved_url: entry.resolved_url ?? null,
+    provenance: entry.provenance ?? [],
+    content_sha256: entry.content_sha256 ?? null,
+    same_as: entry.same_as ?? null,
+    parent_doc_id: entry.parent_doc_id ?? null,
+    duplicate_of: entry.duplicate_of ?? null, // t/4357: carry the mark through the hosted index path too
+  };
+}
+
+/** t/4334#18: the index's own recorded-vs-computed hash split
+ *  (`content_sha256` / `snapshot_sha256`) maps directly onto
+ *  `identityMeta.content_sha256` (recorded, suffix-veto-eligible) and
+ *  `snapshotHashes` (computed, never veto-eligible) — the exact distinction
+ *  `groupSourceIdentities` already depends on via `SourceIdentityDoc`. */
+function buildNodeMetaFromSourcesIndex(index: SourcesIndexFile): LoadedNodeMeta {
+  const metaCache: Record<string, NodeSourceMeta> = {};
+  const identityMeta: Record<string, SourceIdentityMeta> = {};
+  const snapshotHashes: Record<string, string | null> = {};
+  for (const entry of index.docs) {
+    metaCache[entry.id] = cardMetaFromSourcesIndexEntry(entry);
+    identityMeta[entry.id] = identityMetaFromSourcesIndexEntry(entry);
+    snapshotHashes[entry.id] = entry.snapshot_sha256 ?? null;
+  }
+  return { metaCache, identityMeta, snapshotHashes };
+}
+
+/** t/4334#18: a configured data directory that lists empty is a silent
+ *  failure mode, not a legitimate "nothing here yet" — e.g. `getSourcesDir()`
+ *  returning a path the backend's tree doesn't actually cover (the hosted
+ *  AC1 bug: `sources/` from a separate repo, read via a single-repo
+ *  `GitHubAPIBackend`). `dirPath === null` ("sources not configured at all")
+ *  is NOT warned here — that's a legitimate, already-handled absence. */
+function warnIfEmptyConfiguredDir(label: string, dirPath: string, entries: string[]): void {
+  if (entries.length > 0) return;
+  log.server.warn({ label, dirPath }, `Node source index: listDirectory returned no entries for a configured data directory (${label})`);
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'node-source-index', level: 'warn',
+    message: `listDirectory returned no entries for a configured data directory: ${label}`,
+    data: { label, dirPath },
+  });
+}
+
+/** Scans `getSourcesDir()` directly, per doc: `metadata.json` plus (when no
+ *  recorded hash) a computed `snapshot.md` hash. The original (pre-index)
+ *  path — still used when `sources-index.json` is missing or stale. */
+async function loadNodeMetaCacheFromSourcesDir(sourcesDir: string | null): Promise<LoadedNodeMeta> {
   const metaCache: Record<string, NodeSourceMeta> = {};
   const identityMeta: Record<string, SourceIdentityMeta> = {};
   const snapshotHashes: Record<string, string | null> = {};
   const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir) : [];
+  if (sourcesDir) warnIfEmptyConfiguredDir('sourcesDir', sourcesDir, sourceEntries);
   // t/4350: one persisted cache load/save per build, not per doc — entries
   // for docs no longer in sourceEntries are dropped on save.
   const hashCache = loadSnapshotHashCache();
@@ -157,6 +223,12 @@ async function loadNodeMetaCache(
   }));
   pruneAndSaveSnapshotHashCache(hashCache, sourceEntries);
   return { metaCache, identityMeta, snapshotHashes };
+}
+
+async function loadNodeMetaCache(sourcesDir: string | null): Promise<LoadedNodeMeta> {
+  const sourcesIndex = await loadSourcesIndex();
+  if (sourcesIndex) return buildNodeMetaFromSourcesIndex(sourcesIndex);
+  return loadNodeMetaCacheFromSourcesDir(sourcesDir);
 }
 
 /** t/4334/t/4333 (PI scope addition, p/548#306): % of sources carrying each
@@ -177,6 +249,7 @@ function sourceCardFieldCoverage(metaCache: Record<string, NodeSourceMeta>): { a
 
 async function indexSummaryFile(
   summariesDir: string, file: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
+  missingMetaIds: Set<string>,
 ): Promise<void> {
   const backend = getBackend();
   const docId = file.replace(/\.json$/, '');
@@ -193,7 +266,9 @@ async function indexSummaryFile(
     if (raw === null) return;
     summary = JSON.parse(raw);
   } catch { /* telemetry — silent by design */ return; }
-  const meta = metaCache[docId] ?? { title: docId, url: null, sourceType: 'unknown', datePublished: '', authors: [], topicTags: [], oneLiner: null };
+  const cached = metaCache[docId];
+  if (!cached) missingMetaIds.add(docId); // t/4334#25: aggregated, not per-occurrence — logged once per build
+  const meta = cached ?? { title: docId, url: null, sourceType: 'unknown', datePublished: '', authors: [], topicTags: [], oneLiner: null };
   for (const [pov, povData] of Object.entries(summary.pov_summaries || {})) {
     for (const kp of povData.key_points || []) {
       const nodeId = kp.taxonomy_node_id;
@@ -213,10 +288,66 @@ async function indexSummaryFile(
 
 async function indexSummaryFiles(
   summaryFiles: string[], summariesDir: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
-): Promise<void> {
+): Promise<Set<string>> {
+  const missingMetaIds = new Set<string>();
   await Promise.all(
-    summaryFiles.filter(f => f.endsWith('.json')).map(file => indexSummaryFile(summariesDir, file, metaCache, index))
+    summaryFiles.filter(f => f.endsWith('.json')).map(file => indexSummaryFile(summariesDir, file, metaCache, index, missingMetaIds))
   );
+  return missingMetaIds;
+}
+
+/** t/4334#25 (Rosetta): a per-doc fallback (no `metaCache` entry — identity
+ *  metadata never loaded for this doc, the empty-listing WARN's per-doc
+ *  counterpart) WARNs once per build with the count, never once per
+ *  occurrence — the same aggregation shape as the title-collision/
+ *  url-conflict reports below. */
+function warnMissingMetaIds(missingMetaIds: Set<string>): void {
+  if (missingMetaIds.size === 0) return;
+  log.server.warn(
+    { missingCount: missingMetaIds.size, missingDocIds: [...missingMetaIds].sort() },
+    'Node source index: some docs have no source metadata (title/url/authors fall back to the bare doc id)',
+  );
+}
+
+/** t/4357 (spec section 6.3): a `duplicate_of`-marked entry (`resolved[docId]
+ *  !== docId`) is dropped whenever its resolved id already has its own,
+ *  unmarked entry in this node's list — "a duplicate pair gives one
+ *  evidence unit, not two" (SO condition C2). When no unmarked entry exists
+ *  for that id (only the mark cites this node), exactly one marked entry
+ *  survives instead of vanishing, re-attributed to the resolved id using
+ *  its own card metadata when known, so the row reads as a citation of the
+ *  canonical document. Unmarked entries are never touched or deduped
+ *  against each other — multiple citations of the same real document is a
+ *  pre-existing, duplicate_of-unrelated pattern this ticket doesn't change.
+ *  Grouping-only duplicates (no mark, e.g. split parts) are likewise
+ *  untouched — only a mark changes row count. */
+function dedupeByResolvedId(
+  index: NodeSourceIndex, resolved: Record<string, string>, metaCache: Record<string, NodeSourceMeta>,
+): void {
+  for (const [nodeId, refs] of Object.entries(index)) {
+    // An "own" entry (resolvedId === docId, i.e. unmarked) is never touched
+    // — including multiple own entries for the same doc, a pre-existing,
+    // duplicate_of-unrelated pattern. A duplicate-marked entry only
+    // surfaces when NO own entry already represents its resolved id —
+    // otherwise two citations of the same real document (one direct, one
+    // via its mark) would count as two evidence units, not the one the SO
+    // asked for.
+    const hasOwnEntry = new Set(refs.filter(r => (resolved[r.docId] ?? r.docId) === r.docId).map(r => r.docId));
+    const seenViaMark = new Set<string>();
+    const kept: SourceReference[] = [];
+    for (const r of refs) {
+      const resolvedId = resolved[r.docId] ?? r.docId;
+      if (resolvedId === r.docId) { kept.push(r); continue; }
+      if (hasOwnEntry.has(resolvedId) || seenViaMark.has(resolvedId)) continue;
+      seenViaMark.add(resolvedId);
+      const target = metaCache[resolvedId];
+      kept.push({
+        ...r, docId: resolvedId, canonicalDocId: resolvedId,
+        title: target?.title ?? r.title, url: target?.url ?? r.url,
+      });
+    }
+    index[nodeId] = kept;
+  }
 }
 
 /** Fills in `canonicalDocId` (today it's set to each ref's own `docId` by
@@ -224,23 +355,36 @@ async function indexSummaryFiles(
  *  (`docs/specs/source-identity.md`, t/4344), mutating `index` in place.
  *  Every `docId` seen anywhere in the index participates, so a split part
  *  reachable only via one node still resolves against the full known-id
- *  set. Returns the title-collision report (spec 4.5) for the caller to log
- *  — it's a signal for a human cleanup pass, never applied as a merge. */
+ *  set. Also applies t/4357's section 6: a valid `duplicate_of` mark
+ *  collapses that node's two evidence rows into one (`dedupeByResolvedId`),
+ *  attributed to the resolved id. Returns the title-collision, url-conflict
+ *  (spec 4.5) and duplicate-of-error (spec 6.1) reports for the caller to
+ *  log — all three are signals for a human, never applied as a merge. */
 function applyCanonicalDocIds(
   index: NodeSourceIndex, identityMeta: Record<string, SourceIdentityMeta>, snapshotHashes: Record<string, string | null>,
-): string[][] {
-  const allDocIds = new Set<string>();
+  metaCache: Record<string, NodeSourceMeta>,
+): { titleCollisions: string[][]; urlConflicts: SourceUrlConflict[]; duplicateOfErrorCount: number } {
+  // t/4357: every doc under sourcesDir participates, not just the ones cited
+  // by a summary today — a `duplicate_of` target otherwise cited by nothing
+  // would wrongly validate as `missing_target` (it genuinely IS in the
+  // corpus; it just has no key-point referencing this particular build).
+  const allDocIds = new Set<string>(Object.keys(identityMeta));
   for (const refs of Object.values(index)) for (const r of refs) allDocIds.add(r.docId);
   const docs: SourceIdentityDoc[] = [...allDocIds].map(id => ({
     id,
     metadata: identityMeta[id] ?? { title: id },
     snapshotSha256: snapshotHashes[id] ?? null,
   }));
-  const { canonical, titleCollisions } = groupSourceIdentities(docs);
+  const { canonical, titleCollisions, urlConflicts, resolved, duplicateOfErrors } = groupSourceIdentities(docs);
   for (const refs of Object.values(index)) {
     for (const r of refs) r.canonicalDocId = canonical[r.docId] ?? r.docId;
   }
-  return titleCollisions;
+  dedupeByResolvedId(index, resolved, metaCache);
+  if (duplicateOfErrors.length > 0) {
+    // spec 6.1: WARN, never throw — an invalid mark is visible and treated as absent.
+    log.server.warn({ duplicateOfErrors }, 'Node source index: invalid duplicate_of marks found (treated as absent)');
+  }
+  return { titleCollisions, urlConflicts, duplicateOfErrorCount: duplicateOfErrors.length };
 }
 
 /**
@@ -254,11 +398,14 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   const index: NodeSourceIndex = {};
 
   const summaryFiles = await backend.listDirectory(summariesDir);
-  if (summaryFiles.length === 0) return index;
+  if (summaryFiles.length === 0) {
+    warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
+    return index;
+  }
 
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
-  await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  applyCanonicalDocIds(index, identityMeta, snapshotHashes);
+  warnMissingMetaIds(await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index));
+  applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
   return index;
 }
 
@@ -315,9 +462,11 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
   const summaryFiles = await getBackend().listDirectory(summariesDir);
+  warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
-  await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  const titleCollisions = applyCanonicalDocIds(index, identityMeta, snapshotHashes);
+  const missingMetaIds = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
+  warnMissingMetaIds(missingMetaIds);
+  const { titleCollisions, urlConflicts, duplicateOfErrorCount } = applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
   const cards = buildCardMetaByCanonicalId(index, metaCache);
   nodeSourceIndexGeneration += 1;
 
@@ -326,12 +475,20 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const coldBuildMs = Date.now() - start;
   const coverage = sourceCardFieldCoverage(metaCache);
   log.server.info(
-    { coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length, titleCollisionCount: titleCollisions.length, ...coverage },
+    {
+      coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,
+      titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length,
+      missingMetaCount: missingMetaIds.size, duplicateOfErrorCount, ...coverage,
+    },
     'Node source index rebuilt',
   );
   if (titleCollisions.length > 0) {
     // t/4344 spec 4.5: a report for a human cleanup pass (t/4337), never applied as a merge.
     log.server.warn({ titleCollisions }, 'Node source index: title collisions found (no merge applied, human review needed)');
+  }
+  if (urlConflicts.length > 0) {
+    // t/4344 spec 4.3/4.5: a pair vetoed from joining on a shared URL key, reported for the same human cleanup pass.
+    log.server.warn({ urlConflicts }, 'Node source index: URL conflicts found (no merge applied, human review needed)');
   }
   getGlobalRecorder()?.record({
     type: 'system.info', component: 'node-source-index', level: 'info',

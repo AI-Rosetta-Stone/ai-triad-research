@@ -20,6 +20,9 @@ function Get-Summary {
         Only include key_points with this stance value (e.g. aligned, opposed).
     .PARAMETER Detailed
         When set, includes the KeyPoints array in output.
+    .PARAMETER IncludeDuplicates
+        Also list summaries of documents marked duplicate_of another document. A listing leaves
+        them out by default; an exact -DocId (no wildcard) always finds the summary.
     .EXAMPLE
         Get-Summary
         # Lists all summaries with point counts.
@@ -55,7 +58,9 @@ function Get-Summary {
 
         [string]$Stance,
 
-        [switch]$Detailed
+        [switch]$Detailed,
+
+        [switch]$IncludeDuplicates
     )
 
     Set-StrictMode -Version Latest
@@ -69,7 +74,9 @@ function Get-Summary {
         return
     }
 
-    $SummaryFiles = Get-ChildItem -Path $SummariesDir -Filter '*.json' -File
+    # @(): a bare Get-ChildItem gives $null or one FileInfo for 0/1 files, and .Count then throws
+    # under StrictMode. duplicate_of (t/4337 C1): a listing skips marked copies' summaries.
+    $SummaryFiles = @(Get-ListedSummaryFile -SummariesDir $SummariesDir -DocId $DocId -IncludeDuplicates:$IncludeDuplicates -Caller 'Get-Summary')
     if ($SummaryFiles.Count -eq 0) {
         Write-Warning "No summary files found in $SummariesDir"
         return
@@ -113,7 +120,9 @@ function Get-Summary {
                 continue
             }
 
-            $Points = if ($PovData.PSObject.Properties['key_points'] -and $PovData.key_points) { @($PovData.key_points) } else { @() }
+            # @(...) around the whole if: an if-expression whose branch yields an empty array assigns
+            # $null, and .Count on it throws under StrictMode for a POV with empty key_points.
+            $Points = @(if ($PovData.PSObject.Properties['key_points'] -and $PovData.key_points) { $PovData.key_points })
             $PointCounts[$PovName] = $Points.Count
 
             # Apply POV/Stance filters for -Detailed output

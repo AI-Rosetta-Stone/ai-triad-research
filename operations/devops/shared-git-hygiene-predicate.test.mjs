@@ -7,7 +7,11 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { evaluateSharedGitHygiene } from './shared-git-hygiene-predicate.mjs';
+
+const MODULE_PATH = fileURLToPath(new URL('./shared-git-hygiene-predicate.mjs', import.meta.url));
 
 // ── Rule 1: HEAD-moving verbs on the shared root ────────────────────────────────────────────────
 
@@ -154,4 +158,30 @@ test('a non-git command never matches', () => {
 test('empty/undefined command — silent, not a throw', () => {
   assert.equal(evaluateSharedGitHygiene({ command: '' }).action, 'silent');
   assert.equal(evaluateSharedGitHygiene({ command: undefined }).action, 'silent');
+});
+
+// ── CLI shim (test==runtime): the actual subprocess invocation each feedback rule makes ──────────
+
+function runCli(command) {
+  return execFileSync(process.execPath, [MODULE_PATH, command], { encoding: 'utf8', timeout: 5000 });
+}
+
+test('CLI shim: head-moving verb on the shared root prints its own reason string', () => {
+  assert.equal(runCli('git reset --hard origin/main'), 'head-moving-verb');
+});
+
+test('CLI shim: commit -a on the shared root prints its own reason string', () => {
+  assert.equal(runCli('git commit -am "wip"'), 'commit-a-or-add-all');
+});
+
+test('CLI shim: the same head-moving verb inside a worktree prints nothing', () => {
+  assert.equal(runCli('cd .worktrees/foo && git reset --hard origin/main'), '');
+});
+
+test('CLI shim: `merge --ff-only` on the shared root prints nothing (r/11 sync exemption)', () => {
+  assert.equal(runCli('git merge --ff-only origin/main'), '');
+});
+
+test('CLI shim: a non-matching command prints nothing', () => {
+  assert.equal(runCli('npm test'), '');
 });

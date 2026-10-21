@@ -340,3 +340,44 @@ against the control's turn count and `adaptive_staging.pacing` *before* the batc
 debates are roughly twice as long, so expect about $0.40 per debate, about $20 for 50. That's new spend
 for the PI. Alternatively, a fixed-3-round *control* would need a pre-fix corpus of 6-turn debates,
 which doesn't exist in sufficient number (5 or fewer pre-fix in-cell non-staged debates).
+
+---
+
+# CONFIRMATORY ARM 2 RESULT (2026-10-21, t/3802): CONFIRM, by the pre-registered rule
+
+This is the adaptive re-run that "What would answer the question" called for. It was approved at t/3802#9, with the $30 stop at #19 and the 50-completed count at #22.
+- **Instrument:** `measure_confirmatory_arm2.py`. It uses the same `measure()` as the pilot and arm 1; only the arm directory changes, and the arm is filtered by `matches_cell()` like the control.
+- **Data:** `debates/t3790-confirm2-adaptive-20261020/`, 50 completed debates. Code is frozen at `7ffb7c3f`.
+- **Spend:** $28.97 of $30. That counts 4 failed attempts at the $0.80 reserve: a03, a11 and a15 were killed by the low-memory reaper, and a32 hit a JSON-parse FATAL and was retried.
+
+## Cell match: passes this time
+- **All 50 arm debates match the frozen cell** (0 off-cell), including `adaptive_staging.pacing = moderate`.
+- **Debater turns:** the arm averages 14.3 per debate (range 13–16), against 11.4 for the control (range 0–15, n = 36). The arm runs somewhat longer. See the confound check below for why that doesn't favour the arm.
+
+## Numbers
+
+| axis | control (pre-fix, cell) | arm 2 (adaptive moderate) |
+|---|---|---|
+| steelman nodes | 34 (36 debates) | 40 (50 debates) |
+| **primary: per-node adoption** | 1/34 = 2.9% [0.5–14.9] | **8/40 = 20.0% [10.5–34.8]** |
+| edge-share adoption | 1/26 = 4% | 9/22 = 41% |
+| connection rate | 15/34 = 44% [29–61] | 16/40 = 40% [26–55] |
+| later-inbound camp split (steelmanned / third / author) | 1 / 23 / 2 | 9 / 9 / 4 |
+| **confound bound: later-inbound edges / debate** | 26/36 = 0.72 | 22/50 = 0.44 |
+| total edges / debate | 23.7 | 28.8 |
+
+The CIs are 95% Wilson. Two-proportion z = 2.24, and Fisher's exact test (one-sided) gives p = 0.026.
+
+## Reading (against the pre-registered branches)
+- **The confound-bound check (ruling #6) passes, in the conservative direction.** The arm has *less* later-inbound opportunity than the control (0.44 against 0.72 per debate). Less opportunity can't manufacture adoption, so the opportunity confound is bounded, and the concurrent fix-off control (ruling #7) isn't triggered.
+- **CONFIRM.** The arm's lower bound (10.5%) excludes the control rate (2.9%), upward. That is the pre-registered CONFIRM condition. It's also the 3%→20% effect the arm was powered for, and the point estimate lands on it.
+- **The mechanism signature reproduces.** The steelmanned camp's share of later-inbound edges goes from 4% to 41%, while the third camp's share falls from 88% to 41%. Connection rate is flat (44% to 40%), as pre-registered: the fix reallocates *who* engages, not *whether* anyone does.
+
+## Statistic provenance and limits (t/3587)
+- **The control rests on 1 event in 34 nodes, and the arm on 8 events in 40.**
+  - **The CI rule holds for a control of up to 3 events** (8.8%) and fails at 4 (11.8%).
+  - **The Fisher test is more fragile:** p = 0.026 with 1 control event, 0.074 with 2, and 0.15 with 3.
+  - So the decision is CONFIRM by the rule fixed before the data. It is **not** a robust significance result, and it should be cited with both counts.
+- **The nodes fall short of the power target:** 40 arm nodes against the ~55 the power calculation sized. 50 debates gave 0.80 steelman nodes per debate, against the control's 0.94. The CONFIRM branch was reached anyway; AMBIGUOUS would have applied had it not been.
+- **The control is historical, not concurrent.** It is pre-fix debates from before 2026-09-30, so other code changes since then are confounded with the fix. The confound-bound check is the pre-registered guard on that, and it passed. It bounds *opportunity*, not every difference between the two code versions.
+- **Scope, unchanged from the pre-registration:** this confirms the **adoption mechanism**, that a camp takes up its own charitably restated position. It does **not** show that adoption improves debate quality, which is a separate measurement.

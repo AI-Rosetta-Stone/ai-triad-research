@@ -53,7 +53,9 @@ describe('readBranchContext', () => {
     getSyncStatus.mockReturnValue(new Promise(() => {}));
     const p = m.readBranchContext(3000);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(await p).toEqual({ session_branch: null, behind_by: null });
+    const ctx = await p;
+    expect(ctx).toEqual({ session_branch: null, behind_by: null });
+    expect(Object.isFrozen(ctx)).toBe(true); // the shared fallback can't be mutated by one caller for the next
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', message: expect.stringContaining('timed out') }));
   });
 });

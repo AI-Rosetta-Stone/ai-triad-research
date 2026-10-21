@@ -35,7 +35,10 @@ function Read-TaxonomySummaryCorpus {
         throw "Summaries directory not found: $SummariesDir"
     }
 
-    $SummaryFiles = Get-ChildItem -Path $SummariesDir -Filter '*.json' -File
+    # duplicate_of (t/4337 C1): skip a marked copy's summary so citations, DocIds and unmapped
+    # concepts count each resolved doc once (spec 6.3).
+    $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+    $SummaryFiles = @(Select-SelectableSummaryFile -Files $SummaryFiles -Resolution (Get-SourceResolution -SourcesDir $SourcesDir))
     $UnmappedAgg  = @{}
     $SummaryStats = [System.Collections.Generic.List[PSObject]]::new()
 

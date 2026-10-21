@@ -140,6 +140,9 @@ function Update-AITSourceIndex {
             total_facts      = $TotalFacts
             unmapped_concepts = $UnmappedConcepts
             one_liner        = if ($Props['one_liner'])      { $Meta.one_liner }      else { $null }
+            # The raw mark, for readers of _index.json (t/4337). Additive; no reader branches on it in
+            # PS: Get-AITSource filters with Get-SourceResolution, which also validates the mark.
+            duplicate_of     = if ($Props['duplicate_of'] -and $Meta.duplicate_of) { [string]$Meta.duplicate_of } else { $null }
         }
 
         $Entries.Add($Entry)

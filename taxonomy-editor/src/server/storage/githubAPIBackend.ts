@@ -2251,7 +2251,7 @@ export class GitHubAPIBackend implements StorageBackend {
 
     if (!data.content || data.encoding !== 'base64') {
       if (data.sha && (data.size ?? 0) > 0) {
-        return this.fetchBinaryBlobFromGitHub(creds, data.sha, resp.etag ?? '');
+        return this.fetchBinaryRawFromGitHub(creds, repoPath, qRef, data.sha, resp.etag ?? '');
       }
       return null;
     }
@@ -2260,21 +2260,29 @@ export class GitHubAPIBackend implements StorageBackend {
     return { content, sha: data.sha, etag: resp.etag ?? '' };
   }
 
-  private async fetchBinaryBlobFromGitHub(
+  /** t/4286: for a file too large for the Contents API's inline `content` (>1MB),
+   *  re-request the SAME Contents endpoint with the raw media type instead of the
+   *  Git Blobs API (`/git/blobs/{sha}`) — GitHub serves raw bytes up to 100MB this
+   *  way, with no JSON envelope and no base64. The Blobs API has no raw mode, so it
+   *  always pays a `res.text()` + `JSON.parse()` pass (base64-in-JSON) followed by a
+   *  SECOND synchronous `Buffer.from(..., 'base64')` decode — both over the full
+   *  body, both unyielded. Confirmed as the ~700ms-class event-loop block on a cold
+   *  read of the synthetic-embeddings .npy files (t/4286#25/#27/#28). One raw
+   *  `res.arrayBuffer()` read in `GitHubRestClient.request()`'s `raw` path replaces
+   *  both decodes with zero synchronous full-body passes. */
+  private async fetchBinaryRawFromGitHub(
     creds: SyncCredentials,
+    repoPath: string,
+    qRef: string,
     sha: string,
     etag: string,
   ): Promise<{ content: Buffer; sha: string; etag: string } | null> {
     const resp = await this.rest.request(creds, 'GET',
-      `/repos/${creds.repo}/git/blobs/${sha}`);
+      `/repos/${creds.repo}/contents/${repoPath}${qRef}`, undefined, undefined, { raw: true });
 
     if (!resp.ok) return null;
 
-    const data = resp.data as { content: string; encoding: string; sha: string };
-    const content = data.encoding === 'base64'
-      ? Buffer.from(data.content, 'base64')
-      : Buffer.from(data.content);
-    return { content, sha: data.sha, etag: resp.etag ?? etag };
+    return { content: resp.data as Buffer, sha, etag: resp.etag ?? etag };
   }
 
   private async getFileSha(repoPath: string, ref: string): Promise<string | null> {

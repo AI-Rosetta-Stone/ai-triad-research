@@ -199,6 +199,47 @@ jobs:
           # IMAGE_DIGEST + IMAGE_DEPLOYED_AT stamped for the detect half; IMAGE_DEPLOYED_AT is DEPLOY-time
           # (not container start) so a recycle without a deploy shows the same timestamp (condition 6).
           $ShortSha = $env:HEAD_SHA.Substring(0, [Math]::Min(7, $env:HEAD_SHA.Length))
+          # t/4376: the suffix is deterministic and ACA revision names are immutable, so a re-run of a run
+          # that already created staging-<sha7> was rejected ("revision with suffix … already exists") and
+          # left the app provisioningState=Failed. Reuse an existing same-image revision instead.
+          . ./operations/devops/azure/Get-StagingRevisionVerdict.ps1
+          $RevName = "${{ env.CONTAINER_APP_NAME }}--staging-$ShortSha"
+          $Existing = az containerapp revision show `
+            --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $RevName `
+            --query '{image:properties.template.containers[0].image, active:properties.active}' -o json 2>$null
+          # Not found exits non-zero -> create. Reset so the miss can't leak as this step's exit code (t/4252).
+          $Existing = if ($LASTEXITCODE -eq 0 -and $Existing) { $Existing | ConvertFrom-Json } else { $null }
+          $global:LASTEXITCODE = 0
+          $Verdict = Get-StagingRevisionVerdict -ExistingImage $Existing.image -ExpectedImageRef $env:IMAGE_REF
+          Write-Host "t/4376 revision verdict for '$RevName': $($Verdict.Action) ($($Verdict.Reason))"
+          if ($Verdict.Action -eq 'refuse') {
+            throw (New-ActionableError -AsErrorRecord `
+              -Goal "Deploy staging revision '$RevName'" `
+              -Problem "It already exists with image '$($Existing.image)', not the intended '$($env:IMAGE_REF)'" `
+              -Location 'deploy-staging.yml: Deploy new revision to staging (t/4376)' `
+              -NextSteps @("Inspect it: az containerapp revision show -n ${{ env.CONTAINER_APP_NAME }} -g ${{ env.RESOURCE_GROUP }} --revision $RevName",
+                           'The suffix encodes the built commit, so a mismatch means the sha-<commit> tag moved; investigate before redeploying'))
+          }
+          if ($Verdict.Action -eq 'reuse') {
+            if ($Existing.active -ne $true) {
+              Write-Host "::warning::t/4376: re-run — reactivating existing revision '$RevName' instead of re-creating it."
+              az containerapp revision activate `
+                --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $RevName -o none
+              if ($LASTEXITCODE -ne 0) {
+                throw (New-ActionableError -AsErrorRecord `
+                  -Goal "Reactivate existing staging revision '$RevName' for a re-run" `
+                  -Problem "az containerapp revision activate exited $LASTEXITCODE" `
+                  -Location 'deploy-staging.yml: Deploy new revision to staging (t/4376)' `
+                  -NextSteps @('Check az output above and the app state: az containerapp show -n ${{ env.CONTAINER_APP_NAME }} -g ${{ env.RESOURCE_GROUP }} --query properties.provisioningState',
+                               'Or push a new commit, so a fresh staging-<sha7> revision is created'))
+              }
+            } else {
+              Write-Host "::warning::t/4376: re-run — reusing existing active revision '$RevName' instead of re-creating it."
+            }
+            Write-Host "New revision: $RevName (reused)"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "revision=$RevName"
+            exit 0
+          }
           $DeployedAt = [DateTimeOffset]::UtcNow.ToString('o')
           $Result = New-ContainerAppRevision `
             -ImageRef $env:IMAGE_REF `
@@ -493,14 +534,35 @@ jobs:
         shell: pwsh
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
-          Write-Host "::warning::Smoke failed — restoring prior revision: ${{ steps.current_revision.outputs.revision }}"
-          Set-ContainerAppTraffic `
-            -RevisionName '${{ steps.current_revision.outputs.revision }}' `
-            -AppName '${{ env.CONTAINER_APP_NAME }}' `
-            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
-            -MaxAttempts 3 `
-            -RetryIntervalSec 10
-          if ('${{ steps.new_revision.outputs.revision }}') {
+          $Prior = '${{ steps.current_revision.outputs.revision }}'
+          $NewRev = '${{ steps.new_revision.outputs.revision }}'
+          Write-Host "::warning::Smoke failed — restoring prior revision: $Prior"
+          # t/4376: skip the traffic write when the prior revision already holds 100% (traffic never moved).
+          # A traffic set re-submits the app's stored template, so after a REJECTED update it fails the same
+          # way every attempt; reading first makes the common case a no-op instead of 3 opaque failures.
+          $PriorWeight = az containerapp ingress traffic show `
+            --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+            --query "[?revisionName=='$Prior'].weight | [0]" -o tsv 2>$null
+          if ($LASTEXITCODE -eq 0 -and "$PriorWeight" -eq '100') {
+            Write-Host "Prior revision '$Prior' already at 100% — traffic never moved; no traffic write needed."
+          } else {
+            Set-ContainerAppTraffic `
+              -RevisionName $Prior `
+              -AppName '${{ env.CONTAINER_APP_NAME }}' `
+              -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+              -MaxAttempts 3 `
+              -RetryIntervalSec 10
+          }
+          $global:LASTEXITCODE = 0
+          $ProvState = az containerapp show --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' `
+            --query 'properties.provisioningState' -o tsv 2>$null
+          if ($ProvState -eq 'Failed') {
+            Write-Host "::warning::t/4376: staging app provisioningState is 'Failed' (a rejected template is now its desired state). Serving is unaffected, but a bare 'az containerapp update' would replay that template — let the next deploy-staging run rewrite it."
+          }
+          $global:LASTEXITCODE = 0
+          # t/4376: a re-run of the LATEST run reuses the serving revision, so NewRev can equal Prior —
+          # never deactivate the revision we just restored traffic to.
+          if ($NewRev -and $NewRev -ne $Prior) {
             Disable-ContainerAppRevision `
               -RevisionName '${{ steps.new_revision.outputs.revision }}' `
               -AppName '${{ env.CONTAINER_APP_NAME }}' `

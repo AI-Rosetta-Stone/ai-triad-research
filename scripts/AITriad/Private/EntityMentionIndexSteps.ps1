@@ -37,8 +37,11 @@ function Get-EmiSummaryFiles {
     if ($Bound) { return [pscustomobject]@{ Files = @($SummariesPath) } }
     $SummDir = Get-SummariesDir
     if (Test-Path -LiteralPath $SummDir) {
-        return [pscustomobject]@{ Files = @(Get-ChildItem -LiteralPath $SummDir -Filter '*.json' -File |
-                    Sort-Object -Property Name | ForEach-Object { $_.FullName }) }
+        # duplicate_of (t/4337 C1): a marked copy's summary adds no containers, so its mentions aren't
+        # counted twice; existing summary:<doc_id> keys are never rewritten (spec 6.4).
+        $all = @(Get-ChildItem -LiteralPath $SummDir -Filter '*.json' -File | Sort-Object -Property Name)
+        $kept = Select-SelectableSummaryFile -Files $all -Resolution (Get-DefaultSourceResolution -Caller 'Update-EntityMentionIndex')
+        return [pscustomobject]@{ Files = @($kept | ForEach-Object { $_.FullName }) }
     }
     Write-Verbose "Summaries dir not found: $SummDir; skipping summary containers."
     return [pscustomobject]@{ Files = @() }

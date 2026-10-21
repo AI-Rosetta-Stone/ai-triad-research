@@ -17,6 +17,9 @@ function Find-AITSource {
         key_point details so you can see exactly which points map to the node.
     .PARAMETER Id
         One or more taxonomy node ID patterns (supports wildcards).
+    .PARAMETER IncludeDuplicates
+        Also return documents marked duplicate_of another document. They're left out by default,
+        so a copy isn't listed beside the document it duplicates.
     .EXAMPLE
         Find-AITSource -Id 'skp-intentions-005'
         # Exact match — sources referencing that single node.
@@ -47,7 +50,9 @@ function Find-AITSource {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, Position = 0)]
-        [string[]]$Id
+        [string[]]$Id,
+
+        [switch]$IncludeDuplicates
     )
 
     Set-StrictMode -Version Latest
@@ -61,7 +66,8 @@ function Find-AITSource {
         return
     }
 
-    $SummaryFiles = @(Get-ChildItem -Path $SummariesDir -Filter '*.json' -File)
+    # duplicate_of (t/4337 C1): marked copies aren't listed beside their canonical doc.
+    $SummaryFiles = @(Get-ListedSummaryFile -SummariesDir $SummariesDir -IncludeDuplicates:$IncludeDuplicates -Caller 'Find-AITSource')
     if ($SummaryFiles.Count -eq 0) {
         Write-Warning "No summary files found in $SummariesDir"
         return

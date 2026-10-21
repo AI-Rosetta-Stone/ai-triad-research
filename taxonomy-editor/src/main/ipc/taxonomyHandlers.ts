@@ -257,6 +257,20 @@ function guardSituationsBdiSave(newNodes: unknown[]): void {
   });
 }
 
+/** t/4369 gap 3 (this handler's caller leg): relevanceSelection.ts's per-camp label dedup
+ *  writes injectionManifest.label_dedup but — same gap on the server route — nothing logged
+ *  it, so a dropped twin was invisible outside a manual diff. Mirrors the analogous WARN the
+ *  server's Pino-based route must add on its own leg. */
+function warnOnLabelDedup(injectionManifest: Record<string, unknown> | undefined): void {
+  const labelDedup = injectionManifest?.label_dedup;
+  if (!Array.isArray(labelDedup) || labelDedup.length === 0) return;
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'ipc-handlers', level: 'warn',
+    message: `fetch-relevant-nodes: ${labelDedup.length} label-duplicate node(s) skipped (t/4369)`,
+    data: { labelDedup },
+  });
+}
+
 export function registerTaxonomyHandlers(): void {
   ipcMain.handle('get-taxonomy-dirs', () => {
     return getTaxonomyDirs();
@@ -791,12 +805,14 @@ export function registerTaxonomyHandlers(): void {
       greatestHitsList: b.session?.greatestHitsList,
     };
 
-    return selectRelevantTaxonomy({
+    const result = await selectRelevantTaxonomy({
       povNodes, situationNodes, policyRegistry, nodeEmbeddings, lineageMapping, doctrinalBoundaries,
       session,
       params: { pov, topic, recentTranscript, threshold: b.threshold, tagSelection: b.tagSelection },
       embed: queryEmbed,
     });
+    warnOnLabelDedup(result.injectionManifest);
+    return result;
   });
 
   // t/3322: compute-attribution — main-process mirror of server routes/attribution.ts.

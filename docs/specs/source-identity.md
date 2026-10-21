@@ -1,6 +1,6 @@
 # Source-document identity: hash, URL and link rules
 
-**Status:** contract, version 1. **Tickets:** t/4337 (ingestion dedupe, PowerShell) and t/4334 (canonical source index, TypeScript). **Fixture:** `tests/fixtures/source-identity-cases.json`.
+**Status:** contract, fixture version 5. **Tickets:** t/4337 (ingestion dedupe, PowerShell) and t/4334 (canonical source index, TypeScript). **Fixture:** `tests/fixtures/source-identity-cases.json`.
 
 This spec defines how a source document in `ai-triad-sources/<doc-id>/` is identified. The PowerShell ingester (`scripts/AITriad/Private/SourceIdentity.ps1`) and the TypeScript index (`lib/sourceIndex`) implement it. Both must pass every case in the fixture.
 
@@ -13,10 +13,11 @@ This spec defines how a source document in `ai-triad-sources/<doc-id>/` is ident
 | `content_sha256` | string, 64 lowercase hex chars, or absent | the ingester, at ingest | The content hash of the snapshot body (section 1). |
 | `same_as` | string doc id, or absent | the ingester, only with `-SameAs` | A deliberate cross-outlet reprint of that document. It groups with it (section 4.1). |
 | `parent_doc_id` | string doc id, or absent | the ingester, only with `-ParentDocId` | A deliberate part of a larger document. It groups with it (section 4.1). |
+| `duplicate_of` | string doc id, or absent | a reviewed corpus cleanup (t/4337, `/data-mutation`), never the ingester | This document is a copy of that one. It groups with it (section 4.1), names the group's canonical (4.6), and takes the document out of selection (section 6). |
 
 **When `content_sha256` is absent** (documents ingested before t/4337), compute it from `snapshot.md` using section 1. It gives the same value the ingester would have written.
 
-**`same_as` and `parent_doc_id` are never inferred.** They exist only when a person asked for them at ingest.
+**`same_as`, `parent_doc_id` and `duplicate_of` are never inferred.** `same_as` and `parent_doc_id` exist only when a person asked for them at ingest. `duplicate_of` exists only after a person signed off on it in a frozen cleanup list. An empty string is the same as absent.
 
 ## 1. Content hash (`content_sha256`)
 
@@ -98,7 +99,7 @@ The input is a set of documents. Each has an `id`, its `metadata.json` fields, a
 
 ### 4.1–4.3 Strong edges
 The groups are the **connected components** over every edge (union, not "first matching tier"). That way the result doesn't depend on the order tiers are checked or files are listed.
-1. **Explicit link (4.1):** `parent_doc_id` or `same_as` joins the document to that id. **The link is ignored if the target id isn't in the set.**
+1. **Explicit link (4.1):** `parent_doc_id`, `same_as` or `duplicate_of` joins the document to that id. **The link is ignored if the target id isn't in the set.** A `duplicate_of` that section 6 rejects (a chain, for example) still makes this edge; it only loses its effect on the canonical, the resolver and selection.
 2. **Content hash (4.2):** equal hashes, where a document's hash is its recorded `content_sha256`, or else its snapshot hash. Absent means no edge (section 1.3).
 3. **URL (4.3):** an equal trusted URL key (section 3). Every trusted key of a document counts.
    - **URL edges are pairwise.** Every pair of documents sharing a key is considered, so one pair can be dropped.
@@ -120,6 +121,11 @@ The groups are the **connected components** over every edge (union, not "first m
 
 **Why:** t/4337 now deliberately mints `-N` for a genuine slug collision with different content and records its hash, and rule 3 keeps that document separate. Rule 1 also removes t/4334's year-suffix limitation: `foo-2026` joins `foo` only when their titles match.
 
+**Legacy documents carry no recorded hash, by design** (TL ruling t/4337#32).
+- **Which documents:** those ingested before t/4337. They have a *computed* snapshot hash only, and `content_sha256` is never backfilled onto them.
+- **Why:** a backfill would turn rule 3 on for re-ingested near-duplicates (conversion-noise copies) and split groups they belong to. Measured on the corpus, that's 103 → 89 multi-doc groups.
+- **The effect:** rule 3 applies only to documents ingested since t/4337, which record their hash at ingest. Consumers already read the computed hash from `snapshot_sha256` in `sources-index.json`.
+
 ### 4.5 Title key, and the `title_collision` and `url_conflict` reports
 **The title key:** lowercase (invariant), then replace `+` with a space, then **delete every character that isn't ASCII `[a-z0-9_]` or ASCII whitespace** (space, `\t`, `\n`, `\r`, `\f`, `\v`), then collapse ASCII whitespace runs to one space, then trim.
 - Non-ASCII letters are deleted, not kept, because .NET `\w` is Unicode and JS `\w` is ASCII.
@@ -138,13 +144,14 @@ The groups are the **connected components** over every edge (union, not "first m
 - **The report is input for a human** (the t/4337 cleanup pass). It never merges anything.
 
 ### 4.6 Canonical id
-The canonical id of a document is the **ordinal-smallest id** (UTF-16 code units) in its group.
+1. **A group with a valid `duplicate_of` mark** (6.1): the canonical id is the mark's target. If valid marks in one group name different targets, it's the **ordinal-smallest** of those targets, and the other marks are `conflict` errors (6.1).
+2. **Any other group:** the canonical id is the **ordinal-smallest id** (UTF-16 code units) in it.
 
-`same_as` and `parent_doc_id` change only grouping. Which document a person sees as primary is the consumer's display choice.
+`same_as` and `parent_doc_id` change only grouping. Which document a person sees as primary is the consumer's display choice. `duplicate_of` is the one field that names the canonical, because the cleanup chooses it deliberately: the member the summaries and most live references already use (SO condition C6, e/342#2), not the smallest id.
 
 ## 5. Fixture format
 
-`tests/fixtures/source-identity-cases.json` has five case lists:
+`tests/fixtures/source-identity-cases.json` has six case lists:
 - `hash_cases`: `{name, text, expected_sha256}`, where `expected_sha256` may be `null`;
 - `url_cases`: `{name, input, expected}`, where `expected` may be `null`;
 - `trust_cases`: `{name, metadata, expected}`, where `expected` is an array of keys;
@@ -153,7 +160,59 @@ The canonical id of a document is the **ordinal-smallest id** (UTF-16 code units
   - `metadata.content_sha256` is a **recorded** hash, and `snapshot_sha256` is a **computed** one (4.0).
   - `snapshot_text`, when present, is the document's `snapshot.md` text. The consumer computes the snapshot hash from it with section 1, which can be no hash at all (1.3). Then it groups. It's never given together with `snapshot_sha256`.
   - Real-corpus cases carry the documents' actual metadata. No corpus document records a hash yet, so each one's hash, computed from the real `snapshot.md`, is in `snapshot_sha256`.
+- `duplicate_of_cases`: `{name, documents, expected_canonical, expected_resolved: {id: resolvedId}, expected_selectable: [id, …], expected_duplicate_of_errors: [{id, target, kind}, …]}`, with `documents` as in `grouping_cases`.
+  - `expected_selectable` is sorted ordinally.
+  - **It's a separate list** so a consumer that hasn't adopted section 6 still passes `grouping_cases` unchanged. No `grouping_case` carries `duplicate_of`.
 
-The fixture's `version` is bumped whenever a rule changes an expected value (version 2: the section 4 revision; version 3: the 4.3 URL conflict veto and the `url_conflict` report; version 4: the 1.3 100-word body floor and `snapshot_text`).
+The fixture's `version` is bumped whenever a rule changes an expected value (version 2: the section 4 revision; version 3: the 4.3 URL conflict veto and the `url_conflict` report; version 4: the 1.3 100-word body floor and `snapshot_text`; version 5: `duplicate_of`, section 6 and `duplicate_of_cases`).
 
 Expected values are generated by one implementation and **independently confirmed** by a second, from-spec implementation in the other runtime before they are committed.
+
+## 6. Duplicate marks: resolver and selection
+
+*Version 5, from the Second Opinion's conditions C1, C2 and C6 on the t/4337 cleanup (e/342#2).* A duplicate stays on disk and stays resolvable by id, but it stops counting as a separate document.
+
+### 6.1 Valid marks and `duplicate_of_error`
+A document `X` with `duplicate_of: T` has a **valid mark** when every check below passes. Otherwise the mark is an error of the first kind that fails:
+
+| Check | Error kind |
+|---|---|
+| `T` is not `X` | `self` |
+| `T` is a document in the set | `missing_target` |
+| `T` has no `duplicate_of` of its own (one hop only, so no chains and no cycles) | `chain` |
+| `T` is its group's canonical (4.6 rule 1) | `conflict` |
+
+**Evaluate in two passes** (Quality, review of #3569). The `conflict` check depends on the group's canonical, and 4.6 rule 1 picks the canonical from valid marks. So:
+1. apply the first three checks to every mark;
+2. for each group, take the ordinal-smallest target among the marks that passed them as the group's canonical;
+3. then mark as `conflict` every remaining mark whose target isn't that canonical.
+
+A single pass that checks `conflict` before the canonical is chosen gives order-dependent results.
+
+- **An invalid mark is treated as absent** by the canonical rule, the resolver and selection. The document stays selectable and resolves to itself, so a bad mark is visible and hides nothing.
+- **Grouping reports every error** as `{id, target, kind}`, sorted by `id` (ordinal).
+- **Consumers WARN on errors at load and never throw.** The cleanup write is gated on **zero** errors, checked against the frozen list before anything is written.
+  - **Its `/data-mutation` proof asserts structurally that the frozen list has no chains** (TL, t/4337#13): no target is also marked, and each group has exactly one target.
+- In a two-document cycle (`A → B`, `B → A`), both marks are `chain` errors.
+
+### 6.2 Resolver
+`resolve(id)` is the mark's target when `id` has a valid mark, and `id` otherwise. It never takes more than one hop, because a valid target carries no mark.
+
+- **The resolver uses the mark only, not grouping.** An unmarked member of a group resolves to itself, even when the group's canonical is another document. Only a signed-off mark redirects evidence; grouping never does.
+- **Every by-id lookup still finds a marked document,** so historical records (debates, analyses) that cite it keep working.
+
+### 6.3 Selection and evidence
+- **Selectable documents** are the documents with no valid mark. Listings, pickers, AI producer inputs, and the summary and batch pipelines use only these.
+- **Evidence and attribution** (`source_index`, `source_evidence_index`, entity indexes, citation counts) attribute each citation to `resolve(id)` and count each resolved id **once**. A duplicate pair therefore gives one evidence unit, not two.
+
+### 6.4 Exact versus resolved id
+Every citation has two ids, and each has its own use. This mirrors the taxonomy's `superseded_by` split (t/4354):
+
+| | **Exact id** (as cited) | **Resolved id** (`resolve(exact)`) |
+|---|---|---|
+| **Used for** | History: stored records, citations and provenance | New attribution: evidence counts, index entries, selection |
+| **Stored data** | **Kept as written.** A mark never rewrites an existing reference: debates, analyses, summaries and taxonomy `source_refs` keep the id they cite. | Computed at read time, never persisted over the exact id. |
+| **Display** | What the record actually cited | The document to show or open as primary |
+
+- **A consumer may show both** (for example "cited as X, now Y"). It must never replace a stored exact id with the resolved id.
+- **Why:** the mark is the reviewed fact, and grouping is a heuristic that can change with the spec. Keeping the exact id means removing or correcting a mark restores the original attribution, with no data repair.

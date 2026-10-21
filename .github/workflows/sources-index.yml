@@ -1,0 +1,87 @@
+# ─── Sources Index ───
+# What:  Regenerates taxonomy/Origin/sources-index.json in ai-triad-data from ai-triad-sources,
+#        via PowerShell's Export-SourcesIndex (t/4334, t/4333).
+# Why:   Hosted (github-api mode) taxonomy-editor reads only ai-triad-data -- it has no runtime
+#        access to ai-triad-sources, so card metadata/hashes/URLs are otherwise unavailable on
+#        prod (t/4334#17/#18, the data-read-parity failure class). This workflow is the
+#        precomputed-index half of that fix; Server Storage's reader (#3561) consumes the
+#        committed file through the existing ai-triad-data backend -- no new runtime auth
+#        surface, no cross-repo reads at request time.
+# Before: Requires the DATA_REPO_TOKEN secret, already used by this repo's own
+#         cluster-conflicts.yml/batch-summarize.yml for the identical read-sources/write-data
+#         shape -- confirmed working here, no wider access needed.
+# After:  taxonomy/Origin/sources-index.json is updated in ai-triad-data, only when its
+#         content actually changes (Export-SourcesIndex's own byte-stable Changed check) --
+#         a scheduled run that finds nothing new commits nothing.
+# Lives here, not in ai-triad-sources (TL decision, t/4334): a second copy of DATA_REPO_TOKEN
+# in another repo spreads a credential -- a PI-only call, best avoided. Running here instead of
+# on push to ai-triad-sources means polling via a 30-minute schedule rather than instant
+# triggering; that freshness is fine for the Sources tab.
+
+name: Sources Index
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # every 30 minutes (TL decision, t/4334: freshness is fine for this)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: sources-index
+      cancel-in-progress: false
+    steps:
+      - name: Checkout ai-triad-research (for the Export-SourcesIndex module)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Checkout ai-triad-sources (read source)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          repository: AI-Rosetta-Stone/ai-triad-sources
+          path: ai-triad-sources
+          token: ${{ secrets.DATA_REPO_TOKEN }}  # Scope: contents:read on AI-Rosetta-Stone/ai-triad-sources
+          fetch-depth: 1
+
+      - name: Checkout ai-triad-data (write target)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          repository: AI-Rosetta-Stone/ai-triad-data
+          path: ai-triad-data
+          token: ${{ secrets.DATA_REPO_TOKEN }}  # Scope: contents:write on AI-Rosetta-Stone/ai-triad-data
+          fetch-depth: 1
+
+      - name: Export sources index
+        id: export
+        shell: pwsh
+        run: |
+          Import-Module "${{ github.workspace }}/scripts/AITriad/AITriad.psd1" -Force
+          $result = Export-SourcesIndex `
+            -SourcesDir "${{ github.workspace }}/ai-triad-sources" `
+            -OutputPath "${{ github.workspace }}/ai-triad-data/taxonomy/Origin/sources-index.json" `
+            -PassThru
+          "changed=$($result.Changed)" >> $env:GITHUB_OUTPUT
+          Write-Host "Export-SourcesIndex: Changed=$($result.Changed), doc_count=$($result.DocCount), hashed=$($result.Hashed), no_metadata=$($result.NoMetadata)"
+
+      - name: Commit sources-index.json (only if changed)
+        if: steps.export.outputs.changed == 'True'
+        working-directory: ai-triad-data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add taxonomy/Origin/sources-index.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit (Export-SourcesIndex reported Changed but git sees none -- investigate)"
+            exit 1
+          else
+            git commit -m "chore: refresh sources-index.json (t/4334)"
+            git push
+          fi
+
+      - name: No-op summary (unchanged)
+        if: steps.export.outputs.changed != 'True'
+        run: echo "sources-index.json unchanged -- nothing committed." >> "$GITHUB_STEP_SUMMARY"

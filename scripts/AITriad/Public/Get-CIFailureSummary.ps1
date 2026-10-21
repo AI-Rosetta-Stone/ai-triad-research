@@ -10,9 +10,10 @@ function Get-CIFailureSummary {
         `gh run view --log | Select-String` passes. Resolves a run (explicit -RunId,
         latest failed run for -WorkflowFile, or the latest failed run), pulls the
         failed-step log via `gh run view --log-failed`, and returns a structured
-        summary: failed job names, failing Pester test names, the `[-]` failure lines
-        with their assertion detail (test-emitted), and the remaining `##[error]`
-        lines (real infrastructure errors).
+        summary: failed job names, failing Pester and vitest test names, the `[-]`
+        failure lines with their assertion detail (test-emitted), one VitestFailures
+        entry per vitest failure (File, TestName, Error, Location; t/4271), and the
+        remaining `##[error]` lines (real infrastructure errors).
     .PARAMETER RunId
         The GitHub Actions run id. If omitted, the latest failed run is used
         (optionally filtered by -WorkflowFile).
@@ -20,7 +21,7 @@ function Get-CIFailureSummary {
         Workflow file name (e.g. 'ci.yml') to scope the latest-failed-run lookup.
     .OUTPUTS
         [PSCustomObject] with RunId, FailedJobs, FailingTests, PesterFailureLines,
-        InfraErrorLines, FailedCount.
+        VitestFailures, InfraErrorLines, FailedCount.
     .EXAMPLE
         Get-CIFailureSummary
     .EXAMPLE

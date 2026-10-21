@@ -489,12 +489,13 @@ function AcceptProposalForm({ proposal, onAccept }: {
   );
 }
 
-// t/4163#1 (coordinator decision): gated on isElectronMode() in this one place for
-// now — desktop accept works end to end, web accept is off until t/4162 (server
-// route) lands. The eventual web admin-gating (ticket ask #5) becomes a one-line
-// change here once that ships. Shared by RefusalPanel (proposal-required,
-// proposal-changed) and the additive-only "N found" panel below (t/4163#4) — the
-// accept flow (who + why) is identical in every case.
+// t/4163#1 (coordinator decision): gated on isElectronMode() in this one place.
+// t/4234 A1 (#3473): the hosted server refuses `accept` BY DESIGN — a hosted
+// write would land in the container's own ai-models.json and vanish on the
+// next restart (409 ACCEPT_NOT_DURABLE_ON_HOSTED). So this stays desktop-only
+// permanently, not pending a future server change. Shared by RefusalPanel
+// (proposal-required, proposal-changed) and the additive-only "N found" panel
+// below (t/4163#4) — the accept flow (who + why) is identical in every case.
 function AcceptOrDisabled({ proposal, onAccept, acceptAllowed }: {
   proposal: Proposal;
   onAccept: (proposal: Proposal, approvedBy: string, reason: string) => Promise<void>;
@@ -503,7 +504,9 @@ function AcceptOrDisabled({ proposal, onAccept, acceptAllowed }: {
   if (!acceptAllowed) {
     return (
       <div className="settings-refresh-accept-disabled">
-        Accepting needs the desktop app for now — web support is coming.
+        Accepting a model change isn't available in the web app: a change made here
+        wouldn't survive a server restart. Accept it in the desktop app, or open a
+        pull request that edits <code>ai-models.json</code>.
       </div>
     );
   }
@@ -881,9 +884,12 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     forceUpdate(n => n + 1);
   };
 
-  // t/4163#1: gate Accept on isElectronMode() in this one place. Desktop works end to
-  // end today; web Accept stays off until t/4162 (server route) lands, regardless of
-  // admin status — the server ignores `accept` today and would do a plain refresh.
+  // t/4163#1: gate Accept on isElectronMode() in this one place. t/4234 A1 (#3473):
+  // the hosted server refuses `accept` by design (409 ACCEPT_NOT_DURABLE_ON_HOSTED)
+  // — a hosted write wouldn't survive a container restart, so this is desktop-only
+  // permanently, not pending a server change. A local web dev server run by an
+  // admin could accept, but that's not worth a new server-to-client signal; nobody
+  // has asked for it (t/4348).
   const acceptAllowed = isElectronMode();
 
   return (

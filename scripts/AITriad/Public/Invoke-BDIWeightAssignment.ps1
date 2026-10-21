@@ -68,7 +68,8 @@ function Invoke-BDIWeightAssignment {
 
     # ── Load inputs (t/3910: each loader WARNs + returns empty on a missing file) ──
     Write-Host 'Loading data...' -ForegroundColor Cyan
-    $SourceDocCounts = Get-SourceEvidenceDocCounts -Path (Join-Path $TaxDir 'source_evidence_index.json')
+    $SourceDocCounts = Get-SourceEvidenceDocCounts -Path (Join-Path $TaxDir 'source_evidence_index.json') `
+        -Resolution (Get-DefaultSourceResolution -Caller 'Invoke-BDIWeightAssignment')
     $EdgeCounts      = Get-EdgeBalanceCounts -Path (Join-Path $TaxDir 'edges.json')
     # Root-level Desires get priority 5 only via -DoctrinalBoundaryMap; with no map, tree position only.
     $DocBoundaryIds  = Resolve-DoctrinalBoundaryIds -Map $DoctrinalBoundaryMap

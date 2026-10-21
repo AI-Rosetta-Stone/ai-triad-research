@@ -69,6 +69,17 @@ describe('NewOpEdDialog — visibility', () => {
   });
 });
 
+describe('NewOpEdDialog — refresh models (t/4317)', () => {
+  it('asks for a dry run explicitly, so the server never has to coerce it', async () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: /More options/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Model\b/ })); // the settings dialog's Model section
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh models' }));
+    await waitFor(() => expect(h.refreshAIModels).toHaveBeenCalledTimes(1));
+    expect(h.refreshAIModels).toHaveBeenCalledWith({ dryRun: true });
+  });
+});
+
 describe('NewOpEdDialog — outlet dropdown (t/3818)', () => {
   it('includes Tech Policy Press as an option', () => {
     open();
