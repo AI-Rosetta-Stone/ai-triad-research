@@ -9,7 +9,7 @@ import type { SourceReference } from '../../../../../lib/sourceIndex/types';
 const mockRecord = vi.hoisted(() => vi.fn());
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
 
-const { groupByDocument, __resetGroupingWarnForTests } = await import('./sourceGrouping');
+const { groupByDocument, sortDocumentGroups, __resetGroupingWarnForTests } = await import('./sourceGrouping');
 
 const ref = (over: Partial<SourceReference>): SourceReference => ({
   docId: 'doc-a-1', canonicalDocId: 'doc-a', title: 'Report A', pov: 'accelerationist', stance: 'aligned',
@@ -73,5 +73,34 @@ describe('groupByDocument', () => {
     groupByDocument([{ docId: 'p-1', stance: 'aligned' }], { refKey: () => 'k', component: 'policy-sources' });
     group([ref({ canonicalDocId: '', docId: 'old-2' })]);
     expect(warns().map(c => c[0].component)).toEqual(['sources-panel', 'policy-sources']);
+  });
+});
+
+describe('sortDocumentGroups (t/4389)', () => {
+  type G = { canonicalDocId: string; title: string; refs: unknown[] };
+  const g = (canonicalDocId: string, title: string, n: number): G => ({ canonicalDocId, title, refs: Array.from({ length: n }) });
+  const ids = (gs: G[]) => gs.map(x => x.canonicalDocId);
+  const titleOf = (x: G) => x.title;
+
+  it('title order is A–Z, ignoring case and accents', () => {
+    const out = sortDocumentGroups([g('c', 'banana', 1), g('a', 'Cherry', 9), g('b', 'Ápple', 2)], 'title', titleOf);
+    expect(ids(out)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('equal titles (by case/accent) fall back to canonicalDocId', () => {
+    const out = sortDocumentGroups([g('z-doc', 'apple', 1), g('a-doc', 'Ápple', 1)], 'title', titleOf);
+    expect(ids(out)).toEqual(['a-doc', 'z-doc']);
+  });
+
+  it('count order is most references first, ties by the same title order', () => {
+    const out = sortDocumentGroups([g('1', 'zeta', 2), g('2', 'Alpha', 2), g('3', 'mid', 5)], 'count', titleOf);
+    expect(ids(out)).toEqual(['3', '2', '1']);
+  });
+
+  it('returns a new array and leaves the input untouched', () => {
+    const input = [g('b', 'b', 1), g('a', 'a', 1)];
+    const out = sortDocumentGroups(input, 'title', titleOf);
+    expect(out).not.toBe(input);
+    expect(ids(input)).toEqual(['b', 'a']);
   });
 });

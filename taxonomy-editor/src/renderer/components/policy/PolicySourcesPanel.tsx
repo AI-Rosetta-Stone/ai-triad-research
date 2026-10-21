@@ -4,7 +4,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
-import { groupByDocument } from './sourceGrouping';
+import { groupByDocument, sortDocumentGroups } from './sourceGrouping';
+import { SourcesSortControl, useSourcesSortMode } from './SourcesSortControl';
 import './PolicySourcesPanel.css';
 
 export interface PolicySourceReference {
@@ -86,9 +87,11 @@ export function PolicySourcesPanel({ policyId }: PolicySourcesPanelProps) {
   }, [policyId]);
 
   // t/4336: one row per real document, the same reference counted once (shared with SourcesPanel).
+  // t/4389: the same order and toggle as SourcesPanel (title A–Z by default, or references).
+  const [sortMode, setSortMode] = useSourcesSortMode();
   const grouped = useMemo(
-    () => (refs ? groupByDocument(refs, { refKey: POLICY_REF_KEY, component: 'policy-sources' }) : []),
-    [refs],
+    () => (refs ? sortDocumentGroups(groupByDocument(refs, { refKey: POLICY_REF_KEY, component: 'policy-sources' }), sortMode, g => g.first.title) : []),
+    [refs, sortMode],
   );
 
   if (loading) {
@@ -102,8 +105,11 @@ export function PolicySourcesPanel({ policyId }: PolicySourcesPanelProps) {
   const refCount = grouped.reduce((n, g) => n + g.refs.length, 0);
   return (
     <div className="policy-sources-panel">
-      <div className="policy-sources-summary">
-        {refCount} reference{refCount !== 1 ? 's' : ''} across {grouped.length} document{grouped.length !== 1 ? 's' : ''}
+      <div className="sources-summary-row">
+        <div className="policy-sources-summary">
+          {refCount} reference{refCount !== 1 ? 's' : ''} across {grouped.length} document{grouped.length !== 1 ? 's' : ''}
+        </div>
+        <SourcesSortControl mode={sortMode} onChange={setSortMode} />
       </div>
 
       {grouped.map(({ canonicalDocId: docId, first, refs: docRefs }) => {
