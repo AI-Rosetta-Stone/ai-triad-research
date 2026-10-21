@@ -426,32 +426,43 @@ export async function selectRelevantTaxonomy(input: SelectRelevantTaxonomyInput)
     }
   }
 
-  // 4. Order-preserving selection (W3).
-  const scoredPov = selectRelevantNodes(effectivePovNodes, scores, opts);
-  const scoredCC = selectRelevantSituationNodes(situationNodes, scores, threshold, 3, 15);
-
-  // Deduplicate by normalized label (t/4352): skip nodes whose trimmed-lowercased label
-  // duplicates an already-selected one. Splicing in-place preserves the diagnostic stashes
-  // (_lineageBoost, _povDiversity, etc.) that selectRelevantNodes attaches to the array.
+  // Pre-deduplicate by normalized label per camp (t/4369): filter the candidate pool BEFORE
+  // selectRelevantNodes applies category/POV floors, so floors can backfill from unique-label
+  // candidates. Keyed on (pov_prefix\x00normLabel) to avoid cross-POV collisions.
+  // Keeps the highest-scored twin per (camp, label) — same ordering selectRelevantNodes uses.
   const labelDupSkipped: Array<{ skippedId: string; keptId: string; label: string }> = [];
+  const dedupedPovNodes: PovNode[] = [];
   {
-    const seenLabels = new Map<string, string>();
-    let i = 0;
-    while (i < scoredPov.length) {
-      const normLabel = scoredPov[i].node.label.trim().toLowerCase();
-      const keptId = seenLabels.get(normLabel);
-      if (keptId !== undefined) {
-        labelDupSkipped.push({ skippedId: scoredPov[i].node.id, keptId, label: scoredPov[i].node.label });
-        scoredPov.splice(i, 1);
+    const bestPerKey = new Map<string, { nodeId: string; score: number }>();
+    for (const node of effectivePovNodes) {
+      const pov = node.id.split('-')[0];
+      const key = `${pov}\x00${node.label.trim().toLowerCase()}`;
+      const score = scores.get(node.id) ?? 0;
+      const existing = bestPerKey.get(key);
+      if (!existing || score > existing.score) {
+        bestPerKey.set(key, { nodeId: node.id, score });
+      }
+    }
+    for (const node of effectivePovNodes) {
+      const pov = node.id.split('-')[0];
+      const key = `${pov}\x00${node.label.trim().toLowerCase()}`;
+      if (bestPerKey.get(key)?.nodeId === node.id) {
+        dedupedPovNodes.push(node);
       } else {
-        seenLabels.set(normLabel, scoredPov[i].node.id);
-        i++;
+        const keptId = bestPerKey.get(key)!.nodeId;
+        labelDupSkipped.push({ skippedId: node.id, keptId, label: node.label });
       }
     }
   }
 
+  // 4. Order-preserving selection (W3) on the deduplicated candidate pool.
+  const scoredPov = selectRelevantNodes(dedupedPovNodes, scores, opts);
+  const scoredCC = selectRelevantSituationNodes(situationNodes, scores, threshold, 3, 15);
+
   const manifest = buildManifest(scoredPov, scoredCC, threshold);
   if (labelDupSkipped.length > 0) {
+    // Callers must WARN when label_dedup is non-empty (t/4369): client FR in taxonomyContext.ts
+    // (next to logLineageBoostResult), server Pino in relevantNodes.ts.
     manifest.label_dedup = labelDupSkipped.map(d => `${d.skippedId} (dup of ${d.keptId}: "${d.label}")`);
   }
   if (params.tagSelection) {
