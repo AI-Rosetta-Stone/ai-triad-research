@@ -74,5 +74,23 @@ export function groupByDocument<T extends GroupableRef>(refs: readonly T[], opts
     .sort((a, b) => b.refs.length - a.refs.length);
 }
 
+/** t/4389: how a Sources panel orders its document rows. */
+export type DocumentSortMode = 'title' | 'count';
+
+/**
+ * Order document groups for display (t/4389, PI request). Returns a new array.
+ * - `'title'` (the default): A–Z by the displayed title, ignoring case and accents, ties by canonicalDocId.
+ * - `'count'`: most distinct references first, ties by the same title order, then canonicalDocId.
+ * `titleOf` gives each panel's displayed title (SourcesPanel prefers the source card's title).
+ */
+export function sortDocumentGroups<G extends { canonicalDocId: string; refs: readonly unknown[] }>(
+  groups: readonly G[], mode: DocumentSortMode, titleOf: (g: G) => string,
+): G[] {
+  const byTitle = (a: G, b: G) =>
+    titleOf(a).localeCompare(titleOf(b), undefined, { sensitivity: 'base' })
+    || (a.canonicalDocId < b.canonicalDocId ? -1 : a.canonicalDocId > b.canonicalDocId ? 1 : 0);
+  return [...groups].sort(mode === 'count' ? (a, b) => (b.refs.length - a.refs.length) || byTitle(a, b) : byTitle);
+}
+
 /** Test seam: re-arm the once-per-session WARN. */
 export function __resetGroupingWarnForTests(): void { warnedComponents.clear(); }

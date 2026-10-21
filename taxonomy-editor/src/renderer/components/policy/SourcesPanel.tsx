@@ -9,8 +9,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { SourceReference, SourceCardMeta } from '../../../../../lib/sourceIndex/types';
-import { groupByDocument, type DocumentGroup } from './sourceGrouping';
+import { groupByDocument, sortDocumentGroups, type DocumentGroup } from './sourceGrouping';
 import { SourceCard, safeExternalUrl } from './SourceCard';
+import { SourcesSortControl, useSourcesSortMode } from './SourcesSortControl';
 import './SourcesPanel.css';
 
 export type { SourceReference } from '../../../../../lib/sourceIndex/types';
@@ -168,7 +169,12 @@ export function SourcesPanel({ nodeId }: SourcesPanelProps) {
 
   useEffect(() => { setExpanded(null); }, [nodeId]);
 
-  const groups = useMemo(() => (data ? group(data) : []), [data]);
+  const [sortMode, setSortMode] = useSourcesSortMode();
+  // t/4389: rows ordered by the displayed title (the source card's title when there is one), or by count.
+  const groups = useMemo(
+    () => (data ? sortDocumentGroups(group(data), sortMode, g => data.cards[g.canonicalDocId]?.title || g.first.title) : []),
+    [data, sortMode],
+  );
 
   if (error) return <div className="sources-panel-error" role="alert">{error}</div>;
   if (!data) return <div className="sources-panel-loading">Loading source references...</div>;
@@ -177,8 +183,11 @@ export function SourcesPanel({ nodeId }: SourcesPanelProps) {
   const refCount = groups.reduce((n, g) => n + g.refs.length, 0);
   return (
     <div className="sources-panel">
-      <div className="sources-panel-summary">
-        {refCount} reference{refCount !== 1 ? 's' : ''} across {groups.length} document{groups.length !== 1 ? 's' : ''}
+      <div className="sources-summary-row">
+        <div className="sources-panel-summary">
+          {refCount} reference{refCount !== 1 ? 's' : ''} across {groups.length} document{groups.length !== 1 ? 's' : ''}
+        </div>
+        <SourcesSortControl mode={sortMode} onChange={setSortMode} />
       </div>
       {groups.map(g => (
         <DocumentRow

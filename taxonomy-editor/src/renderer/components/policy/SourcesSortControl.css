@@ -1,0 +1,29 @@
+/* t/4389: sort toggle for the Sources panels. */
+.sources-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-2xs);
+}
+.sources-sort-label { color: var(--text-muted); }
+.sources-sort-option {
+  padding: 1px 8px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.sources-sort-option.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.sources-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
