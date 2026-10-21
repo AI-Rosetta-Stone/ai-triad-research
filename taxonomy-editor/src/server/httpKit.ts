@@ -34,16 +34,37 @@ const CLOSE_BRACE = Buffer.from('}');
 const COMMA = Buffer.from(',');
 const COLON = Buffer.from(':');
 
+const yieldToLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+
+/** t/4286 (canary re-run, p/793#25): `Buffer.concat(chunks)` is ONE synchronous native memcpy
+ *  over the full output size — for the ~300MB synthetic-embeddings payload that alone measured
+ *  ~700ms (canary: window-gate max 732ms at prod size, after t/3165/t/3415's stringify-loop and
+ *  string-join fixes had already landed). `Buffer.concat` is a single call; there's no way to
+ *  yield mid-call, so this copies each chunk into a preallocated buffer itself, in the SAME
+ *  yielding cadence as the caller's stringify loop. Byte-identical output to `Buffer.concat`. */
+export async function concatChunked(chunks: readonly Buffer[], yieldEvery: number): Promise<Buffer> {
+  let total = 0;
+  for (const c of chunks) total += c.length;
+  const out = Buffer.allocUnsafe(total);
+  let offset = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    offset += chunks[i].copy(out, offset);
+    if ((i + 1) % yieldEvery === 0) await yieldToLoop();
+  }
+  return out;
+}
+
 /** t/3165/t/4286: serialize a large array or plain object to a JSON Buffer WITHOUT a single
- *  un-yielded JSON.stringify OR a single un-yielded string-join. A ~4144-entry synthetic-
+ *  un-yielded JSON.stringify, string-join, OR buffer-concat. A ~4144-entry synthetic-
  *  embeddings map (or a big number[][]) stringified at once blocked the prod event loop ~3s —
  *  t/3165 fixed that by chunk-yielding the per-item JSON.stringify calls, but still assembled
  *  the final payload with ONE synchronous `parts.join(',')` + string concatenation over the
  *  full ~400MB result. V8 string concatenation at that size is itself a multi-second, un-
  *  yieldable block (t/4286: canary found 1.7-3.8s depending on vCPU) — chunking the stringify
- *  loop did nothing to shrink it. Fix: convert each item straight to a UTF-8 Buffer as it's
- *  built (already inside the yielding loop) and assemble the result with `Buffer.concat` — a
- *  native byte copy, not a JS string operation, so there's no second un-yielded pass. Output is
+ *  loop did nothing to shrink it. t/3415 fixed that by converting each item straight to a UTF-8
+ *  Buffer as it's built (already inside the yielding loop) — but the one remaining
+ *  `Buffer.concat(chunks)` assembly step is ITSELF a single un-yielded native copy over the
+ *  whole output; `concatChunked` (above) replaces it with the same yielding cadence. Output is
  *  byte-identical to JSON.stringify for arrays / plain objects of JSON-safe values (same key
  *  order, no whitespace, undefined/function-valued keys omitted, array holes → null). Non-array/
  *  non-object values fall back to a direct stringify.
@@ -51,7 +72,6 @@ const COLON = Buffer.from(':');
  *  (the top level is iterated by entries/elements directly). Nested `toJSON()` IS honored (handled by
  *  the inner JSON.stringify of each value). Callers with a custom top-level toJSON should use json(). */
 export async function jsonStringifyChunked(value: unknown, yieldEvery = 256): Promise<Buffer> {
-  const yieldToLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
   if (Array.isArray(value)) {
     if (value.length === 0) return Buffer.from('[]');
     const chunks: Buffer[] = [OPEN_BRACKET];
@@ -61,7 +81,7 @@ export async function jsonStringifyChunked(value: unknown, yieldEvery = 256): Pr
       if ((i + 1) % yieldEvery === 0) await yieldToLoop();
     }
     chunks.push(CLOSE_BRACKET);
-    return Buffer.concat(chunks);
+    return concatChunked(chunks, yieldEvery);
   }
   if (value !== null && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
@@ -76,7 +96,7 @@ export async function jsonStringifyChunked(value: unknown, yieldEvery = 256): Pr
       if ((i + 1) % yieldEvery === 0) await yieldToLoop();
     }
     chunks.push(CLOSE_BRACE);
-    return Buffer.concat(chunks);
+    return concatChunked(chunks, yieldEvery);
   }
   return Buffer.from(JSON.stringify(value) ?? 'null');
 }
