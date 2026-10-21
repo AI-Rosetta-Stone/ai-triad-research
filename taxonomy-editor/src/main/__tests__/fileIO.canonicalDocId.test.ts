@@ -52,19 +52,9 @@ const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as {
   }[];
 };
 
-// t/4349: this case is a PRE-EXISTING failure in lib/sourceIndex/types.ts itself (the "url
-// conflict" rule from the v4 spec bump isn't implemented yet — confirmed failing against
-// groupSourceIdentities directly, independent of this ticket's fileIO.ts change). Tracked
-// separately; excluded here so this suite doesn't assert a result the shared algorithm
-// doesn't produce.
-const KNOWN_BROKEN_SHARED_ALGORITHM_CASES = new Set([
-  'url_conflict: shared URL with different hashes and different titles stays separate',
-]);
-
 // Only cases resolvable from metadata.json alone (see file header).
 const metadataOnlyCases = fixture.grouping_cases.filter(
   c => !c.documents.some(d => d.snapshot_sha256 !== undefined || d.snapshot_text !== undefined)
-    && !KNOWN_BROKEN_SHARED_ALGORITHM_CASES.has(c.name)
 );
 
 let summariesDir: string;
@@ -142,7 +132,10 @@ describe('buildNodeSourceIndex canonicalDocId grouping (t/4349, full groupSource
   });
 
   it('computes a content hash from snapshot.md when metadata has no recorded content_sha256, and that computed hash still joins two docs', () => {
-    const text = 'Shared body text for the content-hash tier.\n\nSecond paragraph here.\n';
+    // Body must clear the v4 100-word hash-identity floor (lib/sourceIndex/types.ts) or
+    // computeSourceContentHash returns null and no hash edge forms.
+    const words = Array.from({ length: 100 }, (_, i) => `w${i}`).join(' ');
+    const text = `Shared body text for the content-hash tier.\n\n${words}\n`;
     writeSourceMeta('no-recorded-hash-a', { title: 'Alpha Title' });
     writeSnapshot('no-recorded-hash-a', text);
     writeSourceMeta('no-recorded-hash-b', { title: 'Totally Different Title' });
