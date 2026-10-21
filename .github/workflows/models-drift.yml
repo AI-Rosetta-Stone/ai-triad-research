@@ -10,6 +10,13 @@
 #        no key, so those 3 backends are WARN-skipped by modelsDrift.ts's own design
 #        (a keyless backend is a skip, not an error) — only all-4-skipped is exit 2.
 #        This workflow is gemini-only coverage until/unless those keys are added.
+# FREE_TIER_GEMINI_KEY IS A POOL, NOT A SINGLE KEY (t/4175 live-fire, run 39599840298):
+#        it's a comma/newline-separated list of keys (same format key-pool-health.yml's
+#        Test-GeminiKeyPool parses), so passing the whole secret as GEMINI_API_KEY 401s —
+#        "API key not valid" — which this workflow's first run misread as a real
+#        nothing-could-be-checked alarm. The "Extract one pool key" step below pulls a
+#        single key out with the same regex Test-GeminiKeyPool uses, masks it immediately,
+#        and that's what models:drift actually gets.
 # Exit codes (lib/electron-shared/modelsDrift.ts): 0 no drift, 1 drift found,
 #        2 nothing could be checked (every backend skipped), 3 unhandled crash.
 
@@ -56,11 +63,25 @@ jobs:
             fi
           done
 
+      - name: Extract one usable key from the free-tier pool
+        id: extract-key
+        env:
+          POOL: ${{ secrets.FREE_TIER_GEMINI_KEY }}
+        run: |
+          key=$(printf '%s' "$POOL" | grep -oE 'AIza[0-9A-Za-z_-]{35}|AQ\.[A-Za-z0-9_.-]{20,80}' | head -n 1)
+          if [ -n "$key" ]; then
+            echo "::add-mask::$key"
+            echo "key=$key" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no key matched the Gemini key-format regex in FREE_TIER_GEMINI_KEY"
+            echo "key=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run models:drift
         id: drift
         continue-on-error: true
         env:
-          GEMINI_API_KEY: ${{ secrets.FREE_TIER_GEMINI_KEY }}
+          GEMINI_API_KEY: ${{ steps.extract-key.outputs.key }}
         run: |
           set +e
           npm run models:drift > drift-output.txt 2>&1
