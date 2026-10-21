@@ -177,6 +177,13 @@ A document `X` with `duplicate_of: T` has a **valid mark** when every check belo
 | `T` has no `duplicate_of` of its own (one hop only, so no chains and no cycles) | `chain` |
 | `T` is its group's canonical (4.6 rule 1) | `conflict` |
 
+**Evaluate in two passes** (Quality, review of #3569). The `conflict` check depends on the group's canonical, and 4.6 rule 1 picks the canonical from valid marks. So:
+1. apply the first three checks to every mark;
+2. for each group, take the ordinal-smallest target among the marks that passed them as the group's canonical;
+3. then mark as `conflict` every remaining mark whose target isn't that canonical.
+
+A single pass that checks `conflict` before the canonical is chosen gives order-dependent results.
+
 - **An invalid mark is treated as absent** by the canonical rule, the resolver and selection. The document stays selectable and resolves to itself, so a bad mark is visible and hides nothing.
 - **Grouping reports every error** as `{id, target, kind}`, sorted by `id` (ordinal).
 - **Consumers WARN on errors at load and never throw.** The cleanup write is gated on **zero** errors, checked against the frozen list before anything is written.
