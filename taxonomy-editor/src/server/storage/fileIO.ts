@@ -20,7 +20,7 @@ import type { StorageBackend } from './storageBackend.js';
 import { log } from '../logger.js';
 import { FilesystemBackend } from './filesystemBackend.js';
 import { getGlobalRecorder, redactRecord } from '../../../../lib/flight-recorder/index.js';
-import { parseNpy, extractNodeVectorsAsync } from '../../../../lib/npy.js';
+import { parseNpy, extractNodeVectorsAsync, type ExtractStats } from '../../../../lib/npy.js';
 import type { OrganizationEdge } from '../../../../lib/organizations/types.js';
 import type { Entity } from '../../../../lib/entities/types.js';
 import type { EntityMentionsFile, ContainerMentions } from '../../../../lib/entities/mentionTypes.js';
@@ -357,19 +357,31 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
     const npyPath = path.join(synDir, `embeddings_${pov}.npy`);
     const idxPath = path.join(synDir, `index_${pov}.json`);
 
+    // t/4286#20: per-stage timing for each POV file, so the cold-load canary can name the stage behind the
+    // ~700 ms event-loop block. Synchronous stages (parse_npy, index_parse) block for their whole duration;
+    // extract yields, so its block is extract_max_slice_ms, not extract_ms.
+    const t0 = performance.now();
     const [npyBuf, idxRaw] = await Promise.all([
       backend.readBinaryFile(npyPath),
       backend.readFile(idxPath, { ref: 'main' }),
     ]);
     if (!npyBuf || !idxRaw) continue;
-
+    const t1 = performance.now();
     const parsed = parseNpy(npyBuf);
+    const t2 = performance.now();
     const index = JSON.parse(idxRaw.replace(/^﻿/, '')) as Record<string, { start: number; count: number }>;
-    // t/4286: extractNodeVectorsAsync yields internally every 256 nodes, but
-    // that alone doesn't help this loop's own back-to-back calls — the
-    // explicit yield below ensures the event loop gets a turn between each
-    // synthetic POV file too, not just within one (ServerAPI/Shared Lib).
-    Object.assign(result, await extractNodeVectorsAsync(parsed, index, pov));
+    const t3 = performance.now();
+    // t/4286: extractNodeVectorsAsync yields internally (by node count and by floats copied), but that alone
+    // doesn't help this loop's own back-to-back calls — the explicit yield below ensures the event loop gets a
+    // turn between each synthetic POV file too, not just within one (ServerAPI/Shared Lib).
+    const stats: ExtractStats = { slices: 0, maxSliceMs: 0, floats: 0 };
+    Object.assign(result, await extractNodeVectorsAsync(parsed, index, pov, undefined, stats));
+    const t4 = performance.now();
+    log.server.info({
+      component: 'storage', op: 'loadSyntheticEmbeddings', pov, npy_bytes: npyBuf.length, nodes: Object.keys(index).length,
+      read_ms: Math.round(t1 - t0), parse_npy_ms: Math.round(t2 - t1), index_parse_ms: Math.round(t3 - t2),
+      extract_ms: Math.round(t4 - t3), extract_max_slice_ms: Math.round(stats.maxSliceMs), extract_slices: stats.slices,
+    }, 'synthetic embeddings: per-file load timing (t/4286)');
     await new Promise<void>((r) => setImmediate(r));
     found = true;
   }
