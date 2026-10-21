@@ -6677,3 +6677,64 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#126).
 
 **Applies To:** All agents doing parallel Write batches followed by git commits; verify committed file content with `git show HEAD:<file>`, not just `git show --stat HEAD`.
+
+---
+
+## #334 [Build] jq Object Literal Key Starting With a Digit Fails to Parse — Quote Numeric Keys
+
+**Pattern:** An agent constructs a jq expression with an object literal using a numeric key: `{3558: .}`. jq fails to parse the expression. jq object construction syntax requires keys that begin with a digit to be quoted as strings.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#242): jq expression `{3558: .}` failed to parse. Fixed by quoting the key: `{"3558": .}`.
+
+**Root Cause:** jq's object literal syntax `{key: value}` treats unquoted keys as identifiers. An identifier cannot start with a digit. Numeric-looking keys must be quoted as string literals.
+
+**Prevention:**
+1. **Quote any jq object key that starts with a digit:** `{"3558": .}` not `{3558: .}`.
+2. **The general rule:** in jq object literals, unquoted keys are identifiers (must start with a letter or underscore). Anything else needs quotes.
+3. **jq parse error at a `{N:` pattern** is the diagnostic — the fix is always to add quotes around the key.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#242).
+
+**Applies To:** All agents writing jq expressions with numeric or special-character object keys; quote keys that don't start with a letter.
+
+---
+
+## #335 [Build] KQL Reserved Words as Column Aliases in `summarize`/`extend` Produce SYN0002
+
+**Pattern:** An agent writes a KQL query using `az monitor log-analytics query`. Column aliases in `summarize` or `extend` clauses use KQL reserved words (`first`, `kind`, `last`, etc.). The query returns SYN0002 (syntax error).
+
+**Instances:**
+- 2026-10-21 — Azure (p/105#20): 3 KQL queries returned SYN0002. Aliases used `first`, `kind`, `last` in `summarize`/`extend`. Resolved by renaming to `t0`, `t1`, `ek`.
+
+**Root Cause:** KQL has reserved words that cannot be used as column aliases without special escaping. `first`, `kind`, and `last` are among them.
+
+**Prevention:**
+1. **Avoid KQL reserved words as column aliases.** Common ones in `summarize`/`extend`: `first`, `last`, `kind`, `type`, `count`, `sum`, `min`, `max`, `avg`. Use non-reserved aliases (`t0`, `ek`, `cnt`, etc.).
+2. **SYN0002 without an obvious syntax error** usually means a reserved-word alias collision — inspect each alias.
+3. **To use a reserved word as an alias if necessary**, wrap it in backtick escaping: `` [`first`] ``.
+
+**Status:** Active — 1 instance (Azure p/105#20).
+
+**Applies To:** All agents writing KQL queries; avoid reserved words (`first`, `last`, `kind`, etc.) as column aliases in `summarize`/`extend`.
+
+---
+
+## #336 [Build] `az containerapp show` Emits Extension WARNING to stdout — Redirect stderr Before Parsing JSON
+
+**Pattern:** An agent pipes `az containerapp show` output into a JSON parser. The command fails with `JSONDecodeError` on empty input. The `az containerapp` extension prints a WARNING line to stdout (or merges stderr into stdout), corrupting or emptying the JSON stream.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#244): `az containerapp show | python3 -c "import json,sys; json.load(sys.stdin)"` → JSONDecodeError on empty input. Extension WARNING line was printed to stdout. Resolved by adding `2>/dev/null` to isolate clean stdout before parsing.
+
+**Root Cause:** Azure CLI extensions (`containerapp`, `aks`, `acr`, etc.) may print WARNING messages to stdout in addition to JSON output. When the warning appears before the JSON, it corrupts the input stream for a strict JSON parser.
+
+**Prevention:**
+1. **Always redirect stderr when piping `az` extension commands into a JSON parser:** `az containerapp show ... 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin))"`.
+2. **Alternatively, use `az ... -o json 2>/dev/null`** to explicitly request JSON output mode and suppress warnings.
+3. **JSONDecodeError on empty input when piping `az` output** = WARNING-line prefix. Add `2>/dev/null` before retrying.
+4. **Applies to all `az` extension subcommands** — not just `containerapp`.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#244).
+
+**Applies To:** All agents piping `az` extension command output into JSON parsers; always redirect stderr with `2>/dev/null` to isolate clean JSON.
