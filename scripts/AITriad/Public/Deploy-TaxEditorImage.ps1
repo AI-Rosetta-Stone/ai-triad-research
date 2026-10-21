@@ -107,6 +107,14 @@ function Deploy-TaxEditorImage {
     $OldRevisions = @(Get-TaxEditorRevision -ResourceGroup $ResourceGroup -AppName $AppName)
     $OldActive = @($OldRevisions | Where-Object { $_.Active })
     $OldActiveNames = @($OldActive | ForEach-Object { $_.Name })
+    # The previous serving revision (highest weight; the first listed on a tie) is the rollback
+    # target. Like the deploy workflows (t/2050), a deploy never deactivates it (t/4384).
+    $RollbackTarget = @($OldActive |
+        Sort-Object -Stable -Descending -Property @{ Expression = { if ($_.PSObject.Properties['TrafficWeight']) { [int]$_.TrafficWeight } else { 0 } } } |
+        Select-Object -First 1 | ForEach-Object { $_.Name })
+    $RollbackTargetName = if ($RollbackTarget.Count -gt 0) { [string]$RollbackTarget[0] } else { $null }
+    # Every deactivation the guard declined, with its reason, so callers can act on it (t/4384).
+    $SkippedDeactivations = [System.Collections.Generic.List[object]]::new()
 
     # ── Deploy new image ─────────────────────────────────────────────────
     Write-Verbose "Deploying image '$ImageRef'..."
@@ -137,7 +145,7 @@ function Deploy-TaxEditorImage {
 
     # ── Shift traffic to new revision ────────────────────────────────────
     Write-Verbose "Shifting 100% traffic to '$NewRevName'..."
-    & az containerapp ingress traffic set -g $ResourceGroup -n $AppName `
+    $null = & az containerapp ingress traffic set -g $ResourceGroup -n $AppName `
         --revision-weight "${NewRevName}=100" 2>$null
 
     if ($LASTEXITCODE -ne 0) {
@@ -151,11 +159,17 @@ function Deploy-TaxEditorImage {
     # ── Deactivate old revisions ─────────────────────────────────────────
     # t/4308 (the t/4242 class): each deactivate goes through a FRESH re-check of both the revision's
     # trafficWeight and the ingress traffic config. A revision still holding weight (the traffic set
-    # hasn't propagated, or someone changed the split) is skipped with a WARN, never deactivated.
+    # hasn't propagated, or someone changed the split) is re-polled a bounded number of times and
+    # then skipped with a WARN, never deactivated. The rollback target is excluded by name first
+    # and protected in the verdict as well (t/4384).
     foreach ($OldName in $OldActiveNames) {
-        if ($OldName -ne $NewRevName) {
-            $null = Invoke-GuardedRevisionDeactivate -ResourceGroup $ResourceGroup -AppName $AppName `
-                -RevisionName $OldName -ServingRevisionName $NewRevName -CallerName $CallerName
+        if ($OldName -ne $NewRevName -and $OldName -ne $RollbackTargetName) {
+            $Verdict = Invoke-GuardedRevisionDeactivate -ResourceGroup $ResourceGroup -AppName $AppName `
+                -RevisionName $OldName -ServingRevisionName $NewRevName -ProtectedNames @($RollbackTargetName | Where-Object { $_ }) `
+                -CallerName $CallerName
+            if (-not $Verdict.Deactivated) {
+                $SkippedDeactivations.Add([PSCustomObject]@{ Revision = $OldName; Reason = $Verdict.Reason; Phase = 'deploy' })
+            }
         }
     }
 
@@ -173,12 +187,12 @@ function Deploy-TaxEditorImage {
             $HealthResult = 'Failed'
             Write-Warning 'Post-deploy health check FAILED — rolling back...'
 
-            if (@($OldActiveNames).Count -gt 0) {
-                $RollbackRev = $OldActiveNames[0]
+            if ($RollbackTargetName) {
+                $RollbackRev = $RollbackTargetName
                 # Each rollback step is exit-checked (Azure review of #3620): a failed step throws, so
                 # the operator is never told prod rolled back when it didn't. Nothing is deactivated
                 # after a failed step; the failed new revision keeps serving until someone acts.
-                & az containerapp revision activate -g $ResourceGroup -n $AppName `
+                $null = & az containerapp revision activate -g $ResourceGroup -n $AppName `
                     --revision $RollbackRev 2>$null
                 if ($LASTEXITCODE -ne 0) {
                     throw (New-ActionableError -AsErrorRecord `
@@ -189,7 +203,7 @@ function Deploy-TaxEditorImage {
                                      "Then shift traffic: az containerapp ingress traffic set -g $ResourceGroup -n $AppName --revision-weight ${RollbackRev}=100",
                                      'Or run Restore-TaxEditorKnownGood'))
                 }
-                & az containerapp ingress traffic set -g $ResourceGroup -n $AppName `
+                $null = & az containerapp ingress traffic set -g $ResourceGroup -n $AppName `
                     --revision-weight "${RollbackRev}=100" 2>$null
                 if ($LASTEXITCODE -ne 0) {
                     throw (New-ActionableError -AsErrorRecord `
@@ -202,8 +216,12 @@ function Deploy-TaxEditorImage {
                 }
                 # The same guard on the rollback path: the failed new revision is deactivated only
                 # once a fresh re-check confirms it no longer holds traffic (t/4308).
-                $null = Invoke-GuardedRevisionDeactivate -ResourceGroup $ResourceGroup -AppName $AppName `
-                    -RevisionName $NewRevName -ServingRevisionName $RollbackRev -CallerName $CallerName
+                $Verdict = Invoke-GuardedRevisionDeactivate -ResourceGroup $ResourceGroup -AppName $AppName `
+                    -RevisionName $NewRevName -ServingRevisionName $RollbackRev -ProtectedNames @($RollbackRev) `
+                    -CallerName $CallerName
+                if (-not $Verdict.Deactivated) {
+                    $SkippedDeactivations.Add([PSCustomObject]@{ Revision = $NewRevName; Reason = $Verdict.Reason; Phase = 'rollback' })
+                }
                 Write-Warning "Rolled back to '$RollbackRev'. Run Test-TaxEditorHealth to verify."
             }
             else {
@@ -217,8 +235,9 @@ function Deploy-TaxEditorImage {
         Action           = 'ImageDeploy'
         Image            = $ImageRef
         NewRevision      = $NewRevName
-        PreviousRevision = if (@($OldActiveNames).Count -gt 0) { $OldActiveNames[0] } else { '(none)' }
+        PreviousRevision = if ($RollbackTargetName) { $RollbackTargetName } else { '(none)' }
         HealthCheck      = $HealthResult
+        SkippedDeactivations = @($SkippedDeactivations)
         AppName          = $AppName
         ResourceGroup    = $ResourceGroup
         Timestamp        = (Get-Date).ToString('o')

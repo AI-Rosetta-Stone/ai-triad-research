@@ -131,10 +131,10 @@ ghcr.io/ai-rosetta-stone/taxonomy-editor:known-good    ← operator-designated g
 
 ```
 Normal deploy:
-  BLUE (new image, 0% traffic) → passes tests → promoted to GREEN (100%) → old GREEN deactivated
+  BLUE (new image, 0% traffic) → passes tests → promoted to GREEN (100%) → old GREEN kept active at 0% as the rollback target (t/2050, t/4384)
 
 Rollback to Known Good:
-  known-good image deployed as new revision → becomes GREEN (100%) → bad revision deactivated
+  known-good image deployed as new revision → becomes GREEN (100%) → bad revision (the previous serving one) kept active at 0% as the rollback target
 
 Next deploy after rollback:
   New image deploys as BLUE (0%) → normal promotion flow resumes
