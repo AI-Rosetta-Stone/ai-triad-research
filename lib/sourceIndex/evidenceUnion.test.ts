@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   evidenceKey, evidenceNearEqual, extractSummaryEvidenceLinks, mergeGroupEvidence,
+  deriveEntityMentionContainers, isDerivedMentionContainerKey,
   type EvidenceLink, type EvidenceUnionMember,
 } from './evidenceUnion.js';
 
@@ -31,6 +32,14 @@ const fixture = JSON.parse(readFileSync(fixturePath, 'utf-8')) as {
     members: { id: string; links: EvidenceLink[] }[];
     expected: Record<string, Array<EvidenceLink & { doc: string; via?: string }>>;
   }[];
+  mention_key_cases: {
+    name: string;
+    canonical: string;
+    summaries: { id: string; summary: unknown }[];
+    expected_containers: Record<string, string>;
+  }[];
+  derived_key_regex: string;
+  derived_key_cases: { key: string; derived: boolean }[];
 };
 
 describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => {
@@ -64,6 +73,26 @@ describe(`evidence-union fixture v${fixture.version} (t/4337 section 7)`, () => 
         const members: EvidenceUnionMember<EvidenceLink>[] = c.members.map(m => ({ id: m.id, links: m.links }));
         const result = mergeGroupEvidence(c.canonical, members);
         expect(result).toEqual(c.expected);
+      });
+    }
+  });
+
+  // t/4419 (spec 7.7, #3688): entity-mention `via-` containers — no TS consumer yet,
+  // fixture parity only.
+  describe('mention_key_cases', () => {
+    for (const c of fixture.mention_key_cases) {
+      it(c.name, () => {
+        const summaries = c.summaries.map(s => ({ id: s.id, summary: s.summary as never }));
+        expect(deriveEntityMentionContainers(c.canonical, summaries)).toEqual(c.expected_containers);
+      });
+    }
+  });
+
+  describe('derived_key_cases', () => {
+    for (const c of fixture.derived_key_cases) {
+      it(`${c.key} -> derived=${c.derived}`, () => {
+        expect(isDerivedMentionContainerKey(c.key)).toBe(c.derived);
+        expect(new RegExp(fixture.derived_key_regex).test(c.key)).toBe(c.derived);
       });
     }
   });
