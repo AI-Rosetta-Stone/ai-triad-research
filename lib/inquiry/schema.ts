@@ -121,6 +121,16 @@ export const NodeRefSchema = z.object({
 });
 export type NodeRef = z.infer<typeof NodeRefSchema>;
 
+// ── Camp coverage (t/4374) ────────────────────────────────────────────────────
+// Per-camp coverage signal. `bestRawScore` is the highest cosine similarity before any tag boost.
+// `lowCoverage` is true when that score is below the LOW_COVERAGE_THRESHOLD (0.45) — the camp's
+// top node is generic relative to the question, and the synthesis should caveat it.
+export const CampCoverageSchema = z.object({
+  bestRawScore: z.number(),
+  lowCoverage: z.boolean(),
+});
+export type CampCoverage = z.infer<typeof CampCoverageSchema>;
+
 // ── GroundingEnvelope ─────────────────────────────────────────────────────────
 // Anchor situation + per-camp node sets. Embedded in the result (ADR §5/§7) so a stored result reads
 // without resolving anything against live data.
@@ -132,6 +142,8 @@ export const GroundingEnvelopeSchema = z
     // enum key is EXHAUSTIVE in zod v4 (would require all four); partialRecord keeps the camp typing
     // while allowing a subset.
     nodesByCamp: z.partialRecord(CampSchema, z.array(NodeRefSchema)),
+    /** Per-camp coverage signal (t/4374). Set when a camp's best raw cosine score is below 0.45. */
+    campCoverage: z.partialRecord(CampSchema, CampCoverageSchema).optional(),
   })
   .passthrough();
 export type GroundingEnvelope = z.infer<typeof GroundingEnvelopeSchema>;

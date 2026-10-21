@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // Grounding envelope builder for the inquiry pipeline (t/3577).
@@ -34,6 +34,9 @@ export interface GroundingOptions {
 }
 
 const DEFAULT_TOP_PER_CAMP = 3;
+
+/** Raw cosine score below which a camp is flagged as low-coverage (t/4374, stipulated; see provenance register). */
+const LOW_COVERAGE_THRESHOLD = 0.45;
 
 // Maps both file-name stamps (what embedding producers write, e.g. "skeptic") and
 // camp codes (pass-through, e.g. "skp") to the canonical Camp type (t/4255).
@@ -152,6 +155,7 @@ export async function buildGroundingEnvelope(
   const byCamp = scoreEmbeddingsByCamp(taxonomy.nodeEmbeddings, nodeById, questionVec, warn);
 
   const nodesByCamp: Partial<Record<Camp, NodeRef[]>> = {};
+  const campCoverage: Partial<Record<Camp, { bestRawScore: number; lowCoverage: boolean }>> = {};
 
   // Tag scoping uses the same normalization table (t/3965 / t/4255).
   const tagCamp = opts.tagSelection ? POV_NAME_TO_CAMP[opts.tagSelection.pov] : undefined;
@@ -202,6 +206,13 @@ export async function buildGroundingEnvelope(
   for (const [camp, scored] of byCamp.entries()) {
     let activeScoredEntries = scored;
 
+    const rawBestScore = scored.length > 0 ? Math.max(...scored.map(s => s.score)) : 0;
+    const lowCoverage = scored.length === 0 || rawBestScore < LOW_COVERAGE_THRESHOLD;
+    campCoverage[camp] = { bestRawScore: rawBestScore, lowCoverage };
+    if (lowCoverage && scored.length > 0) {
+      warn(`buildGroundingEnvelope: camp '${camp}' low coverage — best raw score ${rawBestScore.toFixed(3)} (threshold ${LOW_COVERAGE_THRESHOLD})`);
+    }
+
     if (opts.tagSelection && camp === tagCamp) {
       const sel = opts.tagSelection;
       const { filteredNodes, excludedCount, boostIds } = applyTagSelection(scored.map(s => s.node), sel);
@@ -244,10 +255,14 @@ export async function buildGroundingEnvelope(
     const refs = nodesByCamp[camp];
     if (!refs || refs.length === 0) {
       warn(`buildGroundingEnvelope: zero nodes selected for camp '${camp}' — embedding corpus may be incomplete`);
+      if (!campCoverage[camp]) {
+        campCoverage[camp] = { bestRawScore: 0, lowCoverage: true };
+      }
     }
   }
 
   const envelope: GroundingEnvelope = { nodesByCamp };
+  if (Object.keys(campCoverage).length > 0) envelope.campCoverage = campCoverage;
   if (anchorSituationId !== undefined) envelope.anchorSituationId = anchorSituationId;
   if (anchorSummary !== undefined) envelope.anchorSummary = anchorSummary;
 

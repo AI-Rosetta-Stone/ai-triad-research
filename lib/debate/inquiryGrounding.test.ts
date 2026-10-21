@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi } from 'vitest';
@@ -500,5 +500,63 @@ describe('buildGroundingEnvelope — label deduplication', () => {
     const allLabels = Object.values(envelope.nodesByCamp).flat().map(r => r.label);
     const uniqueLabels = new Set(allLabels.map(l => l.trim().toLowerCase()));
     expect(uniqueLabels.size).toBe(allLabels.length);
+  });
+});
+
+// ── Low coverage flag (t/4374) ───────────────────────────────────────────────
+
+describe('buildGroundingEnvelope — low coverage (t/4374)', () => {
+  it('sets lowCoverage on a camp whose best raw score is below 0.45', async () => {
+    // distinctEmbed: question gets vec[0], acc-beliefs-001 gets vec[0] → similarity 1.0 (above threshold)
+    // All other camp nodes are orthogonal to question → similarity 0.0 (below threshold)
+    const { envelope } = await buildGroundingEnvelope('q', makeTaxonomy(), distinctEmbed);
+    expect(envelope.campCoverage?.['acc']?.lowCoverage).toBe(false);
+    expect(envelope.campCoverage?.['saf']?.lowCoverage).toBe(true);
+    expect(envelope.campCoverage?.['skp']?.lowCoverage).toBe(true);
+  });
+
+  it('flags a camp as lowCoverage when boosted score would exceed 0.45 but raw score does not', async () => {
+    // TAG_BOOST_INCREMENT = 0.08; raw = 0.44 < 0.45, boosted = 0.52 ≥ 0.45 → raw wins → lowCoverage=true
+    const rawTarget = 0.44;
+    const rawVec = [rawTarget, Math.sqrt(1 - rawTarget * rawTarget)];
+    const questionVec = [1, 0];
+    const customEmbed = async (texts: string[]): Promise<number[][]> =>
+      texts.map((_, i) => (i === 0 ? questionVec : rawVec));
+    const taxonomy: GroundingTaxonomy = {
+      povNodes: [makeNode('skp-beliefs-001', 'K1', ['safety'])],
+      situationNodes: [],
+      nodeEmbeddings: { 'skp-beliefs-001': { pov: 'skp', vector: rawVec } },
+    };
+    const { envelope } = await buildGroundingEnvelope('q', taxonomy, customEmbed, {
+      tagSelection: { pov: 'skeptic', tag: 'safety', mode: 'prioritize' },
+    });
+    expect(envelope.campCoverage?.['skp']?.lowCoverage).toBe(true);
+    expect(envelope.campCoverage?.['skp']?.bestRawScore).toBeCloseTo(rawTarget, 2);
+  });
+
+  it('leaves nodes unchanged and records no lowCoverage when all camps are above threshold', async () => {
+    // All node vectors match the question vector → cosine 1.0 → all camps above 0.45
+    const highVec = unitVec(4, 0);
+    const allHighTaxonomy: GroundingTaxonomy = {
+      povNodes: [
+        makeNode('acc-beliefs-001', 'A1'),
+        makeNode('saf-beliefs-001', 'S1'),
+        makeNode('skp-beliefs-001', 'K1'),
+        makeNode('cc-beliefs-001',  'C1'),
+      ],
+      situationNodes: [],
+      nodeEmbeddings: {
+        'acc-beliefs-001': { pov: 'acc', vector: highVec },
+        'saf-beliefs-001': { pov: 'saf', vector: highVec },
+        'skp-beliefs-001': { pov: 'skp', vector: highVec },
+        'cc-beliefs-001':  { pov: 'cc',  vector: highVec },
+      },
+    };
+    const { envelope } = await buildGroundingEnvelope('q', allHighTaxonomy, flatEmbed);
+    expect(envelope.campCoverage?.['acc']?.lowCoverage).toBe(false);
+    expect(envelope.campCoverage?.['saf']?.lowCoverage).toBe(false);
+    expect(envelope.campCoverage?.['skp']?.lowCoverage).toBe(false);
+    expect(envelope.campCoverage?.['cc']?.lowCoverage).toBe(false);
+    expect((envelope.nodesByCamp['acc'] ?? []).length).toBeGreaterThan(0);
   });
 });
