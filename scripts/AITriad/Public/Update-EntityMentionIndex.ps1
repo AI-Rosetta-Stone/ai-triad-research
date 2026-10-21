@@ -118,7 +118,8 @@ function Update-EntityMentionIndex {
     $EntPath = if ($EntitiesPath) { $EntitiesPath } else { Get-EntitiesFilePath }
     $SeiPath = if ($SourceEvidenceIndexPath) { $SourceEvidenceIndexPath } else { Join-Path (Get-TaxonomyDir) 'source_evidence_index.json' }
     $OutPath = if ($OutputPath) { $OutputPath } else { Get-EntityMentionsFilePath }
-    $SummaryFiles = (Get-EmiSummaryFiles -Bound $PSBoundParameters.ContainsKey('SummariesPath') -SummariesPath $SummariesPath).Files
+    $SummarySet   = Get-EmiSummaryFiles -Bound $PSBoundParameters.ContainsKey('SummariesPath') -SummariesPath $SummariesPath
+    $SummaryFiles = $SummarySet.Files
 
     # --- Alias table over in-scope entities (default: status 'approved'): normalized surface -> raw ent-* ref ------------
     $Store = Get-EntitiesStore -Path $EntPath -InitIfMissing
@@ -134,6 +135,7 @@ function Update-EntityMentionIndex {
     $Containers = [ordered]@{}   # insertion order irrelevant; sorted before scan and write
     Add-EmiSeiContainers -SeiPath $SeiPath -Containers $Containers
     Add-EmiSummaryContainers -SummaryFiles $SummaryFiles -Containers $Containers
+    Add-EmiUnionContainers -Copies @($SummarySet.Copies) -Containers $Containers   # t/4337 spec 7.4: summary:<canonical>#via-<copy>-…
     $ScanByCid = Get-EmiContainerScan -Containers $Containers -AliasEntries $AliasEntries
 
     # --- Grounding write-lock (t/3203 / t/3163) -------------------------------------------

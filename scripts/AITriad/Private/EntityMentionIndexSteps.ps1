@@ -32,19 +32,22 @@ function Test-EmiMentionsEqual {
 
 function Get-EmiSummaryFiles {
     # The summary files to scan: the explicit -SummariesPath when bound, else every *.json directly under
-    # Get-SummariesDir (sorted by name), else none.
+    # Get-SummariesDir (sorted by name), else none. Copies: the marked duplicates for the union (default mode only).
     param([bool]$Bound, [string[]]$SummariesPath)
-    if ($Bound) { return [pscustomobject]@{ Files = @($SummariesPath) } }
+    if ($Bound) { return [pscustomobject]@{ Files = @($SummariesPath); Copies = @() } }
     $SummDir = Get-SummariesDir
     if (Test-Path -LiteralPath $SummDir) {
-        # duplicate_of (t/4337 C1): a marked copy's summary adds no containers, so its mentions aren't
-        # counted twice; existing summary:<doc_id> keys are never rewritten (spec 6.4).
+        # duplicate_of (t/4337): a marked copy's summary gets no summary:<copy> containers and existing
+        # summary:<doc_id> keys are never rewritten (spec 6.4). Its distinct items come back through
+        # Add-EmiUnionContainers under the canonical's namespace (spec 7.4, TL p/360#661).
         $all = @(Get-ChildItem -LiteralPath $SummDir -Filter '*.json' -File | Sort-Object -Property Name)
-        $kept = Select-SelectableSummaryFile -Files $all -Resolution (Get-DefaultSourceResolution -Caller 'Update-EntityMentionIndex')
-        return [pscustomobject]@{ Files = @($kept | ForEach-Object { $_.FullName }) }
+        $res = Get-DefaultSourceResolution -Caller 'Update-EntityMentionIndex'
+        $kept = Select-SelectableSummaryFile -Files $all -Resolution $res
+        $copies = @(Get-MarkedCopySummary -Files $all -Resolution $res -Caller 'Update-EntityMentionIndex')
+        return [pscustomobject]@{ Files = @($kept | ForEach-Object { $_.FullName }); Copies = $copies }
     }
     Write-Verbose "Summaries dir not found: $SummDir; skipping summary containers."
-    return [pscustomobject]@{ Files = @() }
+    return [pscustomobject]@{ Files = @(); Copies = @() }
 }
 
 function Get-EmiEntitySurfaces {
@@ -153,6 +156,59 @@ function Add-EmiSummaryContainers {
     }
 }
 
+function Add-EmiUnionContainers {
+    <#
+    .SYNOPSIS
+        The duplicate-group union for summary containers (t/4337, spec 7.4; key form TL p/360#661).
+    .DESCRIPTION
+        For each marked copy (canonical first, copies in ordinal order: Get-MarkedCopySummary), every key point
+        and factual claim whose container text isn't near-equal (spec 7.3) to an item already in the group gets
+        a container in the CANONICAL's namespace that names its source:
+            summary:<canonical>#via-<copy>-<pov>-kp-<n>     summary:<canonical>#via-<copy>-fc-<n>
+        where <n> is the item's index in the copy's own array, so the text is rebuildable from
+        summaries/<copy>.json exactly as summary:<doc>#… is from summaries/<doc>.json. No summary:<copy> key
+        is made and no existing key changes.
+        THESE KEYS ARE DERIVED: they appear or disappear when duplicate_of marks or the union change, so
+        nothing may persist a reference to one. Human mentions on them are dropped with a WARN
+        (Add-EmiHumanMentions).
+    #>
+    param([AllowEmptyCollection()][object[]]$Copies, [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Specialized.OrderedDictionary]$Containers)
+    if (@($Copies).Count -eq 0) { return }
+    # Spec 7.1 group order, applied here so a caller can't change which copy's item survives.
+    $ordered = [object[]]@($Copies)
+    $sortKeys = [string[]]@(foreach ($c in $ordered) { "$($c.CanonicalId)`u{0001}$($c.CopyId)" })
+    [Array]::Sort([Array]$sortKeys, [Array]$ordered, [System.Collections.IComparer][StringComparer]::Ordinal)
+    $groupKeys = @{}   # canonical id -> de-dup keys of the container texts already in its group
+    foreach ($copy in $ordered) {
+        $canon = [string]$copy.CanonicalId
+        if (-not $groupKeys.ContainsKey($canon)) {
+            $groupKeys[$canon] = [System.Collections.Generic.List[string]]::new()
+            $prefix = "summary:$canon#"
+            foreach ($cid in @($Containers.Keys)) {
+                if ($cid.StartsWith($prefix, [System.StringComparison]::Ordinal)) { $groupKeys[$canon].Add((ConvertTo-EvidenceKey -Quote ([string]$Containers[$cid]))) }
+            }
+        }
+        $own = [ordered]@{}
+        Add-EmiKeyPointContainers -Summary $copy.Summary -DocId 'x' -Containers $own
+        Add-EmiFactualClaimContainers -Summary $copy.Summary -DocId 'x' -Containers $own
+        foreach ($cid in @($own.Keys)) {
+            $text = [string]$own[$cid]
+            $k = ConvertTo-EvidenceKey -Quote $text
+            $dup = $false
+            foreach ($kk in $groupKeys[$canon]) { if (Test-EvidenceNearEqual -A $k -B $kk) { $dup = $true; break } }
+            if ($dup) { continue }
+            $groupKeys[$canon].Add($k)
+            $Containers["summary:$canon#via-$($copy.CopyId)-$($cid.Substring('summary:x#'.Length))"] = $text
+        }
+    }
+}
+
+function Test-EmiDerivedContainerKey {
+    # A spec 7.4 union container key (summary:<canonical>#via-<copy>-…): derived, never to be persisted against.
+    param([string]$Cid)
+    return $Cid -match '^summary:[^#]+#via-'
+}
+
 function Get-EmiContainerScan {
     <#
     .SYNOPSIS
@@ -205,6 +261,13 @@ function Add-EmiHumanMentions {
     param($Existing, [string]$Sha, [string]$Cid, [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[object]]$Accepted)
     if ($null -eq $Existing) { return }
     if (-not ($Existing.PSObject.Properties['text_sha256'] -and [string]$Existing.text_sha256 -eq $Sha -and $Existing.PSObject.Properties['mentions'])) { return }
+    if (Test-EmiDerivedContainerKey -Cid $Cid) {
+        # A derived union key (t/4337, TL p/360#661) can vanish when marks change, so a human mention can't be
+        # anchored to one. Never kept silently: WARN and drop.
+        $n = @($Existing.mentions | Where-Object { [string](Get-EmiProp $_ 'discovered_by') -eq 'human' }).Count
+        if ($n -gt 0) { Write-Warning "Update-EntityMentionIndex: dropped $n human mention(s) on derived container '$Cid'. Union keys (summary:<canonical>#via-…) are rebuilt from duplicate_of marks and must not carry curated data; record the mention on the canonical's own container instead." }
+        return
+    }
     foreach ($m in @($Existing.mentions)) {
         if ([string](Get-EmiProp $m 'discovered_by') -ne 'human') { continue }
         $q = Get-EmiProp $m 'quote'

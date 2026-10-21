@@ -1,6 +1,6 @@
 # Source-document identity: hash, URL and link rules
 
-**Status:** contract, fixture version 5. **Tickets:** t/4337 (ingestion dedupe, PowerShell) and t/4334 (canonical source index, TypeScript). **Fixture:** `tests/fixtures/source-identity-cases.json`. Section 7 (evidence union) has its own fixture, `tests/fixtures/evidence-union-cases.json`, version 1.
+**Status:** contract, fixture version 5. **Tickets:** t/4337 (ingestion dedupe, PowerShell) and t/4334 (canonical source index, TypeScript). **Fixture:** `tests/fixtures/source-identity-cases.json`. Section 7 (evidence union) has its own fixture, `tests/fixtures/evidence-union-cases.json`, version 2.
 
 This spec defines how a source document in `ai-triad-sources/<doc-id>/` is identified. The PowerShell ingester (`scripts/AITriad/Private/SourceIdentity.ps1`) and the TypeScript index (`lib/sourceIndex`) implement it. Both must pass every case in the fixture.
 
@@ -219,7 +219,7 @@ Every citation has two ids, and each has its own use. This mirrors the taxonomy'
 
 ## 7. Evidence union across a duplicate group
 
-*Fixture `tests/fixtures/evidence-union-cases.json`, version 1. From the t/4337 post-apply gap (t/4337#60) and the Second Opinion's conditions on it (e/347#2), accepted by the TL (e/347#3).* A marked copy's summary is a separate model run over byte-identical text, so it often cites passages and nodes the canonical's run didn't. Section 6.3 attributes evidence to `resolve(id)`. This section says what that evidence **is**: the de-duplicated union of every group member's links, not the canonical's links alone.
+*Fixture `tests/fixtures/evidence-union-cases.json`, version 2 (v2 adds 7.7). From the t/4337 post-apply gap (t/4337#60) and the Second Opinion's conditions on it (e/347#2), accepted by the TL (e/347#3).* A marked copy's summary is a separate model run over byte-identical text, so it often cites passages and nodes the canonical's run didn't. Section 6.3 attributes evidence to `resolve(id)`. This section says what that evidence **is**: the de-duplicated union of every group member's links, not the canonical's links alone.
 
 ### 7.1 Group and links
 - **The group of a canonical `C`** is `C` followed by every document whose **valid** mark (6.1) targets `C`, ordered by id (ordinal). A document with an invalid mark isn't in the group, because it resolves to itself (6.2).
@@ -275,3 +275,13 @@ The result is keyed by node; node order isn't significant. Within a node, the or
 `via` is provenance. It's shown nowhere and never stored over an exact id.
 - **It has exactly one branching reader:** entity extraction skips facts with `via` set, as well as facts whose `doc_id` isn't selectable (TL, e/347#7). Copies' facts stay out of paid extraction.
 - **Any new branching reader of `via` is a contract change to this section.**
+
+### 7.7 Entity-mention containers
+*Key form approved by the TL, p/360#661. Registry: `lib/entities/mentionTypes.ts`.* Summary mention containers are per item: `summary:<doc>#<pov>-kp-<n>` and `summary:<doc>#fc-<n>`, where `<n>` indexes that doc's own array. A copy's items can't take a canonical index, because that would re-key the canonical's containers.
+- **Union key:** a copy item whose container text isn't `near` (7.3) to an item already in the group (the canonical's items first, then copies in 7.1 order) gets `summary:<canonical>#via-<copy>-<pov>-kp-<n>` or `summary:<canonical>#via-<copy>-fc-<n>`, where `<n>` is the index in **the copy's** array.
+  - The key sits in the canonical's namespace and names its source, so its text rebuilds from `summaries/<copy>.json`.
+  - No `summary:<copy>` key is made, and no existing key changes (6.4).
+- **These keys are derived.** They appear or disappear when marks or this section change, so **nothing may persist a reference to one.**
+  - A derived key matches `^summary:[^#]+#via-`.
+  - The index builder drops human mentions on such a key **with a WARN**, never silently.
+  - Readers of the mention index look keys up opaquely; any reader that parses `summary:` keys must handle this form, or fail loudly on it.

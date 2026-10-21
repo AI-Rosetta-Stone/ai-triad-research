@@ -1,6 +1,6 @@
 {
   "spec": "docs/specs/source-identity.md section 7",
-  "version": 1,
+  "version": 2,
   "generator": "scripts/new_evidence_union_fixture.py",
   "key_cases": [
     {
@@ -733,6 +733,240 @@
           }
         ]
       }
+    }
+  ],
+  "mention_key_cases": [
+    {
+      "name": "a distinct key point and claim get via keys with the copy's own indices; a near-duplicate gets none",
+      "canonical": "c-2026",
+      "summaries": [
+        {
+          "id": "c-2026",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "The plan exports the US stack."
+                  }
+                ]
+              }
+            },
+            "factual_claims": [
+              {
+                "claim": "Claim one."
+              }
+            ]
+          }
+        },
+        {
+          "id": "c-2026-1",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "The plan exports the US stack"
+                  },
+                  {
+                    "point": "Countries want sovereign AI."
+                  }
+                ]
+              }
+            },
+            "factual_claims": [
+              {
+                "claim": "Claim one"
+              },
+              {
+                "claim": "A claim only the copy found."
+              }
+            ]
+          }
+        }
+      ],
+      "expected_containers": {
+        "summary:c-2026#via-c-2026-1-saf-kp-1": "Countries want sovereign AI.",
+        "summary:c-2026#via-c-2026-1-fc-1": "A claim only the copy found."
+      }
+    },
+    {
+      "name": "two copies with the same distinct item: only the ordinal-first copy's (-1 < -10 < -2)",
+      "canonical": "c-2026",
+      "summaries": [
+        {
+          "id": "c-2026",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "Canonical point."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        },
+        {
+          "id": "c-2026-2",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "Shared distinct point."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        },
+        {
+          "id": "c-2026-10",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "Shared distinct point."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        },
+        {
+          "id": "c-2026-1",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "Shared distinct point!"
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        }
+      ],
+      "expected_containers": {
+        "summary:c-2026#via-c-2026-1-saf-kp-0": "Shared distinct point!"
+      }
+    },
+    {
+      "name": "an empty item makes no container but still advances its index",
+      "canonical": "c-2026",
+      "summaries": [
+        {
+          "id": "c-2026",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": [
+                  {
+                    "point": "Canonical point."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        },
+        {
+          "id": "c-2026-1",
+          "summary": {
+            "pov_summaries": {
+              "skeptic": {
+                "key_points": [
+                  {
+                    "point": ""
+                  },
+                  {
+                    "point": "Second point is new."
+                  }
+                ]
+              }
+            },
+            "factual_claims": []
+          }
+        }
+      ],
+      "expected_containers": {
+        "summary:c-2026#via-c-2026-1-skp-kp-1": "Second point is new."
+      }
+    },
+    {
+      "name": "a group whose canonical has no summary: copy items still land under the canonical's namespace",
+      "canonical": "c-2026",
+      "summaries": [
+        {
+          "id": "c-2026-1",
+          "summary": {
+            "pov_summaries": {
+              "safetyist": {
+                "key_points": []
+              }
+            },
+            "factual_claims": [
+              {
+                "claim": "Only claim."
+              }
+            ]
+          }
+        }
+      ],
+      "expected_containers": {
+        "summary:c-2026#via-c-2026-1-fc-0": "Only claim."
+      }
+    }
+  ],
+  "derived_key_regex": "^summary:[^#]+#via-",
+  "derived_key_cases": [
+    {
+      "key": "summary:a-2026#fc-0",
+      "derived": false
+    },
+    {
+      "key": "summary:a-2026#saf-kp-2",
+      "derived": false
+    },
+    {
+      "key": "summary:a-2026#via-a-2026-1-fc-0",
+      "derived": true
+    },
+    {
+      "key": "summary:a-2026#via-b-2026-10-acc-kp-3",
+      "derived": true
+    },
+    {
+      "key": "sei:acc-beliefs-001",
+      "derived": false
+    },
+    {
+      "key": "node:saf-beliefs-001",
+      "derived": false
+    },
+    {
+      "key": "debate-1#entry-2",
+      "derived": false
+    },
+    {
+      "key": "summary:via-report-2026#fc-0",
+      "derived": false
+    },
+    {
+      "key": "node:via-x-2026",
+      "derived": false
+    },
+    {
+      "key": "summary:a-2026#acc-kp-0-via-b",
+      "derived": false
     }
   ]
 }
