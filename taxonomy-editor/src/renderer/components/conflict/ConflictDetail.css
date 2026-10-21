@@ -639,6 +639,18 @@
 }
 .cd-node-main:hover .cd-node-label { text-decoration: underline; }
 .cd-node-unlabeled { color: var(--text-muted); font-style: italic; }
+.cd-node-superseded-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--warning, #d97706);
+  border-radius: var(--radius-sm);
+  color: var(--warning, #d97706);
+  font-size: var(--text-2xs, 0.7rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 .cd-node-id {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--text-2xs, 0.7rem);
