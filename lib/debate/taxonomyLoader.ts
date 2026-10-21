@@ -250,6 +250,121 @@ function loadJsonSafe<T>(filePath: string, fallback: T): T {
   }
 }
 
+/** Merge synthetic multi-vector embeddings into the base embedding map in-place. */
+function loadSyntheticEmbeddings(synDir: string, embeddings: Record<string, NodeEmbedding>): void {
+  for (const pov of ['acc', 'saf', 'skp']) {
+    const npyPath = path.join(synDir, `embeddings_${pov}.npy`);
+    const idxPath = path.join(synDir, `index_${pov}.json`);
+    if (!fs.existsSync(npyPath) || !fs.existsSync(idxPath)) continue;
+    const parsed = parseNpy(fs.readFileSync(npyPath));
+    const index = loadJsonSafe<Record<string, { start: number; count: number }>>(idxPath, {});
+    const synVecs = extractNodeVectors(parsed, index, pov);
+    for (const [nodeId, entry] of Object.entries(synVecs)) {
+      if (!entry.vectors?.length) continue;
+      if (embeddings[nodeId]) {
+        embeddings[nodeId].vectors = entry.vectors;
+      } else {
+        embeddings[nodeId] = { pov: entry.pov, vector: entry.vectors[0], vectors: entry.vectors };
+      }
+    }
+  }
+}
+
+/** Normalise the lineage mapping: support both old flat-string and new {l1, l2} value formats. */
+function normalizeLineageMapping(
+  raw: Record<string, string | { l1: string; l2: string }>,
+): Record<string, { l1: string; l2: string }> {
+  const out: Record<string, { l1: string; l2: string }> = {};
+  for (const [name, val] of Object.entries(raw)) {
+    out[name] = typeof val === 'string' ? { l1: val, l2: 'uncategorized' } : val;
+  }
+  return out;
+}
+
+/** Walk supersession chains for all POV nodes, recording the ultimate survivor (or null for
+ *  cycles/dangling targets) and per-node hop depth. Emits WARN via the global flight recorder. */
+function resolveSupersessionChains(
+  allPovNodes: PovNode[],
+  allNodesById: Map<string, PovNode>,
+): { resolutionCache: Map<string, string | null>; depthCache: Map<string, number> } {
+  const resolutionCache = new Map<string, string | null>();
+  const depthCache = new Map<string, number>();
+  const recorder = getGlobalRecorder();
+
+  for (const startNode of allPovNodes) {
+    if (!startNode.superseded_by || resolutionCache.has(startNode.id)) continue;
+
+    const chain: string[] = [];
+    const chainSet = new Set<string>();
+    let cur = startNode.id;
+
+    while (!resolutionCache.has(cur)) {
+      if (chainSet.has(cur)) {
+        const cycleStart = chain.indexOf(cur);
+        const cycleMembers = chain.slice(cycleStart);
+        recorder?.record({
+          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+          message: `loadTaxonomy: supersession cycle: ${[...cycleMembers, cur].join(' → ')} — members excluded from selection`,
+        });
+        for (const id of cycleMembers) resolutionCache.set(id, null);
+        for (let i = 0; i < cycleStart; i++) resolutionCache.set(chain[i], null);
+        break;
+      }
+      chain.push(cur);
+      chainSet.add(cur);
+
+      const curNode = allNodesById.get(cur);
+      if (!curNode?.superseded_by) {
+        for (let i = 0; i < chain.length; i++) {
+          const id = chain[i];
+          if (id !== cur) {
+            resolutionCache.set(id, cur);
+            depthCache.set(id, chain.length - 1 - i);
+          }
+        }
+        if (chain.length - 1 > 1) {
+          recorder?.record({
+            type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+            message: `loadTaxonomy: supersession chain ${chain.join(' → ')} — resolves to ${cur}`,
+          });
+        }
+        break;
+      }
+
+      const nextId = curNode.superseded_by;
+      if (!allNodesById.has(nextId)) {
+        recorder?.record({
+          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+          message: `loadTaxonomy: node ${cur} superseded_by "${nextId}" not found in taxonomy — treating as no survivor`,
+        });
+        for (const id of chain) resolutionCache.set(id, null);
+        break;
+      }
+      cur = nextId;
+    }
+
+    if (resolutionCache.has(cur)) {
+      const existingRes = resolutionCache.get(cur) ?? null;
+      const cachedDepth = depthCache.get(cur) ?? 0;
+      const totalHops = chain.length + cachedDepth;
+      if (existingRes !== null && totalHops > 1) {
+        recorder?.record({
+          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
+          message: `loadTaxonomy: supersession chain ${[...chain, cur].join(' → ')} — resolves to ${existingRes}`,
+        });
+      }
+      for (let i = 0; i < chain.length; i++) {
+        const id = chain[i];
+        if (!resolutionCache.has(id)) {
+          resolutionCache.set(id, existingRes ?? null);
+          if (existingRes !== null) depthCache.set(id, chain.length - i + cachedDepth);
+        }
+      }
+    }
+  }
+  return { resolutionCache, depthCache };
+}
+
 export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
   const dataRoot = resolveDataRoot(repoRoot);
   const config = loadConfig(repoRoot);
@@ -270,24 +385,7 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
 
   // Synthetic multi-vector embeddings (optional — produced by Export-SyntheticEmbeddings)
   const synDir = path.join(taxonomyDir, 'synthetic');
-  for (const pov of ['acc', 'saf', 'skp']) {
-    const npyPath = path.join(synDir, `embeddings_${pov}.npy`);
-    const idxPath = path.join(synDir, `index_${pov}.json`);
-    if (!fs.existsSync(npyPath) || !fs.existsSync(idxPath)) continue;
-
-    const parsed = parseNpy(fs.readFileSync(npyPath));
-    const index = loadJsonSafe<Record<string, { start: number; count: number }>>(idxPath, {});
-    const synVecs = extractNodeVectors(parsed, index, pov);
-
-    for (const [nodeId, entry] of Object.entries(synVecs)) {
-      if (!entry.vectors?.length) continue;
-      if (embeddings[nodeId]) {
-        embeddings[nodeId].vectors = entry.vectors;
-      } else {
-        embeddings[nodeId] = { pov: entry.pov, vector: entry.vectors[0], vectors: entry.vectors };
-      }
-    }
-  }
+  loadSyntheticEmbeddings(synDir, embeddings);
 
   // Policy registry
   const policyRaw = loadJsonSafe<{ policies?: { id: string; action: string; source_povs?: string[] }[] }>(
@@ -308,17 +406,8 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
 
   let lineageCategories: LineageCategoryData | undefined;
   if (lineageRaw?.mapping && lineageRaw?.level2_categories) {
-    // Normalize mapping: support both old flat string and new {l1, l2} formats
-    const normalizedMapping: Record<string, { l1: string; l2: string }> = {};
-    for (const [name, val] of Object.entries(lineageRaw.mapping)) {
-      if (typeof val === 'string') {
-        normalizedMapping[name] = { l1: val, l2: 'uncategorized' };
-      } else {
-        normalizedMapping[name] = val;
-      }
-    }
     lineageCategories = {
-      mapping: normalizedMapping,
+      mapping: normalizeLineageMapping(lineageRaw.mapping),
       level2_categories: lineageRaw.level2_categories,
     };
   }
@@ -331,92 +420,7 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
   ];
   const allNodesById = new Map<string, PovNode>(allPovNodes.map(n => [n.id, n]));
 
-  // resolutionCache: supersededId → ultimate non-superseded id (or null for cycle/dangling)
-  // depthCache: supersededId → number of hops to the terminal (1 = direct supersession)
-  const resolutionCache = new Map<string, string | null>();
-  const depthCache = new Map<string, number>();
-  const recorder = getGlobalRecorder();
-
-  for (const startNode of allPovNodes) {
-    if (!startNode.superseded_by || resolutionCache.has(startNode.id)) continue;
-
-    const chain: string[] = [];
-    const chainSet = new Set<string>();
-    let cur = startNode.id;
-
-    while (!resolutionCache.has(cur)) {
-      if (chainSet.has(cur)) {
-        // Cycle detected — all cycle members resolve to themselves
-        const cycleStart = chain.indexOf(cur);
-        const cycleMembers = chain.slice(cycleStart);
-        recorder?.record({
-          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-          message: `loadTaxonomy: supersession cycle: ${[...cycleMembers, cur].join(' → ')} — members excluded from selection`,
-        });
-        for (const id of cycleMembers) resolutionCache.set(id, null);
-        // Nodes before the cycle start (chain-into-cycle) also have no survivor
-        for (let i = 0; i < cycleStart; i++) resolutionCache.set(chain[i], null);
-        break;
-      }
-
-      chain.push(cur);
-      chainSet.add(cur);
-
-      const curNode = allNodesById.get(cur);
-      if (!curNode?.superseded_by) {
-        // Terminal — all prior chain members resolve to cur; record per-node hop depth
-        for (let i = 0; i < chain.length; i++) {
-          const id = chain[i];
-          if (id !== cur) {
-            resolutionCache.set(id, cur);
-            depthCache.set(id, chain.length - 1 - i); // hops from chain[i] to terminal
-          }
-        }
-        // WARN for multi-hop chains (≥ 2 hops: chain[0] has depth > 1)
-        if (chain.length - 1 > 1) {
-          recorder?.record({
-            type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-            message: `loadTaxonomy: supersession chain ${chain.join(' → ')} — resolves to ${cur}`,
-          });
-        }
-        break;
-      }
-
-      const nextId = curNode.superseded_by;
-      if (!allNodesById.has(nextId)) {
-        // Dangling target — no survivor
-        recorder?.record({
-          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-          message: `loadTaxonomy: node ${cur} superseded_by "${nextId}" not found in taxonomy — treating as no survivor`,
-        });
-        for (const id of chain) resolutionCache.set(id, null);
-        break;
-      }
-
-      cur = nextId;
-    }
-
-    // If the loop exited because cur was already cached, propagate resolution backward
-    if (resolutionCache.has(cur)) {
-      const existingRes = resolutionCache.get(cur) ?? null;
-      const cachedDepth = depthCache.get(cur) ?? 0; // hops cur→terminal (0 if cycle/dangling)
-      // chain.length hops within current traversal + cachedDepth hops from cur to terminal
-      const totalHops = chain.length + cachedDepth;
-      if (existingRes !== null && totalHops > 1) {
-        recorder?.record({
-          type: 'system.error', component: 'taxonomy-loader', level: 'warn',
-          message: `loadTaxonomy: supersession chain ${[...chain, cur].join(' → ')} — resolves to ${existingRes}`,
-        });
-      }
-      for (let i = 0; i < chain.length; i++) {
-        const id = chain[i];
-        if (!resolutionCache.has(id)) {
-          resolutionCache.set(id, existingRes ?? null);
-          if (existingRes !== null) depthCache.set(id, chain.length - i + cachedDepth);
-        }
-      }
-    }
-  }
+  const { resolutionCache, depthCache } = resolveSupersessionChains(allPovNodes, allNodesById);
 
   const resolveNode = (id: string): PovNode | undefined => {
     const node = allNodesById.get(id);
