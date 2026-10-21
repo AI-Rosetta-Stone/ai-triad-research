@@ -93,7 +93,7 @@ import { createDebateGuard, newAbortController, _abortController, claimDebateDri
 import { pushWarning, recordDiagnostic, recordSignalHistory, getSignalValue, movingAverageSignal, incrementGapInjectionCount, _gapInjectionCount } from '../shared/diagnostics';
 import { runNeutralCheckpoint } from '../shared/neutralCheckpoint';
 import { updateNarrativeSimilarity } from '../shared/narrativeVoicing';
-import { enrichPolicyRefs, serializeNodeSourceMap, formatEdgeContext, formatDebaterEdgeContext, getRelevantTaxonomyContext, getAllKnownNodeIds, getAllPolicyIds, findNodeMetaInStore, getTaxonomyContext } from '../shared/taxonomyContext';
+import { enrichPolicyRefs, serializeNodeSourceMap, formatEdgeContext, formatDebaterEdgeContext, getRelevantTaxonomyContext, getAllKnownNodeIds, getSelectableNodeIds, getAllPolicyIds, findNodeMetaInStore, getTaxonomyContext } from '../shared/taxonomyContext';
 import { extractClaimsAndUpdateAN, commitAnNodes, detectZeroClaims } from '../shared/argumentNetwork';
 
 export interface DebatePhaseSlice {
@@ -1103,7 +1103,7 @@ async function buildPostTerminationPipelineInput(
     .filter(e => e.speaker === responderPover && e.type !== 'opening')
     .slice(-2)
     .flatMap(e => (e.taxonomy_refs ?? []).map(r => r.node_id));
-  const availablePovNodeIds = [...getAllKnownNodeIds()];
+  const availablePovNodeIds = [...getSelectableNodeIds()]; // t/4355: offer selectable ids only
   const debaterGapHint = formatGapHint(activeDebate.gap_injections);
   const [evidenceIndex, docTitles] = await Promise.all([getSourceEvidenceIndex(), getDocTitles()]);
   const ptTurnsSinceLastConcession = countTurnsSinceLastConcession(activeDebate, responderPover);
@@ -1284,7 +1284,7 @@ async function buildTurnPipelineContext(responderPover: _ModResult['responder'],
       .slice(-2)
       .flatMap(e => (e.taxonomy_refs ?? []).map(r => r.node_id));
 
-    const availablePovNodeIds = [...getAllKnownNodeIds()];
+    const availablePovNodeIds = [...getSelectableNodeIds()]; // t/4355: offer selectable ids only
 
     // ── 4-stage pipeline: BRIEF → PLAN → DRAFT → CITE ──
     const debaterGapHint = formatGapHint(activeDebate.gap_injections);

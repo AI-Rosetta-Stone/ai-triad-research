@@ -50,7 +50,7 @@ import { pushWarning, recordDiagnostic } from '../shared/diagnostics';
 import { runNeutralCheckpoint } from '../shared/neutralCheckpoint';
 import { runNarrativeVoicing, recordNarrativeCheck, finalizeNarrativeReference } from '../shared/narrativeVoicing';
 import { narrativeBlockForDebater } from '@lib/debate/narrativeVoicing';
-import { buildLineageContext, getRelevantTaxonomyContext, formatDebaterEdgeContext, enrichPolicyRefs, serializeNodeSourceMap, getAllKnownNodeIds } from '../shared/taxonomyContext';
+import { buildLineageContext, getRelevantTaxonomyContext, formatDebaterEdgeContext, enrichPolicyRefs, serializeNodeSourceMap, getAllKnownNodeIds, getSelectableNodeIds } from '../shared/taxonomyContext';
 import { extractClaimsAndUpdateAN } from '../shared/argumentNetwork';
 
 /** The AI's clarification response is spec'd as `questions: string[]`, but some models return
@@ -1132,7 +1132,7 @@ export const createClarificationSlice: StateCreator<DebateStore, [], [], Clarifi
           planModel: activeDebate.stage_models?.plan || undefined,
           citeModel: activeDebate.stage_models?.cite || undefined,
           userSeedClaims: userSeeds.length > 0 ? userSeeds : undefined,
-          availablePovNodeIds: [...getAllKnownNodeIds()],
+          availablePovNodeIds: [...getSelectableNodeIds()], // t/4355: offer selectable ids only
           background: activeDebate.topic?.background || undefined,
           narrativeVoicing: (() => {
             const voicing = get().activeDebate?.narrative_voicing;

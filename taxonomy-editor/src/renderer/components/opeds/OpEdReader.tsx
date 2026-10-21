@@ -14,8 +14,8 @@ import type { OpEdSet, OpEdMember, OpEdGroundingRef, PovKey } from '../../../../
 import { resolvePovMeta } from './povResolve';
 import { opedTagScopeText, tagLabelFor } from './opedTagScopeText';
 import { registryOrNull } from '../debate/SeatTagPicker';
-import { POV_KEYS } from '@lib/debate/types';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, povOfNode } from '../../hooks/useTaxonomyStore/superseded';
 import { NodeDetail } from '../taxonomy/NodeDetail';
 import { SituationDetail } from '../debate/SituationDetail';
 import './OpEdReader.css';
@@ -51,11 +51,11 @@ function GroundingDetailCard({ ref, onClose, claims }: { ref: OpEdGroundingRef; 
   if (ref.node_id?.startsWith('sit-')) {
     const node = state.situations?.nodes.find(n => n.id === ref.node_id);
     if (node) { body = <SituationDetail node={node} readOnly chipDepth={0} />; openTab = 'situations'; }
-  } else {
-    for (const p of POV_KEYS) {
-      const node = state[p]?.nodes.find(n => n.id === ref.node_id);
-      if (node) { body = <NodeDetail pov={p} node={node} readOnly chipDepth={0} />; openTab = p; break; }
-    }
+  } else if (ref.node_id) {
+    // t/4355: an op-ed citation shows the exact node it cited, superseded or not.
+    const node = allNodesById(state).get(ref.node_id);
+    const p = povOfNode(state, ref.node_id);
+    if (node && p) { body = <NodeDetail pov={p} node={node} readOnly chipDepth={0} />; openTab = p; }
   }
 
   return (

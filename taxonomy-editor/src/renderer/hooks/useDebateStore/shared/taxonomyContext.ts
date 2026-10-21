@@ -4,6 +4,7 @@
 import type { PovNode, CrossCuttingNode as SituationNode } from '../../../types/taxonomy';
 import { POV_KEYS } from '../../../types/debate';
 import { useTaxonomyStore } from '../../useTaxonomyStore';
+import { allNodesById, allPovNodeIds, isSuperseded, povOfNode } from '../../useTaxonomyStore/superseded'; // t/4355
 // Circular import — safe because all references are at call-time, never at module init
 import { useDebateStore } from '../store';
 import type { NodeScoringSource, RelevanceSourceEntry } from '../types';
@@ -89,7 +90,20 @@ export function enrichPolicyRefs(
   });
 }
 
+/**
+ * Every real node id, superseded POV nodes included (t/4355#7). For VALIDATING ids the model returned:
+ * an id outside this set goes to fuzzyCorrectNodeId, whose suffix match can rewrite it to a different node,
+ * so a cited superseded id must count as known. To offer ids to the model, use getSelectableNodeIds.
+ */
 export function getAllKnownNodeIds(): Set<string> {
+  const state = useTaxonomyStore.getState();
+  const s = allPovNodeIds(state);
+  for (const n of state.situations?.nodes ?? []) s.add(n.id);
+  return s;
+}
+
+/** Ids the model may be OFFERED as citable: selectable POV nodes (superseded excluded) plus situations. */
+export function getSelectableNodeIds(): Set<string> {
   const s = new Set<string>();
   const state = useTaxonomyStore.getState();
   for (const pov of POV_KEYS) {
@@ -97,6 +111,14 @@ export function getAllKnownNodeIds(): Set<string> {
   }
   for (const n of state.situations?.nodes ?? []) s.add(n.id);
   return s;
+}
+
+/** The edges debate context may use: none with a superseded endpoint (matches lib's selectable `edges`). */
+function selectableEdgesFile(): { edges: NonNullable<ReturnType<typeof useTaxonomyStore.getState>['edgesFile']>['edges'] } | null {
+  const state = useTaxonomyStore.getState();
+  const edges = state.edgesFile?.edges;
+  if (!edges) return null;
+  return { edges: edges.filter(e => !isSuperseded(state, e.source) && !isSuperseded(state, e.target)) };
 }
 
 export function getAllPolicyIds(): Set<string> {
@@ -107,10 +129,10 @@ export function getAllPolicyIds(): Set<string> {
 
 export function findNodeMetaInStore(nodeId: string): { label: string; pov: string; description: string } | undefined {
   const state = useTaxonomyStore.getState();
-  for (const pov of POV_KEYS) {
-    const n = state[pov]?.nodes.find(x => x.id === nodeId);
-    if (n) return { label: n.label, pov, description: n.description };
-  }
+  // Exact node, superseded included: this labels an id the debate already cited (t/4355).
+  const n = allNodesById(state).get(nodeId);
+  const pov = povOfNode(state, nodeId);
+  if (n && pov) return { label: n.label, pov, description: n.description };
   const sit = state.situations?.nodes.find(x => x.id === nodeId);
   if (sit) return { label: sit.label, pov: 'situations', description: sit.description };
   return undefined;
@@ -467,8 +489,8 @@ export async function getRelevantTaxonomyContext(
 
 /** Format cross-POV tensions for injection into a specific debater's prompt */
 export function formatDebaterEdgeContext(debaterPov: string): string {
-  const edgesFile = useTaxonomyStore.getState().edgesFile;
-  if (!edgesFile?.edges) return '';
+  const edgesFile = selectableEdgesFile();
+  if (!edgesFile) return '';
 
   const povPrefixes: Record<string, string> = {
     accelerationist: 'acc-', safetyist: 'saf-', skeptic: 'skp-',
@@ -530,8 +552,8 @@ export function formatDebaterEdgeContext(debaterPov: string): string {
 
 /** Format relevant edges between active debaters' nodes for the moderator */
 export function formatEdgeContext(activePovers: string[]): string {
-  const edgesFile = useTaxonomyStore.getState().edgesFile;
-  if (!edgesFile?.edges) return '';
+  const edgesFile = selectableEdgesFile();
+  if (!edgesFile) return '';
 
   // Map pover labels to POV prefixes
   const povPrefixes: Record<string, string> = {

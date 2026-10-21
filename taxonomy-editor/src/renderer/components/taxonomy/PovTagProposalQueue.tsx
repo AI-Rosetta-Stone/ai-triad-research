@@ -8,6 +8,8 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { api, isElectronMode } from '@bridge';
 import type { Pov } from '../../types/taxonomy';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { mergeHeld } from '../../hooks/useTaxonomyStore/superseded';
+import type { PovKey } from '../../hooks/useTaxonomyStore/superseded';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import { reviewTier, sortForReview } from '../../utils/povTagProposalOrder';
 import {
@@ -76,10 +78,11 @@ export function PovTagProposalQueue({ pov, initialFile, onClose }: {
   const [uncommitted, setUncommitted] = useState(false);
   const canReview = isElectronMode();
   const nodes = useTaxonomyStore((s) => s[pov]?.nodes);
+  const heldNodes = useTaxonomyStore((s) => s.supersededNodes?.[pov as PovKey]); // t/4355: a proposal may target a since-superseded node
   const registry = useMemo(() => loadPovTagRegistry(), []);
   const tagOptions = registry.povs[pov as keyof typeof registry.povs] ?? [];
   const tagLabel = (id: string) => tagOptions.find(t => t.id === id)?.label ?? id;
-  const nodeById = useMemo(() => new Map((nodes ?? []).map(n => [n.id, n])), [nodes]);
+  const nodeById = useMemo(() => new Map(mergeHeld(nodes ?? [], heldNodes ?? []).map(n => [n.id, n])), [nodes, heldNodes]);
   const all = useMemo(() => proposalsForPov(file, pov), [file, pov]);
   const shown = useMemo(() => sortForReview(filterProposals(all, filter)), [all, filter]);
   // t/4052#9: justifications are compared against the souls THIS app bundles, via the canonical comparator.

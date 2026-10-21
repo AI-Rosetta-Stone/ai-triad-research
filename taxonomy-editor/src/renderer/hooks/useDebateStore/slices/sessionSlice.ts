@@ -26,6 +26,7 @@ import type { DocMetaMap } from '@lib/debate/evidenceFromSummaries';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { trackDebateAbandon, trackDebateStart } from '../../../lib/analyticsEmitter';
 import { useTaxonomyStore } from '../../useTaxonomyStore';
+import { resolveNode } from '../../useTaxonomyStore/superseded'; // t/4355
 import { usePromptConfigStore } from '../../usePromptConfigStore';
 import { mapErrorToUserMessage } from '../../../utils/errorMessages';
 import { formatSituationDebateContext, situationTopicSynthesisPrompt } from '../../../prompts/debate';
@@ -597,14 +598,13 @@ export const createSessionSlice: StateCreator<DebateStore, [], [], SessionSlice>
     if (!ccNode) throw new Error(`Situation node ${ccNodeId} not found`);
 
     const linkedNodeDescriptions: string[] = [];
+    // New debate context: a superseded link is given to the model as its survivor (t/4355), once.
+    const seenLinked = new Set<string>();
     for (const linkedId of ccNode.linked_nodes) {
-      for (const pov of POV_KEYS) {
-        const file = taxState[pov];
-        const node = file?.nodes.find(n => n.id === linkedId);
-        if (node) {
-          linkedNodeDescriptions.push(`[${node.id}] ${node.label}: ${node.description}`);
-          break;
-        }
+      const node = resolveNode(taxState, linkedId);
+      if (node && !seenLinked.has(node.id)) {
+        seenLinked.add(node.id);
+        linkedNodeDescriptions.push(`[${node.id}] ${node.label}: ${node.description}`);
       }
     }
 

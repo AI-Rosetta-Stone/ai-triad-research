@@ -12,9 +12,10 @@
 //   isSuperseded(state, id)       marking
 //   withSupersededForSave(state)  the full view save() validates and writes
 //
-// `resolveNode` (the canonical survivor, for new attribution) comes from lib's shared supersession logic.
+//   resolveNode(state, id)        canonical survivor    (new selection and attribution; lib/debate/supersession.ts)
 
 import { POV_KEYS } from '@lib/debate/types';
+import { buildSupersessionIndex, type WarnFn } from '@lib/debate/supersession';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { PovNode, PovTaxonomyFile } from '../../types/taxonomy';
 
@@ -73,7 +74,8 @@ export function splitForState<S extends StateWithPovs>(
 
 /** The full node list for one POV: selectable plus superseded, in file order. */
 export function allPovNodes(state: StateWithPovs, pov: PovKey): PovNode[] {
-  return mergeHeld(state[pov]?.nodes ?? [], state.supersededNodes[pov] ?? []);
+  // A store without the held map (older mocks, pre-load) has no superseded nodes.
+  return mergeHeld(state[pov]?.nodes ?? [], state.supersededNodes?.[pov] ?? []);
 }
 
 /** Every POV node id, superseded included. Use for "does this id exist?" and new-id uniqueness. */
@@ -87,7 +89,7 @@ export function allPovNodeIds(state: StateWithPovs): Set<string> {
 export function withSupersededForSave<S extends StateWithPovs>(state: S): S {
   let out = state;
   for (const pov of POV_KEYS) {
-    const held = state.supersededNodes[pov];
+    const held = state.supersededNodes?.[pov] ?? [];
     const file = state[pov];
     if (!file || held.length === 0) continue;
     if (out === state) out = { ...state };
@@ -97,7 +99,15 @@ export function withSupersededForSave<S extends StateWithPovs>(state: S): S {
 }
 
 // One cached index per (files, held) snapshot: readers like getLabelForId call this on every render.
-let indexCache: { key: unknown[]; byId: Map<string, PovNode>; povById: Map<string, PovKey> } | null = null;
+let indexCache: {
+  key: unknown[]; byId: Map<string, PovNode>; povById: Map<string, PovKey>;
+  survivor: ReturnType<typeof buildSupersessionIndex>;
+} | null = null;
+
+// Lib's chain/cycle/dangling WARNs, routed to the editor's flight recorder (same semantics as loadTaxonomy).
+const recordSupersessionWarn: WarnFn = (message) => getGlobalRecorder()?.record({
+  type: 'state.change', component: 'taxonomy-store', level: 'warn', message,
+});
 
 function index(state: StateWithPovs) {
   const key = [state.accelerationist, state.safetyist, state.skeptic, state.supersededNodes];
@@ -105,8 +115,22 @@ function index(state: StateWithPovs) {
   const byId = new Map<string, PovNode>();
   const povById = new Map<string, PovKey>();
   for (const pov of POV_KEYS) for (const n of allPovNodes(state, pov)) { byId.set(n.id, n); povById.set(n.id, pov); }
-  indexCache = { key, byId, povById };
+  indexCache = { key, byId, povById, survivor: buildSupersessionIndex([...byId.values()], recordSupersessionWarn) };
   return indexCache;
+}
+
+/**
+ * The canonical survivor for an id, for NEW selection and attribution (t/4355#6): follows superseded_by
+ * chains to the live node; a cycle or dangling target returns the node itself. Lib's buildSupersessionIndex,
+ * so the editor and the debate engine agree. For historical display use allNodesById instead.
+ */
+export function resolveNode(state: StateWithPovs, id: string): PovNode | undefined {
+  return index(state).survivor.resolveNode(id);
+}
+
+/** resolveNode's id, or the id itself when unknown. Matches lib's `resolveRef: (id) => string` parameter. */
+export function resolveNodeId(state: StateWithPovs, id: string): string {
+  return resolveNode(state, id)?.id ?? id;
 }
 
 /** The exact stored node for any POV id, superseded or not (historical display). */

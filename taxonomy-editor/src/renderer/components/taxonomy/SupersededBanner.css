@@ -1,0 +1,21 @@
+/* t/4355: banner above a superseded node opened by id. */
+.superseded-banner {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--warning, #d97706);
+  background: var(--bg-secondary);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+.superseded-banner-label { font-weight: 600; }
+.superseded-banner-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--link-color, var(--color-acc, #3b82f6));
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.superseded-banner-missing { color: var(--text-muted); }
+.superseded-banner-note { color: var(--text-secondary); }

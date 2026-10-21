@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLongPressContextMenu } from '../../hooks/useLongPressContextMenu';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, povOfNode } from '../../hooks/useTaxonomyStore/superseded';
 import { getLineageInfo, getAllLineages } from '../../data/lineageLookup';
 import { getCategoryLabel, classifyLineage, getL2CategoryLabel } from '../../data/lineageCategories';
 import { POV_META, type PovMetaKey } from '@lib/electron-shared/povMeta';
@@ -280,11 +281,10 @@ export function LineageDetailView({ value, onSelectValue, onOpenLink }: LineageD
   const renderRefPreview = () => {
     if (!refPreviewNodeId) return null;
     const st = useTaxonomyStore.getState();
-    let refNode: (PovNode & { pov: string }) | null = null;
-    for (const p of POV_KEYS) {
-      const found = st[p]?.nodes.find(n => n.id === refPreviewNodeId);
-      if (found) { refNode = { ...found, pov: p }; break; }
-    }
+    // t/4355: a preview of a cited node shows the exact node, superseded included.
+    const found = allNodesById(st).get(refPreviewNodeId);
+    const foundPov = povOfNode(st, refPreviewNodeId);
+    const refNode: (PovNode & { pov: string }) | null = found && foundPov ? { ...found, pov: foundPov } : null;
     if (!refNode) return null;
 
     const sv = refNode.graph_attributes?.steelman_vulnerability;

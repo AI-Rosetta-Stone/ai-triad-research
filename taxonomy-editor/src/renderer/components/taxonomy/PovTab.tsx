@@ -19,6 +19,21 @@ import { computeSha256, DEBATE_TESTED_TIER_LABELS } from './DebateTestedChip';
 import type { DebateTestedTier } from '../../bridge/types';
 import './PovTab.css';
 import { NodeDetail } from './NodeDetail';
+import { SupersededBanner } from './SupersededBanner';
+import { allNodesById, isSupersededNode, povOfNode } from '../../hooks/useTaxonomyStore/superseded';
+
+/**
+ * t/4355: the node to show for `selectedNodeId`. An id opened from history (a citation, a transcript, a URL)
+ * may be a superseded node of this POV, held out of `file.nodes`; it is shown read-only with the
+ * "Superseded by" banner. Kept outside PovTab to hold the component's complexity budget.
+ */
+function resolveSelectedNode(file: { nodes: PovNode[] } | null | undefined, id: string | null, pov: Pov): PovNode | null {
+  if (!file || !id) return null;
+  const live = file.nodes.find(n => n.id === id);
+  if (live) return live;
+  const state = useTaxonomyStore.getState();
+  return povOfNode(state, id) === pov ? allNodesById(state).get(id) ?? null : null;
+}
 import { TheoryLink } from '../shared/TheoryLink';
 import { SituationDetail } from '../debate/SituationDetail';
 import { PinnedPanel } from '../shared/PinnedPanel';
@@ -592,7 +607,7 @@ export function PovTab({ pov }: PovTabProps) {
     }
   }, [pov]);
 
-  const selectedNode = file ? file.nodes.find(n => n.id === selectedNodeId) || null : null;
+  const selectedNode = resolveSelectedNode(file, selectedNodeId, pov);
 
   const handlePin = () => {
     if (selectedNode) {
@@ -872,7 +887,8 @@ export function PovTab({ pov }: PovTabProps) {
                 </div>
               )}
               {selectedNode ? (
-                <NodeDetail pov={pov} node={selectedNode} onPin={handlePin} onSimilarSearch={handleSimilarSearch} onRelated={handleRelated} onOpenSoulDoc={(nodeTags) => setSoulDoc({ nodeTags })} conflict={nodeConflicts.conflicts.get(selectedNode.id)} resolveUrl={syncStatus.pr_url} />
+                <><SupersededBanner node={selectedNode} />
+                <NodeDetail pov={pov} node={selectedNode} readOnly={isSupersededNode(selectedNode)} onPin={handlePin} onSimilarSearch={handleSimilarSearch} onRelated={handleRelated} onOpenSoulDoc={(nodeTags) => setSoulDoc({ nodeTags })} conflict={nodeConflicts.conflicts.get(selectedNode.id)} resolveUrl={syncStatus.pr_url} /></>
               ) : (
                 <div className="detail-panel-empty">Select a node to edit</div>
               )}
