@@ -107,4 +107,51 @@ describe('sourcesIndexReader (t/4334#18)', () => {
     // satisfy the conditional suffix edge, so it correctly stays its own canonical id.
     expect(byId['alpha-2026-1']).toBe('alpha-2026-1');
   });
+
+  // t/4334#38/#39 (TL/SO go-live check): the 20 real t/4337 partial-ingest docs
+  // have no metadata.json, so Export-SourcesIndex lists them as bare {id,
+  // snapshot_sha256} entries — no title, no duplicate_of mark (C10: left
+  // alone, never written). A standalone index (not the shared PowerShell
+  // contract sample, to avoid touching that cross-stack fixture) models one.
+  it('a bare-id entry (no metadata.json) groups under its canonical via the hash edge, and never appears as its own row (TL/SO go-live check, t/4334#38)', async () => {
+    const sharedHash = 'f'.repeat(64);
+    // Named so the metadata-bearing doc sorts first ordinally (4.6 rule 2 — no
+    // duplicate_of mark exists for these, per C10) and so is unambiguously the
+    // group's canonical, matching the real-world case (an ordinary doc id vs.
+    // a UUID-shaped partial-ingest id would sort either way by luck alone).
+    const bareIndex = {
+      schema_version: 1,
+      source_commit: null,
+      doc_count: 2,
+      docs: [
+        { id: 'aaa-canon-2026', title: 'Canon', url: 'https://example.org/canon', content_sha256: sharedHash },
+        { id: 'zzz-bare-twin-2026', snapshot_sha256: sharedHash }, // no title/url — the bare-id shape
+      ],
+    };
+    fs.writeFileSync(indexPath, JSON.stringify(bareIndex));
+    const fileIO = await import('../storage/fileIO.js');
+    const { resetNodeSourceIndexCacheForTests } = await import('../storage/nodeSourceIndex.js');
+    resetNodeSourceIndexCacheForTests();
+
+    // Only the canonical has a summary — matching the real 20's "0 readers today"
+    // (t/4337#37): a doc with no metadata.json also has no summaries/<id>.json,
+    // so it can never be cited and can never appear as its own evidence row.
+    fs.writeFileSync(
+      path.join(dataRoot, 'summaries', 'aaa-canon-2026.json'),
+      JSON.stringify({ pov_summaries: { accelerationist: { key_points: [{ taxonomy_node_id: 'n1', stance: 'supports', point: 'p', verbatim: 'v', excerpt_context: 'c' }] } } }),
+    );
+
+    const index = await fileIO.buildNodeSourceIndex();
+    const refs = index.n1;
+    expect(refs).toHaveLength(1);
+    expect(refs[0].docId).toBe('aaa-canon-2026');
+    expect(refs[0].canonicalDocId).toBe('aaa-canon-2026');
+    expect(refs.some(r => r.docId === 'zzz-bare-twin-2026')).toBe(false); // never a row of its own
+
+    // Grouped under the canonical through the hash edge, not its own id.
+    const { getNodeSources } = fileIO;
+    const { cards } = await getNodeSources('n1');
+    expect(Object.keys(cards)).toEqual(['aaa-canon-2026']);
+    expect(cards['aaa-canon-2026']).toMatchObject({ title: 'Canon', url: 'https://example.org/canon' });
+  });
 });
