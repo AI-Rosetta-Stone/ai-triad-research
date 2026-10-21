@@ -11,6 +11,7 @@ import type { ArgumentNetworkNode } from '../../types/debate';
 import { QbafClaimBadge } from '../taxonomy/QbafOverlay';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { triggerPovNodeRegeneration } from '../../utils/regeneratePlainDescription';
+import { allNodesById, allPovNodeIds, resolveNodeId } from '../../hooks/useTaxonomyStore/superseded';
 import type { Pov } from '../../types/taxonomy';
 import {
   extractConflictCandidates,
@@ -68,18 +69,13 @@ export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
   const [generatingSteelmans, setGeneratingSteelmans] = useState(false);
 
   const getNodeLabel = (id: string): string | null => {
-    for (const pov of POV_KEYS) {
-      const node = taxState[pov]?.nodes?.find(n => n.id === id);
-      if (node) return node.label;
-    }
+    const node = allNodesById(taxState).get(id); // superseded included: the debate cited it (t/4355)
+    if (node) return node.label;
     const ccNode = taxState.situations?.nodes?.find(n => n.id === id);
     return ccNode?.label || null;
   };
 
-  const allNodeIds = new Set<string>();
-  for (const pov of POV_KEYS) {
-    for (const n of taxState[pov]?.nodes || []) allNodeIds.add(n.id);
-  }
+  const allNodeIds = allPovNodeIds(taxState);
   for (const n of taxState.situations?.nodes || []) allNodeIds.add(n.id);
 
   console.log('[HarvestDialog] Render — fileData:', !!fileData, 'activeDebate:', !!activeDebate,
@@ -122,7 +118,11 @@ export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
       }
     }
     setConflicts(conflicts);
-    setSteelmans(extractSteelmanCandidates(activeDebate, getNodeLabel));
+    // A steelman is written onto its node; a superseded target is read-only history, so write to the survivor (t/4355).
+    setSteelmans(extractSteelmanCandidates(activeDebate, getNodeLabel).map(s => {
+      const survivor = resolveNodeId(taxState, s.targetNodeId);
+      return survivor === s.targetNodeId ? s : { ...s, targetNodeId: survivor, targetNodeLabel: getNodeLabel(survivor) || survivor };
+    }));
     setVerdicts(extractVerdictCandidates(activeDebate));
     setConcepts(extractConceptCandidates(activeDebate, allNodeIds));
 

@@ -4,7 +4,7 @@
 import type { PovNode, CrossCuttingNode as SituationNode } from '../../../types/taxonomy';
 import { POV_KEYS } from '../../../types/debate';
 import { useTaxonomyStore } from '../../useTaxonomyStore';
-import { allPovNodeIds, isSuperseded } from '../../useTaxonomyStore/superseded'; // t/4355
+import { allNodesById, allPovNodeIds, isSuperseded, povOfNode } from '../../useTaxonomyStore/superseded'; // t/4355
 // Circular import — safe because all references are at call-time, never at module init
 import { useDebateStore } from '../store';
 import type { NodeScoringSource, RelevanceSourceEntry } from '../types';
@@ -129,10 +129,10 @@ export function getAllPolicyIds(): Set<string> {
 
 export function findNodeMetaInStore(nodeId: string): { label: string; pov: string; description: string } | undefined {
   const state = useTaxonomyStore.getState();
-  for (const pov of POV_KEYS) {
-    const n = state[pov]?.nodes.find(x => x.id === nodeId);
-    if (n) return { label: n.label, pov, description: n.description };
-  }
+  // Exact node, superseded included: this labels an id the debate already cited (t/4355).
+  const n = allNodesById(state).get(nodeId);
+  const pov = povOfNode(state, nodeId);
+  if (n && pov) return { label: n.label, pov, description: n.description };
   const sit = state.situations?.nodes.find(x => x.id === nodeId);
   if (sit) return { label: sit.label, pov: 'situations', description: sit.description };
   return undefined;

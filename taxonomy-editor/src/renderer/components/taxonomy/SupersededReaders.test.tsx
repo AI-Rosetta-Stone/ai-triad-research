@@ -11,10 +11,10 @@ import type { PovNode, PovTaxonomyFile } from '../../types/taxonomy';
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
 const { useTaxonomyStore } = await import('../../hooks/useTaxonomyStore');
-const { splitForState, EMPTY_HELD, __resetSupersededCacheForTests } = await import('../../hooks/useTaxonomyStore/superseded');
+const { splitForState, EMPTY_HELD, resolveNode, resolveNodeId, __resetSupersededCacheForTests } = await import('../../hooks/useTaxonomyStore/superseded');
 const { SupersededBanner } = await import('./SupersededBanner');
 const { resolveRef } = await import('../shared/resolveRef');
-const { getAllKnownNodeIds, getSelectableNodeIds } = await import('../../hooks/useDebateStore/shared/taxonomyContext');
+const { getAllKnownNodeIds, getSelectableNodeIds, findNodeMetaInStore } = await import('../../hooks/useDebateStore/shared/taxonomyContext');
 
 const node = (id: string, over: Partial<PovNode> = {}): PovNode =>
   ({ id, category: 'Beliefs', label: `label ${id}`, description: 'd', parent_id: null, children: [], situation_refs: [], ...over } as PovNode);
@@ -58,6 +58,31 @@ describe('citation resolver', () => {
   it('resolves a cited superseded node to the exact node', async () => {
     const r = await resolveRef({ kind: 'node', id: 'acc-beliefs-002' } as never);
     expect(r).toMatchObject({ kind: 'node', record: { id: 'acc-beliefs-002' } });
+  });
+});
+
+describe('survivor resolution (lib buildSupersessionIndex)', () => {
+  const state = () => useTaxonomyStore.getState() as never;
+
+  it('resolves a superseded id to its survivor, a live id to itself, an unknown id to itself', () => {
+    expect(resolveNode(state(), 'acc-beliefs-002')?.id).toBe('acc-beliefs-001');
+    expect(resolveNodeId(state(), 'acc-beliefs-001')).toBe('acc-beliefs-001');
+    expect(resolveNodeId(state(), 'acc-beliefs-777')).toBe('acc-beliefs-777');
+  });
+
+  it('follows a chain to the live end', () => {
+    __resetSupersededCacheForTests();
+    const file = { pov: 'accelerationist', last_modified: '2026-01-01', nodes: [
+      LIVE, OLD, node('acc-beliefs-003', { superseded_by: 'acc-beliefs-002' }),
+    ] } as PovTaxonomyFile;
+    useTaxonomyStore.setState(splitForState(
+      { supersededNodes: EMPTY_HELD, accelerationist: null, safetyist: null, skeptic: null }, { accelerationist: file },
+    ) as never);
+    expect(resolveNodeId(state(), 'acc-beliefs-003')).toBe('acc-beliefs-001');
+  });
+
+  it('labels a cited superseded id with the exact node, not the survivor', () => {
+    expect(findNodeMetaInStore('acc-beliefs-002')).toEqual({ label: 'label acc-beliefs-002', pov: 'accelerationist', description: 'd' });
   });
 });
 

@@ -16,7 +16,7 @@ import type {
   GapInjection,
   CrossCuttingProposal,
 } from '../../../types/debate';
-import { POVER_INFO, AI_POVERS, POV_KEYS } from '../../../types/debate';
+import { POVER_INFO, AI_POVERS } from '../../../types/debate';
 import type { PovNode, CrossCuttingNode as SituationNode, GraphAttributes, Category, Pov, Edge } from '../../../types/taxonomy';
 import type { ModeratorState, SelectionResult, ModeratorIntervention, InterventionMetadata, DebatePhase } from '@lib/debate/types';
 import type { PoverResponseMeta, MoveAnnotation } from '@lib/debate/helpers';
@@ -91,6 +91,7 @@ import { computeBeliefConfidence } from '@lib/debate/beliefConfidence';
 import { computeTreePriority } from '@lib/debate/desirePriority';
 import { computeOperationality } from '@lib/debate/intentionOperationality';
 import { useTaxonomyStore } from '../../useTaxonomyStore';
+import { allPovNodeIds, resolveNodeId } from '../../useTaxonomyStore/superseded'; // t/4355
 import { usePromptConfigStore } from '../../usePromptConfigStore';
 import { mapErrorToUserMessage } from '../../../utils/errorMessages';
 import { getConfiguredModel, getSpeakerModel } from '../shared/modelConfig';
@@ -490,11 +491,8 @@ function applyReflectionEditToExistingNode(
 
 /** Gather all live node ids (every POV file, plus situations when requested) for anti-orphan edge validation / collision detection. */
 function collectKnownNodeIds(includeSituations = true): Set<string> {
-  const ids = new Set<string>();
-  for (const p of POV_KEYS) {
-    const f = useTaxonomyStore.getState()[p];
-    if (f) for (const n of f.nodes) ids.add(n.id);
-  }
+  // Full set, superseded included (t/4355): a cited superseded id is known, then resolved to its survivor.
+  const ids = allPovNodeIds(useTaxonomyStore.getState());
   if (includeSituations) {
     const situations = useTaxonomyStore.getState().situations;
     if (situations) for (const n of situations.nodes) ids.add(n.id);
@@ -839,6 +837,7 @@ function generateNewItemProposals(rawEdits: RawReflectionEdit[], povKey: Pov, de
       pov: povKey,
       debateId,
       knownNodeIds: collectKnownNodeIds(true),
+      resolveRef: (id) => resolveNodeId(useTaxonomyStore.getState(), id),
     });
   } catch (genErr) {
     getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', message: 'propose_new proposal generation failed (non-fatal)', error: { name: (genErr as Error).name ?? 'Error', message: String(genErr), stack: (genErr as Error).stack } });
@@ -1198,7 +1197,9 @@ export const createDebateReflectionSlice: StateCreator<DebateStore, [], [], Deba
     // The generator validated against a snapshot; a target could have been deleted/renamed
     // since. Keep only edges whose target still resolves to a persisted node (pov/situation).
     const knownNodeIds = collectKnownNodeIds(true);
-    const liveEdges = proposal.proposed_edges.filter(e => knownNodeIds.has(e.target_node_id));
+    // t/4355: a target superseded since generation is re-pointed at its survivor (new edges never cite history).
+    const liveEdges = proposal.proposed_edges.filter(e => knownNodeIds.has(e.target_node_id))
+      .map(e => ({ ...e, target_node_id: resolveNodeId(useTaxonomyStore.getState(), e.target_node_id) }));
     if (liveEdges.length < 1) {
       getGlobalRecorder()?.record({ type: 'state.error', component: 'reflection-proposal', level: 'warn', message: 'applyReflectionProposal.result', data: { ok: false, error: 'no live edge targets', pover, proposalIndex } });
       return { ok: false, error: 'All proposed edge targets no longer exist — cannot create an unconnected node.' };
