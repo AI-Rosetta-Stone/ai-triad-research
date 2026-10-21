@@ -20,6 +20,7 @@ import { getApiKey, getProjectRoot, EMBED_SCRIPT, resolveDataPath, isEmbeddingWo
 import { isKeyRoutingRefusal } from '../../../../lib/ai-client/apiKeyFallback.js';
 import { chainLinkKeys, throwNoApiKeyError } from './chainLinkKeys.js';
 import { writeAICallLogEntry, isAICallLogEnabled, classifyKeySource, resolveChainLinkKeySource, emitChainLinkComplete, type ChainLinkComplete } from './aiCallLog.js';
+import { logGenerateOutcome } from './generateOutcomeLog.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { parseJsonRobust } from '../../../../lib/debate/helpers.js';
 import { readFileWithMtime } from './fsCache.js';
@@ -423,7 +424,9 @@ export async function generateText(
         });
       }
       emitChainLinkComplete(onChainLinkComplete, { model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: '200' });
-      return { text: result.text, tokenUsage: mapUsage(result.usage), servedModel: currentModel };
+      const tokenUsage = mapUsage(result.usage);
+      logGenerateOutcome({ model: currentModel, backend, retryCount: linkRetryCount, tokenUsage }); // t/4410 sizing
+      return { text: result.text, tokenUsage, servedModel: currentModel };
     } catch (err) {
       // t/2524: a deliberate cancellation (client disconnect) must NOT advance the
       // fallback chain — otherwise every remaining chain entry emits a spurious
@@ -436,6 +439,7 @@ export async function generateText(
       if (isKeyRoutingRefusal(err)) throw err; // cond 6: a refused key is never a reason to fail over — no log entry (no call made)
       lastError = err;
       emitChainLinkComplete(onChainLinkComplete, { model: currentModel, backend, keySource: linkKeySource, retryCount: linkRetryCount, status: deriveCallLogStatus(err) });
+      logGenerateOutcome({ model: currentModel, backend, retryCount: linkRetryCount, err }); // t/4410 sizing: 429 cause
       if (mi < modelsToTry.length - 1) {
         const nextModel = modelsToTry[mi + 1];
         getGlobalRecorder()?.record({
