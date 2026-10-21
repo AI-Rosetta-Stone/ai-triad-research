@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import type http from 'http';
+import { log } from './logger.js';
+import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 
 // t/2532 (sec M12): dev-mode network-exposure hardening for the taxonomy-editor
 // REST server. Extracted here as pure, import-safe functions (server.ts boots the
@@ -102,6 +104,11 @@ export function enforceCrossOriginMutationGuard(
   if (isPublicPath || !isDisallowedCrossOriginMutation(req.method || 'GET', req.headers.origin, req.headers.host, allowlist)) {
     return false;
   }
+  // t/4406: the 403 used to be visible only in the response, so a log search for
+  // cross_origin_blocked always came back empty. Origin and Host are not secrets.
+  const data = { method: req.method, path: (req.url ?? '').split('?')[0], origin: req.headers.origin, host: req.headers.host };
+  log.security.warn({ component: 'cross-origin-guard', ...data }, 'cross_origin_blocked: cross-origin mutation rejected');
+  getGlobalRecorder()?.record({ type: 'system.error', component: 'cross-origin-guard', level: 'warn', message: 'cross_origin_blocked', data });
   res.writeHead(403, { 'Content-Type': 'application/json', 'X-Auth-Reason': 'cross_origin_blocked' });
   res.end(JSON.stringify({ error: 'Cross-origin request blocked', reason: 'cross_origin_blocked' }));
   return true;

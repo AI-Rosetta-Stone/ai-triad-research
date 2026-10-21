@@ -44,6 +44,7 @@ import { registerCanaryRoutes } from './canary.js';
 import { registerNodeDeleteLogRoutes } from './nodeDeleteLog.js';
 import { registerPovTagProposalsRoutes } from './povTagProposals.js';
 import { registerPolicyRegistryRoutes } from './policyRegistry.js';
+import { registerDiagForwardedRoutes } from './diagForwarded.js';
 
 export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   registerMetaRoutes(router, ctx);
@@ -83,4 +84,7 @@ export function registerAllRoutes(router: Router, ctx: ServerCtx): void {
   // t/3206: canary storm-window loop-sampler control routes (/internal/canary/*). Unique prefix →
   // no collision with any group above, so appended last (order-independent). Flag-gated (404 off).
   registerCanaryRoutes(router, ctx);
+  // t/4410 TEMPORARY — GET /api/diag/forwarded-headers, staging-only (404 elsewhere). Unique prefix,
+  // order-independent. Remove after the getClientIp() X-Forwarded-For fix lands.
+  registerDiagForwardedRoutes(router, ctx);
 }

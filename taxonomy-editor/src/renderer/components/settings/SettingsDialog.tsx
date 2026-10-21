@@ -13,6 +13,7 @@ import { KeySharingDialog } from './KeySharingDialog';
 import { useDescriptionMode, type DescriptionMode } from '../shared/DescriptionToggle';
 import { backendSelectState, type BackendAvailabilityEntry } from '../shared/backendSelectState';
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
+import { FreeTierSettingsNote } from '../shared/FreeTierDisclosure'; // t/4410 item D
 import './SettingsDialog.css';
 
 type SettingsTab = 'ai' | 'apiKeys' | 'appearance';
@@ -968,6 +969,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
         {activeTab === 'apiKeys' && (
           <>
+            <FreeTierSettingsNote />
             <ApiKeyEntrySection
               aiBackend={aiBackend}
               hasKey={hasKey}

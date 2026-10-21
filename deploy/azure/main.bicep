@@ -549,6 +549,7 @@ var baseEnv = [
   // t/4176: the code splits per-replica AI RPM and per-client rate limits by this (t/4177, t/4178).
   // MUST equal the container app's maxReplicas below, and deploy-azure.yml ExpectedEnvVars.
   { name: 'MAX_REPLICAS', value: '1' }
+  // PROD's origin. Staging overrides it with its own FQDN in stagingEnvOverrides (t/4406).
   { name: 'ALLOWED_ORIGINS', value: 'https://taxonomy-editor.${containerAppEnv.properties.defaultDomain}' }
   { name: 'HOME', value: '/home/aitriad' }
   { name: 'NODE_ENV', value: 'production' }
@@ -662,6 +663,12 @@ var stagingEnvOverrides = [
   { name: 'ANON_SESSION_DIR',    value: '/mnt/staging-state/anon-sessions' }
   // github-api writes go to the staging branch, not main (t/2650 class-B isolation)
   { name: 'GITHUB_BRANCH',       value: 'staging' }
+  // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
+  // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
+  // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this
+  // list; Host is preserved through ingress, probed t/4406#3) and is NOT the staging sign-in bounce.
+  // Host MUST match the staging app's name below; tests/BicepAllowedOrigins.Tests.ps1 asserts it.
+  { name: 'ALLOWED_ORIGINS',     value: 'https://taxonomy-editor-staging.${containerAppEnv.properties.defaultDomain}' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
   // /readyz warm-gate replaces the boot hard-fail. Nothing to override here.
   // NOTE: S2 (GROUNDING_RECONCILE_INLINE=0 override) DROPPED per TL (e/327#5) — G8a is gated by
@@ -671,7 +678,7 @@ var stagingEnvOverrides = [
 // stagingBaseEnv = baseEnv with the isolation overrides applied.
 // filter() removes the baseEnv entries that stagingEnvOverrides supersedes.
 var stagingBaseEnv = concat(
-  filter(baseEnv, e => e.name != 'TAXONOMY_CACHE_DIR' && e.name != 'GIT_SYNC_ENABLED'),
+  filter(baseEnv, e => e.name != 'TAXONOMY_CACHE_DIR' && e.name != 'GIT_SYNC_ENABLED' && e.name != 'ALLOWED_ORIGINS'),
   stagingEnvOverrides
 )
 // Rebuild the secret chain for staging — mirrors the prod chain so staging
