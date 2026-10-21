@@ -22,6 +22,7 @@ import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import {
   groupSourceIdentities, computeSourceContentHash,
   type SourceReference, type SourceCardMeta, type NodeSourceIndex, type SourceIdentityDoc, type SourceIdentityMeta,
+  type SourceUrlConflict,
 } from '../../../../lib/sourceIndex/types.js';
 import { getBackend, getSourcesDir } from './fileIO.js';
 import {
@@ -224,11 +225,12 @@ async function indexSummaryFiles(
  *  (`docs/specs/source-identity.md`, t/4344), mutating `index` in place.
  *  Every `docId` seen anywhere in the index participates, so a split part
  *  reachable only via one node still resolves against the full known-id
- *  set. Returns the title-collision report (spec 4.5) for the caller to log
- *  — it's a signal for a human cleanup pass, never applied as a merge. */
+ *  set. Returns the title-collision and url-conflict reports (spec 4.5) for
+ *  the caller to log — both are signals for a human cleanup pass, never
+ *  applied as a merge. */
 function applyCanonicalDocIds(
   index: NodeSourceIndex, identityMeta: Record<string, SourceIdentityMeta>, snapshotHashes: Record<string, string | null>,
-): string[][] {
+): { titleCollisions: string[][]; urlConflicts: SourceUrlConflict[] } {
   const allDocIds = new Set<string>();
   for (const refs of Object.values(index)) for (const r of refs) allDocIds.add(r.docId);
   const docs: SourceIdentityDoc[] = [...allDocIds].map(id => ({
@@ -236,11 +238,11 @@ function applyCanonicalDocIds(
     metadata: identityMeta[id] ?? { title: id },
     snapshotSha256: snapshotHashes[id] ?? null,
   }));
-  const { canonical, titleCollisions } = groupSourceIdentities(docs);
+  const { canonical, titleCollisions, urlConflicts } = groupSourceIdentities(docs);
   for (const refs of Object.values(index)) {
     for (const r of refs) r.canonicalDocId = canonical[r.docId] ?? r.docId;
   }
-  return titleCollisions;
+  return { titleCollisions, urlConflicts };
 }
 
 /**
@@ -317,7 +319,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const summaryFiles = await getBackend().listDirectory(summariesDir);
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
-  const titleCollisions = applyCanonicalDocIds(index, identityMeta, snapshotHashes);
+  const { titleCollisions, urlConflicts } = applyCanonicalDocIds(index, identityMeta, snapshotHashes);
   const cards = buildCardMetaByCanonicalId(index, metaCache);
   nodeSourceIndexGeneration += 1;
 
@@ -326,12 +328,19 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const coldBuildMs = Date.now() - start;
   const coverage = sourceCardFieldCoverage(metaCache);
   log.server.info(
-    { coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length, titleCollisionCount: titleCollisions.length, ...coverage },
+    {
+      coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,
+      titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length, ...coverage,
+    },
     'Node source index rebuilt',
   );
   if (titleCollisions.length > 0) {
     // t/4344 spec 4.5: a report for a human cleanup pass (t/4337), never applied as a merge.
     log.server.warn({ titleCollisions }, 'Node source index: title collisions found (no merge applied, human review needed)');
+  }
+  if (urlConflicts.length > 0) {
+    // t/4344 spec 4.3/4.5: a pair vetoed from joining on a shared URL key, reported for the same human cleanup pass.
+    log.server.warn({ urlConflicts }, 'Node source index: URL conflicts found (no merge applied, human review needed)');
   }
   getGlobalRecorder()?.record({
     type: 'system.info', component: 'node-source-index', level: 'info',
