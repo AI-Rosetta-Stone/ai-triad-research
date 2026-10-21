@@ -1,9 +1,11 @@
 {
   "name": "t3963-stage2",
   "output_dir": "C:\\Users\\jsnov\\repos\\ai-triad-data\\debates\\t3963-tag-pilot-stage2",
-  "approval_ref": null,
-  "approval_status": "NOT APPROVED, pending a PI ask (t/3963#9). An earlier version of this comment claimed PI first-hand approval in chat on 2026-10-20. That claim was wrong: the PI did not approve it. See t/3963 for where it came from. The runner refuses this plan until approval_ref names the recorded approval (t/KEY#N or p/N#M).",
-  "_comment": "Proposed, NOT approved: fixed 3 rounds, the remaining 54 debates, reusing stage 1, about $11, hard stop $12.50. It goes to the PI as a spending ask after the t/3802 re-run reports. Same frozen code 7ffb7c3f as stage 1. Stage 1 set pacing=moderate, which the CLI ignored (no useAdaptiveStaging), so its effective format was rounds=3; stage 2 states rounds=3 and omits pacing: the same format, now explicit.",
+  "approval_ref": "t/3963#11",
+  "approval_status": "APPROVED by the PI, option B, recorded by the TL at t/3963#11 (2026-10-21). Option A (adaptive, 60 debates) is not approved. History: an earlier version of this plan claimed a PI approval that was never given (t/3963#9, #10); no debate ran under it.",
+  "hard_stop_usd": 12.5,
+  "hard_stop_ref": "PI option B, $12.50 hard stop (t/3963#11)",
+  "_comment": "Approved (t/3963#11): fixed 3 rounds, the remaining 54 debates (m02-m10 x A0-A5), reusing stage 1, about $11, hard stop $12.50. Same frozen code 7ffb7c3f as stage 1. Stage 1 set pacing=moderate, which the CLI ignored (no useAdaptiveStaging), so its effective format was rounds=3; stage 2 states rounds=3 and omits pacing: the same format, now explicit.",
   "base_config": {
     "model": "gemini-3.5-flash-lite",
     "protocolId": "structured",
