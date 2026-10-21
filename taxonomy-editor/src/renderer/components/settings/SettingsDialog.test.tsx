@@ -362,7 +362,7 @@ describe('SettingsDialog', () => {
     await user.click(screen.getByText('Refresh Models'));
 
     expect(await screen.findByText('proposal-required')).toBeInTheDocument();
-    expect(screen.getByText(/needs the desktop app for now/i)).toBeInTheDocument();
+    expect(screen.getByText(/isn't available in the web app/i)).toBeInTheDocument();
     expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
   });
 
@@ -414,7 +414,7 @@ describe('SettingsDialog', () => {
     await user.click(screen.getByText('Refresh Models'));
 
     expect(await screen.findByText(/9 new models found; accept to add them/i)).toBeInTheDocument();
-    expect(screen.getByText(/needs the desktop app for now/i)).toBeInTheDocument();
+    expect(screen.getByText(/isn't available in the web app/i)).toBeInTheDocument();
     expect(screen.queryByText('Accept proposal')).not.toBeInTheDocument();
   });
 });

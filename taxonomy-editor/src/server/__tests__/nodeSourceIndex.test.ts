@@ -5,12 +5,13 @@
  * lookup, build-once/invalidate-on-change caching, and card metadata.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import * as fileIO from '../storage/fileIO.js';
 import { resetNodeSourceIndexCacheForTests } from '../storage/nodeSourceIndex.js';
+import { log } from '../logger.js';
 
 let dataRoot: string;
 let sourcesRoot: string;
@@ -143,5 +144,101 @@ describe('buildNodeSourceIndex / getNodeSources (t/4333/t/4334)', () => {
     const first = await fileIO.getNodeSources('n1');
     const second = await fileIO.getNodeSources('n1');
     expect(second.indexVersion).toBe(first.indexVersion);
+  });
+
+  // t/4334#25 (Rosetta): a per-doc metaCache miss degraded silently (title
+  // fell back to the bare doc id, no WARN) — the same silent-fallback class
+  // as the empty-listing bug, just at the per-doc granularity. One
+  // aggregated WARN per build, not one per occurrence.
+  it('WARNs once per build, aggregated, when docs have no source metadata', async () => {
+    const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as unknown as ReturnType<typeof log.server.warn>);
+    writeSummary('orphan-a', 'n1'); // no writeSourceMeta — no metadata.json anywhere
+    writeSummary('orphan-b', 'n1');
+    writeSourceMeta('known-doc', { title: 'Known', url: 'https://example.com/known' });
+    writeSummary('known-doc', 'n1');
+
+    await fileIO.buildNodeSourceIndex();
+
+    const call = warnSpy.mock.calls.find(([, msg]) => typeof msg === 'string' && msg.includes('no source metadata'));
+    expect(call).toBeDefined();
+    const [data] = call!;
+    expect(data).toMatchObject({ missingCount: 2, missingDocIds: ['orphan-a', 'orphan-b'] });
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn about missing metadata when every doc has it', async () => {
+    const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as unknown as ReturnType<typeof log.server.warn>);
+    writeSourceMeta('known-doc', { title: 'Known', url: 'https://example.com/known' });
+    writeSummary('known-doc', 'n1');
+
+    await fileIO.buildNodeSourceIndex();
+
+    const call = warnSpy.mock.calls.find(([, msg]) => typeof msg === 'string' && msg.includes('no source metadata'));
+    expect(call).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+});
+
+// t/4357 (t/4337 C1, spec section 6): a `duplicate_of` mark collapses a
+// node's evidence to one row per resolved id, attributed to the canonical,
+// while by-id lookups (card metadata) keep working for the marked doc too.
+describe('buildNodeSourceIndex / getNodeSources: duplicate_of (t/4357)', () => {
+  beforeEach(() => {
+    dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't4357-data-'));
+    sourcesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't4357-sources-'));
+    fs.mkdirSync(path.join(dataRoot, 'summaries'), { recursive: true });
+    process.env.AI_TRIAD_DATA_ROOT = dataRoot;
+    process.env.AI_TRIAD_SOURCES_ROOT = sourcesRoot;
+    resetNodeSourceIndexCacheForTests();
+  });
+
+  afterEach(() => {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+    fs.rmSync(sourcesRoot, { recursive: true, force: true });
+    delete process.env.AI_TRIAD_DATA_ROOT;
+    delete process.env.AI_TRIAD_SOURCES_ROOT;
+  });
+
+  it('a duplicate pair gives one evidence unit, attributed to the canonical (SO C2)', async () => {
+    writeSourceMeta('report-2026', { title: 'The Report', url: 'https://example.com/report' });
+    writeSourceMeta('copy-2026', { title: 'The Report (mirror)', url: 'https://example.com/mirror', duplicate_of: 'report-2026' });
+    writeSummary('report-2026', 'n1', { point: 'from the original' });
+    writeSummary('copy-2026', 'n1', { point: 'from the mirror' });
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].docId).toBe('report-2026');
+    expect(sources[0].title).toBe('The Report');
+  });
+
+  it("the duplicate's id still resolves by id — a card is still produced, keyed by the canonical", async () => {
+    writeSourceMeta('report-2026', { title: 'The Report', url: 'https://example.com/report' });
+    writeSourceMeta('copy-2026', { title: 'Mirror', url: 'https://example.com/mirror', duplicate_of: 'report-2026' });
+    writeSummary('copy-2026', 'n1'); // ONLY the marked doc cites this node — its content must not vanish
+
+    const { sources, cards } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].docId).toBe('report-2026');
+    expect(cards['report-2026']).toMatchObject({ title: 'The Report' });
+  });
+
+  it('an invalid mark (self) is treated as absent — the doc stays its own row', async () => {
+    writeSourceMeta('solo-2026', { title: 'Solo', duplicate_of: 'solo-2026' });
+    writeSummary('solo-2026', 'n1');
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].docId).toBe('solo-2026');
+  });
+
+  it('an unmarked split part is unaffected — still a separate row, grouped by canonicalDocId only', async () => {
+    writeSourceMeta('base-2026', { title: 'Base', content_sha256: 'h1' });
+    writeSourceMeta('base-2026-1', { title: 'Base', content_sha256: 'h1' });
+    writeSummary('base-2026', 'n1', { point: 'part one' });
+    writeSummary('base-2026-1', 'n1', { point: 'part two' });
+
+    const { sources } = await fileIO.getNodeSources('n1');
+    expect(sources).toHaveLength(2);
+    expect(new Set(sources.map(s => s.canonicalDocId))).toEqual(new Set(['base-2026']));
   });
 });

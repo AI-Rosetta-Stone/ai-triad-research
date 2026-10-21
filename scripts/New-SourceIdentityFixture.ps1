@@ -255,6 +255,44 @@ $groupingCases += @{ name = 'REAL: url_conflict - two PNAS papers sharing a trun
 $groupingCases += @{ name = 'REAL: arXiv-number slug and titled copies stay one group despite url_conflict pairs'; documents = @(
     '170306856v3-2026', 'counterfactual-fairness-2026', 'counterfactual-fairness-2026-1', 'counterfactual-fairness-2026-2' | ForEach-Object { Get-RealDoc $_ }) }
 
+# Duplicate marks (spec section 6, version 5). A separate list, so consumers that haven't adopted
+# section 6 keep passing grouping_cases unchanged.
+$dupCases = @(
+    @{ name = 'duplicate_of: a valid mark resolves to its target, which becomes canonical'; documents = @(
+        (New-Doc 'zeta-copy-2026' @{ title = 'Zeta'; duplicate_of = 'zeta-report-2026' }),
+        (New-Doc 'zeta-report-2026' @{ title = 'Zeta' })) }
+    @{ name = 'duplicate_of: the canonical is the target, not the ordinal-smallest id'; documents = @(
+        (New-Doc 'aaa-mirror-2026' @{ title = 'Omega'; content_sha256 = $h1; duplicate_of = 'omega-2026' }),
+        (New-Doc 'omega-2026' @{ title = 'Omega'; content_sha256 = $h1 }),
+        (New-Doc 'omega-2026-1' @{ title = 'Omega'; content_sha256 = $h1; duplicate_of = 'omega-2026' })) }
+    @{ name = 'duplicate_of: an unmarked group member stays selectable and resolves to itself'; documents = @(
+        (New-Doc 'chi-2026' @{ title = 'Chi'; content_sha256 = $h2 }),
+        (New-Doc 'chi-2026-1' @{ title = 'Chi'; content_sha256 = $h2; duplicate_of = 'chi-2026' }),
+        (New-Doc 'chi-2026-2' @{ title = 'Chi'; content_sha256 = $h2 })) }
+    @{ name = 'duplicate_of: the mark alone is a strong edge (no other evidence)'; documents = @(
+        (New-Doc 'psi-preprint-2026' @{ title = 'Psi preprint'; duplicate_of = 'psi-published-2026' }),
+        (New-Doc 'psi-published-2026' @{ title = 'Psi' })) }
+    @{ name = 'duplicate_of error: missing_target is ignored and reported'; documents = @(
+        (New-Doc 'lone-copy-2026' @{ title = 'Lone'; duplicate_of = 'not-in-set' }),
+        (New-Doc 'other-2026' @{ title = 'Other' })) }
+    @{ name = 'duplicate_of error: self mark is ignored and reported'; documents = @(
+        (New-Doc 'narcissus-2026' @{ title = 'Narcissus'; duplicate_of = 'narcissus-2026' })) }
+    @{ name = 'duplicate_of error: a chain is not followed (one hop only)'; documents = @(
+        (New-Doc 'chain-a-2026' @{ title = 'Chain'; duplicate_of = 'chain-b-2026' }),
+        (New-Doc 'chain-b-2026' @{ title = 'Chain'; duplicate_of = 'chain-c-2026' }),
+        (New-Doc 'chain-c-2026' @{ title = 'Chain' })) }
+    @{ name = 'duplicate_of error: a two-document cycle is two chain errors'; documents = @(
+        (New-Doc 'loop-a-2026' @{ title = 'Loop'; duplicate_of = 'loop-b-2026' }),
+        (New-Doc 'loop-b-2026' @{ title = 'Loop'; duplicate_of = 'loop-a-2026' })) }
+    @{ name = 'duplicate_of error: two targets in one group, the larger is a conflict'; documents = @(
+        (New-Doc 'phi-a-2026' @{ title = 'Phi'; content_sha256 = $h3 }),
+        (New-Doc 'phi-b-2026' @{ title = 'Phi'; content_sha256 = $h3 }),
+        (New-Doc 'phi-c-2026' @{ title = 'Phi'; content_sha256 = $h3; duplicate_of = 'phi-b-2026' }),
+        (New-Doc 'phi-d-2026' @{ title = 'Phi'; content_sha256 = $h3; duplicate_of = 'phi-a-2026' })) }
+    @{ name = 'duplicate_of: an empty string is no mark'; documents = @(
+        (New-Doc 'blank-mark-2026' @{ title = 'Blank'; duplicate_of = '' })) }
+)
+
 function Get-ExpectedGrouping($docs) {
     $objs = @($docs | ForEach-Object {
         [pscustomobject]@{ Id = $_.id; Metadata = ($_.metadata | ConvertTo-Json -Depth 6 | ConvertFrom-Json)
@@ -267,6 +305,12 @@ function Get-ExpectedGrouping($docs) {
         canonical  = $canon
         collisions = @($r.TitleCollisions | ForEach-Object { , [string[]]$_ })
         conflicts  = @($r.UrlConflicts | ForEach-Object { [ordered]@{ url_key = $_.url_key; ids = [string[]]$_.ids } })
+        resolved   = $(
+            $res = [ordered]@{}
+            foreach ($k in $keys) { $res[$k] = $r.Resolved[$k] }
+            $res)
+        selectable = [string[]]$r.Selectable
+        dupErrors  = @($r.DuplicateOfErrors | ForEach-Object { [ordered]@{ id = $_.id; target = $_.target; kind = $_.kind } })
     }
 }
 
@@ -289,11 +333,11 @@ function ConvertTo-SortedJsonValue($v) {
     $v
 }
 foreach ($c in $trustCases) { $c.metadata = ConvertTo-SortedJsonValue $c.metadata }
-foreach ($g in $groupingCases) { foreach ($d in $g.documents) { $d.metadata = ConvertTo-SortedJsonValue $d.metadata } }
+foreach ($g in $groupingCases + $dupCases) { foreach ($d in $g.documents) { $d.metadata = ConvertTo-SortedJsonValue $d.metadata } }
 
 $fixture = [ordered]@{
     '$schema_note' = 'docs/specs/source-identity.md section 5. Expected values: PowerShell scripts/AITriad/Private/SourceIdentity.ps1, independently confirmed by a from-spec Node implementation.'
-    version = 4
+    version = 5
     hash_cases = @($hashCases | ForEach-Object { [ordered]@{ name = $_.name; text = $_.text; expected_sha256 = (Get-SourceContentHash -Text $_.text) } })
     url_cases = @($urlCases | ForEach-Object { [ordered]@{ name = $_.name; input = $_.input; expected = (ConvertTo-SourceUrlKey -Url $_.input) } })
     trust_cases = @($trustCases | ForEach-Object {
@@ -302,10 +346,14 @@ $fixture = [ordered]@{
         [ordered]@{ name = $_.name; metadata = $_.metadata; expected = $keys } })
     title_cases = @($titleCases | ForEach-Object { [ordered]@{ name = $_.name; input = $_.input; expected = (ConvertTo-SourceTitleKey -Title $_.input) } })
     grouping_cases = @($groupingCases | ForEach-Object { $g = Get-ExpectedGrouping $_.documents; [ordered]@{ name = $_.name; documents = $_.documents; expected_canonical = $g.canonical; expected_title_collisions = $g.collisions; expected_url_conflicts = $g.conflicts } })
+    duplicate_of_cases = @($dupCases | ForEach-Object { $g = Get-ExpectedGrouping $_.documents; [ordered]@{ name = $_.name; documents = $_.documents; expected_canonical = $g.canonical; expected_resolved = $g.resolved; expected_selectable = $g.selectable; expected_duplicate_of_errors = $g.dupErrors } })
 }
 $json = $fixture | ConvertTo-Json -Depth 8
 [System.IO.File]::WriteAllText("$wt\tests\fixtures\source-identity-cases.json", $json + "`n", [System.Text.UTF8Encoding]::new($false))
-"hash=$($fixture.hash_cases.Count) url=$($fixture.url_cases.Count) trust=$($fixture.trust_cases.Count) title=$($fixture.title_cases.Count) grouping=$($fixture.grouping_cases.Count)"
+"hash=$($fixture.hash_cases.Count) url=$($fixture.url_cases.Count) trust=$($fixture.trust_cases.Count) title=$($fixture.title_cases.Count) grouping=$($fixture.grouping_cases.Count) duplicate_of=$($fixture.duplicate_of_cases.Count)"
+foreach ($g in $fixture.duplicate_of_cases) {
+    "  dup {0}: resolved {1}; errors {2}" -f $g.name, (($g.expected_resolved.GetEnumerator() | ForEach-Object { "$($_.Key)->$($_.Value)" }) -join ' '), (($g.expected_duplicate_of_errors | ForEach-Object { "$($_.id):$($_.kind)" }) -join ' ')
+}
 foreach ($t in $fixture.title_cases) { '  title {0,-36} -> "{1}"' -f $t.name, $t.expected }
 foreach ($g in $fixture.grouping_cases) {
     $groups = $g.expected_canonical.GetEnumerator() | Group-Object Value

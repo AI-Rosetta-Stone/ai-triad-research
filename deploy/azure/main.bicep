@@ -689,7 +689,8 @@ var stagingContainerEnv = paidTierEnabled
   ? concat(stagingEnvWithFreeTier, [ { name: 'GEMINI_PAID_KEY', secretRef: paidTierSecretName } ])
   : stagingEnvWithFreeTier
 
-resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
+// API 2025-01-01 (was 2024-03-01): first GA version whose Scale type has cooldownPeriod (t/4249).
+resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
   name: 'taxonomy-editor'
   location: location
   tags: tags
@@ -816,6 +817,13 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         // latency tradeoff this reintroduces (previously fixed for the same
         // reason in e247ef75, 2026-05-05) in exchange for scale-to-zero savings.
         minReplicas: 0
+        // t/4249 cost: scale to zero after 120s with no HTTP requests (ACA default 300s).
+        // Each wake bills at least this long. Re-landed after t/4258: on SIGTERM the server
+        // flushes every pending overlay commit (shutdownOverlayFlush.ts, 40s deadline),
+        // inside the 60s terminationGracePeriodSeconds below.
+        cooldownPeriod: 120
+        // Explicit at the live value: under API 2025-01-01, omitting it shows as a what-if Delete (SO C1, #3579).
+        pollingInterval: 30
         // maxReplicas capped at 1 (t/4176 incident, 2026-10-13: back from 5 to 1).
         // NOTE: the phrase "maxReplicas capped at" on this line is load-bearing —
         // Test-InMemoryJobStoreScaleGuard.ps1 uses it as a regex anchor to locate
@@ -844,7 +852,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 // Separate app for staging deploys — shares the environment and storage but
 // runs independently so a bad staging deploy cannot affect production.
 
-resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
+resource containerAppStaging 'Microsoft.App/containerApps@2025-01-01' = {
   name: 'taxonomy-editor-staging'
   location: location
   tags: union(tags, { environment: 'staging' })
@@ -942,6 +950,9 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
         // totals, GitHub calls per startup). Reverts to 1/no-rule on the next ordinary deploy —
         // same parameter, same reasoning as the resources block above.
         maxReplicas: stagingLoadTestSize ? 3 : 1
+        // t/4249: match prod's 120s scale-to-zero cooldown (ACA default 300s).
+        cooldownPeriod: 120
+        pollingInterval: 30
         rules: stagingLoadTestSize
           ? [
               {
@@ -951,6 +962,9 @@ resource containerAppStaging 'Microsoft.App/containerApps@2024-03-01' = {
             ]
           : []
       }
+      // t/4249 (DevOps Lead review of #3579): explicit, matching prod. Unset, ACA uses 30s,
+      // shorter than the 40s SIGTERM overlay flush deadline (shutdownOverlayFlush.ts, t/4258).
+      terminationGracePeriodSeconds: 60
     }
   }
 }

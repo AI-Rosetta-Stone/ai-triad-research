@@ -11,6 +11,10 @@
 #         for any startup errors. Monitor costs against the $5/month target.
 
 name: Deploy to Azure
+# t/4130: a dispatch run's headSha is main's tip at dispatch time, NOT the deployed commit —
+# the deploy uses inputs.sha (resolved to a digest, stamped as DEPLOY_SHA). Show that in the
+# run list. Display string only (not a shell), so inputs.sha here carries no injection risk.
+run-name: Deploy to Azure (${{ inputs.environment }}, sha-${{ inputs.sha }})
 
 on:
   workflow_dispatch:

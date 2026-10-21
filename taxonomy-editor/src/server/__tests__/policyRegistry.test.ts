@@ -43,6 +43,15 @@ vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: readTaxonomyFileMock,
   readFileWithVersionOrFallback: readFileWithVersionMock,
 }));
+// t/4372: the lock path is now built as path.join(getStateRoot(), path.relative(getDataRoot(),
+// taxDir), 'policy_actions.lock') — FAKE_TAX_DIR must resolve as "under" these mocked roots
+// (both unmocked would be the real, drive-qualified data root, which FAKE_TAX_DIR isn't under,
+// breaking the relative computation) and with STATE===DATA root here (desktop/local-like), the
+// lock path stays FAKE_TAX_DIR/policy_actions.lock exactly as before this change.
+vi.mock('../config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../config.js')>();
+  return { ...actual, getDataRoot: () => '/fake', getStateRoot: () => '/fake' };
+});
 vi.mock('../storage/overlayCommitScheduler.js', () => ({ scheduleOverlayCommit: scheduleOverlayCommitMock }));
 vi.mock('../security/userContext.js', () => ({ isAnonymousUser: isAnonymousMock, getCurrentUserId: () => 'tester' }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
