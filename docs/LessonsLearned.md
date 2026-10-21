@@ -6941,3 +6941,69 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — permanent platform limitation (PI decision 2026-10-21, p/335#178).
 
 **Applies To:** All agents; `submit_feedback` is permanently broken — use tickets or lessons entries for Orca platform issues.
+
+---
+
+## #343 [Build] Storage Data-Plane API Returns 403 — Agent CLI Identity Lacks RBAC Role on Storage Account
+
+**Pattern:** An agent runs `az storage file download --auth-mode login` (or any `az storage` data-plane operation) against the project storage account and receives 403. The CLI identity has no data-plane RBAC role (Storage Blob Data Reader/Contributor/Owner) on that account. This is an account-wide gap, not specific to a particular identity.
+
+**Instances:**
+- 2026-10-21 — DevOps Lead (p/26#248): `az storage file download --auth-mode login` on `staitriadkvwl3nywge4iw` → 403 "Storage Blob Data Owner/Contributor/Reader" required. Also seen in deploy-workflow (t/4390). Workaround: `az containerapp exec` to read the live mount directly.
+
+**Root Cause:** Azure separates management-plane (ARM) and data-plane (storage) permissions. Having ARM access (contributor, etc.) does not grant data-plane access. Storage data-plane roles must be assigned separately and have not been assigned to agent identities.
+
+**Prevention:**
+1. **Do not attempt `az storage` data-plane operations** (`download`, `upload`, `list`, `show`). The CLI identity lacks the required RBAC roles account-wide — this will always fail 403.
+2. **To inspect live file content on a mounted volume**, use `az containerapp exec` to shell into the running container and read the file directly.
+3. **Requesting data-plane RBAC assignment** requires PI authorization — do not attempt to self-assign or work around it.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#248); account-wide, likely affects all agents.
+
+**Applies To:** All agents attempting `az storage` data-plane operations; use `az containerapp exec` to access mounted file content instead.
+
+---
+
+## #344 [Research] Filter Scoped Too Narrowly Silently Drops Data When Skip-Set Is Empty — Identity-Test on Real Data Required
+
+**Pattern:** An agent builds a "skip N items" filter that retains only items matching a specific ID set (e.g., selectable POV node IDs). When the skip-set is empty (nothing to skip), the filter should be an identity function — but because the allowed-set is narrower than the real ID space, it silently drops non-POV items (situations, policy, conflict nodes). Fixture-only testing misses this because fixtures contain only the narrow set.
+
+**Instances:**
+- 2026-10-21 — Computational Linguist (p/7#133, PR #3552): "skip superseded nodes" filter scoped to POV IDs. On real data with 0 superseded nodes, dropped 43% of edges and 77% of embeddings. Review passed because fixtures held POV nodes only, and "embeddings filtered to selectable IDs" looked correct without checking what that set contained.
+
+**Root Cause:** The filter's domain assumption (all nodes are POV nodes) diverged from reality (nodes include situations, policy, conflict). Fixtures encoded the wrong assumption, so unit tests could not catch the mismatch.
+
+**Prevention:**
+1. **A filter that should be a no-op when its target set is empty needs an identity test on real data:** with zero superseded nodes, `output == input` (same edge count, same embedding count).
+2. **Check a filter's allowed-set against the real file's full ID space** — not just the fixture's subset — before shipping.
+3. **When a filter touches embeddings or graph edges**, verify counts against the source file: `len(output_edges) == len(input_edges)` when no nodes are excluded.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#133).
+
+**Applies To:** All agents building skip/exclude/filter logic over data files; identity-test on real data when the skip-set is empty, and verify counts against the source.
+
+---
+
+## #345 [Build] Fresh Worktree Has No `node_modules` — `mklink /J` Fails in Git Bash; Use PowerShell `New-Item -ItemType Junction`
+
+**Pattern:** An agent runs lint/type-check/tests in a fresh `.worktrees/` checkout. Tools fail immediately (`ls eslint.config.*` exits 2, eslint not found) because `node_modules` is absent. Attempting to create a junction with `cmd //c mklink /J` from Git Bash prints "Invalid switch" (Git Bash mangles the `//c` prefix). Fix: create `node_modules` junctions from PowerShell and run tools from there.
+
+**Instances:**
+- 2026-10-21 — Tech Lead (p/335#180): fresh worktree, `ls eslint.config.*` exited 2; `cmd //c mklink /J` from Git Bash → "Invalid switch". Resolved by creating junctions with `New-Item -ItemType Junction` (repo root, `lib/`, `taxonomy-editor/`) in PowerShell, then running eslint, tsc and vitest.
+
+**Root Cause:** Git worktrees do not inherit `node_modules` from the main checkout — each worktree's directory tree is clean. Creating Windows junctions from Git Bash fails because Git Bash rewrites `//c` path prefixes (the same MSYS path-mangling class as #73). PowerShell's `New-Item -ItemType Junction` is not subject to MSYS translation.
+
+**Prevention:**
+1. **In a fresh worktree, create `node_modules` junctions before running any JS/TS tools:**
+   ```powershell
+   $wt = "C:\Users\jsnov\repos\ai-triad-research\.worktrees\<name>"
+   New-Item -ItemType Junction "$wt\node_modules" -Target "$root\node_modules"
+   New-Item -ItemType Junction "$wt\lib\node_modules" -Target "$root\lib\node_modules"
+   New-Item -ItemType Junction "$wt\taxonomy-editor\node_modules" -Target "$root\taxonomy-editor\node_modules"
+   ```
+2. **Never use `cmd //c mklink` from Git Bash** — MSYS rewrites the path. Use PowerShell `New-Item -ItemType Junction` instead.
+3. **`ls eslint.config.*` exiting 2** in a worktree = missing `node_modules`, not a missing config file.
+
+**Status:** Active — 1 instance (Tech Lead p/335#180).
+
+**Applies To:** All agents running lint/tsc/vitest in fresh worktrees; create `node_modules` junctions via PowerShell before running any JS/TS toolchain.
