@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { cosineSimilarity } from './taxonomyRelevance.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { stripDataUris } from './stripDataUris.js';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -136,6 +137,7 @@ function extractRelevantParagraphs(
   let content: string;
   try {
     content = fs.readFileSync(snapshotPath, 'utf-8');
+    content = stripDataUris(content).text;
   } catch (err) {
     getGlobalRecorder()?.record({ type: 'system.error', component: 'evidence-retriever', level: 'warn', message: 'snapshot file unreadable — returning empty evidence. err=' + String(err) });
     return [];

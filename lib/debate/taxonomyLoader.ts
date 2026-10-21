@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
@@ -13,6 +13,7 @@ import type { PolicyRef, SituationStatements } from './taxonomyContext.js';
 import { ActionableError } from './errors.js';
 import { parseNpy, extractNodeVectors } from '../npy.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { stripDataUris } from './stripDataUris.js';
 import { fetchUrlForPrompt } from '../url-fetch/fetchUrlForPrompt.js';
 
 // ── Types ────────────────────────────────────────────────
@@ -411,7 +412,7 @@ export async function convertToMarkdown(filePath: string): Promise<string> {
 
   if (resolved.endsWith('.md')) {
     try {
-      return fs.readFileSync(fd, 'utf-8');
+      return stripDataUris(fs.readFileSync(fd, 'utf-8')).text;
     } finally {
       fs.closeSync(fd);
     }

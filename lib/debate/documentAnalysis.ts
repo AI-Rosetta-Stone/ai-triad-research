@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
@@ -12,6 +12,7 @@ import { POV_KEYS } from './types.js';
 import { DOC_TRUNCATION_LIMIT } from './constants.js';
 import type { PovNode, SituationNode } from './taxonomyTypes.js';
 import type { PolicyRef } from './taxonomyContext.js';
+import { stripDataUris } from './stripDataUris.js';
 
 // ── Taxonomy sample builder ─────────────────────────────
 
@@ -144,7 +145,8 @@ export function documentAnalysisPrompt(
   activePovers: string[],
   taxonomySample: string,
 ): DocumentAnalysisPromptResult {
-  const { text: content, metrics: truncationMetrics } = truncateDocument(sourceContent);
+  const { text: stripped, strippedChars: _sc, uriCount: _uc } = stripDataUris(sourceContent);
+  const { text: content, metrics: truncationMetrics } = truncateDocument(stripped);
 
   const prompt = `You are a neutral analyst preparing a structured breakdown of a document for a multi-perspective debate.
 
