@@ -121,6 +121,11 @@ The groups are the **connected components** over every edge (union, not "first m
 
 **Why:** t/4337 now deliberately mints `-N` for a genuine slug collision with different content and records its hash, and rule 3 keeps that document separate. Rule 1 also removes t/4334's year-suffix limitation: `foo-2026` joins `foo` only when their titles match.
 
+**Legacy documents carry no recorded hash, by design** (TL ruling t/4337#32).
+- **Which documents:** those ingested before t/4337. They have a *computed* snapshot hash only, and `content_sha256` is never backfilled onto them.
+- **Why:** a backfill would turn rule 3 on for re-ingested near-duplicates (conversion-noise copies) and split groups they belong to. Measured on the corpus, that's 103 → 89 multi-doc groups.
+- **The effect:** rule 3 applies only to documents ingested since t/4337, which record their hash at ingest. Consumers already read the computed hash from `snapshot_sha256` in `sources-index.json`.
+
 ### 4.5 Title key, and the `title_collision` and `url_conflict` reports
 **The title key:** lowercase (invariant), then replace `+` with a space, then **delete every character that isn't ASCII `[a-z0-9_]` or ASCII whitespace** (space, `\t`, `\n`, `\r`, `\f`, `\v`), then collapse ASCII whitespace runs to one space, then trim.
 - Non-ASCII letters are deleted, not kept, because .NET `\w` is Unicode and JS `\w` is ASCII.
