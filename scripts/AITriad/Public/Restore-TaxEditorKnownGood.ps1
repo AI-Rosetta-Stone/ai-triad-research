@@ -112,6 +112,7 @@ function Restore-TaxEditorKnownGood {
         NewRevision      = $DeployResult.NewRevision
         PreviousRevision = $DeployResult.PreviousRevision
         HealthCheck      = $DeployResult.HealthCheck
+        SkippedDeactivations = if ($DeployResult.PSObject.Properties['SkippedDeactivations']) { @($DeployResult.SkippedDeactivations) } else { @() }
         AppName          = $AppName
         ResourceGroup    = $ResourceGroup
         Timestamp        = (Get-Date).ToString('o')

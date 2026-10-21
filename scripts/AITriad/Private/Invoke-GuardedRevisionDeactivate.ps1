@@ -12,8 +12,16 @@
     predicate Get-RevisionDeactivationVerdict (operations/devops/Get-RevisionDeactivationVerdict.ps1,
     the one predicate all routes use). Anything but 'deactivate' skips with a WARN. An unreadable
     weight on either source is never read as 0 (the predicate's SO C3 rule).
+
+    Read-after-write lag (t/4384): a skip for a weight reason (unknown or > 0 on either source, or
+    the latest-revision traffic target) is re-polled up to -MaxAttempts reads, -RetryDelaySeconds
+    apart, because a traffic shift that is still propagating reads as weight > 0. Every attempt
+    re-reads both sources and asks the predicate again, so its rules are unchanged; only the last
+    verdict counts. The other skip reasons (serving, protected, already inactive) never change by
+    waiting and are not re-polled.
 .OUTPUTS
-    The verdict object (Action, Reason, RevisionName), with Deactivated = $true/$false added.
+    The verdict object (Action, Reason, RevisionName), with Deactivated = $true/$false and
+    Attempts added. A failed deactivate call sets Reason = 'deactivate-failed'.
 #>
 function Invoke-GuardedRevisionDeactivate {
     [CmdletBinding()]
@@ -24,10 +32,58 @@ function Invoke-GuardedRevisionDeactivate {
         [Parameter(Mandatory)][string]$RevisionName,
         [string]$ServingRevisionName,
         [string[]]$ProtectedNames = @(),
-        [string]$CallerName = 'Invoke-GuardedRevisionDeactivate'
+        [string]$CallerName = 'Invoke-GuardedRevisionDeactivate',
+        [ValidateRange(1, 20)][int]$MaxAttempts = 4,
+        [ValidateRange(0, 60)][int]$RetryDelaySeconds = 5
     )
     Set-StrictMode -Version Latest
     Import-RevisionDeactivationVerdict -CallerName $CallerName
+
+    # The skip reasons a propagating traffic shift can produce; only these are worth re-polling.
+    $lagReasons = @('unknown-traffic-weight', 'nonzero-traffic-weight', 'unknown-ingress-weight',
+                    'nonzero-ingress-weight', 'latest-revision-with-traffic')
+    $attempt = 0
+    do {
+        $attempt++
+        $verdict = Read-RevisionDeactivationVerdict -ResourceGroup $ResourceGroup -AppName $AppName `
+            -RevisionName $RevisionName -ServingRevisionName $ServingRevisionName -ProtectedNames $ProtectedNames
+        $retry = $verdict.Action -ne 'deactivate' -and $lagReasons -contains $verdict.Reason -and $attempt -lt $MaxAttempts
+        if ($retry) {
+            Write-Verbose "${CallerName}: '$RevisionName' reads $($verdict.Reason) (attempt $attempt of $MaxAttempts); re-checking in ${RetryDelaySeconds}s."
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
+    } while ($retry)
+
+    $deactivated = $false
+    if ($verdict.Action -eq 'deactivate') {
+        Write-Verbose "${CallerName}: deactivating '$RevisionName' (fresh verdict: $($verdict.Reason))."
+        # az prints the revision JSON; keep it out of this function's output.
+        $null = & az containerapp revision deactivate -g $ResourceGroup -n $AppName --revision $RevisionName 2>$null
+        if ($LASTEXITCODE -eq 0) { $deactivated = $true }
+        else {
+            Write-Warning "${CallerName}: failed to deactivate revision '$RevisionName' (exit $LASTEXITCODE); manual cleanup may be needed."
+            $verdict.Reason = 'deactivate-failed'
+        }
+    }
+    else {
+        Write-Warning "${CallerName}: not deactivating revision '$RevisionName': fresh re-check says $($verdict.Reason) after $attempt read(s) (t/4242 guard)."
+    }
+    $verdict | Add-Member -NotePropertyName Deactivated -NotePropertyValue $deactivated -Force
+    $verdict | Add-Member -NotePropertyName Attempts -NotePropertyValue $attempt -Force -PassThru
+}
+
+function Read-RevisionDeactivationVerdict {
+    # One fresh read of both weight sources, then the shared predicate's verdict. Never reuses an
+    # earlier read: each call queries Azure again.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ResourceGroup,
+        [Parameter(Mandatory)][string]$AppName,
+        [Parameter(Mandatory)][string]$RevisionName,
+        [string]$ServingRevisionName,
+        [string[]]$ProtectedNames = @()
+    )
+    Set-StrictMode -Version Latest
 
     $fresh = $null
     $revJson = & az containerapp revision show -g $ResourceGroup -n $AppName --revision $RevisionName --output json 2>$null
@@ -50,21 +106,9 @@ function Invoke-GuardedRevisionDeactivate {
         if ($ap.PSObject.Properties['latestRevisionName']) { $latestRevisionName = [string]$ap.latestRevisionName }
     }
     $ingress = Get-IngressTrafficWeightForRevision -RevisionName $RevisionName -TrafficEntries $trafficEntries -LatestRevisionName $latestRevisionName
-    $verdict = Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $weight -Active $active `
+    Get-RevisionDeactivationVerdict -RevisionName $RevisionName -TrafficWeight $weight -Active $active `
         -IngressWeight $ingress.IngressWeight -IsLatestRevisionWithTraffic $ingress.IsLatestRevisionWithTraffic `
         -ServingRevisionName $ServingRevisionName -ProtectedNames $ProtectedNames
-
-    $deactivated = $false
-    if ($verdict.Action -eq 'deactivate') {
-        Write-Verbose "${CallerName}: deactivating '$RevisionName' (fresh verdict: $($verdict.Reason))."
-        & az containerapp revision deactivate -g $ResourceGroup -n $AppName --revision $RevisionName 2>$null
-        if ($LASTEXITCODE -eq 0) { $deactivated = $true }
-        else { Write-Warning "${CallerName}: failed to deactivate revision '$RevisionName' (exit $LASTEXITCODE); manual cleanup may be needed." }
-    }
-    else {
-        Write-Warning "${CallerName}: not deactivating revision '$RevisionName': fresh re-check says $($verdict.Reason) (t/4242 guard)."
-    }
-    $verdict | Add-Member -NotePropertyName Deactivated -NotePropertyValue $deactivated -Force -PassThru
 }
 
 function Import-RevisionDeactivationVerdict {
