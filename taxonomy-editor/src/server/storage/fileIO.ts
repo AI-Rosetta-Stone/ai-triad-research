@@ -357,19 +357,39 @@ export async function loadSyntheticEmbeddings(): Promise<Record<string, { pov: s
     const npyPath = path.join(synDir, `embeddings_${pov}.npy`);
     const idxPath = path.join(synDir, `index_${pov}.json`);
 
+    const tRead0 = Date.now();
     const [npyBuf, idxRaw] = await Promise.all([
       backend.readBinaryFile(npyPath),
       backend.readFile(idxPath, { ref: 'main' }),
     ]);
+    const readMs = Date.now() - tRead0;
     if (!npyBuf || !idxRaw) continue;
 
+    const tParseNpy0 = Date.now();
     const parsed = parseNpy(npyBuf);
+    const parseNpyMs = Date.now() - tParseNpy0;
+
+    const tIndexParse0 = Date.now();
     const index = JSON.parse(idxRaw.replace(/^﻿/, '')) as Record<string, { start: number; count: number }>;
+    const indexParseMs = Date.now() - tIndexParse0;
+
     // t/4286: extractNodeVectorsAsync yields internally every 256 nodes, but
     // that alone doesn't help this loop's own back-to-back calls — the
     // explicit yield below ensures the event loop gets a turn between each
     // synthetic POV file too, not just within one (ServerAPI/Shared Lib).
-    Object.assign(result, await extractNodeVectorsAsync(parsed, index, pov));
+    const tExtract0 = Date.now();
+    const vectors = await extractNodeVectorsAsync(parsed, index, pov);
+    const extractMs = Date.now() - tExtract0;
+    Object.assign(result, vectors);
+
+    // t/4286#20: per-POV phase timing to localize the canary's ~700ms cold-path
+    // block among npy read / parseNpy / index JSON.parse / extraction, the same
+    // way load_ms/serialize_ms split the route-level cold build (t/3165).
+    log.storage.info({
+      route: 'synthetic-embeddings', pov, read_ms: readMs, parse_npy_ms: parseNpyMs,
+      index_parse_ms: indexParseMs, extract_ms: extractMs, node_count: Object.keys(vectors).length,
+    }, 'synthetic-embeddings per-POV phase timing (cold path)');
+
     await new Promise<void>((r) => setImmediate(r));
     found = true;
   }
