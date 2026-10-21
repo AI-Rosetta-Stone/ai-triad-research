@@ -27,6 +27,8 @@ import { getBackend, getSourcesDir } from './fileIO.js';
 import {
   type SnapshotHashCache, gitBlobSha, loadSnapshotHashCache, lookupCachedHash, recordHash, pruneAndSaveSnapshotHashCache,
 } from './snapshotHashCache.js';
+import { loadSourcesIndex } from './sourcesIndexReader.js';
+import type { SourcesIndexFile } from '../../../../lib/sourceIndex/sourcesIndexSchema.js';
 
 export type { SourceReference, SourceCardMeta, NodeSourceIndex };
 
@@ -138,9 +140,53 @@ async function loadOneSourceMetaEntry(sourcesDir: string, name: string, hashCach
   return { metaCache, identityMeta, snapshotHash };
 }
 
-async function loadNodeMetaCache(
-  sourcesDir: string | null,
-): Promise<{ metaCache: Record<string, NodeSourceMeta>; identityMeta: Record<string, SourceIdentityMeta>; snapshotHashes: Record<string, string | null> }> {
+type LoadedNodeMeta = { metaCache: Record<string, NodeSourceMeta>; identityMeta: Record<string, SourceIdentityMeta>; snapshotHashes: Record<string, string | null> };
+
+function cardMetaFromSourcesIndexEntry(entry: SourcesIndexFile['docs'][number]): NodeSourceMeta {
+  return {
+    title: entry.title || entry.id,
+    url: entry.url || null,
+    sourceType: 'unknown', // not carried by the index — no card consumer reads it
+    datePublished: entry.date_published || '',
+    authors: entry.authors ?? [],
+    topicTags: entry.topic_tags ?? [],
+    oneLiner: entry.one_liner ?? null,
+  };
+}
+
+function identityMetaFromSourcesIndexEntry(entry: SourcesIndexFile['docs'][number]): SourceIdentityMeta {
+  return {
+    title: entry.title ?? null,
+    url: entry.url ?? null,
+    resolved_url: entry.resolved_url ?? null,
+    provenance: entry.provenance ?? [],
+    content_sha256: entry.content_sha256 ?? null,
+    same_as: entry.same_as ?? null,
+    parent_doc_id: entry.parent_doc_id ?? null,
+  };
+}
+
+/** t/4334#18: the index's own recorded-vs-computed hash split
+ *  (`content_sha256` / `snapshot_sha256`) maps directly onto
+ *  `identityMeta.content_sha256` (recorded, suffix-veto-eligible) and
+ *  `snapshotHashes` (computed, never veto-eligible) — the exact distinction
+ *  `groupSourceIdentities` already depends on via `SourceIdentityDoc`. */
+function buildNodeMetaFromSourcesIndex(index: SourcesIndexFile): LoadedNodeMeta {
+  const metaCache: Record<string, NodeSourceMeta> = {};
+  const identityMeta: Record<string, SourceIdentityMeta> = {};
+  const snapshotHashes: Record<string, string | null> = {};
+  for (const entry of index.docs) {
+    metaCache[entry.id] = cardMetaFromSourcesIndexEntry(entry);
+    identityMeta[entry.id] = identityMetaFromSourcesIndexEntry(entry);
+    snapshotHashes[entry.id] = entry.snapshot_sha256 ?? null;
+  }
+  return { metaCache, identityMeta, snapshotHashes };
+}
+
+/** Scans `getSourcesDir()` directly, per doc: `metadata.json` plus (when no
+ *  recorded hash) a computed `snapshot.md` hash. The original (pre-index)
+ *  path — still used when `sources-index.json` is missing or stale. */
+async function loadNodeMetaCacheFromSourcesDir(sourcesDir: string | null): Promise<LoadedNodeMeta> {
   const metaCache: Record<string, NodeSourceMeta> = {};
   const identityMeta: Record<string, SourceIdentityMeta> = {};
   const snapshotHashes: Record<string, string | null> = {};
@@ -157,6 +203,12 @@ async function loadNodeMetaCache(
   }));
   pruneAndSaveSnapshotHashCache(hashCache, sourceEntries);
   return { metaCache, identityMeta, snapshotHashes };
+}
+
+async function loadNodeMetaCache(sourcesDir: string | null): Promise<LoadedNodeMeta> {
+  const sourcesIndex = await loadSourcesIndex();
+  if (sourcesIndex) return buildNodeMetaFromSourcesIndex(sourcesIndex);
+  return loadNodeMetaCacheFromSourcesDir(sourcesDir);
 }
 
 /** t/4334/t/4333 (PI scope addition, p/548#306): % of sources carrying each
