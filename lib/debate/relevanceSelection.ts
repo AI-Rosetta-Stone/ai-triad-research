@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+﻿// Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // Canonical, framework-agnostic taxonomy relevance-selection pipeline (t/3248 / t/3257,
@@ -384,6 +384,33 @@ function buildManifest(
   return manifest;
 }
 
+/** Per-camp label deduplicate: keep highest-scored node per (camp, normalised-label) pair (t/4369).
+ *  Ordered by first occurrence in `nodes` to preserve selectRelevantNodes input order (W3). */
+function deduplicateByLabel(
+  nodes: PovNode[],
+  scores: Map<string, number>,
+): { dedupedNodes: PovNode[]; skipped: Array<{ skippedId: string; keptId: string; label: string }> } {
+  const bestPerKey = new Map<string, { nodeId: string; score: number }>();
+  for (const node of nodes) {
+    const camp = node.id.split('-')[0];
+    const key = `${camp}\x00${node.label.trim().toLowerCase()}`;
+    const score = scores.get(node.id) ?? 0;
+    const existing = bestPerKey.get(key);
+    if (!existing || score > existing.score) bestPerKey.set(key, { nodeId: node.id, score });
+  }
+  const dedupedNodes: PovNode[] = [];
+  const skipped: Array<{ skippedId: string; keptId: string; label: string }> = [];
+  for (const node of nodes) {
+    const camp = node.id.split('-')[0];
+    const key = `${camp}\x00${node.label.trim().toLowerCase()}`;
+    if (bestPerKey.get(key)?.nodeId === node.id) {
+      dedupedNodes.push(node);
+    } else {
+      skipped.push({ skippedId: node.id, keptId: bestPerKey.get(key)!.nodeId, label: node.label });
+    }
+  }
+  return { dedupedNodes, skipped };
+}
 /**
  * The single relevance-selection pipeline. Deterministic given its inputs; the T2 parity fixture
  * asserts server selection === today's client selection (same nodes, same ORDER, same
@@ -426,34 +453,8 @@ export async function selectRelevantTaxonomy(input: SelectRelevantTaxonomyInput)
     }
   }
 
-  // Pre-deduplicate by normalized label per camp (t/4369): filter the candidate pool BEFORE
-  // selectRelevantNodes applies category/POV floors, so floors can backfill from unique-label
-  // candidates. Keyed on (pov_prefix\x00normLabel) to avoid cross-POV collisions.
-  // Keeps the highest-scored twin per (camp, label) — same ordering selectRelevantNodes uses.
-  const labelDupSkipped: Array<{ skippedId: string; keptId: string; label: string }> = [];
-  const dedupedPovNodes: PovNode[] = [];
-  {
-    const bestPerKey = new Map<string, { nodeId: string; score: number }>();
-    for (const node of effectivePovNodes) {
-      const pov = node.id.split('-')[0];
-      const key = `${pov}\x00${node.label.trim().toLowerCase()}`;
-      const score = scores.get(node.id) ?? 0;
-      const existing = bestPerKey.get(key);
-      if (!existing || score > existing.score) {
-        bestPerKey.set(key, { nodeId: node.id, score });
-      }
-    }
-    for (const node of effectivePovNodes) {
-      const pov = node.id.split('-')[0];
-      const key = `${pov}\x00${node.label.trim().toLowerCase()}`;
-      if (bestPerKey.get(key)?.nodeId === node.id) {
-        dedupedPovNodes.push(node);
-      } else {
-        const keptId = bestPerKey.get(key)!.nodeId;
-        labelDupSkipped.push({ skippedId: node.id, keptId, label: node.label });
-      }
-    }
-  }
+  // Pre-deduplicate by normalized label per camp before floor-backfill (t/4369).
+  const { dedupedNodes: dedupedPovNodes, skipped: labelDupSkipped } = deduplicateByLabel(effectivePovNodes, scores);
 
   // 4. Order-preserving selection (W3) on the deduplicated candidate pool.
   const scoredPov = selectRelevantNodes(dedupedPovNodes, scores, opts);
