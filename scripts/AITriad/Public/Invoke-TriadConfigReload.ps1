@@ -75,6 +75,9 @@ function Invoke-TriadConfigReload {
                          "Endpoint: $($Params.Uri)"))
     }
 
+    Assert-TriadConfigResponse -Response $Response -Goal 'Reload runtime config on taxonomy-editor' `
+        -Uri $Params.Uri -CallerName 'Invoke-TriadConfigReload'
+
     if ($Response -and $Response.PSObject.Properties['errors'] -and @($Response.errors).Count -gt 0) {
         Write-Warning "Reload completed with warnings:"
         foreach ($err in $Response.errors) { Write-Warning "  $err" }
