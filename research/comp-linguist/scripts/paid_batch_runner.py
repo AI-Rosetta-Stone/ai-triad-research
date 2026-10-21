@@ -13,17 +13,33 @@ Config pins (t/3790#16 run-gate 2): every debate's recorded model / protocol / a
 and the build identity (app_version, generated_with_prompt_version), must match the plan and the plan's first
 debate. On any mismatch the runner exits 3 and the batch stops.
 
+Approval gate (t/3963#9): a plan must carry `approval_ref`, the recorded approval of its spend, as a
+ticket comment `t/KEY#N` or a ping `p/N#M`. A plan-level `hard_stop_usd` override must cite one in its
+`hard_stop_ref`. "Approved in chat" is not a record; the runner refuses such a plan before any spend (exit 5).
+
 Usage:
   python paid_batch_runner.py --plan <plan.json> --ledger <ledger.json> --code-root <frozen worktree>
   python paid_batch_runner.py --ledger <ledger.json> --report
 Exit codes: 0 ran one debate; 10 nothing left in this plan; 11 a hard stop refused the next debate;
-3 a pin mismatch (abort); 4 the debate run failed.
+3 a pin mismatch (abort); 4 the debate run failed; 5 the plan has no recorded approval (refused).
 """
-import argparse, glob, json, os, subprocess, sys, time
+import argparse, glob, json, os, re, subprocess, sys, time
 from datetime import datetime, timezone
 
 WORST_CASE_USD = 0.25        # pilot max was $0.218 per debate (t/3802#5); rounded up
 DEBATE_TIMEOUT_SEC = 570     # stays under the 10-minute foreground cap
+RECORDED_REF = re.compile(r"(?<![\w/])(?:t/[A-Za-z0-9-]+#\d+|p/\d+#\d+)(?!\w)")
+
+
+def approval_problem(plan):
+    """Why the plan's spend approval isn't a recorded reference, or None when it is."""
+    ref = plan.get("approval_ref")
+    if not isinstance(ref, str) or not RECORDED_REF.fullmatch(ref.strip()):
+        return (f"approval_ref is {ref!r}, not a recorded ticket comment (t/KEY#N) or ping (p/N#M)"
+                + (f"; approval_status: {plan['approval_status']}" if plan.get("approval_status") else ""))
+    if "hard_stop_usd" in plan and not RECORDED_REF.search(str(plan.get("hard_stop_ref", ""))):
+        return f"hard_stop_usd {plan['hard_stop_usd']} overrides the cap, but hard_stop_ref cites no t/KEY#N or p/N#M"
+    return None
 
 
 def load(path, default=None):
@@ -128,6 +144,16 @@ def main():
         report(ledger); return 0
 
     plan = load(a.plan)
+    problem = approval_problem(plan)
+    if problem:
+        sys.stderr.write(
+            "ERROR paid_batch_runner: refusing the plan before any spend.\n"
+            f"  Goal: run the next debate of paid plan '{plan.get('name')}'.\n"
+            f"  Problem: {problem.rstrip('.')}.\n"
+            f"  Location: {a.plan}\n"
+            "  Next Steps: get the spend approved by the PI and recorded on a ticket comment or ping, then set "
+            "approval_ref to that reference (t/3963#9).\n")
+        return 5
     out_dir = plan["output_dir"]
     os.makedirs(out_dir, exist_ok=True)
     done = {os.path.basename(p)[:-len("-debate.json")] for p in glob.glob(os.path.join(out_dir, "*-debate.json"))}

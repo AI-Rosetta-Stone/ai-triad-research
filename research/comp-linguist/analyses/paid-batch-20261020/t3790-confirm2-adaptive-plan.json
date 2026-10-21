@@ -1,5 +1,6 @@
 {
   "name": "t3790-confirm2-adaptive",
+  "approval_ref": "t/3802#9",
   "output_dir": "C:\\Users\\jsnov\\repos\\ai-triad-data\\debates\\t3790-confirm2-adaptive-20261020",
   "base_config": {
     "model": "gemini-3.5-flash-lite",
