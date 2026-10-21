@@ -8,30 +8,27 @@
       "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
       "writers": [
         "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)",
-        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; see known_mismatches)"
+        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; appends '\\n' since #3613)"
       ],
-      "measured": {"ts-pretty2-lf-nl": "byte-identical"},
-      "known_mismatches": ["ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile omits the trailing '\\n' (pretty2-lf, no final newline); fix filed with Server Storage (t/4353 follow-up)"]
+      "measured": {"ts-pretty2-lf-nl": "byte-identical"}
     },
     "taxonomy/Origin/safetyist.json": {
       "format": "pretty2-lf-nl",
       "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
       "writers": [
         "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)",
-        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; see known_mismatches)"
+        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; appends '\\n' since #3613)"
       ],
-      "measured": {"ts-pretty2-lf-nl": "byte-identical"},
-      "known_mismatches": ["ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile omits the trailing '\\n' (pretty2-lf, no final newline); fix filed with Server Storage (t/4353 follow-up)"]
+      "measured": {"ts-pretty2-lf-nl": "byte-identical"}
     },
     "taxonomy/Origin/skeptic.json": {
       "format": "pretty2-lf-nl",
       "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
       "writers": [
         "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile)",
-        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; see known_mismatches)"
+        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves; appends '\\n' since #3613)"
       ],
-      "measured": {"ts-pretty2-lf-nl": "NOT identical at 7dc19c88: inline pov_tags prefix from the t/3962 write; this is the one file to normalise (t/4353)"},
-      "known_mismatches": ["ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile omits the trailing '\\n' (pretty2-lf, no final newline); fix filed with Server Storage (t/4353 follow-up)"]
+      "measured": {"ts-pretty2-lf-nl": "NOT identical at 7dc19c88: inline pov_tags prefix from the t/3962 write; this is the one file to normalise (t/4353)"}
     },
     "taxonomy/Origin/edges.json": {
       "format": "edges-hybrid",
