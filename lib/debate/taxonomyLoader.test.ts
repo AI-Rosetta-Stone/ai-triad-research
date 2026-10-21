@@ -316,4 +316,25 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
     expect(result.embeddings['pol-001']).toBeDefined();
     expect(Object.keys(result.embeddings)).toHaveLength(3);
   });
+
+  it('superseded POV node excluded from embeddings while sit/pol entries survive (t/4392)', () => {
+    // Mixed fixture: one active POV node, one superseded POV node, plus sit and pol embeddings.
+    // The superseded POV node must be filtered; sit/pol must pass the negative-only filter.
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active'), makeAccNode('acc-beliefs-002', 'Retired', 'acc-beliefs-001')],
+      {
+        'acc-beliefs-001': { pov: 'acc', vector: [1, 0] },
+        'acc-beliefs-002': { pov: 'acc', vector: [0, 1] },   // superseded — must be absent
+        'sit-001': { pov: 'situations', vector: [0.5, 0.5] }, // non-POV — must survive
+        'pol-001': { pov: 'cc', vector: [0.3, 0.7] },         // non-POV — must survive
+      },
+      [],
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    expect(result.embeddings['acc-beliefs-001']).toBeDefined();
+    expect(result.embeddings['acc-beliefs-002']).toBeUndefined();
+    expect(result.embeddings['sit-001']).toBeDefined();
+    expect(result.embeddings['pol-001']).toBeDefined();
+    expect(Object.keys(result.embeddings)).toHaveLength(3);
+  });
 });
