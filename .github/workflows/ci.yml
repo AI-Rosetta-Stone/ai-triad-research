@@ -186,6 +186,7 @@ jobs:
               - 'lib/**'
               - 'ai-models.json'
               - '.github/workflows/ci.yml'
+              - 'tests/fixtures/**'  # t/4368 live-fire probe arm 2 (throwaway, not #3562's real fix)
               - 'scripts/AITriad/Prompts/**'  # promptCatalog.lint validates this dir; must re-run when prompts change here (t/2915)
               # root pnpm-lock.yaml — the license-notices staleness gate (t/2918) lives INSIDE
               # this job and reads the @img/sharp-* set directly from the ROOT lockfile
@@ -215,6 +216,7 @@ jobs:
               - 'lib/**'
               - 'pnpm-lock.yaml'        # ESLint version bump skips lib-lint otherwise (t/3443 shape)
               - '.github/workflows/ci.yml'
+              - 'tests/fixtures/**'  # t/4368 live-fire probe arm 2 (throwaway, not #3562's real fix)
             # 'embeddings' gates embedding-onnx-equivalence (t/3198): the real-ONNX bit-exact
             # worker↔in-thread check. Narrower than 'lib' — only the embeddings subtree (worker,
             # in-thread module, harness) or a ci.yml edit can change the equivalence outcome, so
