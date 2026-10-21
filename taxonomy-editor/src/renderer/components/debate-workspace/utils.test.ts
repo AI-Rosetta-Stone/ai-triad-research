@@ -16,6 +16,8 @@ import {
   stripLeadingHeadings,
   fixMarkdownLinks,
   nodeIdToTab,
+  getNodeLabel,
+  getNodeWeight,
 } from './utils';
 
 // ── Mocks ────────────────────────────────────────────────────
@@ -40,8 +42,17 @@ vi.mock('@bridge', () => ({
 
 vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: {
-    getState: vi.fn(() => ({ policyRegistry: [] })),
+    getState: vi.fn(() => ({ policyRegistry: [], situations: { nodes: [] } })),
   },
+}));
+
+// t/4362: allNodesById resolves exact stored nodes across the full set (superseded included).
+// Mocked independently of useTaxonomyStore's state shape so these tests stay focused on
+// getNodeLabel/getNodeWeight's own branching, not on superseded.ts's internals (covered in
+// hooks/useTaxonomyStore/superseded.test.ts).
+const mockAllNodesById = vi.fn();
+vi.mock('../../hooks/useTaxonomyStore/superseded', () => ({
+  allNodesById: (...args: unknown[]) => mockAllNodesById(...args),
 }));
 
 // speakerLabel / speakerColor tests live in ./speakerHelpers.test.ts (t/2256).
@@ -250,5 +261,54 @@ describe('nodeIdToTab', () => {
   it('uses muted color for unrecognized nodes', () => {
     const { colorVar } = nodeIdToTab('unknown-001');
     expect(colorVar).toBe('var(--text-muted)');
+  });
+});
+
+// ── getNodeLabel / getNodeWeight (t/4362) ─────────────────────
+// A transcript may cite a node now held out of state.<pov>.nodes as superseded (t/4355 PR 1).
+// Both readers must resolve it via allNodesById (the exact stored node, superseded included),
+// not by searching state.<pov>.nodes directly.
+
+describe('getNodeLabel', () => {
+  it('resolves a live POV node via allNodesById', () => {
+    mockAllNodesById.mockReturnValue(new Map([['acc-beliefs-001', { id: 'acc-beliefs-001', label: 'Live Node' }]]));
+    expect(getNodeLabel('acc-beliefs-001')).toBe('Live Node');
+  });
+
+  it('resolves a superseded POV node — held out of state.<pov>.nodes but still in allNodesById', () => {
+    mockAllNodesById.mockReturnValue(new Map([
+      ['acc-beliefs-002', { id: 'acc-beliefs-002', label: 'Retired Node', superseded_by: 'acc-beliefs-001' }],
+    ]));
+    expect(getNodeLabel('acc-beliefs-002')).toBe('Retired Node');
+  });
+
+  it('falls back to the raw id when the node is unknown to allNodesById', () => {
+    mockAllNodesById.mockReturnValue(new Map());
+    expect(getNodeLabel('acc-beliefs-999')).toBe('acc-beliefs-999');
+  });
+});
+
+describe('getNodeWeight', () => {
+  it('resolves weight fields for a live POV node via allNodesById', () => {
+    mockAllNodesById.mockReturnValue(new Map([
+      ['saf-desires-001', { id: 'saf-desires-001', category: 'Desires', confidence: 0.8, priority: 2, operationality: 0.5 }],
+    ]));
+    expect(getNodeWeight('saf-desires-001')).toEqual({ category: 'Desires', confidence: 0.8, priority: 2, operationality: 0.5 });
+  });
+
+  it('resolves weight fields for a superseded POV node', () => {
+    mockAllNodesById.mockReturnValue(new Map([
+      ['skp-intentions-001', { id: 'skp-intentions-001', category: 'Intentions', confidence: 0.3, priority: 1, operationality: 0.2, superseded_by: 'skp-intentions-002' }],
+    ]));
+    expect(getNodeWeight('skp-intentions-001')).toEqual({ category: 'Intentions', confidence: 0.3, priority: 1, operationality: 0.2 });
+  });
+
+  it('returns null for a situations node (no weight fields)', () => {
+    expect(getNodeWeight('sit-001')).toBeNull();
+  });
+
+  it('returns null when the node is unknown to allNodesById', () => {
+    mockAllNodesById.mockReturnValue(new Map());
+    expect(getNodeWeight('acc-beliefs-999')).toBeNull();
   });
 });
