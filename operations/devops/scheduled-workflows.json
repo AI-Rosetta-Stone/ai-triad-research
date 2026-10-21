@@ -22,6 +22,7 @@
     { "file": "main-ci-monitor.yml",          "maxSilentHours": 12  },
     { "file": "models-drift.yml",             "maxSilentHours": 348 },
     { "file": "pr-triage.yml",                "maxSilentHours": 12  },
-    { "file": "required-contexts-drift.yml",  "maxSilentHours": 60  }
+    { "file": "required-contexts-drift.yml",  "maxSilentHours": 60  },
+    { "file": "sources-index.yml",            "maxSilentHours": 13  }
   ]
 }
