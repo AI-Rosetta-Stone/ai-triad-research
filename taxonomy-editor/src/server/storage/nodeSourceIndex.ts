@@ -58,7 +58,7 @@ async function computeSnapshotHash(sourcesDir: string, docId: string, hashCache:
   const backend = getBackend();
   const snapshotPath = path.join(sourcesDir, docId, 'snapshot.md');
   try {
-    const raw = await backend.readFile(snapshotPath);
+    const raw = await backend.readFile(snapshotPath, { ref: 'main' });
     if (raw === null) return null;
     const blobSha = gitBlobSha(raw);
     const cached = lookupCachedHash(hashCache, docId, blobSha);
@@ -108,7 +108,7 @@ function buildIdentityMetaFromRawJson(meta: Record<string, unknown>): SourceIden
 async function readAndParseMetadata(backend: ReturnType<typeof getBackend>, metaPath: string): Promise<unknown> {
   let metaRaw: string | null;
   try {
-    metaRaw = await backend.readFile(metaPath);
+    metaRaw = await backend.readFile(metaPath, { ref: 'main' });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'node-source-index', level: 'warn',
@@ -209,7 +209,7 @@ async function loadNodeMetaCacheFromSourcesDir(sourcesDir: string | null): Promi
   const metaCache: Record<string, NodeSourceMeta> = {};
   const identityMeta: Record<string, SourceIdentityMeta> = {};
   const snapshotHashes: Record<string, string | null> = {};
-  const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir) : [];
+  const sourceEntries = sourcesDir ? await getBackend().listDirectory(sourcesDir, { ref: 'main' }) : [];
   if (sourcesDir) warnIfEmptyConfiguredDir('sourcesDir', sourcesDir, sourceEntries);
   // t/4350: one persisted cache load/save per build, not per doc — entries
   // for docs no longer in sourceEntries are dropped on save.
@@ -262,7 +262,7 @@ async function indexSummaryFile(
     }>;
   };
   try {
-    const raw = await backend.readFile(path.join(summariesDir, file));
+    const raw = await backend.readFile(path.join(summariesDir, file), { ref: 'main' });
     if (raw === null) return;
     summary = JSON.parse(raw);
   } catch { /* telemetry — silent by design */ return; }
@@ -397,7 +397,7 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
 
-  const summaryFiles = await backend.listDirectory(summariesDir);
+  const summaryFiles = await backend.listDirectory(summariesDir, { ref: 'main' });
   if (summaryFiles.length === 0) {
     warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
     return index;
@@ -429,7 +429,7 @@ let nodeSourceIndexBuildPromise: Promise<NodeSourceIndexCache> | null = null;
 
 async function currentInvalidationSignature(): Promise<string> {
   const summariesDir = resolveDataPath(loadDataConfig().summaries_dir);
-  const files = await getBackend().listDirectory(summariesDir);
+  const files = await getBackend().listDirectory(summariesDir, { ref: 'main' });
   return files.slice().sort().join('|');
 }
 
@@ -461,7 +461,7 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const summariesDir = resolveDataPath(loadDataConfig().summaries_dir);
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
-  const summaryFiles = await getBackend().listDirectory(summariesDir);
+  const summaryFiles = await getBackend().listDirectory(summariesDir, { ref: 'main' });
   warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
   const missingMetaIds = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
