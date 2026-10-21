@@ -34,7 +34,10 @@ param(
     [string]$DataDir = 'C:\Users\jsnov\repos\ai-triad-data',
     [string]$FrozenPath = (Join-Path $PSScriptRoot 'frozen-t4337-marks.json'),
     [string]$RefPrefix = 't4337-cleanup-2026-10',
-    [switch]$CreateMissingMetadata
+    [switch]$CreateMissingMetadata,
+    # SO e/344#15: Apply runs only against the exact frozen list the PI signed off, identified by the
+    # sha256 of the frozen file's bytes. Required for -Mode Apply.
+    [string]$ApprovedFrozenSha256
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -134,7 +137,16 @@ if ($Mode -eq 'Freeze') {
 }
 
 # ── DryRun / Apply / Revert: read ONLY the frozen list ──────────────────────────
-$fz = [IO.File]::ReadAllText($FrozenPath) | ConvertFrom-Json -AsHashtable
+$frozenBytes = [IO.File]::ReadAllBytes($FrozenPath)
+# Hashed with CRLF normalized to LF, so the approved hash holds whatever line endings a checkout uses
+# (the file is written with LF; core.autocrlf could otherwise change the raw bytes).
+$frozenSha = Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes(([Text.Encoding]::UTF8.GetString($frozenBytes) -replace "`r`n", "`n")))
+"frozen list: $FrozenPath sha256=$frozenSha"
+if ($Mode -eq 'Apply') {
+    if (-not $ApprovedFrozenSha256) { throw 'Apply refused: pass -ApprovedFrozenSha256 with the frozen-list hash the PI signed off (SO e/344#15)' }
+    if ($ApprovedFrozenSha256.ToLowerInvariant() -cne $frozenSha) { throw "Apply refused: the frozen list's sha256 $frozenSha is not the approved $ApprovedFrozenSha256" }
+}
+$fz = [Text.Encoding]::UTF8.GetString($frozenBytes) | ConvertFrom-Json -AsHashtable
 $markById = @{}; foreach ($m in @($fz.marks)) { $markById[$m.id] = $m }
 $plan = [System.Collections.Generic.List[object]]::new(); $fail = [System.Collections.Generic.List[string]]::new()
 foreach ($id in @($fz.files.Keys)) {
