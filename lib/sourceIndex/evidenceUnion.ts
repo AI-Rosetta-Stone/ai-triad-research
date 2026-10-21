@@ -191,8 +191,16 @@ export interface EvidenceUnionMember<T extends EvidenceLinkLike> {
 }
 
 /** A kept link, attributed to the canonical. `via` is set only on a link
- *  kept from a marked member (spec 7.6: provenance, never shown, never
- *  stored over an exact id). */
+ *  kept from a marked member — provenance, never shown, never stored over
+ *  an exact id (spec 7.6).
+ *
+ *  FORENSICS ONLY on the TS side: nothing here, in `nodeSourceIndex.ts`, or
+ *  in the Electron equivalent branches on `via` to make a decision. THE
+ *  EXEMPTION LAPSES the moment a TS consumer reads `via` to make a
+ *  decision (routing, filtering, counting). Spec 7.6 already names the one
+ *  accepted branching reader project-wide — PowerShell's entity-extraction
+ *  skip — any additional branching reader, in either stack, is a contract
+ *  change to spec section 7.6, not a silent addition. */
 export type UnionedEvidenceLink<T extends EvidenceLinkLike> = T & { doc: string; via?: string };
 
 /**
