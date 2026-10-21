@@ -162,7 +162,12 @@ function isCommitDashAOrAddAll(words) {
   if (words[i] === '-C') i += 2;
   const verb = (words[i] ?? '').toLowerCase();
   const rest = words.slice(i + 1);
-  if (verb === 'commit') return rest.includes('-a') || rest.includes('--all');
+  // t/4149 follow-up: `-am`/`-as`/etc. are valid getopt-style bundled short flags (e.g.
+  // `git commit -am "msg"`, by far the more common idiom than bare `-a`) — a plain
+  // `rest.includes('-a')` missed every bundled form. Match any single-dash token whose letters
+  // include 'a' (never '--', which can't be a bundle).
+  const hasBundledShortA = (w) => /^-[a-zA-Z]+$/.test(w) && w.includes('a');
+  if (verb === 'commit') return rest.some(hasBundledShortA) || rest.includes('--all');
   if (verb === 'add') return rest.includes('-A') || rest.includes('--all') || rest.includes('.');
   return false;
 }
@@ -203,4 +208,17 @@ export function buildSharedGitHygieneWarning({ reason, op, clause }) {
     + `SHARED main checkout currently holds, which can silently sweep up another agent's uncommitted `
     + `WIP. Commit with an explicit pathspec instead ('git commit -m "..." -- <paths>'), never -a/-A/\`. `
     + `(Warn-only: not blocked yet.)`;
+}
+
+// CLI shim (test==runtime, same convention as worktree-target-guard.mjs): the two
+// shared-git-hygiene feedback rules each invoke
+//   node <path>/shared-git-hygiene-predicate.mjs "<command>"
+// and grep the single-line stdout for THEIR OWN reason string ('head-moving-verb' or
+// 'commit-a-or-add-all'). Nothing on stdout == no finding (silent or the other rule's reason).
+// Each rule's own `template` field carries the human-readable warning text (buildSharedGitHygieneWarning
+// is for direct/manual use and tests, not consumed by the CLI shim — the Orca feedback-rule template
+// can't take dynamic text from a script, only a fixed string per rule).
+if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('shared-git-hygiene-predicate.mjs')) {
+  const verdict = evaluateSharedGitHygiene({ command: process.argv[2] || '' });
+  if (verdict.action === 'warn') process.stdout.write(verdict.reason);
 }
