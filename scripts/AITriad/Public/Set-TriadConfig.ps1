@@ -11,6 +11,11 @@ function Set-TriadConfig {
         credentials (GITHUB_TOKEN). Supports -WhatIf/-Confirm (ConfirmImpact High),
         an optional pre-upload diff, and an optional reload after upload. Pair with
         Get-TriadConfig to download-edit-upload safely.
+
+        Works against a local server only. A hosted (Easy-Auth-fronted) deployment does not
+        accept the GITHUB_TOKEN bearer header and answers with its sign-in page; the cmdlet
+        then fails with an actionable error instead of reporting a successful upload (t/4370).
+        For staging or prod, sign in as an admin and use the Runtime Config panel.
     .PARAMETER InputPath
         Local path to the config JSON to upload. Default: ./runtime-config.json.
     .PARAMETER BaseUrl

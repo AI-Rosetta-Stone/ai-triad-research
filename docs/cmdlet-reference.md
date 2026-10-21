@@ -183,7 +183,7 @@ Get-Help <CmdletName> -Full                     # full docs for any cmdlet
 ### Config
 | Cmdlet | Use when |
 |--------|----------|
-| `Get-TriadConfig` / `Set-TriadConfig` | Read/write runtime config |
+| `Get-TriadConfig` / `Set-TriadConfig` / `Invoke-TriadConfigReload` | Read/write/reload runtime config on a **local** server. Hosted (staging/prod) answers with the Easy Auth sign-in page and the cmdlets fail; use the Runtime Config panel there (t/4370) |
 | `Register-AIBackend` | Configure AI backend credentials |
 | `Test-AIApiKey` | Verify an AI provider API key authenticates (auth-only probe of gemini/claude/groq/openai/azure; no token cost). Use `-All` to sweep every backend with a resolvable key. |
 | `Test-AIModelsConfig` | Validate `ai-models.json` — BOM, JSON parse, orphaned model refs in defaults/debateTiers/fallbackChains, incomplete `models[]` entries, and friendly-id-in-`apiModelId` (t/1705). Returns `{Pass; Issues}`; run in a Pester test / CI. |
