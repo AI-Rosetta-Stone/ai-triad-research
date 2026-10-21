@@ -470,9 +470,13 @@ let lineageInfoCache: Record<string, unknown> | null = null;
 export async function readLineageEnrichments(): Promise<Record<string, unknown>> {
   if (lineageInfoCache) return lineageInfoCache;
   const filePath = path.join(getDataRoot(), 'calibration', 'core', 'lineage-enrichments.json');
-  // t/4391: pipeline-generated calibration output (same "core" calibration-log
-  // class calibrationStore.ts already pins to main), not user-written.
-  const raw = await backend.readFile(filePath, { ref: 'main', optional: true });
+  // t/4391: NOT pinned to main, despite looking pipeline-generated —
+  // calibrationStore.ts's promoteLineageEnrichments() writes this exact file
+  // through the backend with no ref (lands on the caller's session branch,
+  // same as every other unpinned write), so pinning the read here would
+  // break read-after-write for whoever just promoted an entry (TL p/538#161:
+  // "pin only where no path writes that file through the session backend").
+  const raw = await backend.readFile(filePath, { optional: true });
   if (raw === null) return {};
   try {
     const data = JSON.parse(raw) as Record<string, { category?: string; description?: string; url?: string | null }>;
@@ -538,16 +542,19 @@ export async function readOrganizationEdges(): Promise<OrganizationEdge[] | null
   }
 }
 
-// t/4391: policy_actions.json ("the policy registry") is pipeline-generated —
-// same class as organizations.json/organization_edges.json just above, which
-// already pin main. This one didn't; fixed to match.
+// t/4391: NOT pinned to main, despite sitting next to organizations.json/
+// organization_edges.json above (which correctly do pin it) — routes/
+// policyRegistry.ts's POST /api/policy-registry/recount writes
+// policy_actions.json back through the backend with no ref (lands on the
+// caller's session branch), so pinning this read would break read-after-
+// write for the next recount's baseSha (TL p/538#161).
 export async function readPolicyRegistry(): Promise<unknown | null> {
   try {
     const taxDir = getTaxonomyDir();
     const p = path.join(taxDir, 'policy_actions.json');
     const exists = await backend.fileExists(p);
     log.server.debug({ taxDir, path: p, exists }, 'readPolicyRegistry');
-    const raw = await backend.readFile(p, { ref: 'main' });
+    const raw = await backend.readFile(p);
     if (raw === null) return null;
     const data = JSON.parse(raw);
     const count = (data as { policies?: unknown[] })?.policies?.length ?? 0;

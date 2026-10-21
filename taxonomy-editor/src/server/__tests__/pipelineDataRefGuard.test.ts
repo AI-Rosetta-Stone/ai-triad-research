@@ -19,6 +19,17 @@
  * stronger, AST-based lint rule, left as a possible follow-up — see
  * `eslint-rules/no-raw-data-root-read.js` for the project's precedent for
  * that style of enforcement).
+ *
+ * **The actual rule is narrower than "looks pipeline-generated" (TL
+ * p/538#161, after `readPolicyRegistry` was wrongly pinned on first pass):
+ * pin only where NO path writes that exact file through the session
+ * backend.** `policy_actions.json` and the core `lineage-enrichments.json`
+ * both have such a writer (`routes/policyRegistry.ts`'s recount,
+ * `calibrationStore.ts`'s `promoteLineageEnrichments`) and must NOT be
+ * pinned — pinning would break read-after-write for whoever just wrote
+ * through their own session branch. The negative-assertion tests below lock
+ * that in, so a future "helpful" pin doesn't quietly reintroduce the bug in
+ * the other direction.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -56,11 +67,6 @@ describe('pipeline-generated-data reads always pin ref: main (t/4391)', () => {
     fileIO.setBackend(new FilesystemBackend());
   });
 
-  it('readPolicyRegistry (policy_actions.json)', async () => {
-    await fileIO.readPolicyRegistry();
-    expect(spy.readFile).toHaveBeenCalledWith(expect.stringContaining('policy_actions.json'), expect.objectContaining({ ref: 'main' }));
-  });
-
   it('readConflictClusters (_conflict-clusters.json)', async () => {
     await fileIO.readConflictClusters();
     expect(spy.readFile).toHaveBeenCalledWith(expect.stringContaining('_conflict-clusters.json'), expect.objectContaining({ ref: 'main' }));
@@ -74,5 +80,30 @@ describe('pipeline-generated-data reads always pin ref: main (t/4391)', () => {
   it('loadSummary (summaries/<id>.json)', async () => {
     await fileIO.loadSummary('doc-a');
     expect(spy.readFile).toHaveBeenCalledWith(expect.stringContaining('doc-a.json'), expect.objectContaining({ ref: 'main' }));
+  });
+});
+
+describe('NOT pinned — a session-backend writer exists for these (TL p/538#161)', () => {
+  let spy: ReturnType<typeof makeSpyBackend>;
+
+  beforeEach(() => {
+    spy = makeSpyBackend();
+    fileIO.setBackend(spy);
+  });
+
+  afterEach(() => {
+    fileIO.setBackend(new FilesystemBackend());
+  });
+
+  it('readPolicyRegistry (policy_actions.json) — routes/policyRegistry.ts recounts write this through the session backend', async () => {
+    await fileIO.readPolicyRegistry();
+    const [, opts] = spy.readFile.mock.calls[0];
+    expect(opts?.ref).not.toBe('main');
+  });
+
+  it('readLineageEnrichments core map — calibrationStore.ts promoteLineageEnrichments() writes this through the session backend', async () => {
+    await fileIO.readLineageEnrichments();
+    const [, opts] = spy.readFile.mock.calls[0];
+    expect(opts?.ref).not.toBe('main');
   });
 });
