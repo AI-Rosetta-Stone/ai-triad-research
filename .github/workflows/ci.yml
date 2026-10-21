@@ -2565,16 +2565,24 @@ jobs:
 
               // Bootstrap (same posture as tier-check/cl-path-check): the registry/predicate not
               // existing YET on base's tip is expected -- this is the PR that first adds them --
-              // and must read as a neutral skip, never as "CANNOT EVALUATE".
+              // and must read as a neutral skip, never as "CANNOT EVALUATE". postSkippedVerdict
+              // OVERWRITES any prior comment (not just core.info + return) -- a PR can go through
+              // more than one run as its base tip changes, and a stale "CANNOT EVALUATE" from an
+              // earlier run must not linger once a later run determines it's actually a clean skip.
+              async function postSkippedVerdict(reason) {
+                core.info(`ci-shared-input-coverage: skipped (bootstrap) -- ${reason}`);
+                await postComment(`_ci-shared-input-coverage: skipped (bootstrap) -- ${reason}_`);
+              }
+
               const registryText = showFromBase(baseTipSha, 'operations/devops/ci-shared-inputs.json');
               if (registryText === null) {
-                core.info('ci-shared-input-coverage: registry not yet on base tip (bootstrap) -- skipped.');
+                await postSkippedVerdict("registry not yet on the base branch's tip. Once this PR merges, later PRs are checked against it.");
                 return;
               }
               const predicateText = showFromBase(baseTipSha, 'operations/devops/ci-shared-input-coverage-predicate.mjs');
               const matcherText = showFromBase(baseTipSha, 'operations/devops/cl-path-check-predicate.mjs');
               if (predicateText === null || matcherText === null) {
-                core.info('ci-shared-input-coverage: predicate/matcher not yet on base tip (bootstrap) -- skipped.');
+                await postSkippedVerdict('predicate or matcher module not yet on the base tip (registry present, code missing).');
                 return;
               }
 
