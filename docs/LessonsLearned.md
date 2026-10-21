@@ -6738,3 +6738,65 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Quality/Tech Lead p/447#29).
 
 **Applies To:** All agents using `Invoke-AsAgentApp` or other functions from `AgentAppToken.psm1`; always import the module explicitly before use.
+
+---
+
+## #338 [Build] `git log -1 <sha>` Returns "unknown revision" — SHA Belongs to a Sibling Repo
+
+**Pattern:** An agent runs `git log -1 <sha>` and receives "unknown revision or path not in the working tree." The commit SHA is valid — it exists, but in a different repository (e.g., `ai-triad-research` vs. `ai-triad-sources`).
+
+**Instances:**
+- 2026-10-21 — Server Storage (p/539#20): `git log -1 df540976` errored "unknown revision" in `ai-triad-sources`. The commit belonged to `ai-triad-research`. No fix needed — confirmed the right repo and moved on.
+
+**Root Cause:** The project uses sibling repos (`ai-triad-research`, `ai-triad-data`, `ai-triad-sources`). A SHA from one repo is invisible to `git` commands run in another.
+
+**Prevention:**
+1. **Before running `git log`/`git show`/`git cat-file` on a SHA**, confirm which repo owns it — check PR links, ticket references, or the agent that generated it.
+2. **"unknown revision" for a well-formed SHA** = wrong repo, not a corrupt SHA. Switch repos and retry.
+3. **When referencing commits across repos**, include the repo name in the reference (e.g., "commit `df540976` in `ai-triad-research`").
+
+**Status:** Active — 1 instance (Server Storage p/539#20).
+
+**Applies To:** All agents working across sibling repos; always confirm which repo owns a SHA before running git commands against it.
+
+---
+
+## #339 [Research] `null` Entries in JSON Arrays Cause `AttributeError` on `.get()` — Guard Before Dereferencing
+
+**Pattern:** An agent iterates over a JSON array (e.g., `factual_claims`) and calls `.get()` on each element. Some entries are `null`, causing `AttributeError: 'NoneType' object has no attribute 'get'`. The fix is a null guard (`(entry or {})`) plus type checks before dereferencing.
+
+**Instances:**
+- 2026-10-21 — Computational Linguist (p/7#131): scanning `summaries/*.json`, `factual_claims` contained `null` entries. `AttributeError: 'NoneType' has no .get`. Fixed with `(fc or {})` and `isinstance` checks.
+
+**Root Cause:** JSON arrays in data files may contain `null` entries — not all elements are guaranteed to be objects. Same class as root AGENTS.md "Data File Convention": field types vary; check `type()`/`isinstance()` before use.
+
+**Prevention:**
+1. **When iterating a JSON array and calling `.get()`**, always guard: `for fc in (items or []): fc = fc or {}; value = fc.get("key")`.
+2. **Add `isinstance(fc, dict)` before any dict method call** on elements that could be `null` or a non-dict type.
+3. **Treat every array element as potentially `null` or heterogeneous** until verified — applies to all data file arrays.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#131).
+
+**Applies To:** All agents iterating JSON arrays from data files; guard against `null` entries with `(entry or {})` and `isinstance` checks before calling dict methods.
+
+---
+
+## #340 [Build] `jq` Not Installed on Windows — Use PowerShell `ConvertFrom-Json` or `gh --jq` Instead
+
+**Pattern:** An agent runs `jq` in Git Bash on Windows and receives exit code 127 ("command not found"). `jq` is not installed by default on Windows. Use PowerShell's `ConvertFrom-Json -AsHashtable` or `gh`'s built-in `--jq` flag instead.
+
+**Instances:**
+- 2026-10-21 — Tech Lead (p/335#174): `jq` call in Git Bash exited 127 — not installed. Resolved by parsing JSON with `ConvertFrom-Json -AsHashtable` in PowerShell.
+
+**Root Cause:** `jq` is a separate install on Windows and is not present by default in Git Bash. Same class as #330 (`node -e "require(...)"` without `npm ci`) — tool availability assumption failure.
+
+**Prevention:**
+1. **Never assume `jq` is available in Git Bash on Windows.** Use guaranteed alternatives:
+   - PowerShell: `$json = Get-Content file.json | ConvertFrom-Json -AsHashtable`
+   - `gh` built-in: `gh api ... --jq '.field'` (bundles its own jq binary)
+2. **Exit 127 on `jq`** = not installed, not a syntax error. Switch to PowerShell or `gh --jq`.
+3. **For simple key extractions**, `gh --jq` is the most portable cross-platform option.
+
+**Status:** Active — 1 instance (Tech Lead p/335#174).
+
+**Applies To:** All agents running `jq` in Git Bash on Windows; use `ConvertFrom-Json` (PowerShell) or `gh --jq` instead.
