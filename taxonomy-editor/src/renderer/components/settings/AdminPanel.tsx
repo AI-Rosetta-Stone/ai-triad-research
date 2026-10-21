@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useCommunityStore, type Submission } from '../../hooks/useCommunityStore';
 import { useUserProfile } from '../../hooks/useAuthStatus';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allPovNodes } from '../../hooks/useTaxonomyStore/superseded';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useShallow } from 'zustand/react/shallow';
@@ -79,11 +80,13 @@ function EnrichmentRepairSection() {
   const [repairing, setRepairing] = useState(false);
   const [repairMsg, setRepairMsg] = useState<string | null>(null);
 
+  // t/4365: allPovNodes (selectable + superseded) so a superseded node with
+  // _phrase_regen_pending still surfaces here. taxState holds only the live
+  // store fields, not supersededNodes, so read the full set via getState().
   const pendingNodes: { id: string; label: string; pov: typeof POV_KEYS[number] }[] = [];
   for (const pov of POV_KEYS) {
-    const data = taxState[pov];
-    if (!data?.nodes) continue;
-    for (const node of data.nodes) {
+    if (!taxState[pov]) continue;
+    for (const node of allPovNodes(useTaxonomyStore.getState(), pov)) {
       if (node.graph_attributes?._phrase_regen_pending) {
         pendingNodes.push({ id: node.id, label: node.label, pov });
       }
@@ -98,7 +101,7 @@ function EnrichmentRepairSection() {
     const currentTaxState = useTaxonomyStore.getState();
     const pending: { id: string; pov: typeof POV_KEYS[number] }[] = [];
     for (const pov of POV_KEYS) {
-      for (const node of currentTaxState[pov]?.nodes ?? []) {
+      for (const node of allPovNodes(currentTaxState, pov)) {
         if (node.graph_attributes?._phrase_regen_pending) pending.push({ id: node.id, pov });
       }
     }

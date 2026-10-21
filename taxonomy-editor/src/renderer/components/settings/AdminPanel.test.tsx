@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { PovNode } from '../../types/taxonomy';
 
 vi.mock('@bridge', () => ({ api: {} }));
 vi.mock('@lib/flight-recorder/index', () => ({
@@ -26,10 +27,19 @@ vi.mock('../../hooks/useAuthStatus', () => ({
   useUserProfile: () => mockProfile,
 }));
 
+type MockPovFile = { nodes: PovNode[] } | null;
+let mockTaxState: {
+  accelerationist: MockPovFile; safetyist: MockPovFile; skeptic: MockPovFile;
+  supersededNodes: Record<string, { node: PovNode; index: number }[]>;
+} = {
+  accelerationist: null, safetyist: null, skeptic: null,
+  supersededNodes: { accelerationist: [], safetyist: [], skeptic: [] },
+};
+
 vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: Object.assign(
-    () => ({ accelerationist: null, safetyist: null, skeptic: null }),
-    { getState: () => ({ accelerationist: null, safetyist: null, skeptic: null }) },
+    () => mockTaxState,
+    { getState: () => mockTaxState },
   ),
 }));
 
@@ -63,6 +73,10 @@ describe('AdminPanel', () => {
     mockFetchSubmissions.mockResolvedValue(undefined);
     mockApproveSubmission.mockResolvedValue(undefined);
     mockRejectSubmission.mockResolvedValue(undefined);
+    mockTaxState = {
+      accelerationist: null, safetyist: null, skeptic: null,
+      supersededNodes: { accelerationist: [], safetyist: [], skeptic: [] },
+    };
   });
 
   it('renders the admin header and tab bar', () => {
@@ -112,6 +126,30 @@ describe('AdminPanel', () => {
     await user.click(screen.getByText('Enrichment'));
     expect(screen.getByText('Enrichment Repair')).toBeInTheDocument();
     expect(screen.getByText('All nodes are fully enriched.')).toBeInTheDocument();
+  });
+
+  // t/4365: after t/4355's PR 1, state.<pov>.nodes holds only selectable nodes —
+  // a superseded node with _phrase_regen_pending must still surface via allPovNodes.
+  it('lists a superseded node with _phrase_regen_pending in the repair list (t/4365)', async () => {
+    const user = userEvent.setup();
+    const liveNode: PovNode = {
+      id: 'acc-beliefs-001', category: 'Beliefs', label: 'Live node', description: 'd',
+      parent_id: null, children: [], situation_refs: [],
+    } as PovNode;
+    const supersededNode: PovNode = {
+      id: 'acc-beliefs-002', category: 'Beliefs', label: 'Superseded node', description: 'd',
+      parent_id: null, children: [], situation_refs: [],
+      superseded_by: 'acc-beliefs-001',
+      graph_attributes: { _phrase_regen_pending: true },
+    } as PovNode;
+    mockTaxState = {
+      accelerationist: { nodes: [liveNode] }, safetyist: null, skeptic: null,
+      supersededNodes: { accelerationist: [{ node: supersededNode, index: 1 }], safetyist: [], skeptic: [] },
+    };
+    render(<AdminPanel />);
+    await user.click(screen.getByText('Enrichment'));
+    expect(screen.getByText('Superseded node')).toBeInTheDocument();
+    expect(screen.queryByText('All nodes are fully enriched.')).not.toBeInTheDocument();
   });
 
   it('shows "Already approved" toast when approve returns 409', async () => {
