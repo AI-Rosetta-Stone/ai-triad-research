@@ -78,11 +78,15 @@ export function onPollAllowedChange(listener: (allowed: boolean) => void, idleMs
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Re-check the answer, notify on a flip, and (while allowed) re-arm a timer for the idle deadline.
+  // Only while the gate is switched on (t/4387 found this): switched off, `allowed` is always true, so
+  // once the deadline had passed the delay below fell to 1 ms and re-armed forever, spinning a timer
+  // in every idle tab. Switched off there's no deadline to wait for; a later switch-on takes effect at
+  // the next input or visibility change.
   const evaluate = () => {
     const next = isPollAllowed(idleMs);
     if (next !== allowed) { allowed = next; listener(next); }
     if (idleTimer !== undefined) clearTimeout(idleTimer);
-    idleTimer = allowed ? setTimeout(evaluate, Math.max(idleMs - (Date.now() - lastInputAt), 0) + 1) : undefined;
+    idleTimer = allowed && pollGateEnabled() ? setTimeout(evaluate, Math.max(idleMs - (Date.now() - lastInputAt), 0) + 1) : undefined;
   };
 
   subscribers.add(evaluate);

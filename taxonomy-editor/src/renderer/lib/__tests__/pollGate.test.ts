@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const switchState = vi.hoisted(() => ({ cfg: { pollGate: { enabled: true } } as { pollGate?: { enabled: boolean } } }));
 vi.mock('../clientConfig', () => ({ getClientConfig: () => switchState.cfg }));
 
-import { shouldPoll, isPollAllowed, gatedInterval, pollGateEnabled, POLL_IDLE_MS, __resetPollGateForTests } from '../pollGate';
+import { shouldPoll, isPollAllowed, gatedInterval, onPollAllowedChange, pollGateEnabled, POLL_IDLE_MS, __resetPollGateForTests } from '../pollGate';
 
 let visibility: DocumentVisibilityState = 'visible';
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
@@ -115,5 +115,37 @@ describe('the switch (t/4258 deploy hold, TL p/336#614)', () => {
     setVisible(false);
     expect(pollGateEnabled()).toBe(false);
     expect(isPollAllowed()).toBe(true);
+  });
+});
+
+describe('no timer spin past the idle deadline (t/4387 found it)', () => {
+  // Counts timers armed after the deadline. The old code re-armed a 1 ms timer forever while the switch was
+  // off (allowed is always true then), so an idle tab spun a timer as fast as the browser allowed.
+  const timersArmedAfterDeadline = () => {
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    vi.advanceTimersByTime(POLL_IDLE_MS + 5);
+    spy.mockClear();
+    vi.advanceTimersByTime(200); // 200 ms past the deadline: the bug armed ~200 timers here
+    const n = spy.mock.calls.length;
+    spy.mockRestore();
+    return n;
+  };
+
+  it('switched off: an idle subscriber arms no idle timer at all', () => {
+    switchState.cfg = { pollGate: { enabled: false } };
+    const listener = vi.fn();
+    const stop = onPollAllowedChange(listener);
+    expect(timersArmedAfterDeadline()).toBe(0);
+    expect(listener).not.toHaveBeenCalled(); // switched off, the answer never changes
+    stop();
+  });
+
+  it('switched on: the deadline fires once, flips to idle, and stops re-arming', () => {
+    const listener = vi.fn();
+    const stop = onPollAllowedChange(listener);
+    expect(timersArmedAfterDeadline()).toBe(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(false);
+    stop();
   });
 });
