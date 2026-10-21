@@ -110,6 +110,7 @@ Describe 'Guard: no PowerShell reader feeds snapshot text to a model unstripped 
             'DocConverters.psm1'                             = 'converters write the snapshot; must stay as converted'
             'PdfOptimizer.psm1'                              = 'PDF compression, no model'
             'New-SourceIdentityFixture.ps1'                  = 'test-fixture hashes over the file as written'
+            'data-mutations/t4337/Invoke-T4337DuplicateMark.ps1' = 't/4337 mark writer: hashes snapshots as written (spec 1.1) for grouping, no model'
         }
         $script:ScriptsRoot = (Resolve-Path "$PSScriptRoot/../scripts").Path
         $script:Readers = @(Get-ChildItem $script:ScriptsRoot -Recurse -File -Include *.ps1, *.psm1 |
