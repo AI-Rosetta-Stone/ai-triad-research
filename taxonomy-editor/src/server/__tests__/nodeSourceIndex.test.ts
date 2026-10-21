@@ -5,12 +5,13 @@
  * lookup, build-once/invalidate-on-change caching, and card metadata.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import * as fileIO from '../storage/fileIO.js';
 import { resetNodeSourceIndexCacheForTests } from '../storage/nodeSourceIndex.js';
+import { log } from '../logger.js';
 
 let dataRoot: string;
 let sourcesRoot: string;
@@ -143,5 +144,37 @@ describe('buildNodeSourceIndex / getNodeSources (t/4333/t/4334)', () => {
     const first = await fileIO.getNodeSources('n1');
     const second = await fileIO.getNodeSources('n1');
     expect(second.indexVersion).toBe(first.indexVersion);
+  });
+
+  // t/4334#25 (Rosetta): a per-doc metaCache miss degraded silently (title
+  // fell back to the bare doc id, no WARN) — the same silent-fallback class
+  // as the empty-listing bug, just at the per-doc granularity. One
+  // aggregated WARN per build, not one per occurrence.
+  it('WARNs once per build, aggregated, when docs have no source metadata', async () => {
+    const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as unknown as ReturnType<typeof log.server.warn>);
+    writeSummary('orphan-a', 'n1'); // no writeSourceMeta — no metadata.json anywhere
+    writeSummary('orphan-b', 'n1');
+    writeSourceMeta('known-doc', { title: 'Known', url: 'https://example.com/known' });
+    writeSummary('known-doc', 'n1');
+
+    await fileIO.buildNodeSourceIndex();
+
+    const call = warnSpy.mock.calls.find(([, msg]) => typeof msg === 'string' && msg.includes('no source metadata'));
+    expect(call).toBeDefined();
+    const [data] = call!;
+    expect(data).toMatchObject({ missingCount: 2, missingDocIds: ['orphan-a', 'orphan-b'] });
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn about missing metadata when every doc has it', async () => {
+    const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as unknown as ReturnType<typeof log.server.warn>);
+    writeSourceMeta('known-doc', { title: 'Known', url: 'https://example.com/known' });
+    writeSummary('known-doc', 'n1');
+
+    await fileIO.buildNodeSourceIndex();
+
+    const call = warnSpy.mock.calls.find(([, msg]) => typeof msg === 'string' && msg.includes('no source metadata'));
+    expect(call).toBeUndefined();
+    warnSpy.mockRestore();
   });
 });
