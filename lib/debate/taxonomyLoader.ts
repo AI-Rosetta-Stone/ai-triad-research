@@ -431,17 +431,18 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
     return allNodesById.get(resolved) ?? node;
   };
 
-  const selectableIds = new Set(allPovNodes.filter(n => !n.superseded_by).map(n => n.id));
+  // Superseded IDs only — used to exclude rather than include, so sit/policy/cc nodes pass through.
+  const supersededIds = new Set(allPovNodes.filter(n => n.superseded_by).map(n => n.id));
 
-  // Filter embeddings to selectable nodes only
+  // Filter embeddings: drop superseded POV nodes only; keep all other node types (sit, policy, cc).
   const selectableEmbeddings: Record<string, NodeEmbedding> = {};
   for (const [id, emb] of Object.entries(embeddings)) {
-    if (selectableIds.has(id)) selectableEmbeddings[id] = emb;
+    if (!supersededIds.has(id)) selectableEmbeddings[id] = emb;
   }
 
-  // Build selectable edge set — both endpoints must be non-superseded.
+  // Build selectable edge set: drop any edge whose source or target is superseded.
   const edges: EdgesFile | null = allEdges
-    ? { ...allEdges, edges: allEdges.edges.filter(e => selectableIds.has(e.source) && selectableIds.has(e.target)) }
+    ? { ...allEdges, edges: allEdges.edges.filter(e => !supersededIds.has(e.source) && !supersededIds.has(e.target)) }
     : null;
 
   return {

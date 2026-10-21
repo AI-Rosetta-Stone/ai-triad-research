@@ -288,4 +288,32 @@ describe('loadTaxonomy — supersession (t/4354)', () => {
     // Full set in allEdges: both edges present
     expect(result.allEdges!.edges).toHaveLength(2);
   });
+
+  it('zero superseded nodes: edges.length === allEdges.length and embeddings unchanged (sit/pol/cc nodes preserved)', () => {
+    // Realistic fixture: no superseded nodes, mix of POV, situation and policy-like embedding IDs
+    const allEmbeddings = {
+      'acc-beliefs-001': { pov: 'acc', vector: [1, 0] },  // POV
+      'sit-001': { pov: 'situations', vector: [0, 1] },   // situation
+      'pol-001': { pov: 'cc', vector: [0.5, 0.5] },       // policy/cc
+    };
+    const allEdgesList = [
+      { source: 'acc-beliefs-001', target: 'sit-001', type: 'CONVERGES_WITH', bidirectional: false, confidence: 0.7, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+      { source: 'sit-001', target: 'sit-001', type: 'RESPONDS_TO', bidirectional: false, confidence: 0.6, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+      { source: 'acc-beliefs-001', target: 'pol-001', type: 'SUPPORTS', bidirectional: false, confidence: 0.8, rationale: '', status: 'approved', discovered_at: '', model: 'test' },
+    ];
+    setupTaxonomyMocks(
+      [makeAccNode('acc-beliefs-001', 'Active')], // no superseded nodes
+      allEmbeddings,
+      allEdgesList,
+    );
+    const result = loadTaxonomy(FAKE_ROOT);
+    // No superseded nodes → edges and allEdges are identical
+    expect(result.edges!.edges).toHaveLength(allEdgesList.length);
+    expect(result.allEdges!.edges).toHaveLength(allEdgesList.length);
+    // All embedding types preserved (sit and pol not filtered out)
+    expect(result.embeddings['acc-beliefs-001']).toBeDefined();
+    expect(result.embeddings['sit-001']).toBeDefined();
+    expect(result.embeddings['pol-001']).toBeDefined();
+    expect(Object.keys(result.embeddings)).toHaveLength(3);
+  });
 });
