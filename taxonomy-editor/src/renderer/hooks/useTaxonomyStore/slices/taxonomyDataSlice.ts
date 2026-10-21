@@ -25,6 +25,8 @@ import { buildPovTagBaseline, povTagMembership } from '../../../utils/povTagGate
 import { buildSituationBaseline, checkSituationBdi, type SituationBdiRefusal } from '../../../utils/situationBdiGate';
 import { coerceSituationDivergence } from '../../../bridge/coerceSituationDivergence';
 import { baselineAfterSave, savedPolicyNodes, allPolicyNodes } from './saveBaselines';
+import { EMPTY_HELD, allNodesById, allPovNodeIds, povOfNode, refuseSupersededEdit, splitForState, withSupersededForSave, type HeldByPov } from '../superseded'; // t/4355
+import { cascadeRename } from './renameCascade';
 import { assessValidationFailure, branchEventData, errorKeyNodeId, integrityFailureMessage, markFilesAsBaseline, readBranchContext, schemaFailureMessage, type StaleBranchHint } from './staleBranchHint'; // t/4325
 import { buildPolicyIdBaseline, affectedPolicyIds, runPolicyRecount, mergePolicyCounts, type PolicyRecountNotice } from '../../../utils/policyRecount';
 import {
@@ -250,6 +252,8 @@ export interface TaxonomyDataSlice {
   situationsBaseline: Record<string, string>;
   /** t/3973: pov_tags as last loaded/saved (node id → fingerprint); gates registry membership per node. */
   povTagsBaseline: Record<string, string>;
+  /** t/4355: superseded POV nodes held out of `<pov>.nodes` (with their file positions); see ../superseded.ts. */
+  supersededNodes: HeldByPov;
   /** t/4034: each node's policy ids as last loaded/saved; decides which registry counts a save recounts. */
   policyIdsBaseline: Record<string, string>;
   policyRegistry: PolicyRegistryEntry[] | null;
@@ -355,6 +359,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   situations: null,
   situationsBaseline: {},
   povTagsBaseline: {},
+  supersededNodes: EMPTY_HELD,
   policyIdsBaseline: {},
   policyRegistry: null,
   conflicts: [],
@@ -450,7 +455,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
         recordLogicalFormStripSummary('accelerationist', accStrippedCount);
       }
       set({
-        accelerationist: accFile,
+        ...splitForState(get(), { accelerationist: accFile }), // t/4355: superseded nodes held out of selection
         povTagsBaseline: buildPovTagBaseline((accFile as PovTaxonomyFile | null)?.nodes ?? []),
         policyIdsBaseline: buildPolicyIdBaseline((accFile as PovTaxonomyFile | null)?.nodes ?? []),
         loading: false,
@@ -510,8 +515,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       }
       const situationsFile = coerceSituationDivergence(cc) as SituationsFile; // t/3002: guard interpretation_divergence type at load
       set({
-        safetyist: saf as PovTaxonomyFile,
-        skeptic: skp as PovTaxonomyFile,
+        ...splitForState(get(), { safetyist: saf as PovTaxonomyFile, skeptic: skp as PovTaxonomyFile }),
         situations: situationsFile,
         situationsBaseline: buildSituationBaseline(situationsFile?.nodes ?? []),
         povTagsBaseline: { ...get().povTagsBaseline, ...buildPovTagBaseline([...((saf as PovTaxonomyFile | null)?.nodes ?? []), ...((skp as PovTaxonomyFile | null)?.nodes ?? [])]) },
@@ -542,12 +546,9 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
     const povKeys = ['accelerationist', 'safetyist', 'skeptic'] as const;
 
     // Valid edge endpoints / reference targets = all POV nodes + all situation nodes
-    // (mirrors checkReferentialIntegrity's allIds set in validators.ts).
-    const validNodeIds = new Set<string>();
-    for (const p of povKeys) {
-      const f = state[p] as PovTaxonomyFile | null;
-      if (f) for (const n of f.nodes) validNodeIds.add(n.id);
-    }
+    // (mirrors checkReferentialIntegrity's allIds set in validators.ts). t/4355: superseded nodes still
+    // exist, so an edge or reference to one is not dangling and must not be removed.
+    const validNodeIds = allPovNodeIds(state);
     const sitIds = new Set(state.situations?.nodes.map(n => n.id) ?? []);
     for (const id of sitIds) validNodeIds.add(id);
 
@@ -598,7 +599,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   },
 
   save: async () => {
-    const state = get();
+    const state = withSupersededForSave(get()); // t/4355: validate and write each POV file whole, superseded nodes in place
     const errors: ValidationErrors = {};
     const dirtyKeys = state.dirty;
     const saveStart = performance.now();
@@ -817,6 +818,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   },
 
   updatePovNode: (pov, nodeId, updates, editSource) => {
+    if (refuseSupersededEdit(get(), nodeId, 'updatePovNode')) return; // t/4355: superseded nodes are read-only
     getGlobalRecorder()?.record({ type: 'state.change', component: 'taxonomy-store', level: 'debug', message: 'updatePovNode.called', data: { pov, nodeId, fields: Object.keys(updates), editSource: editSource?.source ?? 'manual' } });
     trackNodeMutation('edit', pov, nodeId);
     if (updates.category) {
@@ -863,8 +865,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'warn', message: 'createPovNode: POV file not loaded', data: { pov, category } });
       return '';
     }
-    const existingIds = file.nodes.map(n => n.id);
-    const newId = generatePovNodeId(pov, category, existingIds);
+    const newId = generatePovNodeId(pov, category, [...allPovNodeIds(state)]); // t/4355: never reuse a superseded id
     const validation = validatePovNodeId(newId, category);
     if (!validation.valid) {
       console.error(`[taxonomy-store] createPovNode rejected: ${validation.error}`);
@@ -893,6 +894,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   },
 
   deletePovNode: (pov, nodeId) => {
+    if (refuseSupersededEdit(get(), nodeId, 'deletePovNode')) return; // t/4355: superseded nodes are read-only
     trackNodeMutation('delete', pov, nodeId);
     set((state) => {
       const file = state[pov];
@@ -916,6 +918,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
 
   movePovNodeCategory: (pov, nodeId, newCategory) => {
     let resultId: string | null = null;
+    if (refuseSupersededEdit(get(), nodeId, 'movePovNodeCategory')) return null; // t/4355: cited ids never rename
     set((state) => {
       const file = state[pov];
       if (!file) return state;
@@ -923,8 +926,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       if (!oldNode) return state;
 
       const oldId = oldNode.id;
-      const existingIds = file.nodes.map(n => n.id);
-      const newId = generatePovNodeId(pov, newCategory, existingIds);
+      const newId = generatePovNodeId(pov, newCategory, [...allPovNodeIds(state)]); // t/4355: never reuse a superseded id
       const validation = validatePovNodeId(newId, newCategory);
       if (!validation.valid) {
         console.error(`[taxonomy-store] movePovNodeCategory rejected: ${validation.error}`);
@@ -962,42 +964,8 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
 
       const newDirty = new Set(state.dirty);
       newDirty.add(pov);
-
-      let newSituations = state.situations;
-      if (newSituations) {
-        let ccChanged = false;
-        const ccNodes = newSituations.nodes.map(n => {
-          if ((n.linked_nodes ?? []).includes(oldId)) {
-            ccChanged = true;
-            return { ...n, linked_nodes: (n.linked_nodes ?? []).map(replaceId) };
-          }
-          return n;
-        });
-        if (ccChanged) {
-          newSituations = { ...newSituations, last_modified: todayISO(), nodes: ccNodes };
-          newDirty.add('situations');
-        }
-      }
-
-      let newConflicts = state.conflicts;
-      let conflictsChanged = false;
-      newConflicts = newConflicts.map(c => {
-        if ((c.linked_taxonomy_nodes ?? []).includes(oldId)) {
-          conflictsChanged = true;
-          newDirty.add(c.claim_id);
-          return { ...c, linked_taxonomy_nodes: (c.linked_taxonomy_nodes ?? []).map(replaceId) };
-        }
-        return c;
-      });
-
-      return {
-        [pov]: newFile,
-        situations: newSituations,
-        conflicts: conflictsChanged ? newConflicts : state.conflicts,
-        dirty: newDirty,
-        selectedNodeId: newId,
-        embeddingDirty: true,
-      };
+      // t/4355: situations, conflicts, edges and held superseded nodes (renameCascade.ts).
+      return { [pov]: newFile, ...cascadeRename(state, oldId, newId, newDirty), dirty: newDirty, selectedNodeId: newId, embeddingDirty: true };
     });
     return resultId;
   },
@@ -1009,6 +977,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       get().movePovNodeCategory(sourcePov, nodeId, targetCategory);
       return;
     }
+    if (refuseSupersededEdit(get(), nodeId, 'movePovNode')) return; // t/4355: cited ids never move
 
     set((state) => {
       const sourceFile = state[sourcePov];
@@ -1019,8 +988,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       if (!oldNode) return state;
 
       const oldId = oldNode.id;
-      const targetExistingIds = targetFile.nodes.map(n => n.id);
-      const newId = generatePovNodeId(targetPov, targetCategory, targetExistingIds);
+      const newId = generatePovNodeId(targetPov, targetCategory, [...allPovNodeIds(state)]); // t/4355: never reuse a superseded id
       const validation = validatePovNodeId(newId, targetCategory);
       if (!validation.valid) {
         console.error(`[taxonomy-store] movePovNode rejected: ${validation.error}`);
@@ -1047,67 +1015,15 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
 
       const newTargetNodes = [...targetFile.nodes, newNode];
 
-      const replaceId = (id: string) => (id === oldId ? newId : id);
       const newDirty = new Set(state.dirty);
       newDirty.add(sourcePov);
       newDirty.add(targetPov);
-
-      let newSituations = state.situations;
-      if (newSituations) {
-        let ccChanged = false;
-        const ccNodes = newSituations.nodes.map(n => {
-          if ((n.linked_nodes ?? []).includes(oldId)) {
-            ccChanged = true;
-            return { ...n, linked_nodes: (n.linked_nodes ?? []).map(replaceId) };
-          }
-          return n;
-        });
-        if (ccChanged) {
-          newSituations = { ...newSituations, last_modified: todayISO(), nodes: ccNodes };
-          newDirty.add('situations');
-        }
-      }
-
-      let newConflicts = state.conflicts;
-      let conflictsChanged = false;
-      newConflicts = newConflicts.map(c => {
-        if ((c.linked_taxonomy_nodes ?? []).includes(oldId)) {
-          conflictsChanged = true;
-          newDirty.add(c.claim_id);
-          return { ...c, linked_taxonomy_nodes: (c.linked_taxonomy_nodes ?? []).map(replaceId) };
-        }
-        return c;
-      });
-
-      let newEdgesFile = state.edgesFile;
-      if (newEdgesFile) {
-        let edgesChanged = false;
-        const newEdges = newEdgesFile.edges.map(e => {
-          const srcMatch = e.source === oldId;
-          const tgtMatch = e.target === oldId;
-          if (srcMatch || tgtMatch) {
-            edgesChanged = true;
-            return {
-              ...e,
-              source: srcMatch ? newId : e.source,
-              target: tgtMatch ? newId : e.target,
-            };
-          }
-          return e;
-        });
-        if (edgesChanged) {
-          newEdgesFile = { ...newEdgesFile, edges: newEdges };
-          newDirty.add('edges');
-        }
-      }
 
       return {
         lastPovMoveReport,
         [sourcePov]: { ...sourceFile, last_modified: todayISO(), nodes: newSourceNodes },
         [targetPov]: { ...targetFile, last_modified: todayISO(), nodes: newTargetNodes },
-        situations: newSituations,
-        conflicts: conflictsChanged ? newConflicts : state.conflicts,
-        edgesFile: newEdgesFile,
+        ...cascadeRename(state, oldId, newId, newDirty), // t/4355: situations, conflicts, edges, held superseded nodes
         dirty: newDirty,
         selectedNodeId: newId,
         embeddingDirty: true,
@@ -1361,14 +1277,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       const conflict = state.conflicts.find(c => c.claim_id === id);
       return conflict?.claim_label || '';
     }
-    for (const pov of POV_KEYS) {
-      const file = state[pov];
-      if (file) {
-        const node = file.nodes.find(n => n.id === id);
-        if (node) return node.label;
-      }
-    }
-    return '';
+    return allNodesById(state).get(id)?.label ?? ''; // t/4355: the exact node, superseded included (cited ids)
   },
 
   getDescriptionForId: (id: string) => {
@@ -1381,14 +1290,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       const node = state.situations?.nodes.find(n => n.id === id);
       return node?.description || '';
     }
-    for (const pov of POV_KEYS) {
-      const file = state[pov];
-      if (file) {
-        const node = file.nodes.find(n => n.id === id);
-        if (node) return node.description;
-      }
-    }
-    return '';
+    return allNodesById(state).get(id)?.description ?? ''; // t/4355: exact node, superseded included
   },
 
   lookupPinnedData: (id: string): PinnedData | null => {
@@ -1420,14 +1322,10 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       }
       return { type: 'policy', policy: structuredClone(policy), referencingNodes: structuredClone(referencingNodes) };
     }
-    for (const pov of POV_KEYS) {
-      const file = state[pov];
-      if (file) {
-        const node = file.nodes.find(n => n.id === id);
-        if (node) return { type: 'pov', pov, node: structuredClone(node) };
-      }
-    }
-    return null;
+    // t/4355: a pinned id may be cited history, so look it up over the exact-node index (superseded included).
+    const node = allNodesById(state).get(id);
+    const pov = povOfNode(state, id);
+    return node && pov ? { type: 'pov', pov, node: structuredClone(node) } : null;
   },
 
   edgesFile: null,
