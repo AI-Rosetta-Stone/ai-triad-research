@@ -232,9 +232,20 @@ def main():
     if rc != 0 or debate is None:
         if cost["usd"] is None:  # no flight recorder: fall back to the partial's own AI-call count
             partial = load(os.path.join(out_dir, f"{item['slug']}-partial.json")) or {}
-            n_calls = ((partial.get("diagnostics") or {}).get("overview") or {}).get("total_ai_calls")
-            row["usd"] = 0.0 if n_calls == 0 else a.reserve  # unknown spend is booked at the worst case
-            row["note"] = f"no flight recorder; partial total_ai_calls={n_calls}"
+            overview = (partial.get("diagnostics") or {}).get("overview") or {}
+            n_calls = overview.get("total_ai_calls")
+            n_in = overview.get("total_input_tokens") or 0
+            n_turns = len(partial.get("transcript") or [])
+            # `total_ai_calls` can read 0 on a run that spent (t3790a32: 0 calls, 583,910 input tokens,
+            # 14 turns), so it is only "no spend" when the tokens and the transcript agree. Unknown spend
+            # is booked at the worst case.
+            zero_spend = n_calls == 0 and n_in == 0 and n_turns == 0
+            row["usd"] = 0.0 if zero_spend else a.reserve
+            row["note"] = (f"no flight recorder; partial total_ai_calls={n_calls}, "
+                           f"total_input_tokens={n_in}, transcript turns={n_turns}")
+            if not zero_spend and n_calls == 0:
+                sys.stderr.write(f"WARN paid_batch_runner: {item['slug']} partial reports 0 AI calls but "
+                                 f"{n_in} input tokens and {n_turns} turns; booked at the reserve ${a.reserve}\n")
         row["status"] = "failed"; ledger["debates"].append(row); save(a.ledger, ledger)
         print(f"FAILED {item['slug']} rc={rc} after {secs}s, booked ${row['usd']}\n--- CLI output tail ---\n{tail}")
         return 4
