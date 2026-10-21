@@ -20,6 +20,7 @@
     { "file": "health-monitor.yml",           "maxSilentHours": 12  },
     { "file": "key-pool-health.yml",          "maxSilentHours": 60  },
     { "file": "main-ci-monitor.yml",          "maxSilentHours": 12  },
+    { "file": "models-drift.yml",             "maxSilentHours": 348 },
     { "file": "pr-triage.yml",                "maxSilentHours": 12  },
     { "file": "required-contexts-drift.yml",  "maxSilentHours": 60  }
   ]
