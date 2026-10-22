@@ -14,12 +14,15 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import requireFlightRecorderInCatch from '../lib/eslint-rules/require-flight-recorder-in-catch.js';
 import complexityBudget from '../lib/eslint-rules/complexity-budget.js';
 import requireWindowsHide from '../lib/eslint-rules/require-windows-hide.js';
+import requireWindowsHideDisableReason from '../lib/eslint-rules/require-windows-hide-disable-reason.js';
 
 const localPlugin = {
   rules: {
     'require-flight-recorder-in-catch': requireFlightRecorderInCatch,
     'complexity-budget': complexityBudget,
     'require-windows-hide': requireWindowsHide,
+    'require-windows-hide-unverifiable': requireWindowsHide,
+    'require-windows-hide-disable-reason': requireWindowsHideDisableReason,
   },
 };
 
@@ -46,7 +49,11 @@ export default tseslint.config(
       // Flashing-console prevention (t/3914, t/3922): child_process calls need windowsHide: true.
       // Blocking since t/4238 (T2: warn-first from 2026-10-05, then 0 hits in every package for a full CI
       // cycle). Demoting it back to 'warn' is itself a gate change.
-      'local/require-windows-hide': 'error',
+      'local/require-windows-hide': ['error', { report: 'missing' }],
+      // An unverifiable options object (a wrapper or cross-module options) warns only: no merge is blocked
+      // when no fix is available (TL e/351#2). A disable needs a reason + ticket (disable-reason rule).
+      'local/require-windows-hide-unverifiable': ['warn', { report: 'unverifiable' }],
+      'local/require-windows-hide-disable-reason': 'error',
     },
   },
   {

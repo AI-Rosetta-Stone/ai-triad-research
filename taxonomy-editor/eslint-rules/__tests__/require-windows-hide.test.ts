@@ -83,3 +83,21 @@ rt.run('require-windows-hide', rule, {
     { code: "import { spawn } from 'child_process'; spawn('git', [], { ...base });", errors: unverifiable },
   ],
 });
+
+// t/4238 (TL e/351#2): the same module runs at two severities. `report: 'missing'` (registered at error) never reports
+// an unverifiable call, and `report: 'unverifiable'` (registered at warn) never reports a definite miss.
+const MISSING_CALL = "import { spawn } from 'child_process'; spawn('git', ['status']);";
+const UNVERIFIABLE_CALL = "import { spawn } from 'child_process'; function f(o) { spawn('git', [], o); }";
+rt.run('require-windows-hide report option (t/4238)', rule, {
+  valid: [
+    { code: UNVERIFIABLE_CALL, options: [{ report: 'missing' }] },
+    { code: MISSING_CALL, options: [{ report: 'unverifiable' }] },
+  ],
+  invalid: [
+    { code: MISSING_CALL, options: [{ report: 'missing' }], errors: missing },
+    { code: UNVERIFIABLE_CALL, options: [{ report: 'unverifiable' }], errors: unverifiable },
+    // no option: both, as before t/4238
+    { code: MISSING_CALL, errors: missing },
+    { code: UNVERIFIABLE_CALL, options: [{ report: 'all' }], errors: unverifiable },
+  ],
+});

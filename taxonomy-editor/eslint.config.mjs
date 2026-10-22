@@ -34,6 +34,7 @@ import noRawDataRootRead from './eslint-rules/no-raw-data-root-read.js';
 import noDataRootWrite from './eslint-rules/no-data-root-write.js';
 import complexityBudget from '../lib/eslint-rules/complexity-budget.js';
 import requireWindowsHide from '../lib/eslint-rules/require-windows-hide.js';
+import requireWindowsHideDisableReason from '../lib/eslint-rules/require-windows-hide-disable-reason.js';
 import noBareThrow from '../lib/eslint-rules/no-bare-throw.js';
 
 const localPlugin = {
@@ -47,6 +48,8 @@ const localPlugin = {
     'no-data-root-write': noDataRootWrite,
     'complexity-budget': complexityBudget,
     'require-windows-hide': requireWindowsHide,
+    'require-windows-hide-unverifiable': requireWindowsHide,
+    'require-windows-hide-disable-reason': requireWindowsHideDisableReason,
     'no-bare-throw': noBareThrow,
   },
 };
@@ -120,7 +123,11 @@ export default tseslint.config(
       // Flashing-console prevention (t/3914, t/3922): child_process calls need windowsHide: true.
       // Blocking since t/4238 (T2: warn-first from 2026-10-05, then 0 hits in every package for a full CI
       // cycle). Demoting it back to 'warn' is itself a gate change.
-      'local/require-windows-hide': 'error',
+      'local/require-windows-hide': ['error', { report: 'missing' }],
+      // An unverifiable options object (a wrapper or cross-module options) warns only: no merge is blocked
+      // when no fix is available (TL e/351#2). A disable needs a reason + ticket (disable-reason rule).
+      'local/require-windows-hide-unverifiable': ['warn', { report: 'unverifiable' }],
+      'local/require-windows-hide-disable-reason': 'error',
     },
   },
   {
