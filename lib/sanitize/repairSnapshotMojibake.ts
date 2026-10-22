@@ -23,6 +23,8 @@
  * Conformance: mirrors the 12 gate cases in tests/Repair-SnapshotMojibake.Tests.ps1.
  */
 
+import { getGlobalRecorder } from '../flight-recorder/index.js';
+
 export type MojibakedVariant = 'none' | 'utf8-as-cp437' | 'cp1252-as-cp437';
 
 export interface SnapshotRepairResult {
@@ -110,6 +112,7 @@ const B_LEAD = 'ΓÇ';
  */
 function lenientUtf8Decode(bytes: Uint8Array, originalBody: string): string {
   const parts: string[] = [];
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   let i = 0;
   while (i < bytes.length) {
     const b0 = bytes[i];
@@ -122,7 +125,7 @@ function lenientUtf8Decode(bytes: Uint8Array, originalBody: string): string {
 
     if (seqLen > 0 && i + seqLen <= bytes.length) {
       try {
-        const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes.slice(i, i + seqLen));
+        const decoded = decoder.decode(bytes.slice(i, i + seqLen));
         parts.push(decoded);
         i += seqLen;
         continue;
@@ -143,6 +146,16 @@ function splitAtFirstRule(text: string): { head: string; body: string } {
   return m
     ? { head: text.slice(0, m.index + m[0].length), body: text.slice(m.index + m[0].length) }
     : { head: '', body: text };
+}
+
+/** Every applied repair is recorded (WARN, matching the PS counterpart) so repaired snapshots are diagnosable (t/4429). */
+function repaired(text: string, variant: Exclude<MojibakedVariant, 'none'>): SnapshotRepairResult {
+  getGlobalRecorder()?.record({
+    type: 'system.info', component: 'sanitize', level: 'warn',
+    message: `repairSnapshotMojibake: applied ${variant} repair`,
+    data: { variant },
+  });
+  return { text, variant };
 }
 
 // ── Main export ───────────────────────────────────────────────────────────
@@ -171,7 +184,7 @@ export function repairSnapshotMojibake(text: string): SnapshotRepairResult {
   //    as CP1252, which would be wrong.
   try {
     const asUtf8 = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    if (asUtf8 !== body) return { text: head + asUtf8, variant: 'utf8-as-cp437' };
+    if (asUtf8 !== body) return repaired(head + asUtf8, 'utf8-as-cp437');
   } catch { /* not valid strict UTF-8 — fall through */ }
 
   // 3b. Lenient UTF-8: only when there are ≥3 ΓÇ (U+0393 U+00C7) signatures.
@@ -182,7 +195,7 @@ export function repairSnapshotMojibake(text: string): SnapshotRepairResult {
 
   if (bLeadCount >= 3) {
     const lenient = lenientUtf8Decode(bytes, body);
-    if (lenient !== body) return { text: head + lenient, variant: 'utf8-as-cp437' };
+    if (lenient !== body) return repaired(head + lenient, 'utf8-as-cp437');
   }
 
   // 4. CP1252: decode the CP437 bytes as CP1252. Gate: smart punctuation must increase,
@@ -198,7 +211,7 @@ export function repairSnapshotMojibake(text: string): SnapshotRepairResult {
   const smartGain = countSmartChars(asCp1252) > countSmartChars(body);
   const hasVariantAChar = [...body].some(c => VARIANT_A_CHARS.has(c.codePointAt(0) ?? -1));
   if (smartGain && hasVariantAChar && isTypographic(asCp1252)) {
-    return { text: head + asCp1252, variant: 'cp1252-as-cp437' };
+    return repaired(head + asCp1252, 'cp1252-as-cp437');
   }
 
   return { text, variant: 'none' };
