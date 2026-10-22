@@ -16,6 +16,7 @@ import { readFileSync, readdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { resolve, dirname } from 'path';
 import { repairSnapshotMojibake } from './repairSnapshotMojibake.js';
+import { computeSourceContentHash } from '../sourceIndex/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,16 +54,20 @@ describe('repairSnapshotMojibake — fixture cases', () => {
 
 describe('repairSnapshotMojibake — read-path-only contract', () => {
 
-  it('SHA-256 of damaged bytes diverges from repaired bytes', () => {
+  it('computeSourceContentHash returns different hashes for damaged vs repaired text', () => {
     // content_sha256 is computed over raw bytes as written on disk (source-identity spec 1.1).
     // Repair changes the byte sequence, so the hashes must differ -- this documents that
-    // the repair must NEVER run on a hashing path.
-    const damaged = 'donÆt worry about it. The riskùreward ratio matters.';
+    // the repair must NEVER run on a hashing path. 8 words x 13 = 104, over MIN_HASH_BODY_WORDS (100),
+    // so the real hash function returns a digest rather than null.
+    const damaged = 'donÆt worry about it. The riskùreward ratio matters. '.repeat(13);
     const { text: repaired, variant } = repairSnapshotMojibake(damaged);
     expect(variant).toBe('cp1252-as-cp437');
-    const sha256 = (s: string) =>
-      createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex');
-    expect(sha256(damaged)).not.toBe(sha256(repaired));
+    const sha256Digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+    const damagedHash = computeSourceContentHash(damaged, sha256Digest);
+    const repairedHash = computeSourceContentHash(repaired, sha256Digest);
+    expect(damagedHash).not.toBeNull();
+    expect(repairedHash).not.toBeNull();
+    expect(damagedHash).not.toBe(repairedHash);
   });
 
   it('no non-test .ts file under lib/sourceIndex/ imports repairSnapshotMojibake', () => {
