@@ -1,0 +1,267 @@
+{
+  "label": "EXPLORATORY: post-data operationalisation of pre-registered supporting measures",
+  "motions_with_a1_to_a4": 10,
+  "crux_counts_a1_a2_a3_a4": {
+    "m01": [
+      6,
+      6,
+      7,
+      6
+    ],
+    "m02": [
+      7,
+      6,
+      6,
+      7
+    ],
+    "m03": [
+      8,
+      6,
+      7,
+      7
+    ],
+    "m04": [
+      5,
+      6,
+      6,
+      5
+    ],
+    "m05": [
+      7,
+      7,
+      4,
+      7
+    ],
+    "m06": [
+      6,
+      7,
+      7,
+      6
+    ],
+    "m07": [
+      8,
+      5,
+      5,
+      8
+    ],
+    "m08": [
+      6,
+      6,
+      6,
+      6
+    ],
+    "m09": [
+      5,
+      6,
+      5,
+      6
+    ],
+    "m10": [
+      6,
+      6,
+      6,
+      7
+    ]
+  },
+  "crux_soft_jaccard": {
+    "0.75": {
+      "between_a1_a3": {
+        "median": 0,
+        "per_motion": [
+          0.083,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "within_a1_a2": {
+        "median": 0,
+        "per_motion": [
+          0,
+          0,
+          0,
+          0.375,
+          0.077,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "within_a3_a4": {
+        "median": 0,
+        "per_motion": [
+          0.083,
+          0,
+          0,
+          0,
+          0,
+          0.083,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "0.80": {
+      "between_a1_a3": {
+        "median": 0,
+        "per_motion": [
+          0.083,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "within_a1_a2": {
+        "median": 0,
+        "per_motion": [
+          0,
+          0,
+          0,
+          0.1,
+          0.077,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "within_a3_a4": {
+        "median": 0,
+        "per_motion": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "0.85": {
+      "between_a1_a3": {
+        "median": 0,
+        "per_motion": [
+          0.083,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "within_a1_a2": {
+        "median": 0,
+        "per_motion": [
+          0,
+          0,
+          0,
+          0,
+          0.077,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "within_a3_a4": {
+        "median": 0,
+        "per_motion": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "tagged_cited_share": {
+    "a0": {
+      "debates": 10,
+      "median_cited_nodes": 6.5,
+      "critical_share": 0.938,
+      "institutional_share": 0.5
+    },
+    "a1": {
+      "debates": 10,
+      "median_cited_nodes": 6,
+      "critical_share": 0.792,
+      "institutional_share": 0.5
+    },
+    "a2": {
+      "debates": 10,
+      "median_cited_nodes": 5,
+      "critical_share": 0.917,
+      "institutional_share": 0.536
+    },
+    "a3": {
+      "debates": 10,
+      "median_cited_nodes": 5,
+      "critical_share": 0.775,
+      "institutional_share": 0.563
+    },
+    "a4": {
+      "debates": 10,
+      "median_cited_nodes": 5.5,
+      "critical_share": 0.792,
+      "institutional_share": 0.55
+    },
+    "a5": {
+      "debates": 9,
+      "median_cited_nodes": 5,
+      "critical_share": 1,
+      "institutional_share": 0.5
+    }
+  },
+  "corpus_base_rate": {
+    "nodes": 377,
+    "critical": 0.735,
+    "institutional": 0.594
+  },
+  "boost_check": [
+    {
+      "tag": "critical",
+      "a0": 0.938,
+      "prioritize": 0.917,
+      "scope": 0.792
+    },
+    {
+      "tag": "institutional",
+      "a0": 0.5,
+      "prioritize": 0.55,
+      "scope": 0.563
+    }
+  ],
+  "cited_ids_not_in_taxonomy": 0
+}
