@@ -24,13 +24,14 @@ const pathOf = (ref: string): string => {
 };
 
 describe('lib/data-formats/file-writers.json (t/4353)', () => {
-  it('is schema 1 and covers the five corpus files the CL measured', () => {
+  it('is schema 1 and covers the five corpus files the CL measured, plus situations.json (t/4356)', () => {
     expect(registry.schema).toBe(1);
     expect(Object.keys(registry.files).sort()).toEqual([
       'taxonomy/Origin/accelerationist.json',
       'taxonomy/Origin/edges.json',
       'taxonomy/Origin/embeddings.json',
       'taxonomy/Origin/safetyist.json',
+      'taxonomy/Origin/situations.json',
       'taxonomy/Origin/skeptic.json',
     ]);
   });

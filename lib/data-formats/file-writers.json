@@ -30,6 +30,15 @@
       ],
       "measured": {"ts-pretty2-lf-nl": "NOT identical at 7dc19c88: inline pov_tags prefix from the t/3962 write; this is the one file to normalise (t/4353)"}
     },
+    "taxonomy/Origin/situations.json": {
+      "format": "pretty2-lf-nl",
+      "definition": "JSON.stringify(obj, null, 2) + '\\n', UTF-8, no BOM, LF",
+      "writers": [
+        "ts:taxonomy-editor/src/main/fileIO.ts writeJsonFileAtomic (via writeTaxonomyFile, pov 'situations')",
+        "ts:taxonomy-editor/src/server/storage/fileIO.ts writeTaxonomyFile (hosted saves, pov 'situations'; appends '\\n' since #3613)"
+      ],
+      "measured": {"ts-pretty2-lf-nl": "NOT identical at 0bf4b9a1 (t/4356): 14 single-line inline '{ \"plain_description_version\": ... }' objects (lines 76693-77801, first at byte 5,576,293); every other line is byte-identical, no BOM, LF. Normalise with skeptic (t/4353)"}
+    },
     "taxonomy/Origin/edges.json": {
       "format": "edges-hybrid",
       "definition": "lib/edges/serializeEdges.ts serializeEdgesJson; docs/edges-json-format.md",
