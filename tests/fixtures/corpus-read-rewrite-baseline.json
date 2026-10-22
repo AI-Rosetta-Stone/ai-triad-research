@@ -1,13 +1,6 @@
 {
   "_doc": "Baseline for tests/CorpusJsonReadLint.Tests.ps1 (t/4366 AC3). Each key is '<repo-relative file>::<function>' for a function that reads with bare ConvertFrom-Json and writes the object back with ConvertTo-Json. A new hit fails the lint; an entry no longer found is a ratchet-down note (delete it). Every entry needs a reason and the ticket that owns it.",
   "entries": {
-    "scripts/AITriad/Public/Invoke-PolicyRefinement.ps1::Invoke-PolicyRefinement": { "reason": "policy_actions.json registry rewrite (its POV writes moved to the t/4356 funnel)", "ticket": "t/4425" },
-    "scripts/AITriad/Public/Repair-ResolvedBackfill.ps1::Repair-ResolvedBackfill": { "reason": "summaries/*.json rewriter, drift measured (t/4366#3): fix with ConvertFrom-JsonPreserveShape", "ticket": "t/4425" },
-    "scripts/AITriad/Public/Repair-UnmappedConcepts.ps1::Repair-UnmappedConcepts": { "reason": "summaries/*.json rewriter, drift measured (t/4366#3): fix with ConvertFrom-JsonPreserveShape", "ticket": "t/4425" },
-    "scripts/AITriad/Private/InvokePOVSummarySteps.ps1::Add-POVSummaryHintedConflict": { "reason": "conflicts/*.json rewriter, drift measured (t/4366#3)", "ticket": "t/4425" },
-    "scripts/AITriad/Private/InvokePOVSummarySteps.ps1::Add-POVSummaryUnhintedConflict": { "reason": "conflicts/*.json rewriter, drift measured (t/4366#3)", "ticket": "t/4425" },
-    "scripts/AITriad/Public/Find-Conflict.ps1::Find-Conflict": { "reason": "conflicts/*.json rewriter in a deprecated cmdlet: fix, or drop the entry when the cmdlet is removed", "ticket": "t/4425" },
-    "scripts/AITriad/Public/Approve-TaxonomyProposal.ps1::Approve-TaxonomyProposal": { "reason": "taxonomy/proposals/*.json rewriter; the proposal family drifts (t/4366#3)", "ticket": "t/4425" },
     "scripts/AITriad/Private/Update-DebateProgress.ps1::Update-DebateProgress": { "reason": "not corpus: a debate run's own progress state file", "ticket": "t/4366" },
     "scripts/AITriad/Public/Get-DebateIndexHealth.ps1::Get-DebateIndexHealth": { "reason": "not corpus: rewrites the derived debate index it checks", "ticket": "t/4366" },
     "scripts/AITriad/Public/Install-AITriadData.ps1::Install-AITriadData": { "reason": "not corpus: writes .aitriad.json config", "ticket": "t/4366" },

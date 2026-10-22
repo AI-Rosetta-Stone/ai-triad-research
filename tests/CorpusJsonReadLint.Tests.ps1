@@ -123,8 +123,10 @@ Describe 'Corpus JSON read-then-rewrite lint: the real tree against the baseline
     }
 
     It 'finds the known hits (the scan works)' {
-        $script:Hits.Count | Should -BeGreaterThan 10
-        $script:Hits | Should -Contain 'scripts/AITriad/Public/Repair-UnmappedConcepts.ps1::Repair-UnmappedConcepts'
+        # The corpus rewriters are fixed (t/4356, t/4425); what remains are the 4 non-corpus entries.
+        # The scanner itself is proven by the synthetic arms above.
+        $script:Hits.Count | Should -BeGreaterThan 0
+        $script:Hits | Should -Contain 'scripts/AITriad/Private/Update-DebateProgress.ps1::Update-DebateProgress'
     }
 
     It 'has no bare read-then-rewrite outside the baseline' {

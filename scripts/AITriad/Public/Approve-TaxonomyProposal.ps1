@@ -66,7 +66,7 @@ function Approve-TaxonomyProposal {
         return
     }
 
-    $ProposalData = Get-Content -Raw -Path $Path | ConvertFrom-Json
+    $ProposalData = ConvertFrom-JsonPreserveShape -Json (Get-Content -Raw -Path $Path)   # whole-file rewrite (t/4425)
 
     if (-not $ProposalData.proposals -or $ProposalData.proposals.Count -eq 0) {
         Write-OK 'No proposals in file.'

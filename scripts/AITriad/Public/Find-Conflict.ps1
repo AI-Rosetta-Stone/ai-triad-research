@@ -145,7 +145,7 @@ function Find-Conflict {
 
             if (Test-Path $existingPath) {
                 try {
-                    $conflictData = Get-Content $existingPath -Raw | ConvertFrom-Json -AsHashtable
+                    $conflictData = ConvertFrom-JsonPreserveShape -Json (Get-Content $existingPath -Raw) -AsDeepHashtable   # t/4425
                 }
                 catch {
                     Write-Warning "Skipping corrupt conflict file $($existingPath): $($_.Exception.Message)"
@@ -195,7 +195,7 @@ function Find-Conflict {
 
             if ($existingMatch) {
                 try {
-                    $conflictData = Get-Content $existingMatch.FullName -Raw | ConvertFrom-Json -AsHashtable
+                    $conflictData = ConvertFrom-JsonPreserveShape -Json (Get-Content $existingMatch.FullName -Raw) -AsDeepHashtable   # t/4425
                 }
                 catch {
                     Write-Warning "Skipping corrupt conflict file $($existingMatch.FullName): $($_.Exception.Message)"

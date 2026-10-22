@@ -532,7 +532,7 @@ function Add-POVSummaryHintedConflict {
     $ExistingPath = Join-Path $Context.ConflictsDir "$HintId.json"
 
     if (Test-Path $ExistingPath) {
-        $ConflictData = Get-Content $ExistingPath -Raw | ConvertFrom-Json -AsHashtable
+        $ConflictData = ConvertFrom-JsonPreserveShape -Json (Get-Content $ExistingPath -Raw) -AsDeepHashtable   # whole-file rewrite: keep timestamps (t/4425)
         if (Test-POVSummaryConflictLogged -ConflictData $ConflictData -DocId $Context.DocId) {
             Write-Info "  SKIP duplicate conflict instance: $HintId (doc already logged)"
             return
@@ -561,7 +561,7 @@ function Add-POVSummaryUnhintedConflict {
         Select-Object -First 1
 
     if ($ExistingMatch) {
-        $ConflictData = Get-Content $ExistingMatch.FullName -Raw | ConvertFrom-Json -AsHashtable
+        $ConflictData = ConvertFrom-JsonPreserveShape -Json (Get-Content $ExistingMatch.FullName -Raw) -AsDeepHashtable   # t/4425
         if (-not (Test-POVSummaryConflictLogged -ConflictData $ConflictData -DocId $DocId)) {
             Add-POVSummaryConflictInstance -ConflictData $ConflictData -Instance $Context.Instance -LinkedNodes $Context.LinkedNodes
             Write-Utf8NoBom -Path $ExistingMatch.FullName -Value ($ConflictData | ConvertTo-Json -Depth 10)
