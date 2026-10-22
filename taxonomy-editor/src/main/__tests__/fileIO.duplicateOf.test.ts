@@ -8,6 +8,13 @@
  * #3590) does — mirrors its `nodeSourceIndex.test.ts` duplicate_of describe block, plus a
  * parity test running the identical doc set through both `groupSourceIdentities` call sites.
  *
+ * t/4421 (t/4400's Electron leg): superseded the single-survivor collapse with the
+ * de-duplicated UNION of (node, quote) across the group (`lib/sourceIndex/evidenceUnion.ts`),
+ * mirroring the server's `resolveGroupRefs`/`mergeGroupEvidence` call site. Adds the two new
+ * server-side scenarios (distinct quote recovered, near-equal quote still deduped); the
+ * existing cases below are unaffected since their fixtures share an identical default
+ * `verbatim` ('v') across canonical and marked docs.
+ *
  * Point AI_TRIAD_DATA_ROOT at a temp dir BEFORE fileIO loads — same pattern as
  * fileIO.canonicalDocId.test.ts.
  */
@@ -30,11 +37,11 @@ import { buildNodeSourceIndex, getNodeSources } from '../fileIO.js';
 let summariesDir: string;
 let sourcesDir: string;
 
-function writeSummary(docId: string, nodeId: string, overrides: Partial<{ point: string }> = {}): void {
+function writeSummary(docId: string, nodeId: string, overrides: Partial<{ point: string; verbatim: string }> = {}): void {
   const summary = {
     pov_summaries: {
       accelerationist: {
-        key_points: [{ taxonomy_node_id: nodeId, stance: 'supports', point: overrides.point ?? 'a point', verbatim: 'v', excerpt_context: 'c' }],
+        key_points: [{ taxonomy_node_id: nodeId, stance: 'supports', point: overrides.point ?? 'a point', verbatim: overrides.verbatim ?? 'v', excerpt_context: 'c' }],
       },
     },
   };
@@ -113,6 +120,36 @@ describe('buildNodeSourceIndex / getNodeSources: duplicate_of (t/4377, parity wi
     const { sources } = getNodeSources('n1');
     expect(sources).toHaveLength(1);
     expect(sources[0].docId).toBe('report-2026');
+  });
+
+  // t/4337 section 7 (t/4421): a copy's run over byte-identical text often extracts a
+  // genuinely distinct key_point the canonical's run didn't. The old presence/absence
+  // dedupe (t/4377) dropped it entirely; the quote-level union keeps it, attributed to the
+  // canonical, alongside the canonical's own quote.
+  it("a marked copy's distinct quote is recovered, attributed to the canonical, not dropped (t/4337#60)", () => {
+    writeSourceMeta('canonical-2026', { title: 'Canonical', url: 'https://example.com/canonical' });
+    writeSourceMeta('copy-2026', { title: 'Copy', url: 'https://example.com/copy', duplicate_of: 'canonical-2026' });
+    writeSummary('canonical-2026', 'n1', { verbatim: 'US will double down on exporting its tech stack.' });
+    writeSummary('copy-2026', 'n1', { verbatim: 'Nations are seeking sovereign AI capabilities.' });
+
+    const { sources } = getNodeSources('n1');
+    expect(sources).toHaveLength(2); // both distinct quotes survive...
+    expect(sources.every(s => s.docId === 'canonical-2026' && s.canonicalDocId === 'canonical-2026')).toBe(true); // ...both attributed to the canonical
+    expect(new Set(sources.map(s => s.verbatim))).toEqual(new Set([
+      'US will double down on exporting its tech stack.',
+      'Nations are seeking sovereign AI capabilities.',
+    ]));
+  });
+
+  it("a marked copy's near-equal quote is still deduped — the canonical's wording wins the tie", () => {
+    writeSourceMeta('canonical-2026', { title: 'Canonical', url: 'https://example.com/canonical' });
+    writeSourceMeta('copy-2026', { title: 'Copy', url: 'https://example.com/copy', duplicate_of: 'canonical-2026' });
+    writeSummary('canonical-2026', 'n1', { verbatim: 'The US will double down on exporting its tech stack.' });
+    writeSummary('copy-2026', 'n1', { verbatim: 'the US will double-down on exporting its tech stack' });
+
+    const { sources } = getNodeSources('n1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].verbatim).toBe('The US will double down on exporting its tech stack.');
   });
 
   it('parity: buildNodeSourceIndex row count matches a direct groupSourceIdentities call on the same universe', () => {
