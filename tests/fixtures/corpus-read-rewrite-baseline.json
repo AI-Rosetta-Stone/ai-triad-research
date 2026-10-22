@@ -1,0 +1,27 @@
+{
+  "_doc": "Baseline for tests/CorpusJsonReadLint.Tests.ps1 (t/4366 AC3). Each key is '<repo-relative file>::<function>' for a function that reads with bare ConvertFrom-Json and writes the object back with ConvertTo-Json. A new hit fails the lint; an entry no longer found is a ratchet-down note (delete it). Every entry needs a reason and the ticket that owns it.",
+  "entries": {
+    "scripts/AITriad/Private/Invoke-ProposalApply.ps1::Invoke-ProposalApply": { "reason": "POV taxonomy writer: owned by the t/4356 canonical write funnel (Node serializer, -DateKind String read)", "ticket": "t/4356" },
+    "scripts/AITriad/Private/PolicyRegistryCore.ps1::Set-PolicyIdsOnNodes": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Find-PolicyAction.ps1::Find-PolicyAction": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Find-PossibleFallacy.ps1::Find-PossibleFallacy": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Invoke-AphorismBatch.ps1::Invoke-AphorismBatch": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Invoke-AttributeExtraction.ps1::Invoke-AttributeExtraction": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Invoke-PolicyRefinement.ps1::Invoke-PolicyRefinement": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Repair-PovDescriptions.ps1::Repair-PovDescriptions": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Repair-SituationReciprocity.ps1::Repair-SituationReciprocity": { "reason": "situations.json writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Invoke-BDIWeightAssignment.ps1::Invoke-BDIWeightAssignment": { "reason": "POV taxonomy writer: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Private/RepairPovLineageSteps.ps1::Sync-LineageTaxonomyUrl": { "reason": "taxonomy file writer in the lineage repair: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Private/RepairPovLineageSteps.ps1::Save-LineageRegenFile": { "reason": "taxonomy file writer in the lineage repair: t/4356 write funnel", "ticket": "t/4356" },
+    "scripts/AITriad/Public/Repair-ResolvedBackfill.ps1::Repair-ResolvedBackfill": { "reason": "summaries/*.json rewriter, drift measured (t/4366#3): fix with ConvertFrom-JsonPreserveShape", "ticket": "t/4425" },
+    "scripts/AITriad/Public/Repair-UnmappedConcepts.ps1::Repair-UnmappedConcepts": { "reason": "summaries/*.json rewriter, drift measured (t/4366#3): fix with ConvertFrom-JsonPreserveShape", "ticket": "t/4425" },
+    "scripts/AITriad/Private/InvokePOVSummarySteps.ps1::Add-POVSummaryHintedConflict": { "reason": "conflicts/*.json rewriter, drift measured (t/4366#3)", "ticket": "t/4425" },
+    "scripts/AITriad/Private/InvokePOVSummarySteps.ps1::Add-POVSummaryUnhintedConflict": { "reason": "conflicts/*.json rewriter, drift measured (t/4366#3)", "ticket": "t/4425" },
+    "scripts/AITriad/Public/Find-Conflict.ps1::Find-Conflict": { "reason": "conflicts/*.json rewriter in a deprecated cmdlet: fix, or drop the entry when the cmdlet is removed", "ticket": "t/4425" },
+    "scripts/AITriad/Public/Approve-TaxonomyProposal.ps1::Approve-TaxonomyProposal": { "reason": "taxonomy/proposals/*.json rewriter; the proposal family drifts (t/4366#3)", "ticket": "t/4425" },
+    "scripts/AITriad/Private/Update-DebateProgress.ps1::Update-DebateProgress": { "reason": "not corpus: a debate run's own progress state file", "ticket": "t/4366" },
+    "scripts/AITriad/Public/Get-DebateIndexHealth.ps1::Get-DebateIndexHealth": { "reason": "not corpus: rewrites the derived debate index it checks", "ticket": "t/4366" },
+    "scripts/AITriad/Public/Install-AITriadData.ps1::Install-AITriadData": { "reason": "not corpus: writes .aitriad.json config", "ticket": "t/4366" },
+    "scripts/AITriad/Public/Update-SyntheticCorpus.ps1::Update-SyntheticCorpus": { "reason": "not corpus: the synthetic test corpus", "ticket": "t/4366" }
+  }
+}
