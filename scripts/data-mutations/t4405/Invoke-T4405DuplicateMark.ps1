@@ -63,6 +63,11 @@ $Human = @{
     'text-2026'   = 'world-economic-outlook-update-global-economy-steady-amid-2026-2'
     'text-2026-1' = 'world-economic-outlook-update-global-economy-steady-amid-2026-2'
 }
+# Recorded canonical decisions for a guard-flagged canonical (SO condition 3: an override needs a decision).
+# "keep" clears the hold: the C6 canonical stays and its same-raw twins are marked to it.
+$CanonicalDecisions = [ordered]@{
+    'how-brussels-effect-hinders-innovation-global-south-2026-3' = 'keep: no override (CL content check t/4405#10)'
+}
 $JunkRx = '(^|/)\.|thumbs\.db$|desktop\.ini$'
 
 function Get-Sha256Hex([byte[]]$Bytes) {
@@ -233,6 +238,14 @@ if ($Mode -eq 'Freeze') {
         }
     }
 
+    # Apply the recorded canonical decisions: a "keep" removes the hold, and the decision goes into the list.
+    $decisions = [System.Collections.Generic.List[object]]::new()
+    foreach ($c in @($CanonicalDecisions.Keys)) {
+        if (-not $suspect.ContainsKey($c)) { throw "canonical decision for $c, but the guards no longer flag it; remove the decision" }
+        $decisions.Add([ordered]@{ canonical = $c; flagged = $suspect[$c]; decision = $CanonicalDecisions[$c] })
+        if ($CanonicalDecisions[$c] -like 'keep*') { $suspect.Remove($c) }
+    }
+
     $rawArr = @{}; foreach ($k in $raw.Keys) { $rawArr[$k] = [string[]]$raw[$k] }
     $shArr = @{}; foreach ($k in $sharers.Keys) { $shArr[$k] = [string[]]$sharers[$k] }
     $plan = Get-T4405MarkPlan -Groups $groups -Raw $rawArr -Sharers $shArr -TitleKey $titleKey -TitleWeak $weak `
@@ -270,6 +283,7 @@ if ($Mode -eq 'Freeze') {
         marks = $marks.ToArray(); marks_without_metadata = $noMeta.ToArray()
         review = @($plan.Review | ForEach-Object { [ordered]@{ canonical = $_.canonical; member = $_.member; reason = $_.reason } })
         blobs_3plus = @($plan.Blobs | ForEach-Object { [ordered]@{ blob = $_.blob; group = $_.group; accepted = $_.accepted; docs = @($_.docs); titles = @($_.titles) } })
+        canonical_decisions = $decisions.ToArray()
         c9_union_support = $c9Support.ToArray()
         files = $files; group_input = $groupInput
     }

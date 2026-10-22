@@ -2,14 +2,14 @@
   "ticket": "t/4405",
   "scope": "marks only: R1 same-raw, R2 PI-approved (t/4398#4-5), t/4402 human-reviewed; metadata fixes are a separate list (TL p/360#670)",
   "guards": "SO e/348#2 conditions 1-7 as accepted by the TL (e/348#3, #10); 3+ blob: review unless every sharer is in the group and their non-weak titles agree",
-  "frozen_at": "2026-10-22T09:44:52.4277351Z",
+  "frozen_at": "2026-10-22T10:34:43.0189662Z",
   "sources_commit": "58ca2fc857cef25ed01d9747e580bd581059b9c6",
   "data_commit": "0bf4b9a142b94b76e5edcbdf834b3f710b56e77b",
   "counts": {
     "review_groups": 29,
-    "marks": 47,
+    "marks": 53,
     "marks_by_basis": {
-      "r1-same-raw": 18,
+      "r1-same-raw": 24,
       "r2-pi-approved": 12,
       "human-reviewed-t4402": 2,
       "c9-deferred-t4337": 15
@@ -17,7 +17,7 @@
     "c9_deferred": 15,
     "c9_unsupported_left_deferred": 0,
     "marks_without_metadata": 0,
-    "review": 17,
+    "review": 11,
     "blobs_3plus": 14,
     "blobs_3plus_accepted": 5
   },
@@ -161,6 +161,48 @@
       "duplicate_of_ref": "t4405-review-2026-10#r2-pi-approved",
       "basis": "r2-pi-approved",
       "group": "governor-newsom-issues-executive-order-accelerate-2026"
+    },
+    {
+      "id": "how-brussels-effect-hinders-innovation-global-south-2026",
+      "duplicate_of": "how-brussels-effect-hinders-innovation-global-south-2026-3",
+      "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
+      "basis": "r1-same-raw",
+      "group": "how-brussels-effect-hinders-innovation-global-south-2026-3"
+    },
+    {
+      "id": "how-brussels-effect-hinders-innovation-global-south-2026-1",
+      "duplicate_of": "how-brussels-effect-hinders-innovation-global-south-2026-3",
+      "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
+      "basis": "r1-same-raw",
+      "group": "how-brussels-effect-hinders-innovation-global-south-2026-3"
+    },
+    {
+      "id": "how-brussels-effect-hinders-innovation-global-south-2026-2",
+      "duplicate_of": "how-brussels-effect-hinders-innovation-global-south-2026-3",
+      "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
+      "basis": "r1-same-raw",
+      "group": "how-brussels-effect-hinders-innovation-global-south-2026-3"
+    },
+    {
+      "id": "how-brussels-effect-hinders-innovation-global-south-reports-2026",
+      "duplicate_of": "how-brussels-effect-hinders-innovation-global-south-2026-3",
+      "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
+      "basis": "r1-same-raw",
+      "group": "how-brussels-effect-hinders-innovation-global-south-2026-3"
+    },
+    {
+      "id": "how-brussels-effect-hinders-innovation-global-south-reports-2026-1",
+      "duplicate_of": "how-brussels-effect-hinders-innovation-global-south-2026-3",
+      "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
+      "basis": "r1-same-raw",
+      "group": "how-brussels-effect-hinders-innovation-global-south-2026-3"
+    },
+    {
+      "id": "how-brussels-effect-hinders-innovation-global-south-reports-2026-2",
+      "duplicate_of": "how-brussels-effect-hinders-innovation-global-south-2026-3",
+      "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
+      "basis": "r1-same-raw",
+      "group": "how-brussels-effect-hinders-innovation-global-south-2026-3"
     },
     {
       "id": "how-existing-liability-frameworks-can-handle-agentic-ai-2026-1",
@@ -388,36 +430,6 @@
       "canonical": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
       "member": "eight-ways-ai-will-shape-geopolitics-2026-atlantic-council-2026-1",
       "reason": "blob-shared-outside-group"
-    },
-    {
-      "canonical": "how-brussels-effect-hinders-innovation-global-south-2026-3",
-      "member": "how-brussels-effect-hinders-innovation-global-south-2026",
-      "reason": "canonical-override-needs-decision: cp437-damaged (cp1252-as-cp437)"
-    },
-    {
-      "canonical": "how-brussels-effect-hinders-innovation-global-south-2026-3",
-      "member": "how-brussels-effect-hinders-innovation-global-south-2026-1",
-      "reason": "canonical-override-needs-decision: cp437-damaged (cp1252-as-cp437)"
-    },
-    {
-      "canonical": "how-brussels-effect-hinders-innovation-global-south-2026-3",
-      "member": "how-brussels-effect-hinders-innovation-global-south-2026-2",
-      "reason": "canonical-override-needs-decision: cp437-damaged (cp1252-as-cp437)"
-    },
-    {
-      "canonical": "how-brussels-effect-hinders-innovation-global-south-2026-3",
-      "member": "how-brussels-effect-hinders-innovation-global-south-reports-2026",
-      "reason": "canonical-override-needs-decision: cp437-damaged (cp1252-as-cp437)"
-    },
-    {
-      "canonical": "how-brussels-effect-hinders-innovation-global-south-2026-3",
-      "member": "how-brussels-effect-hinders-innovation-global-south-reports-2026-1",
-      "reason": "canonical-override-needs-decision: cp437-damaged (cp1252-as-cp437)"
-    },
-    {
-      "canonical": "how-brussels-effect-hinders-innovation-global-south-2026-3",
-      "member": "how-brussels-effect-hinders-innovation-global-south-reports-2026-2",
-      "reason": "canonical-override-needs-decision: cp437-damaged (cp1252-as-cp437)"
     },
     {
       "canonical": "incentive-aware-ai-regulations-credal-characterisation-2026-2",
@@ -730,6 +742,13 @@
       ]
     }
   ],
+  "canonical_decisions": [
+    {
+      "canonical": "how-brussels-effect-hinders-innovation-global-south-2026-3",
+      "flagged": "cp437-damaged (cp1252-as-cp437)",
+      "decision": "keep: no override (CL content check t/4405#10)"
+    }
+  ],
   "c9_union_support": [
     {
       "id": "prompt-injection-as-role-confusion-2026",
@@ -1035,6 +1054,24 @@
     },
     "governor-newsom-issues-executive-order-accelerate-2026-2": {
       "pre_sha256": "e2f070253029ad53dd44dfca7c7228ebff1b94270117cd6971ea79d9f600db67"
+    },
+    "how-brussels-effect-hinders-innovation-global-south-2026": {
+      "pre_sha256": "1d7d5957a06016f925bfc43356d23febb8853f9269b53e4c847d3c3e8304143a"
+    },
+    "how-brussels-effect-hinders-innovation-global-south-2026-1": {
+      "pre_sha256": "b2bad6f72d542ddb674e7ed472a809b2602acb168bf2e0ad607e76550c4969a4"
+    },
+    "how-brussels-effect-hinders-innovation-global-south-2026-2": {
+      "pre_sha256": "bb9fe8e739acd35c39ae5aecb9280c53070198a15c9f8dc70a07125c43ab4dd5"
+    },
+    "how-brussels-effect-hinders-innovation-global-south-reports-2026": {
+      "pre_sha256": "7df1107ff3fd5f4a74958e5e1d5cd33e456a4dd5979895539674dc73334f8f94"
+    },
+    "how-brussels-effect-hinders-innovation-global-south-reports-2026-1": {
+      "pre_sha256": "a3d5e5fcf3bed4ae47522e670a882dcc5e8737b560f9a48661a9493f91edfe0e"
+    },
+    "how-brussels-effect-hinders-innovation-global-south-reports-2026-2": {
+      "pre_sha256": "393aa212b3247699e706b8ede217adce86109e5b3f5484e8c6250ffc1ae45140"
     },
     "how-existing-liability-frameworks-can-handle-agentic-ai-2026-1": {
       "pre_sha256": "dcbddab3c1b5257af221ae07d968bd892490a777a15d4492c51cee6ffc275cac"
