@@ -58,7 +58,9 @@ foreach ($containerAppName in $ContainerAppNames) {
         $label = "$containerAppName/$containerSecretName"
         $deployValue = $DeploySourceValues[$containerSecretName]
         if ([string]::IsNullOrEmpty($deployValue)) {
-            Write-Host "$label`: skipped (no deploy-source value configured for this environment)"
+            # t/4418: a WARNING, not a plain line. A silent skip hid that GitHub was never checked
+            # (its deploy-source secret name was wrong) on every deploy until 2026-10-21.
+            Write-Host "::warning::$label`: skipped (no deploy-source value configured for this environment) — this secret is NOT drift-checked."
             continue
         }
 

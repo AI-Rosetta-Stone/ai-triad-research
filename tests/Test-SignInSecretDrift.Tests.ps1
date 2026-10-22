@@ -81,6 +81,8 @@ Describe 'Test-SignInSecretDrift' {
             $output = & "$PSScriptRoot/../operations/devops/Test-SignInSecretDrift.ps1" `
                 -DeploySourceValues @{ 'google-client-secret' = '' } *>&1 | Out-String
             $output | Should -Match 'skipped'
+            # t/4418: the skip must be a visible warning annotation, not a plain line.
+            $output | Should -Match '::warning::.*google-client-secret: skipped'
         }
     }
 
