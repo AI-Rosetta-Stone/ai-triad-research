@@ -29,6 +29,7 @@ import {
   type NodeEmbeddingMap,
   type SelectRelevantTaxonomyInput,
 } from '../../../../lib/debate/relevanceSelection.js';
+import { buildSupersessionIndex } from '../../../../lib/debate/supersession.js';
 
 type PovNode = SelectRelevantTaxonomyInput['povNodes'][number];
 type SituationNode = SelectRelevantTaxonomyInput['situationNodes'][number];
@@ -78,7 +79,11 @@ export function getAssembledCorpus(pov: string): Promise<AssembledCorpus> {
 
 async function assemble(pov: string): Promise<AssembledCorpus> {
   const povFile = await fileIO.readTaxonomyFile(pov, { ref: 'main' }) as { nodes?: PovNode[] };
-  const povNodes = povFile?.nodes ?? [];
+  // t/4433: score only the selectable set, as loadTaxonomy does. Superseded nodes stay in the file
+  // for history but must never be relevance candidates, attribution targets or grounding nodes.
+  const allPovNodes = povFile?.nodes ?? [];
+  const { isSuperseded } = buildSupersessionIndex(allPovNodes);
+  const povNodes = allPovNodes.filter(n => !isSuperseded(n.id));
   const sitFile = await fileIO.readTaxonomyFile('situations', { ref: 'main' }) as { nodes?: SituationNode[] };
   const situationNodes = sitFile?.nodes ?? [];
   // loadSyntheticEmbeddings already reads with { ref: 'main' } internally (fileIO).
