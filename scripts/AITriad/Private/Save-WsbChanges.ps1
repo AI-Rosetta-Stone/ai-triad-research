@@ -10,7 +10,7 @@ function Save-WsbChanges {
         Repair-SituationReciprocity write contract exactly:
           - BLOCK-tier: pre-flight every target through Assert-CleanDataTree and abort atomically
             (write nothing) if ANY is already dirty — there is no -AllowDirty.
-          - Writes via Write-Utf8NoBom -RequireCleanTree, ConvertTo-Json -Depth 40 (LF, no BOM).
+          - Writes via Write-PovTaxonomyFile -RequireCleanTree: canonical TS format through Node (t/4356).
           - Honors -WhatIf / -DryRun; never commits or pushes.
         Returns the list of file paths written (empty on dry-run / no-op).
     .OUTPUTS
@@ -67,7 +67,7 @@ function Save-WsbChanges {
 
     if ($SitDirty) {
         if ($ShouldProcessCmdlet.ShouldProcess($SitPath, $ActionLabel)) {
-            ($SitData | ConvertTo-Json -Depth 40) | Write-Utf8NoBom -Path $SitPath -RequireCleanTree
+            Write-PovTaxonomyFile -Path $SitPath -Data $SitData -RequireCleanTree
             $written.Add($SitPath)
             Write-Host "  Wrote $(Split-Path -Leaf $SitPath)" -ForegroundColor Green
         }
@@ -75,7 +75,7 @@ function Save-WsbChanges {
     foreach ($k in $povDirty) {
         $entry = $PovFiles[$k]
         if ($ShouldProcessCmdlet.ShouldProcess($entry.Path, $ActionLabel)) {
-            ($entry.Data | ConvertTo-Json -Depth 40) | Write-Utf8NoBom -Path $entry.Path -RequireCleanTree
+            Write-PovTaxonomyFile -Path $entry.Path -Data $entry.Data -RequireCleanTree
             $written.Add($entry.Path)
             Write-Host "  Wrote $(Split-Path -Leaf $entry.Path)" -ForegroundColor Green
         }

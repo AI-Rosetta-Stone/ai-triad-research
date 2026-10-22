@@ -276,12 +276,12 @@ function Set-PolicyIdsOnNodes {
     }
     foreach ($PovKey in $ByPov.Keys) {
         $FilePath = Join-Path $TaxDir "$PovKey.json"
-        $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        $FileData = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read (t/4356)
         foreach ($Asg in $ByPov[$PovKey]) {
             $Node = @($FileData.nodes | Where-Object { $_.id -eq $Asg.NodeId })[0]
             if ($Node) { Set-FirstUnassignedPolicyId -Node $Node -Action $Asg.Action -NewId $Asg.NewId }
         }
-        $FileData | ConvertTo-Json -Depth 20 | Write-Utf8NoBom -Path $FilePath
+        Write-PovTaxonomyFile -Path $FilePath -Data $FileData   # canonical TS format (t/4356)
     }
 }
 

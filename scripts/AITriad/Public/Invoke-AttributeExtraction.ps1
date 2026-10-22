@@ -127,7 +127,7 @@ function Invoke-AttributeExtraction {
         }
 
         Write-Step "Loading $PovKey"
-        $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        $FileData = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
 
         # Identify nodes needing attributes. Work list only: superseded nodes get no AI call;
         # $FileData (the written file) keeps them (t/4356).
@@ -315,9 +315,8 @@ $SchemaPrompt
             if ($PSCmdlet.ShouldProcess($FilePath, 'Write updated taxonomy file')) {
                 # Update last_modified
                 $FileData.last_modified = (Get-Date).ToString('yyyy-MM-dd')
-                $Json = $FileData | ConvertTo-Json -Depth 20
                 try {
-                    Write-Utf8NoBom -Path $FilePath -Value $Json 
+                    Write-PovTaxonomyFile -Path $FilePath -Data $FileData   # canonical TS format (t/4356)
                     Write-OK "Saved $PovKey ($FilePath)"
                     $WrittenNodeIds.AddRange($FileNodeIds)
                     $PriorPolicyIds.AddRange($FilePriorIds)

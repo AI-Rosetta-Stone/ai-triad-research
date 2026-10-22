@@ -69,14 +69,14 @@ function Repair-SituationReciprocity {
     }
 
     # ── Load ──
-    $SitData = Get-Content -Raw -LiteralPath $SitPath | ConvertFrom-Json
+    $SitData = Read-PovTaxonomyFile -Path $SitPath   # shape-preserving read for the canonical write (t/4356)
     $PovFiles  = @{}                                 # povKey -> @{ Path; Data }
     $NodeIndex = @{}                                 # POV node id -> node object
     $NodePovKey = @{}                                # POV node id -> its povKey (which file to mark dirty)
     foreach ($k in $PovKeys) {
         $p = Join-Path $TaxDir "$k.json"
         if (-not (Test-Path -LiteralPath $p)) { continue }
-        $d = Get-Content -Raw -LiteralPath $p | ConvertFrom-Json
+        $d = Read-PovTaxonomyFile -Path $p
         $PovFiles[$k] = @{ Path = $p; Data = $d }
         foreach ($n in @($d.nodes)) { $NodeIndex[$n.id] = $n; $NodePovKey[$n.id] = $k }
     }
@@ -182,7 +182,7 @@ function Repair-SituationReciprocity {
 
         if ($SitDirty) {
             if ($PSCmdlet.ShouldProcess($SitPath, "Reconcile $($ReverseAdded.Count) linked_node(s)")) {
-                ($SitData | ConvertTo-Json -Depth 40) | Write-Utf8NoBom -Path $SitPath -RequireCleanTree
+                Write-PovTaxonomyFile -Path $SitPath -Data $SitData -RequireCleanTree   # canonical TS format (t/4356)
                 $FilesWritten.Add($SitPath)
                 Write-Host "  Wrote $(Split-Path -Leaf $SitPath)" -ForegroundColor Green
             }
@@ -190,7 +190,7 @@ function Repair-SituationReciprocity {
         foreach ($k in $DirtyPovKeys) {
             $entry = $PovFiles[$k]
             if ($PSCmdlet.ShouldProcess($entry.Path, 'Reconcile situation_ref(s)')) {
-                ($entry.Data | ConvertTo-Json -Depth 40) | Write-Utf8NoBom -Path $entry.Path -RequireCleanTree
+                Write-PovTaxonomyFile -Path $entry.Path -Data $entry.Data -RequireCleanTree
                 $FilesWritten.Add($entry.Path)
                 Write-Host "  Wrote $(Split-Path -Leaf $entry.Path)" -ForegroundColor Green
             }

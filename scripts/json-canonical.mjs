@@ -39,13 +39,20 @@ function parseArgs(argv) {
   return args;
 }
 
-/** The registry entry whose key is a path suffix of target (forward slashes, case-sensitive). */
+/**
+ * The registry entry for target (forward slashes, case-sensitive): the key that is a path suffix of it, or
+ * else the one key with the same file name. The taxonomy directory is configurable (.aitriad.json, tests),
+ * so a POV file is identified by its name; an ambiguous or unknown name gets no entry and is refused.
+ */
 export function findRegistryEntry(registry, target) {
   const norm = target.replace(/\\/g, '/');
-  for (const [key, entry] of Object.entries(registry.files ?? {})) {
+  const entries = Object.entries(registry.files ?? {});
+  for (const [key, entry] of entries) {
     if (norm === key || norm.endsWith(`/${key}`)) return { key, entry };
   }
-  return null;
+  const base = norm.slice(norm.lastIndexOf('/') + 1);
+  const byName = entries.filter(([key]) => key.slice(key.lastIndexOf('/') + 1) === base);
+  return byName.length === 1 ? { key: byName[0][0], entry: byName[0][1] } : null;
 }
 
 /** The canonical text for a parsed document. */

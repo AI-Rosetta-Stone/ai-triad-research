@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Invoke-PolicyRefinement {
@@ -90,7 +90,7 @@ function Invoke-PolicyRefinement {
     foreach ($PovKey in $PovFiles) {
         $FilePath = Join-Path $TaxDir "$PovKey.json"
         if (Test-Path $FilePath) {
-            $TaxData[$PovKey] = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+            $TaxData[$PovKey] = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read (t/4356)
         }
     }
 
@@ -325,7 +325,7 @@ INSTRUCTIONS:
             if (-not $TaxData.ContainsKey($PovKey)) { continue }
             $FilePath = Join-Path $TaxDir "$PovKey.json"
             if ($PSCmdlet.ShouldProcess($FilePath, 'Write updated taxonomy file')) {
-                $TaxData[$PovKey] | ConvertTo-Json -Depth 20 | Write-Utf8NoBom -Path $FilePath 
+                Write-PovTaxonomyFile -Path $FilePath -Data $TaxData[$PovKey]   # canonical TS format (t/4356)
                 Write-OK "Saved $PovKey"
             }
         }

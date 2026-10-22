@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Invoke-ProposalApply {
@@ -47,7 +47,7 @@ function Invoke-ProposalApply {
     }
 
     try {
-        $Raw = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        $Raw = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
     } catch {
         return [PSCustomObject]@{ Success = $false; Error = "Failed to parse $FileName`: $_" }
     }
@@ -436,9 +436,8 @@ function Invoke-ProposalApply {
     }
 
     $Raw.last_modified = $Today
-    $Json = $Raw | ConvertTo-Json -Depth 20
     try {
-        Write-Utf8NoBom -Path $FilePath -Value $Json 
+        Write-PovTaxonomyFile -Path $FilePath -Data $Raw   # canonical TS format (t/4356)
     }
     catch {
         return [PSCustomObject]@{ Success = $false; Error = "Failed to write $FileName — $($_.Exception.Message)" }

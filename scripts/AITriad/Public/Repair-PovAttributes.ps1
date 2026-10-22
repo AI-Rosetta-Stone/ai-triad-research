@@ -89,7 +89,7 @@ function Repair-PovAttributes {
     foreach ($PovName in $PovFiles) {
         $FilePath = Join-Path $TaxDir "$PovName.json"
         if (-not (Test-Path $FilePath)) { continue }
-        $Data = Get-Content $FilePath -Raw | ConvertFrom-Json
+        $Data = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
         $TaxData[$PovName] = $Data
 
         foreach ($Node in $Data.nodes) {
@@ -271,8 +271,7 @@ No markdown fences, no explanation.
     if ($TotalFixed -gt 0 -and -not $WhatIfPreference) {
         foreach ($PovName in $TaxData.Keys) {
             $FilePath = Join-Path $TaxDir "$PovName.json"
-            Assert-DataWriteAllowed -Path $FilePath  # t/2902
-            $TaxData[$PovName] | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8
+            Write-PovTaxonomyFile -Path $FilePath -Data $TaxData[$PovName]   # canonical TS format (t/4356)
         }
         Write-Host "`nSaved taxonomy files" -ForegroundColor Green
     }

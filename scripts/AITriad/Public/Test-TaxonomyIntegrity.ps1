@@ -89,7 +89,7 @@ function Test-TaxonomyIntegrity {
     foreach ($PovKey in $PovFiles) {
         $FilePath = Join-Path $TaxDir "$PovKey.json"
         if (-not (Test-Path $FilePath)) { continue }
-        $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        $FileData = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the -Fix write (t/4356)
         $LoadedFiles[$PovKey] = @{ Path = $FilePath; Data = $FileData }
 
         foreach ($Node in $FileData.nodes) {
@@ -422,7 +422,7 @@ function Test-TaxonomyIntegrity {
         # Save modified files
         foreach ($PovKey in $Dirty.Keys) {
             $Entry = $LoadedFiles[$PovKey]
-            ($Entry.Data | ConvertTo-Json -Depth 20) -replace "`r`n", "`n" | Set-Content -Path $Entry.Path -Encoding UTF8 -NoNewline
+            Write-PovTaxonomyFile -Path $Entry.Path -Data $Entry.Data   # canonical TS format (t/4356)
             Write-Host "    Saved $($Entry.Path)" -ForegroundColor Green
         }
 

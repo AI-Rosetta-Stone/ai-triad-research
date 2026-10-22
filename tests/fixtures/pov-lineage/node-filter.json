@@ -47,7 +47,7 @@
   ],
   "writes": [
     "calibration/core/lineage-enrichments.json (encoding=utf-8, bom=False)",
-    "taxonomy/Origin/accelerationist.json (encoding=utf-8, bom=False)"
+    "taxonomy/Origin/accelerationist.json (canonical)"
   ],
   "tree": {
     "calibration/": "(dir)",

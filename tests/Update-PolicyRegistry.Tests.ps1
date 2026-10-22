@@ -11,8 +11,9 @@
 # so a re-run can't re-mint an already-referenced (but unpersisted) id.
 #
 # The dirty-tree guard is git-based and inert in a non-git TestDrive, so the distinguishing signal is
-# the WRITE COUNT (1 per file with the fix vs N without). Write-Utf8NoBom is mocked as a counting
-# pass-through (real Set-Content) so the cmdlet's post-fix re-scan still sees the persisted edits.
+# the WRITE COUNT (1 per file with the fix vs N without). POV files go through Write-PovTaxonomyFile
+# (the canonical funnel, t/4356), spied as a counting pass-through to the real funnel, and the registry
+# through Write-Utf8NoBom (real Set-Content), so the cmdlet's post-fix re-scan still sees the persisted edits.
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
@@ -48,11 +49,14 @@ Describe 'Update-PolicyRegistry -Fix (t/3431 batched write + idempotent MaxId)' 
                 . (Join-Path $PSScriptRoot 'PolicyPovFixture.ps1'); Add-PolicyPovFillers -Dir $TempDir
                 Mock Get-TaxonomyDir { $TempDir }
                 Mock Write-Utf8NoBom { Set-Content -Path $Path -Value $Value -Encoding utf8 }
+                # POV files go through the canonical funnel (t/4356): a counting pass-through to the real one.
+                $script:RealFunnel = ${function:Write-PovTaxonomyFile}
+                Mock Write-PovTaxonomyFile { & $script:RealFunnel -Path $Path -Data $Data -RequireCleanTree:$RequireCleanTree -AllowDirty:$AllowDirty }
 
                 { Update-PolicyRegistry -Fix } | Should -Not -Throw
 
                 # THE regression assertion: exactly ONE write for situations.json (old code = 3, one per action).
-                Should -Invoke Write-Utf8NoBom -Times 1 -Exactly -ParameterFilter { $Path -like '*situations.json' }
+                Should -Invoke Write-PovTaxonomyFile -Times 1 -Exactly -ParameterFilter { $Path -like '*situations.json' }
 
                 # All 3 actions now carry ids in the file; ids are the next 3 after the registry max.
                 $sit = Get-Content -Raw -Path (Join-Path $TempDir 'situations.json') | ConvertFrom-Json
@@ -103,6 +107,9 @@ Describe 'Update-PolicyRegistry -Fix (t/3431 batched write + idempotent MaxId)' 
                 . (Join-Path $PSScriptRoot 'PolicyPovFixture.ps1'); Add-PolicyPovFillers -Dir $TempDir
                 Mock Get-TaxonomyDir { $TempDir }
                 Mock Write-Utf8NoBom { Set-Content -Path $Path -Value $Value -Encoding utf8 }
+                # POV files go through the canonical funnel (t/4356): a counting pass-through to the real one.
+                $script:RealFunnel = ${function:Write-PovTaxonomyFile}
+                Mock Write-PovTaxonomyFile { & $script:RealFunnel -Path $Path -Data $Data -RequireCleanTree:$RequireCleanTree -AllowDirty:$AllowDirty }
 
                 Update-PolicyRegistry -Fix | Out-Null
 
@@ -136,10 +143,13 @@ Describe 'Update-PolicyRegistry -Fix (t/3431 batched write + idempotent MaxId)' 
                 . (Join-Path $PSScriptRoot 'PolicyPovFixture.ps1'); Add-PolicyPovFillers -Dir $TempDir
                 Mock Get-TaxonomyDir { $TempDir }
                 Mock Write-Utf8NoBom { Set-Content -Path $Path -Value $Value -Encoding utf8 }
+                # POV files go through the canonical funnel (t/4356): a counting pass-through to the real one.
+                $script:RealFunnel = ${function:Write-PovTaxonomyFile}
+                Mock Write-PovTaxonomyFile { & $script:RealFunnel -Path $Path -Data $Data -RequireCleanTree:$RequireCleanTree -AllowDirty:$AllowDirty }
 
                 { Update-PolicyRegistry -Fix } | Should -Not -Throw
                 # No unregistered actions → no POV-file rewrite at all (only the registry may be rewritten).
-                Should -Invoke Write-Utf8NoBom -Times 0 -Exactly -ParameterFilter { $Path -like '*situations.json' }
+                Should -Invoke Write-PovTaxonomyFile -Times 0 -Exactly -ParameterFilter { $Path -like '*situations.json' }
             } finally {
                 Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
             }
@@ -168,6 +178,9 @@ Describe 'Update-PolicyRegistry -Fix (t/3431 batched write + idempotent MaxId)' 
                 . (Join-Path $PSScriptRoot 'PolicyPovFixture.ps1'); Add-PolicyPovFillers -Dir $TempDir
                 Mock Get-TaxonomyDir { $TempDir }
                 Mock Write-Utf8NoBom { Set-Content -Path $Path -Value $Value -Encoding utf8 }
+                # POV files go through the canonical funnel (t/4356): a counting pass-through to the real one.
+                $script:RealFunnel = ${function:Write-PovTaxonomyFile}
+                Mock Write-PovTaxonomyFile { & $script:RealFunnel -Path $Path -Data $Data -RequireCleanTree:$RequireCleanTree -AllowDirty:$AllowDirty }
 
                 { Update-PolicyRegistry -Fix } | Should -Not -Throw
                 $reg = Get-Content -Raw (Join-Path $TempDir 'policy_actions.json') | ConvertFrom-Json
@@ -176,7 +189,7 @@ Describe 'Update-PolicyRegistry -Fix (t/3431 batched write + idempotent MaxId)' 
                 $readded.action | Should -Be 'Orphaned reference action'         # action sourced from the node
                 @($readded.source_povs) | Should -Contain 'situations'
                 # Registry-only: the node already carries pol-005, so no POV-file rewrite.
-                Should -Invoke Write-Utf8NoBom -Times 0 -Exactly -ParameterFilter { $Path -like '*situations.json' }
+                Should -Invoke Write-PovTaxonomyFile -Times 0 -Exactly -ParameterFilter { $Path -like '*situations.json' }
 
                 # Idempotent: a second -Fix now reports Missing 0.
                 $r2 = Update-PolicyRegistry -Fix -PassThru
@@ -206,6 +219,9 @@ Describe 'Update-PolicyRegistry -Fix (t/3431 batched write + idempotent MaxId)' 
                 . (Join-Path $PSScriptRoot 'PolicyPovFixture.ps1'); Add-PolicyPovFillers -Dir $TempDir
                 Mock Get-TaxonomyDir { $TempDir }
                 Mock Write-Utf8NoBom { Set-Content -Path $Path -Value $Value -Encoding utf8 }
+                # POV files go through the canonical funnel (t/4356): a counting pass-through to the real one.
+                $script:RealFunnel = ${function:Write-PovTaxonomyFile}
+                Mock Write-PovTaxonomyFile { & $script:RealFunnel -Path $Path -Data $Data -RequireCleanTree:$RequireCleanTree -AllowDirty:$AllowDirty }
                 Update-PolicyRegistry -Fix | Out-Null   # normalize to canonical serialization
 
                 $regPath = Join-Path $TempDir 'policy_actions.json'

@@ -60,7 +60,7 @@ function Set-TaxonomyHierarchy {
         if (Test-Path $FilePath) {
             $TaxFiles[$PovKey] = @{
                 Path = $FilePath
-                Data = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+                Data = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read (t/4356)
                 Modified = $false
             }
         }
@@ -377,15 +377,11 @@ function Set-TaxonomyHierarchy {
 
         $FileEntry.Data.last_modified = $Today
 
-        $Json = $FileEntry.Data | ConvertTo-Json -Depth 20
-        if ($Json.Length -gt 10MB) {
-            Write-Fail "BLOCKED write to $PovKey — JSON is $([math]::Round($Json.Length / 1MB, 1)) MB (likely corrupted encoding). Skipping to prevent data loss."
-            continue
-        }
         if ($PSCmdlet.ShouldProcess($FileEntry.Path, 'Write updated taxonomy file')) {
             try {
-                Assert-DataWriteAllowed -Path $FileEntry.Path  # t/2902
-                Set-Content -Path $FileEntry.Path -Value ($Json -replace "`r`n", "`n") -Encoding utf8NoBOM -NoNewline
+                # Canonical TS format (t/4356). The funnel carries the t/2902 guard and the 10 MB
+                # corrupted-content block; either throws into the catch below, so the file is skipped.
+                Write-PovTaxonomyFile -Path $FileEntry.Path -Data $FileEntry.Data
                 Write-OK "Saved $PovKey ($($FileEntry.Path))"
             }
             catch {

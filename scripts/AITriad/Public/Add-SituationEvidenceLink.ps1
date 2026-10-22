@@ -98,7 +98,7 @@ function Add-SituationEvidenceLink {
     }
 
     # ── Load situations + POV camp files ──
-    $SitData    = Get-Content -Raw -LiteralPath $SitPath | ConvertFrom-Json
+    $SitData    = Read-PovTaxonomyFile -Path $SitPath   # shape-preserving read for the canonical write (t/4356)
     $SitIndex   = @{}
     foreach ($s in @($SitData.nodes)) { $SitIndex[$s.id] = $s }
 
@@ -108,7 +108,7 @@ function Add-SituationEvidenceLink {
     foreach ($k in $PovKeys) {
         $p = Join-Path $TaxDir "$k.json"
         if (-not (Test-Path -LiteralPath $p)) { continue }
-        $d = Get-Content -Raw -LiteralPath $p | ConvertFrom-Json
+        $d = Read-PovTaxonomyFile -Path $p
         $PovFiles[$k] = @{ Path = $p; Data = $d }
         foreach ($n in @($d.nodes)) { $NodeIndex[$n.id] = $n; $NodePovKey[$n.id] = $k }
     }

@@ -30,16 +30,25 @@ function Write-PovTaxonomyFile {
         scripts/json-canonical.mjs, which re-emits JSON.stringify(o, null, 2) + "\n" and writes -Path
         atomically. If node is missing, the script is missing, or Node exits non-zero, this throws an
         ActionableError: a ConvertTo-Json fallback would silently reformat the file (TL t/4356#7 C-a).
-        Callers keep their own Assert-DataWriteAllowed and ShouldProcess checks.
+        Carries Write-Utf8NoBom's guards, so moving a writer onto the funnel drops none of them: the
+        t/2902 dirty-tree guard (Assert-DataWriteAllowed, or Assert-CleanDataTree with -RequireCleanTree)
+        and the 10 MB corrupted-content block, which here throws instead of skipping. Callers keep their
+        own ShouldProcess checks.
     .PARAMETER Path
         The target POV file. Its registry entry (lib/data-formats/file-writers.json) must be pretty2-lf-nl.
     .PARAMETER Data
         The whole document, as read by Read-PovTaxonomyFile and modified.
+    .PARAMETER RequireCleanTree
+        Hard-block unless the target is clean (Write-Utf8NoBom -RequireCleanTree semantics).
+    .PARAMETER AllowDirty
+        Opt a legitimate sequential rewriter out of the dirty-tree guard (Write-Utf8NoBom semantics).
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][object]$Data
+        [Parameter(Mandatory)][object]$Data,
+        [switch]$RequireCleanTree,
+        [switch]$AllowDirty
     )
     $Node = Get-Command -Name node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $Node) {
@@ -56,9 +65,24 @@ function Write-PovTaxonomyFile {
             -NextSteps @('Run from a full ai-triad-research checkout (scripts/json-canonical.mjs ships with the repo)', 'Nothing was written') -Throw
     }
 
+    $Json = ConvertTo-Json -InputObject $Data -Depth 100 -Compress
+    if ($Json.Length -gt 10MB) {
+        New-ActionableError -Goal "write $Path in its canonical format" `
+            -Problem "the serialized document is $([math]::Round($Json.Length / 1MB, 1)) MB, which signals corrupted content (Write-Utf8NoBom's 10 MB block)" `
+            -Location 'Write-PovTaxonomyFile' `
+            -NextSteps @('Check the document for runaway encoding or duplicated content', 'Nothing was written') -Throw
+    }
+    # t/2902 dirty-tree guard, exactly as Write-Utf8NoBom applies it.
+    if ($RequireCleanTree) {
+        if (-not $AllowDirty -and (Get-Command Assert-CleanDataTree -ErrorAction SilentlyContinue)) { Assert-CleanDataTree -Path $Path }
+    }
+    elseif (Get-Command Assert-DataWriteAllowed -ErrorAction SilentlyContinue) {
+        Assert-DataWriteAllowed -Path $Path -AllowDirty:$AllowDirty
+    }
+
     $Carrier = [System.IO.Path]::GetTempFileName()
     try {
-        [System.IO.File]::WriteAllText($Carrier, (ConvertTo-Json -InputObject $Data -Depth 100 -Compress), [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($Carrier, $Json, [System.Text.UTF8Encoding]::new($false))
         $Output = & $Node.Source $Script --in $Carrier --out $Path 2>&1
         $Exit = $LASTEXITCODE
         if ($Exit -ne 0) {
