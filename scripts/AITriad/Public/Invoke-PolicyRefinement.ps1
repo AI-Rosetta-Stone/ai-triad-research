@@ -82,7 +82,7 @@ function Invoke-PolicyRefinement {
     # -- Load registry and taxonomy files --------------------------------------
     Write-Step 'Loading policy registry and taxonomy'
 
-    $Registry = Get-Content -Raw -Path $RegistryPath | ConvertFrom-Json
+    $Registry = ConvertFrom-JsonPreserveShape -Json (Get-Content -Raw -Path $RegistryPath)   # whole-file rewrite: keep timestamps as written (t/4425)
     Write-OK "Registry loaded: $($Registry.policies.Count) policies"
 
     $PovFiles = @('accelerationist', 'safetyist', 'skeptic', 'situations')

@@ -109,7 +109,7 @@ function Repair-ResolvedBackfill {
 
     foreach ($File in $SummaryFiles) {
         try {
-            $Summary = Get-Content -Raw -Path $File.FullName | ConvertFrom-Json
+            $Summary = ConvertFrom-JsonPreserveShape -Json (Get-Content -Raw -Path $File.FullName)   # whole-file rewrite (t/4425)
         }
         catch {
             Write-Warn "Failed to parse $($File.Name): $_"

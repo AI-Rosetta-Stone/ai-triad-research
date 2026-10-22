@@ -118,6 +118,23 @@ function Restore-JsonShapeInPlace {
     }
 }
 
+function ConvertTo-PreserveShapeDeepHashtable {
+    # PSCustomObject tree -> the shape ConvertFrom-Json -AsHashtable returns: OrderedHashtable objects,
+    # object[] arrays, leaves unchanged (so preserved datetime strings stay strings). t/4425.
+    param([AllowNull()]$Value)
+    if ($Value -is [System.Management.Automation.PSCustomObject]) {
+        $h = [System.Management.Automation.OrderedHashtable]::new()
+        foreach ($p in $Value.PSObject.Properties) { $h[$p.Name] = ConvertTo-PreserveShapeDeepHashtable -Value $p.Value }
+        return , $h
+    }
+    if ($Value -is [System.Collections.IList] -and $Value -isnot [string]) {
+        $items = [object[]]::new($Value.Count)
+        for ($i = 0; $i -lt $Value.Count; $i++) { $items[$i] = ConvertTo-PreserveShapeDeepHashtable -Value $Value[$i] }
+        return , $items
+    }
+    $Value
+}
+
 function ConvertFrom-JsonPreserveShape {
     <#
     .SYNOPSIS
@@ -135,6 +152,11 @@ function ConvertFrom-JsonPreserveShape {
         Return a top-level JSON object as an [ordered] dictionary in source key order (nested
         values keep the preserved shape). For read-modify-write callers that set and remove keys
         the way `ConvertFrom-Json -AsHashtable` callers do, without its datetime coercion (t/4366).
+    .PARAMETER AsDeepHashtable
+        Return the whole document as `ConvertFrom-Json -AsHashtable` does (every object an
+        OrderedHashtable, a Hashtable subclass, in source key order; arrays as object[]), but with
+        datetime strings kept verbatim. For callers that index nested objects (`$x["k"]`) or pass them
+        to [hashtable] parameters (t/4425).
     .OUTPUTS
         The parsed document with datetime fields + single-element arrays preserved verbatim.
     #>
@@ -145,9 +167,15 @@ function ConvertFrom-JsonPreserveShape {
         [AllowEmptyString()]
         [string]$Json,
 
-        [switch]$AsOrderedHashtable
+        [switch]$AsOrderedHashtable,
+
+        [switch]$AsDeepHashtable
     )
     Set-StrictMode -Version Latest
+
+    if ($AsDeepHashtable) {
+        return ConvertTo-PreserveShapeDeepHashtable -Value (ConvertFrom-JsonPreserveShape -Json $Json)
+    }
 
     if ($AsOrderedHashtable) {
         $shaped = ConvertFrom-JsonPreserveShape -Json $Json
