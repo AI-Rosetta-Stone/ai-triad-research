@@ -194,6 +194,9 @@ $BatchSchemaPrompt
                 Write-Warn "Batch ${BatchNum}: malformed edge (missing source/target/type/confidence), skipping"
                 continue
             }
+            $SourceId = ConvertTo-SurvivorNodeId -Id $SourceId -Context "Edge discovery batch $BatchNum"   # t/4356
+            $TargetId = ConvertTo-SurvivorNodeId -Id $TargetId -Context "Edge discovery batch $BatchNum"
+            $Edge.source = $SourceId; $Edge.target = $TargetId
             if (-not $ValidNodeIds.Contains($SourceId)) {
                 Write-Warn "Batch ${BatchNum}: source '$SourceId' not in taxonomy, skipping"
                 continue

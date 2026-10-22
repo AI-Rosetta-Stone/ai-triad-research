@@ -181,6 +181,8 @@ function Move-HallucinatedNodeIdsToUnmapped {
     if ($null -eq $NodeIdSet -or @($NodeIdSet).Count -le 0) { return , $InvalidNodeIds }
     foreach ($Item in (Get-SummaryCampKeyPoints -SummaryObject $SummaryObject -WithPov)) {
         $kp = $Item.KeyPoint
+        # New output only: a superseded id is attributed to its survivor, with a WARN (t/4356, t/4430).
+        if ($kp.taxonomy_node_id) { $kp.taxonomy_node_id = ConvertTo-SurvivorNodeId -Id ([string]$kp.taxonomy_node_id) -Context "Summary $($Item.POV) key_point" }
         if (-not $kp.taxonomy_node_id -or $NodeIdSet.Contains($kp.taxonomy_node_id)) { continue }
         $InvalidNodeIds.Add("$($Item.POV)/$($kp.taxonomy_node_id)")
         $BadId = $kp.taxonomy_node_id

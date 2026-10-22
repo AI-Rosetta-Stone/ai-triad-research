@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Test-EdgeDirection {
@@ -84,8 +84,10 @@ function Test-EdgeDirection {
 
     # ── Filter to directional edges ──
     $Candidates = [System.Collections.Generic.List[PSObject]]::new()
+    $Superseded = Get-SupersededNodeIdSet   # no AI call for an edge with a retired endpoint; the file keeps it (t/4356)
     for ($i = 0; $i -lt $AllEdges.Count; $i++) {
         $E = $AllEdges[$i]
+        if ($Superseded.Contains([string]$E.source) -or $Superseded.Contains([string]$E.target)) { continue }
         if ($E.bidirectional) { continue }
         if ($Status -and $E.status -ne $Status) { continue }
         # Skip already-checked edges

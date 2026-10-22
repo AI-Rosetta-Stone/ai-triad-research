@@ -28,6 +28,7 @@ function Read-BatchSummaryTaxonomy {
             throw "Taxonomy file too large (corrupted): $Name"
         }
         $TaxonomyContext[$Name] = Get-Content -Path $FilePath -Raw | ConvertFrom-Json
+        Set-TaxonomyDocumentSelectable -Document $TaxonomyContext[$Name] -Name $Name   # prompt only, never written (t/4356)
         $NodeCount = $TaxonomyContext[$Name].nodes.Count
         Write-OK "  $Name ($NodeCount nodes)"
     }

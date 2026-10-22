@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Show-TriadDialogue {
@@ -150,6 +150,7 @@ function Show-TriadDialogue {
         $FilePath = Join-Path $TaxDir "$PovKey.json"
         if (-not (Test-Path $FilePath)) { continue }
         $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        Set-TaxonomyDocumentSelectable -Document $FileData -Name $PovKey   # prompt only (t/4356)
         foreach ($Node in $FileData.nodes) {
             $AllNodes[$Node.id] = @{
                 POV         = $PovKey

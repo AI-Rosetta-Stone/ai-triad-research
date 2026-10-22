@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Repair-PovDescriptions {
@@ -92,6 +92,7 @@ function Repair-PovDescriptions {
         foreach ($Node in $Data.nodes) {
             $Desc = $Node.description
             if (-not $Desc) { continue }
+            if (Test-TaxonomyNodeSuperseded $Node) { continue }   # no AI rewrite of a retired node; $Data keeps it (t/4356)
             # Skip parent nodes
             if ($Node.PSObject.Properties['children'] -and $Node.children -and @($Node.children).Count -gt 0) { continue }
             # Category filter

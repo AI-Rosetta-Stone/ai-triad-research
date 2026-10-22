@@ -297,6 +297,7 @@ $SchemaPrompt
                     Write-Warn "$($Disc.NodeId): malformed edge (missing target/type/confidence), skipping"
                     continue
                 }
+                $Edge.target = ConvertTo-SurvivorNodeId -Id $Edge.target -Context "Edge discovery $($Disc.NodeId)"   # t/4356
                 if (-not $NodePovMap.ContainsKey($Edge.target)) {
                     Write-Warn "$($Disc.NodeId) → $($Edge.target): target not in taxonomy, skipping"
                     continue
@@ -445,6 +446,7 @@ $SchemaPrompt
                     Write-Warn "$($Disc.NodeId): malformed edge, skipping"
                     continue
                 }
+                $Edge.target = ConvertTo-SurvivorNodeId -Id $Edge.target -Context "Edge discovery $($Disc.NodeId)"   # t/4356
                 if (-not $NodePovMap.ContainsKey($Edge.target)) {
                     Write-Warn "$($Disc.NodeId) → $($Edge.target): target not in taxonomy, skipping"
                     continue

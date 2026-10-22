@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 <#
@@ -110,6 +110,11 @@ Rules:
             # New: Filter by Id
             if ($null -ne $Id -and @($Id).Count -gt 0 -and ($Node.id -notin $Id)) {
                 $SkippedByIdFilter++
+                $NodeIndex++
+                continue
+            }
+            if (Test-TaxonomyNodeSuperseded $Node) {   # no AI call for a retired node; the file keeps it (t/4356)
+                Write-Verbose "Skipping $($Node.id): superseded by $($Node.superseded_by)"
                 $NodeIndex++
                 continue
             }

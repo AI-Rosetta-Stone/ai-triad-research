@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 # Steps of Invoke-HierarchyProposal (t/3910 complexity refactor). Behaviour is pinned by
@@ -41,6 +41,8 @@ function Import-HierarchyTaxonomy {
         $FilePath = Join-Path $TaxDir $PovFileMap[$PovKey]
         if (Test-Path $FilePath) {
             $AllTaxData[$PovKey] = Get-Content -Raw -Path $FilePath -Encoding UTF8 | ConvertFrom-Json
+            # Proposal input only; Set-TaxonomyHierarchy reads the files itself when it writes (t/4356).
+            Set-TaxonomyDocumentSelectable -Document $AllTaxData[$PovKey] -Name $PovKey
             Write-OK "$PovKey`: $($AllTaxData[$PovKey].nodes.Count) nodes"
         }
     }

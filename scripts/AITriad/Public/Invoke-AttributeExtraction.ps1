@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Invoke-AttributeExtraction {
@@ -129,8 +129,9 @@ function Invoke-AttributeExtraction {
         Write-Step "Loading $PovKey"
         $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
 
-        # Identify nodes needing attributes
-        $AllNodes = @($FileData.nodes)
+        # Identify nodes needing attributes. Work list only: superseded nodes get no AI call;
+        # $FileData (the written file) keeps them (t/4356).
+        $AllNodes = @(Select-SelectableTaxonomyNode -Nodes @($FileData.nodes) -Pov $PovKey)
         if ($Force) {
             $NodesToProcess = $AllNodes
         } else {

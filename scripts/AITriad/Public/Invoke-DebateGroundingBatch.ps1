@@ -110,6 +110,7 @@ function Invoke-DebateGroundingBatch {
         $TaxData = Get-Content $FilePath -Raw | ConvertFrom-Json
         foreach ($Node in @($TaxData.nodes)) {
             if ($null -ne $Id -and @($Id).Count -gt 0 -and ($Node.id -notin $Id)) { $SkippedByIdFilter++; continue }
+            if (Test-TaxonomyNodeSuperseded $Node) { Write-Verbose "Skipping $($Node.id): superseded (t/4356)"; continue }   # the file keeps it
 
             $Desc = if ($Node.PSObject.Properties['description']) { [string]$Node.description } else { '' }
             if ([string]::IsNullOrWhiteSpace($Desc) -or $Desc.Length -lt 20) { $SkippedEmpty++; continue }

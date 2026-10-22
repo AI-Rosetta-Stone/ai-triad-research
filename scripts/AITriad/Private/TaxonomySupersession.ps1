@@ -131,11 +131,72 @@ function Select-SelectableTaxonomyNode {
     <#
     .SYNOPSIS
         Drops superseded nodes, keeping order. Use for any node list an AI model or a selection UI sees.
+        Call it as @(Select-SelectableTaxonomyNode ...).
     #>
     [CmdletBinding()]
-    [OutputType([object[]])]
-    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$Nodes)
-    , [object[]]@($Nodes | Where-Object { $null -ne $_ -and -not (Test-TaxonomyNodeSuperseded $_) })
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][object[]]$Nodes,
+        # The camp or file the nodes came from: a situations (or other non-camp) list passes through whole.
+        [string]$Pov
+    )
+    # Emits the nodes one by one (wrap the call in @()): a comma-wrapped array would turn @(...) at the
+    # call site into a one-element array holding the real one.
+    if ($Pov -and [System.IO.Path]::GetFileNameWithoutExtension($Pov).ToLowerInvariant() -notin $script:SupersessionPovKeys) {
+        return $Nodes | Where-Object { $null -ne $_ }
+    }
+    $Nodes | Where-Object { $null -ne $_ -and -not (Test-TaxonomyNodeSuperseded $_) }
+}
+
+function ConvertTo-SurvivorNodeId {
+    <#
+    .SYNOPSIS
+        For a node id cited in NEW AI output: a superseded id becomes its survivor's id, with a WARN.
+        Any other id (live, unknown, cycle member, dangling chain) comes back unchanged.
+    .DESCRIPTION
+        TL t/4356#7 decision 2: new attribution goes to the survivor. Never apply it to ids already in
+        stored records; historical display stays exact. Reads the module cache's index; with no index
+        loaded it returns the id unchanged.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Id,
+        [string]$Context = 'AI output'
+    )
+    if (-not $Id) { return $Id }
+    Assert-TaxonomyCacheFresh   # 30 s cooldown, so per-edge calls stay cheap
+    $idx = $script:TaxonomySupersession
+    if (-not $idx -or -not $idx.SupersededIds.Contains($Id)) { return $Id }
+    $survivor = Resolve-TaxonomyNode -Index $idx -Id $Id
+    if ($null -eq $survivor -or [string]$survivor.id -ceq $Id) { return $Id }
+    Write-Warning "WARN ${Context}: cited node $Id is superseded; attributing to survivor $($survivor.id) (t/4356)"
+    return [string]$survivor.id
+}
+
+function Set-TaxonomyDocumentSelectable {
+    <#
+    .SYNOPSIS
+        Narrows a parsed POV file's .nodes to the selectable ones, in place, for a prompt-only copy.
+    .DESCRIPTION
+        For producers that read a POV file directly to build an AI prompt (t/4356 PR B). Never call it
+        on a document that will be written back: the superseded nodes would be dropped from the file.
+        A situations file, or a name that isn't a POV camp, is left whole (TS loader parity).
+    .PARAMETER Name
+        The camp key or file name (accelerationist / accelerationist.json, ...).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()][object]$Document,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $pov = [System.IO.Path]::GetFileNameWithoutExtension($Name).ToLowerInvariant()
+    if ($null -eq $Document -or $pov -notin $script:SupersessionPovKeys) { return }
+    if ($Document -is [System.Collections.IDictionary]) {
+        if ($Document.Contains('nodes')) { $Document['nodes'] = @(Select-SelectableTaxonomyNode -Nodes @($Document['nodes'])) }
+        return
+    }
+    if ($Document.PSObject.Properties['nodes']) { $Document.nodes = @(Select-SelectableTaxonomyNode -Nodes @($Document.nodes)) }
 }
 
 function Update-TaxonomySupersessionCache {
@@ -160,7 +221,7 @@ function Update-TaxonomySupersessionCache {
     $script:TaxonomySupersession = New-TaxonomySupersessionIndex -Nodes $allPov.ToArray()
     if ($script:TaxonomySupersession.SupersededIds.Count -eq 0) { return }
     foreach ($pov in $script:TaxonomyAllNodesByPov.Keys) {
-        $script:TaxonomyData[$pov].nodes = Select-SelectableTaxonomyNode -Nodes $script:TaxonomyAllNodesByPov[$pov]
+        $script:TaxonomyData[$pov].nodes = @(Select-SelectableTaxonomyNode -Nodes $script:TaxonomyAllNodesByPov[$pov])
     }
     Write-Verbose "Taxonomy: $($script:TaxonomySupersession.SupersededIds.Count) superseded POV node(s) excluded from selection"
 }
@@ -229,6 +290,6 @@ function Read-PovTaxonomyNodes {
     }
     $data = ConvertFrom-JsonPreserveShape -Json (Get-Content -Raw -LiteralPath $path)
     $nodes = if ($data.PSObject.Properties['nodes']) { [object[]]@($data.nodes) } else { [object[]]@() }
-    if ($Selectable -and $Pov -in $script:SupersessionPovKeys) { return , (Select-SelectableTaxonomyNode -Nodes $nodes) }
+    if ($Selectable -and $Pov -in $script:SupersessionPovKeys) { return , [object[]]@(Select-SelectableTaxonomyNode -Nodes $nodes) }
     return , $nodes
 }

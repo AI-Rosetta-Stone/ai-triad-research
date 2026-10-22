@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 <#
@@ -600,6 +600,7 @@ function Build-CompactTaxonomy {
         $FilePath = Join-Path $TaxDir $FileName
         if (-not (Test-Path $FilePath)) { continue }
         $Data = Get-Content $FilePath -Raw | ConvertFrom-Json
+        Set-TaxonomyDocumentSelectable -Document $Data -Name $FileName   # prompt only (t/4356)
         [void]$Lines.AppendLine("--- $($TaxFiles[$FileName]) ---")
         foreach ($Node in $Data.nodes) {
             $Cat = if ($null -ne $Node.PSObject.Properties['category'] -and $Node.category) { "[$($Node.category)]" } else { '' }

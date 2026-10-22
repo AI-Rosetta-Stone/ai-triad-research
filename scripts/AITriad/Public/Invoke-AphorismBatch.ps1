@@ -110,6 +110,11 @@ function Invoke-AphorismBatch {
                 $NodeIndex++
                 continue
             }
+            if (Test-TaxonomyNodeSuperseded $Node) {   # no AI call for a retired node; the file keeps it (t/4356)
+                Write-Verbose "Skipping $($Node.id): superseded by $($Node.superseded_by)"
+                $NodeIndex++
+                continue
+            }
 
             $Desc = $null
             if ($Node.PSObject.Properties['description']) { $Desc = $Node.description }
