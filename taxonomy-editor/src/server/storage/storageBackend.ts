@@ -66,8 +66,11 @@ export interface StorageBackend {
   /** Check whether a file or directory exists at the given path. */
   fileExists(filePath: string): Promise<boolean>;
 
-  /** Read a file as a raw binary Buffer. Returns null if the file does not exist. */
-  readBinaryFile(filePath: string): Promise<Buffer | null>;
+  /** Read a file as a raw binary Buffer. Returns null if the file does not exist.
+   *  `opts.ref` pins the read to a specific ref (e.g. 'main') for shared data
+   *  that lives on main rather than a per-user session branch — same contract
+   *  as `readFile` (t/4393). Backends without branches ignore it. */
+  readBinaryFile(filePath: string, opts?: { ref?: string }): Promise<Buffer | null>;
 
   /** Write raw binary content to a file. Creates parent dirs; atomic where supported. */
   writeBinaryFile(filePath: string, content: Buffer, opts?: { ref?: string }): Promise<void>;
