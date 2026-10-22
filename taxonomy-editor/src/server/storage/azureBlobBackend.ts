@@ -170,7 +170,7 @@ export class AzureBlobBackend implements StorageBackend {
     return content === null ? null : { content, version: gitBlobSha(content) };
   }
 
-  async readBinaryFile(filePath: string): Promise<Buffer | null> {
+  async readBinaryFile(filePath: string, _opts?: { ref?: string }): Promise<Buffer | null> {
     return (await this.downloadWithEtag(filePath))?.content ?? null;
   }
 

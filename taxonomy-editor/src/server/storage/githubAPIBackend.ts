@@ -822,19 +822,27 @@ export class GitHubAPIBackend implements StorageBackend {
     return { content: result.content, version: result.sha };
   }
 
-  async readBinaryFile(filePath: string): Promise<Buffer | null> {
+  // t/4393: the disk cache holds `main` content only (same as readFileFromMainCache/
+  // readFileAtRef) — gating it on `ref === this.baseBranch` fixes a latent bug: before
+  // this ref param existed, every call used getEffectiveRef() unconditionally and could
+  // serve or pollute the main cache from a non-main session branch.
+  async readBinaryFile(filePath: string, opts?: { ref?: string }): Promise<Buffer | null> {
     const repoPath = this.toRepoPath(filePath);
+    const ref = opts?.ref ?? this.getEffectiveRef();
 
-    const cached = await this.readBinaryFromDiskCache(repoPath);
-    if (cached !== null) return cached;
+    if (ref === this.baseBranch) {
+      const cached = await this.readBinaryFromDiskCache(repoPath);
+      if (cached !== null) return cached;
+    }
 
     if (this.rest.isTripped()) return null;
 
-    const ref = this.getEffectiveRef();
     const result = await this.fetchBinaryFileFromGitHub(repoPath, ref);
     if (result === null) return null;
 
-    await this.writeBinaryToDiskCache(repoPath, result.content, result.sha, result.etag);
+    if (ref === this.baseBranch) {
+      await this.writeBinaryToDiskCache(repoPath, result.content, result.sha, result.etag);
+    }
     return result.content;
   }
 

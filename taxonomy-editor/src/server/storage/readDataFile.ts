@@ -7,6 +7,57 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getBackend } from './fileIO.js';
 
+async function readLargeFile(relPath: string, absPath: string): Promise<Buffer> {
+  try {
+    // Raw fs bypasses the storage backend; 63 MB embeddings.json exceeds the
+    // GitHub Contents API 1 MB limit so the backend cannot serve it directly.
+    return await fs.readFile(absPath);
+  } catch (err: unknown) {
+    const isEnoent = (err as NodeJS.ErrnoException).code === 'ENOENT';
+    getGlobalRecorder()?.record({
+      type: 'data_read_empty',
+      component: 'read-data-file',
+      level: 'error',
+      message: `readDataFile: ${isEnoent ? 'missing' : 'read error'}: ${relPath}`,
+      data: { relPath, absPath, error: String(err) },
+    });
+    throw new ActionableError({
+      goal: `Read data file: ${relPath}`,
+      problem: isEnoent
+        ? `File not found: ${absPath}`
+        : `Read failed: ${String(err)}`,
+      location: `storage/readDataFile → readDataFile(${relPath})`,
+      nextSteps: [
+        'Verify the file exists in the data root',
+        'Check AI_TRIAD_DATA_ROOT points to the correct data directory',
+      ],
+    });
+  }
+}
+
+async function readBackedFile(relPath: string, absPath: string, ref: string | undefined): Promise<Buffer> {
+  const result = ref ? await getBackend().readBinaryFile(absPath, { ref }) : await getBackend().readBinaryFile(absPath);
+  if (result === null) {
+    getGlobalRecorder()?.record({
+      type: 'data_read_empty',
+      component: 'read-data-file',
+      level: 'error',
+      message: `readDataFile: missing: ${relPath}`,
+      data: { relPath, absPath },
+    });
+    throw new ActionableError({
+      goal: `Read data file: ${relPath}`,
+      problem: `File not found: ${absPath}`,
+      location: `storage/readDataFile → readDataFile(${relPath})`,
+      nextSteps: [
+        'Verify the file exists in the data root',
+        'Check AI_TRIAD_DATA_ROOT points to the correct data directory',
+      ],
+    });
+  }
+  return result;
+}
+
 /**
  * Sole sanctioned reader for data-root files. Resolves relPath via
  * resolveDataPath() internally — callers pass a relative path, never absolute.
@@ -20,60 +71,10 @@ import { getBackend } from './fileIO.js';
  */
 export async function readDataFile(
   relPath: string,
-  opts?: { largeFile?: true; validate?: (buf: Buffer) => void },
+  opts?: { largeFile?: true; validate?: (buf: Buffer) => void; ref?: string },
 ): Promise<Buffer> {
   const absPath = resolveDataPath(relPath);
-  let buf: Buffer;
-
-  if (opts?.largeFile) {
-    try {
-      // large-file: read local cache
-      // Raw fs bypasses the storage backend; 63 MB embeddings.json exceeds the
-      // GitHub Contents API 1 MB limit so the backend cannot serve it directly.
-      buf = await fs.readFile(absPath);
-    } catch (err: unknown) {
-      const isEnoent = (err as NodeJS.ErrnoException).code === 'ENOENT';
-      getGlobalRecorder()?.record({
-        type: 'data_read_empty',
-        component: 'read-data-file',
-        level: 'error',
-        message: `readDataFile: ${isEnoent ? 'missing' : 'read error'}: ${relPath}`,
-        data: { relPath, absPath, error: String(err) },
-      });
-      throw new ActionableError({
-        goal: `Read data file: ${relPath}`,
-        problem: isEnoent
-          ? `File not found: ${absPath}`
-          : `Read failed: ${String(err)}`,
-        location: `storage/readDataFile → readDataFile(${relPath})`,
-        nextSteps: [
-          'Verify the file exists in the data root',
-          'Check AI_TRIAD_DATA_ROOT points to the correct data directory',
-        ],
-      });
-    }
-  } else {
-    const result = await getBackend().readBinaryFile(absPath);
-    if (result === null) {
-      getGlobalRecorder()?.record({
-        type: 'data_read_empty',
-        component: 'read-data-file',
-        level: 'error',
-        message: `readDataFile: missing: ${relPath}`,
-        data: { relPath, absPath },
-      });
-      throw new ActionableError({
-        goal: `Read data file: ${relPath}`,
-        problem: `File not found: ${absPath}`,
-        location: `storage/readDataFile → readDataFile(${relPath})`,
-        nextSteps: [
-          'Verify the file exists in the data root',
-          'Check AI_TRIAD_DATA_ROOT points to the correct data directory',
-        ],
-      });
-    }
-    buf = result;
-  }
+  const buf = opts?.largeFile ? await readLargeFile(relPath, absPath) : await readBackedFile(relPath, absPath, opts?.ref);
 
   if (buf.length === 0) {
     getGlobalRecorder()?.record({
