@@ -1,0 +1,137 @@
+# ─── Continuous Deploy (log-only) ───
+# What:  On every green `ci.yml` run on `main`, computes and LOGS what a continuous-deploy
+#        dispatch would do -- kill switch, deployable-path check, infra hold, CL run-window
+#        hold, and the 20-min batching window (t/4414, t/4091 Decision D). Decision logic lives
+#        in operations/devops/Get-ContinuousDeployVerdict.ps1 (Pester-tested, pure predicate).
+# Why:   TL ruling (t/4414, p/331#2341): build the log-only version now as T1 (Quality
+#        reviews) to prove the decision logic on real `main` traffic before the real-dispatch
+#        PR -- which IS the T2 that re-asks the Second Opinion with this evidence.
+# NO DISPATCH: this workflow never calls `gh workflow run deploy-azure.yml` or anything else
+#        that changes state. It only reads facts and writes a step-summary line. The real
+#        dispatch step is deliberately NOT wired here -- that is the scope of the follow-up T2.
+# Facts:
+#   - Kill switch:    repo variable `CONTINUOUS_DEPLOY` ('on' enables; anything else, including
+#                      unset, fails safe to off -- TL-endorsed, t/4414#1/#3).
+#   - CL run-window:  repo variable `CL_RUN_WINDOW_UNTIL` (ISO 8601 timestamp, optional). Unset
+#                      means no window is declared. TL ruling: "Add it to the CL's AGENTS.md in
+#                      the rule update" -- a repo variable (not a committed file) so the CL can
+#                      set/clear it without a PR, same mechanism as the kill switch.
+#   - Last dispatch:  no continuous-deploy dispatch exists yet (log-only), so this logs against
+#                      the most recent SUCCESSFUL `deploy-azure.yml` run instead -- the real
+#                      production deploy history, which is what the batching window would
+#                      actually measure against once dispatch is wired.
+#   - Deployable path: reuses ci.yml's own soundness-reviewed path-filter definitions
+#                      (container / bicep-env / bicep-resources), re-run here via dorny/paths-filter
+#                      against this specific green commit -- no new path-filter logic invented.
+
+name: Continuous Deploy (log-only)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evaluate:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+
+      # Mirrors ci.yml's 'container' / 'bicep-env' / 'bicep-resources' filters exactly (t/2094 /
+      # t/2631 / t/3212 soundness lists) -- kept in sync with ci.yml by hand; a mismatch here only
+      # affects a LOGGED verdict, never a real dispatch, so the blast radius of drift is zero.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
+        id: filter
+        with:
+          base: ${{ github.event.workflow_run.head_sha }}^
+          ref: ${{ github.event.workflow_run.head_sha }}
+          filters: |
+            container:
+              - 'taxonomy-editor/**'
+              - 'research/comp-linguist/scripts/**'
+              - '.dockerignore'
+              - 'lib/**'
+              - 'scripts/**'
+              - 'taxonomy/schemas/**'
+              - 'ai-models.json'
+              - 'ai-usages.json'
+              - '.aitriad.json'
+              - 'CHANGELOG.md'
+              - 'deploy/azure/Dockerfile.base'
+              - 'deploy/azure/smoke-healthz.sh'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.npmrc'
+              - '.github/workflows/ci.yml'
+            bicep-env:
+              - 'deploy/azure/main.bicep'
+              - '.github/workflows/deploy-azure.yml'
+              - 'operations/devops/Get-BicepBaseEnv.ps1'
+              - 'operations/devops/Test-BicepEnvDrift.ps1'
+              - '.github/workflows/ci.yml'
+            bicep-resources:
+              - 'deploy/azure/main.bicep'
+              - 'operations/devops/Test-BicepAcaResourcePairs.ps1'
+              - '.github/workflows/ci.yml'
+
+      - name: Gather facts and compute the verdict (log-only, no dispatch)
+        id: verdict
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KILL_SWITCH: ${{ vars.CONTINUOUS_DEPLOY }}
+          CL_WINDOW_UNTIL_RAW: ${{ vars.CL_RUN_WINDOW_UNTIL }}
+          TOUCHES_CONTAINER: ${{ steps.filter.outputs.container }}
+          TOUCHES_BICEP_ENV: ${{ steps.filter.outputs.bicep-env }}
+          TOUCHES_BICEP_RESOURCES: ${{ steps.filter.outputs.bicep-resources }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          . ./operations/devops/Get-ContinuousDeployVerdict.ps1
+
+          $clWindowUntil = $null
+          if (-not [string]::IsNullOrWhiteSpace($env:CL_WINDOW_UNTIL_RAW)) {
+            $clWindowUntil = [datetime]$env:CL_WINDOW_UNTIL_RAW
+          }
+
+          # No continuous-deploy dispatch exists yet (log-only phase) -- log the batch verdict
+          # against the most recent SUCCESSFUL deploy-azure.yml production run instead.
+          $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 1 --json createdAt
+          $lastRuns = $lastRunJson | ConvertFrom-Json
+          $lastDispatchAt = $null
+          if (@($lastRuns).Count -gt 0) {
+            $lastDispatchAt = [datetime]$lastRuns[0].createdAt
+          }
+
+          $v = Get-ContinuousDeployVerdict `
+            -KillSwitch $env:KILL_SWITCH `
+            -ClWindowUntil $clWindowUntil `
+            -Now (Get-Date).ToUniversalTime() `
+            -LastDispatchAt $lastDispatchAt `
+            -TouchesContainer ($env:TOUCHES_CONTAINER -eq 'true') `
+            -TouchesBicepEnv ($env:TOUCHES_BICEP_ENV -eq 'true') `
+            -TouchesBicepResources ($env:TOUCHES_BICEP_RESOURCES -eq 'true') `
+            -Sha $env:SHA
+
+          Write-Host "Continuous deploy verdict: $($v.Action) -- $($v.Reason) (sha=$($v.Sha))"
+
+          @"
+          ## Continuous Deploy Verdict (log-only, t/4414)
+
+          | Field | Value |
+          |---|---|
+          | SHA | ``$($v.Sha)`` |
+          | Action | **$($v.Action)** |
+          | Reason | $($v.Reason) |
+
+          _No dispatch wired -- this workflow only logs what it would do (t/4414 log-only phase)._
+          "@ >> $env:GITHUB_STEP_SUMMARY
