@@ -2,16 +2,20 @@
   "ticket": "t/4405",
   "scope": "marks only: R1 same-raw, R2 PI-approved (t/4398#4-5), t/4402 human-reviewed; metadata fixes are a separate list (TL p/360#670)",
   "guards": "SO e/348#2 conditions 1-7 as accepted by the TL (e/348#3, #10); 3+ blob: review unless every sharer is in the group and their non-weak titles agree",
-  "frozen_at": "2026-10-22T06:27:17.9073674Z",
+  "frozen_at": "2026-10-22T09:44:52.4277351Z",
   "sources_commit": "58ca2fc857cef25ed01d9747e580bd581059b9c6",
+  "data_commit": "0bf4b9a142b94b76e5edcbdf834b3f710b56e77b",
   "counts": {
     "review_groups": 29,
-    "marks": 32,
+    "marks": 47,
     "marks_by_basis": {
       "r1-same-raw": 18,
       "r2-pi-approved": 12,
-      "human-reviewed-t4402": 2
+      "human-reviewed-t4402": 2,
+      "c9-deferred-t4337": 15
     },
+    "c9_deferred": 15,
+    "c9_unsupported_left_deferred": 0,
     "marks_without_metadata": 0,
     "review": 17,
     "blobs_3plus": 14,
@@ -38,6 +42,20 @@
       "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
       "basis": "r1-same-raw",
       "group": "alignment-assessment-recent-cybersecurity-incidents-2026-1"
+    },
+    {
+      "id": "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1",
+      "duplicate_of": "artificial-intelligence-human-rights-law-thematic-synthesis-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "artificial-intelligence-human-rights-law-thematic-synthesis-2026"
+    },
+    {
+      "id": "ban-artificial-superintelligence-act-release-summary-2026-1",
+      "duplicate_of": "ban-artificial-superintelligence-act-release-summary-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "ban-artificial-superintelligence-act-release-summary-2026"
     },
     {
       "id": "concrete-problems-ai-safety-2026-1",
@@ -96,6 +114,13 @@
       "group": "extreme-power-concentration-80000-hours-2026-1"
     },
     {
+      "id": "fiscal-impacts-ai-2026",
+      "duplicate_of": "fiscal-impacts-ai-how-potential-ai-futures-would-play-out-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "fiscal-impacts-ai-how-potential-ai-futures-would-play-out-2026"
+    },
+    {
       "id": "foundation-models-fair-use-2026",
       "duplicate_of": "foundation-models-fair-use-2026-1",
       "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
@@ -115,6 +140,13 @@
       "duplicate_of_ref": "t4405-review-2026-10#r2-pi-approved",
       "basis": "r2-pi-approved",
       "group": "from-assistance-execution-how-enterprises-put-ai-work-2026"
+    },
+    {
+      "id": "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026",
+      "duplicate_of": "260111699v4-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "260111699v4-2026"
     },
     {
       "id": "genai-skepticism-reflections-beginning-2026-2026",
@@ -145,6 +177,27 @@
       "group": "how-existing-liability-frameworks-can-handle-agentic-ai-2026"
     },
     {
+      "id": "hugging-face-incident-road-ahead-2026-1",
+      "duplicate_of": "hugging-face-incident-road-ahead-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "hugging-face-incident-road-ahead-2026"
+    },
+    {
+      "id": "humanity-needs-ai-nonproliferation-treaty-2026-1",
+      "duplicate_of": "humanity-needs-ai-nonproliferation-treaty-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "humanity-needs-ai-nonproliferation-treaty-2026"
+    },
+    {
+      "id": "insuring-ai-incentivising-safe-secure-deployment-2026-1",
+      "duplicate_of": "insuring-ai-incentivising-safe-secure-deployment-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "insuring-ai-incentivising-safe-secure-deployment-2026"
+    },
+    {
       "id": "insuring-ai-role-insurance-artificial-intelligence-2026",
       "duplicate_of": "insuring-ai-role-insurance-artificial-intelligence-2026-1",
       "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
@@ -159,11 +212,25 @@
       "group": "international-ai-safety-report-2026-2026"
     },
     {
+      "id": "issue-one-its-council-responsible-social-media-call-2026",
+      "duplicate_of": "issue-one-its-council-responsible-social-media-call-2026-1",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "issue-one-its-council-responsible-social-media-call-2026-1"
+    },
+    {
       "id": "law-following-ai-designing-ai-agents-obey-human-laws-2026-1",
       "duplicate_of": "law-following-ai-designing-ai-agents-obey-human-laws-2026",
       "duplicate_of_ref": "t4405-review-2026-10#r2-pi-approved",
       "basis": "r2-pi-approved",
       "group": "law-following-ai-designing-ai-agents-obey-human-laws-2026"
+    },
+    {
+      "id": "legal-personhood-ai-possible-key-unlocking-human-ai-2026-1",
+      "duplicate_of": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
     },
     {
       "id": "outsmarting-smart-device-2026",
@@ -180,6 +247,13 @@
       "group": "outsmarting-smart-devices-preparing-ai-liability-risks-2026"
     },
     {
+      "id": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+      "duplicate_of": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-2",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-2"
+    },
+    {
       "id": "project-iceberg-iceberg-index-measuring-skills-centered-2026",
       "duplicate_of": "project-iceberg-iceberg-index-measuring-skills-centered-2026-1",
       "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
@@ -192,6 +266,13 @@
       "duplicate_of_ref": "t4405-review-2026-10#r1-same-raw",
       "basis": "r1-same-raw",
       "group": "project-iceberg-iceberg-index-measuring-skills-centered-2026-1"
+    },
+    {
+      "id": "prompt-injection-as-role-confusion-2026",
+      "duplicate_of": "260312277v6-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "260312277v6-2026"
     },
     {
       "id": "rethinking-ai-agents-principal-agent-perspective-2026-1",
@@ -215,6 +296,13 @@
       "group": "school-phone-policies-their-association-mental-wellbeing-2026"
     },
     {
+      "id": "student-generative-artificial-intelligence-survey-2026-hepi-2026",
+      "duplicate_of": "student-generative-artificial-intelligence-survey-2026-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "student-generative-artificial-intelligence-survey-2026-2026"
+    },
+    {
       "id": "text-2026",
       "duplicate_of": "world-economic-outlook-update-global-economy-steady-amid-2026-2",
       "duplicate_of_ref": "t4405-review-2026-10#human-reviewed-t4402",
@@ -227,6 +315,27 @@
       "duplicate_of_ref": "t4405-review-2026-10#human-reviewed-t4402",
       "basis": "human-reviewed-t4402",
       "group": "world-economic-outlook-update-global-economy-steady-amid-2026-2"
+    },
+    {
+      "id": "thaler-v-vidal-2026",
+      "duplicate_of": "thaler-v-vidal-2026-1",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "thaler-v-vidal-2026-1"
+    },
+    {
+      "id": "why-ai-needs-genie-coefficient-2026-1",
+      "duplicate_of": "why-ai-needs-genie-coefficient-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "why-ai-needs-genie-coefficient-2026"
+    },
+    {
+      "id": "why-new-mexico-v-meta-matters-2026-1",
+      "duplicate_of": "why-new-mexico-v-meta-matters-2026",
+      "duplicate_of_ref": "t4405-review-2026-10#c9-deferred-t4337",
+      "basis": "c9-deferred-t4337",
+      "group": "why-new-mexico-v-meta-matters-2026"
     },
     {
       "id": "world-economic-outlook-update-global-economy-steady-amid-2026",
@@ -621,6 +730,251 @@
       ]
     }
   ],
+  "c9_union_support": [
+    {
+      "id": "prompt-injection-as-role-confusion-2026",
+      "canonical": "260312277v6-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "acc-desires-044",
+          "supported_by": [
+            "prompt-injection-as-role-confusion-2026"
+          ]
+        },
+        {
+          "node": "saf-beliefs-255",
+          "supported_by": [
+            "prompt-injection-as-role-confusion-2026"
+          ]
+        },
+        {
+          "node": "saf-beliefs-256",
+          "supported_by": [
+            "prompt-injection-as-role-confusion-2026"
+          ]
+        },
+        {
+          "node": "saf-beliefs-257",
+          "supported_by": [
+            "prompt-injection-as-role-confusion-2026"
+          ]
+        },
+        {
+          "node": "saf-beliefs-258",
+          "supported_by": [
+            "prompt-injection-as-role-confusion-2026"
+          ]
+        },
+        {
+          "node": "saf-beliefs-261",
+          "supported_by": [
+            "prompt-injection-as-role-confusion-2026"
+          ]
+        },
+        {
+          "node": "sit-457",
+          "supported_by": [
+            "prompt-injection-as-role-confusion-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "why-new-mexico-v-meta-matters-2026-1",
+      "canonical": "why-new-mexico-v-meta-matters-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "saf-beliefs-267",
+          "supported_by": [
+            "why-new-mexico-v-meta-matters-2026-1"
+          ]
+        },
+        {
+          "node": "saf-intentions-242",
+          "supported_by": [
+            "why-new-mexico-v-meta-matters-2026-1"
+          ]
+        },
+        {
+          "node": "sit-475",
+          "supported_by": [
+            "why-new-mexico-v-meta-matters-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "humanity-needs-ai-nonproliferation-treaty-2026-1",
+      "canonical": "humanity-needs-ai-nonproliferation-treaty-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "saf-desires-031",
+          "supported_by": [
+            "humanity-needs-ai-nonproliferation-treaty-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ban-artificial-superintelligence-act-release-summary-2026-1",
+      "canonical": "ban-artificial-superintelligence-act-release-summary-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "saf-desires-032",
+          "supported_by": [
+            "ban-artificial-superintelligence-act-release-summary-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hugging-face-incident-road-ahead-2026-1",
+      "canonical": "hugging-face-incident-road-ahead-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "saf-intentions-248",
+          "supported_by": [
+            "hugging-face-incident-road-ahead-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+      "canonical": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-2",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "saf-beliefs-282",
+          "supported_by": [
+            "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1",
+      "canonical": "artificial-intelligence-human-rights-law-thematic-synthesis-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "skp-beliefs-285",
+          "supported_by": [
+            "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "issue-one-its-council-responsible-social-media-call-2026",
+      "canonical": "issue-one-its-council-responsible-social-media-call-2026-1",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "skp-beliefs-295",
+          "supported_by": [
+            "issue-one-its-council-responsible-social-media-call-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fiscal-impacts-ai-2026",
+      "canonical": "fiscal-impacts-ai-how-potential-ai-futures-would-play-out-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "skp-beliefs-306",
+          "supported_by": [
+            "fiscal-impacts-ai-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "thaler-v-vidal-2026",
+      "canonical": "thaler-v-vidal-2026-1",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "sit-452",
+          "supported_by": [
+            "thaler-v-vidal-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "student-generative-artificial-intelligence-survey-2026-hepi-2026",
+      "canonical": "student-generative-artificial-intelligence-survey-2026-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "sit-453",
+          "supported_by": [
+            "student-generative-artificial-intelligence-survey-2026-hepi-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "legal-personhood-ai-possible-key-unlocking-human-ai-2026-1",
+      "canonical": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "sit-459",
+          "supported_by": [
+            "legal-personhood-ai-possible-key-unlocking-human-ai-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026",
+      "canonical": "260111699v4-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "sit-460",
+          "supported_by": [
+            "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "why-ai-needs-genie-coefficient-2026-1",
+      "canonical": "why-ai-needs-genie-coefficient-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "sit-473",
+          "supported_by": [
+            "why-ai-needs-genie-coefficient-2026-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "insuring-ai-incentivising-safe-secure-deployment-2026-1",
+      "canonical": "insuring-ai-incentivising-safe-secure-deployment-2026",
+      "all_supported": true,
+      "references": [
+        {
+          "node": "sit-474",
+          "supported_by": [
+            "insuring-ai-incentivising-safe-secure-deployment-2026-1"
+          ]
+        }
+      ]
+    }
+  ],
   "files": {
     "2025-foundation-model-transparency-index-2026-1": {
       "pre_sha256": "c3ed707710a0a23b4ffe6436ff725a9d17d68b5b6cec1538d5782d1fa1ee4d73"
@@ -630,6 +984,12 @@
     },
     "alignment-assessment-recent-cybersecurity-incidents-2026": {
       "pre_sha256": "e2a1fe2c36d03bbe2b7736668c32e0e53634cb657b32eff7e8f55afa1507df52"
+    },
+    "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1": {
+      "pre_sha256": "4db471698956aeceee5487198bbfe63b9b0a08d5a7cb9ef6e9d13c398ef53543"
+    },
+    "ban-artificial-superintelligence-act-release-summary-2026-1": {
+      "pre_sha256": "e54508ce122e8df7d770a062b3da481c2543cb46e51cefe75fb8b2bff2b48436"
     },
     "concrete-problems-ai-safety-2026-1": {
       "pre_sha256": "9bccda40f2783cfba6255ab1aeb22725664be4a1c478f02b5e205180de9773ec"
@@ -655,6 +1015,9 @@
     "extreme-power-concentration-80000-hours-2026-2": {
       "pre_sha256": "9839ec39eadd0f852778ed4e7d81810b737270bb0d8dcb2b8dfe052de8437571"
     },
+    "fiscal-impacts-ai-2026": {
+      "pre_sha256": "32680a66b7b6b3eea53db2b765561dde448d8177f6b1296da01b0e6a89792967"
+    },
     "foundation-models-fair-use-2026": {
       "pre_sha256": "f3e6867c62f3121a0901614fe67009aa4a10811441c182d1ce33c63402582675"
     },
@@ -663,6 +1026,9 @@
     },
     "from-assistance-execution-how-enterprises-put-ai-work-2026-2": {
       "pre_sha256": "82c1aa90ffd89ea031e4bbaa4c59ae7b671aba225e67598979879898bced2364"
+    },
+    "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026": {
+      "pre_sha256": "56462fabce4c2308feaccf2f57e14b06ffb25f41698a300cfd76b9beb97b0cb0"
     },
     "genai-skepticism-reflections-beginning-2026-2026": {
       "pre_sha256": "9274e3595c7b838398a3e3bd1ca92f2049c35ea9edcc0402e32d0832c497e95e"
@@ -676,14 +1042,29 @@
     "how-existing-liability-frameworks-can-handle-agentic-ai-2026-2": {
       "pre_sha256": "0d69d2142dee87e0fe8c9b7e9a7f775493d353119c7c02f08f08150348a5c459"
     },
+    "hugging-face-incident-road-ahead-2026-1": {
+      "pre_sha256": "5b3bded139d5aebd7d428bb927a93d2a7909b97e2aad2b3fb8829672a537308b"
+    },
+    "humanity-needs-ai-nonproliferation-treaty-2026-1": {
+      "pre_sha256": "b7b9c552c228eef1b547a994c1ca6f9ec73373ba9b8cee812c53851715fc4026"
+    },
+    "insuring-ai-incentivising-safe-secure-deployment-2026-1": {
+      "pre_sha256": "fd4ab23ac4a1ed01cd8949b210808fb7340905d6d21d1b76c01a4d7b8dd1ae02"
+    },
     "insuring-ai-role-insurance-artificial-intelligence-2026": {
       "pre_sha256": "ce9f896dcf79907eab2bb720557f1a12f526a0bcdb1fa1704e6315e6d5e30c3d"
     },
     "international-ai-safety-report-2026-2026-1": {
       "pre_sha256": "f739f5f0d20feac42753d5c4da89491537c44a5dabec29ddf89273ce3548be52"
     },
+    "issue-one-its-council-responsible-social-media-call-2026": {
+      "pre_sha256": "2827119bca17bd77cfb86820187ca6fd5e56795198efe79b1c78f0610f08afc3"
+    },
     "law-following-ai-designing-ai-agents-obey-human-laws-2026-1": {
       "pre_sha256": "8910a84aea7018ab04c2094fcfd238877d953f9c602aca0d6d111307d2b87b69"
+    },
+    "legal-personhood-ai-possible-key-unlocking-human-ai-2026-1": {
+      "pre_sha256": "c57772b19bd9b5e44341bd681ce79fa00c991f94b738eaf66d477c8480cba1dd"
     },
     "outsmarting-smart-device-2026": {
       "pre_sha256": "a19269687f1050d5a147198d18590354621bfc38da8468515b2d24699f7003e7"
@@ -691,11 +1072,17 @@
     "outsmarting-smart-devices-preparing-ai-liability-risks-2026-1": {
       "pre_sha256": "ae4667f4edf72387da343a039699499b653b408f41fc6c7a6ec22c44622dd973"
     },
+    "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1": {
+      "pre_sha256": "fdc7f470649f9a5435d5be907ae8a2be3cf05fd38496f337f98229ed9e7060b1"
+    },
     "project-iceberg-iceberg-index-measuring-skills-centered-2026": {
       "pre_sha256": "12ad17ae465bc8925293ab1cf973654d207b97829eca9621d0e5dbb47a8fdb90"
     },
     "project-iceberg-iceberg-index-measuring-skills-centered-2026-2": {
       "pre_sha256": "79c6281e60ad22dd0e41a76fffe501e254ba9c708723c17d536f82794c2b9c7f"
+    },
+    "prompt-injection-as-role-confusion-2026": {
+      "pre_sha256": "71158dbfe32e22dfbd33a7a7710ee75142aee0e6599d691eabc3bb1d7e968d2c"
     },
     "rethinking-ai-agents-principal-agent-perspective-2026-1": {
       "pre_sha256": "b7a5309c6b113be7f060ee75260da775006ac90ed7481983cd82d532d5f08f82"
@@ -706,11 +1093,23 @@
     "school-phone-policies-their-association-mental-wellbeing-2026-1": {
       "pre_sha256": "08fb597f6ad4737e83a101eb712e98abd5131c5f57335593798fc1ab53e92d71"
     },
+    "student-generative-artificial-intelligence-survey-2026-hepi-2026": {
+      "pre_sha256": "9ae3e1c6f8779884d99dd1d525a90a76a2d6a755845aeb9b05c5dacf0ee6559f"
+    },
     "text-2026": {
       "pre_sha256": "08c55513d27670de318ac00c8a0ce4125e0e0bea3992e1c1f841e46078405336"
     },
     "text-2026-1": {
       "pre_sha256": "4e8c95a8495dfd90d56f6618354f839c56484b4db1adafe6df526e4788b2eef9"
+    },
+    "thaler-v-vidal-2026": {
+      "pre_sha256": "de7a52243298ff0dc8035ee2f3e990467f5ee9eaf345aaada93dcfdb48e8ff2f"
+    },
+    "why-ai-needs-genie-coefficient-2026-1": {
+      "pre_sha256": "ec063e7a92ac5caaaaebfb14dd981e0b127fb63a55e83cbde6cee27143467732"
+    },
+    "why-new-mexico-v-meta-matters-2026-1": {
+      "pre_sha256": "0cff5dcb648a860ae0840fbbea1b61349a3acc8e5f0b3ac398354c28a1de2902"
     },
     "world-economic-outlook-update-global-economy-steady-amid-2026": {
       "pre_sha256": "951d0bb69e51c3824e720dea6efe8060057706a373299bc8a46f2020e547c404"

@@ -143,3 +143,10 @@ Describe 'T4405 title and URL keys' -Tag 'data-mutation' {
         ConvertTo-T4405UrlKey '' | Should -BeExactly ''
     }
 }
+
+Describe 'T4405 pair basis' -Tag 'data-mutation' {
+    It 'records a named basis for a pair (the t/4337 C9 deferrals, TL e/348#10)' {
+        $p = Plan @() @{} -R2 @(@{ member = 'copy'; canonical = 'canon'; basis = 'c9-deferred-t4337' }, @{ member = 'r2m'; canonical = 'r2c' })
+        @($p.Marks | ForEach-Object { "$($_.id):$($_.basis)" }) | Should -Be @('copy:c9-deferred-t4337', 'r2m:r2-pi-approved')
+    }
+}

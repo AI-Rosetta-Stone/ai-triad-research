@@ -27,6 +27,8 @@
 param(
     [ValidateSet('Freeze', 'DryRun', 'Apply', 'Revert')][string]$Mode = 'DryRun',
     [string]$SourcesDir = 'C:\Users\jsnov\repos\ai-triad-sources',
+    # The data repo, read at its origin/main for the C9 union-support evidence (summaries).
+    [string]$DataDir = 'C:\Users\jsnov\repos\ai-triad-data',
     [string]$FrozenPath = (Join-Path $PSScriptRoot 'frozen-t4405-marks.json'),
     [string]$RefPrefix = 't4405-review-2026-10',
     [string]$ApprovedFrozenSha256,
@@ -93,11 +95,35 @@ function Test-InsertionOnly([string]$Old, [string]$New, [System.Collections.Spec
     $null
 }
 
-function Get-GitText([string]$Rev, [string]$RelPath) {
-    $p = Start-Process -FilePath git -ArgumentList @('-C', $SourcesDir, 'show', "${Rev}:$RelPath") -NoNewWindow -Wait -PassThru `
+function Get-GitText([string]$Rev, [string]$RelPath, [string]$Repo = $SourcesDir) {
+    $p = Start-Process -FilePath git -ArgumentList @('-C', $Repo, 'show', "${Rev}:$RelPath") -NoNewWindow -Wait -PassThru `
         -RedirectStandardOutput ($o = [IO.Path]::GetTempFileName()) -RedirectStandardError ($e = [IO.Path]::GetTempFileName())
     try { if ($p.ExitCode -ne 0) { return $null }; [IO.File]::ReadAllText($o, [Text.UTF8Encoding]::new($false)) }
     finally { Remove-Item -LiteralPath $o, $e -Force -ErrorAction SilentlyContinue }
+}
+
+# The node ids a summary links, over the four C9 link fields (t/4337 c9-link-fields.json, SO e/344#13).
+function Get-SummaryLinkedNodes($Summary) {
+    $ids = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    if ($null -eq $Summary) { return , $ids }
+    if ($Summary.PSObject.Properties['pov_summaries'] -and $Summary.pov_summaries) {
+        foreach ($pov in $Summary.pov_summaries.PSObject.Properties) {
+            if ($null -eq $pov.Value -or -not $pov.Value.PSObject.Properties['key_points']) { continue }
+            foreach ($kp in @($pov.Value.key_points)) { if ($kp -and $kp.PSObject.Properties['taxonomy_node_id'] -and $kp.taxonomy_node_id) { [void]$ids.Add([string]$kp.taxonomy_node_id) } }
+        }
+    }
+    if ($Summary.PSObject.Properties['factual_claims']) {
+        foreach ($fc in @($Summary.factual_claims)) {
+            if (-not $fc) { continue }
+            foreach ($f in 'linked_taxonomy_nodes', 'potential_taxonomy_nodes') {
+                if ($fc.PSObject.Properties[$f]) { foreach ($n in @($fc.$f)) { if ($n) { [void]$ids.Add([string]$n) } } }
+            }
+        }
+    }
+    if ($Summary.PSObject.Properties['unmapped_concepts']) {
+        foreach ($uc in @($Summary.unmapped_concepts)) { if ($uc -and $uc.PSObject.Properties['resolved_node_id'] -and $uc.resolved_node_id) { [void]$ids.Add([string]$uc.resolved_node_id) } }
+    }
+    , $ids
 }
 
 # The whole-corpus resolver input (as t/4337): id -> computed snapshot hash, for every doc with metadata.
@@ -137,10 +163,33 @@ if ($Mode -eq 'Freeze') {
     $groups = @($t4337.review | Where-Object { $_.reason -notlike 'c9-*' } | ForEach-Object { @{ canonical = [string]$_.canonical; members = [string[]]@($_.members) } })
     if ($groups.Count -ne 29) { throw "expected the 29 t/4398 review groups, found $($groups.Count)" }
 
+    # The 15 t/4337 C9 deferrals (TL e/348#10, t/4405#4): marked once every reference the copy alone supported
+    # is supported by the group under the e/347 union. Evidence recorded per doc, per ref (TL p/360#676).
+    $dataRev = (git -C $DataDir rev-parse origin/main).Trim()
+    $deferred = @(([IO.File]::ReadAllText((Join-Path $PSScriptRoot '..' 't4337' 'deferred-t4337-c9.json')) | ConvertFrom-Json).deferred)
+    if ($deferred.Count -ne 15) { throw "expected the 15 t/4337 C9 deferrals, found $($deferred.Count)" }
+    $c9Support = [System.Collections.Generic.List[object]]::new(); $c9Pairs = [System.Collections.Generic.List[object]]::new(); $c9Unsupported = [System.Collections.Generic.List[object]]::new()
+    foreach ($d in $deferred) {
+        $members = @([string]$d.canonical, [string]$d.id)
+        $links = @{}
+        foreach ($m in $members) {
+            $st = Get-GitText $dataRev "summaries/$m.json" $DataDir
+            $links[$m] = Get-SummaryLinkedNodes $(if ($st) { $st | ConvertFrom-Json } else { $null })
+        }
+        $refs = foreach ($n in @($d.references)) {
+            [ordered]@{ node = [string]$n; supported_by = [string[]]@($members | Where-Object { $links[$_].Contains([string]$n) }) }
+        }
+        $refs = @($refs)
+        $ok = @($refs | Where-Object { $_.supported_by.Count -eq 0 }).Count -eq 0
+        $c9Support.Add([ordered]@{ id = [string]$d.id; canonical = [string]$d.canonical; all_supported = $ok; references = $refs })
+        if ($ok) { $c9Pairs.Add(@{ member = [string]$d.id; canonical = [string]$d.canonical; basis = 'c9-deferred-t4337' }) }
+        else { $c9Unsupported.Add([string]$d.id) }
+    }
+
     # Every doc a guard looks at: group docs, R2/human ids, and every doc sharing one of their raw blobs.
     $interest = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($g in $groups) { [void]$interest.Add($g.canonical); foreach ($m in $g.members) { [void]$interest.Add($m) } }
-    foreach ($p in $R2) { [void]$interest.Add($p.member); [void]$interest.Add($p.canonical) }
+    foreach ($p in @($R2) + @($c9Pairs)) { [void]$interest.Add($p.member); [void]$interest.Add($p.canonical) }
     foreach ($k in $Human.Keys) { [void]$interest.Add($k); [void]$interest.Add($Human[$k]) }
     foreach ($id in @($interest)) { if ($raw.ContainsKey($id)) { foreach ($b in $raw[$id]) { foreach ($s in $sharers[$b]) { [void]$interest.Add($s) } } } }
 
@@ -187,7 +236,7 @@ if ($Mode -eq 'Freeze') {
     $rawArr = @{}; foreach ($k in $raw.Keys) { $rawArr[$k] = [string[]]$raw[$k] }
     $shArr = @{}; foreach ($k in $sharers.Keys) { $shArr[$k] = [string[]]$sharers[$k] }
     $plan = Get-T4405MarkPlan -Groups $groups -Raw $rawArr -Sharers $shArr -TitleKey $titleKey -TitleWeak $weak `
-        -SecondSignal $signal -CanonicalSuspect $suspect -Marked $marked -R2 $R2 -Human $Human
+        -SecondSignal $signal -CanonicalSuspect $suspect -Marked $marked -R2 (@($R2) + @($c9Pairs)) -Human $Human
 
     $files = [ordered]@{}; $marks = [System.Collections.Generic.List[object]]::new(); $noMeta = [System.Collections.Generic.List[object]]::new()
     foreach ($mk in $plan.Marks) {
@@ -202,14 +251,17 @@ if ($Mode -eq 'Freeze') {
     $frozen = [ordered]@{
         ticket = 't/4405'; scope = 'marks only: R1 same-raw, R2 PI-approved (t/4398#4-5), t/4402 human-reviewed; metadata fixes are a separate list (TL p/360#670)'
         guards = 'SO e/348#2 conditions 1-7 as accepted by the TL (e/348#3, #10); 3+ blob: review unless every sharer is in the group and their non-weak titles agree'
-        frozen_at = (Get-Date).ToUniversalTime().ToString('o'); sources_commit = $rev
+        frozen_at = (Get-Date).ToUniversalTime().ToString('o'); sources_commit = $rev; data_commit = $dataRev
         counts = [ordered]@{
             review_groups = $groups.Count
             marks = $marks.Count
             marks_by_basis = [ordered]@{
                 'r1-same-raw' = @($marks | Where-Object { $_.basis -eq 'r1-same-raw' }).Count
                 'r2-pi-approved' = @($marks | Where-Object { $_.basis -eq 'r2-pi-approved' }).Count
-                'human-reviewed-t4402' = @($marks | Where-Object { $_.basis -eq 'human-reviewed-t4402' }).Count }
+                'human-reviewed-t4402' = @($marks | Where-Object { $_.basis -eq 'human-reviewed-t4402' }).Count
+                'c9-deferred-t4337' = @($marks | Where-Object { $_.basis -eq 'c9-deferred-t4337' }).Count }
+            c9_deferred = $deferred.Count
+            c9_unsupported_left_deferred = $c9Unsupported.Count
             marks_without_metadata = $noMeta.Count
             review = @($plan.Review).Count
             blobs_3plus = @($plan.Blobs).Count
@@ -218,6 +270,7 @@ if ($Mode -eq 'Freeze') {
         marks = $marks.ToArray(); marks_without_metadata = $noMeta.ToArray()
         review = @($plan.Review | ForEach-Object { [ordered]@{ canonical = $_.canonical; member = $_.member; reason = $_.reason } })
         blobs_3plus = @($plan.Blobs | ForEach-Object { [ordered]@{ blob = $_.blob; group = $_.group; accepted = $_.accepted; docs = @($_.docs); titles = @($_.titles) } })
+        c9_union_support = $c9Support.ToArray()
         files = $files; group_input = $groupInput
     }
     [IO.File]::WriteAllText($FrozenPath, (($frozen | ConvertTo-Json -Depth 8) -replace "`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($false))

@@ -139,7 +139,10 @@ function Get-T4405MarkPlan {
     foreach ($p in @($R2) + @($Human.Keys | ForEach-Object { @{ member = $_; canonical = $Human[$_]; human = $true } })) {
         $m = [string]$p.member; $c = [string]$p.canonical
         if ($Marked.ContainsKey($m) -or $Marked.ContainsKey($c)) { & $addReview $c $m 'applied-mark-would-be-repointed'; continue }
-        $basis = if ($p -is [hashtable] -and $p.ContainsKey('human')) { 'human-reviewed-t4402' } else { 'r2-pi-approved' }
+        # An R2 entry may name its own basis (the t/4337 C9 deferrals, TL e/348#10); otherwise PI-approved R2.
+        $basis = if ($p -is [hashtable] -and $p.ContainsKey('human')) { 'human-reviewed-t4402' }
+                 elseif ($p -is [hashtable] -and $p.ContainsKey('basis')) { [string]$p.basis }
+                 else { 'r2-pi-approved' }
         if ($seen.Add($m)) { $marks.Add([pscustomobject]@{ id = $m; duplicate_of = $c; basis = $basis; group = $c }) }
     }
     # No chains: a target must not itself be marked in this plan.
