@@ -68,6 +68,18 @@
   filter: brightness(1.15);
 }
 
+.save-bar-fix-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.save-bar-resync-error {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--danger, #d32f2f);
+  white-space: nowrap;
+}
+
 .save-bar-error-dismiss {
   flex: none;
   background: transparent;

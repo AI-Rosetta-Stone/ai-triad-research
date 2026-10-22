@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useSyncStatus } from '../../hooks/useSyncStatus';
-import { type SyncStatus } from '../../utils/syncApi';
+import { resyncTracked, type SyncStatus } from '../../utils/syncApi';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { TheoryLink } from '../shared';
@@ -13,6 +13,9 @@ import { UnsyncedChangesDrawer } from './UnsyncedChangesDrawer';
 import { SyncDiagnosticsDialog } from './SyncDiagnosticsDialog';
 import { TaxonomyDiffPanel } from './TaxonomyDiffPanel';
 import { TaxonomyUpdateToast } from './TaxonomyUpdateToast';
+import { mapErrorToUserMessage } from '../../utils/errorMessages';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import type { StaleBranchHint } from '../../hooks/useTaxonomyStore/slices/staleBranchHint';
 import './SaveBar.css';
 
 function formatFileKey(key: string): string {
@@ -22,7 +25,7 @@ function formatFileKey(key: string): string {
 }
 
 export function SaveBar() {
-  const { dirty, save, saveError, dismissSaveError, validationErrors, integrityIssues, fixIntegrityErrors } = useTaxonomyStore();
+  const { dirty, save, saveError, dismissSaveError, validationErrors, integrityIssues, fixIntegrityErrors, staleBranchHint, loadAll } = useTaxonomyStore();
   const adminFlag = useFlag('permission-admin-features');
   const isOnline = useOnlineStatus();
   const isDirty = dirty.size > 0;
@@ -30,7 +33,37 @@ export function SaveBar() {
   const [syncDrawerOpen, setSyncDrawerOpen] = useState(false);
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [syncDiagOpen, setSyncDiagOpen] = useState(false);
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncError, setResyncError] = useState<string | null>(null);
   const { status: syncStatus, refresh: refreshSync } = useSyncStatus();
+
+  // t/4346: resync the session branch onto main from the save-bar error, when the failure
+  // is a stale-branch shape (t/4325). Conflicts hand off to the drawer's RebaseConflictModal.
+  const onResync = async () => {
+    setResyncing(true);
+    setResyncError(null);
+    try {
+      const res = await resyncTracked('rebase');
+      if (res.conflicts) {
+        setResyncError('Resync hit conflicts — resolve them in the sync panel.');
+        setSyncDrawerOpen(true);
+        return;
+      }
+      dismissSaveError();
+      await Promise.all([refreshSync(), loadAll(true)]);
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'save-bar',
+        level: 'error',
+        message: 'Resync from save-bar failed',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      setResyncError(mapErrorToUserMessage(err));
+    } finally {
+      setResyncing(false);
+    }
+  };
 
   // Refresh sync status after a save completes (dirty transitions non-zero → 0).
   const prevDirtyCountRef = useRef(dirty.size);
@@ -95,6 +128,10 @@ export function SaveBar() {
         fixIntegrityErrors={fixIntegrityErrors}
         dismissSaveError={dismissSaveError}
         groupedErrors={groupedErrors}
+        staleBranchHint={staleBranchHint}
+        resyncing={resyncing}
+        resyncError={resyncError}
+        onResync={() => void onResync()}
       />
       <div className="save-bar-right">
         <SaveBarSyncBadges
@@ -221,11 +258,13 @@ function SaveBarSyncBadges({ syncStatus, onOpenDrawer, onOpenDiffPanel }: {
 
 function SaveBarErrorSection({
   saveError, hasErrors, showErrors, setShowErrors, integrityIssues, fixIntegrityErrors, dismissSaveError, groupedErrors,
+  staleBranchHint, resyncing, resyncError, onResync,
 }: {
   saveError: string | null; hasErrors: boolean; showErrors: boolean;
   setShowErrors: React.Dispatch<React.SetStateAction<boolean>>;
   integrityIssues: unknown[]; fixIntegrityErrors: () => void; dismissSaveError: () => void;
   groupedErrors: Record<string, { path: string; message: string }[]>;
+  staleBranchHint: StaleBranchHint | null; resyncing: boolean; resyncError: string | null; onResync: () => void;
 }) {
   return (
     <>
@@ -248,10 +287,23 @@ function SaveBarErrorSection({
               Fix it
             </button>
           )}
+          {staleBranchHint && (
+            <button
+              type="button"
+              className="save-bar-fix-btn"
+              onClick={(e) => { e.stopPropagation(); onResync(); }}
+              disabled={resyncing}
+              title={`Fetch and merge main into ${staleBranchHint.sessionBranch} (${staleBranchHint.behindBy} commit${staleBranchHint.behindBy === 1 ? '' : 's'} behind)`}
+            >
+              {resyncing ? 'Resyncing…' : 'Resync'}
+            </button>
+          )}
+          {resyncError && <span className="save-bar-resync-error">{resyncError}</span>}
           <button
             type="button"
             className="save-bar-error-dismiss"
             onClick={(e) => { e.stopPropagation(); setShowErrors(false); dismissSaveError(); }}
+            disabled={resyncing}
             title="Dismiss error"
             aria-label="Dismiss error"
           >
