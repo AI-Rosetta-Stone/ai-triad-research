@@ -1,0 +1,118 @@
+{
+  "$schema_note": "Conformance fixture for repairSnapshotMojibake (lib/sanitize/repairSnapshotMojibake.ts) and Repair-SnapshotMojibake (scripts/AITriad/Private/Repair-SnapshotMojibake.ps1). Loaded by both vitest and Pester. Near-miss 'must not repair' cases (nm-*) are included to guard the gate boundaries. Unicode values are written as JSON escape sequences so the file stays ASCII-clean.",
+  "version": 1,
+  "cases": [
+    {
+      "id": "cp1252-apostrophe",
+      "description": "repairs cp1252-as-cp437: apostrophe Æ (U+00C6) → U+2019",
+      "input": "donÆt worry about it",
+      "expected_variant": "cp1252-as-cp437",
+      "expected_text": "don’t worry about it"
+    },
+    {
+      "id": "utf8-apostrophe-strict",
+      "description": "repairs utf8-as-cp437: ΓÇÖ triplet → U+2019 (strict arm)",
+      "input": "ItΓÇÖs fine. SheΓÇÖs happy. ThatΓÇÖs all.",
+      "expected_variant": "utf8-as-cp437",
+      "expected_text": "It’s fine. She’s happy. That’s all."
+    },
+    {
+      "id": "wrapper-untouched",
+      "description": "leaves everything before the first --- rule untouched; body is repaired",
+      "input": "<!-- source-id: abc123 -->\ntitle: Test doc\n---\ndonÆt modify the wrapper",
+      "expected_variant": "cp1252-as-cp437",
+      "expected_text": "<!-- source-id: abc123 -->\ntitle: Test doc\n---\ndon’t modify the wrapper"
+    },
+    {
+      "id": "cp1252-double-quotes",
+      "description": "repairs cp1252-as-cp437: double quotes ôHelloö → “Hello” (no apostrophe needed)",
+      "input": "She said ôHelloö and left.",
+      "expected_variant": "cp1252-as-cp437",
+      "expected_text": "She said “Hello” and left."
+    },
+    {
+      "id": "french-single-ldq-only",
+      "description": "none: French text with isolated ô (only LDQ, no RDQ, no apostrophe, no dashes)",
+      "input": "Le rôseau nerveux traite l information.",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "german-single-rdq-only",
+      "description": "none: German text with isolated ö (only RDQ, no LDQ, no apostrophe, no dashes)",
+      "input": "Das Netzöwerk verarbeitet Informationen schnell.",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "french-mid-word-dash",
+      "description": "none: French with û mid-word and ù before space -- no spaced-dash pattern",
+      "input": "heurûeux bientù aprôs.",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "english-em-dash",
+      "description": "repairs cp1252-as-cp437: em-dash ù between letters → U+2014",
+      "input": "The riskùreward ratio matters here.",
+      "expected_variant": "cp1252-as-cp437",
+      "expected_text": "The risk—reward ratio matters here."
+    },
+    {
+      "id": "utf8-lenient-arm",
+      "description": "repairs utf8-as-cp437 via lenient arm; broken byte U+00E1 kept as-is",
+      "input": "ItΓÇÖs fine. SheΓÇÖs happy. HeΓÇÖs here. Also á letter.",
+      "expected_variant": "utf8-as-cp437",
+      "expected_text": "It’s fine. She’s happy. He’s here. Also á letter."
+    },
+    {
+      "id": "real-u2019-not-cp437",
+      "description": "none: body already contains U+2019 which is not CP437-encodable -- encoding gate rejects",
+      "input": "It’s already clean text.",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "ascii-only",
+      "description": "none: pure ASCII body",
+      "input": "Hello, world. No damage here.",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "empty-string",
+      "description": "none: empty string",
+      "input": "",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "no-smart-gain",
+      "description": "none: CP437-encodable body but decoded CP1252 adds no Variant-A char (e.g. café)",
+      "input": "café au lait",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "nm-two-bleads-broken-byte",
+      "description": "near-miss none: only 2 ΓÇ signatures (< 3 threshold) plus a broken byte -- lenient arm skips, CP1252 gate also fails",
+      "input": "ItΓÇÖs fine. SheΓÇÖs happy. Also á broken.",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "nm-variantA-no-typographic",
+      "description": "near-miss none: body has Æ (Variant-A char) but decoded CP1252 apostrophes are not between letters -- isTypographic fails",
+      "input": "The AÆ protein (Æ chain) concentrates in cells.",
+      "expected_variant": "none",
+      "expected_text": null
+    },
+    {
+      "id": "nm-non-cp437-blocks-gate",
+      "description": "near-miss none: body contains U+2019 (not in CP437) alongside a Æ -- encoding gate rejects the entire body",
+      "input": "It’s damÆged here.",
+      "expected_variant": "none",
+      "expected_text": null
+    }
+  ]
+}
