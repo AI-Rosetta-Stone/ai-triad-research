@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { resolveSourceDocument, readSourceDocumentPdf } from '../storage/fileIO';
+import { resolveSourceDocument, readSourceDocumentPdf, loadSnapshot } from '../storage/fileIO';
 
 // Source documents are resolved relative to AI_TRIAD_SOURCES_ROOT (see config.getSourcesRoot).
 let sourcesRoot: string;
@@ -82,5 +82,25 @@ describe('source document resolution', () => {
   it('readSourceDocumentPdf returns null when no PDF exists', async () => {
     makeSource('md-doc', { snapshot: 'no pdf here' });
     expect(await readSourceDocumentPdf('md-doc')).toBeNull();
+  });
+
+  // t/4394/t/4411: a pre-#3671 PDF snapshot may carry console-code-page mojibake
+  // (cp1252-as-cp437: U+2019 written as Æ). Both display paths repair on read;
+  // the file itself is untouched.
+  it('resolveSourceDocument repairs cp1252-as-cp437 mojibake in the returned content', async () => {
+    makeSource('mojibake-doc', { snapshot: 'The governmentÆs plan is clear.' });
+    const res = await resolveSourceDocument('mojibake-doc');
+    expect(res).toEqual({ available: true, type: 'markdown', content: 'The government’s plan is clear.' });
+  });
+
+  it('loadSnapshot repairs cp1252-as-cp437 mojibake in the returned content', async () => {
+    makeSource('mojibake-doc-2', { snapshot: 'The governmentÆs plan is clear.' });
+    expect(await loadSnapshot('mojibake-doc-2')).toBe('The government’s plan is clear.');
+  });
+
+  it('leaves clean snapshots byte-identical (no false-positive repair)', async () => {
+    makeSource('clean-doc', { snapshot: 'Café au lait, s’il vous plaît.' });
+    const res = await resolveSourceDocument('clean-doc');
+    expect(res.content).toBe('Café au lait, s’il vous plaît.');
   });
 });
