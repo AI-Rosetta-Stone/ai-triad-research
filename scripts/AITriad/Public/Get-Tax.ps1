@@ -18,6 +18,10 @@ function Get-Tax {
         Calls the Python embedding script to rank all nodes by cosine
         similarity to the query text. Returns results sorted by score.
         Requires embeddings.json (run Update-TaxEmbeddings first).
+
+        Superseded POV nodes (those with superseded_by) are not returned by
+        default (t/4356). An exact, wildcard-free -Id still returns the stored
+        node, superseded or not; -IncludeSuperseded returns every node.
     .PARAMETER POV
         Name of the POV file without the .json extension (case-insensitive).
         Supports wildcards. Default: "*" (all POVs).
@@ -30,6 +34,8 @@ function Get-Tax {
     .PARAMETER Similar
         A text query for semantic similarity search. Mutually exclusive
         with -Id, -Label, and -Description.
+    .PARAMETER IncludeSuperseded
+        Also return superseded POV nodes (history and audits). Text filtering only.
     .PARAMETER Top
         Maximum number of results to return (only with -Similar or -Overlaps).
         Default: 20.
@@ -134,7 +140,10 @@ function Get-Tax {
         [switch]$Today,
 
         [Parameter(ParameterSetName = 'Text')]
-        [datetime]$Since
+        [datetime]$Since,
+
+        [Parameter(ParameterSetName = 'Text')]
+        [switch]$IncludeSuperseded
     )
 
     begin {
@@ -314,9 +323,17 @@ function Get-Tax {
     $HasTemporal = $Today -or $null -ne $Since
     $TodayUtcStr = if ($Today) { (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') } else { $null }
 
+    # Exact ids reach superseded nodes too: a by-id lookup returns the stored node (t/4356).
+    $ExactIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($Pat in @($Id)) { if ($Pat -and -not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($Pat)) { [void]$ExactIds.Add($Pat) } }
+
     foreach ($Key in $MatchingKeys | Sort-Object) {
         $Entry = $script:TaxonomyData[$Key]
-        foreach ($Node in $Entry.nodes) {
+        $Nodes = if ($script:TaxonomyAllNodesByPov.ContainsKey($Key) -and ($IncludeSuperseded -or $ExactIds.Count -gt 0)) { $script:TaxonomyAllNodesByPov[$Key] } else { $Entry.nodes }
+        foreach ($Node in $Nodes) {
+            # Only the POV camps take part in supersession; situations are never filtered (TS parity).
+            if (-not $IncludeSuperseded -and $Key -in $script:SupersessionPovKeys -and
+                (Test-TaxonomyNodeSuperseded $Node) -and -not $ExactIds.Contains([string]$Node.id)) { continue }
 
             if ($HasTextFilter) {
                 $Match = $false

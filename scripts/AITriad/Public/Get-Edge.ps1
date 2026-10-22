@@ -48,6 +48,9 @@ function Get-Edge {
         Return a specific edge by its zero-based index in edges.json.
     .PARAMETER First
         Return only the first N matching edges.
+    .PARAMETER IncludeSuperseded
+        Also return edges with a superseded endpoint (history, QBAF). By default
+        they are left out (t/4356); -Id and -Index return any edge.
     .PARAMETER RepoRoot
         Path to the repository root.
     .EXAMPLE
@@ -142,6 +145,8 @@ function Get-Edge {
 
         [int]$First = 0,
 
+        [switch]$IncludeSuperseded,
+
         [string]$RepoRoot = $script:RepoRoot
     )
 
@@ -215,9 +220,13 @@ function Get-Edge {
     # ------------------------------------------------------------------
     $Results = [System.Collections.Generic.List[PSObject]]::new()
     $EdgeCount = $EdgesData.edges.Count
+    # Edges touching a superseded node are history (t/4356); -Id / -Index still return any edge.
+    $Superseded = $null   # assigned directly: an if-expression would unroll the HashSet
+    if (-not $IncludeSuperseded) { $Superseded = Get-SupersededNodeIdSet }
 
     for ($i = 0; $i -lt $EdgeCount; $i++) {
         $E = $EdgesData.edges[$i]
+        if ($null -ne $Superseded -and ($Superseded.Contains([string]$E.source) -or $Superseded.Contains([string]$E.target))) { continue }
 
         # Source/Target/NodeId wildcard filters
         if ($Source -and $E.source -notlike $Source) { continue }

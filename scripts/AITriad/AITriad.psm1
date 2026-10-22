@@ -764,6 +764,7 @@ if (Test-Path $TaxonomyDir) {
 if ($script:TaxonomyData.Count -eq 0) {
     Write-Warning "Taxonomy: no valid JSON files loaded from $TaxonomyDir — most commands will not work."
 }
+Update-TaxonomySupersessionCache  # POV .nodes become selectable; full set indexed (t/4356)
 
 # Load policy registry
 $script:PolicyRegistry = $null

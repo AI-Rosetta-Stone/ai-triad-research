@@ -1,0 +1,102 @@
+{
+  "_comment": "Shared supersession cases (t/4356, TL t/4356#7): lib/debate/supersession.fixture.test.ts runs them through TS buildSupersessionIndex and tests/TaxonomySupersession.Tests.ps1 through PS New-TaxonomySupersessionIndex, so the two can't drift. nodes are POV nodes in file order; selectable = nodes without a non-empty superseded_by; resolve maps id -> resolved id (null = unknown id); warn_kinds is the set of warning kinds emitted (chain, cycle, dangling).",
+  "schema": 1,
+  "cases": [
+    {
+      "id": "no-superseded",
+      "nodes": [{ "id": "a" }, { "id": "b" }],
+      "selectable": ["a", "b"],
+      "superseded": [],
+      "resolve": { "a": "a", "b": "b", "zz": null },
+      "warn_kinds": []
+    },
+    {
+      "id": "single-hop",
+      "nodes": [{ "id": "a", "superseded_by": "b" }, { "id": "b" }],
+      "selectable": ["b"],
+      "superseded": ["a"],
+      "resolve": { "a": "b", "b": "b" },
+      "warn_kinds": []
+    },
+    {
+      "id": "chain-of-three-warns",
+      "nodes": [{ "id": "a", "superseded_by": "b" }, { "id": "b", "superseded_by": "c" }, { "id": "c" }],
+      "selectable": ["c"],
+      "superseded": ["a", "b"],
+      "resolve": { "a": "c", "b": "c", "c": "c" },
+      "warn_kinds": ["chain"]
+    },
+    {
+      "id": "chain-settled-out-of-order",
+      "nodes": [{ "id": "b", "superseded_by": "c" }, { "id": "c" }, { "id": "a", "superseded_by": "b" }],
+      "selectable": ["c"],
+      "superseded": ["a", "b"],
+      "resolve": { "a": "c", "b": "c" },
+      "warn_kinds": ["chain"]
+    },
+    {
+      "id": "two-node-cycle",
+      "nodes": [{ "id": "a", "superseded_by": "b" }, { "id": "b", "superseded_by": "a" }, { "id": "c" }],
+      "selectable": ["c"],
+      "superseded": ["a", "b"],
+      "resolve": { "a": "a", "b": "b", "c": "c" },
+      "warn_kinds": ["cycle"]
+    },
+    {
+      "id": "self-loop",
+      "nodes": [{ "id": "a", "superseded_by": "a" }],
+      "selectable": [],
+      "superseded": ["a"],
+      "resolve": { "a": "a" },
+      "warn_kinds": ["cycle"]
+    },
+    {
+      "id": "dangling-target",
+      "nodes": [{ "id": "a", "superseded_by": "gone" }, { "id": "b" }],
+      "selectable": ["b"],
+      "superseded": ["a"],
+      "resolve": { "a": "a", "b": "b", "gone": null },
+      "warn_kinds": ["dangling"]
+    },
+    {
+      "id": "chain-into-cycle",
+      "nodes": [{ "id": "x", "superseded_by": "a" }, { "id": "a", "superseded_by": "b" }, { "id": "b", "superseded_by": "a" }],
+      "selectable": [],
+      "superseded": ["a", "b", "x"],
+      "resolve": { "x": "x", "a": "a", "b": "b" },
+      "warn_kinds": ["cycle"]
+    },
+    {
+      "id": "chain-into-dangling",
+      "nodes": [{ "id": "x", "superseded_by": "a" }, { "id": "a", "superseded_by": "gone" }],
+      "selectable": [],
+      "superseded": ["a", "x"],
+      "resolve": { "x": "x", "a": "a" },
+      "warn_kinds": ["dangling"]
+    },
+    {
+      "id": "empty-and-null-superseded-by-are-live",
+      "nodes": [{ "id": "a", "superseded_by": "" }, { "id": "b", "superseded_by": null }],
+      "selectable": ["a", "b"],
+      "superseded": [],
+      "resolve": { "a": "a", "b": "b" },
+      "warn_kinds": []
+    },
+    {
+      "id": "joins-a-settled-cycle",
+      "nodes": [{ "id": "a", "superseded_by": "b" }, { "id": "b", "superseded_by": "a" }, { "id": "x", "superseded_by": "a" }],
+      "selectable": [],
+      "superseded": ["a", "b", "x"],
+      "resolve": { "a": "a", "b": "b", "x": "x" },
+      "warn_kinds": ["cycle"]
+    },
+    {
+      "id": "two-sources-one-survivor",
+      "nodes": [{ "id": "a", "superseded_by": "s" }, { "id": "b", "superseded_by": "s" }, { "id": "s" }, { "id": "t" }],
+      "selectable": ["s", "t"],
+      "superseded": ["a", "b"],
+      "resolve": { "a": "s", "b": "s", "s": "s", "t": "t" },
+      "warn_kinds": []
+    }
+  ]
+}
