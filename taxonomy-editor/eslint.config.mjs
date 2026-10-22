@@ -118,8 +118,9 @@ export default tseslint.config(
       // and unwraps TSAsExpression — no false positives on data.message HTTP response fields.
       'local/no-actionable-error-message-nesting': 'error',
       // Flashing-console prevention (t/3914, t/3922): child_process calls need windowsHide: true.
-      // Warn-first; promotion to 'error' is a new blocking gate and needs a Second Opinion.
-      'local/require-windows-hide': 'warn',
+      // Blocking since t/4238 (T2: warn-first from 2026-10-05, then 0 hits in every package for a full CI
+      // cycle). Demoting it back to 'warn' is itself a gate change.
+      'local/require-windows-hide': 'error',
     },
   },
   {
