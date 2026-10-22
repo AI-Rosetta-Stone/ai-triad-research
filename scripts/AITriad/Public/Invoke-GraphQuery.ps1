@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Invoke-GraphQuery {
@@ -104,6 +104,7 @@ function Invoke-GraphQuery {
         if (-not (Test-Path $FilePath)) { continue }
 
         $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        Set-TaxonomyDocumentSelectable -Document $FileData -Name $PovKey   # the graph the model sees (t/4356)
         foreach ($Node in $FileData.nodes) {
             $NodeEntry = [ordered]@{
                 id          = $Node.id
@@ -137,6 +138,12 @@ function Invoke-GraphQuery {
         } else {
             $GraphEdges = @($EdgesData.edges | Where-Object { $_.status -eq $StatusFilter })
         }
+    }
+
+    # An edge with a superseded endpoint is history, not graph (t/4356).
+    $Superseded = Get-SupersededNodeIdSet
+    if ($Superseded.Count -gt 0) {
+        $GraphEdges = @($GraphEdges | Where-Object { -not $Superseded.Contains([string]$_.source) -and -not $Superseded.Contains([string]$_.target) })
     }
 
     Write-OK "Loaded $($GraphEdges.Count) edges (filter: $StatusFilter)"

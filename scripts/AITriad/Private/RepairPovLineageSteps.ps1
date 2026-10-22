@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 # Steps of Repair-PovLineage (t/3910 complexity refactor). Behaviour is pinned by
@@ -263,6 +263,7 @@ function Get-LineageRegenNode {
         $Data = Get-Content $FilePath -Raw | ConvertFrom-Json
         foreach ($Node in $Data.nodes) {
             if ($FilterNodeIds -and -not $FilterNodeIds.Contains($Node.id)) { continue }
+            if (Test-TaxonomyNodeSuperseded $Node) { continue }   # no AI regeneration for a retired node (t/4356)
             $Item = ConvertTo-LineageRegenItem -Node $Node -PovName $PovName
             if ($null -ne $Item) { $NodesToProcess.Add($Item) }
         }

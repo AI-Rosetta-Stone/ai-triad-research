@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Invoke-EdgeDiscovery {
@@ -242,6 +242,8 @@ function Invoke-EdgeDiscovery {
         if (-not (Test-Path $FilePath)) { continue }
 
         $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        # Candidates and the valid-id set are selectable nodes only; the POV file is never written here (t/4356).
+        Set-TaxonomyDocumentSelectable -Document $FileData -Name $PovKey
         foreach ($Node in $FileData.nodes) {
             $AllNodes.Add($Node)
             $NodePovMap[$Node.id] = $PovKey

@@ -93,7 +93,10 @@ function Invoke-SummaryPipeline {
         $TaxDir = Get-TaxonomyDir
         foreach ($F in $TaxFiles) {
             $P = Join-Path $TaxDir $F
-            if (Test-Path $P) { $TaxContext[$F] = Get-Content $P -Raw | ConvertFrom-Json }
+            if (Test-Path $P) {
+                $TaxContext[$F] = Get-Content $P -Raw | ConvertFrom-Json
+                Set-TaxonomyDocumentSelectable -Document $TaxContext[$F] -Name $F   # prompt only (t/4356)
+            }
         }
         $TaxonomyJson = $TaxContext | ConvertTo-Json -Depth 20 -Compress:$false
         Write-Verbose "Pipeline: full taxonomy injected"

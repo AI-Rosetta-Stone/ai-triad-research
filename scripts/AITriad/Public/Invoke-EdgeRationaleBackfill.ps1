@@ -148,7 +148,9 @@ function Invoke-EdgeRationaleBackfill {
     # ── Select target edges ───────────────────────────────────────────────
     $Targets   = [System.Collections.Generic.List[object]]::new()
     $SelfLoops = [System.Collections.Generic.List[string]]::new()
+    $Superseded = Get-SupersededNodeIdSet   # no AI call for an edge with a retired endpoint; the file keeps it (t/4356)
     foreach ($E in @($EdgesData.edges)) {
+        if ($Superseded.Contains([string]$E.source) -or $Superseded.Contains([string]$E.target)) { continue }
         $HasRationale = $E.PSObject.Properties['rationale'] -and -not [string]::IsNullOrWhiteSpace($E.rationale)
         if ($HasRationale -and -not $Force) { continue }
         # Never rationalize a malformed self-loop (source == target). Collect for a cleanup list.

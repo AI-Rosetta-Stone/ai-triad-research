@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Repair-PovAttributes {
@@ -95,6 +95,7 @@ function Repair-PovAttributes {
         foreach ($Node in $Data.nodes) {
             if ($Node.PSObject.Properties['children'] -and $Node.children -and @($Node.children).Count -gt 0) { continue }
             if ($Category -and $Node.category -ne $Category) { continue }
+            if (Test-TaxonomyNodeSuperseded $Node) { continue }   # no AI repair of a retired node; $Data keeps it (t/4356)
 
             $HasGA = $Node.PSObject.Properties['graph_attributes'] -and $null -ne $Node.graph_attributes
             $MissingFields = [System.Collections.Generic.List[string]]::new()

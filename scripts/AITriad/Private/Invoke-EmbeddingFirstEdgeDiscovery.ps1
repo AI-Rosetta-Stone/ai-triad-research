@@ -280,6 +280,9 @@ Omit pairs with no relationship. No markdown fences.
                     $EType = if ($E.PSObject.Properties['type'])   { $E.type }   else { $null }
                     if (-not $ESrc -or -not $ETgt -or -not $EType) { continue }
                     if ($EType -eq 'NONE') { continue }
+                    $ESrc = ConvertTo-SurvivorNodeId -Id $ESrc -Context 'Embedding-first edge discovery'   # t/4356
+                    $ETgt = ConvertTo-SurvivorNodeId -Id $ETgt -Context 'Embedding-first edge discovery'
+                    $E.source = $ESrc; $E.target = $ETgt
                     if (-not $ValidNodeIds.Contains($ESrc) -or -not $ValidNodeIds.Contains($ETgt)) { continue }
 
                     $EdgeKey = "$ESrc|$EType|$ETgt"

@@ -111,7 +111,8 @@ function Add-TaxonomyLabelMatch {
         if (-not (Test-Path $FilePath)) { continue }
         try {
             $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
-            foreach ($n in @($FileData.nodes)) {
+            # New entity links go to selectable nodes only, never to a retired one (t/4356).
+            foreach ($n in @(Select-SelectableTaxonomyNode -Nodes @($FileData.nodes) -Pov $PovKey)) {
                 if (-not $n.PSObject.Properties['id']) { continue }
                 $lbl = if ($n.PSObject.Properties['label']) { [string]$n.label } else { '' }
                 Add-EntityMatch $Index $lbl 'node' ([string]$n.id) $lbl

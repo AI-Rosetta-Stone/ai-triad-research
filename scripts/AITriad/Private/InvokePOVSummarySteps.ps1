@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 # The steps of Invoke-POVSummary, extracted for t/3910 (cyclomatic complexity under 20), then fixed for
@@ -153,6 +153,7 @@ function Show-POVSummaryDryRun {
         $FilePath = Join-Path $TaxonomyDir $File
         if (Test-Path $FilePath) {
             $TaxonomyContext[$File] = Get-Content $FilePath -Raw | ConvertFrom-Json
+            Set-TaxonomyDocumentSelectable -Document $TaxonomyContext[$File] -Name $File   # dry-run prompt preview (t/4356)
         }
     }
     $TaxonomyJson = $TaxonomyContext | ConvertTo-Json -Depth 20 -Compress:$false
