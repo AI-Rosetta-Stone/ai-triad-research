@@ -327,13 +327,54 @@ export function normalizedRequestPath(req: IncomingMessage): string {
   }
 }
 
-/** Best-effort client IP: first X-Forwarded-For hop (behind the Azure ingress
- *  proxy), else the raw socket address. Used for per-IP rate-limit keys. */
-export function getClientIp(req: IncomingMessage): string {
-  const xff = req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
-  return req.socket.remoteAddress || 'unknown';
+/** True for loopback, RFC 1918, CGNAT (100.64/10), link-local and IPv6 ULA
+ *  addresses: a peer that can only be our own proxy hop, never a real client. */
+export function isPrivateOrLoopback(addr: string): boolean {
+  const a = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+  const v4 = a.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (v4) return isPrivateV4(Number(v4[1]), Number(v4[2]));
+  const v6 = a.toLowerCase();
+  return v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6);
 }
+
+/** [first octet, second-octet min, second-octet max] for each private/loopback IPv4 range. */
+const PRIVATE_V4: ReadonlyArray<readonly [number, number, number]> = [
+  [127, 0, 255], [10, 0, 255], [172, 16, 31], [192, 168, 168], [100, 64, 127], [169, 254, 254],
+];
+function isPrivateV4(o1: number, o2: number): boolean {
+  return PRIVATE_V4.some(([first, lo, hi]) => o1 === first && o2 >= lo && o2 <= hi);
+}
+
+const warnedClientIp = new Set<string>();
+function warnClientIpOnce(reason: string, fields: Record<string, unknown>): void {
+  if (warnedClientIp.has(reason)) return;
+  warnedClientIp.add(reason);
+  log.security.warn({ component: 'client-ip', reason, ...fields }, `getClientIp fallback: ${reason}`);
+}
+
+/** Client IP for per-IP rate-limit and quota keys (t/4410).
+ *
+ *  Captured on staging behind ACA ingress + the Easy Auth sidecar: the socket peer is
+ *  always 127.0.0.1, and the ingress APPENDS the real client IP as the LAST
+ *  X-Forwarded-For entry. Anything to its left (and X-Real-IP / Forwarded) is whatever
+ *  the client sent, so the old first-entry read let any caller pick its own bucket.
+ *
+ *  So: trust exactly one proxy hop — the rightmost XFF entry — and only when the peer
+ *  is a private/loopback proxy. A direct (public) peer is the client itself; its XFF is
+ *  ignored. */
+export function getClientIp(req: IncomingMessage): string {
+  const peer = req.socket?.remoteAddress || '';
+  if (!peer || !isPrivateOrLoopback(peer)) return peer || 'unknown';
+  const xff = req.headers['x-forwarded-for'];
+  const raw = Array.isArray(xff) ? xff.join(',') : xff;
+  const last = raw ? raw.split(',').map(s => s.trim()).filter(Boolean).pop() : undefined;
+  if (last) return last;
+  warnClientIpOnce('proxy peer without X-Forwarded-For; keying on the proxy address', { peer });
+  return peer;
+}
+
+/** Test seam: reset the once-per-process warnings. */
+export function _resetClientIpWarningsForTest(): void { warnedClientIp.clear(); }
 
 // ── Route registrar (t/1295) ──
 // The surface extracted cluster modules (routes/*.ts) use to register routes into

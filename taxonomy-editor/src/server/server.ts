@@ -361,9 +361,8 @@ const serverCtx: ServerCtx = {
   emitToUser,
 };
 
-// Best-effort client IP for rate limiting — first X-Forwarded-For hop (Azure
-// ingress sets it) else the socket address. (M7)
-// getClientIp moved to httpKit.ts (t/1347) — shared by server.ts + routes/*.ts.
+// Client IP for rate limiting (M7): the rightmost X-Forwarded-For entry when the
+// peer is our proxy, else the socket address (t/4410). Lives in httpKit.ts (t/1347).
 
 // ── Route registration (t/2749: consolidated into routes/registerAll.ts) ──
 // Order is preserved verbatim — see registerAll.ts for the per-cluster comments.
