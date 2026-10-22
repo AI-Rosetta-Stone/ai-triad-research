@@ -19,6 +19,9 @@ function Find-GraphPath {
         Only traverse edges of this type. If omitted, all edge types are used.
     .PARAMETER Status
         Only traverse edges with this approval status. Default: all.
+    .PARAMETER IncludeSuperseded
+        Also traverse edges with a superseded endpoint (history). By default the
+        walk never enters a superseded node (t/4356).
     .PARAMETER RepoRoot
         Path to the repository root.
     .EXAMPLE
@@ -55,6 +58,8 @@ function Find-GraphPath {
 
         [ValidateSet('proposed', 'approved', 'rejected', '')]
         [string]$Status = '',
+
+        [switch]$IncludeSuperseded,
 
         [string]$RepoRoot = $script:RepoRoot
     )
@@ -102,9 +107,12 @@ function Find-GraphPath {
 
     # Build adjacency: nodeId → list of (neighbor, edge)
     $Adjacency = @{}
+    $Superseded = $null   # assigned directly: an if-expression would unroll the HashSet
+    if (-not $IncludeSuperseded) { $Superseded = Get-SupersededNodeIdSet }
     foreach ($Edge in $EdgesData.edges) {
         if ($EdgeType -and $Edge.type -ne $EdgeType) { continue }
         if ($Status -and $Edge.status -ne $Status) { continue }
+        if ($null -ne $Superseded -and ($Superseded.Contains([string]$Edge.source) -or $Superseded.Contains([string]$Edge.target))) { continue }
 
         # Forward direction
         if (-not $Adjacency.ContainsKey($Edge.source)) {

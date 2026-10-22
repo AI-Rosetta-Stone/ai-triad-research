@@ -75,6 +75,7 @@ function Assert-TaxonomyCacheFresh {
                 Write-Warning "Taxonomy reload: failed to load $($File.Name): $_"
             }
         }
+        Update-TaxonomySupersessionCache  # POV .nodes become selectable; full set indexed (t/4356)
 
         # Also reload policy registry
         $RegistryFile = Join-Path $TaxDir 'policy_actions.json'

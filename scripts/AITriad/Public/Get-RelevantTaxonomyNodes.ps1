@@ -277,6 +277,9 @@ function Get-RelevantTaxonomyNodes {
         if ($NodePov -eq 'situations' -and -not $IncludeSituations) { continue }
         if ($PovFilter -and -not $PovFilter.Contains($NodePov)) { continue }
         if ($script:PillarNodeIds -and $script:PillarNodeIds.Contains($NodeId)) { continue }  # t/2369
+        # Superseded nodes never compete for a slot (t/4356): skipping them only at the later cache
+        # lookup would silently leave fewer than MaxTotal nodes.
+        if ($script:TaxonomySupersession -and $script:TaxonomySupersession.SupersededIds.Contains($NodeId)) { continue }
 
         # Mean-of-top-N scoring (synthetic multi-vector) or single-vector fallback
         if ($script:CachedSyntheticVectors -and $script:CachedSyntheticVectors.ContainsKey($NodeId)) {
