@@ -173,3 +173,11 @@ Describe 'Repair-SnapshotMojibake fixture cases (t/4412)' -Tag 'ingestion' {
         $r.Text | Should -BeExactly $et
     }
 }
+
+# The repair is read-side only: a hash helper that called it would change source identity (t/4394, t/4429).
+Describe 'Import guard: hash helpers must not call Repair-SnapshotMojibake (t/4394)' -Tag 'ingestion' {
+    It 'SourceIdentity.ps1 does not call Repair-SnapshotMojibake' {
+        $src = Get-Content (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'Private' 'SourceIdentity.ps1') -Raw
+        $src | Should -Not -Match 'Repair-SnapshotMojibake'
+    }
+}
