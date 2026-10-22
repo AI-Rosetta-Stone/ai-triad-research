@@ -188,6 +188,8 @@ function Invoke-POVSummary {
     $summaryObject        = $pipelineResult.Summary
     $factualClaimCount    = $pipelineResult.FactualCount
     $unmappedConceptCount = $pipelineResult.UnmappedCount
+    # Unknown cited node ids go to unmapped, as Finalize-Summary does on the document path (t/4430).
+    $unmappedConceptCount = Invoke-POVSummaryNodeIdCheck -SummaryObject $summaryObject -UnmappedConceptCount $unmappedConceptCount
     $fireStats            = $pipelineResult.FireStats
     $usedFire             = $pipelineResult.UsedFire
 

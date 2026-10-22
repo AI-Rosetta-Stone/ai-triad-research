@@ -204,6 +204,21 @@ function Get-POVSummaryContextRot {
     @{ Stages = $Stages; Obj = $Obj }
 }
 
+function Invoke-POVSummaryNodeIdCheck {
+    <#
+    .SYNOPSIS
+        The node-id check Finalize-Summary runs on the document path, for the POV-summary path (t/4430).
+    .DESCRIPTION
+        Invoke-POVSummary never calls Finalize-Summary, so a key_point citing a node id that isn't in the
+        taxonomy used to reach the written summary. Same rule as the document path
+        (Move-HallucinatedNodeIdsToUnmapped): the id is nulled and the point moves to unmapped_concepts.
+        Returns the unmapped count after the move, so the console, report and metadata agree.
+    #>
+    param([object]$SummaryObject, [int]$UnmappedConceptCount)
+    $Moved = Move-HallucinatedNodeIdsToUnmapped -SummaryObject $SummaryObject
+    $UnmappedConceptCount + @($Moved).Count
+}
+
 function Test-POVSummaryCampPresent {
     # True when pov_summaries carries the camp at all (its value may still be null or empty).
     param($SummaryObject, [string]$Camp)

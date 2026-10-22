@@ -48,7 +48,9 @@
     "[Cyan] ════════════════════════════════════════════════════════════════════════\n"
   ],
   "warnings": [],
-  "verbose": [],
+  "verbose": [
+    "Test-TaxonomyNodeId: loaded 0 node IDs"
+  ],
   "error": null,
   "output": [],
   "calls": [
