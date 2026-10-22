@@ -30,6 +30,7 @@ import { getCurrentUserId } from '../security/userContext.js';
 import { scheduleOverlayCommit } from './overlayCommitScheduler.js';
 import type { NodeSourceIndex } from '../../../../lib/sourceIndex/types.js';
 import { buildNodeSourceIndex } from './nodeSourceIndex.js';
+import { repairSnapshotMojibake } from '../../../../lib/sanitize/repairSnapshotMojibake.js';
 
 // ── Extracted sub-modules (ADR-007, t/1688) — cohesion splits behind a stable
 // barrel: importers keep importing these symbols from './fileIO.js'. Each module
@@ -1124,12 +1125,28 @@ export async function loadSummary(docId: string): Promise<unknown | null> {
   try { return JSON.parse(raw); } catch { /* telemetry — silent by design */ return null; }
 }
 
+/** t/4394/t/4411: read-side repair of console-code-page mojibake in a PDF-derived
+ *  snapshot, for a path that feeds a model or display — never a hashing path
+ *  (`nodeSourceIndex.ts`'s `computeSnapshotHash` must keep reading the raw bytes,
+ *  since `content_sha256` is computed over the snapshot exactly as written). The
+ *  file itself is never rewritten; this is a pure read-time transform, same as
+ *  PS's `Read-SnapshotForModel`. WARNs once per call when a repair actually
+ *  applied, so the gate's reach is visible without being noisy on clean docs. */
+function repairSnapshotForModel(text: string, sourceId: string): string {
+  const { text: repaired, variant } = repairSnapshotMojibake(text);
+  if (variant !== 'none') {
+    log.server.warn({ sourceId, variant }, 'Snapshot mojibake repaired on read (t/4394)');
+  }
+  return repaired;
+}
+
 // t/4391: an ingested source snapshot is pipeline-generated, not user-written.
 export async function loadSnapshot(sourceId: string): Promise<string | null> {
   assertSafeId(sourceId, 'source id');
   const sourcesDir = getSourcesDir();
   if (!sourcesDir) return null; // sources unavailable
-  return backend.readFile(path.join(sourcesDir, sourceId, 'snapshot.md'), { ref: 'main' });
+  const raw = await backend.readFile(path.join(sourcesDir, sourceId, 'snapshot.md'), { ref: 'main' });
+  return raw === null ? null : repairSnapshotForModel(raw, sourceId);
 }
 
 // ── Source document resolution ──
@@ -1197,7 +1214,7 @@ export async function resolveSourceDocument(docId: string): Promise<SourceDocume
   // Prefer markdown snapshot — renders inline with claim highlighting and
   // auto-scroll to the fact location. PDFs don't render in Electron's iframe.
   if (snapshot !== null) {
-    return { available: true, type: 'markdown', content: snapshot };
+    return { available: true, type: 'markdown', content: repairSnapshotForModel(snapshot, docId) };
   }
   if (pdfPath) {
     return { available: true, type: 'pdf', path: fileUrl };
