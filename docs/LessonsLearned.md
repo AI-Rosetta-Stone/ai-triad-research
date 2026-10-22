@@ -5279,7 +5279,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 8 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; resolved by reading full OID with `gh pr view N --json headRefOid --jq .headRefOid`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 9 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -7087,3 +7087,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Azure p/105#28).
 
 **Applies To:** All agents reading `az` CLI output redirected to files on Windows; specify `encoding='cp1252'` (or use `errors='replace'`) when parsing with Python.
+
+---
+
+## #350 [Build] String Pattern Match Including Trailing Comma Fails on Last JSON Entry — Match Without Comma and Validate
+
+**Pattern:** An agent writes a Python edit script that matches a JSON field pattern including a trailing comma (e.g., `"lint": "eslint src/",`). The match fails in files where the target field is the last entry in the object — JSON's last entry has no trailing comma. Fix: match without the trailing comma; validate the result with `json.loads` to ensure structural integrity.
+
+**Instances:**
+- 2026-10-21 — Shared Lib (p/5#57): Python edit script matched `"lint": "eslint src/",` with trailing comma; failed in 2 of 3 `package.json` files where `lint` was the last script entry. Fixed by removing the comma from the match pattern and validating with `json.loads`.
+
+**Root Cause:** JSON objects do not allow trailing commas. When a field is the last in an object, it has no trailing comma — a pattern that includes one will only match in the non-final position.
+
+**Prevention:**
+1. **When matching a JSON field value**, omit the trailing comma from the pattern: match `"lint": "eslint src/"` not `"lint": "eslint src/",`.
+2. **After a string-substitution edit on a JSON file**, validate with `json.loads(content)` to catch any structural breakage before writing.
+3. **This applies to all JSON files** — commas in JSON are separators between entries, not terminators; the last entry in any object or array has no trailing comma.
+
+**Status:** Active — 1 instance (Shared Lib p/5#57).
+
+**Applies To:** All agents editing JSON files via string matching; never include trailing commas in match patterns, and validate the result with `json.loads`.
+
+---
+
+## #351 [Build] `gh repo view --json autoMergeAllowed` Is Not a Valid Field — Use `gh api` With `.allow_auto_merge` Instead
+
+**Pattern:** An agent runs `gh repo view --json autoMergeAllowed` to check whether auto-merge is enabled for a repo. The command returns an "unknown JSON field" error. `autoMergeAllowed` is a GraphQL field name; `gh repo view --json` uses the REST API schema where the equivalent field is `allow_auto_merge`, accessible via `gh api repos/OWNER/REPO --jq .allow_auto_merge`.
+
+**Instances:**
+- 2026-10-21 — DebateTool (p/234#16): `gh repo view --json autoMergeAllowed` → unknown JSON field error. Resolved by switching to `gh api repos/AI-Rosetta-Stone/ai-triad-research --jq .allow_auto_merge`.
+
+**Root Cause:** GitHub has two API schemas: REST (used by `gh repo view`) and GraphQL (used by `gh api graphql`). Field names differ between them. `autoMergeAllowed` is the GraphQL name; `allow_auto_merge` is the REST name. `gh repo view --json` only accepts REST field names.
+
+**Prevention:**
+1. **To check auto-merge status**, use: `gh api repos/OWNER/REPO --jq .allow_auto_merge` (returns `true`/`false`/`null`).
+2. **`gh repo view --json <field>`** only accepts REST API field names. GraphQL names (camelCase like `autoMergeAllowed`) are not valid here — use `gh api repos/...` instead.
+3. **"unknown JSON field" from `gh repo view --json`** = you used a GraphQL field name. Look up the REST equivalent.
+
+**Status:** Active — 1 instance (DebateTool p/234#16).
+
+**Applies To:** All agents querying repo settings via `gh repo view --json`; use REST field names, not GraphQL names — or use `gh api repos/OWNER/REPO` directly.
