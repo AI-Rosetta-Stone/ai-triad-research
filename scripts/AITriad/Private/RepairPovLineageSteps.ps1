@@ -184,11 +184,10 @@ function Sync-LineageTaxonomyUrl {
     foreach ($PovName in $script:LineagePovFiles) {
         $FilePath = Join-Path $TaxDir "$PovName.json"
         if (-not (Test-Path $FilePath)) { continue }
-        $TaxFileData = Get-Content $FilePath -Raw | ConvertFrom-Json
+        $TaxFileData = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
         $Changed = Sync-LineageEntryUrl -Nodes $TaxFileData.nodes -Cache $Cache
         if ($Changed -gt 0) {
-            Assert-DataWriteAllowed -Path $FilePath  # t/2902
-            $TaxFileData | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8
+            Write-PovTaxonomyFile -Path $FilePath -Data $TaxFileData   # canonical TS format (t/4356)
             Write-Host "  Saved $PovName.json" -ForegroundColor Green
         }
         $TaxUpdated += $Changed
@@ -387,7 +386,7 @@ function Save-LineageRegenFile {
     param([string]$TaxDir, [hashtable]$PovModified, $NodesToProcess)
     foreach ($PovName in (Get-LineageSortedKey $PovModified)) {
         $FilePath = Join-Path $TaxDir "$PovName.json"
-        $Data = Get-Content $FilePath -Raw | ConvertFrom-Json
+        $Data = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
 
         # Re-apply the updated entries from NodesToProcess back to the file data
         $NodeLookup = @{}
@@ -400,8 +399,7 @@ function Save-LineageRegenFile {
             }
         }
 
-        Assert-DataWriteAllowed -Path $FilePath  # t/2902
-        $Data | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8
+        Write-PovTaxonomyFile -Path $FilePath -Data $Data   # canonical TS format (t/4356)
         Write-Host "  Saved $PovName.json" -ForegroundColor Green
     }
 }
@@ -497,7 +495,7 @@ function Get-LineageBareValue {
     foreach ($PovName in $PovFiles) {
         $FilePath = Join-Path $TaxDir "$PovName.json"
         if (-not (Test-Path $FilePath)) { continue }
-        $Data = Get-Content $FilePath -Raw | ConvertFrom-Json
+        $Data = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read; dedup and enrich write it back (t/4356)
         $TaxData[$PovName] = $Data
 
         foreach ($Node in $Data.nodes) {
@@ -665,8 +663,7 @@ function Sync-LineageDedupReference {
         }
         if ($PovModified) {
             $FilePath = Join-Path $TaxDir "$PovName.json"
-            Assert-DataWriteAllowed -Path $FilePath  # t/2902
-            $Data | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8
+            Write-PovTaxonomyFile -Path $FilePath -Data $Data   # canonical TS format (t/4356)
         }
     }
     Write-Host "  Dedup references updated in taxonomy files" -ForegroundColor Green
@@ -1041,8 +1038,7 @@ function Sync-LineageEnrichment {
         $TotalUpdated += $Updated
         if ($Updated -gt 0) {
             $FilePath = Join-Path $TaxDir "$PovName.json"
-            Assert-DataWriteAllowed -Path $FilePath  # t/2902
-            $Data | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8
+            Write-PovTaxonomyFile -Path $FilePath -Data $Data   # canonical TS format (t/4356)
             Write-Host "  Saved $PovName.json" -ForegroundColor Green
         }
     }

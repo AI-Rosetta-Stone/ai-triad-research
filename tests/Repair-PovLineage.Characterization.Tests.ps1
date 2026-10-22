@@ -469,6 +469,18 @@ trailing words
             $text = (@($Value) | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
             [System.IO.File]::WriteAllText($Path, $text + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
         }
+        # POV files go through the canonical funnel (t/4356 C2). Record the write like Set-Content's, keep the
+        # funnel's guard call, and write the real canonical bytes via scripts/json-canonical.mjs.
+        Mock Write-PovTaxonomyFile -ModuleName AITriad {
+            # The funnel's own guard call, made in module scope so it reaches the Assert-DataWriteAllowed mock above.
+            & (Get-Module AITriad) { param($P, $A) Assert-DataWriteAllowed -Path $P -AllowDirty:$A } $Path ([bool]$AllowDirty)
+            $rel = ([System.IO.Path]::GetFullPath($Path)).Substring($script:RootCurrent.Length + 1).Replace('\', '/')
+            $script:Writes.Add("$rel (canonical)")
+            $carrier = [System.IO.Path]::GetTempFileName()
+            [System.IO.File]::WriteAllText($carrier, (ConvertTo-Json -InputObject $Data -Depth 100 -Compress), [System.Text.UTF8Encoding]::new($false))
+            & node (Join-Path $PSScriptRoot '..' 'scripts' 'json-canonical.mjs') --in $carrier --out $Path
+            Remove-Item -LiteralPath $carrier -Force
+        }
         Mock Invoke-AIApi -ModuleName AITriad {
             $script:AiIndex++
             $script:Calls.Add([ordered]@{

@@ -84,7 +84,7 @@ function Repair-PovDescriptions {
         $FilePath = Join-Path $TaxDir "$PovName.json"
         if (-not (Test-Path $FilePath)) { continue }
 
-        $Data = Get-Content $FilePath -Raw | ConvertFrom-Json
+        $Data = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
         $Modified = $false
 
         Write-Host "`n=== $PovName ===" -ForegroundColor Cyan
@@ -223,8 +223,7 @@ Rules:
 
         # Write back if modified
         if ($Modified -and -not $WhatIfPreference) {
-            Assert-DataWriteAllowed -Path $FilePath  # t/2902
-            $Data | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8
+            Write-PovTaxonomyFile -Path $FilePath -Data $Data   # canonical TS format (t/4356)
             Write-Host "  Saved $FilePath" -ForegroundColor Green
         }
     }

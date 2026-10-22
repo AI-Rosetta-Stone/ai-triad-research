@@ -140,3 +140,84 @@ Describe 'Write-PovTaxonomyFile: refuses rather than reformats' -Tag 'write-funn
         Test-Path $target | Should -BeFalse
     }
 }
+
+# C5 completeness (t/4356 C2): no function that reads a POV or situations file may write JSON with
+# ConvertTo-Json straight into a write sink. POV files go through Write-PovTaxonomyFile; anything else this
+# matches must be a different file, allowlisted below with a reason. Stale entries fail.
+Describe 'Write funnel completeness: no direct ConvertTo-Json writer of a POV file' -Tag 'write-funnel' {
+    BeforeAll {
+        $script:ModuleDir = (Resolve-Path (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad')).Path
+        $script:PovRx = '(accelerationist|safetyist|skeptic|situations)\.json|\$Pov(Key|Name)?\.json|\$PovFileMap|\$SitPath|\$Pov\.File'
+        # '<file>::<function>' -> what it actually writes (never a POV file).
+        $script:Allow = [ordered]@{
+            'Public/Build-NodeSourceIndex.ps1::Build-NodeSourceIndex'       = 'writes node_source_index.json'
+            'Public/Get-TaxonomySnapshot.ps1::Get-TaxonomySnapshot'         = 'writes the snapshot metadata file'
+            'Public/Invoke-CcToSitMigration.ps1::Invoke-CcToSitMigration'   = 'completed one-way migration (t/1308): rewrites situations.json as text; ConvertTo-Json only writes the cc->sit mapping file'
+            'Public/Invoke-HierarchyProposal.ps1::Invoke-HierarchyProposal' = 'writes the hierarchy proposal and review files'
+            'Public/Invoke-PolicyRefinement.ps1::Invoke-PolicyRefinement'   = 'writes policy_actions.json (the registry); its POV writes use the funnel'
+            'Public/New-SyntheticCorpus.ps1::New-SyntheticCorpus'           = 'writes the synthetic corpus files'
+            'Public/Show-TriadDialogue.ps1::Show-TriadDialogue'             = 'writes the debate transcript'
+        }
+        $script:Hits = foreach ($f in Get-ChildItem $script:ModuleDir -Recurse -Filter *.ps1) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$null)
+            foreach ($fn in @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))) {
+                $text = $fn.Extent.Text
+                if ($text -notmatch $script:PovRx) { continue }
+                $piped = @($fn.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.PipelineAst] }, $true) | Where-Object {
+                        $names = @($_.PipelineElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandAst] } | ForEach-Object { $_.GetCommandName() })
+                        ($names -contains 'ConvertTo-Json') -and @($names | Where-Object { $_ -in 'Set-Content', 'Write-Utf8NoBom', 'Out-File' }).Count -gt 0
+                    }).Count -gt 0
+                $assigned = $false
+                if ($text -match '\$(\w+)\s*=\s*[^\r\n]*ConvertTo-Json -Depth') { $assigned = $text -match ('(Write-Utf8NoBom|Set-Content)[^\r\n]*-Value \(?\$' + $Matches[1]) }
+                if ($piped -or $assigned) { ($f.FullName.Substring($script:ModuleDir.Length + 1) -replace '\\', '/') + '::' + $fn.Name }
+            }
+        }
+    }
+
+    It 'finds the non-POV writers it knows about (the scan works)' {
+        @($script:Hits).Count | Should -BeGreaterThan 3
+    }
+
+    It 'every match is an allowlisted non-POV writer' {
+        $new = @($script:Hits | Where-Object { -not $script:Allow.Contains($_) })
+        $new | Should -BeNullOrEmpty -Because 'write POV and situations files with Write-PovTaxonomyFile (canonical TS format, t/4356); if this is a different file, allowlist it here with what it writes'
+    }
+
+    It 'has no stale allowlist entry' {
+        foreach ($k in $script:Allow.Keys) { $script:Hits | Should -Contain $k -Because "$k no longer matches; remove it" }
+    }
+}
+
+# The funnel carries Write-Utf8NoBom's guards (t/4356 C2), so moving a writer onto it drops none of them.
+Describe 'Write-PovTaxonomyFile: carries the t/2902 guard and the 10 MB block' -Tag 'write-funnel' {
+    BeforeEach {
+        $script:GuardTarget = New-PovTarget
+        [System.IO.File]::WriteAllText($script:GuardTarget, '{"nodes": []}' + "`n", [System.Text.UTF8Encoding]::new($false))
+    }
+
+    It 'calls Assert-DataWriteAllowed once, forwarding -AllowDirty' {
+        Mock -ModuleName AITriad Assert-DataWriteAllowed { }
+        InModuleScope AITriad -Parameters @{ T = $script:GuardTarget } { param($T) Write-PovTaxonomyFile -Path $T -Data ([pscustomobject]@{ nodes = @() }) -AllowDirty }
+        Should -Invoke -ModuleName AITriad Assert-DataWriteAllowed -Times 1 -Exactly -ParameterFilter { $AllowDirty }
+    }
+
+    It '-RequireCleanTree uses Assert-CleanDataTree instead, and a refusal writes nothing' {
+        Mock -ModuleName AITriad Assert-DataWriteAllowed { }
+        Mock -ModuleName AITriad Assert-CleanDataTree { throw 'dirty-tree guard: target already carries uncommitted changes' }
+        $before = [System.IO.File]::ReadAllText($script:GuardTarget)
+        { InModuleScope AITriad -Parameters @{ T = $script:GuardTarget } { param($T) Write-PovTaxonomyFile -Path $T -Data ([pscustomobject]@{ nodes = @(1) }) -RequireCleanTree } } | Should -Throw '*dirty-tree guard*'
+        Should -Invoke -ModuleName AITriad Assert-DataWriteAllowed -Times 0 -Exactly
+        [System.IO.File]::ReadAllText($script:GuardTarget) | Should -BeExactly $before
+    }
+
+    It 'throws an ActionableError on content over 10 MB and writes nothing' {
+        Mock -ModuleName AITriad Assert-DataWriteAllowed { }
+        $before = [System.IO.File]::ReadAllText($script:GuardTarget)
+        $big = [pscustomobject]@{ nodes = @([pscustomobject]@{ id = 'x'; description = ('a' * (10MB + 10)) }) }
+        $err = $null
+        try { InModuleScope AITriad -Parameters @{ T = $script:GuardTarget; D = $big } { param($T, $D) Write-PovTaxonomyFile -Path $T -Data $D } } catch { $err = $_ }
+        "$err" | Should -Match 'Goal:'
+        "$err" | Should -Match 'corrupted content'
+        [System.IO.File]::ReadAllText($script:GuardTarget) | Should -BeExactly $before
+    }
+}

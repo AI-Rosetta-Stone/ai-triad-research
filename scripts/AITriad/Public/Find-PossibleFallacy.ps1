@@ -159,7 +159,7 @@ function Find-PossibleFallacy {
         }
 
         Write-Step "Loading $PovKey"
-        $FileData = Get-Content -Raw -Path $FilePath | ConvertFrom-Json
+        $FileData = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
 
         # Work list only: superseded nodes get no AI call; $FileData (the written file) keeps them (t/4356).
         $AllNodes = @(Select-SelectableTaxonomyNode -Nodes @($FileData.nodes) -Pov $PovKey)
@@ -412,9 +412,8 @@ $SchemaPrompt
         if ($TotalProcessed -gt 0 -or $Force) {
             if ($PSCmdlet.ShouldProcess($FilePath, 'Write updated taxonomy file with fallacy analysis')) {
                 $FileData.last_modified = (Get-Date).ToString('yyyy-MM-dd')
-                $Json = $FileData | ConvertTo-Json -Depth 20
                 try {
-                    Write-Utf8NoBom -Path $FilePath -Value $Json 
+                    Write-PovTaxonomyFile -Path $FilePath -Data $FileData   # canonical TS format (t/4356)
                     Write-OK "Saved $PovKey ($FilePath)"
                 }
                 catch {

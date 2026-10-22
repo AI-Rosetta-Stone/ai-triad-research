@@ -81,7 +81,7 @@ function Update-NodeTestingRecord {
             Write-Warning "Update-NodeTestingRecord: POV file not found: $filePath — skipping"
             continue
         }
-        $store = Get-Content $filePath -Raw | ConvertFrom-Json
+        $store = Read-PovTaxonomyFile -Path $filePath   # shape-preserving read for the canonical write (t/4356)
         if (-not $store.PSObject.Properties['nodes']) {
             Write-Warning "Update-NodeTestingRecord: $filePath has no 'nodes' — skipping"
             continue
@@ -138,8 +138,7 @@ function Update-NodeTestingRecord {
     if ($dirtyFiles.Count -gt 0 -and -not $WhatIfPreference) {
         foreach ($povName in $dirtyFiles.Keys) {
             $filePath = Join-Path $taxDir "$povName.json"
-            Assert-DataWriteAllowed -Path $filePath  # t/2902
-            $dirtyFiles[$povName] | ConvertTo-Json -Depth 20 | Set-Content -Path $filePath -Encoding utf8NoBOM
+            Write-PovTaxonomyFile -Path $filePath -Data $dirtyFiles[$povName]   # canonical TS format (t/4356)
             Write-Verbose "Update-NodeTestingRecord: wrote $filePath"
         }
     }

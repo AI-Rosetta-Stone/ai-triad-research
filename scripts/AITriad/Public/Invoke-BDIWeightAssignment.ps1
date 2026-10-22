@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 function Invoke-BDIWeightAssignment {
@@ -84,7 +84,7 @@ function Invoke-BDIWeightAssignment {
             continue
         }
 
-        $Data = Get-Content $FilePath -Raw | ConvertFrom-Json
+        $Data = Read-PovTaxonomyFile -Path $FilePath   # shape-preserving read for the canonical write (t/4356)
         $Nodes = @($Data.nodes)
         Write-Host "`n── $PovName ($($Nodes.Count) nodes) ──" -ForegroundColor Cyan
 
@@ -109,8 +109,7 @@ function Invoke-BDIWeightAssignment {
 
         # Write back — the one write per POV file (TL t/3910#10 cond 2 pins this).
         if (-not $DryRun -and $PSCmdlet.ShouldProcess("$PovName.json", 'Write confidence + priority + operationality')) {
-            Assert-DataWriteAllowed -Path $FilePath  # t/2902
-            $Data | ConvertTo-Json -Depth 20 | Set-Content -Path $FilePath -Encoding UTF8
+            Write-PovTaxonomyFile -Path $FilePath -Data $Data   # canonical TS format (t/4356)
             Write-Host "  Saved $PovName.json" -ForegroundColor Green
         }
     }

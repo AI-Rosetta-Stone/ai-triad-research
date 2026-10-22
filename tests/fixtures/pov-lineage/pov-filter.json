@@ -44,7 +44,7 @@
   ],
   "writes": [
     "calibration/core/lineage-enrichments.json (encoding=utf-8, bom=False)",
-    "taxonomy/Origin/skeptic.json (encoding=utf-8, bom=False)"
+    "taxonomy/Origin/skeptic.json (canonical)"
   ],
   "tree": {
     "calibration/": "(dir)",
