@@ -148,3 +148,28 @@ Describe 'Read-SnapshotForModel applies the repair on read, never on disk (t/439
         @($warns).Count | Should -Be 0
     }
 }
+
+Describe 'Repair-SnapshotMojibake fixture cases (t/4412)' -Tag 'ingestion' {
+    # Shared fixture: same inputs and expected outputs as the vitest conformance suite
+    # (lib/sanitize/repairSnapshotMojibake.test.ts). Includes near-miss 'must not repair' cases.
+    # 'textInput' is used instead of 'input' to avoid shadowing the $input automatic variable.
+
+    $fixturePath = Join-Path $PSScriptRoot 'fixtures' 'repair-snapshot-mojibake-cases.json'
+    $fixtureCases = (Get-Content $fixturePath -Raw | ConvertFrom-Json).cases |
+        ForEach-Object {
+            @{
+                id              = $_.id
+                description     = $_.description
+                textInput       = $_.input
+                expectedVariant = $_.expected_variant
+                expectedText    = $_.expected_text
+            }
+        }
+
+    It '<id>: <description>' -ForEach $fixtureCases {
+        $r = Repair $textInput
+        $r.Variant | Should -Be $expectedVariant
+        $et = if ($null -ne $expectedText) { $expectedText } else { $textInput }
+        $r.Text | Should -BeExactly $et
+    }
+}
