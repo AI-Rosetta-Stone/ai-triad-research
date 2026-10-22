@@ -1,0 +1,229 @@
+{
+  "verdict": "INCONCLUSIVE",
+  "distinct_motions": 4,
+  "evaluated_motions": 10,
+  "median_within": 0.2030623502959732,
+  "skipped_motions": [],
+  "rows": [
+    {
+      "motion": "m01",
+      "between": 0.2173,
+      "within": 0.1725,
+      "distinct": true,
+      "d13": 0.2244,
+      "d24": 0.2102,
+      "d12": 0.1725,
+      "d34": 0.1568,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        6,
+        6,
+        6,
+        6
+      ]
+    },
+    {
+      "motion": "m02",
+      "between": 0.1801,
+      "within": 0.1897,
+      "distinct": false,
+      "d13": 0.1879,
+      "d24": 0.1724,
+      "d12": 0.1494,
+      "d34": 0.1897,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        6,
+        8,
+        6,
+        14
+      ]
+    },
+    {
+      "motion": "m03",
+      "between": 0.2153,
+      "within": 0.2172,
+      "distinct": false,
+      "d13": 0.1521,
+      "d24": 0.2785,
+      "d12": 0.1841,
+      "d34": 0.2172,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        7,
+        11,
+        5,
+        6
+      ]
+    },
+    {
+      "motion": "m04",
+      "between": 0.2131,
+      "within": 0.1826,
+      "distinct": true,
+      "d13": 0.3057,
+      "d24": 0.1204,
+      "d12": 0.1771,
+      "d34": 0.1826,
+      "skeptic_turns": [
+        2,
+        1,
+        2,
+        2
+      ],
+      "chunks": [
+        7,
+        4,
+        7,
+        6
+      ]
+    },
+    {
+      "motion": "m05",
+      "between": 0.1387,
+      "within": 0.1637,
+      "distinct": false,
+      "d13": 0.1632,
+      "d24": 0.1142,
+      "d12": 0.0882,
+      "d34": 0.1637,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        6,
+        7,
+        6,
+        7
+      ]
+    },
+    {
+      "motion": "m06",
+      "between": 0.211,
+      "within": 0.2031,
+      "distinct": true,
+      "d13": 0.2148,
+      "d24": 0.2071,
+      "d12": 0.2031,
+      "d34": 0.1557,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        7,
+        6,
+        8,
+        6
+      ]
+    },
+    {
+      "motion": "m07",
+      "between": 0.2954,
+      "within": 0.3014,
+      "distinct": false,
+      "d13": 0.2234,
+      "d24": 0.3675,
+      "d12": 0.3014,
+      "d34": 0.2674,
+      "skeptic_turns": [
+        2,
+        1,
+        2,
+        2
+      ],
+      "chunks": [
+        11,
+        4,
+        6,
+        6
+      ]
+    },
+    {
+      "motion": "m08",
+      "between": 0.1905,
+      "within": 0.2251,
+      "distinct": false,
+      "d13": 0.1563,
+      "d24": 0.2248,
+      "d12": 0.2251,
+      "d34": 0.1268,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        6,
+        6,
+        6,
+        9
+      ]
+    },
+    {
+      "motion": "m09",
+      "between": 0.2248,
+      "within": 0.207,
+      "distinct": true,
+      "d13": 0.2346,
+      "d24": 0.2149,
+      "d12": 0.1675,
+      "d34": 0.207,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        7,
+        6,
+        6,
+        12
+      ]
+    },
+    {
+      "motion": "m10",
+      "between": 0.158,
+      "within": 0.1634,
+      "distinct": false,
+      "d13": 0.1465,
+      "d24": 0.1696,
+      "d12": 0.1634,
+      "d34": 0.1613,
+      "skeptic_turns": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "chunks": [
+        6,
+        6,
+        10,
+        6
+      ]
+    }
+  ]
+}

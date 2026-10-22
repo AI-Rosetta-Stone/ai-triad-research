@@ -140,6 +140,10 @@ def main():
     ap.add_argument("--timeout", type=int, default=DEBATE_TIMEOUT_SEC)
     a = ap.parse_args()
     ledger = load(a.ledger, {"budget": a.budget, "max_debates": a.max_debates, "debates": []})
+    # An existing ledger keeps the limits it was created with; the flags apply only to a new one (t/3963).
+    for key, flag in (("budget", a.budget), ("max_debates", a.max_debates)):
+        if ledger.get(key) != flag:
+            print(f"WARN: --{key.replace('_', '-')} {flag} ignored; the existing ledger's {key} is {ledger.get(key)}")
     if a.report:
         report(ledger); return 0
 
