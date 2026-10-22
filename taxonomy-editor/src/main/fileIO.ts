@@ -23,6 +23,7 @@ import {
   type SourceReference as SharedSourceReference, type SourceCardMeta as SharedSourceCardMeta,
   type SourceIdentityDoc, type SourceIdentityMeta,
 } from '../../../lib/sourceIndex/types.js';
+import { mergeGroupEvidence, type EvidenceUnionMember } from '../../../lib/sourceIndex/evidenceUnion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1112,31 +1113,72 @@ function loadSourceMetaAndIdentity(): {
   return { metaCache, identityMeta, snapshotHashes };
 }
 
-/** t/4377 (spec section 6.3), ported verbatim from the server's identically-named helper
- *  (src/server/storage/nodeSourceIndex.ts): a `duplicate_of`-marked entry (`resolved[docId]
- *  !== docId`) is dropped whenever its resolved id already has its own, unmarked entry in
- *  this node's list — "a duplicate pair gives one evidence unit, not two" (SO condition C2).
- *  When no unmarked entry exists for that id (only the mark cites this node), exactly one
- *  marked entry survives instead of vanishing, re-attributed to the resolved id using its
- *  own card metadata when known. Unmarked entries, and grouping-only duplicates with no
- *  mark (e.g. split parts), are never touched — only a mark changes row count. */
+/** `SourceReference` plus the `node`/`quote` the shared evidence-union helper needs
+ *  (`lib/sourceIndex/evidenceUnion.ts`, spec section 7). `node` is constant within one call
+ *  (one nodeId at a time, below); `quote` is the same text spec 7.1's table picks for a
+ *  key_point (`verbatim`, else `point`) — this index only ever carries key_points. */
+type SourceEvidenceLink = SourceReference & { node: string; quote: string };
+
+/** One resolved-id group within one node (spec 7.1's group — duplicate_of marks only, never
+ *  the section-4 hash/suffix grouping that already set `canonicalDocId`). An "own" ref
+ *  (resolvedId === docId) is never touched — pushed exactly as it already is, repeats
+ *  included, so an unmarked group (including grouping-only duplicates like split parts,
+ *  whose shared `canonicalDocId` lives outside this pass) keeps its pre-existing fields
+ *  untouched. Own refs still feed `mergeGroupEvidence` as the canonical member, so a marked
+ *  ref's quote de-dups against them; only the merge's `via`-tagged output (a marked ref's
+ *  surviving quote) is new — an untagged entry just mirrors an own ref already pushed.
+ *  Ported verbatim from the server's identically-named helper
+ *  (src/server/storage/nodeSourceIndex.ts), t/4421/t/4400. */
+function resolveGroupRefs(
+  nodeId: string, resolvedId: string, groupRefs: SourceReference[], metaCache: Record<string, NodeSourceMeta>,
+): SourceReference[] {
+  const ownRefs = groupRefs.filter(r => r.docId === resolvedId);
+  const markedRefs = groupRefs.filter(r => r.docId !== resolvedId);
+  if (markedRefs.length === 0) return ownRefs;
+
+  const byDocId = new Map<string, SourceReference[]>();
+  for (const r of markedRefs) {
+    const bucket = byDocId.get(r.docId);
+    if (bucket) bucket.push(r); else byDocId.set(r.docId, [r]);
+  }
+  const toLink = (r: SourceReference) => ({ ...r, node: nodeId, quote: r.verbatim || r.point });
+  const members: EvidenceUnionMember<SourceEvidenceLink>[] = [
+    ...(ownRefs.length > 0 ? [{ id: resolvedId, links: ownRefs.map(toLink) }] : []),
+    ...[...byDocId.entries()].map(([docId, docRefs]) => ({ id: docId, links: docRefs.map(toLink) })),
+  ];
+
+  const target = metaCache[resolvedId];
+  const kept = [...ownRefs];
+  for (const { quote: _quote, doc: _doc, via, ...r } of mergeGroupEvidence(resolvedId, members)[nodeId] ?? []) {
+    if (!via) continue; // an own ref's entry — already pushed above, unchanged
+    kept.push({
+      ...r, docId: resolvedId, canonicalDocId: resolvedId,
+      title: target?.title ?? r.title, url: target?.url ?? r.url,
+    });
+  }
+  return kept;
+}
+
+/** t/4337 section 7 (SO e/347#2, TL sign-off t/4400#2): a canonical's evidence is the
+ *  de-duplicated UNION of (node, quote) across its `duplicate_of` copies, not the single
+ *  surviving entry t/4377 kept. Groups a node's refs by resolved id and hands each
+ *  multi-member group to `resolveGroupRefs`; a group with no mark at all (grouping-only
+ *  duplicates, e.g. split parts) collapses to one member and so is likewise untouched.
+ *  Mirrors the server's identically-named helper (src/server/storage/nodeSourceIndex.ts). */
 function dedupeByResolvedId(
   index: NodeSourceIndex, resolved: Record<string, string>, metaCache: Record<string, NodeSourceMeta>,
 ): void {
   for (const [nodeId, refs] of Object.entries(index)) {
-    const hasOwnEntry = new Set(refs.filter(r => (resolved[r.docId] ?? r.docId) === r.docId).map(r => r.docId));
-    const seenViaMark = new Set<string>();
-    const kept: SourceReference[] = [];
+    const byResolvedId = new Map<string, SourceReference[]>();
     for (const r of refs) {
       const resolvedId = resolved[r.docId] ?? r.docId;
-      if (resolvedId === r.docId) { kept.push(r); continue; }
-      if (hasOwnEntry.has(resolvedId) || seenViaMark.has(resolvedId)) continue;
-      seenViaMark.add(resolvedId);
-      const target = metaCache[resolvedId];
-      kept.push({
-        ...r, docId: resolvedId, canonicalDocId: resolvedId,
-        title: target?.title ?? r.title, url: target?.url ?? r.url,
-      });
+      const bucket = byResolvedId.get(resolvedId);
+      if (bucket) bucket.push(r); else byResolvedId.set(resolvedId, [r]);
+    }
+
+    const kept: SourceReference[] = [];
+    for (const [resolvedId, groupRefs] of byResolvedId) {
+      kept.push(...resolveGroupRefs(nodeId, resolvedId, groupRefs, metaCache));
     }
     index[nodeId] = kept;
   }
@@ -1149,10 +1191,11 @@ function dedupeByResolvedId(
  *  docs cited by a summary today) — a `duplicate_of` target otherwise cited by nothing would
  *  wrongly validate as `missing_target` (t/4377, same fix as server-side #3590), and a split
  *  part reachable only via one node still resolves against the full known-id set. Also
- *  applies t/4377's section 6: a valid `duplicate_of` mark collapses that node's two evidence
- *  rows into one (`dedupeByResolvedId`), attributed to the resolved id. Returns the
- *  title-collision (spec 4.5) and duplicate-of-error (spec 6.1) reports for the caller to
- *  log — both are signals for a human, never applied as a merge. */
+ *  applies t/4337 section 7: a valid `duplicate_of` mark unions that node's evidence across
+ *  the group (`dedupeByResolvedId`), attributed to the resolved id — de-duplicated, not
+ *  merely collapsed to one survivor (t/4421 supersedes t/4377's single-survivor behavior).
+ *  Returns the title-collision (spec 4.5) and duplicate-of-error (spec 6.1) reports for the
+ *  caller to log — both are signals for a human, never applied as a merge. */
 function applyCanonicalDocIds(
   index: NodeSourceIndex, identityMeta: Record<string, SourceIdentityMeta>, snapshotHashes: Record<string, string | null>,
   metaCache: Record<string, NodeSourceMeta>,
