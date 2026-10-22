@@ -178,7 +178,11 @@ async function buildGroundingTaxonomy(): Promise<GroundingTaxonomy> {
   for (const pov of POV_FILES) {
     try {
       const file = readTaxonomyFile(pov) as { nodes?: GroundingTaxonomy['povNodes'] } | null;
-      const nodes = file?.nodes ?? [];
+      // t/4432: exclude superseded nodes — grounding is new selection, not historical lookup
+      // (SO C1, t/4355; same rule lib/debate/taxonomyLoader.ts's loadTaxonomy applies). Kept
+      // local rather than a shared lib export (p/815#5) — a cross-role contract is T1, and a
+      // 1-line filter duplicated in 2 files doesn't need its own abstraction.
+      const nodes = (file?.nodes ?? []).filter(n => !n.superseded_by);
       povNodes.push(...nodes);
       const { nodeEmbeddings: povEmbeddings } = await assembleNodeEmbeddings(pov, nodes, [], embed, null);
       Object.assign(nodeEmbeddings, povEmbeddings);

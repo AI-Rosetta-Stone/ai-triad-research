@@ -775,7 +775,11 @@ export function registerTaxonomyHandlers(): void {
       Promise.all(texts.map(t => computeQueryEmbedding(t)));
 
     const povFile = readTaxonomyFile(pov) as { nodes?: SelectRelevantTaxonomyInput['povNodes'] };
-    const povNodes = povFile?.nodes ?? [];
+    // t/4432: exclude superseded nodes — these are offered to the model as new selection
+    // candidates (SO C1, t/4355; same rule lib/debate/taxonomyLoader.ts's loadTaxonomy applies).
+    // Kept local rather than a shared lib export (p/815#5) — a cross-role contract is T1, and
+    // a 1-line filter duplicated in 2 files doesn't need its own abstraction.
+    const povNodes = (povFile?.nodes ?? []).filter(n => !n.superseded_by);
     const sitFile = readTaxonomyFile('situations') as { nodes?: SelectRelevantTaxonomyInput['situationNodes'] };
     const situationNodes = sitFile?.nodes ?? [];
     const policyRaw = readPolicyRegistry() as { policies?: { id: string; action: string; source_povs?: string[] }[] } | null;
@@ -835,7 +839,11 @@ export function registerTaxonomyHandlers(): void {
       computeEmbeddings(texts, ids);
 
     const povFile = readTaxonomyFile(pov) as { nodes?: SelectRelevantTaxonomyInput['povNodes'] };
-    const povNodes = povFile?.nodes ?? [];
+    // t/4432: exclude superseded nodes — a claim must attribute to a live node, not a
+    // historical one (SO C1, t/4355; same rule lib/debate/taxonomyLoader.ts's loadTaxonomy
+    // applies). Kept local rather than a shared lib export (p/815#5) — a cross-role contract
+    // is T1, and a 1-line filter duplicated in 2 files doesn't need its own abstraction.
+    const povNodes = (povFile?.nodes ?? []).filter(n => !n.superseded_by);
     const sitFile = readTaxonomyFile('situations') as { nodes?: SelectRelevantTaxonomyInput['situationNodes'] };
     const situationNodes = sitFile?.nodes ?? [];
     const synthRaw = loadSyntheticEmbeddings();
