@@ -121,3 +121,25 @@ Describe 'Get-T4405MarkPlan' -Tag 'data-mutation' {
         $p.Review[0].reason | Should -BeExactly 'chain-target-is-marked'
     }
 }
+
+Describe 'T4405 title and URL keys' -Tag 'data-mutation' {
+    It 'normalizes a title: case, punctuation, a trailing publisher segment' {
+        ConvertTo-T4405TitleKey 'The AI Democracy Dilemma | Journal of Democracy' | Should -BeExactly 'the ai democracy dilemma'
+        ConvertTo-T4405TitleKey 'Rethinking AI Agents: A Principal-Agent Perspective' | Should -BeExactly 'rethinking ai agents a principal agent perspective'
+        ConvertTo-T4405TitleKey 'Short - X' | Should -BeExactly 'short x' -Because 'a suffix is dropped only when three words remain'
+        ConvertTo-T4405TitleKey $null | Should -BeExactly ''
+    }
+
+    It 'treats an empty or arXiv-id title key as weak' {
+        Test-T4405WeakTitle '' | Should -BeTrue
+        Test-T4405WeakTitle (ConvertTo-T4405TitleKey '1606.06565v2') | Should -BeTrue
+        Test-T4405WeakTitle (ConvertTo-T4405TitleKey '2501.18914') | Should -BeTrue
+        Test-T4405WeakTitle 'concrete problems in ai safety' | Should -BeFalse
+    }
+
+    It 'compares URLs without scheme, www, query, fragment or trailing slash' {
+        ConvertTo-T4405UrlKey 'https://www.example.org/a/b/?utm=1#x' | Should -BeExactly 'example.org/a/b'
+        ConvertTo-T4405UrlKey 'http://Example.org/a/b' | Should -BeExactly 'example.org/a/b'
+        ConvertTo-T4405UrlKey '' | Should -BeExactly ''
+    }
+}

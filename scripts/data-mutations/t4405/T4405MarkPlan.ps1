@@ -26,6 +26,47 @@
     Marks { id; duplicate_of; basis; group }, Review { canonical; member; reason }, Blobs
     { blob; docs; group; titles; accepted }, all in ordinal order.
 #>
+function ConvertTo-T4405TitleKey {
+    <#
+    .SYNOPSIS
+        The normalized title used for agreement: lowercase, a trailing publisher segment (" | X", " - X",
+        " — X") dropped when at least three words remain, anything but letters and digits a space,
+        spaces collapsed. '' for a null or empty title.
+    #>
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Title)
+    if ([string]::IsNullOrWhiteSpace($Title)) { return '' }
+    $t = $Title.ToLowerInvariant()
+    $m = [regex]::Match($t, '^(.*\S)\s+(\||-|—|–)\s+[^|—–-]+$')
+    if ($m.Success -and @($m.Groups[1].Value -split '\s+' | Where-Object { $_ }).Count -ge 3) { $t = $m.Groups[1].Value }
+    (($t -replace '[^\p{L}\p{Nd}]+', ' ').Trim() -replace '\s+', ' ')
+}
+
+function Test-T4405WeakTitle {
+    <#
+    .SYNOPSIS
+        A title key too weak to agree on its own (SO e/348#2 condition 2): empty, or an arXiv id such as
+        "1606 06565v2" (the key of "1606.06565v2").
+    #>
+    [OutputType([bool])]
+    param([AllowEmptyString()][string]$TitleKey)
+    (-not $TitleKey) -or ($TitleKey -match '^\d{4} \d{4,5}( ?v\d+)?$')
+}
+
+function ConvertTo-T4405UrlKey {
+    <#
+    .SYNOPSIS
+        A URL compared for the second signal: scheme, "www.", query, fragment and a trailing slash dropped;
+        lowercase. '' when there is no URL.
+    #>
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Url)
+    if ([string]::IsNullOrWhiteSpace($Url)) { return '' }
+    $u = $Url.Trim().ToLowerInvariant() -replace '^[a-z][a-z0-9+.-]*://', '' -replace '^www\.', ''
+    $u = ($u -split '[?#]', 2)[0]
+    $u.TrimEnd('/')
+}
+
 function Get-T4405MarkPlan {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -42,6 +83,7 @@ function Get-T4405MarkPlan {
         [AllowEmptyCollection()][object[]]$R2 = @(),    # @{ member; canonical } (PI-approved)
         [hashtable]$Human = @{}                         # member -> canonical (human-reviewed, t/4402)
     )
+    Set-StrictMode -Version Latest   # as the freeze script runs it, so the tests exercise strict mode too
     $marks = [System.Collections.Generic.List[object]]::new()
     $review = [System.Collections.Generic.List[object]]::new()
     $blobs = [ordered]@{}
@@ -64,7 +106,8 @@ function Get-T4405MarkPlan {
         if ($humanByCanon.ContainsKey($canon)) { foreach ($h in $humanByCanon[$canon]) { [void]$groupSet.Add($h) } }
         foreach ($m in $members) {
             if ($Human.ContainsKey($m)) { continue }
-            $a = & $blobsOf $canon; $b = & $blobsOf $m
+            # @() because & unrolls a one-element array to a bare string (no .Count under strict mode).
+            $a = [string[]]@(& $blobsOf $canon); $b = [string[]]@(& $blobsOf $m)
             if ($a.Count -eq 0 -or $b.Count -eq 0) {
                 # Not an R1 pair (condition 1); R2 decides it if the PI approved one.
                 if (-not @($R2 | Where-Object { $_.member -ceq $m }).Count) { & $addReview $canon $m 'empty-substantive-raw-set' }
@@ -77,7 +120,7 @@ function Get-T4405MarkPlan {
             if ($weak -and -not $SecondSignal["$canon|$m"]) { & $addReview $canon $m 'weak-title-no-second-signal'; continue }
             $blobOk = $true
             foreach ($blob in $a) {
-                $docs = & $sharersOf $blob
+                $docs = [string[]]@(& $sharersOf $blob)
                 if ($docs.Count -lt 3) { continue }
                 $outside = @($docs | Where-Object { -not $groupSet.Contains($_) })
                 $strong = @($docs | Where-Object { -not $TitleWeak[$_] -and $TitleKey[$_] -and -not $Human.ContainsKey($_) })
