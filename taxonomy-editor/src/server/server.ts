@@ -91,6 +91,7 @@ import type { ReviewAction } from './community/admin/types.js';
 import { calibrationReviewHandler } from './community/admin/calibrationHandler.js';
 import { communityReviewHandler } from './community/admin/communityReviewHandler.js';
 import { serveStatic } from './staticServe.js';
+import { normalizePrincipalNameHeader } from './principalName.js';
 
 // Register review domain handlers at startup so the unified admin endpoints
 // (queue/stats/action/detail) can delegate to them (t/646, t/647, t/650).
@@ -565,6 +566,9 @@ async function handleRequestInner(
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
+  // Prod incident 2026-10-21: Easy Auth omits -name for GitHub; fill it from the claims
+  // before any reader (here, routes/session.ts) keys "signed in" on it.
+  normalizePrincipalNameHeader(req, AZURE_AUTH_ENABLED);
   const identity = resolvePrincipalIdentity(req, res);
   if (!identity) return;
   const { principalName, idp } = identity;
@@ -1121,6 +1125,7 @@ function isTerminalWebSocketAllowed(req: http.IncomingMessage): boolean {
 }
 
 server.on('upgrade', (req, socket, head) => {
+  normalizePrincipalNameHeader(req, AZURE_AUTH_ENABLED); // GitHub -name fallback (see principalName.ts)
   // S-WS-ORIGIN + t/2532: block cross-origin WS upgrades (WS bypasses CORS); same-origin accepted, allowlist enforced in dev too.
   {
     const origin = (req.headers.origin || '') as string;
