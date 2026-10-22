@@ -22,10 +22,11 @@ const mockDismissSaveError = vi.fn();
 const mockLoadAll = vi.fn();
 let mockStaleBranchHint: { sessionBranch: string; behindBy: number; untouchedNodeIds: string[] } | null = null;
 let mockSaveError: string | null = null;
+let mockDirty = new Set<string>();
 
 vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: () => ({
-    dirty: new Set(),
+    dirty: mockDirty,
     save: vi.fn(),
     saveError: mockSaveError,
     dismissSaveError: mockDismissSaveError,
@@ -86,6 +87,7 @@ describe('SaveBar resync button (t/4346)', () => {
     mockUseFlag.mockReturnValue(true);
     mockStaleBranchHint = null;
     mockSaveError = null;
+    mockDirty = new Set();
   });
 
   it('does not render a Resync button without a stale-branch hint', () => {
@@ -101,7 +103,7 @@ describe('SaveBar resync button (t/4346)', () => {
     expect(screen.getByRole('button', { name: 'Resync' })).not.toBeNull();
   });
 
-  it('on success, calls resyncTracked, dismisses the error, refreshes, and reloads', async () => {
+  it('on success, calls resyncTracked, dismisses the error, and refreshes', async () => {
     mockSaveError = 'behind main';
     mockStaleBranchHint = { sessionBranch: 'feature/x', behindBy: 3, untouchedNodeIds: ['acc-goal-001'] };
     mockResyncTracked.mockResolvedValue({ ok: true, mode: 'rebase', session_ahead: 0, main_sha: 'abc', conflicts: false, message: 'Resynced' });
@@ -110,7 +112,20 @@ describe('SaveBar resync button (t/4346)', () => {
     await waitFor(() => expect(mockResyncTracked).toHaveBeenCalledWith('rebase'));
     expect(mockDismissSaveError).toHaveBeenCalledTimes(1);
     expect(mockRefreshSync).toHaveBeenCalledTimes(1);
-    expect(mockLoadAll).toHaveBeenCalledWith(true);
+  });
+
+  it('fix-forward (#3731 comment 6335280772): a successful Resync never calls loadAll, so unsaved edits survive', async () => {
+    mockSaveError = 'behind main';
+    mockStaleBranchHint = { sessionBranch: 'feature/x', behindBy: 3, untouchedNodeIds: ['acc-goal-001'] };
+    mockDirty = new Set(['acc-goal-002']); // the node the user actually edited — distinct from the untouched one
+    mockResyncTracked.mockResolvedValue({ ok: true, mode: 'rebase', session_ahead: 0, main_sha: 'abc', conflicts: false, message: 'Resynced' });
+    render(<SaveBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Resync' }));
+    await waitFor(() => expect(mockResyncTracked).toHaveBeenCalledWith('rebase'));
+    expect(mockDismissSaveError).toHaveBeenCalledTimes(1);
+    expect(mockLoadAll).not.toHaveBeenCalled();
+    expect(mockDirty.has('acc-goal-002')).toBe(true);
+    expect(mockDirty.size).toBe(1);
   });
 
   it('on conflicts, opens the sync drawer, shows an inline message, and does not dismiss the error', async () => {

@@ -25,7 +25,7 @@ function formatFileKey(key: string): string {
 }
 
 export function SaveBar() {
-  const { dirty, save, saveError, dismissSaveError, validationErrors, integrityIssues, fixIntegrityErrors, staleBranchHint, loadAll } = useTaxonomyStore();
+  const { dirty, save, saveError, dismissSaveError, validationErrors, integrityIssues, fixIntegrityErrors, staleBranchHint } = useTaxonomyStore();
   const adminFlag = useFlag('permission-admin-features');
   const isOnline = useOnlineStatus();
   const isDirty = dirty.size > 0;
@@ -49,8 +49,11 @@ export function SaveBar() {
         setSyncDrawerOpen(true);
         return;
       }
+      // Fix-forward (t/4346, PR #3731 comment 6335280772): the Resync button only ever shows
+      // right after a failed save, so a forced loadAll() here would wipe the user's live
+      // unsaved edits (loadAll resets `dirty`). Keep them; the user retries Save themselves.
       dismissSaveError();
-      await Promise.all([refreshSync(), loadAll(true)]);
+      await refreshSync();
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
