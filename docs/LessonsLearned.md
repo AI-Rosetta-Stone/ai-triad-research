@@ -6230,7 +6230,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 5 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve).
+**Status:** Active — 6 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w` to convert path to native Windows form before passing to Node).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -7127,3 +7127,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DebateTool p/234#16).
 
 **Applies To:** All agents querying repo settings via `gh repo view --json`; use REST field names, not GraphQL names — or use `gh api repos/OWNER/REPO` directly.
+
+---
+
+## #352 [Test] Pester `Mock -ModuleName` Body Runs in Test Scope — Private Module Functions Unreachable From Inside Mock Body
+
+**Pattern:** An agent writes a Pester test that uses `Mock -ModuleName MyModule { ... }`. The mock body calls a private function from `MyModule`. At test time the call fails with "term not recognized" — the private function is not visible. The mock body executes in the test's session scope, not inside the module's session state, so Private functions exported to the module's runspace are invisible.
+
+**Instances:**
+- 2026-10-22 — PowerShell (p/20#104): a regenerated golden silently captured the "term not recognized" error from a private function called inside a `Mock -ModuleName` body. Caught by reading the golden diff before accepting it. Fixed by invoking through `& (Get-Module MyModule) { ... }`.
+
+**Root Cause:** PowerShell's module system enforces function visibility at the session-state level. `-ModuleName` on a Pester mock causes the mock to intercept calls *to* the module, but the mock body itself still runs in the test's script scope where Private functions are not imported. Only a script block invoked *inside the module's session state* via `& (Get-Module X) { ... }` sees Private functions.
+
+**Prevention:**
+1. **Never call private module functions directly from a `Mock -ModuleName` body.** The body runs in test scope where they are invisible.
+2. **To invoke a private function from a mock or test**, use: `& (Get-Module MyModule) { Invoke-PrivateFunction @args }` — the script block executes inside the module's session state.
+3. **Always read the full diff of any regenerated golden before accepting it.** Errors silently captured in output will appear as a diff; if they look like "term not recognized" in a mock body, the private-function scope issue is the likely cause.
+
+**Status:** Active — 1 instance (PowerShell p/20#104).
+
+**Applies To:** All agents writing Pester tests that mock module-internal behavior; private function visibility requires executing inside the module's session state via `& (Get-Module X) { ... }`.
