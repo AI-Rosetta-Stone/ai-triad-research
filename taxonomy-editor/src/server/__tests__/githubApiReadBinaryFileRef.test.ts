@@ -87,9 +87,14 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend.readBinaryFile — opts.ref (
       if (url.includes('/git/trees/')) return jsonResponse(200, { sha: 'tree-sha', tree: [] });
       if (url.includes('/git/refs/heads/')) return jsonResponse(200, { object: { sha: 'main-sha' } });
       if (url.includes('/contents/some/binary.bin')) {
+        // fetchBinaryFileFromGitHub omits `?ref=` entirely when ref === 'main'
+        // (qRef = ref === 'main' ? '' : ...) — no query param IS the 'main' case,
+        // not an unset one.
         const refMatch = /[?&]ref=([^&]+)/.exec(url);
-        seenRefs.push(refMatch ? decodeURIComponent(refMatch[1]) : '(none)');
+        seenRefs.push(refMatch ? decodeURIComponent(refMatch[1]) : 'main');
         if (headers.Accept === 'application/vnd.github.raw+json') return rawResponse(200, content);
+        // No inline `content`/`encoding` forces the raw re-fetch path (t/4286) —
+        // so every call here makes exactly 2 requests: this one, then the raw one.
         return jsonResponse(200, { sha: 'blob-sha', size: content.length, type: 'file' });
       }
       return jsonResponse(404, { message: 'Not Found' });
@@ -153,9 +158,10 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend.readBinaryFile — opts.ref (
       const result = await backend.readBinaryFile('/some/binary.bin', { ref: 'feature-branch' });
 
       // Got the freshly-fetched bytes, not whatever the stale cache entry implied —
-      // proving the cache was never consulted for this ref.
+      // proving the cache was never consulted for this ref. 2 calls (metadata +
+      // the t/4286 raw re-fetch), both carrying the forced ref.
       expect(Buffer.compare(result!, content)).toBe(0);
-      expect(seenRefs).toEqual(['feature-branch']);
+      expect(seenRefs).toEqual(['feature-branch', 'feature-branch']);
 
       backend.shutdown();
     });
