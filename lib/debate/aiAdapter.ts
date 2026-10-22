@@ -37,6 +37,7 @@ import {
 } from '../ai-client/index.js';
 import { callGeminiBatchEmbed } from '../ai-client/providers/gemini-embeddings.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
+import { DebateRateLimiter } from './debateRateLimiter.js';
 import {
   computeEmbedding as onnxComputeEmbedding,
   tryWarmup as onnxTryWarmup,
@@ -254,6 +255,7 @@ function computeEmbeddingViaPython(repoRoot: string, text: string): number[] | n
 
 export function createCLIAdapter(repoRoot: string, explicitApiKey?: string): ExtendedAIAdapter {
   const registry = loadRegistry(repoRoot);
+  const rateLimiter = new DebateRateLimiter(!!explicitApiKey);
   let _lastProviderModel: string | undefined;
 
   // Warm up ONNX embedding model in background (loads once, stays warm for all calls)
@@ -317,7 +319,13 @@ export function createCLIAdapter(repoRoot: string, explicitApiKey?: string): Ext
     }
   }
 
+  function rateLimiterWarn(msg: string): void {
+    getGlobalRecorder()?.record({ type: 'system.scaling_warning', component: 'ai-adapter', level: 'warn', message: msg });
+    process.stderr.write(`[rate-pacing] WARN ${msg}\n`);
+  }
+
   async function doGenerateText(prompt: string, model: string, options?: GenerateOptions): Promise<string> {
+    await rateLimiter.waitIfNeeded(rateLimiterWarn);
     const { apiModelId, backend, fixedTemperature } = resolveModel(registry, model);
     const apiKey = resolveApiKey(backend, explicitApiKey);
     // Use registry-driven timeout (tiered default + minTimeoutMs floor from ai-models.json — t/3518 Phase 2).
@@ -452,6 +460,7 @@ export function createCLIAdapter(repoRoot: string, explicitApiKey?: string): Ext
   }
 
   async function doGenerate(request: GenerateRequest): Promise<GenerateResponse> {
+    await rateLimiter.waitIfNeeded(rateLimiterWarn);
     const { apiModelId, backend, fixedTemperature } = resolveModel(registry, request.model);
     const apiKey = resolveApiKey(backend, explicitApiKey);
     const resolvedReq = { ...request, model: apiModelId, options: { ...request.options, fixedTemperature } };
