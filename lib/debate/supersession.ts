@@ -141,3 +141,15 @@ export function buildSupersessionIndex(
 
   return { allNodesById, resolveNode, isSuperseded };
 }
+
+/**
+ * The selectable subset of POV nodes (SO C1, t/4355): any node with a `superseded_by` is
+ * excluded from new selection or attribution — it should only ever be reached by id, for
+ * historical citation lookup. Same rule `loadTaxonomy` applies to its own `accelerationist`/
+ * `safetyist`/`skeptic` fields; exported separately because a caller filtering a raw read
+ * (ElectronMain's main/ipc/*, ServerAPI's server-side equivalent, t/4432/t/4433) doesn't need
+ * `buildSupersessionIndex`'s full chain-resolution machinery just to exclude superseded nodes.
+ */
+export function selectablePovNodes<T extends { superseded_by?: string }>(nodes: readonly T[]): T[] {
+  return nodes.filter(n => !n.superseded_by);
+}

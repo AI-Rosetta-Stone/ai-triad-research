@@ -36,6 +36,7 @@ import { runInquiryPipeline, type InquiryPipelineDeps, type InquiryStage } from 
 import { runHeadlessDebate } from '../../../../lib/debate/headlessRunner.js';
 import { resolvePoverInfo } from '../../../../lib/debate/soulDocLoader.js';
 import { loadTaxonomy, type LoadedTaxonomy } from '../../../../lib/debate/taxonomyLoader.js';
+import { selectablePovNodes } from '../../../../lib/debate/supersession.js';
 import { loadModelRegistry } from '../../../../lib/ai-client/registry.js';
 import {
   InquiryRequestSchema, type InquiryRequest, type InquiryResult,
@@ -178,7 +179,9 @@ async function buildGroundingTaxonomy(): Promise<GroundingTaxonomy> {
   for (const pov of POV_FILES) {
     try {
       const file = readTaxonomyFile(pov) as { nodes?: GroundingTaxonomy['povNodes'] } | null;
-      const nodes = file?.nodes ?? [];
+      // t/4432: exclude superseded nodes — grounding is new selection, not historical lookup
+      // (SO C1, t/4355; same rule lib/debate/taxonomyLoader.ts's loadTaxonomy applies).
+      const nodes = selectablePovNodes(file?.nodes ?? []);
       povNodes.push(...nodes);
       const { nodeEmbeddings: povEmbeddings } = await assembleNodeEmbeddings(pov, nodes, [], embed, null);
       Object.assign(nodeEmbeddings, povEmbeddings);

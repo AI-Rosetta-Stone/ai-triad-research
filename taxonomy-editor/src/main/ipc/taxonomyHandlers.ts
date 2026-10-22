@@ -44,6 +44,7 @@ import {
 import { parsePovTagProposals, applyProposalDecision, type ProposalDecision, type ProposalStatus } from '../../../../lib/schema/povTagProposals.js';
 import { ActionableError, errorMessage } from '../../../../lib/debate/errors.js';
 import { findSituationBdiViolations, validateBdiFields, type SituationNode } from '../../../../lib/debate/taxonomyTypes.js';
+import { selectablePovNodes } from '../../../../lib/debate/supersession.js';
 import { mergeEdgesPreservingRationale, ABSENT_BASELINE, type EdgesData, type EdgeMergeWarn } from '../../../../lib/edges/mergeEdgesPreservingRationale.js';
 import { renameSyncWithRetry } from '../../../../lib/debate/persistence.js';
 import { recordLockHolder } from '../../../../lib/debate/lockHolder.js';
@@ -775,7 +776,9 @@ export function registerTaxonomyHandlers(): void {
       Promise.all(texts.map(t => computeQueryEmbedding(t)));
 
     const povFile = readTaxonomyFile(pov) as { nodes?: SelectRelevantTaxonomyInput['povNodes'] };
-    const povNodes = povFile?.nodes ?? [];
+    // t/4432: exclude superseded nodes — these are offered to the model as new selection
+    // candidates (SO C1, t/4355; same rule lib/debate/taxonomyLoader.ts's loadTaxonomy applies).
+    const povNodes = selectablePovNodes(povFile?.nodes ?? []);
     const sitFile = readTaxonomyFile('situations') as { nodes?: SelectRelevantTaxonomyInput['situationNodes'] };
     const situationNodes = sitFile?.nodes ?? [];
     const policyRaw = readPolicyRegistry() as { policies?: { id: string; action: string; source_povs?: string[] }[] } | null;
@@ -835,7 +838,9 @@ export function registerTaxonomyHandlers(): void {
       computeEmbeddings(texts, ids);
 
     const povFile = readTaxonomyFile(pov) as { nodes?: SelectRelevantTaxonomyInput['povNodes'] };
-    const povNodes = povFile?.nodes ?? [];
+    // t/4432: exclude superseded nodes — a claim must attribute to a live node, not a
+    // historical one (SO C1, t/4355; same rule lib/debate/taxonomyLoader.ts's loadTaxonomy applies).
+    const povNodes = selectablePovNodes(povFile?.nodes ?? []);
     const sitFile = readTaxonomyFile('situations') as { nodes?: SelectRelevantTaxonomyInput['situationNodes'] };
     const situationNodes = sitFile?.nodes ?? [];
     const synthRaw = loadSyntheticEmbeddings();
