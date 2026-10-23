@@ -46,6 +46,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
+      - name: Warn if IDENTITY_MAP is incomplete (t/4326; staging warns, prod fails)
+        # Staging keeps whatever IDENTITY_MAP the last prod Bicep apply wrote (Sync-StagingEnv
+        # skips param references); this only makes an empty/incomplete repo variable visible.
+        shell: pwsh
+        env:
+          IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
+        run: ./operations/devops/azure/Assert-IdentityMapConfigured.ps1 -Value $env:IDENTITY_MAP_VALUE -Mode Warn
+
       - name: Wait for a concurrent prod deploy to finish (t/4194 SO C1)
         shell: pwsh
         env:

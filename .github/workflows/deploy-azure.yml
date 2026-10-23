@@ -105,6 +105,15 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
+      - name: Refuse to deploy without a complete IDENTITY_MAP (t/4326)
+        # An unset map deploys as '' and the ExpectedEnvVars gate stays green (it expects ''),
+        # while the smoke account loses read-only and the PI's GitHub loses admin: a silent
+        # fail-open. Fail closed here, before any Azure change (TL p/404#119).
+        shell: pwsh
+        env:
+          IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
+        run: ./operations/devops/azure/Assert-IdentityMapConfigured.ps1 -Value $env:IDENTITY_MAP_VALUE -Mode Fail
+
       - name: Resolve image digest from per-SHA tag (t/3679 — never :latest)
         id: resolve_digest
         shell: pwsh
@@ -439,7 +448,17 @@ jobs:
           }
 
       - name: Preview Bicep changes (what-if)
+        env:
+          # t/4326: passed through env (not inlined) so bash never interprets the value.
+          IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
         run: |
+          # t/4326: legacy names may contain spaces (quoted below) but never quote/shell
+          # characters — arm-deploy re-tokenises its parameter string on double quotes, and the
+          # ExpectedEnvVars gate embeds the value in a PowerShell single-quoted literal.
+          if printf '%s' "$IDENTITY_MAP_VALUE" | grep -q "[\"'\`\$]"; then
+            echo "::error::vars.IDENTITY_MAP contains a quote, backtick or \$ — not supported (t/4326)."
+            exit 1
+          fi
           echo "Previewing infrastructure changes..."
           RESULT=$(az deployment group what-if \
             --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -455,6 +474,7 @@ jobs:
               authDisabled=${{ inputs.auth_mode == 'disabled' && '1' || '' }} \
               authOptional=${{ inputs.auth_mode == 'optional' && '1' || '' }} \
               adminUsers=${{ vars.ADMIN_USERS }} \
+              identityMap="$IDENTITY_MAP_VALUE" \
               aadClientId=${{ secrets.AAD_CLIENT_ID }} \
               aadClientSecret=${{ secrets.AAD_CLIENT_SECRET }} \
               aadIssuer=common \
@@ -500,6 +520,7 @@ jobs:
             authDisabled=${{ inputs.auth_mode == 'disabled' && '1' || '' }}
             authOptional=${{ inputs.auth_mode == 'optional' && '1' || '' }}
             adminUsers=${{ vars.ADMIN_USERS }}
+            identityMap="${{ vars.IDENTITY_MAP }}"
             aadClientId=${{ secrets.AAD_CLIENT_ID }}
             aadClientSecret=${{ secrets.AAD_CLIENT_SECRET }}
             aadIssuer=common
@@ -894,6 +915,7 @@ jobs:
               AUTH_OPTIONAL                      = '${{ inputs.auth_mode == 'optional' && '1' || '' }}'
               AUTH_DISABLED                      = '${{ inputs.auth_mode == 'disabled' && '1' || '' }}'
               ADMIN_USERS                        = '${{ vars.ADMIN_USERS }}'
+              IDENTITY_MAP                       = '${{ vars.IDENTITY_MAP }}'  # t/4326 — must match main.bicep baseEnv (identityMap param)
               GIT_SYNC_ENABLED                   = '1'
               GITHUB_REPO                        = '${{ vars.SYNC_GITHUB_REPO }}'
               GITHUB_APP_ID                      = '${{ vars.SYNC_GITHUB_APP_ID }}'
@@ -904,7 +926,7 @@ jobs:
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
               EMBEDDING_WORKER_POOL_SIZE         = '1'  # t/4263 SO C3 — one worker at 1.5 vCPU; must match main.bicep baseEnv
               OVERLAY_CONFLICT_STATE_ENABLED     = '1'  # t/4312/#3467, PI-approved (p/331#2174) — gate verifies the overlay-conflict fence is armed
-              READ_ONLY_PRINCIPALS               = 'github:ai-triad-smoke'  # t/4296 G1 — the smoke identity must stay read-only; must match main.bicep baseEnv
+              READ_ONLY_PRINCIPALS               = 'github:ai-triad-smoke,github:github-344897154'  # t/4296 G1 + t/4326 SO C2 — smoke stays read-only mapped or unmapped; must match main.bicep baseEnv
               # GROUNDING_RECONCILE_INLINE removed (t/4298): gated on the grounding_reconcile_inline
               # feature flag, which is OFF — G8a has never run, the env var is read by nothing.
               # GROUNDING_SWEEP_ENABLED removed (t/4298): the sweep is unconditionally refused on
