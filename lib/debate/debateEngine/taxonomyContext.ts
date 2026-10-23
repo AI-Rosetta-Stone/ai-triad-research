@@ -356,6 +356,21 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   );
   const scoredPov = constraintFilter.nodes;
 
+  // Warn when a Scope seat tag results in zero injected POV nodes — the turn will have empty context.
+  if (tagSelection?.mode === 'scope' && scoredPov.length === 0) {
+    engine.warn(
+      `Scope seat tag "${tagSelection.tag}" selected 0 POV nodes`,
+      null,
+      `All ${ctx.povNodes.length} nodes are untagged or scored below threshold; turn will have empty POV context`,
+    );
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'debate-engine', level: 'warn',
+      debate_id: engine.session?.id,
+      message: `Scope seat tag "${tagSelection.tag}" selected 0 POV nodes — turn has empty POV context`,
+      data: { tag: tagSelection.tag, total_nodes: ctx.povNodes.length, tagged_in_pool: tagCtx.povNodes.length },
+    });
+  }
+
   // Log what the exclude-well-tested mode did (t/1438 greatest-hits + well-tested + under-tested boost)
   const testingSelection = summarizeTestingSelection(scoredPovRaw, scoredPov);
   if (testingSelection) {
