@@ -672,6 +672,11 @@ var stagingEnvOverrides = [
   { name: 'ANON_SESSION_DIR',    value: '/mnt/staging-state/anon-sessions' }
   // github-api writes go to the staging branch, not main (t/2650 class-B isolation)
   { name: 'GITHUB_BRANCH',       value: 'staging' }
+  // t/4446 C1: BRANCH_PREFIX was a hardcoded constant shared with prod, so a user signed into
+  // both environments wrote the SAME api-session/* branch in the prod data repo -- the actual
+  // live exposure the SO found (t/4446#5), broader than the already-closed direct-write-to-main
+  // path above. Staging gets its own prefix; prod stays on the code default ('api-session/').
+  { name: 'SESSION_BRANCH_PREFIX', value: 'staging-api-session/' }
   // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
   // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this
