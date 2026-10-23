@@ -4,7 +4,8 @@
 /**
  * SessionBranchManager — per-user branch lifecycle and batch commits.
  *
- * Manages `api-session/{sanitizedUserId}` branches on GitHub:
+ * Manages `{SESSION_BRANCH_PREFIX}{sanitizedUserId}` branches on GitHub
+ * (prefix defaults to `api-session/`; see BRANCH_PREFIX below):
  *   - Lazy branch creation on first edit (no branch until user saves)
  *   - Batch commits via Git Trees API (4 API calls per save-batch)
  *   - Per-user commit mutex (serializes concurrent saves for multi-tab safety)
@@ -26,11 +27,32 @@ import { log } from '../logger.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
-const BRANCH_PREFIX = 'api-session/';
+/**
+ * Session-branch namespace prefix — per-environment config, NOT a shared
+ * constant (t/4446 C1, SO e/353#2). Before this, the literal `'api-session/'`
+ * was identical on every deployment, so a user signed into both staging and
+ * prod resolved to the SAME branch in the shared `ai-triad-data` repo. Each
+ * deployment now gets its own namespace via `SESSION_BRANCH_PREFIX` (bicep:
+ * `api-session/` on prod, `staging-api-session/` on staging — DevOps owns
+ * that side). Must end in `/`; unset falls back to the historical
+ * `api-session/` default so prod (and local/dev) behavior is unchanged.
+ */
+const rawPrefix = process.env.SESSION_BRANCH_PREFIX ?? 'api-session/';
+export const BRANCH_PREFIX = rawPrefix.endsWith('/') ? rawPrefix : `${rawPrefix}/`;
 const MAX_BRANCH_NAME_LENGTH = 100;
 // t/929: token-freshness threshold + lock timeouts are runtime-configurable via
 // getConfig().sessions.* (BRANCH_PREFIX / MAX_BRANCH_NAME_LENGTH stay constant —
 // restart-required, spec §2.12).
+
+/** True if `ref` is a session branch under THIS deployment's configured prefix. */
+export function isSessionBranchRef(ref: string): boolean {
+  return ref.startsWith(BRANCH_PREFIX);
+}
+
+/** Strip this deployment's configured session-branch prefix, returning the sanitized userId segment. */
+export function stripSessionBranchPrefix(ref: string): string {
+  return ref.slice(BRANCH_PREFIX.length);
+}
 
 // ── Branch name sanitization ─────────────────────────────────────────────
 
