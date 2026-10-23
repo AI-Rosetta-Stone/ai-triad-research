@@ -1,0 +1,26 @@
+{
+  "pov_summaries": {
+    "saf": {
+      "key_points": [
+        {
+          "extraction_confidence": 0.8,
+          "verbatim": "q1",
+          "taxonomy_node_id": "saf-beliefs-201"
+        }
+      ]
+    }
+  },
+  "factual_claims": [
+    {
+      "doc_position": "p1",
+      "linked_taxonomy_nodes": [
+        "acc-beliefs-010",
+        "sit-001"
+      ],
+      "extraction_confidence": 0.7,
+      "claim": "c1",
+      "evidence_criteria": "strong"
+    }
+  ],
+  "doc_id": "fixture-source-alpha"
+}

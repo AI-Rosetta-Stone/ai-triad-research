@@ -146,6 +146,7 @@ jobs:
       bicep-resources: ${{ steps.filter.outputs.bicep-resources }}
       schema-drift: ${{ steps.filter.outputs.schema-drift }}
       verify-config: ${{ steps.filter.outputs.verify-config }}
+      citation-link-ci: ${{ steps.filter.outputs.citation-link-ci }}
     steps:
       # push events: paths-filter diffs with local git, so it needs a checkout (PR events use the API).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -359,6 +360,20 @@ jobs:
               - 'lib/ai-client/registry.ts'
               - 'scripts/CalibrationEpochCheck.ps1'
               - 'research/comp-linguist/docs/metric-provenance-register.md'
+              - '.github/workflows/ci.yml'
+            # 'citation-link-ci' gates citation-link-ci-fixture (t/4443, t/4147 SO C5a). The data
+            # repo's citation-link-integrity.yml checks out this repo's code at `main` with no
+            # `ref:`, so a change to these files changes a BLOCKING data gate's verdict without
+            # that gate ever running on the code PR. Path-filtered to exactly the cmdlet + its
+            # Private helpers (not the broad 'powershell' group) per the ticket's own ask.
+            citation-link-ci:
+              - 'scripts/AITriad/Public/Test-CitationLinkIntegrity.ps1'
+              - 'scripts/AITriad/Public/Build-NodeSourceIndex.ps1'
+              - 'scripts/AITriad/Private/Get-SummariesInputHash.ps1'
+              - 'scripts/AITriad/Private/Compare-NodeSourceIndexKeySet.ps1'
+              - 'scripts/AITriad/Private/Get-NodeSourceIndexLink.ps1'
+              - 'tests/fixtures/citation-link-integrity/**'
+              - 'operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1'
               - '.github/workflows/ci.yml'
 
   test-powershell:
@@ -2180,6 +2195,27 @@ jobs:
       - name: Validate ACA cpu:memory pairs in main.bicep (t/3212)
         shell: pwsh
         run: ./operations/devops/Test-BicepAcaResourcePairs.ps1
+
+  # ── citation-link-ci-fixture: leg-c both-arms proof against a committed fixture ──
+  # (t/4443, t/4147 SO C5a). The data repo's citation-link-integrity.yml checks out this
+  # repo's code at `main` with no `ref:`, so a code change to Test-CitationLinkIntegrity
+  # (or its Build-NodeSourceIndex/hash/helper dependencies) changes a BLOCKING data gate's
+  # verdict without that gate ever running on the code PR itself. This job runs leg (c)
+  # against tests/fixtures/citation-link-integrity/ and asserts both arms itself (fresh
+  # passes, stale fails) — a regression in either direction turns this job red.
+  # Non-required (T1); skip = OK through ci-gate.
+  citation-link-ci-fixture:
+    needs: [changes]
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.citation-link-ci == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Citation-link-integrity leg (c), both arms, against the committed fixture (t/4443)
+        shell: pwsh
+        run: ./operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1
 
   agents-md-budget:
     needs: [changes]
