@@ -1,28 +1,48 @@
 # ─── Continuous Deploy (log-only) ───
 # What:  On every green `ci.yml` run on `main`, computes and LOGS what a continuous-deploy
-#        dispatch would do -- kill switch, deployable-path check, infra hold, CL run-window
-#        hold, and the 20-min batching window (t/4414, t/4091 Decision D). Decision logic lives
-#        in operations/devops/Get-ContinuousDeployVerdict.ps1 (Pester-tested, pure predicate).
+#        dispatch would do -- kill switch, deployable-path check, infra hold, commit-PR
+#        association, ci-gate/CodeQL greenness, CL run-window hold, and the 20-min batching
+#        window (t/4414, t/4091 Decision D). Decision logic lives in
+#        operations/devops/Get-ContinuousDeployVerdict.ps1 (Pester-tested, pure predicate).
 # Why:   TL ruling (t/4414, p/331#2341): build the log-only version now as T1 (Quality
 #        reviews) to prove the decision logic on real `main` traffic before the real-dispatch
 #        PR -- which IS the T2 that re-asks the Second Opinion with this evidence.
+# History: t/4091 Decision D was independently approved twice -- t/4285 (10-19, PI) shipped
+#        `auto-deploy-advisory.yml` first; this workflow (t/4414, 10-21, a separate/later PI
+#        go-ahead the TL didn't realize duplicated t/4285) shipped second. Both ran in parallel
+#        until the TL's reconciliation (e/358#2, p/344#374): keep this one, port t/4285's two
+#        stronger gates (commit-PR association, ci-gate+CodeQL check-run greenness) in below,
+#        then retire auto-deploy-advisory.yml in the same PR. t/4285 closes when that PR merges.
 # NO DISPATCH: this workflow never calls `gh workflow run deploy-azure.yml` or anything else
 #        that changes state. It only reads facts and writes a step-summary line. The real
 #        dispatch step is deliberately NOT wired here -- that is the scope of the follow-up T2.
 # Facts:
-#   - Kill switch:    repo variable `CONTINUOUS_DEPLOY` ('on' enables; anything else, including
-#                      unset, fails safe to off -- TL-endorsed, t/4414#1/#3).
-#   - CL run-window:  repo variable `CL_RUN_WINDOW_UNTIL` (ISO 8601 timestamp, optional). Unset
-#                      means no window is declared. TL ruling: "Add it to the CL's AGENTS.md in
-#                      the rule update" -- a repo variable (not a committed file) so the CL can
-#                      set/clear it without a PR, same mechanism as the kill switch.
-#   - Last dispatch:  no continuous-deploy dispatch exists yet (log-only), so this logs against
-#                      the most recent SUCCESSFUL `deploy-azure.yml` run instead -- the real
-#                      production deploy history, which is what the batching window would
-#                      actually measure against once dispatch is wired.
+#   - Kill switch:     repo variable `CONTINUOUS_DEPLOY` ('on' enables; anything else, including
+#                       unset, fails safe to off -- TL-endorsed, t/4414#1/#3).
+#   - CL run-window:   repo variable `CL_RUN_WINDOW_UNTIL` (ISO 8601 timestamp, optional). Unset
+#                       means no window is declared. TL ruling: "Add it to the CL's AGENTS.md in
+#                       the rule update" -- a repo variable (not a committed file) so the CL can
+#                       set/clear it without a PR, same mechanism as the kill switch.
+#   - Last dispatch:   no continuous-deploy dispatch exists yet (log-only), so this logs against
+#                       the most recent SUCCESSFUL `deploy-azure.yml` run instead -- the real
+#                       production deploy history, which is what the batching window (and the
+#                       commit-PR-association range below) would actually measure against once
+#                       dispatch is wired.
 #   - Deployable path: reuses ci.yml's own soundness-reviewed path-filter definitions
-#                      (container / bicep-env / bicep-resources), re-run here via dorny/paths-filter
-#                      against this specific green commit -- no new path-filter logic invented.
+#                       (container / bicep-env / bicep-resources), re-run here via dorny/paths-filter
+#                       against this specific green commit -- no new path-filter logic invented.
+#   - PR association:  ported from t/4285 (TL ruling p/331#2106, e/358#2) -- every commit since
+#                       the last deployed SHA must come from a merged PR. joint-gv-guard and
+#                       consult-hold-guard only trigger on pull_request and structurally never
+#                       run again on a push-triggered main commit, so a commit with no PR
+#                       association skipped those gates entirely.
+#   - ci-gate/CodeQL:  ported from t/4285 -- "green" means ci-gate check-run SUCCESS, plus CodeQL
+#                       SUCCESS *if present* (it's path-filtered, so legitimately absent on e.g. a
+#                       Bicep-only commit -- absent is fine, present-and-failed/pending is not).
+# Gate-signal integrity (TL ruling, e/358#2): a log-only workflow that fails on every run proves
+#        nothing and must not fail silently -- every run since this workflow first shipped failed
+#        on a paths-filter bug (fixed in #3761) with no alert raised. The failure/success steps
+#        below open or auto-close a tracking issue so a dead gate here is never silent again.
 
 name: Continuous Deploy (log-only)
 
@@ -35,6 +55,7 @@ on:
 permissions:
   contents: read
   actions: read
+  issues: write  # gate-signal-integrity failure alert (open/auto-close)
 
 jobs:
   evaluate:
@@ -45,7 +66,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 2
+          fetch-depth: 0  # full history -- commit-PR-association needs `git log <lastDeployedSha>..<headSha>`
 
       # Mirrors ci.yml's 'container' / 'bicep-env' / 'bicep-resources' filters exactly (t/2094 /
       # t/2631 / t/3212 soundness lists) -- kept in sync with ci.yml by hand; a mismatch here only
@@ -53,11 +74,11 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
         id: filter
         with:
-          # HEAD^, not the literal '<sha>^' string -- the checkout above already has the
-          # triggering commit and its parent locally (fetch-depth: 2); passing the sha+caret as
-          # base/ref makes dorny try to `git fetch` a ref named literally "<sha>^" from origin,
-          # which fails ("invalid refspec", every run since this workflow shipped). HEAD^ resolves
-          # locally with no fetch needed. ref defaults to HEAD, which checkout already set.
+          # HEAD^, not the literal '<sha>^' string -- the checkout above has full history locally
+          # (fetch-depth: 0); passing the sha+caret as base/ref makes dorny try to `git fetch` a
+          # ref named literally "<sha>^" from origin, which fails ("invalid refspec", every run
+          # since this workflow first shipped -- #3761). HEAD^ resolves locally with no fetch.
+          # ref defaults to HEAD, which checkout already set.
           base: HEAD^
           filters: |
             container:
@@ -99,8 +120,10 @@ jobs:
           TOUCHES_BICEP_ENV: ${{ steps.filter.outputs.bicep-env }}
           TOUCHES_BICEP_RESOURCES: ${{ steps.filter.outputs.bicep-resources }}
           SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
         run: |
           . ./operations/devops/Get-ContinuousDeployVerdict.ps1
+          . ./operations/devops/ConvertFrom-CheckRunsResponse.ps1
 
           $clWindowUntil = $null
           if (-not [string]::IsNullOrWhiteSpace($env:CL_WINDOW_UNTIL_RAW)) {
@@ -108,12 +131,49 @@ jobs:
           }
 
           # No continuous-deploy dispatch exists yet (log-only phase) -- log the batch verdict
-          # against the most recent SUCCESSFUL deploy-azure.yml production run instead.
-          $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 1 --json createdAt
+          # and the commit-PR-association range against the most recent SUCCESSFUL
+          # deploy-azure.yml production run instead (the real production deploy history).
+          $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 1 --json createdAt,headSha
           $lastRuns = $lastRunJson | ConvertFrom-Json
           $lastDispatchAt = $null
+          $lastDeployedSha = $null
           if (@($lastRuns).Count -gt 0) {
             $lastDispatchAt = [datetime]$lastRuns[0].createdAt
+            $lastDeployedSha = $lastRuns[0].headSha
+          }
+
+          # ── Commit-PR association (t/4285 ported) ──
+          $commitsWithoutMergedPR = @()
+          if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
+            $commitShas = @(git log --format='%H' "$lastDeployedSha..$($env:SHA)" 2>&1)
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "git log failed between $lastDeployedSha and $($env:SHA) -- treating as no commits to check, not as 'all clear'. $commitShas"
+            } else {
+              foreach ($sha in $commitShas) {
+                $pullsJson = gh api "repos/$($env:REPO)/commits/$sha/pulls" 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Warning "gh api commits/.../pulls failed for $sha -- treating as NOT PR-associated (fails toward a hold, never toward dispatch). $pullsJson"
+                  $commitsWithoutMergedPR += $sha
+                  continue
+                }
+                $pulls = @($pullsJson | ConvertFrom-Json)
+                $hasMergedPR = @($pulls | Where-Object { $null -ne $_.merged_at }).Count -gt 0
+                if (-not $hasMergedPR) { $commitsWithoutMergedPR += $sha }
+              }
+            }
+          }
+
+          # ── ci-gate / CodeQL check-run conclusions (t/4285 ported) ──
+          $checkRunsJson = gh api "repos/$($env:REPO)/commits/$($env:SHA)/check-runs" --paginate 2>&1
+          $ciGateConclusion = 'missing'
+          $codeQlConclusion = $null
+          if ($LASTEXITCODE -eq 0) {
+            $checkRuns = $checkRunsJson | ConvertFrom-Json
+            $liveByName = ConvertFrom-CheckRunsResponse -CheckRunsResponse $checkRuns
+            if ($liveByName.ContainsKey('ci-gate')) { $ciGateConclusion = $liveByName['ci-gate'].Conclusion }
+            if ($liveByName.ContainsKey('CodeQL')) { $codeQlConclusion = $liveByName['CodeQL'].Conclusion }
+          } else {
+            Write-Warning "gh api commits/.../check-runs failed for $($env:SHA) -- treating ci-gate as 'missing' (fails toward a hold). $checkRunsJson"
           }
 
           $v = Get-ContinuousDeployVerdict `
@@ -124,6 +184,9 @@ jobs:
             -TouchesContainer ($env:TOUCHES_CONTAINER -eq 'true') `
             -TouchesBicepEnv ($env:TOUCHES_BICEP_ENV -eq 'true') `
             -TouchesBicepResources ($env:TOUCHES_BICEP_RESOURCES -eq 'true') `
+            -CommitsWithoutMergedPR $commitsWithoutMergedPR `
+            -CiGateConclusion $ciGateConclusion `
+            -CodeQlConclusion $codeQlConclusion `
             -Sha $env:SHA
 
           Write-Host "Continuous deploy verdict: $($v.Action) -- $($v.Reason) (sha=$($v.Sha))"
@@ -139,3 +202,27 @@ jobs:
 
           _No dispatch wired -- this workflow only logs what it would do (t/4414 log-only phase)._
           "@ >> $env:GITHUB_STEP_SUMMARY
+
+      # ── Gate-signal integrity (TL ruling, e/358#2): a dead gate here must never be silent ──
+      - name: On failure, open (or leave open) a tracking issue
+        if: failure()
+        run: |
+          EXISTING=$(gh issue list --label "continuous-deploy-dead-gate" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING" ]; then
+            gh issue create \
+              --title "continuous-deploy.yml is failing (t/4414 log-only gate dead)" \
+              --label "continuous-deploy-dead-gate" \
+              --body "This workflow has stopped producing verdicts. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. A log-only gate that fails silently proves nothing about the staging-proof window it's meant to be collecting (t/4414). Fix and this issue auto-closes on the next successful run."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: On success, auto-close any open dead-gate issue
+        if: success()
+        run: |
+          EXISTING=$(gh issue list --label "continuous-deploy-dead-gate" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "continuous-deploy.yml produced a verdict successfully again (sha ${{ github.event.workflow_run.head_sha }}). Auto-closing."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -100,4 +100,73 @@ Describe 'Get-ContinuousDeployVerdict' {
             -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false -Sha 'abc1234'
         $v.Action | Should -Be 'would-dispatch'
     }
+
+    # t/4285 gates, ported into t/4414 per TL decision (e/358#2, p/344#374)
+
+    It 'a commit since the last dispatch has no merged PR -> hold-no-pr-association' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CommitsWithoutMergedPR @('badc0de1') -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-no-pr-association'
+    }
+
+    It 'no-pr-association names every offending commit in Reason' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CommitsWithoutMergedPR @('badc0de1', 'badc0de2') -Sha 'abc1234'
+        $v.Reason | Should -Match 'badc0de1'
+        $v.Reason | Should -Match 'badc0de2'
+    }
+
+    It "ci-gate not success -> hold-gate-not-green" {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CiGateConclusion 'failure' -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-gate-not-green'
+    }
+
+    It "CodeQL ran and failed -> hold-gate-not-green" {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CiGateConclusion 'success' -CodeQlConclusion 'failure' -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-gate-not-green'
+    }
+
+    It "CodeQL absent (null, path-filtered off this SHA) -> not held, proceeds past that check" {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CiGateConclusion 'success' -CodeQlConclusion $null -Sha 'abc1234'
+        $v.Action | Should -Be 'would-dispatch'
+    }
+
+    It 'FIRE ARM: no-pr-association wins over a red ci-gate (names the real offender first)' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CommitsWithoutMergedPR @('badc0de1') -CiGateConclusion 'failure' -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-no-pr-association'
+    }
+
+    It 'FIRE ARM: infra-hold wins even over a red gate and a missing PR association' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $true -TouchesBicepResources $false `
+            -CommitsWithoutMergedPR @('badc0de1') -CiGateConclusion 'failure' -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-infra'
+    }
+
+    It 'gate-not-green wins over an active CL window (evidence-of-safety checks precede timing checks)' {
+        $clWindowUntil = [datetime]'2026-10-22T01:00:00Z'
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $clWindowUntil -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CiGateConclusion 'failure' -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-gate-not-green'
+    }
+
+    It 'FIRE ARM: all gates clear (PR-associated, ci-gate+CodeQL green) plus every other hold clears -> would-dispatch' {
+        $lastDispatchAt = [datetime]'2026-10-21T23:00:00Z'
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $lastDispatchAt -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CommitsWithoutMergedPR @() -CiGateConclusion 'success' -CodeQlConclusion 'success' -Sha 'deadbee'
+        $v.Action | Should -Be 'would-dispatch'
+        $v.Sha | Should -Be 'deadbee'
+    }
 }
