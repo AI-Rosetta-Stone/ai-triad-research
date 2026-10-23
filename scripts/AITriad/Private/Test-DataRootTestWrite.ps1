@@ -5,8 +5,8 @@
 # wrote the REAL ai-triad-data through the guarded funnel, which only refused already-dirty files.
 # Assert-DataWriteAllowed now calls Invoke-DataRootTestWriteCheck first: when Invoke-Pester is on the call
 # stack and the target is under the PROTECTED root (the configured root, ignoring $env:AI_TRIAD_DATA_ROOT),
-# it reports the write. Phase 1 (this code) WARNs with the fixed token DATA-ROOT-TEST-WRITE; Phase 2 (a T2)
-# turns the warning into a refusal once the offender list is empty or ticketed.
+# it logs the write (fixed token DATA-ROOT-TEST-WRITE) and REFUSES it. Phase 1 only warned; Phase 2 (T2) began
+# once CI's offender list was proven empty with a live positive control (t/4454#10, #11).
 # Paths are compared as RESOLVED real paths (TL condition 1): CI's ../ai-triad-data is a symlink and
 # worktrees reach the data through junctions.
 # Remaining vectors, accepted at t/4454#3: child processes a test spawns, -Parallel runspaces (no
@@ -153,13 +153,17 @@ function Get-DataRootTestWriteCaller {
 function Invoke-DataRootTestWriteCheck {
     <#
     .SYNOPSIS
-        Phase 1 (warn-only): report a write to the protected data root from inside a Pester run.
+        Phase 2: REFUSE a write to the protected data root from inside a Pester run (t/4454).
     .DESCRIPTION
-        WARN line: "DATA-ROOT-TEST-WRITE target=<real path> caller=<test file>:<line> via <writer>". When
-        $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG is set (CI), the same line is appended there for the job
-        summary. Returns $true when it fired.
+        Emits the WARN line "DATA-ROOT-TEST-WRITE target=<real path> caller=<test file>:<line> via <writer>" and,
+        when $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG is set (CI), appends it there for the job summary; then throws
+        an actionable error, so the write never reaches disk. Phase 1 (warn-only) ran on CI with a live positive
+        control and found 0 offenders (t/4454#10-#11), the precondition the TL set for this phase.
+    .PARAMETER ReportOnly
+        Report (warn + log) and return $true instead of throwing. For the positive control and unit tests that
+        inspect the line; the funnel never passes it.
     #>
-    param([Parameter(Mandatory)][string]$Path)
+    param([Parameter(Mandatory)][string]$Path, [switch]$ReportOnly)
     if (-not (Test-IsPesterRun)) { return $false }
     $real = Resolve-DataRealPath -Path $Path
     $hit = @(Get-ProtectedDataRoots) | Where-Object { Test-PathUnderRoot -RealPath $real -RealRoot $_ } | Select-Object -First 1
@@ -170,5 +174,14 @@ function Invoke-DataRootTestWriteCheck {
     if (-not [string]::IsNullOrWhiteSpace($log)) {
         try { [System.IO.File]::AppendAllText($log, $line + [Environment]::NewLine) } catch { Write-Warning "$($script:DataRootTestWriteToken): could not append to '$log': $($_.Exception.Message)" }
     }
-    $true
+    if ($ReportOnly) { return $true }
+    throw (New-ActionableError -PassThru `
+        -Goal 'Keep test runs from writing the real data repo (t/4454)' `
+        -Problem "A Pester run tried to write the protected data root: $line" `
+        -Location 'Assert-DataWriteAllowed -> Invoke-DataRootTestWriteCheck' `
+        -NextSteps @(
+            'Pass the cmdlet''s explicit path parameters (-Path, -EmbeddingsPath, ...) pointing into $TestDrive or a temp dir',
+            'Or set $env:AI_TRIAD_DATA_ROOT to a temp copy for the test (restore it in AfterEach); the protected root ignores the env var, so only real-root writes are refused',
+            'Incident that motivated this: t/4453 (a test merged an entity and rewrote the real entity_embeddings.json)'
+        ))
 }
