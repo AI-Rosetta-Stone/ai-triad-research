@@ -1,0 +1,14 @@
+{
+  "pov_summaries": {
+    "saf": {
+      "key_points": [
+        {
+          "extraction_confidence": 0.6,
+          "verbatim": "q2",
+          "taxonomy_node_id": "saf-beliefs-201"
+        }
+      ]
+    }
+  },
+  "doc_id": "fixture-source-beta"
+}

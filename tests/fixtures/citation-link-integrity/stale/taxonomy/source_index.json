@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "builder": "Build-NodeSourceIndex",
+  "builderVersion": "1.2.0",
+  "inputHash": "4b2b95e93a50d1ee6014864b060ccfcc4fd222915a0ca5b0814cbd971bc806d7",
+  "marksHash": "102adc8fe357238a3dfcaea8bf3c2d22df9e09d0276e59c419edd29fac46c128",
+  "totals": {
+    "nodes": 2,
+    "entries": 2,
+    "byLinkSource": {
+      "key_point": 1,
+      "factual_claim": 1
+    }
+  },
+  "index": {
+    "acc-beliefs-010": [
+      {
+        "source_id": "fixture-source-alpha",
+        "link_source": "factual_claim",
+        "quote": "c1",
+        "doc_position": "p1",
+        "evidence_level": "strong",
+        "extraction_confidence": 0.7
+      }
+    ],
+    "saf-beliefs-201": [
+      {
+        "source_id": "fixture-source-alpha",
+        "link_source": "key_point",
+        "quote": "q1",
+        "doc_position": null,
+        "evidence_level": null,
+        "extraction_confidence": 0.8
+      }
+    ]
+  }
+}
