@@ -77,21 +77,25 @@ function configuredDataRoot(repoRoot: string): string {
  */
 function mainCheckoutOf(repoRoot: string): string | null {
   const dotGit = path.join(repoRoot, '.git');
-  if (!fs.existsSync(dotGit)) return null; // not a git checkout (e.g. an extracted archive): nothing more to protect
+  let text: string;
   try {
-    if (!fs.statSync(dotGit).isFile()) return null;
-    const m = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotGit, 'utf-8'));
-    if (!m) return null;
-    const gitdir = path.resolve(repoRoot, m[1]);
-    if (path.basename(path.dirname(gitdir)) !== 'worktrees') return null;
-    const main = path.dirname(path.dirname(path.dirname(gitdir)));
-    return fs.existsSync(path.join(main, '.aitriad.json')) ? main : null;
+    // Read directly (no exists/stat check first, so there's no check-then-use race): a directory is a plain checkout.
+    text = fs.readFileSync(dotGit, 'utf-8');
   } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    // no .git (an extracted archive) or a .git directory (a plain checkout): there is no main checkout to add
+    if (code === 'ENOENT' || code === 'EISDIR') return null;
     const message = `could not read ${dotGit} (${String(err)}); the main checkout's data root is NOT protected`;
     console.warn(`[dataRootGuard] WARN: ${message}`);
     getGlobalRecorder()?.record({ type: 'system.error', component: 'data-root-guard', level: 'warn', message });
     return null;
   }
+  const m = /^gitdir:\s*(.+?)\s*$/m.exec(text);
+  if (!m) return null;
+  const gitdir = path.resolve(repoRoot, m[1]);
+  if (path.basename(path.dirname(gitdir)) !== 'worktrees') return null;
+  const main = path.dirname(path.dirname(path.dirname(gitdir)));
+  return fs.existsSync(path.join(main, '.aitriad.json')) ? main : null;
 }
 
 /**
@@ -188,6 +192,8 @@ const PROMISES: Record<string, number[]> = {
 };
 
 interface Installed { roots: string[]; restore: () => void }
+/** Nesting depth of wrapped calls on this thread (synchronous re-entry only; async hops run later at depth 0). */
+let depth = 0;
 type Registry = { [INSTALLED]?: Installed };
 
 function report(op: string, target: string, root: string): void {
@@ -201,14 +207,23 @@ function wrapAll(obj: Record<string, unknown>, table: Record<string, number[]>, 
     const orig = obj[name];
     if (typeof orig !== 'function') continue;
     const wrapped = function (this: unknown, ...args: unknown[]) {
-      outer: for (const i of idxs) {
-        const p = asPath(args[i]);
-        if (p === null) continue;
-        for (const root of roots) {
-          if (isUnderRoot(p, root)) { report(prefix + name, path.resolve(p), root); break outer; }
+      // Report only the outermost call: Node implements some ops through other fs exports (on Linux `rmSync` of a
+      // file calls `fs.unlinkSync`), and one test write should give one WARN, not one per internal hop.
+      if (depth === 0) {
+        outer: for (const i of idxs) {
+          const p = asPath(args[i]);
+          if (p === null) continue;
+          for (const root of roots) {
+            if (isUnderRoot(p, root)) { report(prefix + name, path.resolve(p), root); break outer; }
+          }
         }
       }
-      return (orig as (...a: unknown[]) => unknown).apply(this, args);
+      depth++;
+      try {
+        return (orig as (...a: unknown[]) => unknown).apply(this, args);
+      } finally {
+        depth--;
+      }
     };
     obj[name] = wrapped;
     saved.push(() => { obj[name] = orig; });
