@@ -13,7 +13,8 @@
 
     Value format: comma-separated `<idp>:<stableId>=<legacy principal name>`.
     Fails (or warns) when the value is empty, when an entry is malformed, or when a required key
-    (default `github:6188114`, the PI's GitHub account) is missing or maps to an empty name.
+    is missing or maps to an empty name. Defaults: `github:6188114` (the PI's GitHub account, for
+    admin) and `github:344897154` (ai-triad-smoke, for READ_ONLY_PRINCIPALS — t/4326 SO C2).
 
     Test-IdentityMapValue is pure, so tests/Assert-IdentityMapConfigured.Tests.ps1 proves both arms.
 #>
@@ -21,7 +22,9 @@
 param(
     [AllowEmptyString()][string]$Value = '',
     [ValidateSet('Fail', 'Warn')][string]$Mode = 'Fail',
-    [string[]]$RequiredKeys = @('github:6188114')
+    # github:6188114 = the PI's GitHub account (admin); github:344897154 = ai-triad-smoke
+    # (READ_ONLY_PRINCIPALS, t/4326 SO C2).
+    [string[]]$RequiredKeys = @('github:6188114', 'github:344897154')
 )
 
 function Test-IdentityMapValue {

@@ -4,16 +4,16 @@
 BeforeAll {
     $script = "$PSScriptRoot/../operations/devops/azure/Assert-IdentityMapConfigured.ps1"
     . $script
-    $req = @('github:6188114')
+    $req = @('github:6188114', 'github:344897154')   # the script's defaults (PI admin + smoke read-only)
 }
 
 Describe 'Test-IdentityMapValue (t/4326)' {
     It 'PASS: required entry present, names with spaces and @ allowed' {
-        $v = Test-IdentityMapValue -Value 'github:6188114=jpsnover,github:42=alex franco,github:7=rich@gillin.us' -RequiredKeys $req
+        $v = Test-IdentityMapValue -Value 'github:6188114=jpsnover,github:344897154=ai-triad-smoke,github:42=alex franco,github:7=rich@gillin.us' -RequiredKeys $req
         $v.Pass | Should -BeTrue
     }
     It 'PASS: tolerates whitespace around entries' {
-        (Test-IdentityMapValue -Value ' github:6188114=jpsnover , github:42=alex franco ' -RequiredKeys $req).Pass | Should -BeTrue
+        (Test-IdentityMapValue -Value ' github:6188114=jpsnover , github:344897154=ai-triad-smoke , github:42=alex franco ' -RequiredKeys $req).Pass | Should -BeTrue
     }
     It 'FIRE: empty value (the silent fail-open this gate exists for)' {
         $v = Test-IdentityMapValue -Value '' -RequiredKeys $req
@@ -25,6 +25,10 @@ Describe 'Test-IdentityMapValue (t/4326)' {
     It 'FIRE: required entry missing' {
         $v = Test-IdentityMapValue -Value 'github:42=alex franco' -RequiredKeys $req
         $v.Pass | Should -BeFalse; ($v.Problems -join ' ') | Should -Match "required entry 'github:6188114=' is missing"
+    }
+    It 'FIRE: PI key present but the smoke key missing (SO C2)' {
+        $v = Test-IdentityMapValue -Value 'github:6188114=jpsnover,github:42=alex franco' -RequiredKeys $req
+        $v.Pass | Should -BeFalse; ($v.Problems -join ' ') | Should -Match "required entry 'github:344897154=' is missing"
     }
     It 'FIRE: required key present but mapped to an empty name' {
         (Test-IdentityMapValue -Value 'github:6188114=' -RequiredKeys $req).Pass | Should -BeFalse
@@ -55,7 +59,7 @@ Describe 'Assert-IdentityMapConfigured script modes (t/4326)' {
         $out | Should -Match '(?m)^::warning title=t/4326 IDENTITY_MAP::'
     }
     It 'Fail mode: a complete value exits 0' {
-        $null = pwsh -NoProfile -Command "& '$script' -Value 'github:6188114=jpsnover,github:42=alex franco' -Mode Fail" 2>&1
+        $null = pwsh -NoProfile -Command "& '$script' -Value 'github:6188114=jpsnover,github:344897154=ai-triad-smoke,github:42=alex franco' -Mode Fail" 2>&1
         $LASTEXITCODE | Should -Be 0
     }
 }
@@ -71,6 +75,21 @@ Describe 'Workflow wiring (t/4326)' {
     It 'neither workflow dot-sources the gate (dot-sourcing skips its body and it silently passes)' {
         $deploy  | Should -Not -Match '(?m)^\s*(run:\s*)?\.\s+\S*Assert-IdentityMapConfigured\.ps1'
         $staging | Should -Not -Match '(?m)^\s*(run:\s*)?\.\s+\S*Assert-IdentityMapConfigured\.ps1'
+    }
+    It 'READ_ONLY_PRINCIPALS lists the smoke account under BOTH names, in Bicep and the drift gate (SO C2)' {
+        $bicep = Get-Content "$PSScriptRoot/../deploy/azure/main.bicep" -Raw
+        # Anchor to the ASSIGNMENT in each file (the name also appears in prose/descriptions).
+        $cases = @(
+            @{ src = $bicep;  re = "name: 'READ_ONLY_PRINCIPALS', value: '([^']+)'" },
+            @{ src = $deploy; re = "READ_ONLY_PRINCIPALS\s+= '([^']+)'" }
+        )
+        foreach ($c in $cases) {
+            $m = [regex]::Match($c.src, $c.re)
+            $m.Success | Should -BeTrue
+            $set = @($m.Groups[1].Value -split ',' | ForEach-Object { $_.Trim().ToLower() })
+            $set | Should -Contain 'github:ai-triad-smoke'     # mapped (IDENTITY_MAP -> legacy name)
+            $set | Should -Contain 'github:github-344897154'   # unmapped fallback (principalName.ts)
+        }
     }
     It 'deploy-staging runs the gate in Warn mode' {
         $staging | Should -Match 'Assert-IdentityMapConfigured\.ps1 -Value \$env:IDENTITY_MAP_VALUE -Mode Warn'

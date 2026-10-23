@@ -567,7 +567,10 @@ var baseEnv = [
   // t/4296 G1: principals forced read-only (writes blocked by #3429's guard) regardless of
   // proxy-tiers.json — the hosted signed-in smoke identity (t/4134). Fail-closed static list,
   // idp-scoped `idp:login`. MUST stay in sync with deploy-azure.yml's ExpectedEnvVars gate.
-  { name: 'READ_ONLY_PRINCIPALS', value: 'github:ai-triad-smoke' }
+  // t/4326 SO C2: since #3691 an UNMAPPED GitHub account's principal name is `github-<id>`, so the
+  // smoke account (id 344897154) is listed under BOTH names — read-only holds whether or not
+  // IDENTITY_MAP maps it back to `ai-triad-smoke` (fail-closed either way).
+  { name: 'READ_ONLY_PRINCIPALS', value: 'github:ai-triad-smoke,github:github-344897154' }
   // Admin allowlist — comma-separated derived userIds gating the review UI and
   // /api/admin/* endpoints. Declared here so it survives Bicep deploys (a CLI
   // --set-env-vars value would be wiped by the next full template deployment).
