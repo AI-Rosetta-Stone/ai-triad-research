@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   installDataRootGuard, resolveProtectedDataRoot, resolveProtectedDataRoots, protectedDataRoot, isUnderRoot,
-  DATA_ROOT_TEST_WRITE_TOKEN,
+  DATA_ROOT_TEST_WRITE_TOKEN, DATA_ROOT_GUARD_INSTALLED_TOKEN,
 } from './dataRootGuard.js';
 
 let base: string;
@@ -155,6 +155,21 @@ describe('dataRootGuard: install contract', () => {
     fs.writeFileSync(path.join(root, 'second.json'), '{}');
     fs.writeFileSync(path.join(base, 'ai-triad-data2', 'first.json'), '{}');
     expect(hits()).toHaveLength(2);
+  });
+
+  it('emits one DATA-ROOT-GUARD-INSTALLED marker per process, with the mode and the roots, however often it installs (t/4464)', () => {
+    // An earlier install in this worker (setupFiles, or a test above) already emitted it; reset to observe it.
+    uninstall();
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('ai-triad.dataRootGuard.markerEmitted')];
+    const markers = () => warn.mock.calls.map(c => String(c[0])).filter(m => m.startsWith(DATA_ROOT_GUARD_INSTALLED_TOKEN));
+    uninstall = installDataRootGuard({ mode: 'warn', protectedRoot: root });
+    installDataRootGuard({ mode: 'warn', protectedRoot: root }); // idempotent call
+    uninstall();
+    uninstall = installDataRootGuard({ mode: 'warn', protectedRoot: root }); // reinstall after an uninstall
+    expect(markers()).toHaveLength(1);
+    const [marker] = markers();
+    expect(marker).toMatch(/^DATA-ROOT-GUARD-INSTALLED mode=warn roots=\[/);
+    expect(JSON.parse(marker.slice(marker.indexOf('roots=') + 'roots='.length))).toEqual([fs.realpathSync.native(root)]);
   });
 
   it("mode 'block' is refused until the Phase 2 T2 change", () => {
