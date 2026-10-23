@@ -52,6 +52,34 @@ Describe 'Get-EntityReport (t/1806 §7)' -Tag 'unit' {
             @($pair.EntityIdA, $pair.EntityIdB) | Should -Contain 'ent-001'
             @($pair.EntityIdA, $pair.EntityIdB) | Should -Contain 'ent-002'
         }
+
+        It 'Reads a schema-2.0.0 store (name_vector records), and -Report all returns every section (t/4456)' {
+            $entPath = Join-Path $TestDrive 'nd2-entities.json'
+            $embPath = Join-Path $TestDrive 'nd2-embeddings.json'
+            Import-Entity -Proposal @(
+                @{ name = 'Beta Corp'; entity_type = 'institution'; dolce_category = 'non-agentive-social-object' },
+                @{ name = 'Beta Corporation'; entity_type = 'institution'; dolce_category = 'non-agentive-social-object' },
+                @{ name = 'Unrelated Thing'; entity_type = 'artifact'; dolce_category = 'non-agentive-functional-artifact' }
+            ) -Path $entPath -SkipEmbedding | Out-Null
+            $embStore = [PSCustomObject]@{
+                _schema_version = '2.0.0'
+                vectors         = [PSCustomObject]@{
+                    'ent-001' = [PSCustomObject]@{ name_vector = @(1.0, 0.0, 0.0); description_vector = @(0.0, 0.0, 1.0) }
+                    'ent-002' = [PSCustomObject]@{ name_vector = @(0.99, 0.01, 0.0) }
+                    'ent-003' = [PSCustomObject]@{ name_vector = @(0.0, 1.0, 0.0) }
+                }
+            }
+            ($embStore | ConvertTo-Json -Depth 6) | Set-Content -Path $embPath -Encoding utf8NoBOM
+
+            $r = Get-EntityReport -EntitiesPath $entPath -EmbeddingsPath $embPath -DictionaryRoot (Join-Path $TestDrive 'no-dict') -NearDuplicateThreshold 0.60
+            @($r.NearDuplicate.Pairs).Count | Should -Be 1
+            @($r.NearDuplicate.Pairs[0].EntityIdA, $r.NearDuplicate.Pairs[0].EntityIdB) | Should -Be @('ent-001', 'ent-002')
+            foreach ($section in 'ProvenanceOrphan', 'NoneMatched', 'MergeChainDefects', 'RelationDag', 'TombstoneStatus', 'OrphanVector') {
+                $r.PSObject.Properties[$section] | Should -Not -BeNullOrEmpty -Because "-Report all must reach the $section section"
+            }
+            $r.TombstoneStatus | Should -Not -BeNullOrEmpty
+            $r.OrphanVector | Should -Not -BeNullOrEmpty
+        }
     }
 
     Context 'provenance-orphan' {
