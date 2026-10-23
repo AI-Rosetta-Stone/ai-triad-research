@@ -110,6 +110,14 @@ Describe 'Test-run write check (t/4454)' -Tag 'unit' {
         @(& (Get-Module AITriad) { param($r) Get-ProtectedDataRoots -RepoRoot $r -SkipModuleRoot 3>$null } $wt) | Should -Contain ([IO.Path]::GetFullPath($real))
     }
 
+    It 'a path on a drive that does not exist resolves without throwing, and is not protected' {
+        $p = 'X:\data\taxonomy\situations.json'
+        $real = & (Get-Module AITriad) { param($x) Resolve-DataRealPath -Path $x } $p
+        $real | Should -Be ([IO.Path]::GetFullPath($p))
+        $w = @(Get-Warnings { & (Get-Module AITriad) { param($x) Invoke-DataRootTestWriteCheck -Path $x } $p })
+        @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE*' }).Count | Should -Be 0
+    }
+
     It 'appends the line to AITRIAD_DATA_ROOT_TEST_WRITE_LOG when set (the CI job-summary contract)' {
         $log = Join-Path $base 'hits.log'
         $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $log

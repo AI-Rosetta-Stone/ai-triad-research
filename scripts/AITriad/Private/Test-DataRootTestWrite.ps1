@@ -17,23 +17,27 @@ $script:DataRootTestWriteToken = 'DATA-ROOT-TEST-WRITE'
 function Resolve-DataRealPath {
     # The real path of $Path: every existing component's symlink/junction followed (recursively), the
     # non-existent tail appended as-is, normalized with GetFullPath. Bounded against link loops.
+    # [IO.Path]::Combine, not Join-Path: Join-Path consults the PowerShell provider and throws for a drive that
+    # does not exist (X:\...), which broke callers that pass a fake path (SurgicalWriteExemption ARM 1, Windows).
     param([Parameter(Mandatory)][string]$Path, [int]$Depth = 0)
     $full = [System.IO.Path]::GetFullPath($Path)
     if ($Depth -gt 16) { return $full }
     $root = [System.IO.Path]::GetPathRoot($full)
-    $parts = @($full.Substring($root.Length).Split([char[]]@('\', '/'), [System.StringSplitOptions]::RemoveEmptyEntries))
+    # The platform's own separators only: on Linux a backslash is an ordinary filename character, not a separator.
+    $seps = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $parts = @($full.Substring($root.Length).Split($seps, [System.StringSplitOptions]::RemoveEmptyEntries))
     $cur = $root
     for ($i = 0; $i -lt $parts.Count; $i++) {
-        $next = Join-Path $cur $parts[$i]
+        $next = [System.IO.Path]::Combine($cur, $parts[$i])
         $item = Get-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue
         if ($null -eq $item) {
             # The rest does not exist yet (a file about to be written): append it unresolved.
             $tail = if ($i -lt $parts.Count) { $parts[$i..($parts.Count - 1)] -join [System.IO.Path]::DirectorySeparatorChar } else { '' }
-            return [System.IO.Path]::GetFullPath((Join-Path $cur $tail))
+            return [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($cur, $tail))
         }
         if ($item.PSObject.Properties['LinkType'] -and $item.LinkType -and $item.PSObject.Properties['LinkTarget'] -and $item.LinkTarget) {
             $target = [string]$item.LinkTarget
-            if (-not [System.IO.Path]::IsPathRooted($target)) { $target = Join-Path $cur $target }
+            if (-not [System.IO.Path]::IsPathRooted($target)) { $target = [System.IO.Path]::Combine($cur, $target) }
             $next = Resolve-DataRealPath -Path $target -Depth ($Depth + 1)
         }
         $cur = $next
