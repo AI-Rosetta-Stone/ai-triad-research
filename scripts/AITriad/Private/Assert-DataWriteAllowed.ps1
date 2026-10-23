@@ -133,6 +133,11 @@ function Assert-DataWriteAllowed {
 
         [switch]$SurgicalWrite
     )
+    # t/4454: a write to the protected (real) data root from inside a Pester run is reported first, before
+    # every exemption below: -SurgicalWrite / -AllowDirty / mode Off don't apply to test runs (TL t/4454#3
+    # condition 5). Phase 1 warns (DATA-ROOT-TEST-WRITE); Phase 2 (T2) refuses.
+    $null = Invoke-DataRootTestWriteCheck -Path $Path
+
     # t/2916 Fork 2 (TL t/2916#8) — surgical-write exemption. A field-surgical write is
     # sweep-proof by construction (re-parse-verify + byte-identical preservation), so the
     # dirty-tree check is N/A: return BEFORE consulting the tier or the tree. This is the

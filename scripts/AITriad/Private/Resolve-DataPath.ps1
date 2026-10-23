@@ -138,11 +138,16 @@ function Get-DataRoot {
     <#
     .SYNOPSIS
         Returns the resolved absolute path to the data root directory.
+    .PARAMETER IgnoreEnvOverride
+        Resolve as if $env:AI_TRIAD_DATA_ROOT were unset: the configured (.aitriad.json / fallback)
+        root. The test-run write check protects THIS root (t/4454), so a test that points the env
+        var at a temp dir writes freely, and one that points it at the real root is still caught.
     #>
+    param([switch]$IgnoreEnvOverride)
     Initialize-DataConfig
 
     # Env var takes highest priority
-    if (-not [string]::IsNullOrWhiteSpace($env:AI_TRIAD_DATA_ROOT)) {
+    if (-not $IgnoreEnvOverride -and -not [string]::IsNullOrWhiteSpace($env:AI_TRIAD_DATA_ROOT)) {
         $Resolved = Resolve-Path $env:AI_TRIAD_DATA_ROOT -ErrorAction SilentlyContinue
         if ($Resolved) { return $Resolved.Path }
         return $env:AI_TRIAD_DATA_ROOT
