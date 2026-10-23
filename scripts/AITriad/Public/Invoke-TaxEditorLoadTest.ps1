@@ -47,13 +47,13 @@ function Invoke-TaxEditorLoadTest {
     .PARAMETER TargetCpu
         Per-container vCPU this cmdlet checks staging against and warns if it doesn't
         match (t/4180: "temporarily match staging's size if it differs" — the resize
-        itself is manual, see .DESCRIPTION). Default: 2.0 (prod's current size,
-        deploy/azure/main.bicep). Staging normally runs 0.25 vCPU / 0.5Gi — a per-
-        container capacity number measured at that size would not describe prod.
+        itself is manual, see .DESCRIPTION). Default: 1.5 (prod's current size, prodCpu in
+        deploy/azure/main.bicep since #3391, t/4263). Staging normally runs 0.25 vCPU / 0.5Gi —
+        a per-container capacity number measured at that size would not describe prod.
     .PARAMETER TargetMemory
-        Per-container memory this cmdlet checks staging against. Default: 4Gi. ACA
-        Consumption only allows fixed cpu:memory pairs, so -TargetCpu 2.0 pairs with this
-        (ARM rejects 2.0 vCPU with anything but 4Gi, t/3182).
+        Per-container memory this cmdlet checks staging against. Default: 3Gi (prodMemory). ACA
+        Consumption only allows fixed cpu:memory pairs (memory = 2 x vCPU), so -TargetCpu 1.5
+        pairs with this (t/3182).
     .PARAMETER SkipResourceMatch
         Suppress the size-mismatch warning. The measured capacity still describes
         staging's OWN size whenever it doesn't actually match -TargetCpu/-TargetMemory —
@@ -91,9 +91,9 @@ function Invoke-TaxEditorLoadTest {
 
         [string]$OutDir,
 
-        [double]$TargetCpu = 2.0,
+        [double]$TargetCpu = 1.5,
 
-        [string]$TargetMemory = '4Gi',
+        [string]$TargetMemory = '3Gi',
 
         [switch]$SkipResourceMatch,
 

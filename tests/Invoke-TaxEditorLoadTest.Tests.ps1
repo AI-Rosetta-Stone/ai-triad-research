@@ -65,3 +65,22 @@ Describe 'Get-AzMetricPeak (t/4282)' -Tag 'taxonomy' {
         }
     }
 }
+
+Describe 'Invoke-TaxEditorLoadTest -TargetCpu/-TargetMemory defaults track prod (t/4283)' -Tag 'taxonomy' {
+
+    It 'Defaults equal prodCpu/prodMemory in deploy/azure/main.bicep, so a prod resize fails here instead of drifting' {
+        $bicep = Get-Content -Raw -Path (Join-Path $PSScriptRoot '..' 'deploy' 'azure' 'main.bicep')
+        $cpu = [regex]::Match($bicep, "(?m)^var prodCpu = '([^']+)'").Groups[1].Value
+        $mem = [regex]::Match($bicep, "(?m)^var prodMemory = '([^']+)'").Groups[1].Value
+        $cpu | Should -Not -BeNullOrEmpty -Because 'main.bicep must still declare var prodCpu'
+        $mem | Should -Not -BeNullOrEmpty -Because 'main.bicep must still declare var prodMemory'
+
+        $src = Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'Public' 'Invoke-TaxEditorLoadTest.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($src, [ref]$null, [ref]$null)
+        $params = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ParameterAst] }, $true)
+        $default = { param($name) (@($params | Where-Object { $_.Name.VariablePath.UserPath -eq $name }))[0].DefaultValue.SafeGetValue() }
+
+        [double](& $default 'TargetCpu') | Should -Be ([double]$cpu)
+        [string](& $default 'TargetMemory') | Should -Be $mem
+    }
+}
