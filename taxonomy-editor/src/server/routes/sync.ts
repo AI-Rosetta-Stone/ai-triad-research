@@ -26,6 +26,7 @@ import { diffNodes, changedFields } from '../storage/editMeta.js';
 import { computeNodeConflicts } from '../community/nodeConflicts.js';
 import type { TaxNode, NodeConflict } from '../community/nodeConflicts.js';
 import { getOverlayCommitStatus } from '../storage/overlayCommitScheduler.js';
+import { isSessionBranchRef, stripSessionBranchPrefix } from '../storage/sessionBranchManager.js';
 import type { GitHubAPIBackend, CompareResult } from '../storage/githubAPIBackend.js';
 
 type RawBodyReq = IncomingMessage & { __rawBody?: string };
@@ -52,9 +53,11 @@ function isValidWebhookSignature(raw: string, sigHeader: string, secret: string)
   return sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
 }
 
-/** On a PR merged into main, delete the matching `api-session/*` branch (best-effort;
- *  a failed delete is logged, never thrown). No-op for other actions/branches. */
-function handleMergedPrBranchCleanup(
+/** On a PR merged into main, delete the matching session branch (best-effort; a failed
+ *  delete is logged, never thrown). No-op for other actions/branches. The branch must be
+ *  under THIS deployment's configured prefix (t/4446 C1), so a staging webhook never
+ *  matches a prod `api-session/*` ref. Exported for tests. */
+export function handleMergedPrBranchCleanup(
   parsed: Record<string, unknown>,
   sessionManager: ReturnType<ServerCtx['getSessionManager']>,
 ): void {
@@ -62,10 +65,10 @@ function handleMergedPrBranchCleanup(
   const pr = parsed.pull_request as { merged?: boolean; base?: { ref?: string }; head?: { ref?: string } } | undefined;
   if (action === 'closed' && pr?.merged === true && pr.base?.ref === 'main') {
     log.github.info('Webhook: PR merged into main');
-    // Post-merge cleanup: delete the session branch if it was an api-session branch
+    // Post-merge cleanup: delete the session branch if it is one of this deployment's
     const headRef = pr.head?.ref ?? '';
-    if (headRef.startsWith('api-session/') && sessionManager) {
-      const branchUserId = headRef.slice('api-session/'.length);
+    if (isSessionBranchRef(headRef) && sessionManager) {
+      const branchUserId = stripSessionBranchPrefix(headRef);
       void branchUserId;
       // Find the user whose sanitized branch name matches
       const activeBranches = sessionManager.getActiveBranches();
