@@ -888,7 +888,39 @@ jobs:
       - name: Test with coverage
         if: matrix.app == 'taxonomy-editor'
         working-directory: ${{ matrix.app }}
-        run: pnpm exec vitest run --coverage
+        # Tee'd to a log for the DATA-ROOT-TEST-WRITE summary step below (t/4454 Phase 1 parity
+        # with test-powershell) -- PIPESTATUS[0] preserves vitest's own exit code through the
+        # pipe (bash's $? after a pipeline is the LAST command's, i.e. tee's, which always
+        # succeeds; without this, a real vitest failure would silently pass the step).
+        run: |
+          set -o pipefail
+          pnpm exec vitest run --coverage 2>&1 | tee "$RUNNER_TEMP/vitest-taxonomy-editor.log"
+
+      - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
+        # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
+        # never fails the job. dataRootGuard.ts (#3767, lib/test-support) only instruments
+        # taxonomy-editor's vite config, so this only runs for that matrix leg. One line per hit:
+        # "DATA-ROOT-TEST-WRITE op=<op> target=<target> protectedRoot=<root>" (console.warn, so
+        # it's grepped from the tee'd vitest log above, not a separate writer-owned file).
+        if: always() && matrix.app == 'taxonomy-editor'
+        continue-on-error: true
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
+          if [ -f "$LOG" ]; then
+            mapfile -t LINES < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
+          else
+            LINES=()
+          fi
+          if [ "${#LINES[@]}" -gt 0 ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): ${#LINES[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
+            for line in "${LINES[@]}"; do
+              echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::$line"
+            done
+          else
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): 0 hits" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Build
         if: matrix.app == 'taxonomy-editor'
