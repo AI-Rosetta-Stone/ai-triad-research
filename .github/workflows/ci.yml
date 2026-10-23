@@ -463,6 +463,10 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARD_TOTAL: '6'
+          # t/4454 Phase 1 (TL condition 4, t/4454#3): when set, every real-data-root write hit
+          # during the test run appends one line here. PowerShell's side (#3770) owns the writer;
+          # this step only consumes the log afterward (see "Report DATA-ROOT-TEST-WRITE hits" below).
+          AITRIAD_DATA_ROOT_TEST_WRITE_LOG: ${{ runner.temp }}/data-root-test-write-${{ matrix.shard }}.log
         run: |
           . ./operations/devops/Get-PesterExcludePaths.ps1  # single source of truth (t/3010)
           . ./operations/devops/FlakeVerdict.ps1            # t/3546 verdict message (content regression-guarded by tests/FlakeVerdict.Tests.ps1)
@@ -619,6 +623,35 @@ jobs:
           }
           Format-FlakeVerdictMessage -FailedTest $stillFailedTests | ForEach-Object { Write-Host $_ }
           exit 1
+
+      - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1, TL condition 4)
+        # Isolated sink, same #2070 pattern as the self-heal step below: if: always() runs whether
+        # the Pester step passed, healed, or failed; warn-only, never fails the job (Phase 1 is
+        # detection -- CI's data root is the ephemeral clone, so a hit here is exactly the offender
+        # list Phase 2 (Block) needs before it can promote to a real gate). PowerShell's side
+        # (#3770) owns the writer; one line per hit: "DATA-ROOT-TEST-WRITE target=<path>
+        # caller=<test>:<line> via <writer>".
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        env:
+          SHARD: ${{ matrix.shard }}
+          LOG_PATH: ${{ runner.temp }}/data-root-test-write-${{ matrix.shard }}.log
+        run: |
+          if (Test-Path -LiteralPath $env:LOG_PATH) {
+            $lines = @(Get-Content -LiteralPath $env:LOG_PATH | Where-Object { $_ -match '\S' } | Sort-Object -Unique)
+            if ($lines.Count -gt 0) {
+              "### DATA-ROOT-TEST-WRITE (shard $($env:SHARD)): $($lines.Count) hit(s)" >> $env:GITHUB_STEP_SUMMARY
+              $lines | ForEach-Object {
+                "- ``$_``" >> $env:GITHUB_STEP_SUMMARY
+                Write-Host "::warning::$_"
+              }
+            } else {
+              "### DATA-ROOT-TEST-WRITE (shard $($env:SHARD)): 0 hits" >> $env:GITHUB_STEP_SUMMARY
+            }
+          } else {
+            "### DATA-ROOT-TEST-WRITE (shard $($env:SHARD)): 0 hits" >> $env:GITHUB_STEP_SUMMARY
+          }
 
       - name: Record test-powershell self-heals (t/4085, isolated sink)
         # #2070 sink pattern: this step is ISOLATED from the Pester step's verdict by construction.
