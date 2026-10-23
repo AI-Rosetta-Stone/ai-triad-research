@@ -116,23 +116,10 @@ function Build-NodeSourceIndex {
     }
 
     # ── Live belief-node id set (acc/saf/skp) ───────────────────────────────────
-    $Live = [System.Collections.Generic.HashSet[string]]::new()
-    foreach ($f in @('accelerationist.json', 'safetyist.json', 'skeptic.json')) {
-        $p = Join-Path $TaxonomyDir $f
-        if (-not (Test-Path -LiteralPath $p)) {
-            throw (New-ActionableError -PassThru `
-                -Goal 'Build the node→source index' `
-                -Problem "POV node file not found: $p" `
-                -Location 'Build-NodeSourceIndex' `
-                -NextSteps @('Confirm the taxonomy dir (Get-TaxonomyDir) holds the three POV files'))
-        }
-        $doc = Get-Content -Raw -LiteralPath $p | ConvertFrom-Json
-        if ($doc.PSObject.Properties['nodes']) {
-            foreach ($n in @($doc.nodes)) {
-                if ($n.PSObject.Properties['id'] -and $n.id) { [void]$Live.Add([string]$n.id) }
-            }
-        }
-    }
+    # The one shared function leg-c also uses (t/4441): keys are resolved ids, so a superseded node's links
+    # fold onto its survivor; a missing POV file throws.
+    $BeliefIds = Get-LiveBeliefNodeIds -TaxonomyDir $TaxonomyDir -Caller 'Build-NodeSourceIndex'
+    $Live = $BeliefIds.Live
     if ($Live.Count -eq 0) {
         throw (New-ActionableError -PassThru `
             -Goal 'Build the node→source index' `
@@ -168,7 +155,7 @@ function Build-NodeSourceIndex {
             $renamedCopies.Add([pscustomobject]@{ CopyId = $sourceId; CanonicalId = (Resolve-SourceId -Resolution $resolution -Id $sourceId); Summary = $s })
             continue
         }
-        $links = @(Get-NodeSourceIndexLink -Summary $s -SourceId $sourceId -Live $Live)
+        $links = @(Get-NodeSourceIndexLink -Summary $s -SourceId $sourceId -Live $Live -ResolveMap $BeliefIds.ResolveMap)
         foreach ($l in $links) { $byNode[$l.node].Add($l.payload) }
         if ($canonicals.Contains($sourceId)) { $canonicalLinks[$sourceId] = $links }
     }
@@ -182,7 +169,7 @@ function Build-NodeSourceIndex {
         $own = if ($canonicalLinks.ContainsKey($canonicalId)) { $canonicalLinks[$canonicalId] } else { @() }
         $members.Add(@{ Id = $canonicalId; Links = @($own) })
         foreach ($c in $g.Group) {
-            $members.Add(@{ Id = $c.CopyId; Links = @(Get-NodeSourceIndexLink -Summary $c.Summary -SourceId $canonicalId -Live $Live) })
+            $members.Add(@{ Id = $c.CopyId; Links = @(Get-NodeSourceIndexLink -Summary $c.Summary -SourceId $canonicalId -Live $Live -ResolveMap $BeliefIds.ResolveMap) })
         }
         $u = Merge-GroupEvidence -CanonicalId $canonicalId -Members $members.ToArray()
         foreach ($nid in $u.Keys) {

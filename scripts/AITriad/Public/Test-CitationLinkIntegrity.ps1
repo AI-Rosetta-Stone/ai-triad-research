@@ -114,17 +114,12 @@ function Test-CitationLinkIntegrity {
     if (-not $SourcesRoot -and -not $SkipSourceResolution) { $SourcesRoot = Get-SourcesDir }
 
     # ── Live id sets ────────────────────────────────────────────────────────────
-    $beliefLive = [System.Collections.Generic.HashSet[string]]::new()
-    foreach ($f in @('accelerationist.json', 'safetyist.json', 'skeptic.json')) {
-        $p = Join-Path $TaxonomyDir $f
-        if (-not (Test-Path -LiteralPath $p)) { continue }
-        $doc = Get-Content -Raw -LiteralPath $p | ConvertFrom-Json
-        if ($doc.PSObject.Properties['nodes']) {
-            foreach ($n in @($doc.nodes)) {
-                if ($n.PSObject.Properties['id'] -and $n.id) { [void]$beliefLive.Add([string]$n.id) }
-            }
-        }
-    }
+    # The one shared function the builder also uses (t/4441, SO C4). Leg (a) checks refs against every stored
+    # id (a summary citing a since-superseded node still cites a known node); leg (c) compares the index's keys
+    # with the resolved live set. A missing POV file throws: the gate fails closed.
+    $beliefIds = Get-LiveBeliefNodeIds -TaxonomyDir $TaxonomyDir -Caller 'Test-CitationLinkIntegrity'
+    $beliefLive = $beliefIds.All
+    $beliefIndexKeys = $beliefIds.Live
     $sitLive = [System.Collections.Generic.HashSet[string]]::new()
     $sitPath = Join-Path $TaxonomyDir 'situations.json'
     if (Test-Path -LiteralPath $sitPath) {
@@ -224,7 +219,7 @@ function Test-CitationLinkIntegrity {
     # ── Leg (c): staleness — header hash + key SET vs live-node SET (t/3896) ──────────────
     $cOff = [System.Collections.Generic.List[object]]::new()
     if ($indexExists) {
-        $liveCount = $beliefLive.Count
+        $liveCount = $beliefIndexKeys.Count
         $stored = if ($ix.PSObject.Properties['inputHash']) { [string]$ix.inputHash } else { '' }
         $recomputed = Get-SummariesInputHash -SummariesDir $SummariesDir
         if ($stored -ne $recomputed) {
@@ -245,7 +240,7 @@ function Test-CitationLinkIntegrity {
         # just the count -- a swap (remove one POV node, add another) keeps counts equal while
         # the index carries a dead key and is missing the new node's key. A count-only check
         # passes exactly where leg (c) is meant to catch a regen that didn't happen or went wrong.
-        foreach ($off in (Compare-NodeSourceIndexKeySet -IndexObject $ix.index -LiveNodeIds $beliefLive)) {
+        foreach ($off in (Compare-NodeSourceIndexKeySet -IndexObject $ix.index -LiveNodeIds $beliefIndexKeys)) {
             $cOff.Add($off)
         }
     }
