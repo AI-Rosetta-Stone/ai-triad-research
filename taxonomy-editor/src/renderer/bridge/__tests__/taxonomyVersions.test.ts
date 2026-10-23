@@ -189,3 +189,50 @@ describe('taxonomy version cell (t/4187)', () => {
     await expect(v.load('safetyist')).rejects.toMatchObject({ problem: expect.stringMatching(/login page/) });
   });
 });
+
+describe('loadManyForEdit: all or nothing (t/4439)', () => {
+  /** Per-path versions; `failPath` makes that one GET return 500. Records each PUT's If-Match by path. */
+  function multiServer() {
+    const versions: Record<string, number> = {};
+    const putIfMatch: Record<string, string | undefined> = {};
+    let failPath: string | null = null;
+    const fetchFn = async (path: string, init: RequestInit): Promise<Response> => {
+      versions[path] ??= 1;
+      if ((init.method ?? 'GET') === 'GET') {
+        if (path === failPath) return json(500, { error: 'boom' });
+        return json(200, { nodes: [], path }, { ETag: `"${path}@v${versions[path]}"` });
+      }
+      putIfMatch[path] = (init.headers as Record<string, string>)['If-Match'];
+      return json(200, {}, { ETag: `"${path}@v${versions[path]}"` });
+    };
+    return { fetchFn, versions, putIfMatch, failOn: (p: string | null) => { failPath = p; } };
+  }
+
+  it('one failed read: no cell moves, so a later save still sends the old If-Match', async () => {
+    const s = multiServer();
+    const tv = createTaxonomyVersions(s.fetchFn);
+    await tv.loadForEdit('accelerationist');
+    await tv.loadForEdit('safetyist');
+    const pathsBefore = Object.keys(s.versions);
+    for (const p of pathsBefore) s.versions[p] = 2; // upstream moved on (the rebase)
+    s.failOn(pathsBefore.find(p => p.includes('safetyist')) ?? null);
+
+    await expect(tv.loadManyForEdit(['accelerationist', 'safetyist'])).rejects.toThrow();
+    await tv.save('accelerationist', { nodes: [] });
+    const accPath = pathsBefore.find(p => p.includes('accelerationist'))!;
+    expect(s.putIfMatch[accPath]).toBe(`"${accPath}@v1"`); // NOT v2: the successful read didn't move the cell
+  });
+
+  it('all reads succeed: every cell moves, results in order', async () => {
+    const s = multiServer();
+    const tv = createTaxonomyVersions(s.fetchFn);
+    await tv.loadForEdit('accelerationist');
+    for (const p of Object.keys(s.versions)) s.versions[p] = 2;
+    const out = await tv.loadManyForEdit(['accelerationist', 'skeptic']) as Array<{ path: string }>;
+    expect(out[0].path).toContain('accelerationist');
+    expect(out[1].path).toContain('skeptic');
+    await tv.save('accelerationist', { nodes: [] });
+    const accPath = Object.keys(s.putIfMatch)[0];
+    expect(s.putIfMatch[accPath]).toBe(`"${accPath}@v2"`);
+  });
+});

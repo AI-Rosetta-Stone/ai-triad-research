@@ -391,6 +391,10 @@ export interface AppAPI {
   /** The editor's load (initial load, refresh, POV switch): on web it also records the file's version, which the
    *  next save sends as If-Match. Same result as loadTaxonomyFile on desktop (t/4187). */
   loadTaxonomyFileForEdit: (pov: string) => Promise<unknown>;
+  /** loadTaxonomyFileForEdit for several files, all or nothing (t/4439): every file is read first, and the version
+   *  cells move only if every read succeeded, so a partial failure never leaves a cell ahead of the store's content.
+   *  Results are in `povs` order. Same as plain reads on desktop. */
+  loadTaxonomyFilesForEdit: (povs: readonly string[]) => Promise<unknown[]>;
   /** Web: sends If-Match from the version cell; rejects with `code` 'WRITE_CONFLICT' (409) or
    *  'BASE_VERSION_REQUIRED' (428) for the UI to offer a reload. Saves to one POV are serialized (t/4187). */
   saveTaxonomyFile: (pov: string, data: unknown) => Promise<void>;

@@ -756,7 +756,6 @@ const rawApi: AppAPI = {
   // User preferences
   getPreferences: () => get<UserPreferences | null>('/api/preferences').catch(() => null),
   setPreferences: (prefs: UserPreferences) => put('/api/preferences', prefs, { idempotent: true }).then(() => {}),
-
   // Taxonomy directories
   getTaxonomyDirs: () => get('/api/taxonomy-dirs'),
   getActiveTaxonomyDir: () => get('/api/taxonomy-dir/active'),
@@ -764,6 +763,7 @@ const rawApi: AppAPI = {
   // Taxonomy CRUD
   loadTaxonomyFile: (pov) => taxonomyVersions.load(pov),
   loadTaxonomyFileForEdit: (pov) => taxonomyVersions.loadForEdit(pov),
+  loadTaxonomyFilesForEdit: (povs) => taxonomyVersions.loadManyForEdit(povs),
   saveTaxonomyFile: (pov, data) => taxonomyVersions.save(pov, data),
   loadPolicyRegistry: () => get('/api/policy-registry'),
   // t/4034: recount member_count / source_povs for these ids after a save (lib/policy/registryRecount.ts).

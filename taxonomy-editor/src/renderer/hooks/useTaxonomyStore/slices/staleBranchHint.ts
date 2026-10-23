@@ -16,14 +16,29 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
 /** Node objects as last loaded or saved. A WeakSet, so replaced nodes are collected. */
 let baselineNodes = new WeakSet<object>();
+/**
+ * t/4439: the node as last loaded or saved, by id. reloadKeepingEdits uses it to tell "changed upstream"
+ * and "deleted locally" apart from "never seen". Each mark overwrites the id, so old objects are released.
+ */
+let baselineById = new Map<string, object>();
 
 /** Record these node objects as the loaded/saved baseline. */
 export function markNodesAsBaseline(nodes: readonly object[] | null | undefined): void {
-  for (const n of nodes ?? []) baselineNodes.add(n);
+  for (const n of nodes ?? []) {
+    baselineNodes.add(n);
+    const id = (n as { id?: unknown }).id;
+    if (typeof id === 'string') baselineById.set(id, n);
+  }
 }
 
+/** Whether this node object is the loaded/saved one (not edited since). */
+export const isBaselineNode = (n: object): boolean => baselineNodes.has(n);
+
+/** The node as last loaded or saved for this id, or undefined if this editor has never loaded it. */
+export const baselineNodeFor = (id: string): object | undefined => baselineById.get(id);
+
 /** Test seam. */
-export function __resetBaselineNodesForTests(): void { baselineNodes = new WeakSet(); }
+export function __resetBaselineNodesForTests(): void { baselineNodes = new WeakSet(); baselineById = new Map(); }
 
 /** The ids, of those given, whose current node object is the loaded/saved one (not edited since). */
 export function untouchedNodeIds(ids: readonly string[], nodesById: ReadonlyMap<string, object>): string[] {
