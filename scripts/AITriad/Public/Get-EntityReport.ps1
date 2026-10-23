@@ -121,8 +121,12 @@ function Get-EntityReport {
         if (Test-Path $EmbPath) {
             $EmbStore = Get-Content -Raw -Path $EmbPath -Encoding utf8 | ConvertFrom-Json
             if ($EmbStore.PSObject.Properties['vectors']) {
+                # v1 (flat array) and v2 ({ name_vector, description_vector }) through the shared rule
+                # (Get-EntityNameVector, = nameVectorOf in lib/entities/entityVectors.ts). A v2 record cast
+                # straight to [double[]] threw, failing the default -Report all on the live store (t/4456).
                 foreach ($prop in $EmbStore.vectors.PSObject.Properties) {
-                    $Vectors[$prop.Name] = [double[]]@($prop.Value)
+                    $vec = Get-EntityNameVector -Stored $prop.Value
+                    if ($null -ne $vec -and $vec.Length -gt 0) { $Vectors[$prop.Name] = $vec }
                 }
             }
         }
