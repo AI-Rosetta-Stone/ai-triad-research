@@ -24,8 +24,10 @@ let mockStaleBranchHint: { sessionBranch: string; behindBy: number; untouchedNod
 let mockSaveError: string | null = null;
 let mockDirty = new Set<string>();
 
-vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: () => ({
+const mockReloadKeepingEdits = vi.fn();
+
+vi.mock('../../hooks/useTaxonomyStore', () => {
+  const useTaxonomyStore = () => ({
     dirty: mockDirty,
     save: vi.fn(),
     saveError: mockSaveError,
@@ -35,8 +37,10 @@ vi.mock('../../hooks/useTaxonomyStore', () => ({
     fixIntegrityErrors: vi.fn(),
     staleBranchHint: mockStaleBranchHint,
     loadAll: mockLoadAll,
-  }),
-}));
+  });
+  useTaxonomyStore.getState = () => ({ reloadKeepingEdits: mockReloadKeepingEdits });
+  return { useTaxonomyStore };
+});
 
 const mockRefreshSync = vi.fn();
 vi.mock('../../hooks/useSyncStatus', () => ({
@@ -88,6 +92,7 @@ describe('SaveBar resync button (t/4346)', () => {
     mockStaleBranchHint = null;
     mockSaveError = null;
     mockDirty = new Set();
+    mockReloadKeepingEdits.mockResolvedValue({ ok: true, message: null, counts: { refreshed: 0, kept: 0, added: 0, dropped: 0, keptDeleted: 0 }, conflicts: [] });
   });
 
   it('does not render a Resync button without a stale-branch hint', () => {
@@ -112,6 +117,37 @@ describe('SaveBar resync button (t/4346)', () => {
     await waitFor(() => expect(mockResyncTracked).toHaveBeenCalledWith('rebase'));
     expect(mockDismissSaveError).toHaveBeenCalledTimes(1);
     expect(mockRefreshSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('t/4439: a successful Resync calls reloadKeepingEdits after refreshing sync status', async () => {
+    mockSaveError = 'behind main';
+    mockStaleBranchHint = { sessionBranch: 'feature/x', behindBy: 3, untouchedNodeIds: ['acc-goal-001'] };
+    mockResyncTracked.mockResolvedValue({ ok: true, mode: 'rebase', session_ahead: 0, main_sha: 'abc', conflicts: false, message: 'Resynced' });
+    render(<SaveBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Resync' }));
+    await waitFor(() => expect(mockReloadKeepingEdits).toHaveBeenCalledTimes(1));
+    expect(mockRefreshSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('t/4439: shows reloadKeepingEdits\' message (a conflict note or read-failure) when it reports one', async () => {
+    mockSaveError = 'behind main';
+    mockStaleBranchHint = { sessionBranch: 'feature/x', behindBy: 3, untouchedNodeIds: ['acc-goal-001'] };
+    mockResyncTracked.mockResolvedValue({ ok: true, mode: 'rebase', session_ahead: 0, main_sha: 'abc', conflicts: false, message: 'Resynced' });
+    mockReloadKeepingEdits.mockResolvedValue({ ok: true, message: '1 node changed on both sides', counts: { refreshed: 1, kept: 1, added: 0, dropped: 0, keptDeleted: 0 }, conflicts: [{ id: 'acc-goal-003', kind: 'edited-also-changed-upstream' }] });
+    render(<SaveBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Resync' }));
+    const note = await screen.findByText('1 node changed on both sides');
+    expect(note.className).toBe('save-bar-resync-note');
+  });
+
+  it('p/580#25: a real failure keeps the red, clipped error style, not the neutral note style', async () => {
+    mockSaveError = 'behind main';
+    mockStaleBranchHint = { sessionBranch: 'feature/x', behindBy: 3, untouchedNodeIds: ['acc-goal-001'] };
+    mockResyncTracked.mockRejectedValue(new Error('network down'));
+    render(<SaveBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Resync' }));
+    const note = await screen.findByText('network down');
+    expect(note.className).toBe('save-bar-resync-error');
   });
 
   it('fix-forward (#3731 comment 6335280772): a successful Resync never calls loadAll, so unsaved edits survive', async () => {
