@@ -888,7 +888,53 @@ jobs:
       - name: Test with coverage
         if: matrix.app == 'taxonomy-editor'
         working-directory: ${{ matrix.app }}
-        run: pnpm exec vitest run --coverage
+        # Tee'd to a log for the DATA-ROOT-TEST-WRITE summary step below (t/4454 Phase 1 parity
+        # with test-powershell) -- PIPESTATUS[0] preserves vitest's own exit code through the
+        # pipe (bash's $? after a pipeline is the LAST command's, i.e. tee's, which always
+        # succeeds; without this, a real vitest failure would silently pass the step).
+        run: |
+          set -o pipefail
+          pnpm exec vitest run --coverage 2>&1 | tee "$RUNNER_TEMP/vitest-taxonomy-editor.log"
+
+      - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
+        # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
+        # never fails the job. dataRootGuard.ts (lib/test-support) only instruments
+        # taxonomy-editor's vite config (via #3769's src/renderer/test-setup.ts, resolved through
+        # vite.config.ts's `root: 'src/renderer'`), so this only runs for that matrix leg.
+        #
+        # Three-state read (TL ruling p/331#2364, after p/331#2360's false-clean finding --
+        # "0 hits" alone can't distinguish "checked, found nothing" from "never checked"):
+        #   - no DATA-ROOT-GUARD-INSTALLED marker in the log -> "guard not installed" (t/4464's
+        #     own runtime signal, not a static grep of config/setup files -- robust to whichever
+        #     setup file or vitest project structure actually wires it in).
+        #   - marker present, no DATA-ROOT-TEST-WRITE hits -> "0 hits" (a real clean result).
+        #   - hits -> list them, same as before.
+        # Both tokens are console.warn'd to the same stream (stderr), so both are in the one
+        # tee'd log. One line per hit: "DATA-ROOT-TEST-WRITE op=<op> target=<target>
+        # protectedRoot=<root>"; the marker: "DATA-ROOT-GUARD-INSTALLED mode=<mode> roots=[...]".
+        if: always() && matrix.app == 'taxonomy-editor'
+        continue-on-error: true
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
+          if [ -f "$LOG" ]; then
+            mapfile -t HITS < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
+            GUARD_INSTALLED=$(grep -q 'DATA-ROOT-GUARD-INSTALLED' "$LOG" && echo true || echo false)
+          else
+            HITS=()
+            GUARD_INSTALLED=false
+          fi
+          if [ "${#HITS[@]}" -gt 0 ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): ${#HITS[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
+            for line in "${HITS[@]}"; do
+              echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::$line"
+            done
+          elif [ "$GUARD_INSTALLED" = true ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): 0 hits" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): guard not installed -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Build
         if: matrix.app == 'taxonomy-editor'
