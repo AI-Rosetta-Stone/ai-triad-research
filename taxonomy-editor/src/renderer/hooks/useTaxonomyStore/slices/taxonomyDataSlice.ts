@@ -27,6 +27,8 @@ import { coerceSituationDivergence } from '../../../bridge/coerceSituationDiverg
 import { baselineAfterSave, savedPolicyNodes, allPolicyNodes } from './saveBaselines';
 import { EMPTY_HELD, allNodesById, allPovNodeIds, povOfNode, refuseSupersededEdit, splitForState, withSupersededForSave, type HeldByPov } from '../superseded'; // t/4355
 import { cascadeRename } from './renameCascade';
+import { normalizeLoadedPovFile } from './loadNormalize'; // t/4439
+import { runReloadKeepingEdits, type ReloadReport } from './reloadKeepingEdits'; // t/4439
 import { assessValidationFailure, branchEventData, errorKeyNodeId, integrityFailureMessage, markFilesAsBaseline, readBranchContext, schemaFailureMessage, type StaleBranchHint } from './staleBranchHint'; // t/4325
 import { buildPolicyIdBaseline, affectedPolicyIds, runPolicyRecount, mergePolicyCounts, type PolicyRecountNotice } from '../../../utils/policyRecount';
 import {
@@ -36,7 +38,6 @@ import {
   extractPovErrors,
   extractConflictErrors,
   ValidationErrors,
-  stripInvalidLogicalForm,
 } from '../../../utils/validation';
 import {
   generatePovNodeId,
@@ -45,7 +46,6 @@ import {
   todayISO,
 } from '../../../utils/idGenerator';
 import { mapErrorToUserMessage } from '../../../utils/errorMessages';
-import { normalizeNodeProperties } from '@lib/debate';
 import { nodeTypeFromId, nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { POV_KEYS } from '@lib/debate/types';
 import { validateTaxonomy } from '@lib/debate/validators';
@@ -125,24 +125,6 @@ async function reattachStrippedLogicalForms(
     data: { pov, reattachedCount },
   });
   return { ...file, nodes };
-}
-
-// t/3378: a per-load strip count above this is treated as systemic (not a one-off bad frame)
-// and escalated from warn to error — CL's threshold from the t/3375 observability follow-up.
-const LOGICAL_FORM_STRIP_SYSTEMIC_THRESHOLD = 5;
-
-// t/3378: aggregate summary on top of the existing per-node WARN (t/3250) — the per-node
-// records identify WHICH nodes were stripped; this summary makes the LOAD-WIDE blast radius
-// visible so a mass strip (the t/3375 class) doesn't require counting individual log lines to notice.
-function recordLogicalFormStripSummary(pov: string, strippedCount: number): void {
-  if (strippedCount === 0) return;
-  getGlobalRecorder()?.record({
-    type: 'system.error',
-    component: 'taxonomy-store',
-    level: strippedCount > LOGICAL_FORM_STRIP_SYSTEMIC_THRESHOLD ? 'error' : 'warn',
-    message: `logical_form strip summary: ${strippedCount} frame(s) stripped on load (t/3378)`,
-    data: { pov, strippedCount },
-  });
 }
 
 /** A POV node referencing a policy via its own graph_attributes.policy_actions[] entry (t/3401) —
@@ -296,6 +278,8 @@ export interface TaxonomyDataSlice {
   loadAll: (force?: boolean) => Promise<void>;
   save: () => Promise<void>;
   dismissSaveError: () => void;
+  /** t/4439: re-read the branch and merge, keeping every unsaved edit (for the save-bar Resync). Never throws. */
+  reloadKeepingEdits: () => Promise<ReloadReport>;
   dismissEmbeddingsStale: () => void;
   dismissOrphanedTagNotice: () => void;
   dismissPolicyRecountNotice: () => void;
@@ -439,21 +423,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       // The pre-save re-read in reattachStrippedLogicalForms below must stay on plain
       // loadTaxonomyFile (never touch the cell) or the precondition would always pass.
       const acc = await track(steps[0], api.loadTaxonomyFileForEdit('accelerationist'));
-      const accFile = acc as PovTaxonomyFile;
-      if (accFile?.nodes) {
-        let accStrippedCount = 0;
-        for (const node of accFile.nodes) {
-          const rec = node as unknown as Record<string, unknown>;
-          normalizeNodeProperties(rec);
-          // t/3250: graceful-degrade a malformed proposed logical_form (WARN + omit, never drop the node).
-          const lf = stripInvalidLogicalForm(rec);
-          if (lf.removed) {
-            accStrippedCount++;
-            getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Stripped malformed node.logical_form (t/3250)', data: { pov: 'accelerationist', node_id: rec.id, issue: lf.issue } });
-          }
-        }
-        recordLogicalFormStripSummary('accelerationist', accStrippedCount);
-      }
+      const accFile = normalizeLoadedPovFile(acc as PovTaxonomyFile, 'accelerationist') as PovTaxonomyFile;
       set({
         ...splitForState(get(), { accelerationist: accFile }), // t/4355: superseded nodes held out of selection
         povTagsBaseline: buildPovTagBaseline((accFile as PovTaxonomyFile | null)?.nodes ?? []),
@@ -497,22 +467,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       void loadLineageCategoriesData();
       void loadLineageInfoData();
       const regData = polReg as { policies: PolicyRegistryEntry[] } | null;
-      for (const povFile of [saf, skp] as PovTaxonomyFile[]) {
-        if (povFile?.nodes) {
-          let povStrippedCount = 0;
-          for (const node of povFile.nodes) {
-            const rec = node as unknown as Record<string, unknown>;
-            normalizeNodeProperties(rec);
-            // t/3250: graceful-degrade a malformed proposed logical_form (WARN + omit, never drop the node).
-            const lf = stripInvalidLogicalForm(rec);
-            if (lf.removed) {
-              povStrippedCount++;
-              getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Stripped malformed node.logical_form (t/3250)', data: { pov: povFile.pov, node_id: rec.id, issue: lf.issue } });
-            }
-          }
-          recordLogicalFormStripSummary(povFile.pov, povStrippedCount);
-        }
-      }
+      for (const povFile of [saf, skp] as PovTaxonomyFile[]) normalizeLoadedPovFile(povFile, povFile?.pov);
       const situationsFile = coerceSituationDivergence(cc) as SituationsFile; // t/3002: guard interpretation_divergence type at load
       set({
         ...splitForState(get(), { safetyist: saf as PovTaxonomyFile, skeptic: skp as PovTaxonomyFile }),
@@ -533,6 +488,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   },
 
   dismissSaveError: () => set({ saveError: null, staleBranchHint: null, integrityIssues: [] }),
+  reloadKeepingEdits: () => runReloadKeepingEdits(get, set),
   dismissEmbeddingsStale: () => set({ embeddingsStale: false, staleEmbeddingNodeIds: [] }),
   dismissOrphanedTagNotice: () => set({ orphanedTagNodeIds: [] }),
   dismissPolicyRecountNotice: () => set({ policyRecountNotice: null }),

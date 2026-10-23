@@ -27,6 +27,8 @@ export interface TaxonomyVersions {
   load(pov: string): Promise<unknown>;
   /** Read for editing: the response's ETag becomes the POV's version cell (cleared when there is none). */
   loadForEdit(pov: string): Promise<unknown>;
+  /** loadForEdit for several POVs, all or nothing: the cells move only after every read and parse succeeded (t/4439). */
+  loadManyForEdit(povs: readonly string[]): Promise<unknown[]>;
   /** Save with If-Match from the cell; the response's ETag replaces it. Serialized per POV. */
   save(pov: string, data: unknown): Promise<void>;
 }
@@ -108,19 +110,33 @@ export function createTaxonomyVersions(fetchFn: BridgeFetch): TaxonomyVersions {
   const cells = new Map<string, string>();
   const chains = new Map<string, Promise<unknown>>();
 
-  async function read(pov: string, forEdit: boolean): Promise<unknown> {
-    const location = forEdit ? 'web-bridge.loadTaxonomyFileForEdit' : 'web-bridge.loadTaxonomyFile';
+  /** One GET, parsed; returns the body and its ETag without touching the cells. */
+  async function fetchVersioned(pov: string, location: string): Promise<{ data: unknown; etag: string | null }> {
     const res = await send(fetchFn, pathFor(pov), { method: 'GET' }, location);
     if (!res.ok) {
       throw httpError(res.status, `GET ${pathFor(pov)} failed with HTTP ${res.status}: ${await res.text()}`, location);
     }
     assertNotLoginPage(res, location);
-    if (forEdit) {
-      const etag = res.headers.get('ETag');
-      if (etag) cells.set(pov, etag);
-      else cells.delete(pov); // no version from the server: never keep a stale one (TL: reset on every editor load)
-    }
-    return res.json();
+    const etag = res.headers.get('ETag');
+    return { data: await res.json(), etag };
+  }
+
+  function setCell(pov: string, etag: string | null): void {
+    if (etag) cells.set(pov, etag);
+    else cells.delete(pov); // no version from the server: never keep a stale one (TL: reset on every editor load)
+  }
+
+  async function read(pov: string, forEdit: boolean): Promise<unknown> {
+    const location = forEdit ? 'web-bridge.loadTaxonomyFileForEdit' : 'web-bridge.loadTaxonomyFile';
+    const { data, etag } = await fetchVersioned(pov, location);
+    if (forEdit) setCell(pov, etag);
+    return data;
+  }
+
+  async function readMany(povs: readonly string[]): Promise<unknown[]> {
+    const results = await Promise.all(povs.map((pov) => fetchVersioned(pov, 'web-bridge.loadTaxonomyFilesForEdit')));
+    povs.forEach((pov, i) => setCell(pov, results[i].etag)); // only reached when every read succeeded
+    return results.map((r) => r.data);
   }
 
   async function doSave(pov: string, data: unknown): Promise<void> {
@@ -142,6 +158,7 @@ export function createTaxonomyVersions(fetchFn: BridgeFetch): TaxonomyVersions {
   return {
     load: (pov) => read(pov, false),
     loadForEdit: (pov) => read(pov, true),
+    loadManyForEdit: (povs) => readMany(povs),
     save(pov, data) {
       // Chain after the previous save for this POV, success or failure, so each PUT sends the latest version.
       const prev = chains.get(pov) ?? Promise.resolve();
