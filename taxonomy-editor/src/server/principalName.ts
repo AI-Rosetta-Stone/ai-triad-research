@@ -191,6 +191,20 @@ function fillMissingName(req: IncomingMessage, idp: string, decoded: DecodedPrin
   if (name) req.headers[NAME_HEADER] = name;
 }
 
+// idps whose provider-verified name is deliberately trusted as-is (SO review, t/4326#19).
+// Anything else reaching fillMissingName — a typo, a misconfigured sidecar, a future
+// provider never reviewed for this trust decision — is a silent fail-open: the request
+// takes the trusted-name path nobody decided it should (t/4326, SO follow-up p/822#3).
+const TRUSTED_NAME_IDPS = new Set(['google']);
+
+/** WARN once when an idp reaches the trusted-name fallback path without having been
+ *  reviewed for it (t/4326 follow-up, T0: observability only, no behavior change). */
+function warnOnUnreviewedIdp(idp: string, claimTypes: string[]): void {
+  if (!idp || TRUSTED_NAME_IDPS.has(idp)) return;
+  warnOnce(`unreviewed-idp|${idp}`, { idp, reason: 'unreviewed_idp_trusted_name_fallback', claimTypes },
+    'Unrecognized idp reached the trusted-name fallback path (fail-open) — never reviewed for this trust decision');
+}
+
 /**
  * Set the canonical `x-ms-client-principal-name` on the request. Call once per request,
  * at entry, before anything reads principal headers. No-op unless Easy Auth is on.
@@ -207,6 +221,8 @@ export function normalizePrincipalNameHeader(req: IncomingMessage, azureAuthEnab
     canonicalizeAad(req, decodePrincipal(encoded));
     return;
   }
+  const decoded = decodePrincipal(encoded);
+  warnOnUnreviewedIdp(idp, decoded.claimTypes);
   if (!encoded) return;
-  fillMissingName(req, idp, decodePrincipal(encoded));
+  fillMissingName(req, idp, decoded);
 }
