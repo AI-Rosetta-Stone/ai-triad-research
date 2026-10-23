@@ -130,6 +130,9 @@ param authOptional string = '1'
 @description('Comma-separated list of admin userIds (derived storage IDs, not raw emails — see deriveStorageUserId in userContext.ts). Grants the community/calibration review UI and /api/admin/* endpoints. Sourced from the ADMIN_USERS GitHub Actions variable so personal emails stay out of public source. Defaults to jpsnover (matches the server default).')
 param adminUsers string = 'jpsnover,jsnover13-at-gmail-com'
 
+@description('Comma-separated `<idp>:<stableId>=<legacy principal name>` entries (t/4326, read by taxonomy-editor/src/server/principalName.ts): maps a stable provider id (e.g. `github:<numeric id>`) onto the legacy principal name existing data, ADMIN_USERS and READ_ONLY_PRINCIPALS are keyed by. Not secret (numeric ids), but sourced from the IDENTITY_MAP GitHub Actions variable like ADMIN_USERS so personal names stay out of public source. Legacy names may contain spaces; they must not contain quote characters (deploy-azure.yml refuses the value if they do).')
+param identityMap string = ''
+
 // ── GitHub data-sync (optional Phase-2 feature) ──
 // When enabled, web edits commit to a per-user branch in the working tree and
 // the user can open / update a pull request against origin/main from the UI.
@@ -569,6 +572,9 @@ var baseEnv = [
   // /api/admin/* endpoints. Declared here so it survives Bicep deploys (a CLI
   // --set-env-vars value would be wiped by the next full template deployment).
   { name: 'ADMIN_USERS', value: adminUsers }
+  // t/4326: stable-provider-id → legacy principal name map (principalName.ts). Inherited by
+  // staging through stagingBaseEnv (not filtered). MUST stay in sync with ExpectedEnvVars.
+  { name: 'IDENTITY_MAP', value: identityMap }
   // Tell the server to trust Easy Auth headers (X-MS-CLIENT-PRINCIPAL-*).
   // Container Apps should auto-inject this but doesn't reliably do so.
   { name: 'WEBSITE_AUTH_ENABLED', value: 'true' }

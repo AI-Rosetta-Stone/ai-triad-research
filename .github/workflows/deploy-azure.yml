@@ -439,7 +439,17 @@ jobs:
           }
 
       - name: Preview Bicep changes (what-if)
+        env:
+          # t/4326: passed through env (not inlined) so bash never interprets the value.
+          IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
         run: |
+          # t/4326: legacy names may contain spaces (quoted below) but never quote/shell
+          # characters — arm-deploy re-tokenises its parameter string on double quotes, and the
+          # ExpectedEnvVars gate embeds the value in a PowerShell single-quoted literal.
+          if printf '%s' "$IDENTITY_MAP_VALUE" | grep -q "[\"'\`\$]"; then
+            echo "::error::vars.IDENTITY_MAP contains a quote, backtick or \$ — not supported (t/4326)."
+            exit 1
+          fi
           echo "Previewing infrastructure changes..."
           RESULT=$(az deployment group what-if \
             --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -455,6 +465,7 @@ jobs:
               authDisabled=${{ inputs.auth_mode == 'disabled' && '1' || '' }} \
               authOptional=${{ inputs.auth_mode == 'optional' && '1' || '' }} \
               adminUsers=${{ vars.ADMIN_USERS }} \
+              identityMap="$IDENTITY_MAP_VALUE" \
               aadClientId=${{ secrets.AAD_CLIENT_ID }} \
               aadClientSecret=${{ secrets.AAD_CLIENT_SECRET }} \
               aadIssuer=common \
@@ -500,6 +511,7 @@ jobs:
             authDisabled=${{ inputs.auth_mode == 'disabled' && '1' || '' }}
             authOptional=${{ inputs.auth_mode == 'optional' && '1' || '' }}
             adminUsers=${{ vars.ADMIN_USERS }}
+            identityMap="${{ vars.IDENTITY_MAP }}"
             aadClientId=${{ secrets.AAD_CLIENT_ID }}
             aadClientSecret=${{ secrets.AAD_CLIENT_SECRET }}
             aadIssuer=common
@@ -894,6 +906,7 @@ jobs:
               AUTH_OPTIONAL                      = '${{ inputs.auth_mode == 'optional' && '1' || '' }}'
               AUTH_DISABLED                      = '${{ inputs.auth_mode == 'disabled' && '1' || '' }}'
               ADMIN_USERS                        = '${{ vars.ADMIN_USERS }}'
+              IDENTITY_MAP                       = '${{ vars.IDENTITY_MAP }}'  # t/4326 — must match main.bicep baseEnv (identityMap param)
               GIT_SYNC_ENABLED                   = '1'
               GITHUB_REPO                        = '${{ vars.SYNC_GITHUB_REPO }}'
               GITHUB_APP_ID                      = '${{ vars.SYNC_GITHUB_APP_ID }}'
