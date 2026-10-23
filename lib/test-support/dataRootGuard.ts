@@ -33,6 +33,8 @@ import { ActionableError } from '../debate/errors.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
 
 export const DATA_ROOT_TEST_WRITE_TOKEN = 'DATA-ROOT-TEST-WRITE';
+/** Logged once per process on the first install, so a CI summary can tell "0 hits" from "guard never ran" (t/4464). */
+export const DATA_ROOT_GUARD_INSTALLED_TOKEN = 'DATA-ROOT-GUARD-INSTALLED';
 export type DataRootGuardMode = 'warn' | 'block';
 
 export interface DataRootGuardOptions {
@@ -44,6 +46,7 @@ export interface DataRootGuardOptions {
 
 const DEFAULT_DATA_ROOT = '../ai-triad-data';
 const INSTALLED = Symbol.for('ai-triad.dataRootGuard.installed');
+const MARKER_EMITTED = Symbol.for('ai-triad.dataRootGuard.markerEmitted');
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Protected-root resolution ─────────────────────────────────────────────
@@ -266,6 +269,12 @@ export function installDataRootGuard(opts: DataRootGuardOptions = {}): () => voi
     delete reg[INSTALLED];
   };
   reg[INSTALLED] = { roots, restore };
+  // One marker per process, on the same stream as the hits; a later reinstall (after an uninstall) stays quiet.
+  const g = globalThis as { [MARKER_EMITTED]?: boolean };
+  if (!g[MARKER_EMITTED]) {
+    g[MARKER_EMITTED] = true;
+    console.warn(`${DATA_ROOT_GUARD_INSTALLED_TOKEN} mode=${mode} roots=${JSON.stringify(roots)}`);
+  }
   return restore;
 }
 
