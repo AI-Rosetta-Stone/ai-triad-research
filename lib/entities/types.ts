@@ -188,7 +188,10 @@ export interface Entity {
    *  persisted) until the relation-authoring path + DAG validator land (t/3119 fast-follow). */
   relations?: EntityRelation[];
   status: 'proposed' | 'approved' | 'deprecated';
-  /** Set ⇒ this record is a merge tombstone; resolve to the canonical id (Section 7). */
+  /** Set ⇒ this record is a merge tombstone; resolve to the canonical id (Section 7).
+   *  INVARIANT (t/4450, CL t/4450#2): set ⇒ `status === 'deprecated'`, and the record carries no vector.
+   *  Enforced at the writer (PS Import-Entity); readers still resolve merged_into as defence in depth,
+   *  and Get-EntityReport's tombstone-status section flags a record written before the invariant. */
   merged_into?: string;
   discovered_by?: { usage_id?: string; model?: string };
   confidence?: number;

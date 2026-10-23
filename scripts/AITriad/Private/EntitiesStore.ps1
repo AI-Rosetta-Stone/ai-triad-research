@@ -294,6 +294,57 @@ function New-EntityId {
     return @($ids)
 }
 
+function Get-EntityMergedIntoId {
+    # The record's merged_into target, or '' when it is not a tombstone.
+    param($Entity)
+    if ($null -ne $Entity -and $Entity.PSObject.Properties['merged_into'] -and -not [string]::IsNullOrWhiteSpace([string]$Entity.merged_into)) {
+        return [string]$Entity.merged_into
+    }
+    ''
+}
+
+function Test-EntityVectorEligible {
+    <#
+    .SYNOPSIS
+        True when a record should carry a vector: approved and not a merge tombstone (t/4450).
+    .DESCRIPTION
+        The ONE predicate for the vector scope (CL t/4450#2 condition 3): the extraction vector index
+        (Get-EntityVectorIndex), the embedding writer (Update-EntityEmbeddings) and Get-EntityReport's
+        orphan-vector check all call it, so what is indexed and what is reported can't drift.
+        Invariant (t/4450): merged_into set => status 'deprecated'. The tombstone test stays here as
+        well, for records written before the invariant (ent-054).
+    #>
+    param($Entity)
+    if ($null -eq $Entity) { return $false }
+    $status = if ($Entity.PSObject.Properties['status']) { [string]$Entity.status } else { '' }
+    ($status -ceq 'approved') -and -not (Get-EntityMergedIntoId $Entity)
+}
+
+function Resolve-EntityTombstoneTarget {
+    <#
+    .SYNOPSIS
+        The id a tombstone's name and aliases should link to: its canonical, followed through the chain.
+    .DESCRIPTION
+        For indexes that must not throw on a bad chain (CL t/4450#2 condition 1, the t/4278 C6 rule):
+        a cycle, an exceeded depth cap or a dangling target resolves to the record ITSELF, with a WARN.
+        Get-EntityReport's merge-chain section reports those defects. Non-tombstones return their own id.
+    #>
+    param([Parameter(Mandatory)]$Entity, [Parameter(Mandatory)][hashtable]$ById, [string]$Caller = 'Resolve-EntityTombstoneTarget')
+    $id = [string]$Entity.id
+    if (-not (Get-EntityMergedIntoId $Entity)) { return $id }
+    try {
+        $canonical = Resolve-EntityMergedInto -StartId $id -ById $ById
+    } catch {
+        Write-Warning "${Caller}: merge chain from '$id' is broken ($($_.Exception.Message)); keeping '$id' itself. Get-EntityReport -Report merge-chain lists it."
+        return $id
+    }
+    if ($null -eq $canonical) {
+        Write-Warning "${Caller}: '$id' merges into '$(Get-EntityMergedIntoId $Entity)', which is not in the store; keeping '$id' itself. Get-EntityReport -Report merge-chain lists it."
+        return $id
+    }
+    [string]$canonical.id
+}
+
 function Resolve-EntityMergedInto {
     <#
     .SYNOPSIS

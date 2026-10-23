@@ -341,7 +341,8 @@ Export-ModuleMember -Function Invoke-AIByUsage, ConvertFrom-TruncatableJson
             $entPath = Join-Path $root 'taxonomy' 'entities.json'
             & $script:RealImportEntity -Proposal @(
                 @{ name = 'Existing Corp'; entity_type = 'institution'; dolce_category = 'non-agentive-social-object'; aliases = @('ExistingCo') }
-                @{ name = 'Vector Labs'; entity_type = 'artifact'; dolce_category = 'non-agentive-functional-artifact' }
+                # approved: the fixture gives ent-002 a vector, and only approved records carry one (t/4450).
+                @{ name = 'Vector Labs'; entity_type = 'artifact'; dolce_category = 'non-agentive-functional-artifact'; status = 'approved' }
             ) -Path $entPath -SkipEmbedding -Confirm:$false | Out-Null
             $script:Writes.Clear()
         }

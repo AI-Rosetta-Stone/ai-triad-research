@@ -34,8 +34,15 @@ function Get-EntityReport {
         here and reported instead of propagating), and dangling merged_into
         pointers (a target id absent from the store — resolves to $null, not a
         throw).
+
+        tombstone-status (t/4450): merge tombstones whose status is not 'deprecated'. The invariant is
+        merged_into set => deprecated (Import-Entity enforces it); a hit is a record written before it.
+
+        orphan-vector (t/4450): vectors in entity_embeddings.json whose record is absent, not approved,
+        or a merge tombstone. The scope is Test-EntityVectorEligible, the same predicate the extraction
+        vector index uses, so what is indexed and what is reported agree.
     .PARAMETER Report
-        Which section(s) to compute. Default 'all' (all four).
+        Which section(s) to compute. Default 'all'.
     .PARAMETER NearDuplicateThreshold
         Minimum cosine similarity to flag a pair as a near-duplicate. Default 0.60.
     .PARAMETER EntitiesPath
@@ -63,7 +70,7 @@ function Get-EntityReport {
     [OutputType([PSCustomObject])]
     param(
         [Parameter()]
-        [ValidateSet('near-duplicate', 'provenance-orphan', 'none-matched', 'dictionary-candidate', 'merge-chain', 'relation-dag', 'all')]
+        [ValidateSet('near-duplicate', 'provenance-orphan', 'none-matched', 'dictionary-candidate', 'merge-chain', 'relation-dag', 'tombstone-status', 'orphan-vector', 'all')]
         [string]$Report = 'all',
 
         [Parameter()]
@@ -104,6 +111,8 @@ function Get-EntityReport {
         DictionaryCandidate = $null
         MergeChainDefects   = $null
         RelationDag         = $null
+        TombstoneStatus     = $null
+        OrphanVector        = $null
     }
 
     # ── near-duplicate ──────────────────────────────────────────────────────────────
@@ -281,6 +290,43 @@ function Get-EntityReport {
             Label      = 'relation-dag (t/3170): target/acyclic/depth<=3 invariants over persisted relations[]. term:* existence deferred (Q4). Empty Violations = clean.'
             EdgeCount  = @($Edges).Count
             Violations = @($Violations)
+        }
+    }
+
+    # ── tombstone-status (t/4450): merged_into set => status 'deprecated' ─────────────────
+    if ($WantAll -or $Report -eq 'tombstone-status') {
+        $Bad = [System.Collections.Generic.List[PSObject]]::new()
+        foreach ($e in $Entities) {
+            $target = Get-EntityMergedIntoId $e
+            if (-not $target) { continue }
+            $status = if ($e.PSObject.Properties['status']) { [string]$e.status } else { '' }
+            if ($status -cne 'deprecated') {
+                $Bad.Add([PSCustomObject]@{ Id = [string]$e.id; Name = [string]$e.name; Status = $status; MergedInto = $target })
+            }
+        }
+        $Result.TombstoneStatus = [PSCustomObject]@{
+            Label    = 'tombstone-status (t/4450): records with merged_into set whose status is not deprecated. Empty = clean.'
+            Entities = @($Bad)
+        }
+    }
+
+    # ── orphan-vector (t/4450): vectors outside Test-EntityVectorEligible ─────────────────
+    if ($WantAll -or $Report -eq 'orphan-vector') {
+        $Orph = [System.Collections.Generic.List[PSObject]]::new()
+        if (Test-Path $EmbPath) {
+            $Emb = Get-Content -Raw -Path $EmbPath -Encoding utf8 | ConvertFrom-Json
+            if ($Emb.PSObject.Properties['vectors'] -and $null -ne $Emb.vectors) {
+                foreach ($prop in $Emb.vectors.PSObject.Properties) {
+                    $rec = if ($ById.ContainsKey($prop.Name)) { $ById[$prop.Name] } else { $null }
+                    if (Test-EntityVectorEligible $rec) { continue }
+                    $why = if ($null -eq $rec) { 'record-absent' } elseif (Get-EntityMergedIntoId $rec) { 'tombstone' } else { "status-$([string]$rec.status)" }
+                    $Orph.Add([PSCustomObject]@{ Id = $prop.Name; Reason = $why })
+                }
+            }
+        }
+        $Result.OrphanVector = [PSCustomObject]@{
+            Label   = 'orphan-vector (t/4450): vectors whose record is absent, not approved, or a merge tombstone (Test-EntityVectorEligible). Empty = clean.'
+            Vectors = @($Orph | Sort-Object Id)
         }
     }
 
