@@ -339,9 +339,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 01",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -354,9 +354,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 02",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -369,9 +369,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 03",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -384,9 +384,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 04",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -399,9 +399,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 05",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -414,9 +414,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 06",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -429,9 +429,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 07",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -444,9 +444,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 08",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -459,9 +459,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 09",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -474,9 +474,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 10",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -489,9 +489,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 11",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -504,9 +504,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 12",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -519,9 +519,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 13",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -534,9 +534,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 14",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -549,9 +549,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 15",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -564,9 +564,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 16",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -579,9 +579,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 17",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -594,9 +594,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 18",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -609,9 +609,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 19",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         },
         {
@@ -624,9 +624,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 20",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         }
       ]
@@ -646,9 +646,9 @@
           "dolce_category": "non-agentive-functional-artifact",
           "entity_type": "artifact",
           "name": "Item 21",
-          "source_refs": [
-            "doc-1"
-          ],
+          "source_refs": [],
+          "source_refs_basis": {},
+          "source_refs_status": "none-matched",
           "status": "proposed"
         }
       ]
@@ -661,7 +661,7 @@
   ],
   "tree": {
     "taxonomy/": "(dir)",
-    "taxonomy/entities.json": "{\n  \"_schema_version\": \"1.0.0\",\n  \"_doc\": \"Entity records (ent-*). Ref kinds and the Entity type: lib/entities/types.ts.\",\n  \"entity_count\": 21,\n  \"last_modified\": \"2026-01-02\",\n  \"entities\": [\n    {\n      \"id\": \"ent-001\",\n      \"name\": \"Item 01\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-002\",\n      \"name\": \"Item 02\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-003\",\n      \"name\": \"Item 03\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-004\",\n      \"name\": \"Item 04\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-005\",\n      \"name\": \"Item 05\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-006\",\n      \"name\": \"Item 06\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-007\",\n      \"name\": \"Item 07\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-008\",\n      \"name\": \"Item 08\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-009\",\n      \"name\": \"Item 09\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-010\",\n      \"name\": \"Item 10\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-011\",\n      \"name\": \"Item 11\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-012\",\n      \"name\": \"Item 12\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-013\",\n      \"name\": \"Item 13\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-014\",\n      \"name\": \"Item 14\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-015\",\n      \"name\": \"Item 15\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-016\",\n      \"name\": \"Item 16\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-017\",\n      \"name\": \"Item 17\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-018\",\n      \"name\": \"Item 18\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-019\",\n      \"name\": \"Item 19\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-020\",\n      \"name\": \"Item 20\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-021\",\n      \"name\": \"Item 21\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [\n        \"doc-1\"\n      ],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    }\n  ]\n}\n",
+    "taxonomy/entities.json": "{\n  \"_schema_version\": \"1.0.0\",\n  \"_doc\": \"Entity records (ent-*). Ref kinds and the Entity type: lib/entities/types.ts.\",\n  \"entity_count\": 21,\n  \"last_modified\": \"2026-01-02\",\n  \"entities\": [\n    {\n      \"id\": \"ent-001\",\n      \"name\": \"Item 01\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-002\",\n      \"name\": \"Item 02\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-003\",\n      \"name\": \"Item 03\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-004\",\n      \"name\": \"Item 04\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-005\",\n      \"name\": \"Item 05\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-006\",\n      \"name\": \"Item 06\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-007\",\n      \"name\": \"Item 07\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-008\",\n      \"name\": \"Item 08\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-009\",\n      \"name\": \"Item 09\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-010\",\n      \"name\": \"Item 10\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-011\",\n      \"name\": \"Item 11\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-012\",\n      \"name\": \"Item 12\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-013\",\n      \"name\": \"Item 13\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-014\",\n      \"name\": \"Item 14\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-015\",\n      \"name\": \"Item 15\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-016\",\n      \"name\": \"Item 16\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-017\",\n      \"name\": \"Item 17\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-018\",\n      \"name\": \"Item 18\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-019\",\n      \"name\": \"Item 19\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-020\",\n      \"name\": \"Item 20\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    },\n    {\n      \"id\": \"ent-021\",\n      \"name\": \"Item 21\",\n      \"aliases\": [],\n      \"entity_type\": \"artifact\",\n      \"dolce_category\": \"non-agentive-functional-artifact\",\n      \"description\": \"\",\n      \"external_refs\": [],\n      \"source_refs\": [],\n      \"status\": \"proposed\",\n      \"created_at\": \"2026-01-02\",\n      \"last_modified\": \"2026-01-02\",\n      \"source_refs_basis\": {},\n      \"source_refs_status\": \"none-matched\",\n      \"discovered_by\": {\n        \"model\": \"stub\",\n        \"usage_id\": \"enrichment.entity-extraction\"\n      },\n      \"confidence\": 0.9\n    }\n  ]\n}\n",
     "taxonomy/entity_extraction_log.json": "{\n  \"_schema_version\": \"1.3.0\",\n  \"_doc\": \"Entity extraction idempotence log (t/1806 Phase 1). Feeds -Force replay decisions; not a data-of-record store (entities.json is). Each node carries evidence[] (supporting quote per minted entity id, for curation) and dropped[] (below-gate proposals, for gate-recall audit) — added t/1830 — and possible_duplicates[] (advisory near-variant pairs {candidate_id, proposal_name, matched_id, matched_name, similarity}: both entities were minted, curation reviews via merge/redirect; name-only cosine cannot safely auto-link siblings) — added t/1881. 1.3.0 (t/4075) adds embedding_model and existing_entity_candidates[] (advisory, ranked existing entities each minted proposal resembles {candidate_id, proposal_name, entity_id, entity_name, similarity, rank, version_sibling}: never a link; up to 3 non-sibling candidates plus every version sibling at or above -LinkSimilarityThreshold; version_sibling=false means only that no version difference was detected, NOT that the pair is safe to merge; a confirmed match is recorded via Import-Entity merged_into, never here). Review with Get-EntityExtractionCandidates.\",\n  \"last_modified\": \"2026-01-02\",\n  \"node_count\": 1,\n  \"nodes\": [\n    {\n      \"node_id\": \"node-1\",\n      \"processed_at\": \"2026-01-02T03:04:05.0000000Z\",\n      \"model\": \"stub\",\n      \"proposals_total\": 21,\n      \"org_mentions\": [],\n      \"evidence\": [\n        {\n          \"id\": \"ent-001\",\n          \"name\": \"Item 01\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-002\",\n          \"name\": \"Item 02\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-003\",\n          \"name\": \"Item 03\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-004\",\n          \"name\": \"Item 04\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-005\",\n          \"name\": \"Item 05\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-006\",\n          \"name\": \"Item 06\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-007\",\n          \"name\": \"Item 07\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-008\",\n          \"name\": \"Item 08\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-009\",\n          \"name\": \"Item 09\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-010\",\n          \"name\": \"Item 10\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-011\",\n          \"name\": \"Item 11\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-012\",\n          \"name\": \"Item 12\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-013\",\n          \"name\": \"Item 13\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-014\",\n          \"name\": \"Item 14\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-015\",\n          \"name\": \"Item 15\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-016\",\n          \"name\": \"Item 16\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-017\",\n          \"name\": \"Item 17\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-018\",\n          \"name\": \"Item 18\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-019\",\n          \"name\": \"Item 19\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-020\",\n          \"name\": \"Item 20\",\n          \"quote\": \"\"\n        },\n        {\n          \"id\": \"ent-021\",\n          \"name\": \"Item 21\",\n          \"quote\": \"\"\n        }\n      ],\n      \"dropped\": [],\n      \"possible_duplicates\": [],\n      \"embedding_model\": null,\n      \"existing_entity_candidates\": []\n    }\n  ]\n}\n",
     "taxonomy/source_evidence_index.json": "{\n  \"node-1\": {\n    \"facts\": [\n      {\n        \"claim\": \"One\",\n        \"doc_id\": \"doc-1\"\n      }\n    ]\n  }\n}"
   }

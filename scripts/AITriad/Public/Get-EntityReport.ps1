@@ -16,7 +16,13 @@ function Get-EntityReport {
         provenance-orphan: entities with an empty (or absent) source_refs array.
         Labeled explicitly in the output — this is NOT the same thing as a
         mention-orphan (an entity nothing in the corpus currently references);
-        that check is Phase 2.
+        that check is Phase 2. An entity whose source_refs_status is
+        'none-matched' is NOT an orphan: its sources were checked and none names
+        it (t/4404); it is reported under none-matched instead.
+
+        none-matched: entities whose source attribution found no doc in their list
+        that holds their quote or names them (source_refs_status = 'none-matched',
+        t/4404), for a human to review.
 
         dictionary-candidate: entities whose normalized name or alias EXACTLY
         collides with a dictionary term (colloquial_term or a standardized term's
@@ -57,7 +63,7 @@ function Get-EntityReport {
     [OutputType([PSCustomObject])]
     param(
         [Parameter()]
-        [ValidateSet('near-duplicate', 'provenance-orphan', 'dictionary-candidate', 'merge-chain', 'relation-dag', 'all')]
+        [ValidateSet('near-duplicate', 'provenance-orphan', 'none-matched', 'dictionary-candidate', 'merge-chain', 'relation-dag', 'all')]
         [string]$Report = 'all',
 
         [Parameter()]
@@ -94,6 +100,7 @@ function Get-EntityReport {
     $Result = [PSCustomObject]@{
         NearDuplicate       = $null
         ProvenanceOrphan    = $null
+        NoneMatched         = $null
         DictionaryCandidate = $null
         MergeChainDefects   = $null
         RelationDag         = $null
@@ -139,6 +146,9 @@ function Get-EntityReport {
         $Orphans = [System.Collections.Generic.List[PSObject]]::new()
         foreach ($e in $Entities) {
             $refs = if ($e.PSObject.Properties['source_refs']) { @($e.source_refs) } else { @() }
+            # The first branching reader of source_refs_status (t/4404, T1): a checked-and-empty entity is not
+            # a provenance orphan.
+            if ($e.PSObject.Properties['source_refs_status'] -and [string]$e.source_refs_status -eq 'none-matched') { continue }
             if (@($refs | Where-Object { $_ }).Count -eq 0) {
                 $Orphans.Add([PSCustomObject]@{
                     Id     = [string]$e.id
@@ -150,6 +160,23 @@ function Get-EntityReport {
         $Result.ProvenanceOrphan = [PSCustomObject]@{
             Label   = 'provenance-orphan (empty source_refs) — NOT mention-orphan; true mention-orphan lands Phase 2.'
             Entities = @($Orphans)
+        }
+    }
+
+    # ── none-matched (t/4404) ────────────────────────────────────────────────────────
+    if ($WantAll -or $Report -eq 'none-matched') {
+        $None = [System.Collections.Generic.List[PSObject]]::new()
+        foreach ($e in $Entities) {
+            if (-not ($e.PSObject.Properties['source_refs_status'] -and [string]$e.source_refs_status -eq 'none-matched')) { continue }
+            $None.Add([PSCustomObject]@{
+                Id     = [string]$e.id
+                Name   = if ($e.PSObject.Properties['name']) { [string]$e.name } else { '' }
+                Status = if ($e.PSObject.Properties['status']) { [string]$e.status } else { '' }
+            })
+        }
+        $Result.NoneMatched = [PSCustomObject]@{
+            Label    = 'none-matched: no doc in the entity''s list holds its quote or names it (t/4404); review, not an orphan.'
+            Entities = @($None)
         }
     }
 

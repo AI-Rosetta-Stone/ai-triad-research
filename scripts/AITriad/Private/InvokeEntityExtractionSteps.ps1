@@ -275,12 +275,16 @@ function ConvertTo-EntityExtractionWorkItem {
     $Facts = if ($Entry -is [hashtable] -and $Entry.ContainsKey('facts') -and $Entry['facts']) { @($Entry['facts']) } else { @() }
     $Claims = [System.Collections.Generic.List[string]]::new()
     $DocIds = [System.Collections.Generic.List[string]]::new()
+    $FactPairs = [System.Collections.Generic.List[object]]::new()   # { doc_id; claim } for quote attribution (t/4404)
     foreach ($f in $Facts) {
         if ($f -isnot [hashtable]) { continue }
         if ($f.ContainsKey('via') -and $f['via']) { continue }
         if ($Resolution -and $f.ContainsKey('doc_id') -and $f['doc_id'] -and -not (Test-SourceSelectable -Resolution $Resolution -Id ([string]$f['doc_id']))) { continue }
         if ($f.ContainsKey('claim') -and $f['claim']) { $Claims.Add([string]$f['claim']) }
         if ($f.ContainsKey('doc_id') -and $f['doc_id']) { $DocIds.Add([string]$f['doc_id']) }
+        if ($f.ContainsKey('doc_id') -and $f['doc_id'] -and $f.ContainsKey('claim') -and $f['claim']) {
+            $FactPairs.Add(@{ doc_id = [string]$f['doc_id']; claim = [string]$f['claim'] })
+        }
     }
     if ($Claims.Count -eq 0) { return $null }
 
@@ -289,6 +293,7 @@ function ConvertTo-EntityExtractionWorkItem {
         NodeId    = $NodeId
         FactsText = $FactsText
         DocIds    = @($DocIds | Select-Object -Unique)
+        Facts     = $FactPairs.ToArray()
     }
 }
 
@@ -362,7 +367,7 @@ function ConvertTo-EntityExtractionNode {
     # One work item through the AI: returns the node result; malformed proposals and failures are
     # added to the bags rather than thrown. A node is ParseOk once its response parses.
     param($Item, $UsageId, $KnownTypes, $InvBag, $FailBag, $Model)
-    $Node = [PSCustomObject]@{ NodeId = $Item.NodeId; DocIds = $Item.DocIds; Proposals = @(); OrgMentions = @(); Model = $null; ParseOk = $false }
+    $Node = [PSCustomObject]@{ NodeId = $Item.NodeId; DocIds = $Item.DocIds; Facts = $(if ($Item.PSObject.Properties['Facts']) { $Item.Facts } else { @() }); Proposals = @(); OrgMentions = @(); Model = $null; ParseOk = $false }
     try {
         # t/3123: only override the usage's configured model when -Model was explicitly passed
         # ($Model is '' by default). Otherwise the usage's model (claude-sonnet-4-6) wins — a
@@ -581,6 +586,9 @@ function Add-EntityMintCandidate {
         Quote             = $Proposal.quote
         Model             = $Node.Model
         DocIdSet          = $docIdSet
+        # Quote attribution at mint (t/4404): every occurrence's quote and its node's facts.
+        Quotes            = [System.Collections.Generic.List[string]]::new([string[]]@(@($Proposal.quote) | Where-Object { $_ }))
+        Facts             = [System.Collections.Generic.List[object]]::new([object[]]@($(if ($Node.PSObject.Properties['Facts']) { @($Node.Facts) } else { @() })))
         OtherOccurrences  = [System.Collections.Generic.List[object]]::new()
         MintedId          = $null
     }
@@ -647,6 +655,8 @@ function Resolve-EntityProposal {
         $existingCandidate = $State.MintCandidates[$wrIdx]
         $existingCandidate.OtherOccurrences.Add([PSCustomObject]@{ NodeId = $Node.NodeId; ProposalName = $Proposal.name; Reason = 'within-run-dedup' })
         foreach ($d in $Node.DocIds) { [void]$existingCandidate.DocIdSet.Add($d) }
+        if ($Proposal.PSObject.Properties['quote'] -and $Proposal.quote) { $existingCandidate.Quotes.Add([string]$Proposal.quote) }
+        if ($Node.PSObject.Properties['Facts']) { foreach ($fp in @($Node.Facts)) { $existingCandidate.Facts.Add($fp) } }
         # NearGateMinted counts distinct MINTED entities, not raw occurrences — a dedup'd duplicate is
         # linked, not minted, so it is not counted again here.
         return
@@ -659,13 +669,53 @@ function Resolve-EntityProposal {
 
 # ── Minting and dispositions ────────────────────────────────────────────────────────────────────
 
+function New-EntityAttributionReaders {
+    # Cached snapshot and summary readers for the mint's attribution (t/4404), as module functions over
+    # script-scoped caches. Plain script blocks created here stay bound to the module, so they can call its
+    # private functions (a GetNewClosure() block gets its own dynamic module and may not). A missing sources
+    # root is a fallback: attribution then rests on the stored quote alone, and the run says so.
+    $script:AttrSnapCache = @{}; $script:AttrSummCache = @{}
+    $script:AttrSourcesRoot = try { Get-SourcesDir } catch { $null }
+    $script:AttrSummariesRoot = try { Get-SummariesDir } catch { $null }
+    if (-not $script:AttrSourcesRoot) { Write-Warning 'Invoke-EntityExtraction: no sources directory; entity source_refs are attributed by quote only (no mention verification, t/4404).' }
+    [pscustomobject]@{
+        Snapshot = { param($DocId) Get-EntityAttributionSnapshot -DocId $DocId }
+        Summary  = { param($DocId) Get-EntityAttributionSummary -DocId $DocId }
+    }
+}
+
+function Get-EntityAttributionSnapshot {
+    # A doc's snapshot for mention matching, data: URIs stripped (the shared t/4385 reader), cached.
+    param([string]$DocId)
+    if (-not $script:AttrSnapCache.ContainsKey($DocId)) {
+        $p = if ($script:AttrSourcesRoot) { Join-Path (Join-Path $script:AttrSourcesRoot $DocId) 'snapshot.md' } else { $null }
+        $script:AttrSnapCache[$DocId] = if ($p -and (Test-Path -LiteralPath $p)) { Read-SnapshotForModel -Path $p } else { $null }
+    }
+    $script:AttrSnapCache[$DocId]
+}
+
+function Get-EntityAttributionSummary {
+    # A doc's summary text (key points and claims) for the summary-mention recall step, cached.
+    param([string]$DocId)
+    if (-not $script:AttrSummCache.ContainsKey($DocId)) {
+        $p = if ($script:AttrSummariesRoot) { Join-Path $script:AttrSummariesRoot "$DocId.json" } else { $null }
+        $script:AttrSummCache[$DocId] = if ($p -and (Test-Path -LiteralPath $p)) { Get-AttributionSummaryText -Summary ([IO.File]::ReadAllText($p) | ConvertFrom-Json) } else { $null }
+    }
+    $script:AttrSummCache[$DocId]
+}
+
 function Invoke-EntityCandidateMint {
     # Mints in sub-batches of <= 20 (Import-Entity's ValidateCount ceiling) and records each minted id.
     param([System.Collections.Generic.List[PSObject]]$MintCandidates, [string]$UsageId, [string]$EntPath, [string]$EmbPath)
     $BatchSize = 20
+    $Readers = New-EntityAttributionReaders
     for ($i = 0; $i -lt $MintCandidates.Count; $i += $BatchSize) {
         $Slice = @($MintCandidates | Select-Object -Skip $i -First $BatchSize)
         $Proposals = @($Slice | ForEach-Object {
+            # source_refs: the docs this entity came from (its stored quote) or is named in, within the
+            # node's doc list, each with its basis; none-matched leaves it empty and says so (t/4404).
+            $Attr = Get-EntitySourceAttribution -Names (@($_.Name) + @($_.Aliases)) -Quotes @($_.Quotes) -Facts @($_.Facts) `
+                -CandidateDocs @($_.DocIdSet) -GetSnapshotText $Readers.Snapshot -GetSummaryText $Readers.Summary
             # PERSON EXCEPTION (and, per design, every entity_type in Phase 1): NO `description` key is
             # ever passed — the LLM never authors one.
             @{
@@ -673,7 +723,9 @@ function Invoke-EntityCandidateMint {
                 entity_type    = $_.EntityType
                 dolce_category = $_.Dolce
                 aliases        = @($_.Aliases)
-                source_refs    = @($_.DocIdSet)
+                source_refs    = @($Attr.source_refs)
+                source_refs_basis  = $Attr.source_refs_basis
+                source_refs_status = $Attr.source_refs_status
                 confidence     = $_.Confidence
                 # Ordered so entities.json is byte-stable across processes (t/4072); alphabetical.
                 discovered_by  = [ordered]@{ model = $_.Model; usage_id = $UsageId }

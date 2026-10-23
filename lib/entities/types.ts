@@ -172,6 +172,15 @@ export interface Entity {
   description_provenance?: EntityDescriptionProvenance;
   external_refs?: { label: string; url: string }[];
   source_refs?: string[];         // doc_ids
+  /** Per doc in `source_refs`, why it is there (t/4404): 'quote-attributed' (its facts hold the entity's
+   *  supporting quote), 'mention-verified' (its snapshot names the entity), or the recall steps
+   *  'mention-verified-loose' / 'summary-mention'. Written by Invoke-EntityExtraction. Branching reader:
+   *  none yet in TS; PS Get-EntityReport reads only `source_refs_status`. */
+  source_refs_basis?: Record<string, 'quote-attributed' | 'mention-verified' | 'mention-verified-loose' | 'summary-mention'>;
+  /** 'none-matched' = attribution checked every listed doc and none holds the quote or names the entity, so
+   *  `source_refs` is empty on purpose; absent = not computed (pre-t/4404). Branching reader: PS
+   *  Get-EntityReport (none-matched is its own category, not a provenance orphan). */
+  source_refs_status?: 'attributed' | 'none-matched';
   /** DOLCE-typed relation edges (instance_of/subclass_of/part_of) to other entities/terms (R4.1).
    *  Optional; shallow-DAG + depth≤3 + acyclic invariant is enforced write-side, NOT by this type —
    *  see {@link EntityRelation}. Currently ACCEPTED-BUT-DROPPED by Import-Entity (allowlisted, not
