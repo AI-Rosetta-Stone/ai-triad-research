@@ -22,13 +22,16 @@ Describe 'Test-run write check (t/4454)' -Tag 'unit' {
         New-Item -ItemType Directory -Force (Join-Path $script:real 'taxonomy' 'Origin') | Out-Null
         $script:savedEnv = $env:AI_TRIAD_DATA_ROOT
         $env:AI_TRIAD_DATA_ROOT = $null
+        # Saved and RESTORED, never left null: in CI this variable carries the job-summary log for the whole shard,
+        # and these tests' own (temp-root) hits must not land in it (t/4454 positive-control finding).
+        $script:savedLog = $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG
         $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $null
         $realRoot = $script:real
         Mock Get-DataRoot -ModuleName AITriad -ParameterFilter { $IgnoreEnvOverride } { $realRoot }.GetNewClosure()
     }
     AfterEach {
         $env:AI_TRIAD_DATA_ROOT = $script:savedEnv
-        $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $null
+        $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $script:savedLog
         Remove-Item -Recurse -Force $script:base -ErrorAction SilentlyContinue
     }
 
@@ -132,5 +135,32 @@ Import-Module '$mod' -Force -WarningAction SilentlyContinue
         $out = @(pwsh -NoProfile -File $script 2>&1)
         $LASTEXITCODE | Should -Be 0 -Because ($out -join "`n")
         ($out | Select-Object -Last 1) | Should -Be 'under=True fired=0 warns=0'
+    }
+}
+
+Describe 'Test-run write check is LIVE in this environment (t/4454 positive control)' -Tag 'unit' {
+    # No mocks. Proves that here (CI's data clone, or a local checkout) Pester detection fires and the real protected
+    # root resolves, so a run that reports 0 DATA-ROOT-TEST-WRITE hits means "no offenders", not "the check is dead".
+    # Writes nothing: the target is a file that does not exist, the warning is captured, and the CI log variable is
+    # pointed at a scratch file for the call, then restored, so this control never appears in the offender list.
+    It 'fires for a path under the real protected root, with Invoke-Pester on the stack' {
+        $roots = @(& (Get-Module AITriad) { Get-ProtectedDataRoots 3>$null })
+        $roots.Count | Should -BeGreaterThan 0
+        $live = @($roots | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+        if ($live.Count -eq 0) { Set-ItResult -Inconclusive -Because "no protected data root exists here ($($roots -join ', '))"; return }
+        & (Get-Module AITriad) { Test-IsPesterRun } | Should -BeTrue
+        $probe = Join-Path $live[0] ("t4454-positive-control-" + [guid]::NewGuid().ToString('N') + '.json')
+        $saved = $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG
+        $scratch = Join-Path ([IO.Path]::GetTempPath()) ("t4454-pc-" + [guid]::NewGuid().ToString('N') + '.log')
+        try {
+            $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $scratch
+            $out = @(& (Get-Module AITriad) { param($p) Invoke-DataRootTestWriteCheck -Path $p } $probe 3>&1)
+        } finally {
+            $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $saved
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+        }
+        @($out | Where-Object { $_ -is [bool] -and $_ }).Count | Should -Be 1 -Because "the check must fire for $probe"
+        @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] -and "$_" -like 'DATA-ROOT-TEST-WRITE target=*' }).Count | Should -Be 1
+        Test-Path -LiteralPath $probe | Should -BeFalse -Because 'the control must write nothing'
     }
 }
