@@ -34,18 +34,18 @@ export function SaveBar() {
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [syncDiagOpen, setSyncDiagOpen] = useState(false);
   const [resyncing, setResyncing] = useState(false);
-  const [resyncError, setResyncError] = useState<string | null>(null);
+  const [resyncNote, setResyncNote] = useState<{ text: string; ok: boolean } | null>(null);
   const { status: syncStatus, refresh: refreshSync } = useSyncStatus();
 
   // t/4346: resync the session branch onto main from the save-bar error, when the failure
   // is a stale-branch shape (t/4325). Conflicts hand off to the drawer's RebaseConflictModal.
   const onResync = async () => {
     setResyncing(true);
-    setResyncError(null);
+    setResyncNote(null);
     try {
       const res = await resyncTracked('rebase');
       if (res.conflicts) {
-        setResyncError('Resync hit conflicts — resolve them in the sync panel.');
+        setResyncNote({ text: 'Resync hit conflicts — resolve them in the sync panel.', ok: false });
         setSyncDrawerOpen(true);
         return;
       }
@@ -55,9 +55,10 @@ export function SaveBar() {
       dismissSaveError();
       await refreshSync();
       // t/4439: refresh the stale untouched nodes from the rebased branch without losing edits.
-      // Never throws; r.ok is false only on a read failure, which changes nothing.
+      // r.message is informational (a multi-line conflict note) when r.ok, and a read-failure
+      // note otherwise (p/580#25) — styled accordingly below.
       const r = await useTaxonomyStore.getState().reloadKeepingEdits();
-      if (r.message) setResyncError(r.message);
+      if (r.message) setResyncNote({ text: r.message, ok: r.ok });
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
@@ -66,7 +67,7 @@ export function SaveBar() {
         message: 'Resync from save-bar failed',
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      setResyncError(mapErrorToUserMessage(err));
+      setResyncNote({ text: mapErrorToUserMessage(err), ok: false });
     } finally {
       setResyncing(false);
     }
@@ -137,7 +138,7 @@ export function SaveBar() {
         groupedErrors={groupedErrors}
         staleBranchHint={staleBranchHint}
         resyncing={resyncing}
-        resyncError={resyncError}
+        resyncNote={resyncNote}
         onResync={() => void onResync()}
       />
       <div className="save-bar-right">
@@ -265,13 +266,14 @@ function SaveBarSyncBadges({ syncStatus, onOpenDrawer, onOpenDiffPanel }: {
 
 function SaveBarErrorSection({
   saveError, hasErrors, showErrors, setShowErrors, integrityIssues, fixIntegrityErrors, dismissSaveError, groupedErrors,
-  staleBranchHint, resyncing, resyncError, onResync,
+  staleBranchHint, resyncing, resyncNote, onResync,
 }: {
   saveError: string | null; hasErrors: boolean; showErrors: boolean;
   setShowErrors: React.Dispatch<React.SetStateAction<boolean>>;
   integrityIssues: unknown[]; fixIntegrityErrors: () => void; dismissSaveError: () => void;
   groupedErrors: Record<string, { path: string; message: string }[]>;
-  staleBranchHint: StaleBranchHint | null; resyncing: boolean; resyncError: string | null; onResync: () => void;
+  staleBranchHint: StaleBranchHint | null; resyncing: boolean;
+  resyncNote: { text: string; ok: boolean } | null; onResync: () => void;
 }) {
   return (
     <>
@@ -305,7 +307,11 @@ function SaveBarErrorSection({
               {resyncing ? 'Resyncing…' : 'Resync'}
             </button>
           )}
-          {resyncError && <span className="save-bar-resync-error">{resyncError}</span>}
+          {resyncNote && (
+            <span className={resyncNote.ok ? 'save-bar-resync-note' : 'save-bar-resync-error'}>
+              {resyncNote.text}
+            </span>
+          )}
           <button
             type="button"
             className="save-bar-error-dismiss"

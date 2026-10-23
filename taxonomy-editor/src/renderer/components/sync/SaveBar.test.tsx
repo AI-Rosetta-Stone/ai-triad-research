@@ -136,7 +136,18 @@ describe('SaveBar resync button (t/4346)', () => {
     mockReloadKeepingEdits.mockResolvedValue({ ok: true, message: '1 node changed on both sides', counts: { refreshed: 1, kept: 1, added: 0, dropped: 0, keptDeleted: 0 }, conflicts: [{ id: 'acc-goal-003', kind: 'edited-also-changed-upstream' }] });
     render(<SaveBar />);
     fireEvent.click(screen.getByRole('button', { name: 'Resync' }));
-    expect(await screen.findByText('1 node changed on both sides')).not.toBeNull();
+    const note = await screen.findByText('1 node changed on both sides');
+    expect(note.className).toBe('save-bar-resync-note');
+  });
+
+  it('p/580#25: a real failure keeps the red, clipped error style, not the neutral note style', async () => {
+    mockSaveError = 'behind main';
+    mockStaleBranchHint = { sessionBranch: 'feature/x', behindBy: 3, untouchedNodeIds: ['acc-goal-001'] };
+    mockResyncTracked.mockRejectedValue(new Error('network down'));
+    render(<SaveBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Resync' }));
+    const note = await screen.findByText('network down');
+    expect(note.className).toBe('save-bar-resync-error');
   });
 
   it('fix-forward (#3731 comment 6335280772): a successful Resync never calls loadAll, so unsaved edits survive', async () => {
