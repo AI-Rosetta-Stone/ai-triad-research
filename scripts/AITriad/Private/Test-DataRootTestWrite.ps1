@@ -23,7 +23,9 @@ function Resolve-DataRealPath {
     $full = [System.IO.Path]::GetFullPath($Path)
     if ($Depth -gt 16) { return $full }
     $root = [System.IO.Path]::GetPathRoot($full)
-    $parts = @($full.Substring($root.Length).Split([char[]]@('\', '/'), [System.StringSplitOptions]::RemoveEmptyEntries))
+    # The platform's own separators only: on Linux a backslash is an ordinary filename character, not a separator.
+    $seps = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $parts = @($full.Substring($root.Length).Split($seps, [System.StringSplitOptions]::RemoveEmptyEntries))
     $cur = $root
     for ($i = 0; $i -lt $parts.Count; $i++) {
         $next = [System.IO.Path]::Combine($cur, $parts[$i])
