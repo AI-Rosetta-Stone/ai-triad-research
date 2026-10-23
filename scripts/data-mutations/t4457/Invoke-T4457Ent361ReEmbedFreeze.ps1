@@ -93,6 +93,8 @@ $frozen = [ordered]@{
     old         = [ordered]@{ block_start = $s; block = $oldBlock; hash_line_index = $h; hash_line = $hashLine }
     new         = [ordered]@{ block = $newBlock; hash_line = "    `"$Id`": `"$($src.SrcHash)`"," ; keys = @($newRec.PSObject.Properties.Name) }
 }
-[IO.File]::WriteAllText($FrozenPath, ((($frozen | ConvertTo-Json -Depth 8) -replace "`r`n", "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+# Through the guarded sink (DataWriteSinkGuard, t/2902): the frozen list lives in this repo, so the guard is a no-op.
+$frozenText = (($frozen | ConvertTo-Json -Depth 8) -replace "`r`n", "`n") + "`n"
+& (Get-Module AITriad) { param($p, $v) Write-Utf8NoBom -Path $p -Value $v -NoNewline } $FrozenPath $frozenText
 "frozen list: $FrozenPath sha256=$(Get-Sha256Hex ([IO.File]::ReadAllText($FrozenPath) -replace "`r`n", "`n"))"
 "old block $($oldBlock.Count) lines (renderer reproduces it); new block $($newBlock.Count) lines, keys $($newRec.PSObject.Properties.Name -join ','); src_hash $($src.SrcHash)"
