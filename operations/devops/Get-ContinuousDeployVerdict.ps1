@@ -10,6 +10,17 @@
       - 'hold-kill-switch'       — CONTINUOUS_DEPLOY is off or unset (fail-safe default: unset = off).
       - 'skip-non-deployable'    — the commit touches no deployable path (docs/lessons/research-only).
       - 'hold-infra'             — the commit touches deploy/azure/** (Bicep); always a manual go.
+      - 'hold-last-deployed-unknown' — prod's /health was unreadable or had no buildSha. Fails
+                                    CLOSED (TL ruling p/331#2352): unknown must never be read as
+                                    "nothing deployed yet, go ahead" -- same as the retired
+                                    advisory's "treating as UNREADABLE, not as a deploy signal".
+      - 'hold-pr-association-unknown' — `git log` between the last deployed SHA and this commit
+                                    failed. Fails CLOSED: an unreadable commit range must never be
+                                    read as "no commits to check" (which would silently skip the
+                                    PR-association check entirely).
+      - 'hold-batch-timestamp-unknown' — the last-deployed SHA is known, but no deploy run's
+                                    timestamp could be matched to it. Fails CLOSED: an unknown
+                                    timestamp must never be read as "the 2h floor is satisfied".
       - 'hold-no-pr-association' — a commit since the last dispatch has no associated merged PR
                                     (e.g. pushed straight to main) — it never ran joint-gv-guard or
                                     consult-hold-guard, which only trigger on pull_request (t/4285,
@@ -23,11 +34,15 @@
                                     window naturally collapses to the newest green SHA on its own re-check.
 
     Priority order matters and is fixed: kill switch, then non-deployable, then infra-hold, then
-    no-pr-association, then gate-not-green, then CL-window-hold, then batch-window, then dispatch.
+    last-deployed-unknown, then pr-association-unknown, then no-pr-association, then
+    gate-not-green, then CL-window-hold, then batch-timestamp-unknown/batch-window, then dispatch.
     An infra-touching commit is held even if it ALSO touches deployable app code — infra changes
-    are never auto-deployed, full stop (t/4414 ask 4, the TL's documented lean). PR-association and
-    gate-greenness are evidence-of-safety checks on the commit itself, so they run before the
-    timing-oriented CL-window/batch-window checks.
+    are never auto-deployed, full stop (t/4414 ask 4, the TL's documented lean). The "unknown"
+    holds run before the checks whose inputs they'd otherwise silently blank out (TL ruling
+    p/331#2352: this gate must never move toward dispatch on missing data, even in log-only mode,
+    so the later real-dispatch T2 inherits correct behavior rather than three fail-open paths).
+    PR-association and gate-greenness are evidence-of-safety checks on the commit itself, so they
+    run before the timing-oriented CL-window/batch-window checks.
 
     All I/O (reading the kill-switch variable, the CL-window file/variable, the path-filter
     outputs, check-run conclusions, commit-PR association, "now", and the last-dispatch timestamp)
@@ -54,6 +69,16 @@ function Get-ContinuousDeployVerdict {
         # TouchesBicepEnv/TouchesBicepResources path-filter outputs don't cover (e.g.
         # tier-check.yml, consult-hold-guard.yml, Move-PiCredential*.ps1).
         [bool]$TouchesTierInfraPaths,
+        # True if prod's /health was unreadable or had no buildSha (TL ruling p/331#2352) --
+        # fails CLOSED, never treated as "nothing deployed yet, proceed".
+        [bool]$LastDeployedShaUnknown,
+        # True if `git log <lastDeployedSha>..<sha>` failed -- fails CLOSED, never treated as "no
+        # commits to check" (TL ruling p/331#2352).
+        [bool]$CommitLogUnknown,
+        # True if the last-deployed SHA is known but no deploy run's timestamp matched it -- fails
+        # CLOSED at the batch-window check, never treated as "the floor is satisfied" (TL ruling
+        # p/331#2352).
+        [bool]$BatchTimestampUnknown,
         # Commits since the last dispatch with no associated merged PR. Empty = all clear (t/4285).
         [string[]]$CommitsWithoutMergedPR = @(),
         [string]$CiGateConclusion = 'success',
@@ -86,6 +111,14 @@ function Get-ContinuousDeployVerdict {
         return [PSCustomObject]@{ Action = 'hold-infra'; Reason = $infraReason; Sha = $Sha }
     }
 
+    if ($LastDeployedShaUnknown) {
+        return [PSCustomObject]@{ Action = 'hold-last-deployed-unknown'; Reason = "prod's /health was unreadable or had no buildSha -- treated as UNREADABLE, never as 'nothing deployed yet'"; Sha = $Sha }
+    }
+
+    if ($CommitLogUnknown) {
+        return [PSCustomObject]@{ Action = 'hold-pr-association-unknown'; Reason = 'git log between the last deployed SHA and this commit failed -- cannot determine PR association, never read as "no commits to check"'; Sha = $Sha }
+    }
+
     if (@($CommitsWithoutMergedPR).Count -gt 0) {
         return [PSCustomObject]@{
             Action = 'hold-no-pr-association'
@@ -108,6 +141,10 @@ function Get-ContinuousDeployVerdict {
             Reason = "CL run-window active until $($ClWindowUntil.ToString('o'))"
             Sha    = $Sha
         }
+    }
+
+    if ($BatchTimestampUnknown) {
+        return [PSCustomObject]@{ Action = 'hold-batch-timestamp-unknown'; Reason = "last-deployed SHA is known but no deploy run's timestamp matched it -- an unknown timestamp never satisfies the ${BatchMinutes}min floor"; Sha = $Sha }
     }
 
     if ($null -ne $LastDispatchAt) {

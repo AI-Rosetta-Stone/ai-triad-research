@@ -142,33 +142,48 @@ jobs:
           }
 
           # ── Last deployed SHA, from prod's own /health (TL ruling p/331#2350, ported from
-          #    t/4285 condition 2 -- the known-good tag can silently fail to apply, t/4273) ──
+          #    t/4285 condition 2 -- the known-good tag can silently fail to apply, t/4273).
+          #    Unreadable or missing buildSha fails CLOSED (TL ruling p/331#2352) -- same as the
+          #    retired advisory's "treating as UNREADABLE, not as a deploy signal", never read as
+          #    "nothing deployed yet, go ahead". ──
           $lastDeployedSha = $null
+          $lastDeployedShaUnknown = $false
           try {
             $health = Invoke-RestMethod -Uri $env:PROD_HEALTH_URL -TimeoutSec 15
-            if (-not [string]::IsNullOrWhiteSpace($health.buildSha)) { $lastDeployedSha = $health.buildSha }
+            if ([string]::IsNullOrWhiteSpace($health.buildSha)) {
+              Write-Warning "prod's /health returned no buildSha -- hold-last-deployed-unknown."
+              $lastDeployedShaUnknown = $true
+            } else {
+              $lastDeployedSha = $health.buildSha
+            }
           } catch {
-            Write-Warning "Cannot read prod's /health buildSha -- treating last-deployed SHA as unknown (fails open toward would-dispatch, never toward a false hold). $_"
+            Write-Warning "Cannot read prod's /health buildSha -- hold-last-deployed-unknown. $_"
+            $lastDeployedShaUnknown = $true
           }
 
           # Timestamp for the batch window: the deploy-azure.yml run matching that SHA (the
           # actual production deploy history) -- /health gives the authoritative SHA, this gives
-          # its authoritative "when".
+          # its authoritative "when". No match fails CLOSED (TL ruling p/331#2352): an unknown
+          # timestamp must never be read as "the batch floor is satisfied".
           $lastDispatchAt = $null
+          $batchTimestampUnknown = $false
           if ($lastDeployedSha) {
             $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 20 --json createdAt,headSha
             $lastRuns = @($lastRunJson | ConvertFrom-Json | Where-Object { $_.headSha -eq $lastDeployedSha })
             if ($lastRuns.Count -gt 0) {
               $lastDispatchAt = [datetime]($lastRuns | Sort-Object createdAt -Descending | Select-Object -First 1).createdAt
             } else {
-              Write-Warning "No deploy-azure.yml run found matching prod's /health buildSha ($lastDeployedSha) -- batch-window timestamp unknown (fails open), commit-PR-association range still uses the SHA itself."
+              Write-Warning "No deploy-azure.yml run found matching prod's /health buildSha ($lastDeployedSha) -- hold-batch-timestamp-unknown."
+              $batchTimestampUnknown = $true
             }
           }
 
           # ── Tier infra (t/4285 condition 3 ported) -- diff changed paths against
           #    .github/ci/tier-paths.json's r1Paths/r1Globs, a superset of the bicep-env/
           #    bicep-resources path filters above (branch-protection, CODEOWNERS,
-          #    consult-hold-guard.yml, Move-PiCredential*.ps1, etc.) ──
+          #    consult-hold-guard.yml, Move-PiCredential*.ps1, etc.). Skipped entirely when
+          #    $lastDeployedSha is unknown -- hold-last-deployed-unknown already holds before
+          #    this value is ever consulted by the predicate. ──
           $touchesTierInfraPaths = $false
           if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
             $changedPaths = @(git diff --name-only "$lastDeployedSha..$($env:SHA)" 2>&1)
@@ -188,12 +203,17 @@ jobs:
             }
           }
 
-          # ── Commit-PR association (t/4285 ported) ──
+          # ── Commit-PR association (t/4285 ported). A failed `git log` fails CLOSED (TL ruling
+          #    p/331#2352) -- never read as "no commits to check", which would silently skip the
+          #    PR-association check entirely. Skipped entirely when $lastDeployedSha is unknown,
+          #    same reasoning as the tier-infra check above. ──
           $commitsWithoutMergedPR = @()
+          $commitLogUnknown = $false
           if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
             $commitShas = @(git log --format='%H' "$lastDeployedSha..$($env:SHA)" 2>&1)
             if ($LASTEXITCODE -ne 0) {
-              Write-Warning "git log failed between $lastDeployedSha and $($env:SHA) -- treating as no commits to check, not as 'all clear'. $commitShas"
+              Write-Warning "git log failed between $lastDeployedSha and $($env:SHA) -- hold-pr-association-unknown. $commitShas"
+              $commitLogUnknown = $true
             } else {
               foreach ($sha in $commitShas) {
                 $pullsJson = gh api "repos/$($env:REPO)/commits/$sha/pulls" 2>&1
@@ -232,6 +252,9 @@ jobs:
             -TouchesBicepEnv ($env:TOUCHES_BICEP_ENV -eq 'true') `
             -TouchesBicepResources ($env:TOUCHES_BICEP_RESOURCES -eq 'true') `
             -TouchesTierInfraPaths $touchesTierInfraPaths `
+            -LastDeployedShaUnknown $lastDeployedShaUnknown `
+            -CommitLogUnknown $commitLogUnknown `
+            -BatchTimestampUnknown $batchTimestampUnknown `
             -CommitsWithoutMergedPR $commitsWithoutMergedPR `
             -CiGateConclusion $ciGateConclusion `
             -CodeQlConclusion $codeQlConclusion `

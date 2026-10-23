@@ -189,4 +189,59 @@ Describe 'Get-ContinuousDeployVerdict' {
         $v.Action | Should -Be 'would-dispatch'
         $v.Sha | Should -Be 'deadbee'
     }
+
+    # Fail-CLOSED on missing data (TL ruling p/331#2352) -- the gate must never move toward
+    # dispatch when it can't actually read the facts it needs, even in log-only mode, so the
+    # later real-dispatch T2 inherits correct behavior rather than three fail-open paths.
+
+    It "prod's /health was unreadable or had no buildSha -> hold-last-deployed-unknown, never read as 'nothing deployed yet'" {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -LastDeployedShaUnknown $true -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-last-deployed-unknown'
+    }
+
+    It "git log between the last deployed SHA and this commit failed -> hold-pr-association-unknown, never read as 'no commits to check'" {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CommitLogUnknown $true -CommitsWithoutMergedPR @() -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-pr-association-unknown'
+    }
+
+    It "last-deployed SHA known but no deploy run's timestamp matched it -> hold-batch-timestamp-unknown, never satisfies the floor" {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -BatchTimestampUnknown $true -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-batch-timestamp-unknown'
+    }
+
+    It 'FIRE ARM: last-deployed-unknown wins over everything downstream of it (infra-hold still wins over it)' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $true -TouchesBicepResources $false `
+            -LastDeployedShaUnknown $true -CommitLogUnknown $true -BatchTimestampUnknown $true -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-infra'
+    }
+
+    It 'FIRE ARM: last-deployed-unknown wins over pr-association-unknown and every check after it' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -LastDeployedShaUnknown $true -CommitLogUnknown $true -BatchTimestampUnknown $true `
+            -CiGateConclusion 'failure' -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-last-deployed-unknown'
+    }
+
+    It 'FIRE ARM: pr-association-unknown wins over a known no-pr-association violation and a red gate' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -CommitLogUnknown $true -CommitsWithoutMergedPR @('badc0de1') -CiGateConclusion 'failure' -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-pr-association-unknown'
+    }
+
+    It 'FIRE ARM: batch-timestamp-unknown wins over a cleared CL window, even with a non-null LastDispatchAt ignored' {
+        $lastDispatchAt = [datetime]'2026-10-21T20:00:00Z'  # would otherwise clear a 120min window
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $lastDispatchAt -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
+            -BatchTimestampUnknown $true -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-batch-timestamp-unknown'
+    }
 }
