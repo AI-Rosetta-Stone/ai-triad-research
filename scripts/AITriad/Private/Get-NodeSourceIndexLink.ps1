@@ -20,9 +20,13 @@ function Get-NodeSourceIndexLink {
     param(
         [Parameter(Mandatory)]$Summary,
         [Parameter(Mandatory)][string]$SourceId,
-        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$Live
+        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$Live,
+        # Superseded id -> survivor (Get-LiveBeliefNodeIds). A link to a superseded node is indexed under the
+        # survivor (t/4441, t/4278 C1); absent or empty, ids are used as written.
+        [System.Collections.Generic.IDictionary[string, string]]$ResolveMap
     )
     Set-StrictMode -Version Latest
+    $fold = { param([string]$id) if ($id -and $ResolveMap -and $ResolveMap.ContainsKey($id)) { $ResolveMap[$id] } else { $id } }
     $prop = { param($o, $n) if ($null -ne $o -and $o.PSObject.Properties[$n]) { $o.$n } else { $null } }
 
     $povs = & $prop $Summary 'pov_summaries'
@@ -31,7 +35,7 @@ function Get-NodeSourceIndexLink {
             $block = $povs.$pov
             if (-not ($block.PSObject.Properties['key_points'])) { continue }
             foreach ($kp in @($block.key_points)) {
-                $nid = [string](& $prop $kp 'taxonomy_node_id')
+                $nid = [string](& $fold ([string](& $prop $kp 'taxonomy_node_id')))
                 if (-not $nid -or -not $Live.Contains($nid)) { continue }
                 $v = & $prop $kp 'verbatim'; $pt = & $prop $kp 'point'
                 $q = if ($null -ne $v) { [string]$v } else { '' }
@@ -51,7 +55,7 @@ function Get-NodeSourceIndexLink {
         if ($null -eq $fc -or -not $fc.PSObject.Properties['linked_taxonomy_nodes']) { continue }
         $q = [string](& $prop $fc 'claim')
         foreach ($nid in @($fc.linked_taxonomy_nodes)) {
-            $nid = [string]$nid
+            $nid = [string](& $fold ([string]$nid))
             if (-not $nid -or -not $Live.Contains($nid)) { continue }
             [pscustomobject]@{
                 node = $nid; field = 'factual_claim'; quote = $q
