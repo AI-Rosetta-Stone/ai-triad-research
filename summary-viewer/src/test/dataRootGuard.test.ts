@@ -20,16 +20,13 @@ describe('data-root guard (live-fire)', () => {
   });
 
   it('emits DATA-ROOT-TEST-WRITE when writeFileSync targets the protected root', () => {
-    const target = path.join(protectedDataRoot(), '.drg-canary-sv');
-    try {
-      fs.writeFileSync(target, '');
-      // Clean up if the write somehow succeeded (e.g. data root present on dev machine).
-      try { fs.unlinkSync(target); } catch { /* best effort */ }
-    } catch {
-      // Write failure is expected when the data root doesn't exist in this worktree.
-      // The guard still fires before the underlying attempt.
-    }
+    // Use a path whose parent doesn't exist: the guard WARNs, then the underlying writeFileSync
+    // throws ENOENT — nothing is written to the real data repo in either worktree or dev runs.
+    const target = path.join(protectedDataRoot(), '__guard_livefire__', 'missing', 'x.json');
+    expect(() => fs.writeFileSync(target, '')).toThrow(/ENOENT/);
     const fired = warnSpy.mock.calls.some(args => String(args[0]).includes(DATA_ROOT_TEST_WRITE_TOKEN));
     expect(fired, 'DATA-ROOT-TEST-WRITE WARN not emitted for writeFileSync under protected root').toBe(true);
+    // Guard anchor dir must not exist (confirms nothing was created).
+    expect(fs.existsSync(path.join(protectedDataRoot(), '__guard_livefire__'))).toBe(false);
   });
 });
