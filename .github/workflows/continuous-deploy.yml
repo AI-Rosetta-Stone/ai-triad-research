@@ -1,8 +1,9 @@
 # ─── Continuous Deploy (log-only) ───
 # What:  On every green `ci.yml` run on `main`, computes and LOGS what a continuous-deploy
-#        dispatch would do -- kill switch, deployable-path check, infra hold, commit-PR
-#        association, ci-gate/CodeQL greenness, CL run-window hold, and the 20-min batching
-#        window (t/4414, t/4091 Decision D). Decision logic lives in
+#        dispatch would do -- kill switch, deployable-path check, infra hold (including
+#        tier-paths.json's gate/credential-handling infra), commit-PR association,
+#        ci-gate/CodeQL greenness, CL run-window hold, and the 2h batching window (t/4414,
+#        t/4091 Decision D). Decision logic lives in
 #        operations/devops/Get-ContinuousDeployVerdict.ps1 (Pester-tested, pure predicate).
 # Why:   TL ruling (t/4414, p/331#2341): build the log-only version now as T1 (Quality
 #        reviews) to prove the decision logic on real `main` traffic before the real-dispatch
@@ -23,14 +24,20 @@
 #                       means no window is declared. TL ruling: "Add it to the CL's AGENTS.md in
 #                       the rule update" -- a repo variable (not a committed file) so the CL can
 #                       set/clear it without a PR, same mechanism as the kill switch.
-#   - Last dispatch:   no continuous-deploy dispatch exists yet (log-only), so this logs against
-#                       the most recent SUCCESSFUL `deploy-azure.yml` run instead -- the real
-#                       production deploy history, which is what the batching window (and the
-#                       commit-PR-association range below) would actually measure against once
-#                       dispatch is wired.
+#   - Last deployed:   prod's own `/health` endpoint's `buildSha` (TL ruling, p/331#2350 -- ported
+#                       from t/4285 condition 2; t/4273 showed the known-good tag can silently
+#                       fail to apply, so the tag is NOT authoritative). The timestamp for the
+#                       batching window comes from the `deploy-azure.yml` run matching that SHA
+#                       (falls back to unknown/null if no matching run is found -- fails open
+#                       toward would-dispatch, same as a cold start, never toward a false hold).
 #   - Deployable path: reuses ci.yml's own soundness-reviewed path-filter definitions
 #                       (container / bicep-env / bicep-resources), re-run here via dorny/paths-filter
 #                       against this specific green commit -- no new path-filter logic invented.
+#   - Tier infra:      ported from t/4285 condition 3 (TL ruling p/331#2350) -- diffs changed paths
+#                       since the last deployed SHA against `.github/ci/tier-paths.json`'s
+#                       r1Paths/r1Globs (the tier-check gate's own infra list: branch-protection,
+#                       CODEOWNERS, consult-hold-guard.yml, Move-PiCredential*.ps1, etc.) -- a
+#                       superset of what the bicep-env/bicep-resources path filters above cover.
 #   - PR association:  ported from t/4285 (TL ruling p/331#2106, e/358#2) -- every commit since
 #                       the last deployed SHA must come from a merged PR. joint-gv-guard and
 #                       consult-hold-guard only trigger on pull_request and structurally never
@@ -39,6 +46,9 @@
 #   - ci-gate/CodeQL:  ported from t/4285 -- "green" means ci-gate check-run SUCCESS, plus CodeQL
 #                       SUCCESS *if present* (it's path-filtered, so legitimately absent on e.g. a
 #                       Bicep-only commit -- absent is fine, present-and-failed/pending is not).
+#   - Batch window:    2h (120 min), not t/4414's original 20 min -- t/4285 condition 5 overrides
+#                       it for now (TL ruling, p/331#2350): each deploy restarts prod, tune with
+#                       real data once this has run a while.
 # Gate-signal integrity (TL ruling, e/358#2): a log-only workflow that fails on every run proves
 #        nothing and must not fail silently -- every run since this workflow first shipped failed
 #        on a paths-filter bug (fixed in #3761) with no alert raised. The failure/success steps
@@ -121,6 +131,7 @@ jobs:
           TOUCHES_BICEP_RESOURCES: ${{ steps.filter.outputs.bicep-resources }}
           SHA: ${{ github.event.workflow_run.head_sha }}
           REPO: ${{ github.repository }}
+          PROD_HEALTH_URL: https://taxonomy-editor.yellowbush-aeda037d.eastus.azurecontainerapps.io/health
         run: |
           . ./operations/devops/Get-ContinuousDeployVerdict.ps1
           . ./operations/devops/ConvertFrom-CheckRunsResponse.ps1
@@ -130,16 +141,51 @@ jobs:
             $clWindowUntil = [datetime]$env:CL_WINDOW_UNTIL_RAW
           }
 
-          # No continuous-deploy dispatch exists yet (log-only phase) -- log the batch verdict
-          # and the commit-PR-association range against the most recent SUCCESSFUL
-          # deploy-azure.yml production run instead (the real production deploy history).
-          $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 1 --json createdAt,headSha
-          $lastRuns = $lastRunJson | ConvertFrom-Json
-          $lastDispatchAt = $null
+          # ── Last deployed SHA, from prod's own /health (TL ruling p/331#2350, ported from
+          #    t/4285 condition 2 -- the known-good tag can silently fail to apply, t/4273) ──
           $lastDeployedSha = $null
-          if (@($lastRuns).Count -gt 0) {
-            $lastDispatchAt = [datetime]$lastRuns[0].createdAt
-            $lastDeployedSha = $lastRuns[0].headSha
+          try {
+            $health = Invoke-RestMethod -Uri $env:PROD_HEALTH_URL -TimeoutSec 15
+            if (-not [string]::IsNullOrWhiteSpace($health.buildSha)) { $lastDeployedSha = $health.buildSha }
+          } catch {
+            Write-Warning "Cannot read prod's /health buildSha -- treating last-deployed SHA as unknown (fails open toward would-dispatch, never toward a false hold). $_"
+          }
+
+          # Timestamp for the batch window: the deploy-azure.yml run matching that SHA (the
+          # actual production deploy history) -- /health gives the authoritative SHA, this gives
+          # its authoritative "when".
+          $lastDispatchAt = $null
+          if ($lastDeployedSha) {
+            $lastRunJson = gh run list --workflow deploy-azure.yml --status success --limit 20 --json createdAt,headSha
+            $lastRuns = @($lastRunJson | ConvertFrom-Json | Where-Object { $_.headSha -eq $lastDeployedSha })
+            if ($lastRuns.Count -gt 0) {
+              $lastDispatchAt = [datetime]($lastRuns | Sort-Object createdAt -Descending | Select-Object -First 1).createdAt
+            } else {
+              Write-Warning "No deploy-azure.yml run found matching prod's /health buildSha ($lastDeployedSha) -- batch-window timestamp unknown (fails open), commit-PR-association range still uses the SHA itself."
+            }
+          }
+
+          # ── Tier infra (t/4285 condition 3 ported) -- diff changed paths against
+          #    .github/ci/tier-paths.json's r1Paths/r1Globs, a superset of the bicep-env/
+          #    bicep-resources path filters above (branch-protection, CODEOWNERS,
+          #    consult-hold-guard.yml, Move-PiCredential*.ps1, etc.) ──
+          $touchesTierInfraPaths = $false
+          if ($lastDeployedSha -and $lastDeployedSha -ne $env:SHA) {
+            $changedPaths = @(git diff --name-only "$lastDeployedSha..$($env:SHA)" 2>&1)
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "git diff failed between $lastDeployedSha and $($env:SHA) -- treating tier-infra touch as unknown (fails toward true/hold, never toward a false dispatch). $changedPaths"
+              $touchesTierInfraPaths = $true
+            } else {
+              $tierPaths = Get-Content '.github/ci/tier-paths.json' -Raw | ConvertFrom-Json
+              $infraPaths = @($tierPaths.r1Paths) + @($tierPaths.r1Globs)
+              foreach ($changed in $changedPaths) {
+                foreach ($infra in $infraPaths) {
+                  $isMatch = if ($infra -match '\*') { $changed -like $infra } else { $changed -eq $infra }
+                  if ($isMatch) { $touchesTierInfraPaths = $true; break }
+                }
+                if ($touchesTierInfraPaths) { break }
+              }
+            }
           }
 
           # ── Commit-PR association (t/4285 ported) ──
@@ -181,9 +227,11 @@ jobs:
             -ClWindowUntil $clWindowUntil `
             -Now (Get-Date).ToUniversalTime() `
             -LastDispatchAt $lastDispatchAt `
+            -BatchMinutes 120 `
             -TouchesContainer ($env:TOUCHES_CONTAINER -eq 'true') `
             -TouchesBicepEnv ($env:TOUCHES_BICEP_ENV -eq 'true') `
             -TouchesBicepResources ($env:TOUCHES_BICEP_RESOURCES -eq 'true') `
+            -TouchesTierInfraPaths $touchesTierInfraPaths `
             -CommitsWithoutMergedPR $commitsWithoutMergedPR `
             -CiGateConclusion $ciGateConclusion `
             -CodeQlConclusion $codeQlConclusion `

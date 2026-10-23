@@ -59,6 +59,19 @@ Describe 'Get-ContinuousDeployVerdict' {
         $v.Action | Should -Be 'hold-infra'
     }
 
+    It "tier-paths.json infra touched (e.g. tier-check.yml, Move-PiCredential*.ps1) -> hold-infra, even with no Bicep touch" {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $false -TouchesBicepEnv $false -TouchesBicepResources $false -TouchesTierInfraPaths $true -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-infra'
+        $v.Reason | Should -Match 'tier-paths.json'
+    }
+
+    It 'FIRE ARM: tier-infra touched AND app code touched in the same commit -> still hold-infra, never dispatch' {
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $null -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false -TouchesTierInfraPaths $true -Sha 'abc1234'
+        $v.Action | Should -Be 'hold-infra'
+    }
+
     It 'deployable, CL run-window active (now before until) -> hold-cl-window' {
         $clWindowUntil = [datetime]'2026-10-22T01:00:00Z'
         $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $clWindowUntil -Now $Now `
@@ -73,23 +86,30 @@ Describe 'Get-ContinuousDeployVerdict' {
         $v.Action | Should -Be 'would-dispatch'
     }
 
-    It 'deployable, no CL window, last dispatch 5 min ago (inside the 20-min batch window) -> skip-batch-window' {
+    It 'deployable, no CL window, last dispatch 5 min ago (inside the batch window) -> skip-batch-window' {
         $lastDispatchAt = [datetime]'2026-10-21T23:55:00Z'
         $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
             -LastDispatchAt $lastDispatchAt -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false -Sha 'abc1234'
         $v.Action | Should -Be 'skip-batch-window'
     }
 
-    It 'deployable, last dispatch exactly 20 min ago (boundary) -> would-dispatch, not skipped' {
+    It 'deployable, last dispatch exactly at the (explicit) batch-window boundary -> would-dispatch, not skipped' {
         $lastDispatchAt = [datetime]'2026-10-21T23:40:00Z'
-        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now -BatchMinutes 20 `
             -LastDispatchAt $lastDispatchAt -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false -Sha 'abc1234'
         $v.Action | Should -Be 'would-dispatch'
     }
 
+    It 'BatchMinutes defaults to 120 (2h), not 20 -- TL ruling p/331#2350: t/4285 cond 5 overrides t/4414''s original batching' {
+        $lastDispatchAt = [datetime]'2026-10-21T22:30:00Z'  # 90 min ago: inside 120, outside the old 20
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+            -LastDispatchAt $lastDispatchAt -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false -Sha 'abc1234'
+        $v.Action | Should -Be 'skip-batch-window'
+    }
+
     It 'FIRE ARM: deployable, every hold clears -> would-dispatch, naming the SHA' {
         $lastDispatchAt = [datetime]'2026-10-21T23:00:00Z'
-        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now -BatchMinutes 20 `
             -LastDispatchAt $lastDispatchAt -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false -Sha 'deadbee'
         $v.Action | Should -Be 'would-dispatch'
         $v.Sha | Should -Be 'deadbee'
@@ -163,7 +183,7 @@ Describe 'Get-ContinuousDeployVerdict' {
 
     It 'FIRE ARM: all gates clear (PR-associated, ci-gate+CodeQL green) plus every other hold clears -> would-dispatch' {
         $lastDispatchAt = [datetime]'2026-10-21T23:00:00Z'
-        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now `
+        $v = Get-ContinuousDeployVerdict -KillSwitch 'on' -ClWindowUntil $null -Now $Now -BatchMinutes 20 `
             -LastDispatchAt $lastDispatchAt -TouchesContainer $true -TouchesBicepEnv $false -TouchesBicepResources $false `
             -CommitsWithoutMergedPR @() -CiGateConclusion 'success' -CodeQlConclusion 'success' -Sha 'deadbee'
         $v.Action | Should -Be 'would-dispatch'

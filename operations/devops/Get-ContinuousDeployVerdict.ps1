@@ -33,6 +33,10 @@
     outputs, check-run conclusions, commit-PR association, "now", and the last-dispatch timestamp)
     is the workflow step's job, not this file's — kept out so the decision logic is testable
     without GitHub Actions, Azure or a real clock.
+
+    BatchMinutes defaults to 120 (2h), not t/4414's original 20min — TL ruling (p/331#2350):
+    t/4285 condition 5's 2h minimum interval overrides the 20-min batching for now, because each
+    deploy restarts prod; tune it with real data once this has run for a while.
 #>
 
 function Get-ContinuousDeployVerdict {
@@ -41,10 +45,15 @@ function Get-ContinuousDeployVerdict {
         [Nullable[datetime]]$ClWindowUntil,   # $null if no CL run-window declared
         [datetime]$Now,
         [Nullable[datetime]]$LastDispatchAt,  # $null if continuous deploy has never dispatched
-        [int]$BatchMinutes = 20,
+        [int]$BatchMinutes = 120,
         [bool]$TouchesContainer,
         [bool]$TouchesBicepEnv,
         [bool]$TouchesBicepResources,
+        # True if the diff touches any of tier-paths.json's r1Paths/r1Globs (t/4285 condition 3,
+        # TL ruling p/331#2350) -- gate/branch-protection/credential-handling infra the
+        # TouchesBicepEnv/TouchesBicepResources path-filter outputs don't cover (e.g.
+        # tier-check.yml, consult-hold-guard.yml, Move-PiCredential*.ps1).
+        [bool]$TouchesTierInfraPaths,
         # Commits since the last dispatch with no associated merged PR. Empty = all clear (t/4285).
         [string[]]$CommitsWithoutMergedPR = @(),
         [string]$CiGateConclusion = 'success',
@@ -61,15 +70,20 @@ function Get-ContinuousDeployVerdict {
         return [PSCustomObject]@{ Action = 'hold-kill-switch'; Reason = 'CONTINUOUS_DEPLOY is not on'; Sha = $Sha }
     }
 
-    $touchesInfra = $TouchesBicepEnv -or $TouchesBicepResources
+    $touchesInfra = $TouchesBicepEnv -or $TouchesBicepResources -or $TouchesTierInfraPaths
     if (-not $TouchesContainer -and -not $touchesInfra) {
         return [PSCustomObject]@{ Action = 'skip-non-deployable'; Reason = 'no deployable path touched'; Sha = $Sha }
     }
 
     # Infra holds take priority over an otherwise-deployable app-code touch in the same commit —
-    # never auto-deploy Bicep, regardless of what else the commit changed.
+    # never auto-deploy Bicep or gate/credential infra, regardless of what else the commit changed.
     if ($touchesInfra) {
-        return [PSCustomObject]@{ Action = 'hold-infra'; Reason = 'touches deploy/azure/** (Bicep)'; Sha = $Sha }
+        $infraReason = if ($TouchesTierInfraPaths -and -not ($TouchesBicepEnv -or $TouchesBicepResources)) {
+            'touches tier-paths.json infra (gate/branch-protection/credential-handling files)'
+        } else {
+            'touches deploy/azure/** (Bicep)'
+        }
+        return [PSCustomObject]@{ Action = 'hold-infra'; Reason = $infraReason; Sha = $Sha }
     }
 
     if (@($CommitsWithoutMergedPR).Count -gt 0) {
