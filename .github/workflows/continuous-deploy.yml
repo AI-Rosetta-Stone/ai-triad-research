@@ -53,8 +53,12 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
         id: filter
         with:
-          base: ${{ github.event.workflow_run.head_sha }}^
-          ref: ${{ github.event.workflow_run.head_sha }}
+          # HEAD^, not the literal '<sha>^' string -- the checkout above already has the
+          # triggering commit and its parent locally (fetch-depth: 2); passing the sha+caret as
+          # base/ref makes dorny try to `git fetch` a ref named literally "<sha>^" from origin,
+          # which fails ("invalid refspec", every run since this workflow shipped). HEAD^ resolves
+          # locally with no fetch needed. ref defaults to HEAD, which checkout already set.
+          base: HEAD^
           filters: |
             container:
               - 'taxonomy-editor/**'
