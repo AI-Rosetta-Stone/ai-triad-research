@@ -898,37 +898,42 @@ jobs:
 
       - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
         # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
-        # never fails the job. dataRootGuard.ts (#3767, lib/test-support) only instruments
-        # taxonomy-editor's vite config, so this only runs for that matrix leg. One line per hit:
-        # "DATA-ROOT-TEST-WRITE op=<op> target=<target> protectedRoot=<root>" (console.warn, so
-        # it's grepped from the tee'd vitest log above, not a separate writer-owned file).
+        # never fails the job. dataRootGuard.ts (lib/test-support) only instruments
+        # taxonomy-editor's vite config (via #3769's src/renderer/test-setup.ts, resolved through
+        # vite.config.ts's `root: 'src/renderer'`), so this only runs for that matrix leg.
         #
-        # TL correction (p/331#2360): as of #3767, the guard is NOT actually installed into
-        # taxonomy-editor's vite config yet -- only the helper's own unit tests landed; the real
-        # wiring is t/4462. Until then, "0 hits" would be a FALSE clean (nothing is being checked,
-        # not "checked and found nothing") -- so this greps vite.config.ts for `dataRootGuard`
-        # first and reports "guard not installed" instead of "0 hits" when it's absent.
+        # Three-state read (TL ruling p/331#2364, after p/331#2360's false-clean finding --
+        # "0 hits" alone can't distinguish "checked, found nothing" from "never checked"):
+        #   - no DATA-ROOT-GUARD-INSTALLED marker in the log -> "guard not installed" (t/4464's
+        #     own runtime signal, not a static grep of config/setup files -- robust to whichever
+        #     setup file or vitest project structure actually wires it in).
+        #   - marker present, no DATA-ROOT-TEST-WRITE hits -> "0 hits" (a real clean result).
+        #   - hits -> list them, same as before.
+        # Both tokens are console.warn'd to the same stream (stderr), so both are in the one
+        # tee'd log. One line per hit: "DATA-ROOT-TEST-WRITE op=<op> target=<target>
+        # protectedRoot=<root>"; the marker: "DATA-ROOT-GUARD-INSTALLED mode=<mode> roots=[...]".
         if: always() && matrix.app == 'taxonomy-editor'
         continue-on-error: true
         shell: bash
-        working-directory: taxonomy-editor
         run: |
           LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
           if [ -f "$LOG" ]; then
-            mapfile -t LINES < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
+            mapfile -t HITS < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
+            GUARD_INSTALLED=$(grep -q 'DATA-ROOT-GUARD-INSTALLED' "$LOG" && echo true || echo false)
           else
-            LINES=()
+            HITS=()
+            GUARD_INSTALLED=false
           fi
-          if [ "${#LINES[@]}" -gt 0 ]; then
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): ${#LINES[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
-            for line in "${LINES[@]}"; do
+          if [ "${#HITS[@]}" -gt 0 ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): ${#HITS[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
+            for line in "${HITS[@]}"; do
               echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
               echo "::warning::$line"
             done
-          elif grep -q 'dataRootGuard' vite.config.ts 2>/dev/null; then
+          elif [ "$GUARD_INSTALLED" = true ]; then
             echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): 0 hits" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): guard not installed (t/4462 pending) -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): guard not installed -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Build
