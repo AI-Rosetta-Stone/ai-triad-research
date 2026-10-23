@@ -10,7 +10,7 @@
 //                   the record this packet fixes, and writes frozen-t4449-ent361.json (pre-write sha256, old and new
 //                   values of each changed field).
 //   --mode dryrun   (default) Reads ONLY the frozen list: only ent-361 changes, only the frozen fields; key order
-//                   kept, description_provenance appended last (where every existing record has it); canonical;
+//                   kept (external_refs replaced in place), description_provenance appended last (where every existing record has it); canonical;
 //                   the text diff touches only ent-361's lines; revert byte-exact.
 //   --mode apply    The same proofs, then writes. Needs --approved-sha256 and a clean target.
 //   --mode revert   Restores the frozen old values, refusing unless the result is the frozen pre-write bytes.
@@ -37,10 +37,12 @@ const ENT = 'taxonomy/Origin/entities.json';
 const NEW = {
   name: '2025 German federal election',
   aliases: ['21st Bundestag election', 'Bundestagswahl 2025', 'February 2025 German federal election'],
-  description: 'The snap election to the 21st German Bundestag, held on 23 February 2025, cited in this corpus in discussions of election deepfakes. Note: rise-authoritarian-informationalism-escalating-surveillance-2026-6 misdates it as February 2024.',
+  // CL t/4449#5: description is embedded, so it carries no 2024 tokens; the source's slip lives in the frozen evidence.
+  description: 'The snap federal election to the 21st German Bundestag, held on 23 February 2025.',
+  external_refs: [{ label: 'Bundeswahlleiterin press release 27/25 (election date)', url: 'https://bundeswahlleiterin.de/en/info/presse/mitteilungen/bundestagswahl-2025/27_25_vorlaeufiges-ergebnis.html' }],
   description_provenance: 'ai-drafted',
 };
-const EXPECT_OLD = { name: '2024 German federal election', aliases: ['February 2024 elections', 'Germany February 2024 elections'], description: '' };
+const EXPECT_OLD = { name: '2024 German federal election', aliases: ['February 2024 elections', 'Germany February 2024 elections'], description: '', external_refs: [] };
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 const canon = (o) => JSON.stringify(o, null, 2) + '\n';
@@ -78,7 +80,7 @@ if (mode === 'freeze') {
     id: ID,
     old,
     new: NEW,
-    evidence: 't/4449#2 (Bundeswahlleiterin press release 27/25; the cited DW article previews the 23 Feb 2025 vote); CL decisions t/4449#3',
+    evidence: 'The source (rise-authoritarian-informationalism-escalating-surveillance-2026-6) says the AfD spread deepfakes during "the most recent elections in February 2024"; the election was held on 23 February 2025 (Bundeswahlleiterin press release 27/25; the cited DW article previews that vote). t/4449#2; CL decisions t/4449#3, #5. ent-361 vector re-embed: t/4457.',
   };
   writeFileSync(frozenPath, JSON.stringify(frozen, null, 2) + '\n', 'utf8');
   console.log(`frozen list: ${frozenPath} sha256=${sha(lf(readFileSync(frozenPath, 'utf8')))}`);
@@ -125,7 +127,7 @@ const newText = canon(next);
   if (os !== ns || !isDeepStrictEqual(ol.slice(0, os), nl.slice(0, ns)) || !isDeepStrictEqual(ol.slice(oe + 1), nl.slice(ne + 1))) fail('text changes outside ent-361');
   if (canon(mapEnt(b, (e) => withValues(e, oldValues))) !== oldText) fail('revert does not restore the bytes');
 }
-console.log(`proof OK: only ${ID} changes (name, aliases, description, description_provenance appended last); text diff confined to its object; revert byte-exact. post-write sha256=${sha(newText)}`);
+console.log(`proof OK: only ${ID} changes, only its frozen keys (${Object.keys(frozen.new).join(', ')}; description_provenance appended last); text diff confined to its object; revert byte-exact. post-write sha256=${sha(newText)}`);
 
 if (mode === 'apply') {
   if (git('status', '--porcelain', '--', ENT)) fail(`${ENT} has uncommitted changes`);
