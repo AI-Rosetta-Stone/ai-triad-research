@@ -19,6 +19,8 @@ import { isAdmin } from '../community/community.js';
 const NAME_TYP = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
 const NAMEID = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier';
 const EMAIL = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress';
+const TID = 'http://schemas.microsoft.com/identity/claims/tenantid';
+const OID = 'http://schemas.microsoft.com/identity/claims/objectidentifier';
 
 function encode(p: unknown): string {
   return Buffer.from(JSON.stringify(p), 'utf8').toString('base64');
@@ -45,6 +47,20 @@ function githubReq(opts: { id?: string; headerId?: string; displayName?: string;
 
 function nameOf(r: IncomingMessage): string | undefined {
   return r.headers['x-ms-client-principal-name'] as string | undefined;
+}
+
+function aadReq(opts: { tid?: string; oid?: string; name?: string; email?: string; nameHeader?: string }): IncomingMessage {
+  const claims: Array<[string, string]> = [];
+  if (opts.tid) claims.push([TID, opts.tid]);
+  if (opts.oid) claims.push([OID, opts.oid]);
+  if (opts.name) claims.push([NAME_TYP, opts.name]);
+  if (opts.email) claims.push([EMAIL, opts.email]);
+  const headers: Record<string, string> = {
+    'x-ms-client-principal': principal(claims, 'aad'),
+    'x-ms-client-principal-idp': 'aad',
+  };
+  if (opts.nameHeader !== undefined) headers['x-ms-client-principal-name'] = opts.nameHeader;
+  return { headers } as unknown as IncomingMessage;
 }
 
 let prevMap: string | undefined;
@@ -107,6 +123,62 @@ describe('GitHub identity keys on the stable provider id', () => {
     normalizePrincipalNameHeader(r, true);
     expect(nameOf(r)).toBe('github-111');
     expect(warnMock.mock.calls[0][0]).toMatchObject({ reason: 'id_mismatch' });
+  });
+});
+
+describe('AAD identity keys on tid+oid, not the name/email claim (t/4326 C4)', () => {
+  it.each([
+    ['an admin AAD-shaped id', 'jsnover15-at-hotmail-com'],
+    ['an admin email', 'jsnover15@hotmail.com'],
+  ])('name/email equal to %s does not determine the id', (_label, display) => {
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1', name: display, email: display, nameHeader: display });
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBe('aad-tenant-1-obj-1');
+    expect(isAdmin(deriveStorageUserId(nameOf(r)!, 'aad'))).toBe(false);
+  });
+
+  it('renaming the display name/email does not change the id', () => {
+    const a = aadReq({ tid: 't', oid: 'o', name: 'Before', nameHeader: 'Before' });
+    const b = aadReq({ tid: 't', oid: 'o', name: 'After', nameHeader: 'After' });
+    normalizePrincipalNameHeader(a, true);
+    normalizePrincipalNameHeader(b, true);
+    expect(nameOf(a)).toBe(nameOf(b));
+  });
+
+  it('a mapped tid+oid resolves to the legacy principal name (keeps data, admin, tiers)', () => {
+    process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jsnover15-at-hotmail-com';
+    process.env.ADMIN_USERS = 'jsnover15-at-hotmail-com';
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1', name: 'Anything', nameHeader: 'Anything' });
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBe('jsnover15-at-hotmail-com');
+    expect(isAdmin(deriveStorageUserId(nameOf(r)!, 'aad'))).toBe(true);
+  });
+
+  it('missing oid → anonymous, WARN with claim types only', () => {
+    const r = aadReq({ tid: 'tenant-1', name: 'jpsnover', nameHeader: 'jpsnover' });
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBeUndefined();
+    const [fields] = warnMock.mock.calls[0] as [Record<string, unknown>];
+    expect(fields).toMatchObject({ idp: 'aad', reason: 'no_stable_id' });
+  });
+
+  it('missing tid → anonymous', () => {
+    const r = aadReq({ oid: 'obj-1', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBeUndefined();
+  });
+
+  it('tid/oid outside the safe charset → anonymous', () => {
+    const r = aadReq({ tid: '../admin', oid: 'obj-1', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBeUndefined();
+  });
+
+  it('never falls back to the name or email claim — no non-spoofable header exists for AAD', () => {
+    // Same tid+oid as a mapped admin, but no map entry configured: must NOT grant via name/email.
+    const r = aadReq({ tid: 'unmapped-tenant', oid: 'unmapped-obj', name: 'jpsnover', email: 'jsnover15@hotmail.com', nameHeader: 'jpsnover' });
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBe('aad-unmapped-tenant-unmapped-obj');
   });
 });
 

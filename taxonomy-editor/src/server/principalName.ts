@@ -17,7 +17,19 @@
  *   This also fixes the 2026-10-21 regression where the name header is absent for GitHub
  *   accounts with no public name/email (TL p/806#48): those users now get `github-<id>`.
  *
- * Other idps (Google/AAD): the name is the provider-verified email; unchanged. If it is
+ * AAD: the name header is ALWAYS replaced too (t/4326 C4 — PI decision "aad a", t/4326#27).
+ * Unlike GitHub, there is no non-spoofable fallback header; the `-name`/`preferred_username`
+ * claim is never trusted as a key, because the sidecar's AAD issuer is multi-tenant `common`
+ * (any tenant plus personal MSA accounts) and the name/email claim collides with the same
+ * `@→-at-`/`.→-` namespace Google uses.
+ *   - Stable id = `tid` (tenant id) + `oid` (object id) claims of the sidecar-set
+ *     `x-ms-client-principal` — both are required; there is no flat header equivalent to
+ *     GitHub's `x-ms-client-principal-id` for these.
+ *   - Name = the IDENTITY_MAP entry for `aad:<tid>-<oid>`, else `aad-<tid>-<oid>`.
+ *   - Missing/invalid tid or oid → the name header is removed (anonymous) — fail closed.
+ *
+ * Google: the name is the provider-verified email; unchanged (deferred per the SO, t/4326#19
+ * — Google's email claim is verified, unlike AAD's under a multi-tenant common issuer). If
  * missing, it is filled from the same source the header carries (the name_typ claim), else
  * the email claim.
  *
@@ -36,6 +48,12 @@ const IDP_HEADER = 'x-ms-client-principal-idp';
 const NAMEIDENTIFIER_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier';
 const DEFAULT_NAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
 const EMAIL_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress';
+// Standard Microsoft identity platform claim URIs (t/4326 C4). Not yet empirically
+// confirmed against the live sidecar — same open item as C1 for GitHub's nameidentifier
+// claim. Verify on the PI's next Microsoft sign-in (t/4326#27) and correct here if wrong;
+// a wrong claim name fails closed (anonymous), never silently open.
+const TENANT_ID_CLAIM = 'http://schemas.microsoft.com/identity/claims/tenantid';
+const OBJECT_ID_CLAIM = 'http://schemas.microsoft.com/identity/claims/objectidentifier';
 
 /** A stable id becomes part of a storage directory name: keep it to a safe charset. */
 const STABLE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -78,8 +96,9 @@ function decodePrincipal(encoded: string): DecodedPrincipal {
 }
 
 /**
- * Parse IDENTITY_MAP: `github:<stableId>=<legacy principal name>,…`. Deploy-time, static,
- * admin-held (like READ_ONLY_PRINCIPALS). Malformed entries are skipped with a WARN.
+ * Parse IDENTITY_MAP: `<idp>:<stableId>=<legacy principal name>,…` — `github:<id>` or
+ * `aad:<tid>-<oid>`. Deploy-time, static, admin-held (like READ_ONLY_PRINCIPALS).
+ * Malformed entries are skipped with a WARN.
  */
 export function parseIdentityMap(raw: string | undefined): Map<string, string> {
   const map = new Map<string, string>();
@@ -135,7 +154,33 @@ function canonicalizeGithub(req: IncomingMessage, decoded: DecodedPrincipal): vo
   req.headers[NAME_HEADER] = mapped ?? `github-${stableId.toLowerCase()}`;
 }
 
-/** Non-GitHub: keep the provider-verified name; fill it from the claims only if missing. */
+/**
+ * AAD: replace the name with a tid+oid-derived canonical name (t/4326 C4). Never falls
+ * back to the name/email claim — unlike GitHub there's no flat non-spoofable header, so a
+ * missing/invalid tid or oid fails closed (anonymous) rather than degrading to a trusted
+ * fallback that doesn't exist.
+ */
+function canonicalizeAad(req: IncomingMessage, decoded: DecodedPrincipal): void {
+  const tid = claimValue(decoded.claims, TENANT_ID_CLAIM);
+  const oid = claimValue(decoded.claims, OBJECT_ID_CLAIM);
+  if (!tid || !oid) {
+    delete req.headers[NAME_HEADER];
+    warnOnce('aad|no_stable_id', { idp: 'aad', reason: 'no_stable_id', claimTypes: decoded.claimTypes },
+      'AAD principal has no usable tid+oid; request treated as anonymous');
+    return;
+  }
+  const stableId = `${tid}-${oid}`.toLowerCase();
+  if (!STABLE_ID_RE.test(stableId)) {
+    delete req.headers[NAME_HEADER];
+    warnOnce('aad|bad_stable_id', { idp: 'aad', reason: 'bad_stable_id' },
+      'AAD tid/oid outside safe charset; request treated as anonymous');
+    return;
+  }
+  const mapped = getIdentityMap().get(`aad:${stableId}`);
+  req.headers[NAME_HEADER] = mapped ?? `aad-${stableId}`;
+}
+
+/** Non-GitHub/non-AAD: keep the provider-verified name; fill it from the claims only if missing. */
 function fillMissingName(req: IncomingMessage, idp: string, decoded: DecodedPrincipal): void {
   if (headerString(req, NAME_HEADER) || !decoded.ok) return;
   const name = claimValue(decoded.claims, decoded.nameTyp) || claimValue(decoded.claims, EMAIL_CLAIM);
@@ -156,6 +201,10 @@ export function normalizePrincipalNameHeader(req: IncomingMessage, azureAuthEnab
   const idp = headerString(req, IDP_HEADER).toLowerCase();
   if (idp === 'github') {
     canonicalizeGithub(req, decodePrincipal(encoded));
+    return;
+  }
+  if (idp === 'aad') {
+    canonicalizeAad(req, decodePrincipal(encoded));
     return;
   }
   if (!encoded) return;
