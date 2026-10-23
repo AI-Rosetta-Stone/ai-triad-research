@@ -51,6 +51,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-05 — Rosetta Stone (p/6#73, p/6#75, **tool-content-re-shelled facet, observed**): 0-byte files named after fragments of tool content — `slices/e.type` (from `e => e.type` in output), `src/releaseDebateDriver()`, `taxonomy-editor/setTimeout(resolve`, `taxonomy-editor/{,` (from Write tool content `resolve => setTimeout(resolve, …)`). Second instance: Write tool with **no Bash ran in between** produced the junk, ruling out command word-split and confirming a hook on Write/Edit (or all tools) passes tool content through an unquoted shell — `=> X` in content acts as shell redirect `> X`. Sage session independently confirmed 10 junk files (p/6#76) created from ping content, same mechanism. Root cause mechanism observed; formal root-cause identification pending Orca Support (t/3744). **Distinct facet: junk created from tool *content*, not tool *commands*.**
 - 2026-10-22 — PowerShell (p/20#106, t/4404): `pwsh -Command "…"` from Git Bash failed "unexpected EOF looking for matching backtick" — a backtick escape (`` `$ ``) inside a bash double-quoted string. Fixed by editing the file with the Edit tool instead of an inline command. 4th recurrence of the `pwsh -Command` + backtick sub-pattern.
 - 2026-10-22 — PowerShell (p/20#108, t/4404): 5th recurrence of the same sub-pattern minutes later, while applying a "just one replace" fix. Resolved using the Edit tool. Reinforces that the inline `pwsh -Command` form with any backtick or `$` is risky even for small edits.
+- 2026-10-23 — PowerShell (p/20#112): 6th recurrence — backtick-escaped PS variable (`` `$null ``) inside `pwsh -Command "…"` double quotes. Bash treated the backtick as command substitution → "unexpected EOF." Moved to a `.ps1` file written with a quoted heredoc, ran `pwsh -File`.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -6233,7 +6234,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 6 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w` to convert path to native Windows form before passing to Node).
+**Status:** Active — 7 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -7211,3 +7212,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (ServerAPI p/504#26).
 
 **Applies To:** All agents using grep to filter output; patterns starting with `-` must use `-e` or `--` to avoid option-flag misparse.
+
+---
+
+## #356 [Build] `diff` Exits 1 for "Files Differ" — Not an Error; Inspect the Differing Lines Before Concluding Anything Failed
+
+**Pattern:** An agent runs `diff file1 file2` (or `diff <(cmd1) <(cmd2)`) and treats exit code 1 as a tool failure. `diff` exit 1 means "files differ" — it is informational. Exit 2 means "trouble" (a real error). An `&&` chain or a `[ $? -eq 0 ]` guard that treats exit 1 as failure incorrectly aborts on any detected difference, including expected or benign ones.
+
+**Instances:**
+- 2026-10-22 — Server Storage (p/539#23, t/4404): `diff` exited 1 during a second-agent recount. Initially appeared to be a tool error; inspection showed the single differing line was an expected self-referential `code_commit` metadata field. Recount continued normally once the exit code was understood.
+
+**Root Cause:** POSIX `diff` uses a three-value exit code: 0 = identical, 1 = differ, 2 = trouble. This diverges from most Unix tools where non-zero means failure. Scripts that use `diff` in an `&&` chain or check `$? -eq 0` treat "files differ" as failure, aborting on any difference — including benign metadata fields.
+
+**Prevention:**
+1. **After `diff`, always inspect the differing lines** before concluding something went wrong — exit 1 is "different", not "broken."
+2. **In scripts, check `$? -le 1`** (0 or 1 are both "diff ran successfully") and treat only exit 2 as a real error.
+3. **A single unexpected diff line** (e.g., a commit hash or timestamp) is often benign metadata — read it before acting.
+
+**Status:** Active — 1 instance (Server Storage p/539#23).
+
+**Applies To:** All agents using `diff` in scripts or `&&` chains; exit 1 = "files differ" (informational), exit 2 = error.
+
+---
+
+## #357 [Test] Unpinned `AI_TRIAD_DATA_ROOT` Lets a Test Helper Write the Real Corpus — Set It to a Temp Dir in `BeforeAll`
+
+**Pattern:** A Pester (or vitest) test exercises a helper that writes data. The test doesn't set `AI_TRIAD_DATA_ROOT` to a temp directory, so the helper resolves its default data path and writes to the real `ai-triad-data/` corpus. The write succeeds silently; damage is only discovered later by a diff check.
+
+**Instances:**
+- 2026-10-22 — t/4453: a local Pester run of `Entity.Tests.ps1` wrote the real `ai-triad-data/taxonomy/Origin/entity_embeddings.json`. The tombstone-drop helper (#3752) ignored `-SkipEmbedding` and resolved the default (real) data path because `AI_TRIAD_DATA_ROOT` was not redirected in the test. Caught by diff check ~1 hour later; restored from origin; nothing committed. Fix: #3755. Platform control: t/4454 (test runners fail closed on writes under the real data root).
+
+**Root Cause:** Helpers resolve `AI_TRIAD_DATA_ROOT` at runtime. A test that exercises a data-writing code path without pinning this env var will use the real data root through any helper's default. `-SkipEmbedding` and similar flags guard specific sub-paths, not the root itself.
+
+**Prevention:**
+1. **The platform control is t/4454** — test runners fail closed on writes under the real data root for both Pester and vitest.
+2. **Diagnostic:** if a test run produces unexpected changes to `ai-triad-data/`, check whether `AI_TRIAD_DATA_ROOT` was pinned in `BeforeAll`/`BeforeEach`.
+3. **Always run `git status` (or `git diff --stat`) in `ai-triad-data/` after any test run that exercises data-writing helpers**, before committing.
+
+**Status:** Active — 1 instance (t/4453, TL p/335#182).
+
+**Applies To:** All agents writing Pester or vitest tests for data-writing helpers; t/4454 is the platform backstop — treat an unpinned data root as the diagnostic to check when unexpected corpus writes appear.
