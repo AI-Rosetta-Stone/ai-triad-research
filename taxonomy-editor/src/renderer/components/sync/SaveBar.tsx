@@ -54,6 +54,10 @@ export function SaveBar() {
       // unsaved edits (loadAll resets `dirty`). Keep them; the user retries Save themselves.
       dismissSaveError();
       await refreshSync();
+      // t/4439: refresh the stale untouched nodes from the rebased branch without losing edits.
+      // Never throws; r.ok is false only on a read failure, which changes nothing.
+      const r = await useTaxonomyStore.getState().reloadKeepingEdits();
+      if (r.message) setResyncError(r.message);
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error',
