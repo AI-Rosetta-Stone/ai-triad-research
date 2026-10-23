@@ -37,7 +37,8 @@ function Import-Entity {
     .PARAMETER EmbeddingsPath
         Override entity_embeddings.json path (fixtures/tests). Defaults to Get-EntityEmbeddingsFilePath.
     .PARAMETER SkipEmbedding
-        Do not compute/write embeddings for approved records (tests / offline curation).
+        Do not read, compute or write entity_embeddings.json at all (tests / offline curation). A merge
+        tombstone's vector is then left in place, with a WARN; Get-EntityReport -Report orphan-vector lists it.
     .EXAMPLE
         Import-Entity -Proposal @(@{ name = 'GPT-4'; entity_type = 'artifact'; dolce_category = 'non-agentive-functional-artifact'; description = 'A model that ...' })
     .LINK
@@ -347,7 +348,12 @@ function Import-Entity {
         }
 
         # A tombstone carries no vector (t/4450): drop one left from before the merge, with its fingerprint.
-        if ($effMerged -and (Test-Path $embPath)) {
+        # -SkipEmbedding means NO embeddings I/O: without it honoured here, a test passing only -Path wrote
+        # the DEFAULT (real data-repo) entity_embeddings.json (t/4453).
+        if ($effMerged -and $SkipEmbedding) {
+            Write-Warning "Import-Entity: -SkipEmbedding: '$newId' is now a merge tombstone, but any vector it has was left in entity_embeddings.json; Get-EntityReport -Report orphan-vector lists it."
+        }
+        elseif ($effMerged -and (Test-Path $embPath)) {
             if ($null -eq $embStore) { $embStore = Get-Content -Raw -Path $embPath -Encoding utf8 | ConvertFrom-Json }
             if ($embStore.PSObject.Properties['vectors'] -and $embStore.vectors.PSObject.Properties[$newId]) {
                 $embStore.vectors.PSObject.Properties.Remove($newId)
