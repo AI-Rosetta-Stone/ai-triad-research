@@ -105,6 +105,15 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
+      - name: Refuse to deploy without a complete IDENTITY_MAP (t/4326)
+        # An unset map deploys as '' and the ExpectedEnvVars gate stays green (it expects ''),
+        # while the smoke account loses read-only and the PI's GitHub loses admin: a silent
+        # fail-open. Fail closed here, before any Azure change (TL p/404#119).
+        shell: pwsh
+        env:
+          IDENTITY_MAP_VALUE: ${{ vars.IDENTITY_MAP }}
+        run: ./operations/devops/azure/Assert-IdentityMapConfigured.ps1 -Value $env:IDENTITY_MAP_VALUE -Mode Fail
+
       - name: Resolve image digest from per-SHA tag (t/3679 — never :latest)
         id: resolve_digest
         shell: pwsh
