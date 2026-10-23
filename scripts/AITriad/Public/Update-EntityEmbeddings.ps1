@@ -74,9 +74,8 @@ function Update-EntityEmbeddings {
 
     $store = Get-Content -Raw -Path $entPath -Encoding utf8 | ConvertFrom-Json
     $entities = if ($store.PSObject.Properties['entities']) { @($store.entities) } else { @() }
-    $approved = @($entities | Where-Object {
-        $_.PSObject.Properties['status'] -and $_.status -eq 'approved' -and $_.PSObject.Properties['id']
-    })
+    # The shared vector-scope predicate (t/4450): approved and not a merge tombstone.
+    $approved = @($entities | Where-Object { $_.PSObject.Properties['id'] -and (Test-EntityVectorEligible $_) })
 
     $embStore = if (Test-Path $embPath) {
         Get-Content -Raw -Path $embPath -Encoding utf8 | ConvertFrom-Json

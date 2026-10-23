@@ -74,13 +74,26 @@ function Add-EntityMatch {
 }
 
 function Add-EntityStoreMatch {
+    # Live records first, then merge tombstones (t/4450): a tombstone's name and aliases link to its
+    # canonical, resolved through the chain (a broken chain keeps the tombstone itself, with a WARN).
+    # Add-EntityMatch is first-wins, so a live record's name beats a tombstone's on a collision
+    # (CL t/4450#2 conditions 1 and 2).
     param([hashtable]$Index, [object[]]$Entities)
-    foreach ($e in $Entities) {
-        if (-not $e.PSObject.Properties['id']) { continue }
+    $ById = @{}
+    $records = @(foreach ($e in $Entities) { if ($null -ne $e -and $e.PSObject.Properties['id']) { $ById[[string]$e.id] = $e; $e } })
+    $live = @($records | Where-Object { -not (Get-EntityMergedIntoId $_) })
+    $tombs = @($records | Where-Object { Get-EntityMergedIntoId $_ })
+    foreach ($e in $live) {
         Add-EntityMatch $Index ([string]$e.name) 'entity' ([string]$e.id) ([string]$e.name)
         if ($e.PSObject.Properties['aliases']) {
             foreach ($a in @($e.aliases)) { Add-EntityMatch $Index ([string]$a) 'entity' ([string]$e.id) ([string]$e.name) }
         }
+    }
+    foreach ($e in $tombs) {
+        $target = Resolve-EntityTombstoneTarget -Entity $e -ById $ById -Caller 'Invoke-EntityExtraction'
+        $label = [string]$ById[$target].name
+        $aliases = if ($e.PSObject.Properties['aliases']) { @($e.aliases) } else { @() }
+        foreach ($t in @(@($e.name) + $aliases)) { Add-EntityMatch $Index ([string]$t) 'entity' $target $label }
     }
 }
 
@@ -169,17 +182,25 @@ function Get-EntityVectorIndex {
     # embedding model for provenance (SO e/280#2 condition 3) and why the store is unusable, if it is.
     # These vectors feed ADVISORY candidates only — never a link (TL p/360#571): name-only cosine puts
     # distinct siblings above any threshold (Claude 3.5 vs 3.7 Sonnet 0.987).
-    param([string]$Path)
+    # Scope (t/4450): only records Test-EntityVectorEligible accepts (approved, not a tombstone), so a
+    # tombstone or a no-longer-approved record is never offered as a candidate. A skipped vector is an
+    # orphan-vector in Get-EntityReport, which uses the same predicate.
+    param([string]$Path, [object[]]$Entities = @())
+    $eligible = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($e in $Entities) { if ($null -ne $e -and $e.PSObject.Properties['id'] -and (Test-EntityVectorEligible $e)) { [void]$eligible.Add([string]$e.id) } }
     $Index = [PSCustomObject]@{ Vectors = @{}; Model = $null; Problem = $null }
     if (-not (Test-Path $Path)) { $Index.Problem = 'entity_embeddings.json not found'; return $Index }
     try {
         $EmbStore = Get-Content -Raw -Path $Path -Encoding utf8 | ConvertFrom-Json
         if ($EmbStore.PSObject.Properties['model'] -and $EmbStore.model) { $Index.Model = [string]$EmbStore.model }
         if ($EmbStore.PSObject.Properties['vectors'] -and $null -ne $EmbStore.vectors) {
+            $skipped = 0
             foreach ($prop in $EmbStore.vectors.PSObject.Properties) {
+                if (-not $eligible.Contains($prop.Name)) { $skipped++; continue }
                 $vec = Get-EntityNameVector -Stored $prop.Value
                 if ($null -ne $vec -and $vec.Length -gt 0) { $Index.Vectors[$prop.Name] = $vec }
             }
+            if ($skipped) { Write-Warning "Invoke-EntityExtraction: skipped $skipped entity vector(s) whose record is not approved, is a merge tombstone, or is not in the store (t/4450); Get-EntityReport -Report orphan-vector lists them." }
         }
         if ($Index.Vectors.Count -eq 0) { $Index.Problem = 'entity_embeddings.json has no entity vectors' }
     } catch {
@@ -203,7 +224,7 @@ function Get-EntityResolutionState {
     Add-DictionaryMatch -Index $MatchIndex
     Add-PolicyActionMatch -Index $MatchIndex -TaxDir $TaxDir
 
-    $VectorIndex = Get-EntityVectorIndex -Path $EmbPath
+    $VectorIndex = Get-EntityVectorIndex -Path $EmbPath -Entities $ExistingEntities
     $EntityNameById = @{}
     foreach ($e in $ExistingEntities) {
         if ($e.PSObject.Properties['id']) { $EntityNameById[[string]$e.id] = [string]$e.name }

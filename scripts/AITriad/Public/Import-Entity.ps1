@@ -29,7 +29,8 @@ function Import-Entity {
         1-20 proposal records (hashtable or PSCustomObject). New records require `name`,
         `entity_type`, `dolce_category`; optional `description`, `aliases`, `source_refs`,
         `external_refs`, `discovered_by`, `confidence`, `status` (default 'proposed'), `id`
-        (to update an existing record), `merged_into` (to tombstone/merge into a canonical id),
+        (to update an existing record), `merged_into` (to tombstone/merge into a canonical id; a
+        tombstone is always `deprecated` and loses its vector, t/4450),
         `description_provenance` (`ai-drafted` | `human-edited` | `human-authored`; gates person approval).
     .PARAMETER Path
         Override entities.json path (fixtures/tests). Defaults to Get-EntitiesFilePath.
@@ -140,6 +141,26 @@ function Import-Entity {
 
         $idx = if ($propId) { & $findIndex $propId } else { -1 }
         $isUpdate = ($idx -ge 0)
+
+        # t/4450 invariant (CL t/4450#2): merged_into set => status 'deprecated'. A merge, or any update
+        # of an existing tombstone, is written as deprecated; an explicit other status is refused, since
+        # an approved tombstone stays embedded and indexed as a live entity (ent-054, t/3118 curation).
+        $statusGiven = if ($p -is [hashtable]) { $p.ContainsKey('status') } else { [bool]$p.PSObject.Properties['status'] }
+        $effMerged = if ($mergedInto) { $mergedInto } elseif ($isUpdate) { Get-EntityMergedIntoId $existing[$idx] } else { '' }
+        if ($effMerged) {
+            if ($statusGiven -and $status -cne 'deprecated') {
+                $idLabel = if ($propId) { $propId } else { $name }
+                throw (New-ActionableError -PassThru `
+                    -Goal 'Import an entity proposal' `
+                    -Problem "Proposal '$idLabel' sets status '$status' on a merge tombstone (merged_into '$effMerged'); a tombstone is always 'deprecated' (t/4450)" `
+                    -Location 'Import-Entity' `
+                    -NextSteps @(
+                        "Drop 'status' from the proposal (a merge writes 'deprecated'), or set it to 'deprecated'",
+                        "To keep the record live, don't merge it: approve the canonical '$effMerged' and leave this one unmerged"
+                    ))
+            }
+            $status = 'deprecated'
+        }
 
         # For updates, resolve the effective type against the existing record so the
         # person gate can't be dodged by omitting entity_type on an approval update.
@@ -322,6 +343,18 @@ function Import-Entity {
                     $embDirty = $true
                     $embedded = $true
                 }
+            }
+        }
+
+        # A tombstone carries no vector (t/4450): drop one left from before the merge, with its fingerprint.
+        if ($effMerged -and (Test-Path $embPath)) {
+            if ($null -eq $embStore) { $embStore = Get-Content -Raw -Path $embPath -Encoding utf8 | ConvertFrom-Json }
+            if ($embStore.PSObject.Properties['vectors'] -and $embStore.vectors.PSObject.Properties[$newId]) {
+                $embStore.vectors.PSObject.Properties.Remove($newId)
+                if ($embStore.PSObject.Properties['_src_hashes'] -and $embStore._src_hashes.PSObject.Properties[$newId]) {
+                    $embStore._src_hashes.PSObject.Properties.Remove($newId)
+                }
+                $embDirty = $true
             }
         }
 
