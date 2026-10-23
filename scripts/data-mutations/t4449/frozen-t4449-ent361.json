@@ -1,0 +1,35 @@
+{
+  "_doc": "t/4449 frozen list: ent-361 renamed to the 2025 election, aliases replaced, description recorded (Invoke-T4449Ent361Rename.mjs). The write reads only this file.",
+  "inputs": {
+    "data_commit": "fc606d12e7d98c694f747511d0cdb9b1d8ffdabb",
+    "entities_pre_sha256": "b73b5c7d3e30fd3ecbc00fe4ca43e879046fd4c148dbf11e56adc06209b498e5"
+  },
+  "id": "ent-361",
+  "old": {
+    "name": "2024 German federal election",
+    "aliases": [
+      "February 2024 elections",
+      "Germany February 2024 elections"
+    ],
+    "description": "",
+    "external_refs": [],
+    "description_provenance": null
+  },
+  "new": {
+    "name": "2025 German federal election",
+    "aliases": [
+      "21st Bundestag election",
+      "Bundestagswahl 2025",
+      "February 2025 German federal election"
+    ],
+    "description": "The snap federal election to the 21st German Bundestag, held on 23 February 2025.",
+    "external_refs": [
+      {
+        "label": "Bundeswahlleiterin press release 27/25 (election date)",
+        "url": "https://bundeswahlleiterin.de/en/info/presse/mitteilungen/bundestagswahl-2025/27_25_vorlaeufiges-ergebnis.html"
+      }
+    ],
+    "description_provenance": "ai-drafted"
+  },
+  "evidence": "The source (rise-authoritarian-informationalism-escalating-surveillance-2026-6) says the AfD spread deepfakes during \"the most recent elections in February 2024\"; the election was held on 23 February 2025 (Bundeswahlleiterin press release 27/25; the cited DW article previews that vote). t/4449#2; CL decisions t/4449#3, #5. ent-361 vector re-embed: t/4457."
+}
