@@ -22,7 +22,9 @@ describe('data-root guard (live-fire)', () => {
   it('emits DATA-ROOT-TEST-WRITE when writeFileSync targets the protected root', () => {
     // Use a path whose parent doesn't exist: the guard WARNs, then the underlying writeFileSync
     // throws ENOENT — nothing is written to the real data repo in either worktree or dev runs.
-    const target = path.join(protectedDataRoot(), '__guard_livefire__', 'missing', 'x.json');
+    const anchorDir = path.join(protectedDataRoot(), '__guard_livefire__');
+    expect(fs.existsSync(anchorDir), '__guard_livefire__ must not exist before the test').toBe(false);
+    const target = path.join(anchorDir, 'missing', 'x.json');
     expect(() => fs.writeFileSync(target, '')).toThrow(/ENOENT/);
     const fired = warnSpy.mock.calls.some(args => String(args[0]).includes(DATA_ROOT_TEST_WRITE_TOKEN));
     expect(fired, 'DATA-ROOT-TEST-WRITE WARN not emitted for writeFileSync under protected root').toBe(true);
