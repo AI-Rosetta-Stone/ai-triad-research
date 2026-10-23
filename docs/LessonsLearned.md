@@ -49,6 +49,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-05 — Shared Lib (p/5#43): 0-byte `lib/console.log('` created right after `node -e "...h=>console.log('  ',h)..."` — the `=>` in the inline command was interpreted as a shell redirect. Classic word-split/redirect. Fix: moved to scratchpad script files (ADR-004).
 - 2026-10-06 — Computational Linguist (p/7#96, t/3271, **inline `python -c` backslash variant**): inline `python -c` script containing a backslash split the string at the shell level, producing a Python `SyntaxError`. Fixed by writing the script to a temp file (Write tool), per ADR-004. Same class as p/5#37 (Windows path backslashes in inline Python); backslash in any context breaks inline `-c`.
 - 2026-10-05 — Rosetta Stone (p/6#73, p/6#75, **tool-content-re-shelled facet, observed**): 0-byte files named after fragments of tool content — `slices/e.type` (from `e => e.type` in output), `src/releaseDebateDriver()`, `taxonomy-editor/setTimeout(resolve`, `taxonomy-editor/{,` (from Write tool content `resolve => setTimeout(resolve, …)`). Second instance: Write tool with **no Bash ran in between** produced the junk, ruling out command word-split and confirming a hook on Write/Edit (or all tools) passes tool content through an unquoted shell — `=> X` in content acts as shell redirect `> X`. Sage session independently confirmed 10 junk files (p/6#76) created from ping content, same mechanism. Root cause mechanism observed; formal root-cause identification pending Orca Support (t/3744). **Distinct facet: junk created from tool *content*, not tool *commands*.**
+- 2026-10-22 — PowerShell (p/20#106, t/4404): `pwsh -Command "…"` from Git Bash failed "unexpected EOF looking for matching backtick" — a backtick escape (`` `$ ``) inside a bash double-quoted string. Fixed by editing the file with the Edit tool instead of an inline command. 4th recurrence of the `pwsh -Command` + backtick sub-pattern.
+- 2026-10-22 — PowerShell (p/20#108, t/4404): 5th recurrence of the same sub-pattern minutes later, while applying a "just one replace" fix. Resolved using the Edit tool. Reinforces that the inline `pwsh -Command` form with any backtick or `$` is risky even for small edits.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -2029,6 +2031,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 **Instances:**
 - 2026-07-28 — ServerAPI (t/1829, p/79#15) + Technical Lead (t/1829#2, p/8#111): `npm run verify 2>&1 | tail -N` returned `tail`'s exit 0, masking verify's real result; a push gated on that eyeballed tail can push a RED verify. ServerAPI's t/1829 outcome was sound only because the failures were unrelated flake — the masked exit was the real footgun.
 - 2026-07-29 — Technical Lead (t/1932, p/8#117): **`git push | tail` inside a `&&` cleanup chain** swallowed a **non-fast-forward rejection** — the pipe returned `tail`'s 0, so the `&&` teardown (worktree remove) ran anyway on an unpushed commit. Same exit-code-laundering, but the masked exit is `git push`'s, and the downstream damage is a **skipped push + teardown that strands the commit** rather than a false-green verify. (This is the "never pipe git push" facet — Sage memory `feedback_never_pipe_git_push.md`, originally Sage #96.)
+- 2026-10-22 — ServerAPI (p/504#26): `git push … | grep -E "->|error"` — grep exited 2 ("invalid option" because `->` starts with `-`), which masked whether the push itself had succeeded. Recovered by checking `git ls-remote` against HEAD directly.
 
 **Root Cause:** A bash pipeline's exit status is the **last command's** (unless `set -o pipefail`). `verify | tail` → `tail` exits 0 → `$?` = 0 regardless of verify; **`git push | tail`** → `tail` exits 0 regardless of a non-ff reject. Same **exit-code-laundering** family as #84 (`&& echo PASS || echo FAIL`) and the **bookkeeping-≠-artifact genus**: the exit you read is the pipe's/wrapper's, not the command's. Especially dangerous when a `&&` cleanup/teardown chains after the piped push — the teardown reads the pipe's 0 and runs on an unpushed HEAD.
 
@@ -6504,15 +6507,16 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-20 — Computational Linguist (p/7#123, t/4292): stdout had `[onnxEmbedding]` log lines before the JSON array. Strip logic cut at first `\n[`, but that matched a log line. Fixed by cutting at the line that is exactly `[` (the JSON array opening line) rather than any line starting with `[`.
+- 2026-10-22 — Computational Linguist (p/7#140): onnxEmbedding logs mixed into stdout before a JSON **object** (`{`). Same root cause; discriminator is the first line that is exactly `{`. Fixed by parsing from the first lone `{` line.
 
-**Root Cause:** Both log lines and the JSON output start with `[`. Stripping at "first line starting with `[`" is ambiguous; the JSON array's opening is specifically a line containing only `[`.
+**Root Cause:** Both log lines and the JSON output start with `[` (array) or `{` (object). Stripping at "first line starting with `[`" or `{` is ambiguous with log-line prefixes; the JSON opening is specifically a line containing **only** `[` or `{`.
 
 **Prevention:**
-1. **When stripping ONNX embedder log prefix from stdout, find the line that is exactly `[`** (the JSON array opening), not the first line starting with `[`.
+1. **When stripping ONNX embedder log prefix from stdout, find the line that is exactly `[` or `{`** (the JSON opening line), not merely the first line starting with that character.
 2. **Alternatively, redirect stderr** (`2>/dev/null` or a dedicated stderr handle) if the embedder writes logs to stderr — verify with a test run before assuming stdout is clean JSON.
 3. **A JSON parse error immediately after an ONNX embedding call** is a reliable diagnostic for log-line contamination — inspect the raw stdout before parsing.
 
-**Status:** Active — 1 instance (Computational Linguist p/7#123).
+**Status:** Active — 2 instances (Computational Linguist p/7#123, p/7#140).
 
 **Applies To:** All agents capturing ONNX embedder output; strip log prefix at exact `[` line, not first `\n[`.
 
@@ -7147,3 +7151,63 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (PowerShell p/20#104).
 
 **Applies To:** All agents writing Pester tests that mock module-internal behavior; private function visibility requires executing inside the module's session state via `& (Get-Module X) { ... }`.
+
+---
+
+## #353 [Build] Dot-Sourcing a Top-Level `.ps1` Executes It Immediately — Capture Output With `$x = . ./Script.ps1`; No Callable Function Name Is Defined
+
+**Pattern:** An agent dot-sources a PowerShell script (`Get-BicepBaseEnv.ps1`) and then calls it as a function (`Get-BicepBaseEnv -Param`). The call fails with "term not recognized." The script is a top-level script with a `param` block and direct output — not a function definition. Dot-sourcing executes it immediately in the caller's scope; its output must be captured at that moment (`$x = . ./Script.ps1 -Param`). No named function is defined afterward.
+
+**Instances:**
+- 2026-10-22 — DevOps Lead (p/26#256): dot-sourced `Get-BicepBaseEnv.ps1` then called `Get-BicepBaseEnv -ForStaging` — "term not recognized." Script's own doc-comment example shows the correct form (`$env = . ./operations/devops/Get-BicepBaseEnv.ps1 -ForStaging`), which was initially skipped.
+
+**Root Cause:** PowerShell dot-sourcing (`. ./Script.ps1`) runs the script in the caller's scope. A script with a top-level `param` block executes when sourced and produces output — it does not create a function named after the file. Only scripts that contain a `function` block define a callable name.
+
+**Prevention:**
+1. **Read the script's doc-comment example before invoking.** If the example shows `. ./Script.ps1 -Param`, that is the entire calling convention — no named function exists afterward.
+2. **To capture output from a dot-sourced script:** `$result = . ./Script.ps1 -Param` — call it once, capture, done.
+3. **"Term not recognized" after dot-sourcing = the script has no function definition.** Check with `Get-Command <name>` immediately after sourcing to confirm what (if anything) was defined.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#256).
+
+**Applies To:** All agents invoking PowerShell scripts that produce direct output rather than defining functions; dot-source with capture, never call afterward as a named command.
+
+---
+
+## #354 [Build] `gh run list --workflow` Requires Display Name or Numeric ID — File Stem Alone Returns "Could Not Find Any Workflows"
+
+**Pattern:** An agent runs `gh run list --workflow citation-link-integrity` using the workflow file stem (without `.yml` extension). GitHub returns "could not find any workflows." The `--workflow` flag requires either the workflow's display name (as shown in the Actions UI) or its numeric ID — not an arbitrary file stem.
+
+**Instances:**
+- 2026-10-22 — Computational Linguist (p/7#140): `gh run list --workflow citation-link-integrity` → "could not find any workflows." Display name is "Citation-Link Integrity Check (Warn-First)." Fixed by using the numeric ID from `gh workflow list`.
+
+**Root Cause:** `gh run list --workflow` matches against the workflow's display name or numeric ID, not the filename stem. A stem that differs from the display name silently finds nothing rather than an error that names the mismatch.
+
+**Prevention:**
+1. **To filter workflow runs, use the numeric ID:** `gh workflow list` shows IDs; pass `--workflow <id>` for reliable matching.
+2. **Alternatively, use the exact display name** (as shown in `gh workflow list` or the Actions UI).
+3. **"Could not find any workflows" from `--workflow`** = the value is neither the display name nor the ID. Run `gh workflow list` to discover both.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#140).
+
+**Applies To:** All agents filtering GitHub Actions runs by workflow; use `gh workflow list` to get the ID or exact display name before passing `--workflow`.
+
+---
+
+## #355 [Build] `grep` Rejects Patterns Starting With `-` as Unknown Options — Use `grep -e "pattern"` or `grep -- "pattern"`
+
+**Pattern:** An agent passes a `grep` (or `grep -E`) pattern that begins with a dash (e.g., `->`, `-v`, `-E`). grep interprets the leading `-` as an option flag, returns exit code 2 ("invalid option"), and matches nothing. Any pipeline built on this grep exits 2 rather than 0 or 1, masking upstream commands' results.
+
+**Instances:**
+- 2026-10-22 — ServerAPI (p/504#26): `git push … | grep -E "->|error"` — grep exited 2 because `->` starts with `-`. The pipe masked the push's own exit code; verified push success via `git ls-remote`.
+
+**Root Cause:** POSIX grep treats any argument starting with `-` as a flag. A pattern like `->` is parsed as flag `-` with option `>` — which is invalid. The `--` end-of-options delimiter and the `-e` flag both tell grep "what follows is a pattern, not an option."
+
+**Prevention:**
+1. **For any `grep` pattern that starts with `-`, use `grep -e "pattern"` or `grep -- "pattern"`** — both signal that the argument is a pattern, not an option flag.
+2. **Never pipe `git push`** — run it bare, then check `$?`; the exit code laundering compounds when a downstream grep also exits non-zero for the wrong reason.
+3. **Exit code 2 from grep = parse error** (bad option or syntax), not "no match" (1) or "matched" (0). A pipeline that exits 2 has failed, not just found nothing.
+
+**Status:** Active — 1 instance (ServerAPI p/504#26).
+
+**Applies To:** All agents using grep to filter output; patterns starting with `-` must use `-e` or `--` to avoid option-flag misparse.
