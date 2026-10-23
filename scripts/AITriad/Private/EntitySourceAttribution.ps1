@@ -8,8 +8,10 @@
 #   2. mention-verified  the other docs in the list whose snapshot names the entity (strict whole-word name
 #                        or alias, CL #8: the rule hand-checked 19/20 correct at #4);
 #   3. only when 1 and 2 are both empty, for new entities without a usable quote:
-#      mention-verified-loose (a multiword name's content words within a 6-token window), then
+#      mention-verified-loose (a name's content words, at least 2 of them, all within a 6-token window), then
 #      summary-mention (the strict match against the doc's summary text);
+#      STIPULATED parameters (specified t/4404#4, measured #5, hand-checked by the CL at #10: loose 6/7,
+#      summary 6/6): the 6-token window, and content tokens = more than 3 characters, at least 2 per name.
 #   4. otherwise none-matched, with an empty list (CL #4); the status says so explicitly (CL #8).
 # Pairs only ever come from the CURRENT list: nothing is added from outside it. Ids stay exact as found
 # (spec 6.4, CL #8); consumers resolve to the canonical at read time.
@@ -19,13 +21,27 @@
 $script:AttributionStopWords = [System.Collections.Generic.HashSet[string]]::new([string[]]@(
     'the', 'of', 'and', 'a', 'an', 'in', 'on', 'for', 'to', 'at', 'by', 's', 'de', 'la', 'le', 'von', 'van'), [StringComparer]::Ordinal)
 
-function ConvertTo-AttributionToken {
-    # Plural folding, both sides (as measured at t/4404#5).
+function Get-AttributionTokenForms {
+    # The forms a token may take across singular and plural: itself, without a final s, without a final es,
+    # and ies -> y. Comparing form SETS makes the match symmetric (release <-> releases, policy <-> policies;
+    # CL review of #3743, fix 3), where a one-way fold missed in both directions.
     param([string]$Token)
-    if ($Token.Length -gt 4 -and $Token.EndsWith('ies')) { return $Token.Substring(0, $Token.Length - 3) + 'y' }
-    if ($Token.Length -gt 4 -and $Token.EndsWith('es') -and 'sxz'.Contains($Token[$Token.Length - 3])) { return $Token.Substring(0, $Token.Length - 2) }
-    if ($Token.Length -gt 3 -and $Token.EndsWith('s') -and -not $Token.EndsWith('ss')) { return $Token.Substring(0, $Token.Length - 1) }
-    $Token
+    $forms = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    [void]$forms.Add($Token)
+    if ($Token.Length -gt 3 -and $Token.EndsWith('s') -and -not $Token.EndsWith('ss')) { [void]$forms.Add($Token.Substring(0, $Token.Length - 1)) }
+    if ($Token.Length -gt 4 -and $Token.EndsWith('es')) { [void]$forms.Add($Token.Substring(0, $Token.Length - 2)) }
+    if ($Token.Length -gt 4 -and $Token.EndsWith('ies')) { [void]$forms.Add($Token.Substring(0, $Token.Length - 3) + 'y') }
+    , $forms
+}
+
+function Test-AttributionQuoteMatch {
+    # The quote occurs in the claim as whole words; or, for a claim of at least 4 tokens, the claim occurs in
+    # the quote as whole words. Padding stops a short key matching inside a word ("ai" in "said"; CL review of
+    # #3743, fix 1); the length floor stops a short claim matching inside a long quote.
+    param([string]$ClaimKey, [string]$QuoteKey)
+    if (-not $ClaimKey -or -not $QuoteKey) { return $false }
+    if ((' ' + $ClaimKey + ' ').Contains(' ' + $QuoteKey + ' ')) { return $true }
+    (@($ClaimKey -split ' ' | Where-Object { $_ }).Count -ge 4) -and (' ' + $QuoteKey + ' ').Contains(' ' + $ClaimKey + ' ')
 }
 
 function Test-AttributionStrictMention {
@@ -38,17 +54,24 @@ function Test-AttributionStrictMention {
 }
 
 function Test-AttributionLooseMention {
-    # A multiword name's content tokens (plural-folded, stop words dropped) all occur within a 6-token window.
+    # A name's content tokens (more than 3 characters, stop words dropped; at least 2 of them) all occur, in any
+    # singular/plural form, within a 6-token window. The >3-character floor is the rule specified at t/4404#4
+    # (CL review of #3743, fix 2): "AI+ plan" keys to one content token, so it no longer matches "AI Action Plan".
     param([string]$TextKey, [string[]]$NameKeys)
     if (-not $TextKey) { return $false }
-    $toks = [string[]]@($TextKey -split ' ' | Where-Object { $_ } | ForEach-Object { ConvertTo-AttributionToken $_ })
+    $toks = [string[]]@($TextKey -split ' ' | Where-Object { $_ })
+    $tokForms = @(foreach ($t in $toks) { , (Get-AttributionTokenForms $t) })
     foreach ($k in $NameKeys) {
-        $want = [string[]]@($k -split ' ' | Where-Object { $_ -and -not $script:AttributionStopWords.Contains($_) } | ForEach-Object { ConvertTo-AttributionToken $_ } | Select-Object -Unique)
-        if (@($k -split ' ' | Where-Object { $_ }).Count -lt 2 -or $want.Count -eq 0) { continue }
+        $want = [string[]]@($k -split ' ' | Where-Object { $_ -and $_.Length -gt 3 -and -not $script:AttributionStopWords.Contains($_) } | Select-Object -Unique)
+        if ($want.Count -lt 2) { continue }
+        $wantForms = @(foreach ($w in $want) { , (Get-AttributionTokenForms $w) })
         for ($i = 0; $i -lt $toks.Count; $i++) {
             $end = [Math]::Min($toks.Count, $i + 6)
-            $window = [System.Collections.Generic.HashSet[string]]::new([string[]]$toks[$i..($end - 1)], [StringComparer]::Ordinal)
-            if (@($want | Where-Object { -not $window.Contains($_) }).Count -eq 0) { return $true }
+            $window = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            for ($j = $i; $j -lt $end; $j++) { $window.UnionWith($tokForms[$j]) }
+            $all = $true
+            foreach ($wf in $wantForms) { if (-not $window.Overlaps($wf)) { $all = $false; break } }
+            if ($all) { return $true }
         }
     }
     $false
@@ -97,7 +120,7 @@ function Get-EntitySourceAttribution {
         if (-not $doc -or -not $inList.Contains($doc) -or $basis.Contains($doc)) { continue }
         $ck = ConvertTo-EvidenceKey -Quote $claim
         if (-not $ck) { continue }
-        foreach ($q in $quoteKeys) { if ($ck.Contains($q) -or $q.Contains($ck)) { $basis[$doc] = 'quote-attributed'; break } }
+        foreach ($q in $quoteKeys) { if (Test-AttributionQuoteMatch -ClaimKey $ck -QuoteKey $q) { $basis[$doc] = 'quote-attributed'; break } }
     }
 
     # 2. mention-verified: the other listed docs whose snapshot names the entity.

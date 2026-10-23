@@ -69,6 +69,40 @@ Describe 'Get-EntitySourceAttribution (t/4404)' -Tag 'entities' {
         @($both.source_refs) | Should -Be @('doc-hc') -Because 'a strict mention exists, so the loose step does not run'
     }
 
+    It 'never attributes on a sub-word match, in either direction (CL fix 1)' {
+        # Reverse: a short claim key "ai" must not match inside the quote word "said".
+        $r = Attr -Names @('Nobody') -Quotes @('he said the model was ready') -Facts @(@{ doc_id = 'doc-other'; claim = 'AI' }) -Docs @('doc-other')
+        @($r.source_refs).Count | Should -Be 0
+        # Forward: a quote key "ai" must not match inside the claim word "said".
+        $r2 = Attr -Names @('Nobody') -Quotes @('AI') -Facts @(@{ doc_id = 'doc-other'; claim = 'He said the model was ready.' }) -Docs @('doc-other')
+        @($r2.source_refs).Count | Should -Be 0
+        # Reverse with a long enough claim still attributes.
+        $r3 = Attr -Names @('Nobody') -Quotes @('Officials said the new chip export rules take effect in May.') `
+            -Facts @(@{ doc_id = 'doc-other'; claim = 'the new chip export rules' }) -Docs @('doc-other')
+        @($r3.source_refs) | Should -Be @('doc-other')
+    }
+
+    It 'loose step: needs 2+ content tokens over 3 characters (CL fix 2: ent-043 "AI+ plan", "The Guardian")' {
+        $script:Snaps['doc-plan'] = 'The White House released its AI Action Plan in July.'
+        $script:Snaps['doc-guard'] = 'Reporting by the guardian of the archive, not the newspaper.'
+        $plan = Attr -Names @('AI+ plan') -Quotes @() -Facts @() -Docs @('doc-plan')
+        $plan.source_refs_status | Should -BeExactly 'none-matched' -Because '"AI+ plan" has one content token over 3 characters'
+        $guard = Attr -Names @('Morning Guardian') -Quotes @() -Facts @() -Docs @('doc-guard')
+        $guard.source_refs_status | Should -BeExactly 'none-matched' -Because '"morning" is absent, and a single content token never loose-matches'
+        $one = Attr -Names @('The Guardian') -Quotes @() -Facts @() -Docs @('doc-guard')
+        $one.source_refs_basis.Contains('doc-guard') | Should -BeTrue -Because 'the strict whole-word match still finds "the guardian"; only the loose step requires 2 tokens'
+        $one.source_refs_basis['doc-guard'] | Should -BeExactly 'mention-verified'
+    }
+
+    It 'loose step: singular and plural match both ways (CL fix 3)' {
+        $script:Snaps['doc-rel1'] = 'Several model releases were delayed by the new export rule.'
+        $script:Snaps['doc-rel2'] = 'The model release was delayed by the new export rules.'
+        # Singular name, plural text; then plural name, singular text. Strict fails both ways, so only the loose
+        # step can match, and it must.
+        (Attr -Names @('model release') -Quotes @() -Facts @() -Docs @('doc-rel1')).source_refs_basis['doc-rel1'] | Should -BeExactly 'mention-verified-loose'
+        (Attr -Names @('model releases') -Quotes @() -Facts @() -Docs @('doc-rel2')).source_refs_basis['doc-rel2'] | Should -BeExactly 'mention-verified-loose'
+    }
+
     It 'returns none-matched with an empty list when nothing holds the quote or names the entity' {
         $r = Attr -Names @('Quantum Entanglement Treaty') -Quotes @('a treaty on entanglement') -Facts @(@{ doc_id = 'doc-other'; claim = 'Chip export controls.' }) -Docs @('doc-other', 'doc-hc')
         @($r.source_refs).Count | Should -Be 0
