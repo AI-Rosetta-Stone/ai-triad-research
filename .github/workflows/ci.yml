@@ -902,9 +902,16 @@ jobs:
         # taxonomy-editor's vite config, so this only runs for that matrix leg. One line per hit:
         # "DATA-ROOT-TEST-WRITE op=<op> target=<target> protectedRoot=<root>" (console.warn, so
         # it's grepped from the tee'd vitest log above, not a separate writer-owned file).
+        #
+        # TL correction (p/331#2360): as of #3767, the guard is NOT actually installed into
+        # taxonomy-editor's vite config yet -- only the helper's own unit tests landed; the real
+        # wiring is t/4462. Until then, "0 hits" would be a FALSE clean (nothing is being checked,
+        # not "checked and found nothing") -- so this greps vite.config.ts for `dataRootGuard`
+        # first and reports "guard not installed" instead of "0 hits" when it's absent.
         if: always() && matrix.app == 'taxonomy-editor'
         continue-on-error: true
         shell: bash
+        working-directory: taxonomy-editor
         run: |
           LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
           if [ -f "$LOG" ]; then
@@ -918,8 +925,10 @@ jobs:
               echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
               echo "::warning::$line"
             done
-          else
+          elif grep -q 'dataRootGuard' vite.config.ts 2>/dev/null; then
             echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): 0 hits" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): guard not installed (t/4462 pending) -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Build
