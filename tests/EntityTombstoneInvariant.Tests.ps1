@@ -41,7 +41,8 @@ Describe 'Import-Entity writes every tombstone as deprecated (t/4450)' -Tag 'uni
     AfterEach { Remove-Item -Recurse -Force $script:dir -ErrorAction SilentlyContinue }
 
     It 'a merge with no status writes deprecated and drops the tombstone''s vector and fingerprint' {
-        $r = Import-Entity -Proposal @(@{ id = 'ent-002'; merged_into = 'ent-001' }) -Path $ent -EmbeddingsPath $emb -SkipEmbedding -Confirm:$false
+        # No -SkipEmbedding: the merge computes no embedding (deprecated), it only drops the vector.
+        $r = Import-Entity -Proposal @(@{ id = 'ent-002'; merged_into = 'ent-001' }) -Path $ent -EmbeddingsPath $emb -Confirm:$false
         $r.Status | Should -Be 'deprecated'
         $rec = (Get-Content -Raw $ent | ConvertFrom-Json).entities | Where-Object id -eq 'ent-002'
         $rec.status | Should -Be 'deprecated'
@@ -66,6 +67,23 @@ Describe 'Import-Entity writes every tombstone as deprecated (t/4450)' -Tag 'uni
         $ent = New-Store @((Ent 'ent-001' 'Canonical'), (Ent 'ent-002' 'Copy' 'approved' 'ent-001')) $dir
         (Import-Entity -Proposal @(@{ id = 'ent-002'; description = 'Edited.' }) -Path $ent -EmbeddingsPath $emb -SkipEmbedding -Confirm:$false).Status | Should -Be 'deprecated'
         { Import-Entity -Proposal @(@{ id = 'ent-002'; status = 'approved' }) -Path $ent -EmbeddingsPath $emb -SkipEmbedding -Confirm:$false } | Should -Throw -ExpectedMessage '*merge tombstone*'
+    }
+
+    It '-SkipEmbedding: a merge leaves the embeddings file byte-identical, and WARNs (t/4453)' {
+        $before = [IO.File]::ReadAllBytes($emb)
+        $w = @(Import-Entity -Proposal @(@{ id = 'ent-002'; merged_into = 'ent-001' }) -Path $ent -EmbeddingsPath $emb -SkipEmbedding -Confirm:$false 3>&1 |
+            Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+        [IO.File]::ReadAllBytes($emb) | Should -Be $before
+        @($w | Where-Object { "$_" -match 'orphan-vector' }).Count | Should -Be 1
+        ((Get-Content -Raw $ent | ConvertFrom-Json).entities | Where-Object id -eq 'ent-002').status | Should -Be 'deprecated'
+    }
+
+    It '-Path with -SkipEmbedding and no -EmbeddingsPath never touches the DEFAULT embeddings file (t/4453 incident shape)' {
+        $default = New-Emb @('ent-001', 'ent-002') (New-Item -ItemType Directory -Force (Join-Path $dir 'default')).FullName
+        $before = [IO.File]::ReadAllBytes($default)
+        Mock Get-EntityEmbeddingsFilePath -ModuleName AITriad { $default }.GetNewClosure()
+        Import-Entity -Proposal @(@{ id = 'ent-002'; merged_into = 'ent-001' }) -Path $ent -SkipEmbedding -Confirm:$false 3>$null | Out-Null
+        [IO.File]::ReadAllBytes($default) | Should -Be $before
     }
 
     It 'a non-tombstone approval is unchanged (control)' {
