@@ -5,10 +5,11 @@ import type { DebateEngineInternals } from './internals.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { type ExtendedAIAdapter } from '../aiAdapter.js';
-import { type TaxonomyRef, POVER_INFO, POV_KEYS, type PovKey, type TurnValidation } from '../types.js';
+import { type TaxonomyRef, POVER_INFO, POV_KEYS, type PovKey, type TurnValidation, type SpeakerId } from '../types.js';
 import { type TaxonomyContext, formatTaxonomyContext, computeInjectionManifest } from '../taxonomyContext.js';
 import { resolveRepoRoot, resolveDataRoot, loadSituationStatements } from '../taxonomyLoader.js';
 import { scoreNodeRelevance, scoreNodesLexical, scoreNodesViaAN, selectRelevantNodes, selectRelevantSituationNodes, buildRelevanceQuery, computePolicymakerRelevanceBoost, excludeWellTestedModeOptions, summarizeTestingSelection, type RelevanceOptions, type ANClaimEmbedding, type ScoredPovNode, filterByTopicConstraints } from '../taxonomyRelevance.js';
+import { applyTagSelection } from '../relevanceSelection.js';
 import { formatRecentTranscript } from '../helpers.js';
 import { loadGreatestHitsFile } from '../corpusCoverage.js';
 import { ActionableError } from '../errors.js';
@@ -22,6 +23,7 @@ import {
   LINEAGE_BOOST_INCREMENT,
   NON_APPROVED_EDGE_CONFIDENCE_FILTER,
   EDGE_CONTEXT_TOP_N,
+  TAG_BOOST_INCREMENT,
 } from '../debateConfig.js';
 import { loadProvisionalWeights } from '../phaseTransitions.js';
 import { cosineSimilarity } from '../../embeddings/similarity.js';
@@ -164,6 +166,15 @@ function incrementScoringModeCounters(engine: DebateEngineInternals, scoringMode
 export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, pov: string, priorRefs: string[] = []): Promise<string> {
   const ctx = getTaxonomyContext(engine, pov);
 
+  // Apply seat_tags selection: Scope narrows the candidate pool; Prioritize collects boost ids.
+  // soulResolution.ts already ran checkTagScope, so scope coverage is guaranteed.
+  const seatTag = engine.config.seat_tags?.[pov as SpeakerId];
+  const tagSelection = seatTag ? { tag: seatTag.pov_tag, mode: seatTag.tag_mode } : undefined;
+  const { filteredNodes: tagFilteredNodes, boostIds: tagBoostIds } = tagSelection
+    ? applyTagSelection(ctx.povNodes, tagSelection)
+    : { filteredNodes: ctx.povNodes, boostIds: [] as string[] };
+  const tagCtx = tagSelection ? { ...ctx, povNodes: tagFilteredNodes } : ctx;
+
   // Build the per-turn query from topic + recent transcript
   const recentTranscript = formatRecentTranscript(engine.session.transcript, 8, engine.session.context_summaries);
   const query = buildRelevanceQuery(engine.session.topic.final, recentTranscript);
@@ -227,7 +238,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
 
   // Fallback: lexical overlap (no adapter embedding available)
   if (!scores) {
-    scores = scoreNodesLexical(query, ctx.povNodes, ctx.situationNodes);
+    scores = scoreNodesLexical(query, tagCtx.povNodes, ctx.situationNodes);
     scoringMode = 'lexical';
     console.warn('[relevance] Embedding adapter unavailable — using lexical fallback (reduced precision)');
   }
@@ -248,6 +259,12 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
       const base = scores.get(id) ?? 0;
       scores.set(id, Math.max(0, base + adj));
     }
+  }
+
+  // Apply seat tag boost for Prioritize mode (Scope mode already narrowed tagCtx.povNodes above)
+  for (const id of tagBoostIds) {
+    const existing = scores.get(id);
+    if (existing !== undefined) scores.set(id, existing + TAG_BOOST_INCREMENT);
   }
 
   const relevanceOpts: RelevanceOptions = {
@@ -311,7 +328,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
     relevanceOpts.greatestHitsExclude = exclusionSet;
   }
 
-  const scoredPovRaw = selectRelevantNodes(ctx.povNodes, scores, relevanceOpts);
+  const scoredPovRaw = selectRelevantNodes(tagCtx.povNodes, scores, relevanceOpts);
 
   // Pre-compute off_scope_topic embedding vectors for semantic demotion (t/3608).
   // Falls back to keyword stems inside filterByTopicConstraints when unavailable.
@@ -338,6 +355,21 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
     offScopeVectors, offScopeVectors?.length ? engine.taxonomy.embeddings : undefined,
   );
   const scoredPov = constraintFilter.nodes;
+
+  // Warn when a Scope seat tag results in zero injected POV nodes — the turn will have empty context.
+  if (tagSelection?.mode === 'scope' && scoredPov.length === 0) {
+    engine.warn(
+      `Scope seat tag "${tagSelection.tag}" selected 0 POV nodes`,
+      null,
+      `All ${ctx.povNodes.length} nodes are untagged or scored below threshold; turn will have empty POV context`,
+    );
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'debate-engine', level: 'warn',
+      debate_id: engine.session?.id,
+      message: `Scope seat tag "${tagSelection.tag}" selected 0 POV nodes — turn has empty POV context`,
+      data: { tag: tagSelection.tag, total_nodes: ctx.povNodes.length, tagged_in_pool: tagCtx.povNodes.length },
+    });
+  }
 
   // Log what the exclude-well-tested mode did (t/1438 greatest-hits + well-tested + under-tested boost)
   const testingSelection = summarizeTestingSelection(scoredPovRaw, scoredPov);
@@ -440,6 +472,14 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
   engine._lastInjectionManifest = computeInjectionManifest(filteredCtx, pov);
   engine._lastInjectionManifest.scoring_mode = scoringMode;
   if (testingSelection) engine._lastInjectionManifest.testing_selection = testingSelection;
+  if (tagSelection) {
+    (engine._lastInjectionManifest as Record<string, unknown>).tag_selection = {
+      tag: tagSelection.tag,
+      mode: tagSelection.mode,
+      excluded_untagged: ctx.povNodes.length - tagCtx.povNodes.length,
+      tagged_selected: scoredPov.filter(s => (s.node.pov_tags ?? []).includes(tagSelection.tag)).length,
+    };
+  }
   engine._lastRelevanceScores = scores;
 
   incrementScoringModeCounters(engine, scoringMode);
@@ -452,7 +492,7 @@ export async function getRelevantTaxonomyContext(engine: DebateEngineInternals, 
       pov_nodes: scoredPov.length,
       avg_relevance: scoredPov.length > 0 ? +(scoredPov.reduce((s, n) => s + n.score, 0) / scoredPov.length).toFixed(3) : 0,
       min_relevance: scoredPov.length > 0 ? +Math.min(...scoredPov.map(n => n.score)).toFixed(3) : 0,
-      filtered_out: ctx.povNodes.length - scoredPov.length,
+      filtered_out: tagCtx.povNodes.length - scoredPov.length,
       scoring_mode: scoringMode,
     },
   });
