@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     root: '.',
     include: ['src/**/*.test.ts'],
+    setupFiles: ['./test-setup.ts'], // t/4462: data-root write guard
     environment: 'node',
   },
 });
