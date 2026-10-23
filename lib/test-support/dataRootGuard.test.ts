@@ -200,11 +200,31 @@ describe('resolveProtectedDataRoot (cond. 2)', () => {
     fs.mkdirSync(wt, { recursive: true });
     fs.writeFileSync(path.join(wt, '.aitriad.json'), JSON.stringify({ data_root: '../ai-triad-data' }));
     fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(repo(), '.git', 'worktrees', 'wt')}\n`);
-    const roots = resolveProtectedDataRoots(wt);
+    // the worktree's own root (.worktrees/ai-triad-data) doesn't exist: skipped with a WARN (amended cond. 2)
+    let roots = resolveProtectedDataRoots(wt);
+    expect(roots).toHaveLength(1);
+    expect(isUnderRoot(roots[0], root) && isUnderRoot(root, roots[0])).toBe(true); // the main checkout's
+    expect(warn.mock.calls.some(c => /ai-triad-data does not exist; skipped/.test(String(c[0])))).toBe(true);
+    // once the worktree's own root exists too, the protected set is the union
+    fs.mkdirSync(path.join(repo(), '.worktrees', 'ai-triad-data'));
+    roots = resolveProtectedDataRoots(wt);
     expect(roots).toHaveLength(2);
-    expect(isUnderRoot(roots[0], path.join(repo(), '.worktrees', 'ai-triad-data'))).toBe(true); // the worktree's own
-    expect(isUnderRoot(roots[1], root) && isUnderRoot(root, roots[1])).toBe(true);               // the main checkout's
-    expect(isUnderRoot(resolveProtectedDataRoot(wt), root)).toBe(true); // primary = the one that exists
+    expect(isUnderRoot(roots[0], path.join(repo(), '.worktrees', 'ai-triad-data'))).toBe(true);
+    expect(isUnderRoot(resolveProtectedDataRoot(wt), roots[0])).toBe(true);
+  });
+
+  it("when no configured root exists, it WARNs and protects the main checkout's default, never nothing", () => {
+    const main = path.join(base, 'nomain', 'repo');
+    const wt = path.join(main, '.worktrees', 'wt');
+    fs.mkdirSync(path.join(main, '.git', 'worktrees', 'wt'), { recursive: true });
+    fs.mkdirSync(wt, { recursive: true });
+    fs.writeFileSync(path.join(main, '.aitriad.json'), JSON.stringify({ data_root: '../missing-a' }));
+    fs.writeFileSync(path.join(wt, '.aitriad.json'), JSON.stringify({ data_root: '../missing-b' }));
+    fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(main, '.git', 'worktrees', 'wt')}\n`);
+    const roots = resolveProtectedDataRoots(wt);
+    expect(roots).toHaveLength(1);
+    expect(isUnderRoot(roots[0], path.join(base, 'nomain', 'ai-triad-data'))).toBe(true);
+    expect(warn.mock.calls.some(c => /no configured data root exists; protecting the default/.test(String(c[0])))).toBe(true);
   });
 
   it('a plain checkout (.git is a directory) protects only its own root', () => {

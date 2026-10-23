@@ -108,16 +108,33 @@ export function resolveProtectedDataRoots(startDir: string = HERE): string[] {
     console.warn(`[dataRootGuard] WARN: no .aitriad.json above ${startDir}; protecting the default ${fallback}`);
     return [canonicalPath(fallback)];
   }
-  const roots = [configuredDataRoot(repoRoot)];
   const main = mainCheckoutOf(repoRoot);
+  const candidates = [configuredDataRoot(repoRoot)];
   if (main) {
     const mainRoot = configuredDataRoot(main);
-    if (!roots.some(r => isUnderRoot(mainRoot, r) && isUnderRoot(r, mainRoot))) roots.push(mainRoot);
+    if (!candidates.some(r => isUnderRoot(mainRoot, r) && isUnderRoot(r, mainRoot))) candidates.push(mainRoot);
   }
-  return roots;
+  // Amended cond. 2 (t/4454#5): skip roots that don't exist, each with a WARN; if none exists, fall back to the
+  // main checkout's default ../ai-triad-data — never "nothing protected".
+  const roots = candidates.filter(r => fs.existsSync(r));
+  for (const r of candidates) if (!roots.includes(r)) warnOnce(`protected data root ${r} does not exist; skipped`);
+  if (roots.length > 0) return roots;
+  const fallback = canonicalPath(path.resolve(main ?? repoRoot, DEFAULT_DATA_ROOT));
+  warnOnce(`no configured data root exists; protecting the default ${fallback}`);
+  return [fallback];
 }
 
-/** The primary protected root: the first that exists on disk (the real data), else the first. */
+/** WARN once per process per message — setup files re-resolve in every worker, so don't repeat it per file. */
+const WARNED = Symbol.for('ai-triad.dataRootGuard.warned');
+function warnOnce(message: string): void {
+  const g = globalThis as { [WARNED]?: Set<string> };
+  const seen = (g[WARNED] ??= new Set<string>());
+  if (seen.has(message)) return;
+  seen.add(message);
+  console.warn(`[dataRootGuard] WARN: ${message}`);
+}
+
+/** The primary protected root: the first that exists on disk (the real data), else the fallback. */
 export function resolveProtectedDataRoot(startDir: string = HERE): string {
   const roots = resolveProtectedDataRoots(startDir);
   return roots.find(r => fs.existsSync(r)) ?? roots[0];
