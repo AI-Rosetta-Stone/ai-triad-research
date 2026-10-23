@@ -51,11 +51,16 @@ every choice here is post-data and descriptive only.
 - **Crux overlap, A1 vs A3:** a soft Jaccard over the neutral-evaluation crux descriptions, matched by MiniLM
   cosine at τ ∈ {0.75, 0.80, 0.85}. The median is **0 for the between-wing pair and for both within-wing pairs**, at every τ.
   Each debate words its cruxes in its own way, so the measure sits at its floor. **Degenerate (t/3587): uninformative.**
-- **Tagged share of cited Skeptic nodes, median per arm.** This is the cited share; the injected node ids aren't recorded.
-  - Critical share: A0 0.94, A1 0.79, A2 0.92.
-  - Institutional share: A0 0.50, A3 0.56, A4 0.55.
-  - Corpus base rates: critical 0.735, institutional 0.594.
-  - No arm shows a Scope restriction or a Prioritize lift, which is consistent with t/4438.
+- **Tagged share of Skeptic nodes, median per arm.** Corpus base rates: critical 0.735, institutional 0.594.
+  - **Injected** (the union of `transcript[].metadata.injection_manifest.povNodeIds` per debate; added 2026-10-23):
+    - critical share: A0 0.80, A1 0.74, A2 0.74;
+    - institutional share: A0 0.46, A3 0.61, A4 0.50.
+    - A working Scope filter would give 1.0 for A1 and A3. This is the direct evidence for t/4438.
+  - **Cited** (from the Skeptic turns' `taxonomy_refs`):
+    - critical share: A0 0.94, A1 0.79, A2 0.92;
+    - institutional share: A0 0.50, A3 0.56, A4 0.55.
+  - Neither measure shows a Scope restriction or a Prioritize lift.
+  - *Correction:* the first version of this file said injected ids aren't recorded. They are (t/4438#5).
 - **Boost check (`TAG_BOOST_INCREMENT`):** **not measurable.** The boost never runs in debates. The register entry stays
   **stipulated**, with a note.
 
@@ -71,6 +76,6 @@ These were flagged in advance (#5, #6): 6 debater turns is a thin base for these
 
 ## What would answer the t/3932 question
 
-1. **t/4438:** make seat tags drive per-turn debate selection, and record the injected node ids per turn.
+1. **t/4438:** make seat tags drive per-turn debate selection. Injected ids are already recorded per turn.
 2. **A re-run** at adaptive or longer pacing, so there are more than 2 Skeptic turns. Within-wing pairs could stay true
    replicates, which gives a clean noise floor. **That's a new PI spend ask; nothing here authorises it.**

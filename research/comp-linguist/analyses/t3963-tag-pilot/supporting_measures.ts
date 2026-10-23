@@ -11,8 +11,9 @@
  *    MiniLM cosine is >= tau (greedy, one to one). Soft Jaccard = matches / (|A| + |B| - matches).
  *    It's reported at tau = 0.75, 0.80 and 0.85, for the between-wing pair (A1, A3) and, as its noise
  *    reference, the within-wing pairs (A1, A2) and (A3, A4).
- *  - Tagged share. This is a CITED share, not an injected one: the debate file records only the count
- *    of injected Skeptic nodes, not their ids. A debate's Skeptic set is the unique skp-* node ids in
+ *  - Tagged share. This is a CITED share. (Injected ids ARE recorded, in
+ *    transcript[].metadata.injection_manifest.povNodeIds; RESULTS.md reports the injected share, computed
+ *    from them, alongside this one. t/4438#5.) A debate's cited Skeptic set is the unique skp-* node ids in
  *    the taxonomy_refs of its Skeptic turns. A node counts as tagged if its pov_tags include the tag;
  *    nodes carrying both tags count for both.
  *  - Boost check. For each wing: the Prioritize arm's tagged share against A0 (the boost does nothing)
