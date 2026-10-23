@@ -28,8 +28,8 @@
 #                       from t/4285 condition 2; t/4273 showed the known-good tag can silently
 #                       fail to apply, so the tag is NOT authoritative). The timestamp for the
 #                       batching window comes from the `deploy-azure.yml` run matching that SHA
-#                       (falls back to unknown/null if no matching run is found -- fails open
-#                       toward would-dispatch, same as a cold start, never toward a false hold).
+#                       (if no matching run is found, that's hold-batch-timestamp-unknown -- TL
+#                       ruling p/331#2352: an unknown timestamp never satisfies the batch floor).
 #   - Deployable path: reuses ci.yml's own soundness-reviewed path-filter definitions
 #                       (container / bicep-env / bicep-resources), re-run here via dorny/paths-filter
 #                       against this specific green commit -- no new path-filter logic invented.
