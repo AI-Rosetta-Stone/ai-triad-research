@@ -262,7 +262,10 @@ export default defineConfig({
     ],
     globals: false,
     environment: 'jsdom',
-    setupFiles: ['./test-setup.ts'],
+    // future-clock-setup.ts (t/4279) is a no-op unless FUTURE_CLOCK_OFFSET_DAYS is set —
+    // only the weekly future-clock-weekly.yml workflow sets it, so this is a no-op on every
+    // other run (PR, push, local dev).
+    setupFiles: ['./test-setup.ts', './future-clock-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],
