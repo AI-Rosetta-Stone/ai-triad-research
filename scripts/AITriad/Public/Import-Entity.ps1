@@ -242,6 +242,8 @@ function Import-Entity {
         foreach ($fld in @(
             @{ k = 'aliases';       d = @() },
             @{ k = 'source_refs';   d = @() },
+            @{ k = 'source_refs_basis';  d = $null },   # t/4404: { doc_id -> basis }
+            @{ k = 'source_refs_status'; d = $null },   # t/4404: attributed | none-matched
             @{ k = 'external_refs'; d = @() },
             @{ k = 'discovered_by'; d = $null },
             @{ k = 'confidence';    d = $null }
