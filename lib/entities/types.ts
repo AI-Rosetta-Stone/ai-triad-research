@@ -174,8 +174,9 @@ export interface Entity {
   source_refs?: string[];         // doc_ids
   /** Per doc in `source_refs`, why it is there (t/4404): 'quote-attributed' (its facts hold the entity's
    *  supporting quote), 'mention-verified' (its snapshot names the entity), or the recall steps
-   *  'mention-verified-loose' / 'summary-mention'. Written by Invoke-EntityExtraction. Branching reader:
-   *  none yet in TS; PS Get-EntityReport reads only `source_refs_status`. */
+   *  'mention-verified-loose' / 'summary-mention'. Written by Invoke-EntityExtraction. NO consumer branches
+   *  on it (PS Get-EntityReport reads only `source_refs_status`). THE EXEMPTION LAPSES the moment a consumer
+   *  branches on it: that first branching reader is a T1 change. */
   source_refs_basis?: Record<string, 'quote-attributed' | 'mention-verified' | 'mention-verified-loose' | 'summary-mention'>;
   /** 'none-matched' = attribution checked every listed doc and none holds the quote or names the entity, so
    *  `source_refs` is empty on purpose; absent = not computed (pre-t/4404). Branching reader: PS
