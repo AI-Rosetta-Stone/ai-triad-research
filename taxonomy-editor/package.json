@@ -101,7 +101,7 @@
     "cross-env": "^10.1.0",
     "dependency-cruiser": "^18.6.0",
     "electron": "^45.0.0",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^26.16.0,
     "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "jsdom": "^30.1.2",
