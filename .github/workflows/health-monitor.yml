@@ -40,6 +40,11 @@ env:
 jobs:
   health-check:
     runs-on: ubuntu-latest
+    # t/4340 step 2: the real OIDC fix. The federated credential for this job's identity
+    # (github-ai-triad-monitor) is subject-scoped to `environment:monitoring` -- without this key
+    # every login attempt fails AADSTS700213 regardless of which secrets are passed. Step-1
+    # (continue-on-error below) only masked that; this is what actually fixes it.
+    environment: monitoring
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -48,9 +53,9 @@ jobs:
         continue-on-error: true  # t/4340: a login failure must not take down the HTTP probe below
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.MONITOR_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.MONITOR_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.MONITOR_AZURE_SUBSCRIPTION_ID }}
 
       - name: Check health and data endpoints
         id: health
@@ -388,13 +393,17 @@ jobs:
     # away while a deploy hold is active. This detects that drift directly against live Azure and
     # escalates if it persists, since nothing actually reverts it automatically.
     runs-on: ubuntu-latest
+    # t/4340 step 2 (same fix as health-check above): federated credential is subject-scoped to
+    # `environment:monitoring`. This job has no continue-on-error on its login step, so the same
+    # mismatch that health-check silently masked surfaces here as a hard job failure.
+    environment: monitoring
     steps:
       - name: Log in to Azure
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.MONITOR_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.MONITOR_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.MONITOR_AZURE_SUBSCRIPTION_ID }}
 
       - name: Check staging's live size against its small-footprint default
         id: sizecheck
