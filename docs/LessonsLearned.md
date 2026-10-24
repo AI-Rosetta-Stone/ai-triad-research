@@ -52,6 +52,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-22 — PowerShell (p/20#106, t/4404): `pwsh -Command "…"` from Git Bash failed "unexpected EOF looking for matching backtick" — a backtick escape (`` `$ ``) inside a bash double-quoted string. Fixed by editing the file with the Edit tool instead of an inline command. 4th recurrence of the `pwsh -Command` + backtick sub-pattern.
 - 2026-10-22 — PowerShell (p/20#108, t/4404): 5th recurrence of the same sub-pattern minutes later, while applying a "just one replace" fix. Resolved using the Edit tool. Reinforces that the inline `pwsh -Command` form with any backtick or `$` is risky even for small edits.
 - 2026-10-23 — PowerShell (p/20#112): 6th recurrence — backtick-escaped PS variable (`` `$null ``) inside `pwsh -Command "…"` double quotes. Bash treated the backtick as command substitution → "unexpected EOF." Moved to a `.ps1` file written with a quoted heredoc, ran `pwsh -File`.
+- 2026-10-23 — PowerShell (p/20#114): 7th recurrence — markdown backticks inside `gh pr comment --body "…"` double quotes. Entire Bash line failed to parse before `gh` ran. Wrote comment to file, used `--body-file`. Confirmed no-op step was needed after fixing the command.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -63,9 +64,9 @@ Institutional memory for failure patterns across the AI Triad Research project.
 5. Prefer the Edit/Write tools over Bash heredocs for file creation/modification.
 6. For git commits: use `git commit -F <tmpfile> -- <paths>` — write message to temp file, and always place flags before the `--` separator.
 7. **For any non-trivial PowerShell, prefer `pwsh -File <script.ps1>` over inline `pwsh -Command "..."`** (p/20#23). The moment the PS carries backtick escapes (`` `n ``, `` `t ``), nested quotes, or `$` refs, the inline form fights two parsers (bash then pwsh); a temp `.ps1` + `-File` sidesteps both. This is the ADR-004 "write to a file, then run it" remedy applied to PS specifically.
-8. **For `gh pr comment`/`gh issue comment` with multi-line or markdown-rich bodies, use `--body-file <path>` — never inline the body in a heredoc.** Write the body with the Write tool first, then pass the path. The same ADR-004 discipline that applies to `-F` for git commit messages and `-File` for PS scripts applies here: `gh` CLI provides the `--body-file` escape hatch for exactly this reason.
+8. **For `gh pr comment`/`gh issue comment` with multi-line or markdown-rich bodies, use `--body-file <path>` — never inline the body in a heredoc.** Write the body with the Write tool first, then pass the path. The same ADR-004 discipline that applies to `-F` for git commit messages and `-File` for PS scripts applies here: `gh` CLI provides the `--body-file` escape hatch for exactly this reason. **Now advisory-guarded by `gh-body-backtick-dquote` (t/4466, 2026-10-23)** — fires on a backtick inside double-quoted `--body`/`-b` for `gh pr|issue comment|create|edit|review|close|merge|reopen` in Bash and PowerShell. Gaps not covered: `gh api -f body=`, backticks in `--title`, `$` inside `--body "…"`.
 
-**Status:** Resolved — AGENTS.md rule broadened to cover both file editing and script execution (p/8#14). Original rule from q/4 now includes: write scripts to temp files with Write tool, then execute via Bash. Prevention #7 (`pwsh -File`) added 2026-07-17 (p/20#23). Prevention #8 (`gh --body-file`) added 2026-10-03 (p/20#59). Both are durable instance-triggered refinements of ADR-004.
+**Status:** Resolved — AGENTS.md rule broadened to cover both file editing and script execution (p/8#14). Original rule from q/4 now includes: write scripts to temp files with Write tool, then execute via Bash. Prevention #7 (`pwsh -File`) added 2026-07-17 (p/20#23). Prevention #8 (`gh --body-file`) added 2026-10-03 (p/20#59). Both are durable instance-triggered refinements of ADR-004. **Now advisory-guarded:** `pwsh-command-dquote-expansion` (t/4465, 2026-10-23) fires on double-quoted `-Command` bodies with unescaped `$` or backtick; `gh-body-backtick-dquote` (t/4466, 2026-10-23) fires on backtick in double-quoted `--body` for gh subcommands. Both warn-only, workspace-wide.
 
 **Applies To:** All agents using Bash heredocs to run or generate code with nested quoting across languages.
 
@@ -2755,7 +2756,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 2. **When `git worktree add` fails, the branch may already exist** — clean up before retrying: `git branch -D <branch>` (to drop the orphaned branch) + `git worktree prune` (to clear any stale administrative ref), then retry with the corrected base.
 3. Discriminator for root cause: if a file you know just merged to origin is absent in a fresh worktree, the worktree is almost certainly based on stale local `main`. Verify: `git log --oneline <branch>..origin/main` — any output means the worktree is behind.
 
-**Status:** Active — 1 instance (Computational Linguist e/233). Both facets (stale base ref + orphaned branch on failed add) documented.
+**Status:** Active — 2 instances (Computational Linguist e/233; SummaryViewer p/385#5 — worktree from shared checkout at `4e67ae96`, missed helper merged as `6af2a8a0`; fixed by `git stash -u`, `git rebase origin/main`, `git stash pop`).
 
 **Applies To:** All agents using `git worktree add` — especially in the `/land-from-worktree` flow where the correct form (`origin/main`) is prescribed; deviation to bare `main` is the failure vector.
 
@@ -3674,6 +3675,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-08-08 — DevOps (p/26#70): `gh pr create` run from the shared checkout without `--head` aborted on uncommitted changes (other agents' WIP in the shared tree). Fix: added `--head <branch>` explicitly.
 - 2026-09-28 — DebateUI (p/689#1, **HEAD-switched variant**): branch already pushed, but another concurrent agent had switched shared HEAD to `main` between the push and `gh pr create`. CLI defaulted to `main`, errored "you must first push the current branch." Fix: `--head <my-branch>` explicitly.
 - 2026-10-02 — ServerAPI (p/504#16, **v1 repeat**): `gh pr create` without `--head` aborted — "94 uncommitted changes / must first push." The 94 files were other agents' untracked WIP on the shared tree, not the ServerAPI branch. Fix: pass `--head feat/branch --base main` explicitly.
+- 2026-10-24 — SummaryViewer (p/385#5): `gh pr create` run from repo root (not the worktree) — gh picked up the shared checkout's untracked files and aborted "you must first push the current branch." Fix: ran `gh pr create` from inside the worktree directory.
 
 **Root Cause:** `gh pr create` without `--head` infers the head branch from the current local state. In the shared checkout, two failure variants exist: **(v1)** other agents' uncommitted changes trigger the "uncommitted changes" abort; **(v2)** another agent's checkout switches HEAD mid-flight, so the CLI targets the wrong (now-current) branch entirely. Both are instantaneous local-state races invisible to the PR author.
 
@@ -5283,7 +5285,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 9 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 10 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -6234,7 +6236,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 7 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path).
+**Status:** Active — 8 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -7252,3 +7254,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (t/4453, TL p/335#182).
 
 **Applies To:** All agents writing Pester or vitest tests for data-writing helpers; t/4454 is the platform backstop — treat an unpinned data root as the diagnostic to check when unexpected corpus writes appear.
+
+---
+
+## #358 [Build] `xargs` Exits 123 When a Sub-Invocation Returns Non-Zero — Informational When the Sub-Command Is `grep`
+
+**Pattern:** An agent pipes `grep -l … | xargs grep -l …`. The pipeline exits 123. The agent treats this as a tool error and stops. `xargs` exit 123 means "at least one sub-invocation returned non-zero" — it propagates a non-zero exit from the sub-command. When the sub-command is `grep`, exit 1 is "no match" (not an error), so `xargs` exit 123 = "grep found nothing in the piped files." This is informational, not a failure.
+
+**Instances:**
+- 2026-10-22 — DevOps Lead (p/26#258): `grep -l … | xargs grep -l …` exited 123. The first grep found some files; the second grep found nothing in them — confirming the searched scripts are not module-exported. No fix needed; exit 123 was the correct signal.
+
+**Root Cause:** `xargs` exit codes: 0 = all sub-invocations succeeded, 123 = at least one sub-invocation exited non-zero (but `xargs` itself ran), 124 = sub-command exited 255 (abort), 125 = `xargs` itself failed, 126/127 = cannot exec sub-command. When the sub-command is grep (exit 1 = no match), `xargs` faithfully reports that non-zero as 123. Same exit-code-literacy family as #356 (diff), #355 (grep), #73.
+
+**Prevention:**
+1. **`xargs` exit 123 after a `grep` pipeline = grep found nothing** — informational. Inspect the grep output (or lack thereof) to confirm, then continue.
+2. **In scripts, treat `xargs` exit codes 0 and 123 as "ran successfully"** when the sub-command is grep; reserve 124–127 as real errors.
+3. **"No output + exit 123" from `… | xargs grep -l …`** is the expected "none found" result — not a broken pipeline.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#258).
+
+**Applies To:** All agents using `xargs` with `grep` sub-commands; exit 123 = "grep found nothing" (informational), not a pipeline failure.
+
+---
+
+## #359 [Build] `find … -maxdepth N -iname … -o -iname …` Without Grouping Parens Produces a Malformed Expression — Use `\( … \)` or Two Separate `find` Calls
+
+**Pattern:** An agent writes `find <dir> -maxdepth N -iname "pat1" -o -iname "pat2"`. The command exits 2 ("malformed expression"). Without explicit grouping, `-maxdepth` only modifies the first `-iname` test — the `-o` breaks the implicit AND chain and produces an expression `find` cannot parse as written.
+
+**Instances:**
+- 2026-10-22 — DevOps Lead (p/26#262): `find taxonomy-editor -maxdepth 2 -iname "vite*.config.*" -o -iname "vitest*.config.*"` exited 2. Resolved by switching to `grep -rl` for the actual goal (confirming file content), making the `find` expression moot.
+
+**Root Cause:** `find` evaluates its expression with implicit AND between consecutive primaries. `-o` (OR) breaks that chain at a lower precedence than `-maxdepth`. Without `\( … \)` grouping, the parser sees `-maxdepth N -iname "pat1"` as one sub-expression ORed with `-iname "pat2"` (ungrouped, no depth limit) — which is malformed with the leading options.
+
+**Prevention:**
+1. **When combining multiple `-iname`/`-name` tests with `-o`, wrap each group in `\( … \)`:** `find <dir> -maxdepth N \( -iname "pat1" -o -iname "pat2" \)`.
+2. **Alternative:** run two separate `find` commands and combine results, or use `grep -rl "pattern" <dir>` when you're really after content rather than filenames.
+3. **`find` exit 2 = malformed expression** — check grouping and operator precedence before assuming the path or pattern is wrong.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#262).
+
+**Applies To:** All agents writing `find` commands with `-o`; always group `-iname`/`-name` alternatives with `\( … \)` when combined with depth or type modifiers.
