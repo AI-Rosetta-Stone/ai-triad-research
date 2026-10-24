@@ -907,7 +907,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "1.57.0",
+      "version": "1.61.0",
       "license": "ISC"
     },
     {
@@ -1477,7 +1477,7 @@
     },
     {
       "name": "undici",
-      "version": "6.29.0",
+      "version": "6.29.1",
       "license": "MIT"
     },
     {
@@ -3039,7 +3039,7 @@
       "packages": [
         {
           "name": "lucide-react",
-          "version": "1.57.0"
+          "version": "1.61.0"
         }
       ],
       "licenseType": "ISC",
@@ -3517,7 +3517,7 @@
         },
         {
           "name": "undici",
-          "version": "6.29.0"
+          "version": "6.29.1"
         }
       ],
       "licenseType": "MIT",
