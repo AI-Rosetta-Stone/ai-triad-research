@@ -15,7 +15,8 @@
         - title agreement that is only weak (a null or arXiv-id title on a side) needs a second
           signal (a near-equal snapshot or the same normalized URL), else review (condition 2);
         - a blob shared by 3+ docs is accepted only when every doc sharing it is in the group (or is
-          a human-reviewed doc joining it) and their non-weak titles agree; else review. Every 3+
+          a human-reviewed doc joining it) and their non-weak titles agree, with AT LEAST ONE non-weak title
+          among them (SO e/348#12: all-null / all-arXiv-id agreement is vacuous); else review. Every 3+
           blob is recorded (docs, group, titles) for the recount (TL e/348#10);
         - a damaged or materially shorter canonical snapshot -> review: overriding the C6 canonical
           needs a decision and may re-point applied marks (condition 3);
@@ -125,11 +126,18 @@ function Get-T4405MarkPlan {
                 $outside = @($docs | Where-Object { -not $groupSet.Contains($_) })
                 $strong = @($docs | Where-Object { -not $TitleWeak[$_] -and $TitleKey[$_] -and -not $Human.ContainsKey($_) })
                 $disagree = @($strong | Where-Object { -not (& $titlesAgree ([string]$TitleKey[$_]) ([string]$TitleKey[$strong[0]])) })
-                $ok = $outside.Count -eq 0 -and $disagree.Count -eq 0
+                # SO e/348#12: agreement must not be vacuous. At least one sharer needs a real (non-null, non-arXiv-id,
+                # non-human-reviewed) title; an all-weak set is the .DS_Store shape with a bigger file -> review.
+                $ok = $outside.Count -eq 0 -and $strong.Count -ge 1 -and $disagree.Count -eq 0
                 if (-not $blobs.Contains($blob)) {
                     $blobs[$blob] = [pscustomobject]@{ blob = $blob; docs = $docs; group = $canon; titles = [string[]]@($docs | ForEach-Object { [string]$TitleKey[$_] }); accepted = $ok }
                 }
-                if (-not $ok) { $blobOk = $false; & $addReview $canon $m $(if ($outside.Count) { 'blob-shared-outside-group' } else { 'blob-sharers-titles-disagree' }); break }
+                if (-not $ok) {
+                    $blobOk = $false
+                    $why = if ($outside.Count) { 'blob-shared-outside-group' } elseif ($strong.Count -eq 0) { 'blob-sharers-no-real-title' } else { 'blob-sharers-titles-disagree' }
+                    & $addReview $canon $m $why
+                    break
+                }
             }
             if (-not $blobOk) { continue }
             if ($CanonicalSuspect.ContainsKey($canon)) { & $addReview $canon $m "canonical-override-needs-decision: $($CanonicalSuspect[$canon])"; continue }

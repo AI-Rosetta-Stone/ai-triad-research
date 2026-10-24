@@ -83,6 +83,23 @@ Describe 'Get-T4405MarkPlan' -Tag 'data-mutation' {
         @($p.Marks).Count | Should -Be 5
     }
 
+    It 'sends a 3+ blob whose sharers have NO real title to review: vacuous agreement (SO e/348#12)' {
+        # All three titles are weak (empty / arXiv ids); each pair has a second signal, so only the 3+ guard can hold them.
+        $raw = @{ 'z' = @('big'); 'z-1' = @('big'); 'z-2' = @('big') }
+        $title = @{ 'z' = ''; 'z-1' = '2301 00001v1'; 'z-2' = '' }
+        $weak = @{ 'z' = $true; 'z-1' = $true; 'z-2' = $true }
+        $signal = @{ 'z|z-1' = $true; 'z|z-2' = $true }
+        $p = Plan @(G 'z' @('z-1', 'z-2')) $raw -Title $title -Weak $weak -Signal $signal
+        @($p.Marks).Count | Should -Be 0
+        @($p.Review | ForEach-Object reason | Sort-Object -Unique) | Should -Be @('blob-sharers-no-real-title')
+        $p.Blobs[0].accepted | Should -BeFalse
+        # One real title among the sharers is enough (and it agrees with nothing it contradicts): accepted.
+        $title2 = @{ 'z' = 'the real work'; 'z-1' = '2301 00001v1'; 'z-2' = '' }
+        $p2 = Plan @(G 'z' @('z-1', 'z-2')) $raw -Title $title2 -Weak @{ 'z-1' = $true; 'z-2' = $true } -Signal $signal
+        @($p2.Marks | ForEach-Object id) | Should -Be @('z-1', 'z-2')
+        $p2.Blobs[0].accepted | Should -BeTrue
+    }
+
     It 'sends a 3+ blob whose sharers'' titles disagree to review' {
         $raw = @{ 'a' = @('s'); 'a-1' = @('s'); 'a-2' = @('s') }
         $p = Plan @(G 'a' @('a-1', 'a-2')) $raw -Title @{ 'a' = 'one work'; 'a-1' = 'one work'; 'a-2' = 'another work entirely' }
