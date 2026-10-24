@@ -37,23 +37,33 @@ Describe 'Test-run write check (t/4454)' -Tag 'unit' {
 
     It 'WARNs with the fixed token, the real target and the caller for a write under the protected root' {
         $target = Join-Path $real 'taxonomy' 'Origin' 'entities.json'
-        $w = @(Get-Warnings { & (Get-Module AITriad) { param($p) Invoke-DataRootTestWriteCheck -Path $p } $target })
+        $w = @(Get-Warnings { & (Get-Module AITriad) { param($p) Invoke-DataRootTestWriteCheck -ReportOnly -Path $p } $target })
         @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE target=*' }).Count | Should -Be 1
         $w[0] | Should -BeLike "*target=$([IO.Path]::GetFullPath($target))*"
         $w[0] | Should -BeLike '*caller=DataRootTestWrite.Tests.ps1:*'
     }
 
-    It 'fires through the funnel itself (Assert-DataWriteAllowed), before the -AllowDirty / -SurgicalWrite exemptions' {
+    It 'the funnel (Assert-DataWriteAllowed) REFUSES, before the -AllowDirty / -SurgicalWrite exemptions (Phase 2)' {
         $target = Join-Path $real 'taxonomy' 'Origin' 'entities.json'
         foreach ($sw in @(@{}, @{ AllowDirty = $true }, @{ SurgicalWrite = $true })) {
-            $w = Get-Warnings { & (Get-Module AITriad) { param($p, $s) Assert-DataWriteAllowed -Path $p @s } $target $sw }
-            @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE*' }).Count | Should -Be 1 -Because "switches: $($sw.Keys -join ',')"
+            { & (Get-Module AITriad) { param($p, $s) Assert-DataWriteAllowed -Path $p @s 3>$null } $target $sw } |
+                Should -Throw -ExpectedMessage '*DATA-ROOT-TEST-WRITE target=*' -Because "switches: $($sw.Keys -join ',')"
         }
+    }
+
+    It 'a real funnel writer (Write-Utf8NoBom) is refused and the file never reaches disk (Phase 2)' {
+        $target = Join-Path $real 'taxonomy' 'Origin' 'situations.json'
+        { & (Get-Module AITriad) { param($p) Write-Utf8NoBom -Path $p -Value '{}' 3>$null } $target } | Should -Throw -ExpectedMessage '*Keep test runs from writing the real data repo*'
+        Test-Path -LiteralPath $target | Should -BeFalse
+        # The same writer to a temp root is untouched by the check.
+        $tmp = Join-Path $base 'tmp-root'; New-Item -ItemType Directory -Force $tmp | Out-Null
+        & (Get-Module AITriad) { param($p) Write-Utf8NoBom -Path $p -Value '{}' 3>$null } (Join-Path $tmp 'situations.json')
+        Test-Path -LiteralPath (Join-Path $tmp 'situations.json') | Should -BeTrue
     }
 
     It 'is silent for a write outside the protected root, including a sibling that shares its prefix' {
         foreach ($p in @((Join-Path $base 'elsewhere' 'x.json'), (Join-Path $base 'ai-triad-data2' 'x.json'))) {
-            $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -Path $t } $p }
+            $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -ReportOnly -Path $t } $p }
             @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE*' }).Count | Should -Be 0 -Because $p
         }
     }
@@ -61,10 +71,10 @@ Describe 'Test-run write check (t/4454)' -Tag 'unit' {
     It 'a temp AI_TRIAD_DATA_ROOT writes freely; pointing it AT the real root is still caught (condition 3)' {
         $tmp = Join-Path $base 'tmp-root'; New-Item -ItemType Directory -Force $tmp | Out-Null
         $env:AI_TRIAD_DATA_ROOT = $tmp
-        $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -Path $t } (Join-Path $tmp 'entities.json') }
+        $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -ReportOnly -Path $t } (Join-Path $tmp 'entities.json') }
         @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE*' }).Count | Should -Be 0
         $env:AI_TRIAD_DATA_ROOT = $real
-        $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -Path $t } (Join-Path $real 'entities.json') }
+        $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -ReportOnly -Path $t } (Join-Path $real 'entities.json') }
         @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE*' }).Count | Should -Be 1
     }
 
@@ -73,13 +83,13 @@ Describe 'Test-run write check (t/4454)' -Tag 'unit' {
         $type = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
         New-Item -ItemType $type -Path $link -Target $real | Out-Null
         foreach ($p in @((Join-Path $link 'taxonomy' 'Origin' 'entities.json'), (Join-Path $real 'taxonomy' 'Origin' 'entities.json'))) {
-            $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -Path $t } $p }
+            $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -ReportOnly -Path $t } $p }
             @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE*' }).Count | Should -Be 1 -Because $p
         }
         # And a protected root that is ITSELF reached through the link resolves to the same real root.
         $linkRoot = $link
         Mock Get-DataRoot -ModuleName AITriad -ParameterFilter { $IgnoreEnvOverride } { $linkRoot }.GetNewClosure()
-        $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -Path $t } (Join-Path $real 'entities.json') }
+        $w = Get-Warnings { & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -ReportOnly -Path $t } (Join-Path $real 'entities.json') }
         @($w | Where-Object { $_ -like 'DATA-ROOT-TEST-WRITE*' }).Count | Should -Be 1
     }
 
@@ -121,7 +131,7 @@ Describe 'Test-run write check (t/4454)' -Tag 'unit' {
     It 'appends the line to AITRIAD_DATA_ROOT_TEST_WRITE_LOG when set (the CI job-summary contract)' {
         $log = Join-Path $base 'hits.log'
         $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $log
-        $null = & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -Path $t 3>$null } (Join-Path $real 'entities.json')
+        $null = & (Get-Module AITriad) { param($t) Invoke-DataRootTestWriteCheck -ReportOnly -Path $t 3>$null } (Join-Path $real 'entities.json')
         (Get-Content -LiteralPath $log) | Should -BeLike 'DATA-ROOT-TEST-WRITE target=*'
     }
 
@@ -136,7 +146,7 @@ Import-Module '$mod' -Force -WarningAction SilentlyContinue
 & (Get-Module AITriad) {
     `$t = Join-Path (Get-DataRoot -IgnoreEnvOverride) 'entities.json'
     `$under = Test-PathUnderRoot -RealPath (Resolve-DataRealPath -Path `$t) -RealRoot (Get-ProtectedDataRoot)
-    `$r = @(Invoke-DataRootTestWriteCheck -Path `$t 3>&1)
+    `$r = @(Invoke-DataRootTestWriteCheck -ReportOnly -Path `$t 3>&1)
     "under=`$under fired=`$(@(`$r | Where-Object { `$_ -is [bool] -and `$_ }).Count) warns=`$(@(`$r | Where-Object { `$_ -is [System.Management.Automation.WarningRecord] }).Count)"
 }
 "@
@@ -162,7 +172,7 @@ Describe 'Test-run write check is LIVE in this environment (t/4454 positive cont
         $scratch = Join-Path ([IO.Path]::GetTempPath()) ("t4454-pc-" + [guid]::NewGuid().ToString('N') + '.log')
         try {
             $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $scratch
-            $out = @(& (Get-Module AITriad) { param($p) Invoke-DataRootTestWriteCheck -Path $p } $probe 3>&1)
+            $out = @(& (Get-Module AITriad) { param($p) Invoke-DataRootTestWriteCheck -ReportOnly -Path $p } $probe 3>&1)
         } finally {
             $env:AITRIAD_DATA_ROOT_TEST_WRITE_LOG = $saved
             Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
