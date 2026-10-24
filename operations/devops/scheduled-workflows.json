@@ -16,6 +16,7 @@
     { "file": "doc-platform-drift.yml",       "maxSilentHours": 60  },
     { "file": "embed-drift-weekly.yml",       "maxSilentHours": 348 },
     { "file": "environment-branch-policy-check.yml", "maxSilentHours": 24 },
+    { "file": "future-clock-weekly.yml",       "maxSilentHours": 348 },
     { "file": "ghcr-cleanup.yml",             "maxSilentHours": 348 },
     { "file": "health-monitor.yml",           "maxSilentHours": 12  },
     { "file": "key-pool-health.yml",          "maxSilentHours": 60  },
