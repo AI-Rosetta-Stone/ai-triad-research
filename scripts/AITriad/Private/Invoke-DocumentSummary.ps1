@@ -222,14 +222,21 @@ function Invoke-ChunkedSummary {
     $DocHeader = Build-DocHeader -Doc $Doc -Meta $Meta -ThisDocId $ThisDocId
 
     # -- Pre-compute all chunk RAG query embeddings in ONE batch subprocess ----
-    # Get-RelevantTaxonomyNodes embeds the query via a cold ~6s model-load per
-    # call; batching all chunk queries up front loads the model once. Queries are
-    # truncated to 2000 chars to match Get-RelevantTaxonomyNodes' own truncation.
-    $ChunkQueryTexts = [System.Collections.Generic.List[string]]::new()
+    # Get-RelevantTaxonomyNodes embeds the query via a cold ~6s model-load per call; batching up front loads the
+    # model once. Each chunk's query covers the WHOLE chunk (t/4468): it is split into <=900-char windows
+    # (back-matter sections dropped) and every window of every chunk is embedded in this one call. Previously the
+    # query was the chunk's first 2000 chars, so candidates reflected only its opening ~3%.
+    $ChunkWindows = [System.Collections.Generic.List[string[]]]::new()
+    $AllWindowTexts = [System.Collections.Generic.List[string]]::new()
+    $WindowsSkippedTotal = 0
     foreach ($Ck in $Chunks) {
-        if ($Ck.Length -gt 2000) { $ChunkQueryTexts.Add($Ck.Substring(0, 2000)) } else { $ChunkQueryTexts.Add($Ck) }
+        $Split = Split-RagQueryWindows -Text $Ck
+        $ChunkWindows.Add([string[]]$Split.Windows)
+        $WindowsSkippedTotal += $Split.SkippedSections
+        foreach ($W in $Split.Windows) { $AllWindowTexts.Add($W) }
     }
-    $ChunkQueryEmb = Invoke-BatchEmbeddings -Texts $ChunkQueryTexts.ToArray()
+    if ($WindowsSkippedTotal -gt 0) { Write-Verbose "  RAG query: skipped $WindowsSkippedTotal back-matter section(s) across $ChunkCount chunks" }
+    $ChunkQueryEmb = Invoke-BatchEmbeddings -Texts $AllWindowTexts.ToArray()
 
     # -- Process each chunk sequentially (API rate limits) --------------------
     $StartTime = Get-Date
@@ -250,11 +257,14 @@ function Invoke-ChunkedSummary {
         $ChunkTaxonomy = $null
         $script:LastRAGMetrics = $null
         try {
-            # Use the pre-computed (batched) query vector when available; falls
-            # back to an in-call encode if the batch produced no vector for it.
-            if ($ChunkText.Length -gt 2000) { $ChunkQueryText = $ChunkText.Substring(0, 2000) } else { $ChunkQueryText = $ChunkText }
-            if ($ChunkQueryEmb.ContainsKey($ChunkQueryText)) { $ChunkQVec = $ChunkQueryEmb[$ChunkQueryText] } else { $ChunkQVec = @() }
-            $ChunkRelevant = Get-RelevantTaxonomyNodes -Query $ChunkText -QueryVector $ChunkQVec `
+            # The pre-computed (batched) window vectors for this chunk; when the batch produced none,
+            # Get-RelevantTaxonomyNodes windows and embeds -Query itself (and WARNs if it has to fall back).
+            $ChunkQVecs = [System.Collections.Generic.List[object]]::new()
+            foreach ($W in $ChunkWindows[$i]) { if ($ChunkQueryEmb.ContainsKey($W)) { $ChunkQVecs.Add([double[]]$ChunkQueryEmb[$W]) } }
+            if ($ChunkQVecs.Count -lt @($ChunkWindows[$i]).Count -and $ChunkQVecs.Count -gt 0) {
+                Write-Warning "  Chunk $ChunkNum`: $(@($ChunkWindows[$i]).Count - $ChunkQVecs.Count) of $(@($ChunkWindows[$i]).Count) RAG query windows got no embedding; scoring the rest (t/4468)."
+            }
+            $ChunkRelevant = Get-RelevantTaxonomyNodes -Query $ChunkText -QueryVectors $ChunkQVecs.ToArray() `
                 -MaxTotal 150 -TopK 60 -MinPerCategory 2 `
                 -IncludeSituations -Format context -ApiKey $ApiKey
             if ($ChunkRelevant) {

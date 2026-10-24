@@ -113,7 +113,11 @@ function Invoke-SummaryPipeline {
             Write-Verbose "Pipeline: CHESS classified POVs: $($RelevantPovs -join ', ')"
 
             $AllPovs = @('accelerationist', 'safetyist', 'skeptic')
-            $TaxonomyJson = Get-RelevantTaxonomyNodes -Query $QueryText `
+            # The RAG query covers the WHOLE document (t/4468): Get-RelevantTaxonomyNodes windows and embeds it.
+            # It used to be $QueryText (title + first 500 words). CHESS above still classifies on the 500 words
+            # (separate stage, follow-up t/4477).
+            $RagQueryText = "$($Metadata.title). $SnapshotText"
+            $TaxonomyJson = Get-RelevantTaxonomyNodes -Query $RagQueryText `
                 -MaxTotal $RagMaxTotal -MinPerCategory 3 `
                 -POV $AllPovs -IncludeSituations -Format context `
                 -CrossEncoderRerank:$CrossEncoderRerank
