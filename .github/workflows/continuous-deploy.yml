@@ -287,6 +287,14 @@ jobs:
           "@ >> $env:GITHUB_STEP_SUMMARY
 
       # ── Gate-signal integrity (TL ruling, e/358#2): a dead gate here must never be silent ──
+      # e/349#4 (SO, t/4414): the original version of this step opened issue #3771 on the very
+      # first failure (2026-10-23), then correctly did nothing on every one of the 49 failing runs
+      # after it (by design -- "don't spam a duplicate issue"). But with no ping and no label this
+      # hourly r/23 bridge (Get-CiAlertEscalations.ps1) watches, that single issue just sat open and
+      # unseen for two days -- "opened an issue" isn't the same as "someone saw it". Labelling it
+      # `alert-escalated` puts it in front of the SAME bridge every other CI alert already goes
+      # through, and stripping `owner-acked` each time it's still open re-surfaces an
+      # already-triaged-but-still-broken gate instead of letting one old ack suppress it forever.
       - name: On failure, open (or leave open) a tracking issue
         if: failure()
         run: |
@@ -295,7 +303,11 @@ jobs:
             gh issue create \
               --title "continuous-deploy.yml is failing (t/4414 log-only gate dead)" \
               --label "continuous-deploy-dead-gate" \
+              --label "alert-escalated" \
               --body "This workflow has stopped producing verdicts. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. A log-only gate that fails silently proves nothing about the staging-proof window it's meant to be collecting (t/4414). Fix and this issue auto-closes on the next successful run."
+          else
+            gh issue edit "$EXISTING" --remove-label "owner-acked" --add-label "alert-escalated" 2>/dev/null || true
+            gh issue comment "$EXISTING" --body "Still failing: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
