@@ -78,18 +78,30 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0  # full history -- commit-PR-association needs `git log <lastDeployedSha>..<headSha>`
 
+      # t/4414 follow-up: #3761's "use HEAD^ instead of the literal '<sha>^' string" fix was
+      # incomplete. dorny always runs its own `git fetch origin <base> <currentBranch>
+      # --depth=<initial-fetch-depth>` regardless of local history (confirmed in its action.yml --
+      # there is no "skip fetch if already local" path), passing whatever `base:` string we give it
+      # STRAIGHT THROUGH as a refspec. "HEAD^" is exactly as invalid a refspec for `git fetch` as
+      # the original "<sha>^" was -- every run since this workflow shipped has failed on this same
+      # class of error (confirmed: 50/50 runs, all `git fetch ... origin HEAD^ main` exit 128),
+      # which means the t/4414 log-only observation window has produced NO usable verdict data this
+      # entire time. Resolve the parent to a literal SHA locally first (fetch-depth: 0 above
+      # guarantees it's already present, so this never fetches) and hand dorny that SHA instead --
+      # confirmed working: `git fetch --no-tags --depth=100 origin <sha> main` exits 0.
+      - name: Resolve parent SHA for dorny (t/4414)
+        id: parent
+        run: echo "sha=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+
       # Mirrors ci.yml's 'container' / 'bicep-env' / 'bicep-resources' filters exactly (t/2094 /
       # t/2631 / t/3212 soundness lists) -- kept in sync with ci.yml by hand; a mismatch here only
       # affects a LOGGED verdict, never a real dispatch, so the blast radius of drift is zero.
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
         id: filter
         with:
-          # HEAD^, not the literal '<sha>^' string -- the checkout above has full history locally
-          # (fetch-depth: 0); passing the sha+caret as base/ref makes dorny try to `git fetch` a
-          # ref named literally "<sha>^" from origin, which fails ("invalid refspec", every run
-          # since this workflow first shipped -- #3761). HEAD^ resolves locally with no fetch.
+          # A literal resolved SHA, not "HEAD^" syntax -- see the comment on the step above.
           # ref defaults to HEAD, which checkout already set.
-          base: HEAD^
+          base: ${{ steps.parent.outputs.sha }}
           filters: |
             container:
               - 'taxonomy-editor/**'
@@ -275,6 +287,14 @@ jobs:
           "@ >> $env:GITHUB_STEP_SUMMARY
 
       # ── Gate-signal integrity (TL ruling, e/358#2): a dead gate here must never be silent ──
+      # e/349#4 (SO, t/4414): the original version of this step opened issue #3771 on the very
+      # first failure (2026-10-23), then correctly did nothing on every one of the 49 failing runs
+      # after it (by design -- "don't spam a duplicate issue"). But with no ping and no label this
+      # hourly r/23 bridge (Get-CiAlertEscalations.ps1) watches, that single issue just sat open and
+      # unseen for two days -- "opened an issue" isn't the same as "someone saw it". Labelling it
+      # `alert-escalated` puts it in front of the SAME bridge every other CI alert already goes
+      # through, and stripping `owner-acked` each time it's still open re-surfaces an
+      # already-triaged-but-still-broken gate instead of letting one old ack suppress it forever.
       - name: On failure, open (or leave open) a tracking issue
         if: failure()
         run: |
@@ -283,7 +303,11 @@ jobs:
             gh issue create \
               --title "continuous-deploy.yml is failing (t/4414 log-only gate dead)" \
               --label "continuous-deploy-dead-gate" \
+              --label "alert-escalated" \
               --body "This workflow has stopped producing verdicts. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. A log-only gate that fails silently proves nothing about the staging-proof window it's meant to be collecting (t/4414). Fix and this issue auto-closes on the next successful run."
+          else
+            gh issue edit "$EXISTING" --remove-label "owner-acked" --add-label "alert-escalated" 2>/dev/null || true
+            gh issue comment "$EXISTING" --body "Still failing: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
