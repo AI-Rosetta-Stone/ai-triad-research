@@ -1,0 +1,23 @@
+{
+  "n": 3497,
+  "assigned_in_bi_top15": 2365,
+  "top_n": 15,
+  "bi_encoder": {
+    "hit@1": 0.2634,
+    "hit@3": 0.4184,
+    "hit@5": 0.4956,
+    "hit@10": 0.6117,
+    "hit@15": 0.6763,
+    "mrr@15": 0.3694
+  },
+  "cross_encoder": {
+    "hit@1": 0.3806,
+    "hit@3": 0.5056,
+    "hit@5": 0.5651,
+    "hit@10": 0.6374,
+    "hit@15": 0.6763,
+    "mrr@15": 0.4622
+  },
+  "rank1_lost_by_rerank": 134,
+  "rank1_gained_by_rerank": 544
+}
