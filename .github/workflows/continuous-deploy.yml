@@ -78,18 +78,30 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0  # full history -- commit-PR-association needs `git log <lastDeployedSha>..<headSha>`
 
+      # t/4414 follow-up: #3761's "use HEAD^ instead of the literal '<sha>^' string" fix was
+      # incomplete. dorny always runs its own `git fetch origin <base> <currentBranch>
+      # --depth=<initial-fetch-depth>` regardless of local history (confirmed in its action.yml --
+      # there is no "skip fetch if already local" path), passing whatever `base:` string we give it
+      # STRAIGHT THROUGH as a refspec. "HEAD^" is exactly as invalid a refspec for `git fetch` as
+      # the original "<sha>^" was -- every run since this workflow shipped has failed on this same
+      # class of error (confirmed: 50/50 runs, all `git fetch ... origin HEAD^ main` exit 128),
+      # which means the t/4414 log-only observation window has produced NO usable verdict data this
+      # entire time. Resolve the parent to a literal SHA locally first (fetch-depth: 0 above
+      # guarantees it's already present, so this never fetches) and hand dorny that SHA instead --
+      # confirmed working: `git fetch --no-tags --depth=100 origin <sha> main` exits 0.
+      - name: Resolve parent SHA for dorny (t/4414)
+        id: parent
+        run: echo "sha=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+
       # Mirrors ci.yml's 'container' / 'bicep-env' / 'bicep-resources' filters exactly (t/2094 /
       # t/2631 / t/3212 soundness lists) -- kept in sync with ci.yml by hand; a mismatch here only
       # affects a LOGGED verdict, never a real dispatch, so the blast radius of drift is zero.
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
         id: filter
         with:
-          # HEAD^, not the literal '<sha>^' string -- the checkout above has full history locally
-          # (fetch-depth: 0); passing the sha+caret as base/ref makes dorny try to `git fetch` a
-          # ref named literally "<sha>^" from origin, which fails ("invalid refspec", every run
-          # since this workflow first shipped -- #3761). HEAD^ resolves locally with no fetch.
+          # A literal resolved SHA, not "HEAD^" syntax -- see the comment on the step above.
           # ref defaults to HEAD, which checkout already set.
-          base: HEAD^
+          base: ${{ steps.parent.outputs.sha }}
           filters: |
             container:
               - 'taxonomy-editor/**'
