@@ -259,10 +259,11 @@ foreach ($name in $Checkouts.Keys) {
         # "no mtime data at all," which Get-DataCheckoutDriftVerdict already treats as fail-safe
         # old (see $oldestMtime staying $null below).
         $oldestMtime = $null
+        $oldestPath = $null
         foreach ($relPath in @($tracked + $untracked)) {
             $full = Join-Path $root $relPath
             $mt = Get-FileMtimeLongPath -FullPath $full
-            if ($null -ne $mt -and ($null -eq $oldestMtime -or $mt -lt $oldestMtime)) { $oldestMtime = $mt }
+            if ($null -ne $mt -and ($null -eq $oldestMtime -or $mt -lt $oldestMtime)) { $oldestMtime = $mt; $oldestPath = $relPath }
         }
 
         $aheadRaw = Invoke-GitBounded -GitArgs @('-C', $root, 'rev-list', '--count', 'origin/main..HEAD')
@@ -290,7 +291,7 @@ foreach ($name in $Checkouts.Keys) {
 
         if (Get-Command Get-DataCheckoutDriftVerdict -ErrorAction SilentlyContinue) {
             $v = Get-DataCheckoutDriftVerdict -Name $name -TrackedModified $tracked -Untracked $untracked `
-                -OldestUncommittedMtime $oldestMtime -Ahead $ahead -Behind $behind -IncomingPaths $incomingPaths `
+                -OldestUncommittedMtime $oldestMtime -OldestUncommittedPath $oldestPath -Ahead $ahead -Behind $behind -IncomingPaths $incomingPaths `
                 -Now $Now -AgeThresholdHours $AgeThresholdHours -ProtectedPaths $ProtectedPaths
             $checkoutResult.Alarm = $v.Alarm
             $checkoutResult.Reasons = $v.Reasons
