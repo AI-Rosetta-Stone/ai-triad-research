@@ -1,0 +1,169 @@
+# Tag: data-mutation (t/4405)
+# Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+# Licensed under the MIT License. See LICENSE file in the project root.
+
+#Requires -Module Pester
+
+<#
+.SYNOPSIS
+    Regression tests for the t/4405 mark builder (scripts/data-mutations/t4405/T4405MarkPlan.ps1).
+.DESCRIPTION
+    Pins the SO's e/348#2 guards as accepted by the TL (e/348#3, #10), including the regression cases
+    the SO asked for (condition 6): the .DS_Store join (a junk file never makes a raw set), an empty
+    substantive set, a null-title generic raw file, and (TL e/348#10) a 3+ blob reaching outside the
+    group.
+#>
+
+BeforeAll {
+    . (Join-Path $PSScriptRoot '..' 'scripts' 'data-mutations' 't4405' 'T4405MarkPlan.ps1')
+    # Build sharers from the raw map, as the freeze script does from the git tree.
+    function script:Plan {
+        param([object[]]$Groups, [hashtable]$Raw, [hashtable]$Title = @{}, [hashtable]$Weak = @{}, [hashtable]$Signal = @{},
+              [hashtable]$Suspect = @{}, [hashtable]$Marked = @{}, [object[]]$R2 = @(), [hashtable]$Human = @{})
+        $sh = @{}; foreach ($id in $Raw.Keys) { foreach ($b in @($Raw[$id])) { if (-not $sh.ContainsKey($b)) { $sh[$b] = [System.Collections.Generic.List[string]]::new() }; $sh[$b].Add($id) } }
+        $tk = @{}; foreach ($id in $Raw.Keys) { $tk[$id] = if ($Title.ContainsKey($id)) { $Title[$id] } else { 'the same work' } }
+        Get-T4405MarkPlan -Groups $Groups -Raw $Raw -Sharers $sh -TitleKey $tk -TitleWeak $Weak -SecondSignal $Signal -CanonicalSuspect $Suspect -Marked $Marked -R2 $R2 -Human $Human
+    }
+    function script:G([string]$c, [string[]]$m) { @{ canonical = $c; members = @($c) + $m } }
+}
+
+Describe 'Get-T4405MarkPlan' -Tag 'data-mutation' {
+    It 'marks R1 same-raw members to the group canonical' {
+        $p = Plan @(G 'a' @('a-1', 'a-2')) @{ 'a' = @('b1'); 'a-1' = @('b1'); 'a-2' = @('b1') }
+        @($p.Marks | ForEach-Object { "$($_.id)>$($_.duplicate_of):$($_.basis)" }) | Should -Be @('a-1>a:r1-same-raw', 'a-2>a:r1-same-raw')
+        @($p.Review).Count | Should -Be 0
+        $p.Blobs[0].accepted | Should -BeTrue
+        @($p.Blobs[0].docs) | Should -Be @('a', 'a-1', 'a-2')
+    }
+
+    It 'never marks on an empty substantive set (the .DS_Store join: junk files are not in the raw set)' {
+        # Two unrelated papers whose only shared file was .DS_Store: the freeze script drops it, so both sets are empty.
+        $p = Plan @(G 'paper-x' @('paper-y')) @{ 'paper-x' = @(); 'paper-y' = @() }
+        @($p.Marks).Count | Should -Be 0
+        $p.Review[0].reason | Should -BeExactly 'empty-substantive-raw-set'
+    }
+
+    It 'treats a missing raw entry as empty, not as a one-element set' {
+        $p = Plan @(G 'a' @('a-1')) @{ 'a' = @('b1') }
+        @($p.Marks).Count | Should -Be 0
+        $p.Review[0].reason | Should -BeExactly 'empty-substantive-raw-set'
+    }
+
+    It 'sends a genuine title disagreement to review, not rejection' {
+        $p = Plan @(G 'a' @('a-1')) @{ 'a' = @('b1'); 'a-1' = @('b1') } -Title @{ 'a' = 'california lawyer chatgpt'; 'a-1' = 'historic fine' }
+        @($p.Marks).Count | Should -Be 0
+        $p.Review[0].reason | Should -BeExactly 'title-disagreement'
+    }
+
+    It 'needs a second signal when title agreement is weak (a null-title generic raw file)' {
+        $raw = @{ 'a' = @('generic'); 'a-1' = @('generic') }
+        $p = Plan @(G 'a' @('a-1')) $raw -Title @{ 'a' = 'a report'; 'a-1' = '' }
+        $p.Review[0].reason | Should -BeExactly 'weak-title-no-second-signal'
+        $p2 = Plan @(G 'a' @('a-1')) $raw -Title @{ 'a' = 'a report'; 'a-1' = '' } -Signal @{ 'a|a-1' = $true }
+        @($p2.Marks | ForEach-Object id) | Should -Be @('a-1')
+    }
+
+    It 'treats an arXiv-id title as weak' {
+        $p = Plan @(G 'a' @('a-1')) @{ 'a' = @('b1'); 'a-1' = @('b1') } -Title @{ 'a' = 'concrete problems'; 'a-1' = '1606 06565v2' } -Weak @{ 'a-1' = $true }
+        $p.Review[0].reason | Should -BeExactly 'weak-title-no-second-signal'
+    }
+
+    It 'sends a 3+ blob reaching OUTSIDE the group to review, and records it (TL e/348#10)' {
+        $raw = @{ 'a' = @('shared'); 'a-1' = @('shared'); 'unrelated-doc' = @('shared') }
+        $p = Plan @(G 'a' @('a-1')) $raw
+        @($p.Marks).Count | Should -Be 0
+        $p.Review[0].reason | Should -BeExactly 'blob-shared-outside-group'
+        $p.Blobs[0].accepted | Should -BeFalse
+        @($p.Blobs[0].docs) | Should -Be @('a', 'a-1', 'unrelated-doc')
+    }
+
+    It 'accepts a 3+ blob inside one group whose titles agree (6 copies of one work)' {
+        $raw = @{}; foreach ($id in 'x', 'x-1', 'x-2', 'x-3', 'x-4', 'x-5') { $raw[$id] = @('one') }
+        $p = Plan @(G 'x' @('x-1', 'x-2', 'x-3', 'x-4', 'x-5')) $raw
+        @($p.Marks).Count | Should -Be 5
+    }
+
+    It 'sends a 3+ blob whose sharers have NO real title to review: vacuous agreement (SO e/348#12)' {
+        # All three titles are weak (empty / arXiv ids); each pair has a second signal, so only the 3+ guard can hold them.
+        $raw = @{ 'z' = @('big'); 'z-1' = @('big'); 'z-2' = @('big') }
+        $title = @{ 'z' = ''; 'z-1' = '2301 00001v1'; 'z-2' = '' }
+        $weak = @{ 'z' = $true; 'z-1' = $true; 'z-2' = $true }
+        $signal = @{ 'z|z-1' = $true; 'z|z-2' = $true }
+        $p = Plan @(G 'z' @('z-1', 'z-2')) $raw -Title $title -Weak $weak -Signal $signal
+        @($p.Marks).Count | Should -Be 0
+        @($p.Review | ForEach-Object reason | Sort-Object -Unique) | Should -Be @('blob-sharers-no-real-title')
+        $p.Blobs[0].accepted | Should -BeFalse
+        # One real title among the sharers is enough (and it agrees with nothing it contradicts): accepted.
+        $title2 = @{ 'z' = 'the real work'; 'z-1' = '2301 00001v1'; 'z-2' = '' }
+        $p2 = Plan @(G 'z' @('z-1', 'z-2')) $raw -Title $title2 -Weak @{ 'z-1' = $true; 'z-2' = $true } -Signal $signal
+        @($p2.Marks | ForEach-Object id) | Should -Be @('z-1', 'z-2')
+        $p2.Blobs[0].accepted | Should -BeTrue
+    }
+
+    It 'sends a 3+ blob whose sharers'' titles disagree to review' {
+        $raw = @{ 'a' = @('s'); 'a-1' = @('s'); 'a-2' = @('s') }
+        $p = Plan @(G 'a' @('a-1', 'a-2')) $raw -Title @{ 'a' = 'one work'; 'a-1' = 'one work'; 'a-2' = 'another work entirely' }
+        @($p.Review | ForEach-Object reason | Sort-Object -Unique) | Should -Contain 'title-disagreement'
+        @($p.Marks).Count | Should -Be 0 -Because 'the shared blob''s sharers disagree, so even the agreeing pair is held'
+    }
+
+    It 'lets a human-reviewed doc join a group through a shared blob (text-2026 into the WEO group, t/4402)' {
+        $raw = @{ 'weo' = @('w'); 'weo-1' = @('w'); 'text' = @('w'); 'text-1' = @('w') }
+        $p = Plan @((G 'weo' @('weo-1')), (G 'text' @('text-1'))) $raw -Title @{ 'weo' = 'world economic outlook'; 'weo-1' = 'world economic outlook'; 'text' = 'text'; 'text-1' = 'text' } -Human @{ 'text' = 'weo'; 'text-1' = 'weo' }
+        @($p.Marks | ForEach-Object { "$($_.id)>$($_.duplicate_of):$($_.basis)" }) | Should -Be @('text>weo:human-reviewed-t4402', 'text-1>weo:human-reviewed-t4402', 'weo-1>weo:r1-same-raw')
+        @($p.Review).Count | Should -Be 0
+    }
+
+    It 'never re-points an applied mark' {
+        $p = Plan @(G 'a' @('a-1')) @{ 'a' = @('b1'); 'a-1' = @('b1') } -Marked @{ 'a-1' = 'elsewhere' }
+        $p.Review[0].reason | Should -BeExactly 'applied-mark-would-be-repointed'
+        $p2 = Plan @() @{} -R2 @(@{ member = 'r'; canonical = 'c' }) -Marked @{ 'c' = 'z' }
+        $p2.Review[0].reason | Should -BeExactly 'applied-mark-would-be-repointed'
+    }
+
+    It 'holds a group whose canonical needs an override (damaged or materially shorter)' {
+        $p = Plan @(G 'a' @('a-1')) @{ 'a' = @('b1'); 'a-1' = @('b1') } -Suspect @{ 'a' = 'cp437-damaged' }
+        $p.Review[0].reason | Should -BeExactly 'canonical-override-needs-decision: cp437-damaged'
+    }
+
+    It 'leaves a different-raw pair to R2, and marks a PI-approved R2 pair' {
+        $p = Plan @(G 'a' @('a-1')) @{ 'a' = @('b1'); 'a-1' = @('b2') } -R2 @(@{ member = 'a-1'; canonical = 'a' })
+        @($p.Marks | ForEach-Object { "$($_.id):$($_.basis)" }) | Should -Be @('a-1:r2-pi-approved')
+        @($p.Review).Count | Should -Be 0
+    }
+
+    It 'refuses a chain (a target that is itself marked by the plan)' {
+        $p = Plan @() @{} -R2 @(@{ member = 'b'; canonical = 'a' }, @{ member = 'c'; canonical = 'b' })
+        @($p.Marks | ForEach-Object id) | Should -Be @('b')
+        $p.Review[0].reason | Should -BeExactly 'chain-target-is-marked'
+    }
+}
+
+Describe 'T4405 title and URL keys' -Tag 'data-mutation' {
+    It 'normalizes a title: case, punctuation, a trailing publisher segment' {
+        ConvertTo-T4405TitleKey 'The AI Democracy Dilemma | Journal of Democracy' | Should -BeExactly 'the ai democracy dilemma'
+        ConvertTo-T4405TitleKey 'Rethinking AI Agents: A Principal-Agent Perspective' | Should -BeExactly 'rethinking ai agents a principal agent perspective'
+        ConvertTo-T4405TitleKey 'Short - X' | Should -BeExactly 'short x' -Because 'a suffix is dropped only when three words remain'
+        ConvertTo-T4405TitleKey $null | Should -BeExactly ''
+    }
+
+    It 'treats an empty or arXiv-id title key as weak' {
+        Test-T4405WeakTitle '' | Should -BeTrue
+        Test-T4405WeakTitle (ConvertTo-T4405TitleKey '1606.06565v2') | Should -BeTrue
+        Test-T4405WeakTitle (ConvertTo-T4405TitleKey '2501.18914') | Should -BeTrue
+        Test-T4405WeakTitle 'concrete problems in ai safety' | Should -BeFalse
+    }
+
+    It 'compares URLs without scheme, www, query, fragment or trailing slash' {
+        ConvertTo-T4405UrlKey 'https://www.example.org/a/b/?utm=1#x' | Should -BeExactly 'example.org/a/b'
+        ConvertTo-T4405UrlKey 'http://Example.org/a/b' | Should -BeExactly 'example.org/a/b'
+        ConvertTo-T4405UrlKey '' | Should -BeExactly ''
+    }
+}
+
+Describe 'T4405 pair basis' -Tag 'data-mutation' {
+    It 'records a named basis for a pair (the t/4337 C9 deferrals, TL e/348#10)' {
+        $p = Plan @() @{} -R2 @(@{ member = 'copy'; canonical = 'canon'; basis = 'c9-deferred-t4337' }, @{ member = 'r2m'; canonical = 'r2c' })
+        @($p.Marks | ForEach-Object { "$($_.id):$($_.basis)" }) | Should -Be @('copy:c9-deferred-t4337', 'r2m:r2-pi-approved')
+    }
+}
