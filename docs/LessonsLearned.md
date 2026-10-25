@@ -5657,9 +5657,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 3 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`).
+**Status:** Active — 5 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool).
 
-**Applies To:** All agents running `pwsh -Command "..."` from the Bash tool with PowerShell cmdlets in the pipeline.
+**Applies To:** All agents running `pwsh -Command "..."` or `pwsh -File` from the Bash tool with PowerShell cmdlets in the pipeline; switch to the PowerShell tool when the full command needs PS cmdlets.
 
 ---
 
@@ -7342,3 +7342,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (PowerShell p/20#120 + p/20#122, PR #3792).
 
 **Applies To:** All agents creating PRs with `gh pr create`; always verify body completeness after creation, never use `--reviewer`, never suppress `gh pr create` failures with `|| true`.
+
+---
+
+## #362 [Build] `sed` Range Terminator on Exact Heading Literal Overruns When Heading Has Annotations — Use Prefix Match
+
+**Pattern:** An agent uses `sed -n '/^START/,/^ANCHORS:/p'` to extract a block from a prompt file. The actual heading is `ANCHORS (t/4482; …)` — it has been annotated with a ticket reference. The exact-match terminator `/^ANCHORS:/` never fires, so the range runs past the intended end and captures extra lines. A subsequent `diff` exits 1, but the compared content is identical; the extra lines are outside the block of interest.
+
+**Instances:**
+- 2026-10-24 — Computational Linguist (p/7#144): `sed` range `/^START/,/^ANCHORS:/` extracted too many lines because the PR's heading was `ANCHORS (t/4482; …)`. Diff exited 1 but the prompt block content was identical; the extra lines were outside it. Fixed in analysis (read-only, no impact); prevention: use `/^ANCHORS/` (prefix match) as the terminator.
+
+**Root Cause:** Headings in prompt blocks may carry annotations (ticket refs, parenthetical notes) that survive a PR. A `sed` terminator anchored to the exact heading-with-colon matches only the unannotated form. Since annotations are appended after the colon-ended keyword, a prefix match without the colon (`/^ANCHORS/`) matches both forms.
+
+**Prevention:**
+1. **End `sed` extraction ranges on a prefix match, not an exact heading.** Use `/^ANCHORS/` rather than `/^ANCHORS:/` — the prefix matches both bare and annotated headings while still anchoring to the start of the line.
+2. **When `diff` exits 1 on an extracted block, read the diff output before concluding the content is wrong.** Lines outside the block of interest (extra trailing content from an overrun) will appear clearly in the diff; the block itself being identical is the signal to check the range terminator, not the content.
+3. **Use `--` ranges in sed with POSIX character classes or shortest-prefix patterns** for any extraction that may encounter annotated headings.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#144).
+
+**Applies To:** All agents using `sed` address ranges to extract named blocks from prompt files or spec documents; annotated headings are common and exact-match terminators silently overrun them.
+
+---
+
+## #363 [Build] Script Exit 1 From Benign Child-Process Stderr Noise Does Not Invalidate Complete Output — Verify Content, Not Just Exit Code
+
+**Pattern:** A Node script captures output via `node script.js > file 2>&1`. The script calls `execSync('git show ...')` in a loop. One `git show` call emits a CRLF warning to stderr; with `2>&1`, that warning is folded into the redirect stream, and the script exits 1 (the warning raised the process exit code). The output file is complete and correct — all expected entries are present. An agent that trusts exit 1 as "output is bad" discards valid results.
+
+**Instances:**
+- 2026-10-24 — DevOps Lead (p/26#266): `node script > file 2>&1` for 34 `git show` calls exited 1 from a CRLF warning. Output file contained complete, valid JSON for all 34 entries. Verified by diffing file list against measured entry count (34/34). No data lost; output accepted.
+
+**Root Cause:** `2>&1` merges stderr into the redirect. Benign diagnostics from child processes (git CRLF warnings, deprecation notices, env hints) reach the exit-code computation even though the script's primary output is correct and complete. Same genus as #356 (diff exit 1 = "files differ," not error) and #121 (#73A exit-code family): tool exit codes encode their own semantics, not a generic pass/fail.
+
+**Prevention:**
+1. **When `> file 2>&1` exits 1, verify the file's content before discarding it.** Check completeness (entry count, key presence, size) — exit 1 from a subprocess warning is not proof the primary output failed.
+2. **To isolate script output from child-process noise, redirect only stdout:** `node script.js > file` (stderr goes to the console for inspection). Use `2>&1` only when you need both streams merged for debugging.
+3. **Count entries or spot-check structure** (`jq length`, `wc -l`, diff against known-good list) as the completion criterion, not just exit 0.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#266).
+
+**Applies To:** All agents running scripts with `> file 2>&1` that call child processes emitting benign diagnostics to stderr; verify content completeness before treating exit 1 as a data-loss signal.
