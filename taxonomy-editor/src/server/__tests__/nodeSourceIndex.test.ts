@@ -10,7 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import * as fileIO from '../storage/fileIO.js';
-import { resetNodeSourceIndexCacheForTests } from '../storage/nodeSourceIndex.js';
+import { resetNodeSourceIndexCacheForTests, prewarmNodeSourceIndex } from '../storage/nodeSourceIndex.js';
 import { log } from '../logger.js';
 
 let dataRoot: string;
@@ -144,6 +144,55 @@ describe('buildNodeSourceIndex / getNodeSources (t/4333/t/4334)', () => {
     const first = await fileIO.getNodeSources('n1');
     const second = await fileIO.getNodeSources('n1');
     expect(second.indexVersion).toBe(first.indexVersion);
+  });
+
+  // t/4499 AC3: a boot prewarm must not race a real concurrent request into
+  // building the index twice — both must land on the same in-flight promise.
+  it('prewarm and a concurrent request share one in-flight build, never two (AC3)', async () => {
+    writeSourceMeta('a-doc', { title: 'A', url: 'https://example.com/a' });
+    writeSummary('a-doc', 'n1');
+    const infoSpy = vi.spyOn(log.server, 'info');
+
+    prewarmNodeSourceIndex(); // fire-and-forget, as it is at real server boot
+    const [a, b] = await Promise.all([fileIO.getNodeSources('n1'), fileIO.getNodeSources('n1')]);
+
+    expect(a.indexVersion).toBe(b.indexVersion);
+    const rebuiltCalls = infoSpy.mock.calls.filter(([, msg]) => msg === 'Node source index rebuilt');
+    expect(rebuiltCalls).toHaveLength(1); // exactly one build, not three (prewarm + 2 requests)
+    infoSpy.mockRestore();
+  });
+
+  // TL p/538#207 point 2: "the first real request will rebuild it instead"
+  // only holds if a rejected build's in-flight promise is cleared, not
+  // cached as the permanent answer. A failed prewarm must not poison every
+  // request after it.
+  it('a rejected build is not cached — the next request starts a fresh one and succeeds (TL p/538#207)', async () => {
+    writeSourceMeta('a-doc', { title: 'A', url: 'https://example.com/a' });
+    writeSummary('a-doc', 'n1');
+    const listSpy = vi.spyOn(fileIO.getBackend(), 'listDirectory').mockRejectedValueOnce(new Error('simulated boot prewarm failure'));
+
+    prewarmNodeSourceIndex();
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the rejected build settle before the next call starts
+
+    const result = await fileIO.getNodeSources('n1'); // must rebuild, not rethrow or return a cached empty result
+    expect(result.sources).toHaveLength(1);
+    listSpy.mockRestore();
+  });
+
+  // t/4499 AC1: the phase timings exist and sum sanely — a regression test
+  // for the split itself, not for any particular value (those depend on the
+  // environment, e.g. hosted's GitHubAPIBackend vs. a local fs backend).
+  it('the rebuild log line carries phase timings that account for the total (AC1)', async () => {
+    writeSourceMeta('a-doc', { title: 'A', url: 'https://example.com/a' });
+    writeSummary('a-doc', 'n1');
+    const infoSpy = vi.spyOn(log.server, 'info');
+    await fileIO.getNodeSources('n1');
+    const [data] = infoSpy.mock.calls.find(([, msg]) => msg === 'Node source index rebuilt')!;
+    for (const field of ['summaryListMs', 'loadNodeMetaMs', 'summaryReadMs', 'applyCanonicalMs', 'cardBuildMs']) {
+      expect(typeof (data as Record<string, unknown>)[field]).toBe('number');
+    }
+    expect(typeof (data as Record<string, unknown>).usedSourcesIndex).toBe('boolean');
+    infoSpy.mockRestore();
   });
 
   // t/4334#25 (Rosetta): a per-doc metaCache miss degraded silently (title

@@ -1460,6 +1460,8 @@ server.listen(PORT, BIND_HOST, () => {
     log.storage.info('Initializing GitHubAPIBackend');
     githubBackend.initialize().then(async () => {
       log.storage.info('GitHubAPIBackend initialized');
+      // t/4499: same shape as the conflicts-cache warm below (~5.5s cold-start penalty, t/4333#11). Fire-and-forget.
+      fileIO.prewarmNodeSourceIndex();
       // Warm the conflicts cache in the background so the first user request
       // doesn't pay the 5s cold-start penalty (1,242 individual file reads).
       try {
