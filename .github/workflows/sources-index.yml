@@ -26,8 +26,11 @@ on:
     # confirmed not a repo-wide GitHub Actions outage (health-monitor.yml fires fine in the same
     # window). A later disable/enable toggle via the API also didn't fix it. This is a real content
     # edit to the workflow file itself (not just the toggle) to force GitHub to re-register the
-    # schedule trigger from scratch -- cron value is unchanged, every 30 minutes.
-    - cron: '*/30 * * * *'
+    # schedule trigger from scratch.
+    # t/4501: offset off round-minute marks -- health-monitor.yml and main-ci-monitor.yml showed
+    # the same every-~3h-instead-of-every-15/30m symptom on the round marks this cadence used to
+    # land on; still every 30 minutes, just not on :00/:30.
+    - cron: '11,41 * * * *'
   workflow_dispatch:
 
 permissions:

@@ -1,0 +1,11 @@
+{
+  "_comment": "t/4397: the EXPECTED role assignments for github-ai-triad-deploy (appId f62b48bb-b61f-4907-a9fe-9e556ab485e7), none of which are declared in main.bicep -- all made out-of-band via `az role assignment create`. This manifest is the checked-in source of truth a scheduled check compares live state against, since IaC can't catch drift on grants it never declared in the first place. roleScopeSuffix is the scope path AFTER the RG (empty string = the RG itself).",
+  "principalAppId": "f62b48bb-b61f-4907-a9fe-9e556ab485e7",
+  "principalName": "github-ai-triad-deploy",
+  "expectedAssignments": [
+    { "roleDefinitionName": "Contributor", "roleScopeSuffix": "", "why": "fleet deploy identity, pre-existing (date/reason unknown, predates this manifest)" },
+    { "roleDefinitionName": "User Access Administrator", "roleScopeSuffix": "", "why": "fleet deploy identity, pre-existing (date/reason unknown, predates this manifest)" },
+    { "roleDefinitionName": "Storage Blob Data Contributor", "roleScopeSuffix": "/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw", "why": "pre-existing, predates this manifest" },
+    { "roleDefinitionName": "Storage File Data Privileged Reader", "roleScopeSuffix": "/providers/Microsoft.Storage/storageAccounts/staitriadkvwl3nywge4iw", "why": "t/4390, 2026-10-21, assignment cbd5c00a-c514-458f-b0b6-4719b30013c4 -- lets the share-freshness gate read seed-manifest.json via Azure Files" }
+  ]
+}
