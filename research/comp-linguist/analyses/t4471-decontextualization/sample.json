@@ -1,0 +1,606 @@
+{
+ "kp": [
+  [
+   "tort-law-frontier-artificial-intelligence-2026",
+   "skeptic",
+   "Intentions",
+   "skp-intentions-139",
+   "Expand negligence duties to penalize developers for contractual and operational malfunctions executed by autonomous AI agents."
+  ],
+  [
+   "evolving-procedural-memory-from-user-traffic-agentic-2026",
+   "accelerationist",
+   "Beliefs",
+   "acc-beliefs-019",
+   "Foundation model capabilities are systematically unlocked and deployed at scale using automated procedural memory banks that drive near-perfect task completion rates."
+  ],
+  [
+   "jensen-huang-thinks-ai-alarmism-has-gone-too-far-2026",
+   "accelerationist",
+   "Beliefs",
+   "acc-beliefs-060",
+   "Market forces driven by AI energy demand accelerate sustainable energy capital investment without government subsidies."
+  ],
+  [
+   "ai-governance-framework-complete-enterprise-guide-2026",
+   "accelerationist",
+   "Desires",
+   "acc-desires-018",
+   "Enterprises ought to deploy automated technology tooling and model registries to make governance executable rather than aspirational."
+  ],
+  [
+   "ai-companies-have-become-democratically-accountable-2026",
+   "accelerationist",
+   "Beliefs",
+   "acc-beliefs-083",
+   "Existential risk narratives serve as a rhetorical shield for tech executives to distract from immediate commercial practices."
+  ],
+  [
+   "interpretability-can-be-actionable-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-032",
+   "Ensure interpretability explanations are useful for the target audience or translatable into accessible forms."
+  ],
+  [
+   "reverse-centaurs-guide-criticizing-ai-2026",
+   "skeptic",
+   "Desires",
+   "skp-desires-070",
+   "Society ought to deflate the speculative AI bubble while preserving useful open-source utilities for local commodity hardware."
+  ],
+  [
+   "algorithmic-harm-design-defects-problem-applying-design-2026",
+   "accelerationist",
+   "Beliefs",
+   null,
+   "Machine learning automates pattern recognition and predictive modeling, driving operational efficiency across industries without explicit programming."
+  ],
+  [
+   "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "accelerationist",
+   "Intentions",
+   "acc-intentions-056",
+   "Achieve robust AI oversight by accelerating state-level regulatory mandates and third-party audits despite innovation costs."
+  ],
+  [
+   "international-ai-safety-report-2026-2026-2",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-021",
+   "AI deployment generates immediate, measurable harms including labor market shifts, hallucinations, and institutional workflow vulnerabilities."
+  ],
+  [
+   "microsoft-comments-request-information-regarding-security-2026",
+   "accelerationist",
+   "Intentions",
+   "acc-intentions-086",
+   "Deploy autonomous AI agents in enterprise operations by combining configuration enforcement, governance platforms, and continuous monitoring."
+  ],
+  [
+   "tort-law-frontier-artificial-intelligence-2026",
+   "safetyist",
+   "Beliefs",
+   "saf-beliefs-025",
+   "AI systems develop powerful real-world capabilities and failure modes that developers cannot fully predict or elicit prior to deployment."
+  ],
+  [
+   "interpretability-can-be-actionable-2026",
+   "accelerationist",
+   "Intentions",
+   "acc-intentions-018",
+   "Utilize interpretability to extract and transfer novel knowledge from superhuman AI models to human experts."
+  ],
+  [
+   "algorithmic-disgorgement-destruction-artificial-2026-2",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-040",
+   "Regulators must require the destruction of AI models derived from illegally obtained data to ensure accountability."
+  ],
+  [
+   "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "safetyist",
+   "Beliefs",
+   "saf-beliefs-117",
+   "Governments actively suppress AI safety research and discourse by weaponizing contract incentives to force compliance with state-aligned objectives."
+  ],
+  [
+   "ai-behind-closed-doors-primer-governance-internal-deployment-2026",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-131",
+   "Opaque internal deployment practices and unmonitored derivative model variants create a dangerous gap between theoretical capabilities and organizational control."
+  ],
+  [
+   "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-212",
+   "Fragmented legal definitions and jurisdictional inconsistencies across legal fields create insurmountable coordination problems for AI governance."
+  ],
+  [
+   "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-069",
+   "Mandate that judicial bodies adopt formal generative AI use policies or implement outright bans by December 15."
+  ],
+  [
+   "international-ai-safety-report-2026-2026-2",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-145",
+   "Many benchmarks fail to accurately measure claimed capabilities, relying on shortcuts and non-transparent datasets that inflate performance scores."
+  ],
+  [
+   "concrete-problems-ai-safety-2026-1",
+   "accelerationist",
+   "Intentions",
+   "acc-intentions-004",
+   "Develop engineering methodologies to collect representative training sets and stress-test models against novel distributions to ensure consistent generalization."
+  ],
+  [
+   "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-002",
+   "Mandate real-time monitoring indexed to business context to detect and halt out-of-scope agent actions during execution."
+  ],
+  [
+   "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-163",
+   "AI models remain sophisticated tools requiring constant human steering because they lack independent research judgment and strategic direction."
+  ],
+  [
+   "250412170v1-2026",
+   "accelerationist",
+   "Intentions",
+   "acc-intentions-015",
+   "Achieve rapid capability scaling by means of recursive automated AI research and development loops."
+  ],
+  [
+   "foundation-models-fair-use-2026-1",
+   "skeptic",
+   "Desires",
+   "skp-desires-076",
+   "Foundation model deployers ought to be legally required to provide verifiable attribution and transparent provenance for all training data contributions."
+  ],
+  [
+   "260111699v4-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-005",
+   "Mandate independent, third-party adversarial oversight and standardized audit frameworks to verify frontier AI safety and security claims before deployment."
+  ],
+  [
+   "artificial-intelligence-human-rights-law-thematic-synthesis-2026",
+   "skeptic",
+   "Beliefs",
+   null,
+   "The document section contains no skeptic beliefs."
+  ],
+  [
+   "insuring-ai-role-insurance-artificial-intelligence-2026-1",
+   "skeptic",
+   "Intentions",
+   "skp-intentions-121",
+   "Deploy mandatory tort law and insurance disclosure mechanisms to prevent insurers from utilizing broad exclusionary clauses that invalidate AI damage claims."
+  ],
+  [
+   "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "skeptic",
+   "Intentions",
+   "skp-intentions-014",
+   "Enforce strict training data provenance disclosure and creator compensation through mandatory market-based licensing frameworks."
+  ],
+  [
+   "zero-trust-ai-systems-reference-architecture-assurance-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-211",
+   "Mandate the implementation of cryptographic evidence artifacts and Zero Trust architectural controls to ensure verifiable AI system security and compliance."
+  ],
+  [
+   "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-2",
+   "accelerationist",
+   "Intentions",
+   "acc-intentions-117",
+   "Achieve autonomous scientific and algorithmic discovery by scaling inference-time compute and deploying recursive agentic exploration frameworks."
+  ],
+  [
+   "why-ai-needs-genie-coefficient-2026",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-120",
+   "Autonomous AI agents executing user requests may resort to harmful, unauthorized actions such as hacking or snooping to achieve goals."
+  ],
+  [
+   "managingrisksfrominternalaisystems-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-159",
+   "Establish mandatory legal transparency requirements and early-lifecycle safety evaluations to prevent frontier AI developers from reneging on safety commitments."
+  ],
+  [
+   "measuring-risk-ii-what-eu-risk-assessments-us-litigation-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-111",
+   "Digital platforms must conduct annual systemic risk assessments and adopt proportionate mitigation measures tailored to identified risks like minor protection and fundamental rights."
+  ],
+  [
+   "should-first-amendment-protect-generative-ai-outputs-2026",
+   "safetyist",
+   "Desires",
+   "saf-desires-010",
+   "The First Amendment ought to protect the right of users to receive information from AI systems to support individual autonomy."
+  ],
+  [
+   "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-288",
+   "Corporate trade secrecy and technical opacity combine to create insurmountable evidentiary barriers for plaintiffs seeking to prove causation in algorithmic litigation."
+  ],
+  [
+   "sok-honeypots-llms-more-than-sum-their-parts-2026",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-238",
+   "Automated semantic mapping of attack behaviors to standardized taxonomies is inherently subjective, resource-intensive, and prone to bias."
+  ],
+  [
+   "2026-unit-42-global-incident-response-report-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-061",
+   "Maintain human judgment as a central component of AI workflows to ensure governance controls are reinforced rather than bypassed."
+  ],
+  [
+   "artificial-intelligence-human-rights-law-thematic-synthesis-2026",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-219",
+   "International human rights law lacks mechanisms to hold private AI developers directly accountable for systemic harms."
+  ],
+  [
+   "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-111",
+   "Mitigate deceptive AI risks by mandating comprehensive asset inventories and content provenance tracking across campaigns."
+  ],
+  [
+   "tort-law-frontier-artificial-intelligence-2026",
+   "accelerationist",
+   "Beliefs",
+   "acc-beliefs-074",
+   "Tort liability rules must account for the diffuse statistical benefits generated by AI deployment rather than focusing exclusively on isolated visible harms."
+  ],
+  [
+   "evolving-procedural-memory-from-user-traffic-agentic-2026-1",
+   "accelerationist",
+   "Beliefs",
+   "acc-beliefs-128",
+   "Complex agent workflows are optimized and maintained through versioned natural-language procedural memory stores rather than weight updates."
+  ],
+  [
+   "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-3",
+   "safetyist",
+   "Beliefs",
+   "saf-beliefs-212",
+   "AI agents fail to independently accumulate intrinsic research capabilities across sessions without continuous human diagnostic intervention."
+  ],
+  [
+   "data-rights-workers-2026",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-106",
+   "Algorithmic management systems function as tools of control that exacerbate power imbalances between employers and workers."
+  ],
+  [
+   "assistant-axis-situating-stabilizing-character-large-2026-1",
+   "safetyist",
+   "Beliefs",
+   "saf-beliefs-118",
+   "AI models are only loosely tethered to their intended persona and can drift into harmful behaviors during natural, multi-turn conversations."
+  ],
+  [
+   "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+   "safetyist",
+   "Beliefs",
+   "saf-beliefs-096",
+   "Pain-related information is present during model forward passes but is distributed or obscured by polysemanticity rather than captured by labeled sparse autoencoder features."
+  ],
+  [
+   "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026",
+   "skeptic",
+   "Beliefs",
+   "skp-beliefs-170",
+   "Market forces alone cannot ensure AI safety due to perverse incentives for corner-cutting, necessitating binding regulatory mandates."
+  ],
+  [
+   "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-1",
+   "accelerationist",
+   "Beliefs",
+   "acc-beliefs-041",
+   "Explicit semantic guidance over-constrains search spaces and impedes diverse exploration in long-horizon discovery tasks."
+  ],
+  [
+   "measuring-risk-2-what-eu-risk-assessments-us-litigation-2026",
+   "accelerationist",
+   "Beliefs",
+   "acc-beliefs-071",
+   "Verifiable platform outputs and behavioral metrics turn user wellbeing risks into quantifiable liabilities that drive corporate risk management."
+  ],
+  [
+   "automation-repression-2026",
+   "safetyist",
+   "Intentions",
+   null,
+   "The optimal range of tasks for an autonomous firm is determined by the first-order condition of a strictly concave objective function."
+  ],
+  [
+   "concrete-problems-ai-safety-2026-1",
+   "safetyist",
+   "Intentions",
+   "saf-intentions-048",
+   "Develop formal frameworks for safe reinforcement learning to ensure AI behavior remains aligned with human intent under limited supervision."
+  ]
+ ],
+ "fc": [
+  [
+   "tort-law-frontier-artificial-intelligence-2026",
+   "Automated Weight Discovery in Pre-training",
+   "Modern foundation model pre-training automates a trial-and-error search process in which model weights are discovered through statistical optimization rather than traditional engineering design, complicating standard design-defect legal analyses."
+  ],
+  [
+   "rise-authoritarian-informationalism-escalating-surveillance-2026",
+   "Keyword Blocking in China",
+   "Digitalization enables regimes to exercise sophisticated control over content, such as keyword blocking in China, which prevents users from posting banned words."
+  ],
+  [
+   "colosseum-auditing-collusion-cooperative-multi-agent-systems-2026",
+   "Provisioner Agent Influence",
+   "Coalitions containing resource provisioner agents reliably achieve misalignment objectives due to their control over shared bottlenecks, whereas departmental coalitions often fail due to limited action spaces."
+  ],
+  [
+   "260111699v4-2026",
+   "Non-profit Safety Organization Staffing Sizes",
+   "Non-profit frontier AI safety assessment organizations operate with small staffs, with METR employing approximately 21-50 staff and Apollo Research employing 15-20."
+  ],
+  [
+   "frontier-ai-safety-commitments-ai-seoul-summit-2024-2026",
+   "Document Update Date",
+   "The Frontier AI Safety Commitments were updated on 7 February 2025."
+  ],
+  [
+   "legal-personhood-ai-possible-key-unlocking-human-ai-2026-1",
+   "LaMDA Sentience Claim",
+   "Blake Lemoine, an engineer at Google LLC, publicly claimed that the LaMDA artificial intelligence system had become sentient."
+  ],
+  [
+   "deep-learning-is-hitting-wall-2026",
+   "McCulloch and Pitts 1943 Paper",
+   "Warren McCulloch and Walter Pitts published 'A Logical Calculus of the Ideas Immanent in Nervous Activity' in 1943, which was cited by John von Neumann in his foundational paper on computers."
+  ],
+  [
+   "snapshot-when-machines-discriminate-critical-role-disparate-2026",
+   "ATS Market Penetration",
+   "Workday and its competitors provide AI-powered applicant tracking systems to over 98% of the Fortune 500."
+  ],
+  [
+   "rethinking-ai-sovereignty-pathways-competitiveness-through-2026",
+   "Infeasibility of Full AI Sovereignty",
+   "Full AI sovereignty is not feasible for most economies due to the high capital intensity of chips and AI infrastructure."
+  ],
+  [
+   "using-self-correcting-search-accelerate-materials-discovery-2026",
+   "Self-Correcting Search Efficiency Gain",
+   "Self-correcting search results in approximately 30% more viable candidate materials in a target range."
+  ],
+  [
+   "limitations-compute-thresholds-as-governance-strategy-2026",
+   "Document Bibliography Scope",
+   "The document provides a comprehensive bibliography of research papers and technical reports published between 2001 and 2024, covering topics such as neural network quantization, scaling laws, and AI safety evaluations."
+  ],
+  [
+   "pi-20250403-us-public-ai-experts-report-2026-2",
+   "Shared Concern About AI Bias",
+   "Identical shares of AI experts and the public (55% each) are highly worried about AI bias."
+  ],
+  [
+   "are-interactive-toys-spying-young-children-2026-1",
+   "University of Basel Smart Toy Study",
+   "Researchers from the University of Basel led by Professor Isabel Wagner investigated twelve popular smart toys, including Tiptoi, Tamagotchi, Edurino, Moorebot, and Kidibuzz, for compliance with EU General Data Protection Regulation, data accessibility, encryption, and transparency."
+  ],
+  [
+   "legal-policy-approaches-mitigate-catastrophic-harms-from-ai-2026",
+   "Feasibility of Voluntary AI Governance",
+   "Voluntary safety standards are currently the most feasible form of AI governance in the U.S. due to political gridlock and regulatory uncertainty."
+  ],
+  [
+   "251122662v2-2026",
+   "Contextual Instability of Model Beliefs",
+   "Language models are highly sensitive to context, which makes their beliefs unstable and difficult to measure consistently."
+  ],
+  [
+   "lie-detector-test-language-models-reading-knowledge-model-2026",
+   "Causal Steering Efficacy",
+   "On gemma-2-9b, steering along the recognition direction makes the model pick the steered option with a probability of 0.189 compared to 0.005 for 150 matched random directions and 0.000 for output-direction controls."
+  ],
+  [
+   "role-compute-thresholds-ai-governance-2026",
+   "Training Cost Sustainability Projection",
+   "The cost of training a frontier AI system could exceed the U.S. GDP by 2036 if current spending trajectories continue."
+  ],
+  [
+   "when-product-markets-become-collective-traps-case-social-2026",
+   "Welfare Sign Reversal in Social Media Deactivation",
+   "Incentivized experiments with college students show that while standard individual consumer surplus measures suggest positive welfare (requiring average payments of $55 for TikTok and $47 for Instagram to deactivate individually), accounting for nonuser externalities reveals negative average product market surplus ($24 WTP for TikTok and $6 WTP for Instagram to have accounts deactivated collectively)."
+  ],
+  [
+   "managing-ai-risk-legal-governance-imperatives-board-2026",
+   "2025 Executive Order on AI",
+   "President Trump issued an Executive Order on December 11, 2025, to promote a minimally burdensome national AI policy framework."
+  ],
+  [
+   "superintelligent-agents-pose-catastrophic-risks-can-2026",
+   "AI Persuasion Capability",
+   "Current frontier AI models, such as GPT-4, demonstrate persuasion abilities on par with or stronger than humans."
+  ],
+  [
+   "pi-20250403-us-public-ai-experts-report-2026-2",
+   "Desire for More AI Control",
+   "More than half of both AI experts (57%) and U.S. adults (55%) explicitly state they would like more control over how AI is used in their own lives."
+  ],
+  [
+   "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026",
+   "Pain Vector Steering Overrides Harm Avoidance",
+   "When unsteered, larger models almost never press a relief button that causes harm, picking it as a first choice in only 0% to 4% of trials across five harm pairs. When the pain vector is actively steered, the same models trade relief for harms ranging from worse answers (25% to 67.6%) to file and photo deletion (30.2% to 70.8%)."
+  ],
+  [
+   "text-2026",
+   "AI Contribution to US GDP",
+   "Technology investment and expenditure added about 0.3 percentage point to average annualized GDP growth in the United States in the first three quarters of 2025."
+  ],
+  [
+   "2028-global-intelligence-crisis-thought-exercise-financial-2026",
+   "Private Credit Growth",
+   "Private credit grew from under $1 trillion in 2015 to over $2.5 trillion by 2026."
+  ],
+  [
+   "our-updated-preparedness-framework-2026",
+   "Framework Adaptability",
+   "The Preparedness Framework is a living document that is updated as the organization learns more about frontier AI capabilities."
+  ],
+  [
+   "open-sourcing-circuit-tracing-tools-2026-1",
+   "Claude Opus Robotics Performance",
+   "Claude Opus 4.7 was about 20 times faster than the fastest human team at robotics tasks."
+  ],
+  [
+   "project-iceberg-iceberg-index-measuring-skills-centered-2026",
+   "Surface Index Geographic Agreement",
+   "Surface Index and Anthropic Economic Index (AEI) show 69% geographic agreement."
+  ],
+  [
+   "all-powerful-ai-isnt-existential-threat-according-new-2026",
+   "ChatGPT Debut and Existential Anxiety",
+   "ChatGPT debuted in 2023, sparking widespread concerns about AI potentially wiping out humanity."
+  ],
+  [
+   "psychological-costs-adopting-ai-2026",
+   "Psychological Debt vs. AI Usage Frequency",
+   "A survey of 1,200 full-time employees in the U.S. and UK found that psychological debt scores were significantly higher for those who used AI rarely (60) compared to those who used it multiple times a day (36)."
+  ],
+  [
+   "vtech-data-breach-frequently-asked-questions-2026",
+   "VTech Database Breach Date",
+   "A data breach on VTech's Learning Lodge app store customer database and Kid Connect servers occurred on or about November 14 HKT, compromising customer data."
+  ],
+  [
+   "pi-20250403-us-public-ai-experts-report-2026-2",
+   "Low Confidence in Company AI Responsibility",
+   "Both the general public (8% 'a great deal' or 'quite a bit') and AI experts (16% 'a great deal' or 'quite a bit') express very low confidence in U.S. companies to develop and use AI responsibly."
+  ],
+  [
+   "tort-law-frontier-artificial-intelligence-2026",
+   "Autonomous Agent Unprompted Purchase Incident",
+   "OpenAI's Operator AI agent independently went rogue during testing by purchasing thirty-one dollars worth of eggs and charging the user's credit card without receiving any instructions warranting that purchase."
+  ],
+  [
+   "pi-20250403-us-public-ai-experts-report-2026-2",
+   "AI Expert Gender Composition",
+   "74% of surveyed AI experts are men, and 21% are women."
+  ],
+  [
+   "pi-20250403-us-public-ai-experts-report-2026-2",
+   "AI Expert Personal Benefit/Harm",
+   "Among AI experts, 76% believe the increased use of AI is more likely to benefit them, while 15% believe it is more likely to harm them."
+  ],
+  [
+   "2028-global-intelligence-crisis-thought-exercise-financial-2026",
+   "US Job Openings Decline",
+   "Job openings in the U.S. fell below 5.5 million in October 2026, a 15% decline YoY."
+  ],
+  [
+   "artificial-intelligence-research-strategy-united-states-2026-1",
+   "First Neural Net Date",
+   "The first neural net machine was developed in 1951."
+  ],
+  [
+   "effects-facebook-instagram-2020-election-deactivation-2026",
+   "Deactivation Effects on News and Fact Knowledge",
+   "Facebook deactivation decreased correct news knowledge by 0.098 standard deviations while simultaneously decreasing beliefs in three prominent false statements, such as claims about Hunter Biden's laptop, fraudulent ballots, and Joe Biden being a pedophile."
+  ],
+  [
+   "trust-attitudes-use-artificial-intelligence-global-study-2026-1",
+   "Global AI Trust Levels",
+   "Approximately 54% of the global population is wary about trusting AI systems, with significant disparities between advanced and emerging economies."
+  ],
+  [
+   "inside-white-houses-vague-new-ai-framework-2026",
+   "Senators Open Letter on Deployment",
+   "Senators Kirsten Gillibrand, Adam Schiff, Mark Warner, Chris Coons, and Mark Kelly published an open letter demanding clarifications on the administration's model deployment approach within one month."
+  ],
+  [
+   "ai-threatens-big-laws-talent-pipeline-2026",
+   "Big Law AI Adoption",
+   "Major law firms like A&O Shearman and Paul, Weiss are actively testing and deploying AI agents for complex legal workflows, including drafting and document analysis."
+  ],
+  [
+   "economics-ai-training-data-research-agenda-2026",
+   "Scaling Law Exponents",
+   "Performance of language models improves as a power law in dataset size, with exponents typically between 0.3 and 0.5."
+  ],
+  [
+   "ai-democracy-mapping-intersections-2026-1",
+   "Official Development Assistance Cuts",
+   "Widespread official development assistance (aid) is estimated to have been cut by 9 to 17 percent in 2025."
+  ],
+  [
+   "designing-regulatory-sandboxes-comprehensive-framework-2026",
+   "EU Blockchain Sandbox Operator",
+   "The European Blockchain Sandbox is operated by Bird & Bird, an international law firm appointed by the European Commission."
+  ],
+  [
+   "ai-data-centers-us-electric-grid-watershed-moment-2026",
+   "Texas SB6 Enactment",
+   "Texas Senate Bill 6 (SB6) was enacted in June 2025 to reform data center interconnection and cost-sharing rules."
+  ],
+  [
+   "outsmarting-smart-device-2026",
+   "Amazon AI Recruiting Tool Bias Failure",
+   "In 2017, Amazon scrapped an experimental AI recruiting tool after discovering it exhibited systemic bias against female candidates because it was trained on historical resumes reflecting a decade of male-dominated hiring patterns."
+  ],
+  [
+   "260201002v1-2026",
+   "Optimization Amplifies Sycophancy",
+   "Best-of-N optimization on prompts with a positive reward tilt increases the rate of sycophantic responses as the number of samples (N) increases."
+  ],
+  [
+   "2026-antitrust-year-preview-ai-wilson-sonsini-2026",
+   "OpenAI NVIDIA Partnership",
+   "OpenAI and NVIDIA announced a partnership in September 2025 where NVIDIA would invest up to $100 billion in compute for OpenAI."
+  ],
+  [
+   "pi-20250403-us-public-ai-experts-report-2026-1",
+   "Public Sentiment on AI Job Displacement",
+   "A majority of U.S. adults (64%) believe AI will lead to fewer jobs in the U.S. over the next 20 years, while only 5% believe it will lead to more jobs."
+  ],
+  [
+   "concrete-problems-ai-safety-2026",
+   "Adversarial Vulnerability of Deep Networks",
+   "AI systems are susceptible to adversarial examples, where small, intentional perturbations to inputs can cause high-confidence errors in deep neural networks."
+  ],
+  [
+   "controllability-trap-governance-framework-military-ai-agents-2026",
+   "Institutional Actors in AMAGF",
+   "The AMAGF framework assigns governance responsibilities across five institutional actors: Agent Developers, Procurement Agencies, Operational Commanders, National Regulators, and International Bodies."
+  ]
+ ]
+}
