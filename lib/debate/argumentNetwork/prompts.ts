@@ -138,6 +138,10 @@ For each claim, also classify:
   Beliefs: indicative ("X is/causes Y")
   Desires: deontic ("X ought to be the case")
   Intentions: instrumental ("Achieve X by means of Y")
+  SELF-CONTAINED: a reader who never saw the debate must understand the sentence on its own.
+    1. Nothing may point outside the sentence: no "it", "they", "this policy", "the speaker", "the proposal".
+    2. Replace a name a debater coined mid-debate with what it is: "the attestation" -> "a mandatory data-processing attestation", "the two-year verification test" -> "a two-year post-deployment verification period".
+    3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
   Use controlled vocabulary terms where applicable. This field is used for taxonomy matching — precision matters.
 - "attribution_text": Rewrite this claim mirroring taxonomy node description format:
   "A [Belief|Desire|Intention] within [POV] discourse that [differentia]. Encompasses: [2-3 specific concepts from the claim]."
