@@ -94,7 +94,7 @@ jobs:
               if (existing.data.length > 0) {
                 await github.rest.issues.createComment({ owner, repo, issue_number: existing.data[0].number, body: `Still present at ${ts}.\n\n${detail}` });
               } else {
-                await github.rest.issues.create({ owner, repo, title: 'Doc-vs-platform drift detected (scheduled sweep)', body, labels: [label] });
+                await github.rest.issues.create({ owner, repo, title: 'Doc-vs-platform drift detected (scheduled sweep)', body, labels: [label, 'alert-escalated'] });
               }
             } else {
               for (const issue of existing.data) {

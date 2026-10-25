@@ -180,7 +180,7 @@ jobs:
                 body: `Still open at ${new Date().toISOString()}:\n\n${body}`,
               });
             } else {
-              await github.rest.issues.create({ owner, repo, title, body, labels: ['branch-policy-alert', 'bug'] });
+              await github.rest.issues.create({ owner, repo, title, body, labels: ['branch-policy-alert', 'bug', 'alert-escalated'] });
             }
 
       - name: Auto-close resolved alerts

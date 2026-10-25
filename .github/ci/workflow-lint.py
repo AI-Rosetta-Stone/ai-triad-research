@@ -40,8 +40,15 @@ PERMISSIONS_RE = re.compile(r'^\s*permissions:', re.MULTILINE)
 # promotion discipline as the required-context rules above (t/3646): a later blocking-promotion PR
 # needs its own evidence + its own Second Opinion, not bundled into this one.
 ALERT_LABEL = 'alert-escalated'
-GH_ISSUE_RE = re.compile(r'\bgh issue (?:create|edit)\b')
-ALERT_LABEL_EXEMPT_RE = re.compile(r'#\s*lint:alert-label-exempt:\s*(t/\d+|\d{4}-\d{2}-\d{2})\s+\S')
+GH_ISSUE_CREATE_RE = re.compile(r'\bgh issue create\b')
+# SO e/349#8 point 2: only an edit that TOUCHES LABELS is the alert path -- a plain
+# close/comment (the auto-resolve path) never needs alert-escalated.
+GH_ISSUE_EDIT_ALERT_RE = re.compile(r'\bgh issue edit\b.*(?:--add-label|--remove-label)')
+# github-script's `github.rest.issues.create(` (e/349#8): deliberately does NOT match
+# `.createComment(` -- "create" immediately followed by "Comment" has no "(" right after
+# "create", so this regex (which requires create( or create\s*() never matches it.
+JS_ISSUES_CREATE_RE = re.compile(r'issues\.create\s*\(')
+ALERT_LABEL_EXEMPT_RE = re.compile(r'(?:#|//)\s*lint:alert-label-exempt:\s*(t/\d+|\d{4}-\d{2}-\d{2})\s+\S')
 
 
 def parse_step_key(line):
@@ -458,86 +465,138 @@ def check_required_context(path, content, context_name, posts=None):
     return errs
 
 
-def _find_run_blocks(lines):
-    """Return [(start_idx, end_idx, run_indent)] 0-based spans for every `run:` block value,
-    mirroring Check 2's in_run/run_indent tracking in lint_file()."""
+def _find_block_scalar_spans(lines, target_key):
+    """Return [(start_idx, end_idx, indent)] 0-based spans for every `<target_key>:` block
+    scalar value (e.g. 'run' or 'script'), mirroring Check 2's in_run/run_indent tracking
+    in lint_file()."""
     blocks = []
-    in_run = False
-    run_indent = 0
+    in_block = False
+    block_indent = 0
     start = None
     for i, line in enumerate(lines):
         key, indent = parse_step_key(line)
         # Block-scalar CONTENT one line can look exactly like "word: value" (e.g. a bash
-        # string `Run: $RUN_URL"`) even though it's inside the run: block, not a sibling
-        # YAML key. Valid block-scalar content is always indented > the `run:` key's own
-        # indent -- so a parse_step_key "hit" only counts as a real key line while in_run
-        # when it's at or above that indent; deeper, it's content, whatever it looks like.
-        if in_run and key is not None and indent > run_indent:
+        # string `Run: $RUN_URL"`, or JS `title: ...`) even though it's inside the block,
+        # not a sibling YAML key. Valid block-scalar content is always indented > the key's
+        # own indent -- so a parse_step_key "hit" only counts as a real key line while
+        # in_block when it's at or above that indent; deeper, it's content, whatever it looks
+        # like.
+        if in_block and key is not None and indent > block_indent:
             key = None
         if key is not None:
-            if in_run:
-                blocks.append((start, i, run_indent))
-                in_run = False
-            if key == 'run':
-                in_run = True
-                run_indent = indent
+            if in_block:
+                blocks.append((start, i, block_indent))
+                in_block = False
+            if key == target_key:
+                in_block = True
+                block_indent = indent
                 start = i
-        elif in_run:
+        elif in_block:
             stripped = line.lstrip()
-            if stripped and len(line) - len(stripped) <= run_indent:
-                blocks.append((start, i, run_indent))
-                in_run = False
-    if in_run:
-        blocks.append((start, len(lines), run_indent))
+            if stripped and len(line) - len(stripped) <= block_indent:
+                blocks.append((start, i, block_indent))
+                in_block = False
+    if in_block:
+        blocks.append((start, len(lines), block_indent))
     return blocks
 
 
+def _find_run_blocks(lines):
+    """Return [(start_idx, end_idx, run_indent)] 0-based spans for every `run:` block value."""
+    return _find_block_scalar_spans(lines, 'run')
+
+
+def _gh_issue_commands(block, start):
+    """Join backslash line-continuations in a bash `run:` block into logical commands,
+    tracking the first physical line number of each. Skips pure comment lines (a bash
+    comment can say "gh issue create" in PROSE describing past behavior -- e.g.
+    deploy-drift-check.yml:131 -- without being a real invocation)."""
+    commands = []  # (first_line_no, joined_text)
+    buf = []
+    buf_start = None
+    for j, bl in enumerate(block):
+        if not buf and bl.lstrip().startswith('#'):
+            continue
+        if buf_start is None:
+            buf_start = start + j
+        stripped = bl.rstrip()
+        if stripped.endswith('\\'):
+            buf.append(stripped[:-1])
+            continue
+        buf.append(bl)
+        commands.append((buf_start, ' '.join(buf)))
+        buf = []
+        buf_start = None
+    if buf:
+        commands.append((buf_start, ' '.join(buf)))
+    return commands
+
+
 def check_alert_label(path, content):
-    """WARN-ONLY (t/4414, e/349#6): flag a `gh issue create`/`gh issue edit` call, inside a run:
-    block, that applies neither the `alert-escalated` label nor a `# lint:alert-label-exempt:
-    <ticket-or-date> <reason>` comment elsewhere in the SAME run: block. Joins backslash
-    line-continuations into one logical command before searching, so a multi-line
-    `gh issue create \` invocation is read as a whole."""
+    """WARN-ONLY (t/4414, e/349#6, e/349#8): flag an alert-issue call -- `gh issue create`,
+    an ALERT-path `gh issue edit` (one that touches labels, not a plain close/comment), or
+    `github.rest.issues.create(...)` inside an actions/github-script `script:` block -- that
+    applies neither the `alert-escalated` label nor a `# lint:alert-label-exempt:
+    <ticket-or-date> <reason>` comment elsewhere in the same block.
+
+    `gh issue edit` is narrowed to label-touching calls only (SO e/349#8 point 2): a plain
+    close/comment edit on the auto-resolve path doesn't need the label, and flagging it would
+    fill the warn-only rule with exemptions until it stops being read -- the same class this
+    rule exists to prevent, just at the review layer instead of the alert layer.
+
+    The github-script arm can't parse a JS object literal with a regex, so it uses a bounded
+    heuristic: scan up to 40 lines forward from the `issues.create(` call, or until the next
+    `issues.create(`/`async function` boundary (whichever comes first), for `alert-escalated`
+    or the exempt comment. Good enough for a warn-only lint; a false negative here only means
+    a real gap goes unflagged one cycle, not that anything blocks."""
     findings = []
     lines = content.splitlines()
+
     for start, end, _indent in _find_run_blocks(lines):
         block = lines[start:end]
         has_exempt = any(ALERT_LABEL_EXEMPT_RE.search(bl) for bl in block)
-        # Join backslash continuations into logical commands, tracking the first physical
-        # line number of each so a finding points somewhere useful.
-        commands = []  # (first_line_no, joined_text)
-        buf = []
-        buf_start = None
-        for j, bl in enumerate(block):
-            # A bash comment line (not mid backslash-continuation) can say "gh issue create"
-            # in prose describing past behavior (deploy-drift-check.yml:131 does exactly this)
-            # without being a real invocation. Skip pure comment lines entirely.
-            if not buf and bl.lstrip().startswith('#'):
-                continue
-            if buf_start is None:
-                buf_start = start + j
-            stripped = bl.rstrip()
-            if stripped.endswith('\\'):
-                buf.append(stripped[:-1])
-                continue
-            buf.append(bl)
-            commands.append((buf_start, ' '.join(buf)))
-            buf = []
-            buf_start = None
-        if buf:
-            commands.append((buf_start, ' '.join(buf)))
-        for line_no, cmd in commands:
-            if not GH_ISSUE_RE.search(cmd):
+        for line_no, cmd in _gh_issue_commands(block, start):
+            if GH_ISSUE_CREATE_RE.search(cmd):
+                pass
+            elif GH_ISSUE_EDIT_ALERT_RE.search(cmd):
+                pass
+            else:
                 continue
             if ALERT_LABEL in cmd or has_exempt:
                 continue
             findings.append(
-                f'{path}:{line_no + 1}: `gh issue create`/`edit` without the `{ALERT_LABEL}` label '
-                f'(the r/23 escalation bridge only watches that label) — add `--label {ALERT_LABEL}` '
-                f'(create) / `--add-label {ALERT_LABEL}` (edit), or add a co-located '
-                f'`# lint:alert-label-exempt: <ticket-or-date> <reason>` recording why this alert is '
-                f'covered another way.'
+                f'{path}:{line_no + 1}: `gh issue create`/alert-path `edit` without the '
+                f'`{ALERT_LABEL}` label (the r/23 escalation bridge only watches that label) — '
+                f'add `--label {ALERT_LABEL}` (create) / `--add-label {ALERT_LABEL}` (edit), or '
+                f'add a co-located `# lint:alert-label-exempt: <ticket-or-date> <reason>` '
+                f'recording why this alert is covered another way.'
             )
+
+    script_blocks = _find_block_scalar_spans(lines, 'script')
+    js_creates = []  # (line_idx, block_end_idx, block_has_exempt) for every issues.create(
+    for start, end, _indent in script_blocks:
+        block_has_exempt = any(ALERT_LABEL_EXEMPT_RE.search(lines[j]) for j in range(start, end))
+        for j in range(start, end):
+            if JS_ISSUES_CREATE_RE.search(lines[j]):
+                js_creates.append((j, end, block_has_exempt))
+    for idx, (line_idx, block_end, block_has_exempt) in enumerate(js_creates):
+        if block_has_exempt:
+            continue
+        next_create_idx = js_creates[idx + 1][0] if idx + 1 < len(js_creates) else block_end
+        window_end = min(line_idx + 40, block_end, next_create_idx)
+        window_text = '\n'.join(lines[line_idx:window_end])
+        # ESCALATED_LABEL is main-ci-monitor.mjs's exported JS binding for the literal
+        # 'alert-escalated' string (confirmed: `export const ESCALATED_LABEL =
+        # 'alert-escalated'`) -- a labels: array referencing the symbol, not the literal,
+        # is equally real evidence the label is applied.
+        if ALERT_LABEL in window_text or 'ESCALATED_LABEL' in window_text:
+            continue
+        findings.append(
+            f'{path}:{line_idx + 1}: `github.rest.issues.create(...)` without the `{ALERT_LABEL}` '
+            f'label (the r/23 escalation bridge only watches that label) — add it to the `labels:` '
+            f'array, or add a co-located `# lint:alert-label-exempt: <ticket-or-date> <reason>` '
+            f'recording why this alert is covered another way.'
+        )
     return findings
 
 
@@ -985,6 +1044,124 @@ jobs:
         failures.append('check_alert_label FALSE-FLAGGED a comment line that merely mentions "gh issue create" in prose')
     else:
         print('  PASS: check_alert_label ignores "gh issue create" mentioned inside a comment, not invoked')
+
+    fixture_alert_edit_close_only = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh issue edit "$NUM" --state closed
+          gh issue comment "$NUM" --body "resolved"
+"""
+    findings = check_alert_label('fixture_alert_edit_close_only', fixture_alert_edit_close_only)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED a plain close/comment gh issue edit (SO e/349#8 point 2)')
+    else:
+        print('  PASS: check_alert_label ignores a plain close/comment gh issue edit, not the alert path')
+
+    fixture_alert_edit_add_label = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh issue edit "$NUM" --remove-label "owner-acked" --add-label "some-other-label"
+"""
+    findings = check_alert_label('fixture_alert_edit_add_label', fixture_alert_edit_add_label)
+    if not any('edit' in f for f in findings):
+        failures.append('check_alert_label MISSED a label-touching gh issue edit missing alert-escalated')
+    else:
+        print('  PASS: check_alert_label catches a label-touching gh issue edit missing alert-escalated')
+
+    fixture_js_create_missing = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner, repo,
+              title: 'Something broke',
+              labels: ['some-label', 'bug']
+            });
+"""
+    findings = check_alert_label('fixture_js_create_missing', fixture_js_create_missing)
+    if not any('github.rest.issues.create' in f for f in findings):
+        failures.append('check_alert_label MISSED a github.rest.issues.create(...) missing alert-escalated')
+    else:
+        print('  PASS: check_alert_label catches github.rest.issues.create(...) missing alert-escalated')
+
+    fixture_js_create_present = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner, repo,
+              title: 'Something broke',
+              labels: ['some-label', 'alert-escalated']
+            });
+"""
+    findings = check_alert_label('fixture_js_create_present', fixture_js_create_present)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED a github.rest.issues.create(...) that already carries alert-escalated')
+    else:
+        print('  PASS: check_alert_label ignores github.rest.issues.create(...) that already carries alert-escalated')
+
+    fixture_js_create_comment_not_matched = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            await github.rest.issues.createComment({ owner, repo, issue_number: n, body: 'hi' });
+"""
+    findings = check_alert_label('fixture_js_create_comment_not_matched', fixture_js_create_comment_not_matched)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED issues.createComment(...) as if it were issues.create(...)')
+    else:
+        print('  PASS: check_alert_label does not mistake issues.createComment(...) for issues.create(...)')
+
+    fixture_js_create_exempt = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            // lint:alert-label-exempt: t/4414 heartbeat marker the r/23 bridge reads directly
+            await github.rest.issues.create({
+              owner, repo,
+              title: 'heartbeat',
+              labels: ['main-ci-monitor-heartbeat']
+            });
+"""
+    findings = check_alert_label('fixture_js_create_exempt', fixture_js_create_exempt)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED a github.rest.issues.create(...) with a valid exempt comment in the same script: block')
+    else:
+        print('  PASS: check_alert_label honors a lint:alert-label-exempt comment anywhere in the same script: block')
 
     if failures:
         for f in failures:

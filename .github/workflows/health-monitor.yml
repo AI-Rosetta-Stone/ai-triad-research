@@ -168,7 +168,7 @@ jobs:
                   ``,
                   `Close this issue once the app is back online.`
                 ].join('\n'),
-                labels: ['health-alert', 'bug']
+                labels: ['health-alert', 'bug', 'alert-escalated']
               });
               console.log('Created new health alert issue');
             }
@@ -283,7 +283,7 @@ jobs:
                     '',
                     "Likely causes: cron auto-disabled (60d repo inactivity), workflow renamed/deleted, broken YAML, or an actions:read query failure. Check the workflow's Actions tab.",
                   ].join('\n'),
-                  labels: [LABEL, 'bug'],
+                  labels: [LABEL, 'bug', 'alert-escalated'],
                 });
               }
               core.setFailed(alarms.join('; '));
@@ -356,7 +356,7 @@ jobs:
                   '',
                   'Run `Set-TaxEditorKnownGood` against the current production revision (t/4170).',
                 ].join('\n'),
-                labels: [LABEL, 'bug'],
+                labels: [LABEL, 'bug', 'alert-escalated'],
               });
             }
 
