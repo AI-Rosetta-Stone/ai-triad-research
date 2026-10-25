@@ -47,7 +47,10 @@ const PROXY_TIERS_FUNCTION_ALLOWLIST = new Set([
   'freeTierKeyCount',  // count-only (.length) — t/4486, for diagnostics/log call sites
 ]);
 
-const PATTERN = /process\.env\.FREE_TIER_GEMINI_KEY|parseFreeTierKeys\s*\(/;
+// t/4486 TL (Quality) follow-up: match the bare name, not just `process.env.FREE_TIER_GEMINI_KEY`
+// — the dotted form misses bracket access (`process.env['FREE_TIER_GEMINI_KEY']`), which reads
+// the exact same value. Nothing uses bracket access today; this closes the gap before it matters.
+const PATTERN = /FREE_TIER_GEMINI_KEY|parseFreeTierKeys\s*\(/;
 
 /** Strip `//` line comments and block comments crudely — good enough for this codebase's
  *  style (no `//` inside string literals on these particular lines in practice; a false
