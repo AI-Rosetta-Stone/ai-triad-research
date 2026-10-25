@@ -172,6 +172,14 @@ export function freeTierEnabled(): boolean {
   return parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length > 0;
 }
 
+/** t/4486: a diagnostics/count-only read of the pool size — NOT for key injection. Routes that
+ *  log `freeKeyCount` for a fallback/overflow record use this instead of reading
+ *  `process.env.FREE_TIER_GEMINI_KEY` directly, so the sole-reader test (freePoolKeyAccess.ts)
+ *  only has to allowlist this module, not every call site that merely counts. */
+export function freeTierKeyCount(): number {
+  return parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length;
+}
+
 /**
  * t/945: a BYOK user with no key for the requested backend falls back to the
  * free-tier Gemini pool — so a Claude-only user isn't 422'd on the Gemini-pinned

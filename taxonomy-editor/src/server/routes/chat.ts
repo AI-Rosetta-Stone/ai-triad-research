@@ -24,6 +24,7 @@ import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext } from './generationContext.js';
 import { getApiKeys, hasApiKey, type AIBackend } from '../config.js';
+import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
 
 type ResolvedTier = ReturnType<typeof proxyTiers.resolveTier>;
 type ChatMessage = { role: 'user' | 'model'; content: string };
@@ -167,12 +168,15 @@ export function boundedId(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v.slice(0, 128) : undefined;
 }
 
-/** Pure mirror of routes/ai.ts resolveExplicitAiKey. */
-function resolveExplicitAiKey(
-  res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend,
-): { ok: true; key: string | string[] | undefined } | { ok: false } {
+/** Pure mirror of routes/ai.ts resolveExplicitAiKey — including the t/4486 geo gate on the
+ *  free-tier branch (getFreePoolKeys is the sole injection-path reader of the pool). */
+async function resolveExplicitAiKey(
+  req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend,
+): Promise<{ ok: true; key: string | string[] | undefined } | { ok: false }> {
   if (tier.serverProvidedKey) {
-    const freeKeys = proxyTiers.parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY);
+    const poolResult = await getFreePoolKeys(req, res);
+    if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
+    const freeKeys = poolResult.keys;
     if (freeKeys.length === 0) { res.writeHead(503); res.end(JSON.stringify({ error: 'Free tier is not available' })); return { ok: false }; }
     return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys };
   }
@@ -239,7 +243,7 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
         return;
       }
 
-      const keyResult = resolveExplicitAiKey(res, tier, clientKey, backend);
+      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend);
       if (!keyResult.ok) return;
       const explicitKey = keyResult.key;
 
