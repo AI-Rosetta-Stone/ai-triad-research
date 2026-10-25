@@ -14,7 +14,18 @@ function Get-RelevantTaxonomyNodes {
         injection wastes 15,000+ tokens. This cmdlet typically returns 30-50 relevant
         nodes (~3,000-5,000 tokens).
     .PARAMETER Query
-        Text to find relevant nodes for (e.g., document excerpt, first 500 words).
+        Text to find relevant nodes for (a chunk, a whole document, a debate topic). A query longer than one
+        embedding window (900 chars) is split into windows that together cover all of it (Split-RagQueryWindows,
+        t/4468), each embedded, and every node is scored against every window; there is no first-N-chars cut.
+        If windowed embedding is unavailable, the old single encode of the first 2000 chars is used, with a WARN.
+    .PARAMETER QueryVectors
+        Pre-computed window embeddings (one double[] per window), e.g. from one batched embed call over many
+        chunks' windows. Takes precedence over -QueryVector and -Query embedding.
+    .PARAMETER WindowScoring
+        How per-window scores combine when there is more than one window (t/4468, CL t/4468#2 item 2):
+        MaxSim (a node's max over windows) or RankFusion (reciprocal-rank fusion of the per-window rankings,
+        scale-free, every section contributes). The cosine threshold floor applies to the max-sim score either way.
+        With one window both are identical to the single-query behaviour.
     .PARAMETER Threshold
         Cosine similarity floor. Nodes below this are excluded unless needed for
         MinPerCategory guarantee. When -AdaptiveThreshold is set (default), the
@@ -125,6 +136,12 @@ function Get-RelevantTaxonomyNodes {
         # subprocess is skipped entirely — avoids a ~6s cold model load per call.
         [double[]]$QueryVector = @(),
 
+        # One pre-computed embedding per query window (t/4468); see comment-based help.
+        [object[]]$QueryVectors = @(),
+
+        [ValidateSet('MaxSim', 'RankFusion')]
+        [string]$WindowScoring = 'RankFusion',
+
         # Cross-encoder re-ranking (t/2287). Default OFF; see comment-based help.
         [switch]$CrossEncoderRerank,
 
@@ -206,13 +223,52 @@ function Get-RelevantTaxonomyNodes {
 
     if (Get-Command python -ErrorAction SilentlyContinue) { $PythonCmd = 'python' } else { $PythonCmd = 'python3' }
 
-    # Truncate query to ~2000 chars (model context limit)
+    # ── Query windows (t/4468): one embedding per window, covering the whole query ──
+    $QueryWindows = [System.Collections.Generic.List[double[]]]::new()
+    $WindowsSkipped = 0
+    if (@($QueryVectors).Count -gt 0) {
+        if ($QueryVectors[0] -isnot [System.Array]) {
+            # A single-window caller's `-QueryVectors @($oneVec)` gets enumerated by PowerShell's array
+            # sub-expression operator into $oneVec's scalar elements, not a 1-element array containing it
+            # (the project's "a one-element array unrolls" gotcha). $QueryVectors here holds doubles, not
+            # double[] rows; the whole thing IS that one window.
+            $QueryWindows.Add([double[]]$QueryVectors)
+        }
+        else {
+            foreach ($V in $QueryVectors) { if ($null -ne $V -and @($V).Count -gt 0) { $QueryWindows.Add([double[]]@($V)) } }
+        }
+    }
+    elseif ($QueryVector.Count -gt 0) {
+        # Caller supplied one pre-computed embedding (batched upstream) — skip the per-call encode subprocess.
+        $QueryWindows.Add([double[]]$QueryVector)
+    }
+    elseif ($Query.Length -gt $script:RagWindowChars) {
+        $Split = Split-RagQueryWindows -Text $Query -MaxChars $script:RagWindowChars
+        $WindowsSkipped = $Split.SkippedSections
+        if ($WindowsSkipped -gt 0) { Write-Verbose "Get-RelevantTaxonomyNodes: skipped $WindowsSkipped back-matter section(s) (references/bibliography/acknowledgements)" }
+        $WinTexts = @($Split.Windows)
+        if ($WinTexts.Count -gt 0) {
+            $WinEmb = Invoke-BatchEmbeddings -Texts $WinTexts
+            foreach ($T in $WinTexts) { if ($WinEmb.ContainsKey($T)) { $QueryWindows.Add([double[]]$WinEmb[$T]) } }
+        }
+        if ($QueryWindows.Count -eq 0) {
+            Write-Warning "Get-RelevantTaxonomyNodes: windowed query embedding was unavailable; falling back to one encode of the query's first 2000 of $($Query.Length) chars, so candidates reflect only its opening (t/4468)."
+        }
+    }
+    if ($QueryWindows.Count -gt $script:RagMaxWindows) {
+        # Stipulated cap (t/4468#2): sample evenly across the whole query rather than keep only its opening.
+        $Total = $QueryWindows.Count
+        $Sampled = [System.Collections.Generic.List[double[]]]::new()
+        for ($k = 0; $k -lt $script:RagMaxWindows; $k++) { $Sampled.Add($QueryWindows[[int][Math]::Floor($k * $Total / $script:RagMaxWindows)]) }
+        $QueryWindows = $Sampled
+        Write-Warning "Get-RelevantTaxonomyNodes: the query has $Total windows; scored $($script:RagMaxWindows), sampled evenly across it (cap, t/4468)."
+    }
+
+    # Single encode: a short query (one window), or the fallback above. The old 2000-char cut applies only here.
     if ($Query.Length -gt 2000) { $QueryText = $Query.Substring(0, 2000) } else { $QueryText = $Query }
 
-    if ($QueryVector.Count -gt 0) {
-        # Caller supplied a pre-computed embedding (batched upstream) — skip the
-        # per-call encode subprocess entirely.
-        $QueryVector = [double[]]$QueryVector
+    if ($QueryWindows.Count -gt 0) {
+        $QueryVector = [double[]]$QueryWindows[0]
     }
     else {
     try {
@@ -251,21 +307,28 @@ function Get-RelevantTaxonomyNodes {
     }
     }
 
-    # ── Compute cosine similarity for all nodes ───────────────────────────────
+    if ($QueryWindows.Count -eq 0) { $QueryWindows.Add([double[]]$QueryVector) }
+
+    # ── Score every node against every query window (t/4468) ──────────────────
+    # Same candidate filters and node order as before. Per window the score is the former formula (mean of the
+    # top-N synthetic similarities, or the single-vector cosine); windows combine by -WindowScoring. The kernel
+    # (RagScoringKernel.ps1) does the arithmetic; if it can't load, the former PowerShell formula scores the first
+    # window only, with a WARN (CL t/4468#2 item 4).
     $Scores = [System.Collections.Generic.List[PSObject]]::new()
     $SynScoredCount = 0
-    $Dim = $QueryVector.Count
-
-    # Precompute query norm (same for all nodes)
-    $QueryNormSq = 0.0
-    for ($i = 0; $i -lt $Dim; $i++) { $QueryNormSq += $QueryVector[$i] * $QueryVector[$i] }
-    $QueryNormSqrt = [Math]::Sqrt($QueryNormSq)
+    $Dim = $QueryWindows[0].Count
 
     if ($POV.Count -gt 0) {
         $PovFilter = [System.Collections.Generic.HashSet[string]]::new([string[]]$POV, [System.StringComparer]::OrdinalIgnoreCase)
     }
     else { $PovFilter = $null }
 
+    $CandIds = [System.Collections.Generic.List[string]]::new()
+    $CandPov = [System.Collections.Generic.List[string]]::new()
+    $CandCat = [System.Collections.Generic.List[string]]::new()
+    $CandVecs = [System.Collections.Generic.List[double[][]]]::new()
+    $CandTopN = [System.Collections.Generic.List[int]]::new()
+    $CandSyn = [System.Collections.Generic.List[bool]]::new()
     foreach ($NodeId in $script:CachedEmbeddings.Keys) {
         # POV filtering
         if ($NodeId -match '^acc-') { $NodePov = 'accelerationist' }
@@ -283,37 +346,15 @@ function Get-RelevantTaxonomyNodes {
 
         # Mean-of-top-N scoring (synthetic multi-vector) or single-vector fallback
         if ($script:CachedSyntheticVectors -and $script:CachedSyntheticVectors.ContainsKey($NodeId)) {
-            $SynVecs = $script:CachedSyntheticVectors[$NodeId]
-            $Sims = [System.Collections.Generic.List[double]]::new($SynVecs.Count)
-            foreach ($SynVec in $SynVecs) {
-                $Dot = 0.0; $NormB = 0.0
-                for ($i = 0; $i -lt $Dim; $i++) {
-                    $Dot += $QueryVector[$i] * $SynVec[$i]
-                    $NormB += $SynVec[$i] * $SynVec[$i]
-                }
-                $D = $QueryNormSqrt * [Math]::Sqrt($NormB)
-                if ($D -gt 0) { $Sims.Add($Dot / $D) }
-            }
-            $SortedSims = @($Sims | Sort-Object -Descending)
-            $N = [Math]::Min($SyntheticTopN, $SortedSims.Count)
-            if ($N -gt 0) {
-                $Sum = 0.0
-                for ($j = 0; $j -lt $N; $j++) { $Sum += $SortedSims[$j] }
-                $Similarity = $Sum / $N
-            }
-            else { $Similarity = 0.0 }
+            $CandVecs.Add([double[][]]$script:CachedSyntheticVectors[$NodeId].ToArray())
+            $CandTopN.Add($SyntheticTopN); $CandSyn.Add($true)
             $SynScoredCount++
         }
         else {
             $NodeVec = $script:CachedEmbeddings[$NodeId]
             if (@($NodeVec).Count -ne $Dim) { continue }
-            $Dot = 0.0; $NormB = 0.0
-            for ($i = 0; $i -lt $Dim; $i++) {
-                $Dot += $QueryVector[$i] * $NodeVec[$i]
-                $NormB += $NodeVec[$i] * $NodeVec[$i]
-            }
-            $D = $QueryNormSqrt * [Math]::Sqrt($NormB)
-            if ($D -gt 0) { $Similarity = $Dot / $D } else { $Similarity = 0.0 }
+            $CandVecs.Add([double[][]]@(, [double[]]$NodeVec))
+            $CandTopN.Add(1); $CandSyn.Add($false)
         }
 
         # Determine BDI category from node ID
@@ -321,26 +362,58 @@ function Get-RelevantTaxonomyNodes {
         elseif ($NodeId -match '-desires-') { $Category = 'Desires' }
         elseif ($NodeId -match '-intentions-') { $Category = 'Intentions' }
         else { $Category = 'Situations' }
+        $CandIds.Add($NodeId); $CandPov.Add($NodePov); $CandCat.Add($Category)
+    }
 
+    $Kernel = Initialize-RagKernelType
+    $UseFusion = $false
+    if ($Kernel) {
+        $Matrix = $Kernel::ScoreMatrix([double[][]]$QueryWindows.ToArray(), [double[][][]]$CandVecs.ToArray(), [int[]]$CandTopN.ToArray())
+        $NodeScore = $Kernel::MaxOverWindows($Matrix, $CandIds.Count)
+        $UseFusion = ($WindowScoring -eq 'RankFusion' -and $QueryWindows.Count -gt 1)
+        if ($UseFusion) { $Fused = $Kernel::RankFusion($Matrix, $CandIds.Count, $script:RagRrfK) }
+    }
+    else {
+        $NodeScore = [double[]]::new($CandIds.Count)
+        $Keep = [bool[]]::new($CandIds.Count)
+        for ($n = 0; $n -lt $CandIds.Count; $n++) {
+            $S1 = Get-RagWindowScoreFallback -QueryVector $QueryWindows[0] -NodeVectors $CandVecs[$n] -TopN $CandTopN[$n] -Synthetic $CandSyn[$n]
+            if ($null -ne $S1) { $NodeScore[$n] = $S1; $Keep[$n] = $true }
+        }
+    }
+
+    for ($n = 0; $n -lt $CandIds.Count; $n++) {
+        if (-not $Kernel -and -not $Keep[$n]) { continue }
+        $Sim = [Math]::Round($NodeScore[$n], 4)
         $Scores.Add([PSCustomObject]@{
-            NodeId     = $NodeId
-            POV        = $NodePov
-            Category   = $Category
-            Similarity = [Math]::Round($Similarity, 4)
+            NodeId     = $CandIds[$n]
+            POV        = $CandPov[$n]
+            Category   = $CandCat[$n]
+            Similarity = $Sim
+            RankKey    = $(if ($UseFusion) { $Fused[$n] } else { $Sim })
         })
     }
 
     # ── Selection: adaptive top-K + threshold floor + min-per-BDI + max cap ──
-    $Ranked = @($Scores | Sort-Object Similarity -Descending)
+    # Ordered by RankKey: the max-sim score (= Similarity), or the rank-fusion score under -WindowScoring RankFusion
+    # with more than one window. The cosine floor always applies to Similarity.
+    $Ranked = @($Scores | Sort-Object RankKey -Descending)
 
-    # Adaptive threshold: use top-K rank to determine effective cutoff
     $EffectiveThreshold = $Threshold
+    if ($UseFusion) {
+        # Rank fusion is scale-free: take the top-K by fused rank among nodes above the cosine floor.
+        $Pool = @($Ranked | Where-Object { $_.Similarity -ge $Threshold })
+        if ($TopK -gt 0 -and $Pool.Count -gt $TopK) { $AboveThreshold = @($Pool[0..($TopK - 1)]) } else { $AboveThreshold = $Pool }
+    }
+    else {
+    # Adaptive threshold: use top-K rank to determine effective cutoff
     if ($TopK -gt 0 -and $Ranked.Count -gt $TopK) {
         $KthScore = $Ranked[$TopK - 1].Similarity
         $EffectiveThreshold = [Math]::Max($Threshold, $KthScore)
     }
 
     $AboveThreshold = @($Ranked | Where-Object { $_.Similarity -ge $EffectiveThreshold })
+    }
 
     # Guarantee MinPerCategory (uses raw threshold floor, not adaptive)
     $Selected = [System.Collections.Generic.List[PSObject]]::new()
@@ -369,7 +442,7 @@ function Get-RelevantTaxonomyNodes {
     }
 
     # Sort final selection by similarity descending
-    $Selected = @($Selected | Sort-Object Similarity -Descending)
+    $Selected = @($Selected | Sort-Object RankKey -Descending)
 
     Write-Verbose "Selected $($Selected.Count) / $($Scores.Count) nodes (floor=$Threshold, effective=$([Math]::Round($EffectiveThreshold, 3)), topK=$TopK, max=$MaxTotal)"
 
@@ -390,6 +463,10 @@ function Get-RelevantTaxonomyNodes {
             desires_selected       = ($CatCounts['Desires'] ?? 0)
             intentions_selected    = ($CatCounts['Intentions'] ?? 0)
             synthetic_nodes_scored = $SynScoredCount
+            query_windows          = $QueryWindows.Count     # t/4468
+            windows_skipped_backmatter = $WindowsSkipped
+            window_scoring         = $(if ($UseFusion) { 'RankFusion' } else { 'MaxSim' })
+            scoring_kernel         = [bool]$Kernel
             rerank_applied         = $false  # set true below if cross-encoder rerank ran
             rerank_top1_delta      = 0        # bi-encoder rank the new #1 climbed from (rank-overturn signal, t/2287#5)
         }
@@ -433,6 +510,9 @@ function Get-RelevantTaxonomyNodes {
             if ($_.Description) { $Text = "$($_.Label). $($_.Description)" } else { $Text = $_.Label }
             [PSCustomObject]@{ id = $_.Id; text = $Text }
         })
+        # The cross-encoder scores (query, node) pairs and reads ~512 tokens, so it gets the query's first 2000 chars;
+        # say so when that cuts the query (t/4468: no silent cut).
+        if ($Query.Length -gt 2000) { Write-Warning "Get-RelevantTaxonomyNodes: the cross-encoder rerank scores against the query's first 2000 of $($Query.Length) chars; the candidate set itself covers the whole query (t/4468)." }
         $Scored = Invoke-RerankScoring -Query $QueryText -Candidates $Candidates -RerankerModel $RerankerModel
 
         if ($null -eq $Scored -or @($Scored).Count -eq 0) {
