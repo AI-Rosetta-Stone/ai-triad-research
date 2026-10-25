@@ -30,6 +30,16 @@ Describe 'deploy-azure.yml AC2 rollback wiring (t/4309)' {
         $lastLine | Should -Be 'exit 1'
     }
 
+    It 'the sev-1 step also fires when the RECHECK STEP ITSELF fails (az error/timeout), not just when it ran clean and found a problem (SO review, e/360#5 -- the "silent red" gap)' {
+        $step = Get-Step 'Sev-1 alert — AC2 failure could not be resolved by rollback (t/4309)'
+        # Anchored to the START of a line (after whitespace), not just the substring "if:" --
+        # this step's own explanatory comment mentions another step's `if:` condition in prose,
+        # which a bare substring match would grab instead of the real YAML key (caught running
+        # this test: it initially matched into the comment, not the actual condition).
+        $ifLine = ([regex]::Match($step, '(?m)^\s*if:\s*(.+)$')).Groups[1].Value
+        $ifLine | Should -Match "steps\.ac2_recheck\.outcome == 'failure'"
+    }
+
     It 'C4 — tag-known-good''s gate is unchanged and still requires deploy to succeed' {
         $tagJobMatch = [regex]::Match($script:WorkflowText, '(?s)tag-known-good:.*?if:\s*(.+)')
         $tagJobMatch.Success | Should -BeTrue

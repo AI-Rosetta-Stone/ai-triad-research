@@ -1255,10 +1255,15 @@ jobs:
       - name: Sev-1 alert — AC2 failure could not be resolved by rollback (t/4309)
         # Fires when: (a) AC2 failed with an earlier gate having already rolled back this run, or
         # (b) the AC2-triggered rollback's own recheck still fails, or (c) the rollback target
-        # itself couldn't be reactivated. In every case, rolling back again would not help — a
-        # revision rollback can't fix an app-level cause (authConfig/ingress/secrets, SO key risk
-        # #3), so the message says so explicitly to stop a responder from re-attempting it.
-        if: always() && (steps.ac2_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_recheck_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_rollback.outputs.target_unrecoverable == 'true')
+        # itself couldn't be reactivated, or (d) the recheck STEP ITSELF failed (an az error or
+        # timeout, distinct from "ran clean and found the revision unhealthy") -- SO review
+        # (e/360#5): without arm (d), a failing recheck step means ac2_recheck_verdict is skipped
+        # (its `if:` needs outcome == 'success'), so NEITHER alert path fires and the job goes red
+        # with no alert issue at all -- the exact "silent red" shape this session's own
+        # gate-signal-integrity fixes exist to close. In every case, rolling back again would not
+        # help -- a revision rollback can't fix an app-level cause (authConfig/ingress/secrets, SO
+        # key risk #3), so the message says so explicitly to stop a responder from re-attempting it.
+        if: always() && (steps.ac2_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_recheck_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_rollback.outputs.target_unrecoverable == 'true' || steps.ac2_recheck.outcome == 'failure')
         env:
           GH_TOKEN: ${{ github.token }}
           REV: ${{ steps.new_revision.outputs.revision }}
