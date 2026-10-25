@@ -35,15 +35,19 @@ test('unlisted — a live overlay file absent from the budget JSON is its own wa
   assert.deepEqual(unlisted, ['new-role/AGENTS.md']);
 });
 
-test('a budget entry for a file no longer live is reported as missing, not a phantom violation', () => {
+test('a budget entry for a file no longer live is silently excluded -- no phantom violation, not reported as missing either (Quality review, p/432#50)', () => {
   const live = ['role/AGENTS.md'];
   const budgets = [
     { path: 'role/AGENTS.md', max_lines: 10, max_words: 50 },
     { path: 'removed-role/AGENTS.md', max_lines: 10, max_words: 50 },
   ];
   const text = 'one\ntwo\n';
-  const { violations, unlisted } = checkOverlayBudgets(live, budgets, () => text);
+  // removed-role/AGENTS.md is filtered out of entriesToCheck before checkBudgets() ever runs
+  // (it isn't in `live`), so it appears in none of the three result buckets -- `missing` is
+  // checkBudgets()'s own "listed but absent from the checkout" case, which never applies here.
+  const { violations, missing, unlisted } = checkOverlayBudgets(live, budgets, () => text);
   assert.equal(violations.length, 0);
+  assert.equal(missing.length, 0);
   assert.equal(unlisted.length, 0);
 });
 
