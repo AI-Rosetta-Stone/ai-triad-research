@@ -22,13 +22,14 @@ Describe 'Test-InMemoryJobStoreScaleGuard — both arms (t/2885)' {
         $script:GateScript = "$PSScriptRoot/../operations/devops/Test-InMemoryJobStoreScaleGuard.ps1"
 
         # Helpers to create temp fixture files
-        function script:New-BicepFixture ([int]$MaxReplicas) {
+        function script:New-BicepFixture ([int]$MaxReplicas, [string]$Attestation = '') {
             $f = [System.IO.Path]::GetTempFileName()
+            $attestLine = if ($Attestation) { "`n// $Attestation" } else { '' }
             Set-Content -Path $f -Value @"
 // maxReplicas capped at 1 (t/2885, 2026-08-20): brief-export and oped job
 // stores are per-process in-memory Maps. Running >1 replica means POST on
 // replica A and GET poll on replica B → 404. DO NOT raise above 1 until
-// blob-backed store lands (t/2885 deferred).
+// blob-backed store lands (t/2885 deferred).$attestLine
 maxReplicas: $MaxReplicas
 "@
             return $f
@@ -161,10 +162,24 @@ maxReplicas: $MaxReplicas
         }
     }
 
-    # ── Safe pass (legacy): marker absent (store migrated) ───────────────────
-    Context 'No marker — store migrated, any maxReplicas, single-file mode (must pass)' {
-        It 'passes even when maxReplicas=5' {
+    # ── t/4310: zero markers no longer passes unconditionally -- an explicit attestation is
+    # required when maxReplicas > 1. These two contexts replace the pre-t/4310 "any maxReplicas
+    # passes with zero markers" behavior, which was exactly the gap t/4181 found (a store can be
+    # unsafe across replicas without ever carrying either marker).
+    Context 'No marker, single-file mode — maxReplicas > 1 requires an attestation now (t/4310)' {
+        It 'FAILS when maxReplicas=5 and no attestation is present (the fixed gap)' {
             $bicep = script:New-BicepFixture -MaxReplicas 5
+            $store = script:New-JobStoreFixture -WithMarker $false
+            try {
+                { & $script:GateScript -BicepPath $bicep -JobStorePath $store } |
+                    Should -Throw -ExpectedMessage '*no valid replica-safety attestation*'
+            } finally {
+                Remove-Item $bicep, $store -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'still passes when maxReplicas=5 and a valid @REPLICA_SAFE_ATTESTED is present' {
+            $bicep = script:New-BicepFixture -MaxReplicas 5 -Attestation '@REPLICA_SAFE_ATTESTED: t/4310'
             $store = script:New-JobStoreFixture -WithMarker $false
             try {
                 { & $script:GateScript -BicepPath $bicep -JobStorePath $store } | Should -Not -Throw
@@ -174,11 +189,57 @@ maxReplicas: $MaxReplicas
         }
     }
 
-    # ── Safe pass: no markers anywhere (all stores migrated) ─────────────────
-    Context 'No markers — all stores migrated, any maxReplicas (must pass)' {
-        It 'passes even when maxReplicas=5' {
+    Context 'No markers anywhere, directory mode — maxReplicas > 1 requires an attestation now (t/4310)' {
+        It 'FAILS when maxReplicas=5 and no attestation is present (the fixed gap)' {
             $bicep = script:New-BicepFixture -MaxReplicas 5
             $dir   = script:New-ServerDirFixture -CleanFiles @('briefExportJobs.ts', 'routes/oped.ts')
+            try {
+                { & $script:GateScript -BicepPath $bicep -ServerDir $dir } |
+                    Should -Throw -ExpectedMessage '*no valid replica-safety attestation*'
+            } finally {
+                Remove-Item $bicep -ErrorAction SilentlyContinue
+                Remove-Item $dir -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'still passes when maxReplicas=5 and a valid @REPLICA_SAFE_ATTESTED is present' {
+            $bicep = script:New-BicepFixture -MaxReplicas 5 -Attestation '@REPLICA_SAFE_ATTESTED: t/4310'
+            $dir   = script:New-ServerDirFixture -CleanFiles @('briefExportJobs.ts', 'routes/oped.ts')
+            try {
+                { & $script:GateScript -BicepPath $bicep -ServerDir $dir } | Should -Not -Throw
+            } finally {
+                Remove-Item $bicep -ErrorAction SilentlyContinue
+                Remove-Item $dir -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'FAILS when the attestation is malformed (no t/NNNN ticket ref)' {
+            $bicep = script:New-BicepFixture -MaxReplicas 5 -Attestation '@REPLICA_SAFE_ATTESTED: see-slack-thread'
+            $dir   = script:New-ServerDirFixture -CleanFiles @('briefExportJobs.ts', 'routes/oped.ts')
+            try {
+                { & $script:GateScript -BicepPath $bicep -ServerDir $dir } |
+                    Should -Throw -ExpectedMessage '*no valid replica-safety attestation*'
+            } finally {
+                Remove-Item $bicep -ErrorAction SilentlyContinue
+                Remove-Item $dir -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'a marker present still fails even with a valid attestation (attestation only covers the zero-marker case)' {
+            $bicep = script:New-BicepFixture -MaxReplicas 5 -Attestation '@REPLICA_SAFE_ATTESTED: t/4310'
+            $dir   = script:New-ServerDirFixture -MarkerFiles @('briefExportJobs.ts')
+            try {
+                { & $script:GateScript -BicepPath $bicep -ServerDir $dir } |
+                    Should -Throw -ExpectedMessage '*scale guard FAILED*'
+            } finally {
+                Remove-Item $bicep -ErrorAction SilentlyContinue
+                Remove-Item $dir -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'maxReplicas=1 still passes unconditionally regardless of attestation or markers' {
+            $bicep = script:New-BicepFixture -MaxReplicas 1
+            $dir   = script:New-ServerDirFixture -CleanFiles @('briefExportJobs.ts')
             try {
                 { & $script:GateScript -BicepPath $bicep -ServerDir $dir } | Should -Not -Throw
             } finally {
