@@ -158,7 +158,7 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title: `Key-pool degraded: ${process.env.REASON}`,
-                body, labels: ['key-pool-alert', 'bug']
+                body, labels: ['key-pool-alert', 'bug', 'alert-escalated']
               });
               console.log('Opened new key-pool-alert issue');
             }

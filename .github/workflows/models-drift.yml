@@ -132,7 +132,7 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title: `models:drift — ${new Date().toISOString().slice(0, 10)}`,
-                body, labels: ['models-drift-alert']
+                body, labels: ['models-drift-alert', 'alert-escalated']
               });
               console.log('Opened new models-drift-alert issue');
             }
@@ -173,7 +173,7 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title: `models:drift — UNREADABLE (exit ${process.env.EXIT_CODE}) — ${new Date().toISOString().slice(0, 10)}`,
-                body, labels: ['models-drift-alert']
+                body, labels: ['models-drift-alert', 'alert-escalated']
               });
               console.log('Opened new models-drift-alert issue (UNREADABLE)');
             }

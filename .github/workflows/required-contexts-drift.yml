@@ -85,6 +85,9 @@ jobs:
             const body = (ts) => `required-contexts-drift heartbeat: ${ts} (run ${context.runId})\n\nThis issue is the drift job's liveness heartbeat; each daily run updates it. Leaving it open is intentional — a stale timestamp means the drift check stopped running (and "no drift issue" would then be silence, not health).`;
             const list = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: label, per_page: 1 });
             if (list.data.length === 0) {
+              // lint:alert-label-exempt: t/4414 this IS the heartbeat the r/23 bridge reads
+              // directly (its open body/timestamp, not a label scan) -- it never needs to
+              // escalate itself.
               await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title: 'required-contexts-drift — liveness heartbeat (do not close)', body: body(now.toISOString()), labels: [label] });
             } else {
               const issue = list.data[0];
@@ -113,7 +116,9 @@ jobs:
               if (ex.data.length > 0) {
                 await github.rest.issues.createComment({ owner, repo, issue_number: ex.data[0].number, body: `Still present at ${ts}.\n\n${body}` });
               } else {
-                await github.rest.issues.create({ owner, repo, title, body, labels: [label] });
+                // t/4414 (e/349#8): openOrUpdate is only ever called for real drift/infra
+                // alerts (never the heartbeat above), so alert-escalated always belongs here.
+                await github.rest.issues.create({ owner, repo, title, body, labels: [label, 'alert-escalated'] });
               }
             }
             async function closeIfOpen(label, note) {

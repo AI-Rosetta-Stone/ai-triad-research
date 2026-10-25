@@ -101,6 +101,10 @@ jobs:
             });
             const stamp = `main-ci-monitor heartbeat: ${now.toISOString()} (run ${context.runId})`;
             if (list.data.length === 0) {
+              // lint:alert-label-exempt: t/4414 this IS the heartbeat the r/23 bridge reads
+              // directly (its open body/timestamp, not a label scan) -- it never needs to
+              // escalate itself. A real gap (heartbeatGap below) gets its own separate,
+              // ESCALATED_LABEL-carrying issue.
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title: 'main-ci-monitor — liveness heartbeat (do not close)',
@@ -155,6 +159,8 @@ jobs:
             const note = 'Updated ONLY by `schedule`-triggered runs (t/4173) — unlike the main heartbeat, push-triggered (workflow_run) runs do NOT refresh this. A stale timestamp here means GitHub\'s cron stopped firing this workflow, even if push traffic kept the other heartbeat looking healthy.';
             const stamp = `main-ci-monitor SCHEDULE-ONLY heartbeat: ${now.toISOString()} (run ${context.runId})`;
             if (list.data.length === 0) {
+              // lint:alert-label-exempt: t/4414 this IS the heartbeat the r/23 bridge reads
+              // directly -- see the sibling heartbeat above for the same reasoning.
               await github.rest.issues.create({
                 owner, repo,
                 title: 'main-ci-monitor — schedule-only liveness heartbeat (do not close)',
@@ -219,6 +225,10 @@ jobs:
                     body: `@${owner} 🔺 **ESCALATED** — this alert is ${d.reason}; it has not cleared on its own. Labelled \`${ESCALATED_LABEL}\` (DevOps is pinged via the local escalation bridge). This fires once per episode.` });
                 }
               } else {
+                // lint:alert-label-exempt: t/4414 this helper's design deliberately defers
+                // ESCALATED_LABEL to the persistence check above (addLabels, once it has
+                // survived past one episode) rather than applying it at creation -- a
+                // first-sighting alert that clears on its own was never meant to page anyone.
                 await github.rest.issues.create({ owner, repo, title, body, labels: [label, 'bug'] });
                 console.log(`opened new (${label})`);
               }
@@ -355,6 +365,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const { pathToFileURL } = require('url');
+            // t/4414 (e/349#8): this alert had no label the r/23 bridge watches.
+            const { ESCALATED_LABEL } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/main-ci-monitor.mjs`).href);
             let v;
             try { v = JSON.parse(fs.readFileSync('/tmp/flake-tripwire-verdict.json', 'utf8')); }
             catch { v = { ok: false, error: 'flake-tripwire-verdict.json missing/empty' }; }
@@ -383,7 +396,7 @@ jobs:
               await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
               await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `Still present at ${new Date().toISOString()}.` });
             } else {
-              await github.rest.issues.create({ owner, repo, title: `Flake-heal tripwire: ${flagged.length} repeat healer(s)`, body, labels: [LABEL] });
+              await github.rest.issues.create({ owner, repo, title: `Flake-heal tripwire: ${flagged.length} repeat healer(s)`, body, labels: [LABEL, ESCALATED_LABEL] });
             }
 
       # ── SCHEDULED-WORKFLOW HEALTH (t/4058) ───────────────────────────────────────────────────
