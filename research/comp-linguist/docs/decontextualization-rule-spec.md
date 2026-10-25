@@ -39,8 +39,10 @@ SELF-CONTAINED:
   A reader who has never seen the source must understand the sentence on its own.
   1. Nothing may point outside the sentence: no "it", "they", "this policy",
      "the authors", "the document", "the study", "the organization", "the company".
-  2. Replace a name the source invented with what it is:
-     "the attestation" -> "a mandatory data-processing attestation".
+  2. Replace a name the source invented with what it is, using only what the
+     source itself says it is. Never add detail the source does not give:
+     "the attestation" -> "the mandatory data-processing attestation" only if
+     the source has said it is mandatory and about data processing.
   3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
   4. Keep the proposition general enough to match a taxonomy node. Put the
      specific instrument, jurisdiction, organization or date that the claim is
@@ -49,21 +51,26 @@ SELF-CONTAINED:
 
   Examples:
     Source: "In the EU, the Digital Services Act (DSA) requires major platforms to
-             conduct and publish annual systemic risk assessments ..."
+             conduct and publish annual systemic risk assessments ... [and] to adopt
+             reasonable, proportionate and effective mitigation measures."
     canonical_proposition: "Major online platforms ought to conduct annual systemic
              risk assessments and adopt proportionate mitigation measures."
     anchors: ["EU Digital Services Act"]
 
     Source: "... a big study out of China ... kids using A.I. had increases on their
-             homework scores, and then ... their test scores began falling."
-    canonical_proposition: "Heavy reliance on AI for schoolwork degrades students'
-             independent problem-solving and test performance."
+             homework scores, and then when they had to test outside of that
+             context, their test scores began falling."
+    canonical_proposition: "Students who use AI for homework score worse on tests
+             taken without it."
     anchors: []          (China is an example here, not what the claim is about)
 
-    Debate turn: "The attestation should cover everything the system touches."
-    canonical_proposition: "A mandatory data-processing attestation ought to cover
-             all personal data the system processes, including bystanders' data."
-    anchors: []
+    Earlier in the debate: "We propose a mandatory attestation of how the system
+             processes personal data."
+    Later turn: "The attestation should cover everything the system processes,
+             bystanders included."
+    canonical_proposition: "A mandatory attestation of personal-data processing
+             ought to cover all data the system processes, including bystanders'."
+    anchors: []          (every word traces to the two turns; nothing is added)
 
 ANCHORS:
   "anchors": list of the specific instruments, jurisdictions, organizations or
