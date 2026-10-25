@@ -88,6 +88,30 @@ Describe 'Invoke-OrgStanceExtraction (t/1553 Stage 1)' -Tag 'taxonomy' {
         }
     }
 
+    It 'Persists anchors when the model returns it, and defaults to [] when absent (t/4482)' {
+        InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
+            param($ClaimsPath)
+            Mock Invoke-AIByUsage -MockWith {
+                [PSCustomObject]@{
+                    Text = '{"claims":[' +
+                        '{"text":"a","canonical_proposition":"X ought Y","anchors":["EU AI Act Article 62"],"polarity":"asserts","extraction_confidence":0.9},' +
+                        '{"text":"b","canonical_proposition":"Z ought W","polarity":"asserts","extraction_confidence":0.9}' +
+                    ']}'
+                    Model = 'stub'
+                }
+            }
+            $null = Invoke-OrgStanceExtraction -Concurrency 1 -OutputPath $ClaimsPath -Confirm:$false 3>$null 6>$null
+
+            $store = Get-Content $ClaimsPath -Raw | ConvertFrom-Json
+            # The fixture has 2 approved on-disk sources (src-a, src-b), and the mocked AI response is
+            # the same for both, so each stub claim is written once per source — select one of each.
+            $withAnchor = @($store.claims | Where-Object { $_.text -eq 'a' })[0]
+            $withoutAnchor = @($store.claims | Where-Object { $_.text -eq 'b' })[0]
+            @($withAnchor.anchors) | Should -Be @('EU AI Act Article 62')
+            @($withoutAnchor.anchors).Count | Should -Be 0 -Because 'a claim the model returns with no anchors field defaults to an empty array, not null or a dropped field'
+        }
+    }
+
     It 'Idempotence: re-run against the same set writes zero new claims' {
         InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
             param($ClaimsPath)

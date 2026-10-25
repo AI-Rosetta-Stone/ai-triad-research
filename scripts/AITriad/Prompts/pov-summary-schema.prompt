@@ -11,7 +11,8 @@
           "verbatim": "<string OR array of strings: 1-5 contiguous sentences quoted EXACTLY, or 2-4 non-contiguous spans as an array>",
           "excerpt_context": "<e.g. Section 2, paragraph 3>",
           "extraction_confidence": "<0.0-1.0: how faithfully this point represents the source document>",
-          "canonical_proposition": "<one sentence, ≤30 words, in the modal register matching BDI type: Beliefs=indicative, Desires=deontic, Intentions=instrumental>",
+          "canonical_proposition": "<one sentence, ≤30 words, in the modal register matching BDI type: Beliefs=indicative, Desires=deontic, Intentions=instrumental. Must be SELF-CONTAINED (no pronouns/deictics pointing outside the sentence, names resolved, dates carry a year).>",
+          "anchors": ["<the specific instruments, jurisdictions, organizations or dates the claim is ABOUT, as named in the source, e.g. 'EU AI Act Article 62'. [] for a general claim or when a name appears only as an example. FORENSIC/ADDITIVE (t/4482): NO consumer branches on this field yet. THE EXEMPTION LAPSES the moment any code path reads anchors to make a decision (display, matching, filtering) — at that point a Second Opinion is required for the change that introduces the read. See lib/ai-client/types.ts for the model of this note.>"],
           "attribution_text": "<genus-differentia rewrite mirroring taxonomy node description format: 'A [Belief|Desire|Intention] within [POV] discourse that [differentia]. Encompasses: [2-3 specific concepts from the claim].' 40-80 words, BDI modal register, domain vocabulary, no rhetoric/hedging.>",
           "vocabulary_terms": ["<standardized term canonical forms relevant to this point, e.g. 'governance_adaptive', 'capabilities_scaling'. Omit if none apply.>"]
         },
@@ -76,7 +77,7 @@
   },
   "factual_claims": [
     {
-      "claim": "<a specific empirical or factual claim made in the document. 2-5 sentences in plain language (write for a policy reporter — active voice, concrete examples, quotable sentences)>",
+      "claim": "<a specific empirical or factual claim made in the document. 2-5 sentences in plain language (write for a policy reporter — active voice, concrete examples, quotable sentences). SELF-CONTAINED: (1) no pronouns/deictics pointing outside the sentence (no 'it', 'they', 'this policy', 'the authors', 'the document', 'the study', 'the organization', 'the company'); (2) replace a name the source invented with what it is (e.g. 'the attestation' -> 'a mandatory data-processing attestation'); (3) every date carries a year ('by 15 December 2025', never 'by Dec. 15'). The claim keeps its own names — no anchors field here.>",
       "claim_label": "<5-10 word short title, e.g. 'AGI Timeline Estimates'>",
       "doc_position": "<supports | disputes | neutral | qualifies>",
       "temporal_scope": "<current_state | predictive | historical | timeless>",
