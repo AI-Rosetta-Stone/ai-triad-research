@@ -72,4 +72,11 @@ Describe 'deploy-azure.yml AC2 rollback wiring (t/4309)' {
         Test-Path $scriptPath | Should -BeTrue
         (Get-Content -Raw $scriptPath) | Should -Match '\[switch\]\s*\$DryRun'
     }
+
+    It 'C5 — the rollback step writes its outputs via Write-Ac2RollbackOutput, not the bare .ToString() inline logic the SO flagged' {
+        $step = Get-Step 'Rollback for AC2 failure (t/4309 C2, C3a)'
+        $step | Should -Match 'Write-Ac2RollbackOutput\.ps1'
+        $step | Should -Match 'Write-Ac2RollbackOutput\s+-Result\s+\$result\s+-OutputPath\s+\$env:GITHUB_OUTPUT'
+        $step | Should -Not -Match '\.RecheckFailed\.ToString\(\)'
+    }
 }

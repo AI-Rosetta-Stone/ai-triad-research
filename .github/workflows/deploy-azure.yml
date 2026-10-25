@@ -1146,9 +1146,13 @@ jobs:
             -AppUrl '${{ steps.deploy.outputs.appUrl }}' `
             -AppName '${{ env.CONTAINER_APP_NAME }}' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}'
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "target_unrecoverable=$($result.TargetUnrecoverable.ToString().ToLower())"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "recheck_failed=$($result.RecheckFailed.ToString().ToLower())"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "recheck_reason=$($result.RecheckReason)"
+          # SO review (e/361#5, C5): the output-writing itself is extracted and Pester-tested
+          # (operations/devops/Write-Ac2RollbackOutput.ps1) -- RecheckFailed is $null on the
+          # unrecoverable-target and catch paths, and a bare .ToString() on that throws under
+          # Set-StrictMode, which would have made every unrecoverable rollback LOOK like a
+          # script crash instead of writing the real reason.
+          . ./operations/devops/Write-Ac2RollbackOutput.ps1
+          Write-Ac2RollbackOutput -Result $result -OutputPath $env:GITHUB_OUTPUT
           # Never fail this step's own exit code on a bad outcome -- the sev-1 step (gated on
           # these outputs, plus `steps.ac2_rollback.outcome == 'failure'` as a last-resort
           # catch-all) is what alerts + exits 1. Invoke-Ac2Rollback.ps1 itself only throws on a
