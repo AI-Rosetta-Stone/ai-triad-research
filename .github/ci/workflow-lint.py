@@ -39,6 +39,13 @@ PERMISSIONS_RE = re.compile(r'^\s*permissions:', re.MULTILINE)
 # -- or carry an exemption comment recording why it's covered another way. WARN-ONLY for now, same
 # promotion discipline as the required-context rules above (t/3646): a later blocking-promotion PR
 # needs its own evidence + its own Second Opinion, not bundled into this one.
+#
+# SCOPE (e/349#10, SO): THIS repo's rule is `alert-escalated` -> the r/23 bridge. The sibling
+# `ai-triad-data` repo uses a DIFFERENT, already-correct mapping -- `data-compliance` -> the r/25
+# sweep (bdi-boundary, citation-link-integrity, data-compliance-watchdog, large-file-guard,
+# source-index-regen, taxonomy-node-removal all apply it; the watchdog adds `bridge-stale` for its
+# own staleness alerts). This check only scans `.github/workflows/*.yml` in THIS repo and
+# deliberately does not, and should not, apply the alert-escalated rule there.
 ALERT_LABEL = 'alert-escalated'
 GH_ISSUE_CREATE_RE = re.compile(r'\bgh issue create\b')
 # SO e/349#8 point 2: only an edit that TOUCHES LABELS is the alert path -- a plain
