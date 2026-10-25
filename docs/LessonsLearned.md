@@ -53,6 +53,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-22 — PowerShell (p/20#108, t/4404): 5th recurrence of the same sub-pattern minutes later, while applying a "just one replace" fix. Resolved using the Edit tool. Reinforces that the inline `pwsh -Command` form with any backtick or `$` is risky even for small edits.
 - 2026-10-23 — PowerShell (p/20#112): 6th recurrence — backtick-escaped PS variable (`` `$null ``) inside `pwsh -Command "…"` double quotes. Bash treated the backtick as command substitution → "unexpected EOF." Moved to a `.ps1` file written with a quoted heredoc, ran `pwsh -File`.
 - 2026-10-23 — PowerShell (p/20#114): 7th recurrence — markdown backticks inside `gh pr comment --body "…"` double quotes. Entire Bash line failed to parse before `gh` ran. Wrote comment to file, used `--body-file`. Confirmed no-op step was needed after fixing the command.
+- 2026-10-24 — PowerShell (p/20#126): 8th recurrence — inline `pwsh -NoProfile -Command '...'` from Bash with mixed `\'` single-quote escaping and embedded double-quoted JSON string literal → `syntax error near unexpected token ')'`. Shell's own quote parser broke before PowerShell ran. Resolved by writing to a scratchpad `.ps1` file and running `pwsh -File`.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -3085,7 +3086,9 @@ Institutional memory for failure patterns across the AI Triad Research project.
 7. **Facet E — verify each required context has an actual check-run before trusting the rollup.** After `--required` exits 0, confirm each required context name appears in `gh api repos/{owner}/{repo}/commits/{sha}/check-runs --jq '[.check_runs[].name]'`. Zero entries for a required context means no run posted yet — the rollup "green" reflects absence, not passage. This is faster than waiting for a Facet D block at merge time.
 8. **Facet F — before treating exit 1 as a CI failure, check which context is red.** `gh pr checks <n> --required --json name,conclusion --jq '.[] | select(.conclusion != "SUCCESS") | .name'` names the failing check. If `consult-hold-guard` is the only one, the PR's CI is fine — the hold gate is doing its job. Remove the label per T2 protocol; the check re-runs green within seconds.
 
-**Status:** Active — `gh pr checks` text/exit-code unreliability (0 pass / 1 fail / 8 pending + Facet B false-green + Facet C grep-misread + Facet D premature-merge GitHub block + Facet E `--required` absent-context false-green + Facet F `--required` exit 1 because hold-guard is intentionally red); "exit code ≠ pass/fail boolean" family (#73A). Self-correcting once recognized. CI-wait sibling of #111 (current-HEAD-gated workflow) and #116 (background monitor, not foreground poll).
+**Facet G — stale check runs from a prior push surface under the same name:** after a new push, GitHub retains check runs from the previous OID in the PR's checks list. Both the old `fail` (from the prior OID) and the new `pass` (from the current OID) appear under the same check name. `gh pr checks` without `--required` surfaces both; the stale `fail` flips the aggregate exit code to 1 even though the current head's run passed. Discriminator: `gh pr checks <n> --json name,conclusion,detailsUrl` — inspect the URL or run ID to confirm which run belongs to the current OID. Only the current-head runs are authoritative.
+
+**Status:** Active — `gh pr checks` text/exit-code unreliability (0 pass / 1 fail / 8 pending + Facet B false-green + Facet C grep-misread + Facet D premature-merge GitHub block + Facet E `--required` absent-context false-green + Facet F `--required` exit 1 because hold-guard is intentionally red + Facet G stale prior-push run surfaces alongside current run, flipping exit code); "exit code ≠ pass/fail boolean" family (#73A). Self-correcting once recognized. CI-wait sibling of #111 (current-HEAD-gated workflow) and #116 (background monitor, not foreground poll).
 
 **Applies To:** All agents polling `gh pr checks` while waiting on PR checks (self-merge / land waits).
 
@@ -7318,3 +7321,24 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#142).
 
 **Applies To:** All agents extracting structured IDs from mixed-content files (param blocks, scripts, config files) using shell regex; generic quoted-string patterns will match paths and other values alongside the intended IDs.
+
+---
+
+## #361 [Process] `gh pr create` Partial Success — PR Created but Flags (--body-file, --reviewer) Not Applied; `|| true` Masks the Failure
+
+**Pattern:** An agent runs `gh pr create --body-file <f> --reviewer <slug> ... || true`. The command partially succeeds: the PR is created, but `--reviewer <invalid-slug>` causes a non-zero exit, and `|| true` swallows it. Because the PR now exists, a second `gh pr create` attempt returns "pull request already exists" — but the PR has an **empty body** (the `--body-file` application also failed). Downstream, `tier-check` reads no `Tier:` line and fires; `t1-approval-guard` concludes the PR is not T1. The agent notices only when those checks fail, not at creation time.
+
+**Instances:**
+- 2026-10-24 — PowerShell (p/20#120 + p/20#122, PR #3792): `gh pr create` wrapped in `|| true` after an invalid `--reviewer AI-Rosetta-Stone/ai-triad-research` slug → exit 1 swallowed; PR created, body empty. Detected when `tier-check` and `t1-approval-guard` failed. Fixed with `gh pr edit 3792 --body-file <file>`. Note: this fleet approves via `Invoke-AsAgentApp -Role reviewer` + Orca ping, **not** via GitHub's native `--reviewer` flag — `--reviewer` should never appear on `gh pr create` here.
+
+**Root Cause:** `gh pr create` is a command with side effects that can partially succeed — the PR creation half may complete while a flag-processing step fails. `|| true` (or any unconditional success override) hides this by collapsing the exit code. The body not being applied is invisible without an explicit check of the PR's body field after creation. Compounded by using `--reviewer` in a fleet that approves out-of-band via the reviewer App.
+
+**Prevention:**
+1. **Never use `|| true` with `gh pr create`.** If the command exits non-zero, investigate — the PR may have been created without all options applied.
+2. **After any `gh pr create` attempt that returned non-zero, verify both existence AND body completeness:** `gh pr view <N> --json body --jq '.body | length'` — if 0, apply the body with `gh pr edit <N> --body-file <file>` before doing anything else.
+3. **Do not pass `--reviewer` on this fleet.** Reviewers are notified via Orca ping; they approve with `Invoke-AsAgentApp -Role reviewer` + `Approved (<role>):` comment. GitHub's native review-request mechanism is not used (t/4092). Passing `--reviewer <org-slug>` will always fail with an unrecognized reviewer error.
+4. **Verify PR body immediately after creation** — `gh pr view <N> --json body --jq '.body | length'` as a post-create step is cheap and catches any flag-application failure before downstream checks fire.
+
+**Status:** Active — 1 instance (PowerShell p/20#120 + p/20#122, PR #3792).
+
+**Applies To:** All agents creating PRs with `gh pr create`; always verify body completeness after creation, never use `--reviewer`, never suppress `gh pr create` failures with `|| true`.
