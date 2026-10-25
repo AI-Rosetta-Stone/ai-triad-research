@@ -16,7 +16,7 @@ name: Health Monitor
 # Schedule re-registered 2026-10-12 after the AI-Rosetta-Stone org move: crons stopped firing silently (t/4173).
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Every 15 minutes
+    - cron: '7,22,37,52 * * * *'  # t/4501: off round-minute marks, GitHub's congestion peak
   workflow_dispatch:
     inputs:
       gv_inject_missing:
