@@ -118,6 +118,12 @@ Describe 'Test-CitationLinkIntegrity (t/3598)' -Tag 'config' {
         (script:Leg $r 'c').pass | Should -BeTrue
     }
 
+    It 'LEG C carries liveKeysChecked, the live-node key-set size its staleness check runs against (t/4444)' {
+        $f = script:New-CliFixture; $script:Fixtures.Add($f.Fx)
+        $r = script:RunCli $f
+        (script:Leg $r 'c').liveKeysChecked | Should -Be 2 -Because 'the fixture has 2 live belief nodes (acc-beliefs-010, saf-beliefs-201); situations are not in this set'
+    }
+
     It 'LEG A FAILS on a dead belief id AND a dead situation id (class-aware)' {
         $f = script:New-CliFixture @{ DeadRefs = $true }; $script:Fixtures.Add($f.Fx)
         $r = script:RunCli $f

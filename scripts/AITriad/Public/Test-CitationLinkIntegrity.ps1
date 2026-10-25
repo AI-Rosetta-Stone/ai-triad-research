@@ -86,6 +86,9 @@ function Test-CitationLinkIntegrity {
         leg 'b' additionally carries `checked` (N distinct source_ids), `accepted[]` (t/3743
         accepted-baseline hits — {source_id; reason} — PASS, not counted as offenders), and
         `skipped` ($true when -SkipSourceResolution was used — pass is $true, not a real check).
+        leg 'c' additionally carries `liveKeysChecked` (the live-node key-set size its staleness/
+        key-set comparison runs against) — statistic-provenance for a t/4444 coverage floor, the
+        same role leg 'a's summariesScanned/refsChecked play for its own floor.
     .EXAMPLE
         (Test-CitationLinkIntegrity).results | Format-Table leg, pass, @{n='n';e={$_.offenders.Count}}
     .EXAMPLE
@@ -219,7 +222,6 @@ function Test-CitationLinkIntegrity {
     # ── Leg (c): staleness — header hash + key SET vs live-node SET (t/3896) ──────────────
     $cOff = [System.Collections.Generic.List[object]]::new()
     if ($indexExists) {
-        $liveCount = $beliefIndexKeys.Count
         $stored = if ($ix.PSObject.Properties['inputHash']) { [string]$ix.inputHash } else { '' }
         $recomputed = Get-SummariesInputHash -SummariesDir $SummariesDir
         if ($stored -ne $recomputed) {
@@ -252,7 +254,7 @@ function Test-CitationLinkIntegrity {
     $results = @(
         [pscustomobject]@{ leg = 'a'; name = 'link-resolution';   pass = ($aOff.Count -eq 0); offenders = @($aOff); summariesScanned = $aSummaries; refsChecked = $aRefs }
         [pscustomobject]@{ leg = 'b'; name = 'source-resolution'; pass = ($bOff.Count -eq 0); offenders = @($bOff); checked = $bChecked; accepted = @($bAccepted); skipped = $bSkipped }
-        [pscustomobject]@{ leg = 'c'; name = 'staleness';         pass = ($cOff.Count -eq 0); offenders = @($cOff) }
+        [pscustomobject]@{ leg = 'c'; name = 'staleness';         pass = ($cOff.Count -eq 0); offenders = @($cOff); liveKeysChecked = @($beliefIndexKeys).Count }
     )
     $overall = @($results | Where-Object { -not $_.pass }).Count -eq 0
 
