@@ -594,6 +594,10 @@ async function getNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
  */
 export function prewarmNodeSourceIndex(): void {
   getNodeSourceIndexCache().catch((err: unknown) => {
+    // TL p/538#207 point 1: the recorder alone is in-memory — a prewarm
+    // failure needs a real log line too, or it's invisible in Log Analytics
+    // and the 5.5s first-request cost (AC4) comes back with no WARN anywhere.
+    log.api.warn({ component: 'node-source-index', err }, 'prewarmNodeSourceIndex: boot prewarm failed — first real request will rebuild');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'node-source-index', level: 'warn',
       message: 'prewarmNodeSourceIndex: boot prewarm failed; the first real request will build it instead',

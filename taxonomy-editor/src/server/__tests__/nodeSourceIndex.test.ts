@@ -162,6 +162,23 @@ describe('buildNodeSourceIndex / getNodeSources (t/4333/t/4334)', () => {
     infoSpy.mockRestore();
   });
 
+  // TL p/538#207 point 2: "the first real request will rebuild it instead"
+  // only holds if a rejected build's in-flight promise is cleared, not
+  // cached as the permanent answer. A failed prewarm must not poison every
+  // request after it.
+  it('a rejected build is not cached — the next request starts a fresh one and succeeds (TL p/538#207)', async () => {
+    writeSourceMeta('a-doc', { title: 'A', url: 'https://example.com/a' });
+    writeSummary('a-doc', 'n1');
+    const listSpy = vi.spyOn(fileIO.getBackend(), 'listDirectory').mockRejectedValueOnce(new Error('simulated boot prewarm failure'));
+
+    prewarmNodeSourceIndex();
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the rejected build settle before the next call starts
+
+    const result = await fileIO.getNodeSources('n1'); // must rebuild, not rethrow or return a cached empty result
+    expect(result.sources).toHaveLength(1);
+    listSpy.mockRestore();
+  });
+
   // t/4499 AC1: the phase timings exist and sum sanely — a regression test
   // for the split itself, not for any particular value (those depend on the
   // environment, e.g. hosted's GitHubAPIBackend vs. a local fs backend).
