@@ -20,7 +20,7 @@ vi.mock('../config.js', async (importOriginal) => {
   return { ...actual, hasApiKey: vi.fn(async () => true) };
 });
 
-vi.mock('../ai/proxyTiers.js', () => ({ parseFreeTierKeys: vi.fn(() => ['k1']) }));
+vi.mock('../ai/proxyTiers.js', () => ({ parseFreeTierKeys: vi.fn(() => ['k1']), freeTierKeyCount: vi.fn(() => 1) }));
 
 import { registerMetaRoutes } from '../routes/meta.js';
 import type { ServerCtx } from '../routes/context.js';

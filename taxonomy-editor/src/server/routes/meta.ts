@@ -162,7 +162,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // (versions, storage internals, GitHub rate limits, paths) only for admins.
     // AI key status is always included so deployment gates can verify readiness.
     const geminiReady = await hasApiKey('gemini');
-    const freeKeyPoolSize = proxyTiers.parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length;
+    const freeKeyPoolSize = proxyTiers.freeTierKeyCount();
     // t/3278 Arm-1: buildSha in the UNAUTH branch — the drift checker (Arm-2) hits /health anonymously
     // to compare the running image's SHA against origin/main HEAD. Public repo → the commit SHA is not
     // secret. `?? null` so a build that didn't bake BUILD_SHA is a visible null (a vacuous compare the

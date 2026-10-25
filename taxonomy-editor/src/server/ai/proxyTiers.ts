@@ -172,24 +172,35 @@ export function freeTierEnabled(): boolean {
   return parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length > 0;
 }
 
+/** t/4486: a diagnostics/count-only read of the pool size — NOT for key injection. Routes that
+ *  log `freeKeyCount` for a fallback/overflow record use this instead of reading
+ *  `process.env.FREE_TIER_GEMINI_KEY` directly, so the sole-reader test (freePoolKeyAccess.ts)
+ *  only has to allowlist this module, not every call site that merely counts. */
+export function freeTierKeyCount(): number {
+  return parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length;
+}
+
 /**
  * t/945: a BYOK user with no key for the requested backend falls back to the
  * free-tier Gemini pool — so a Claude-only user isn't 422'd on the Gemini-pinned
- * helper stages (BRIEF/CITE). Returns the fallback key(s), or undefined when no
- * fallback applies (already has a key, not BYOK, not Gemini, or pool unset).
- * Per-user rate limiting still bounds usage (the caller keys on the principal).
+ * helper stages (BRIEF/CITE). PURE decision only — whether the fallback applies —
+ * with NO env read: it does NOT return a key (t/4486#4, TL review — the previous
+ * version read `process.env.FREE_TIER_GEMINI_KEY` directly here, a fourth bypass
+ * of the free-pool geo gate that the per-file sole-reader allowlist couldn't see).
+ * The caller, on `true`, fetches the actual key(s) through
+ * `ai/freePoolKeyAccess.ts`'s `getFreePoolKeys` — the same geo-gated accessor the
+ * free tier itself uses — so a BYOK fallback is checked exactly like free-tier
+ * traffic. Per-user rate limiting still bounds usage (the caller keys on the
+ * principal).
  */
-export function byokGeminiFallbackKey(
+export function byokGeminiFallbackApplies(
   tierLevel: TierLevel,
   backend: string,
   currentKey: string | string[] | undefined,
-): string | string[] | undefined {
+): boolean {
   const haveKey = (typeof currentKey === 'string' && currentKey.length > 0)
     || (Array.isArray(currentKey) && currentKey.length > 0);
-  if (haveKey || tierLevel !== 'byok' || backend !== 'gemini') return undefined;
-  const freeKeys = parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY);
-  if (freeKeys.length === 0) return undefined;
-  return freeKeys.length === 1 ? freeKeys[0] : freeKeys;
+  return !haveKey && tierLevel === 'byok' && backend === 'gemini';
 }
 
 /** Per-Gemini-key free-tier RPM — single source of truth (also used by keyRotator.ts).
@@ -231,7 +242,7 @@ export function resolveTier(principalName: string, idp: string): ResolvedTier {
       // t/906: each free-tier Gemini key carries its own 6 RPM at Gemini and the
       // rotator (t/846) spreads load across the pool — so scale the server-side
       // limit with the key count instead of the hardcoded 6 (capped to bound abuse).
-      const rpm = scaledFreeTierRpm(parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length);
+      const rpm = scaledFreeTierRpm(freeTierKeyCount());
       const base = freeTierBase();
       return { ...base, limits: { ...base.limits, requestsPerMinute: rpm } };
     }

@@ -18,7 +18,7 @@ vi.mock('../ai/proxyTiers.js', () => ({
   resolveTier: () => BYOK,
   isBackendAllowed: () => true,
   parseFreeTierKeys: () => [],
-  byokGeminiFallbackKey: () => undefined,
+  byokGeminiFallbackApplies: () => false,
 }));
 const generateTextByUsage = vi.fn();
 const generateTextWithSearchByUsage = vi.fn();

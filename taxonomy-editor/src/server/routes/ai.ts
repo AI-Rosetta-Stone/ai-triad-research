@@ -29,6 +29,7 @@ import * as proxyTiers from '../ai/proxyTiers.js';
 import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext, enforceBackendAllowed, enforceAnonDebateGate } from './generationContext.js';
+import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
 
 import * as fileIO from '../storage/fileIO.js';
 import { beginEmbeddingCompute, endEmbeddingCompute, embeddingLoadSnapshot, evaluateEmbeddingLoadShed, isEmbeddingModelWarm, markEmbeddingModelWarm } from '../embeddingsLoad.js';
@@ -102,21 +103,33 @@ function enforceAiRateLimits(res: http.ServerResponse, isFree: boolean, limitKey
   return false;
 }
 
-/** Resolve the key to inject: free tier → server FREE_TIER_GEMINI_KEY (503 if none);
- *  platform → undefined (server-side keys); BYOK → client key, with a free-tier Gemini
- *  fallback for a BYOK user with no key for the pinned backend (t/945). Returns
- *  `{ ok: false }` after sending a 503 when the free tier is unavailable. */
-function resolveExplicitAiKey(res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend):
-  { ok: true; key: string | string[] | undefined } | { ok: false } {
+/** Resolve the key to inject: free tier → server FREE_TIER_GEMINI_KEY, gated by the free-pool
+ *  geo restriction (t/4486) — 403 `free_pool_region` when the caller's IP is EEA/CH/UK or
+ *  unresolvable, 503 if the pool has no keys configured; platform → undefined (server-side
+ *  keys); BYOK → client key, with a free-tier Gemini fallback for a BYOK user with no key for
+ *  the pinned backend (t/945) — **also geo-gated** (t/4486#4, TL review: this fallback used to
+ *  read the pool directly, a fourth bypass of the restriction). Returns `{ ok: false }` after
+ *  sending the error response when the free tier is unavailable or geo-restricted. */
+async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend):
+  Promise<{ ok: true; key: string | string[] | undefined } | { ok: false }> {
   if (tier.serverProvidedKey) {
+    // t/4486: the ONLY injection-path reader of the free pool — applies the geo gate.
+    const poolResult = await getFreePoolKeys(req, res);
+    if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     // t/846: FREE_TIER_GEMINI_KEY may be a comma-separated list; >1 key round-robins
     // across server keys via callWithKeyRotation in generateText.
-    const freeKeys = proxyTiers.parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY);
+    const freeKeys = poolResult.keys;
     if (freeKeys.length === 0) { res.writeHead(503); res.end(JSON.stringify({ error: 'Free tier is not available' })); return { ok: false }; }
     return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys };
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
-  explicitKey = explicitKey ?? proxyTiers.byokGeminiFallbackKey(tier.level, backend, explicitKey);
+  if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
+    const poolResult = await getFreePoolKeys(req, res);
+    if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
+    if (poolResult.keys.length > 0) explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
+    // An empty pool is NOT an error for this branch — unlike the free tier's own 503, a BYOK
+    // user with no fallback available just proceeds with no key, same as pre-t/4486 behavior.
+  }
   return { ok: true, key: explicitKey };
 }
 
@@ -179,7 +192,7 @@ export async function generateWithPaidFallback(
     getGlobalRecorder()?.record({
       type: 'ai.fallback', component: 'ai-generate', level: 'warn',
       message: 'Free-tier keys exhausted — waiting 3s before paid fallback',
-      data: { model: requestModel, backend, fallback: 'paid', delayMs: 3000, freeKeyCount: proxyTiers.parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length },
+      data: { model: requestModel, backend, fallback: 'paid', delayMs: 3000, freeKeyCount: proxyTiers.freeTierKeyCount() },
     });
     // Throttle: caps paid-key throughput (~20/min) and gives free keys time to exit
     // cooldown so the next request reverts to the free pool.
@@ -266,7 +279,7 @@ export async function generateWithSearch(
     getGlobalRecorder()?.record({
       type: 'ai.fallback', component: 'ai-generate', level: 'warn',
       message: 'Free-tier search keys exhausted (429) — falling back to paid key after 3s throttle',
-      data: { model: requestModel, backend, fallback: 'paid', delayMs: 3000, search: true, freeKeyCount: proxyTiers.parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY).length },
+      data: { model: requestModel, backend, fallback: 'paid', delayMs: 3000, search: true, freeKeyCount: proxyTiers.freeTierKeyCount() },
     });
     await new Promise(r => setTimeout(r, 3000));
     try {
@@ -416,9 +429,10 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // Rate limiting: per-IP RPM (free tier) / per-user RPM + daily token budget (429 on breach).
       if (enforceAiRateLimits(res, isFree, limitKey, tier, backend)) return;
 
-      // Key injection: free tier → server FREE_TIER_GEMINI_KEY (503 if none); platform
-      // → server-side keys; BYOK → client key, with a free-tier Gemini fallback (t/945).
-      const keyResult = resolveExplicitAiKey(res, tier, clientKey, backend);
+      // Key injection: free tier → server FREE_TIER_GEMINI_KEY, geo-gated (t/4486, 403 if no
+      // keys or restricted region); platform → server-side keys; BYOK → client key, with a
+      // free-tier Gemini fallback (t/945).
+      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend);
       if (!keyResult.ok) return;
       let explicitKey = keyResult.key;
 
@@ -782,9 +796,15 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // anon callers get [] → fail. Embeddings stay key-free (true local ONNX, no fallback).
       const gate = freeTierEmbeddingGate(req, res);
       if (gate.blocked) return;
-      const nliKeys = proxyTiers.freeTierEnabled()
-        ? proxyTiers.parseFreeTierKeys(process.env.FREE_TIER_GEMINI_KEY)
-        : undefined;
+      // t/4486: the ONLY other injection site besides resolveExplicitAiKey — must go through
+      // the same geo-gated accessor (TL review, t/4486#2: this route bypassed
+      // resolveGenerationContext entirely, so a guard placed only there would miss it).
+      let nliKeys: string[] | undefined;
+      if (proxyTiers.freeTierEnabled()) {
+        const poolResult = await getFreePoolKeys(req, res);
+        if (!poolResult.ok) return; // 403 free_pool_region already written
+        nliKeys = poolResult.keys;
+      }
       const results = await ai.classifyNli(pairs, nliKeys && nliKeys.length > 0 ? nliKeys : undefined);
       json(res, { results });
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to classify NLI pairs', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }

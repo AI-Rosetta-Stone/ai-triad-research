@@ -45,7 +45,7 @@ vi.mock('../ai/proxyTiers.js', () => ({
   resolveTier: () => ({ level: 'platform', allowedBackends: ['gemini'], limits: { requestsPerMinute: 100, tokensPerDay: 1_000_000 }, serverProvidedKey: false, pinnedModel: undefined }),
   isBackendAllowed: () => true,
   parseFreeTierKeys: () => [],
-  byokGeminiFallbackKey: () => undefined,
+  byokGeminiFallbackApplies: () => false,
 }));
 
 vi.mock('../security/rateLimiter.js', () => ({
