@@ -1,0 +1,26 @@
+{
+  "_doc": "t/4471 baseline hand labels (CL, single rater, 2026-10-25). Sample = sample.json (seed 4471). Classes: ok | pronoun (unresolved pronoun/deictic) | internal (source-internal definite description, e.g. 'the recognition direction') | date_no_year | elided (claim is ABOUT a specific instrument/jurisdiction/actor the text dropped; verified against verbatim where marked) | artifact (not a claim).",
+  "kp": {
+    "K08": "elided (verified: California Governor's executive order -> 'state-level')",
+    "K17": "elided+date_no_year (verified: California Judicial Council, 'by Dec. 15' -> 'judicial bodies ... by December 15')",
+    "K25": "artifact ('The document section contains no skeptic beliefs.' from a bibliography chunk)",
+    "K32": "elided (verified: EU Digital Services Act -> 'Digital platforms must')",
+    "K38": "elided-partial (verified: FTC AI-disclosure guidance context -> 'across campaigns')",
+    "_rest": "ok (45 of 50)"
+  },
+  "kp_summary": {"n": 50, "pronoun": 0, "internal": 0, "elided": 4, "date_no_year": 1, "artifact": 1},
+  "fc": {
+    "F02": "internal ('coalitions containing resource provisioner agents': unnamed experiment)",
+    "F09": "internal ('Self-correcting search results in ~30% more...': unnamed system/study)",
+    "F10": "artifact (describes the document's bibliography)",
+    "F15": "internal ('the recognition direction')",
+    "F21": "internal ('the pain vector', 'larger models': unnamed models)",
+    "F24": "pronoun ('the organization': OpenAI's Preparedness Framework)",
+    "F29": "date_no_year ('on or about November 14 HKT')",
+    "F38": "pronoun ('the administration's model deployment approach')",
+    "_rest": "ok (42 of 50)"
+  },
+  "fc_summary": {"n": 50, "context_dependent": 7, "artifact": 1},
+  "org_sample_n20": {"pronoun_the_organization": 5, "ids": ["O01", "O02", "O03", "O05", "O15"]},
+  "debate_sample_n19": {"internal": 2, "ids": ["D07 'The attestation'", "D18 'the two-year verification test'"]}
+}

@@ -1,0 +1,267 @@
+[
+ {
+  "doc": "california-creates-countrys-first-ai-auditor-registry-2026-1",
+  "camp": "skeptic",
+  "cat": "Intentions",
+  "node": "skp-intentions-153",
+  "cp": "Implement state-mandated registries of independent AI auditors to replace corporate self-assessment and enforce accountability.",
+  "missing": [
+   "California"
+  ],
+  "vb": "Assembly Bill 1405 ... creates the registry itself — a state list of AI auditors, with standards attached for their independence, transparency, and integrity, intended to give California “a mechanism for credible third-party auditing” that can identify risks, verify a developer’s claims, and hold AI companies accountable rather than leaving complia"
+ },
+ {
+  "doc": "bill-gatess-blunt-warning-ai-2026",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-043",
+  "cp": "Heavy reliance on AI for cognitive tasks degrades human critical thinking, problem-solving abilities, and long-term learning outcomes.",
+  "missing": [
+   "China"
+  ],
+  "vb": "And even, I think — we saw a big study out of China that was striking to me, where you saw kids using A.I. had increases on their homework scores, and then when they had to test outside of that context, their test scores began falling pretty sharply."
+ },
+ {
+  "doc": "measuring-risk-ii-what-eu-risk-assessments-us-litigation-2026",
+  "camp": "safetyist",
+  "cat": "Intentions",
+  "node": "saf-intentions-111",
+  "cp": "Digital platforms must conduct annual systemic risk assessments and adopt proportionate mitigation measures tailored to identified risks like minor protection and fundamental rights.",
+  "missing": [
+   "DSA",
+   "EU"
+  ],
+  "vb": "In the EU, the Digital Services Act (DSA) requires major platforms to conduct and publish annual systemic risk assessments, including risks related to the protection of minors. The DSA further requires platforms to adopt “reasonable, proportionate and effective mitigation measures, tailored to the specific systemic risks identified” through the ris"
+ },
+ {
+  "doc": "ai-companies-have-become-democratically-accountable-2026",
+  "camp": "accelerationist",
+  "cat": "Beliefs",
+  "node": "acc-beliefs-083",
+  "cp": "Existential risk narratives serve as a rhetorical shield for tech executives to distract from immediate commercial practices.",
+  "missing": [
+   "UK"
+  ],
+  "vb": "Rishi SunakÆs AI Summit last November was, depending on oneÆs perspective, either a coup for the UK áû áhosting an important global conversation û or an excuse for the tech bros to scream existential threat whilst stealing the wallet from your pocket."
+ },
+ {
+  "doc": "governor-newsom-issues-executive-order-accelerate-2026-1",
+  "camp": "skeptic",
+  "cat": "Intentions",
+  "node": "skp-intentions-112",
+  "cp": "Break down policy silos by synthesizing antitrust, privacy, and security frameworks to regulate corporate AI power.",
+  "missing": [
+   "California"
+  ],
+  "vb": "California leads the nation in oversight of emerging frontier technologies, with laws addressing nearly every major area of AI policy: frontier-model safety, independent oversight, children and companion chatbots, privacy, deepfakes, fraud, cybersecurity, workers and government deployment."
+ },
+ {
+  "doc": "why-transparency-matters-sustainable-data-centers-carbon-2026",
+  "camp": "safetyist",
+  "cat": "Intentions",
+  "node": "saf-intentions-160",
+  "cp": "Mandate comprehensive Scope 1-3 emissions reporting for AI infrastructure through expanded regulatory frameworks.",
+  "missing": [
+   "EU"
+  ],
+  "vb": "Governments must take the led by expanding regulatory frameworks such as the EU AI Act to mandate comprehensive Scope 1û3 emissions reporting for AI infrastructure, including cloud providers and hardware manufacturers."
+ },
+ {
+  "doc": "humanity-needs-ai-nonproliferation-treaty-2026-1",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-104",
+  "cp": "Unilateral domestic regulation fails to curb global AI risks when geopolitical competitors are positioned to fill the vacuum.",
+  "missing": [
+   "China"
+  ],
+  "vb": "According to most estimates, China’s leading AI models are only a few months behind their American counterparts. If the U.S. were to throttle its own industry, then Chinese companies would eventually surpass them."
+ },
+ {
+  "doc": "ai-washington-report-august-2026-edition-2026",
+  "camp": "skeptic",
+  "cat": "Intentions",
+  "node": "skp-intentions-141",
+  "cp": "Enforce Section 5 deception authority to penalize AI companies that covertly steer system outputs away from user expectations.",
+  "missing": [
+   "FTC"
+  ],
+  "vb": "On July 1, the FTC proposed a policy statement concerning the suppression of accuracy in artificial intelligence systems. The statement argues that AI companies violate Section 5 of the FTC Act’s prohibition on deceptive practices when they “steer the outputs of their AI Systems toward unexpected objectives, and away from the objectives set by or r"
+ },
+ {
+  "doc": "traiga-compliance-guide-texas-ai-law-requirements-2026-2026",
+  "camp": "skeptic",
+  "cat": "Intentions",
+  "node": "skp-intentions-102",
+  "cp": "Operationalize AI governance enforcement through centralized state attorney general authority while excluding private rights of action.",
+  "missing": [
+   "Texas"
+  ],
+  "vb": "The Texas Attorney General has exclusive enforcement authority under TRAIGA. [...] Private right of action: None (AG enforcement only)"
+ },
+ {
+  "doc": "artificial-intelligence-limits-accumulation-capital-crisis-2026",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-231",
+  "cp": "The massive capital requirements for AI data centers consolidate control among a small number of hardware-owning firms.",
+  "missing": [
+   "New York"
+  ],
+  "vb": "Metz, Cade. 2025. OpenAI Signs $300 Billion Data Center Pact with Tech Giant Oracle. New York Times, 10 September 2025"
+ },
+ {
+  "doc": "outsmarting-smart-devices-preparing-ai-liability-risks-2026-1",
+  "camp": "safetyist",
+  "cat": "Intentions",
+  "node": "saf-intentions-081",
+  "cp": "Achieve robust AI safety oversight by expanding product liability directives to encompass software updates and machine learning adaptations.",
+  "missing": [
+   "EU"
+  ],
+  "vb": "On September 28, 2022, the EU Commission Published their draft revision to the EU Product Liability Directive (hereinafter \\u201cPLD\\u201d) as an attempt to respond to many of the issues raised with the PLD\\u2019s ability to govern AI and evolving technology. First, the proposal confirms \\u201cthat manufacturers can be held liable for changes they "
+ },
+ {
+  "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+  "camp": "safetyist",
+  "cat": "Desires",
+  "node": "saf-desires-026",
+  "cp": "Uniform disclosure standards ought to be enforced for all AI-generated advertising and synthetic media content.",
+  "missing": [
+   "FTC"
+  ],
+  "vb": "The FTC now requires dual disclosure for AI-involved sponsored content. This means two separate disclosures, not one combined label: The commercial relationship... and The AI involvement."
+ },
+ {
+  "doc": "ai-safetys-false-choice-wait-harm-or-hit-pause-2026",
+  "camp": "accelerationist",
+  "cat": "Intentions",
+  "node": "acc-intentions-009",
+  "cp": "Attempting to halt AI development via global pauses is ineffective due to geopolitical competition and enforcement failures.",
+  "missing": [
+   "China"
+  ],
+  "vb": "If the United States and the European Union agreed to halt development, there would be no guarantee that China, Russia, or other state and non-state actors would follow suit. A pause adopted by some countries but not others could instead transfer technological advantage to governments or organizations that choose not to participate."
+ },
+ {
+  "doc": "humanity-needs-ai-nonproliferation-treaty-2026",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-104",
+  "cp": "Powerful nations view technological restrictions as geopolitical tools, creating deep resistance among rival economies.",
+  "missing": [
+   "China"
+  ],
+  "vb": "Scott Singer, the co-director of the China AI Initiative at the Carnegie Endowment for International Peace, told me that Beijing would likely see any such effort as an attempt by the West to throttle its economic development."
+ },
+ {
+  "doc": "traiga-compliance-guide-texas-ai-law-requirements-2026-2026",
+  "camp": "safetyist",
+  "cat": "Beliefs",
+  "node": "saf-beliefs-141",
+  "cp": "Manual spreadsheet record-keeping fails to prove systematic risk management implementation, creating substantial audit vulnerability.",
+  "missing": [
+   "NIST"
+  ],
+  "vb": "Building TRAIGA compliance on spreadsheets creates audit risk when you can't demonstrate systematic NIST AI RMF implementation."
+ },
+ {
+  "doc": "ai-companies-have-become-democratically-accountable-lse-2026",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-041",
+  "cp": "Algorithmic decision-making systems deployed by government authorities have caused documented, severe harms including poverty, homelessness, and loss of life.",
+  "missing": [
+   "UK"
+  ],
+  "vb": "The Netherlands, the UK and Australia — have all already fallen foul of biased algorithmic decision making with thousands of people being wrongly accused of benefit fraud and cast into poverty, some rendered homeless and costing others their lives."
+ },
+ {
+  "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+  "camp": "skeptic",
+  "cat": "Intentions",
+  "node": "skp-intentions-112",
+  "cp": "Synthesize antitrust, privacy, security, and labor policy frameworks to address corporate AI power across multiple domains.",
+  "missing": [
+   "California"
+  ],
+  "vb": "California leads the nation in oversight of emerging frontier technologies, with laws addressing nearly every major area of AI policy: frontier-model safety, independent oversight, children and companion chatbots, privacy, deepfakes, fraud, cybersecurity, workers and government deployment."
+ },
+ {
+  "doc": "stories-we-govern-by-ai-risk-power-imaginaries-2026",
+  "camp": "accelerationist",
+  "cat": "Intentions",
+  "node": "acc-intentions-027",
+  "cp": "Achieve rapid AI development by dismantling regulatory barriers and opposing governance frameworks.",
+  "missing": [
+   "US"
+  ],
+  "vb": "Rooted in Silicon Valley’s libertarian ethos, accelerationists, including figures with ties to US deregulation advocates, argue against AI governance (Stokes, Kanetkar, and Li 2024). This framing demands various kinds of deregulation to give AI the full power of development as soon as possible."
+ },
+ {
+  "doc": "china-based-artificial-intelligence-companies-conducting-2026-1",
+  "camp": "accelerationist",
+  "cat": "Beliefs",
+  "node": "acc-beliefs-129",
+  "cp": "Foreign entities systematically extract proprietary AI capabilities through high-volume API querying to compress development cycles.",
+  "missing": [
+   "China"
+  ],
+  "vb": "China-based artificial intelligence (AI) companies are conducting systematic extraction of proprietary functionalities and capabilities of U.S. AI companies' models through industrial-scale knowledge distillation campaigns that form the core—not merely a supplement—of their AI development strategy."
+ },
+ {
+  "doc": "standards-eu-ai-act-legitimacy-state-play-future-challenges-2026",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-047",
+  "cp": "Delegating normative societal decisions to technical standardisation bodies creates a democratic legitimacy deficit.",
+  "missing": [
+   "EU"
+  ],
+  "vb": "The friction between EU values and international standards foreshadows a larger legitimacy debate (discussed in Section 6 below): Should certain normative questions be left to standards at all? The overhanging relevance of ISO/IEC standards reflects the concern that standardisation could otherwise become a de facto law-making forum for sensitive so"
+ },
+ {
+  "doc": "china-based-artificial-intelligence-companies-conducting-2026-1",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-156",
+  "cp": "AI providers and foreign entities exploit international legal asymmetries and proxy markets to minimize compliance costs and evade oversight.",
+  "missing": [
+   "China"
+  ],
+  "vb": "To access U.S. AI companies' application programming interfaces (APIs), China-based AI companies use a gray market of API proxies known as \"transfer stations\" to bypass U.S. AI companies' regional restrictions, breach terms of use, evade safeguards, and undermine traceability."
+ },
+ {
+  "doc": "260111699v4-2026",
+  "camp": "accelerationist",
+  "cat": "Intentions",
+  "node": "acc-intentions-078",
+  "cp": "Achieve robust third-party verification by means of secure evaluation environments and cryptographic enclaves that protect intellectual property while enabling rigorous model auditing.",
+  "missing": [
+   "UK"
+  ],
+  "vb": "When access to valuable or sensitive assets is required, audits should be conducted through secure evaluation environments that allow auditors to run tests, probe model behavior, examine system responses, and simulate realistic traffic, while preventing unauthorized disclosure. These environments should also prevent the auditee from observing or in"
+ },
+ {
+  "doc": "ai-incident-response-plan-what-do-when-ai-goes-wrong-2026",
+  "camp": "safetyist",
+  "cat": "Beliefs",
+  "node": "saf-beliefs-203",
+  "cp": "Frontier AI risks can cause irreversible harm, necessitating mandatory statutory reporting of serious incidents to regulatory authorities.",
+  "missing": [
+   "EU"
+  ],
+  "vb": "Under Article 62 of the EU AI Act (effective August 2026 for high-risk systems), providers must notify national authorities of serious incidents within 15 business days. 'Serious' includes incidents causing death, serious injury, significant property damage, or rights violations."
+ },
+ {
+  "doc": "icle-comments-nist-regarding-security-considerations-2026",
+  "camp": "skeptic",
+  "cat": "Beliefs",
+  "node": "skp-beliefs-257",
+  "cp": "Overlapping digital regulations create an extremely difficult legal landscape that drives performative compliance over substantive security.",
+  "missing": [
+   "EU"
+  ],
+  "vb": "A systematic institutional study of overlaps across the EU digital regulatory ecosystem finds that each regulation 'functions reasonably in isolation' but together form an 'extremely difficult to navigate' legal landscape."
+ }
+]
