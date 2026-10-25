@@ -8,12 +8,11 @@
 // (including the store not being wired up yet) is 503 `free_pool_unavailable`, distinct because
 // an outage is an infra problem, not a routine "today's budget is spent" (TL, t/4485#1).
 //
-// Gated behind the `free-pool-budget-enforced` flag (default OFF, t/4485#3): decouples this
-// module's merge from Server Storage's blob-backed implementation (t/4484) landing. While the
-// flag is off, nothing here touches the store at all — free-pool calls behave exactly as before
-// this ticket. `resolveStore()` is the one swap-point for wiring in the real
-// `getFreePoolBudget()` once t/4484's implementation PR lands (currently always null, since the
-// implementation doesn't exist on `main` yet).
+// Gated behind the `free-pool-budget-enforced` flag (default OFF, t/4485#3): decouples
+// enforcement from Server Storage's blob-backed implementation (t/4484, #3808 — merged, now on
+// `main`) being correctly configured in every environment. While the flag is off, nothing here
+// touches the store at all — free-pool calls behave exactly as before this ticket. Flip it on in
+// staging first, then prod, once `initFreePoolBudget()` is confirmed to have run at boot there.
 //
 // Debate admission control (reserving a whole debate's budget up front, held across rounds) is
 // NOT in this module — it needs a cross-role decision (round-tripping the reservation id
@@ -23,7 +22,7 @@ import type http from 'http';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
-import type { FreePoolBudget, FreePoolBudgetReserveResult, FreePoolBudgetHeadroom } from '../storage/freePoolBudget.js';
+import { getFreePoolBudget, type FreePoolBudget, type FreePoolBudgetReserveResult, type FreePoolBudgetHeadroom } from '../storage/freePoolBudget.js';
 
 /** Conservative per-call token estimate for the upfront reserve, true-up happens at commit()
  *  with the real usage. Deliberately rough — reserve() only needs to not systematically
@@ -36,13 +35,12 @@ export const FREE_POOL_EXHAUSTED_MESSAGE =
 export const FREE_POOL_UNAVAILABLE_MESSAGE =
   'Free AI capacity tracking is temporarily unavailable. Try again shortly, or add your own key in Settings → API Keys.';
 
-/** TEMPORARY: always null until t/4484's blob-backed implementation lands on `main` and exports
- *  `getFreePoolBudget()` from storage/freePoolBudget.ts. Swap this body for that import then —
- *  everything else in this module is already written against the real interface and needs no
- *  other change. Harmless while `isFreePoolBudgetEnforced()` is false (the only caller path),
- *  since nothing calls this until the flag is on. */
+/** t/4484's implementation (#3808) is live on `main` — `getFreePoolBudget()` returns the real
+ *  blob-backed store once `initFreePoolBudget()` has run at boot, or `null` before that (or if
+ *  the server isn't configured for it). Either way this stays fail-closed: `reserveFreePoolCall`
+ *  treats a null store exactly like `storage_unavailable`. */
 function resolveStore(): FreePoolBudget | null {
-  return null;
+  return getFreePoolBudget();
 }
 
 export type FreePoolGateResult =

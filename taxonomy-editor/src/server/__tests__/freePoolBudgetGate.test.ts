@@ -1,15 +1,20 @@
 // @vitest-environment node
 //
 // t/4485 — the persistent free-pool budget gate. Unit-tests the pure logic (refusal mapping,
-// commit/release no-ops, the 80% WARN dedupe) against a mocked FreePoolBudget, since the real
-// blob-backed implementation (t/4484) doesn't exist on `main` yet — resolveStore() is a
-// documented TEMPORARY stub that always returns null, swapped once that implementation lands.
+// commit/release no-ops, the 80% WARN dedupe) against a mocked FreePoolBudget store — t/4484's
+// real blob-backed implementation is on `main` now (#3808), but mocking storage/freePoolBudget.js
+// keeps this file's cases explicit (store null vs. wired) instead of depending on nothing having
+// called initFreePoolBudget() in-process.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ServerResponse } from 'http';
 
-const { isFreePoolBudgetEnforced } = vi.hoisted(() => ({ isFreePoolBudgetEnforced: vi.fn(() => false) }));
+const { isFreePoolBudgetEnforced, getFreePoolBudget } = vi.hoisted(() => ({
+  isFreePoolBudgetEnforced: vi.fn(() => false),
+  getFreePoolBudget: vi.fn(() => null as unknown),
+}));
 vi.mock('../featureFlags.js', () => ({ isFreePoolBudgetEnforced: () => isFreePoolBudgetEnforced() }));
+vi.mock('../storage/freePoolBudget.js', () => ({ getFreePoolBudget: () => getFreePoolBudget() }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 vi.mock('../logger.js', () => ({ log: { api: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } } }));
 
@@ -18,6 +23,14 @@ import {
   maybeWarnHeadroom, _resetHeadroomWarnForTest, FREE_POOL_CALL_TOKEN_ESTIMATE,
 } from '../ai/freePoolBudgetGate.js';
 import { log } from '../logger.js';
+
+// Top-level reset: each describe block below sets isFreePoolBudgetEnforced/getFreePoolBudget
+// as it needs; without this, a later block (e.g. the "store unwired" no-op tests) would
+// otherwise inherit whatever an earlier block last configured.
+afterEach(() => {
+  isFreePoolBudgetEnforced.mockReturnValue(false);
+  getFreePoolBudget.mockReturnValue(null);
+});
 
 function fakeRes() {
   const res: Record<string, unknown> = {
@@ -56,6 +69,57 @@ describe('reserveFreePoolCall (enforcement ON, store not wired — the resolveSt
       expect.objectContaining({ reason: 'storage_unavailable' }),
       expect.any(String),
     );
+  });
+});
+
+describe('reserveFreePoolCall / commitFreePoolCall / releaseFreePoolCall (enforcement ON, store wired — t/4484 #3808 live)', () => {
+  const fakeStore = {
+    reserve: vi.fn(),
+    renew: vi.fn(),
+    commit: vi.fn(),
+    release: vi.fn(),
+    headroom: vi.fn(),
+    reserveForKey: vi.fn(),
+    drawDown: vi.fn(),
+    openCountForPrefix: vi.fn(),
+  };
+
+  beforeEach(() => {
+    isFreePoolBudgetEnforced.mockReturnValue(true);
+    getFreePoolBudget.mockReturnValue(fakeStore);
+    Object.values(fakeStore).forEach(fn => fn.mockReset());
+  });
+
+  it('delegates reserve() to the real store, with the gate\'s call/token estimate', async () => {
+    fakeStore.reserve.mockResolvedValue({ ok: true, reservationId: 'real-res-1' });
+    const result = await reserveFreePoolCall(fakeRes(), 'debate-1');
+    expect(fakeStore.reserve).toHaveBeenCalledWith({ calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE, key: 'debate-1' });
+    expect(result).toEqual({ ok: true, reservationId: 'real-res-1' });
+  });
+
+  it('maps a real daily_cap refusal to 429 free_pool_exhausted', async () => {
+    fakeStore.reserve.mockResolvedValue({ ok: false, reason: 'daily_cap', resetsAt: '2026-10-26T00:00:00Z' });
+    const res = fakeRes();
+    const result = await reserveFreePoolCall(res, 'debate-1');
+    expect(result).toEqual({ ok: false });
+    expect(res.writeHead).toHaveBeenCalledWith(429, expect.anything());
+    expect(res._body).toMatchObject({ error: 'free_pool_exhausted', resetsAt: '2026-10-26T00:00:00Z' });
+  });
+
+  it('delegates commit() to the real store', async () => {
+    await commitFreePoolCall('real-res-1', { calls: 1, tokens: 55 });
+    expect(fakeStore.commit).toHaveBeenCalledWith('real-res-1', { calls: 1, tokens: 55 });
+  });
+
+  it('delegates release() to the real store', async () => {
+    await releaseFreePoolCall('real-res-1');
+    expect(fakeStore.release).toHaveBeenCalledWith('real-res-1');
+  });
+
+  it('getFreePoolHeadroomSnapshot reads through to the real store\'s headroom()', async () => {
+    fakeStore.headroom.mockResolvedValue({ callsUsed: 10, callsCap: 1500, tokensUsed: 0, tokensCap: null, day: '2026-10-25' });
+    const snapshot = await getFreePoolHeadroomSnapshot();
+    expect(snapshot).toEqual({ callsUsed: 10, callsCap: 1500, tokensUsed: 0, tokensCap: null, day: '2026-10-25' });
   });
 });
 
