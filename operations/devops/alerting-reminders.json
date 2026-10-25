@@ -34,5 +34,11 @@
     "ref": "r/44",
     "max_age_hours": 30,
     "why": "Daily cron (t/4329, t/4094 remainder). 30h allows one missed daily fire before alerting -- the overlay AGENTS.md size ratchet, covering the ~34 role/sub-role files a GitHub Actions checkout can't see."
+  },
+  {
+    "name": "deploy-identity-rbac-drift-check",
+    "ref": "r/46",
+    "max_age_hours": 30,
+    "why": "Daily cron (t/4397). 30h allows one missed daily fire before alerting -- an unannounced disappearance of an out-of-band RBAC grant on the fleet deploy identity has no other signal."
   }
 ]
