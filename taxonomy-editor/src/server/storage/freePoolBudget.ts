@@ -15,8 +15,17 @@
  * once the real usage is known (reconciling the estimate to actual),
  * `release()` if the call never happens (e.g. the debate ends early and
  * returns its unused budget). An uncommitted reservation that is never
- * committed or released expires on its own TTL, so a crashed holder never
- * leaks budget forever (AC4).
+ * committed, released, or renewed expires on its own TTL, so a crashed
+ * holder never leaks budget forever (AC4).
+ *
+ * **Long-running holders (TL p/538#197 point 1):** t/4485 reserves a whole
+ * debate's budget up front, and prod debates run p50 3.4 min, p90 187 min,
+ * max 516 min (t/4410#6). A TTL short enough to recover a crashed holder
+ * quickly would expire a live debate's reservation long before it's done,
+ * leaving its remaining calls unaccounted. `renew()` is the heartbeat a
+ * long-running holder calls periodically (well under the TTL) to keep its
+ * reservation alive — implementations must document their TTL and the
+ * renewal cadence that stays safely under it.
  */
 export interface FreePoolBudget {
   /** Reserve estimated usage before making a call. Refuses (does not throw)
@@ -24,17 +33,38 @@ export interface FreePoolBudget {
    *  pool fails CLOSED, never open (t/3230). */
   reserve(req: FreePoolBudgetRequest): Promise<FreePoolBudgetReserveResult>;
 
+  /** Extend a reservation's TTL — the heartbeat a long-running holder (a
+   *  multi-hour debate) calls periodically to keep its reservation from
+   *  expiring mid-run. Returns `false` if the reservation is already gone
+   *  (expired, committed, or released) — the caller must then stop or
+   *  re-reserve, since its budget is no longer held. Never throws for a
+   *  missing reservation; only a genuine store failure throws. */
+  renew(reservationId: string): Promise<boolean>;
+
   /** Reconcile a reservation's estimate to its actual usage once the call
    *  has completed. A reservation unknown to the store (already expired, or
    *  an invalid id) is a no-op, not an error — the caller has nothing left
-   *  to reconcile either way. */
+   *  to reconcile either way.
+   *
+   *  **Actual usage is always recorded, even past the cap (TL p/538#197
+   *  point 4):** the call already happened, so usage is never under-counted
+   *  to make the books look clean — `commit` records the real numbers
+   *  unconditionally, and the *next* `reserve` is what refuses once that
+   *  pushes the day over its cap. */
   commit(reservationId: string, actual: FreePoolBudgetUsage): Promise<void>;
 
   /** Return a reservation's budget unused (the call never happened). Same
    *  no-op-on-unknown-id contract as `commit`. */
   release(reservationId: string): Promise<void>;
 
-  /** Current usage against today's caps. Read-only, no side effects. */
+  /** Current usage against today's caps.
+   *
+   *  **When the store is unreachable, this throws** (an `ActionableError`),
+   *  never a zeroed or sentinel result — t/4485's gauge and its 80% alert
+   *  read off this value, and a silent zero would display as "plenty left"
+   *  when the truth is "unknown." A caller that wants to degrade gracefully
+   *  (e.g. hide the gauge) catches the throw explicitly; nothing here can be
+   *  mistaken for real headroom. */
   headroom(): Promise<FreePoolBudgetHeadroom>;
 }
 
@@ -53,11 +83,12 @@ export interface FreePoolBudgetUsage {
   tokens: number;
 }
 
-export type FreePoolBudgetReserveResult =
-  | { ok: true; reservationId: string }
-  | { ok: false; reason: FreePoolBudgetRefusalReason; resetsAt: string };
-
 /**
+ * A discriminated union (TL p/538#197 point 2) — `resetsAt` only has meaning
+ * for `'daily_cap'`, so it only exists on that variant. A caller showing
+ * "try again at 00:00 UTC" for a `'storage_unavailable'` refusal would be
+ * showing a made-up time for an outage that has no reset schedule at all.
+ *
  * `'daily_cap'` — the request would push usage past today's cap; routine,
  * expected to happen under load, try again after `resetsAt`.
  * `'storage_unavailable'` — the budget store couldn't be reached, so the
@@ -67,7 +98,10 @@ export type FreePoolBudgetReserveResult =
  * out of budget is routine, but not being able to tell whether it is is an
  * infrastructure problem worth paging on.
  */
-export type FreePoolBudgetRefusalReason = 'daily_cap' | 'storage_unavailable';
+export type FreePoolBudgetReserveResult =
+  | { ok: true; reservationId: string }
+  | { ok: false; reason: 'daily_cap'; resetsAt: string }
+  | { ok: false; reason: 'storage_unavailable' };
 
 export interface FreePoolBudgetHeadroom {
   callsUsed: number;
