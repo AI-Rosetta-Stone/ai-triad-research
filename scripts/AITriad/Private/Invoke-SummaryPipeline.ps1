@@ -102,8 +102,39 @@ function Invoke-SummaryPipeline {
         Write-Verbose "Pipeline: full taxonomy injected"
     }
     else {
-        $QueryWords = ($SnapshotText -split '\s+') | Select-Object -First 500
-        $QueryText = "$($Metadata.title). $($QueryWords -join ' ')"
+        $RagQueryText = "$($Metadata.title). $SnapshotText"
+
+        # Window + embed the WHOLE document once (t/4468), and reuse the same windows/vectors for both
+        # CHESS's classification sample (t/4477) and the RAG candidate set below — one model load, not two.
+        $DocSplit = Split-RagQueryWindows -Text $RagQueryText
+        if ($DocSplit.SkippedSections -gt 0) { Write-Verbose "Pipeline: skipped $($DocSplit.SkippedSections) back-matter section(s)" }
+        $DocWindowTexts = @($DocSplit.Windows)
+        $DocWindowEmb = if ($DocWindowTexts.Count -gt 0) { Invoke-BatchEmbeddings -Texts $DocWindowTexts } else { @{} }
+        $DocWindowVectors = [System.Collections.Generic.List[double[]]]::new()
+        foreach ($T in $DocWindowTexts) { if ($DocWindowEmb.ContainsKey($T)) { $DocWindowVectors.Add([double[]]$DocWindowEmb[$T]) } }
+
+        # CHESS classification sample: an evenly spaced, section-stratified sample across the WHOLE
+        # document (t/4477), not just its opening 500 words. Same ~500-word budget, same 1 billed call.
+        $ChessSample = if ($DocWindowTexts.Count -gt 0) { Get-PovClassificationSample -Windows $DocWindowTexts } else { '' }
+        if (-not $ChessSample) {
+            # Windowing produced nothing (e.g. all-back-matter or unparseable text) — fall back to the
+            # former opening-words query rather than sending CHESS an empty string.
+            Write-Warning "Pipeline: CHESS sample was empty after windowing; falling back to the opening-words query (t/4477)."
+            $QueryWords = ($SnapshotText -split '\s+') | Select-Object -First 500
+            $ChessSample = ($QueryWords -join ' ')
+        }
+        $QueryText = "$($Metadata.title). $ChessSample"
+
+        # Forensic-only cross-check (T0 exemption: nothing branches on it, logged for observability).
+        if ($DocWindowVectors.Count -gt 0) {
+            $PovCheck = Get-PovWindowSimilarityCheck -WindowVectors $DocWindowVectors.ToArray()
+            if ($PovCheck) {
+                foreach ($Camp in $PovCheck.Keys) {
+                    $Mean = [Math]::Round((($PovCheck[$Camp] | Measure-Object -Average).Average), 3)
+                    Write-Verbose "Pipeline: window/camp cross-check — $Camp mean cosine $Mean (forensic only, t/4477)"
+                }
+            }
+        }
 
         try {
             $__ChessSw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -113,14 +144,19 @@ function Invoke-SummaryPipeline {
             Write-Verbose "Pipeline: CHESS classified POVs: $($RelevantPovs -join ', ')"
 
             $AllPovs = @('accelerationist', 'safetyist', 'skeptic')
-            # The RAG query covers the WHOLE document (t/4468): Get-RelevantTaxonomyNodes windows and embeds it.
-            # It used to be $QueryText (title + first 500 words). CHESS above still classifies on the 500 words
-            # (separate stage, follow-up t/4477).
-            $RagQueryText = "$($Metadata.title). $SnapshotText"
-            $TaxonomyJson = Get-RelevantTaxonomyNodes -Query $RagQueryText `
-                -MaxTotal $RagMaxTotal -MinPerCategory 3 `
-                -POV $AllPovs -IncludeSituations -Format context `
-                -CrossEncoderRerank:$CrossEncoderRerank
+            if ($DocWindowVectors.Count -gt 0) {
+                $TaxonomyJson = Get-RelevantTaxonomyNodes -Query $RagQueryText -QueryVectors $DocWindowVectors.ToArray() `
+                    -MaxTotal $RagMaxTotal -MinPerCategory 3 `
+                    -POV $AllPovs -IncludeSituations -Format context `
+                    -CrossEncoderRerank:$CrossEncoderRerank
+            }
+            else {
+                # Windowing produced nothing; Get-RelevantTaxonomyNodes falls back to its own single-encode path.
+                $TaxonomyJson = Get-RelevantTaxonomyNodes -Query $RagQueryText `
+                    -MaxTotal $RagMaxTotal -MinPerCategory 3 `
+                    -POV $AllPovs -IncludeSituations -Format context `
+                    -CrossEncoderRerank:$CrossEncoderRerank
+            }
             Write-Verbose "Pipeline: RAG selected ~$([int]($TaxonomyJson.Length / 4)) tokens of taxonomy"
         }
         catch {
