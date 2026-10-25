@@ -91,7 +91,19 @@ export interface FreePoolBudget {
    *  estimate as a new reservation (`existing: false`), same fail-closed
    *  refusal contract as `reserve`. **Must be safe across replicas:** two
    *  replicas calling this for the same key at the same moment must agree
-   *  on one reservation, never create two. */
+   *  on one reservation, never create two.
+   *
+   *  **`req.maxOpenForPrefix` (TL p/538#201 point 2), when supplied, is
+   *  enforced in the SAME atomic write as the reservation itself** — not a
+   *  separate `openCountForPrefix` check beforehand, which would be a
+   *  check-then-act race across replicas (the exact denial-of-service gap
+   *  this guard exists to close: two simultaneous new debates from the
+   *  same requester both seeing a stale "under the limit" count and both
+   *  getting admitted). Refuses with `{ok:false, reason:'debate_limit'}`
+   *  when admitting this key would push the live count under that prefix
+   *  past `max`. An existing live reservation for `req.key` itself is
+   *  returned as usual (idempotent hit) without being counted twice
+   *  against its own limit. */
   reserveForKey(req: FreePoolBudgetKeyRequest): Promise<FreePoolBudgetReserveForKeyResult>;
 
   /** Record actual usage against an open reservation and renew its TTL in
@@ -103,15 +115,35 @@ export interface FreePoolBudget {
    *  reservation's original estimate** — overdraft is recorded in full; the
    *  *next admission* (`reserveForKey`) is what refuses once the day is
    *  over its cap, same principle as `commit` recording actual usage past
-   *  the cap. A reservation unknown to the store (already expired) is a
-   *  no-op, same contract as `commit`. */
-  drawDown(reservationId: string, actual: FreePoolBudgetUsage): Promise<void>;
+   *  the cap.
+   *
+   *  **Returns the running totals (TL p/538#201 point 1)** so the caller
+   *  can enforce its own overdraft policy (t/4485#5: fall back to per-call
+   *  `reserve` past 2× the estimate) — the store stays policy-free, and a
+   *  caller can't keep this count itself since it would be wrong across
+   *  replicas. **Returns `null`** if the reservation is unknown to the store
+   *  (already expired) — a no-op, same contract as `commit`, not an error. */
+  drawDown(reservationId: string, actual: FreePoolBudgetUsage): Promise<FreePoolBudgetDrawDownResult | null>;
 
   /** Count currently-open (unexpired, uncommitted) reservations whose key
-   *  starts with `prefix` — the per-requester open-debate limit (t/4485#5:
-   *  max 2, refuse the 3rd). Callers scope `prefix` to the requester (e.g.
-   *  `"debate:<principal-or-ip>:"`), never to a single debate. */
+   *  starts with `prefix` — **diagnostics and the headroom gauge only**
+   *  (TL p/538#201 point 2). **Not the enforcement point for the
+   *  per-requester open-debate limit** — this count, read separately and
+   *  followed by a `reserveForKey` call, is a check-then-act race across
+   *  replicas (two simultaneous new debates from the same requester can
+   *  both see count 1 and both get admitted). The real limit is
+   *  `reserveForKey`'s `maxOpenForPrefix`, enforced inside its own atomic
+   *  write. */
   openCountForPrefix(prefix: string): Promise<number>;
+}
+
+/** `drawDown`'s running totals — what the caller needs to enforce its own
+ *  overdraft policy (the store itself never refuses a draw-down). */
+export interface FreePoolBudgetDrawDownResult {
+  drawnCalls: number;
+  drawnTokens: number;
+  estimateCalls: number;
+  estimateTokens: number;
 }
 
 export interface FreePoolBudgetRequest {
@@ -152,24 +184,31 @@ export type FreePoolBudgetReserveResult =
 export interface FreePoolBudgetKeyRequest {
   /** Caller-scoped correlation key, e.g. `"debate:<principal-or-ip>:<debateId>"`.
    *  Never parsed or validated by the store — the caller owns its structure
-   *  and uses it for `openCountForPrefix`'s prefix matching. */
+   *  and uses it for `maxOpenForPrefix`'s / `openCountForPrefix`'s prefix
+   *  matching. */
   key: string;
   /** Estimated call count the FULL reservation will consume (the whole
    *  debate's estimate, not one round). */
   calls: number;
   /** Estimated token count the full reservation will consume. */
   tokens: number;
+  /** Optional, atomic per-requester open-reservation limit (TL p/538#201
+   *  point 2) — e.g. `{ prefix: "debate:<principal-or-ip>:", max: 2 }`.
+   *  Enforced inside this call's own CAS write; see the method doc comment
+   *  for why this can't be a separate `openCountForPrefix` check. */
+  maxOpenForPrefix?: { prefix: string; max: number };
 }
 
 /** Same shape as `FreePoolBudgetReserveResult`, plus `existing` on the `ok`
  *  branch — `reserveForKey` is idempotent per live key, so a caller needs to
  *  know whether this is the reservation it just created or one that was
  *  already there (e.g. so it knows whether to run first-round admission
- *  logic again). */
+ *  logic again) — and a `'debate_limit'` refusal for `maxOpenForPrefix`. */
 export type FreePoolBudgetReserveForKeyResult =
   | { ok: true; reservationId: string; existing: boolean }
   | { ok: false; reason: 'daily_cap'; resetsAt: string }
-  | { ok: false; reason: 'storage_unavailable' };
+  | { ok: false; reason: 'storage_unavailable' }
+  | { ok: false; reason: 'debate_limit' };
 
 export interface FreePoolBudgetHeadroom {
   callsUsed: number;
@@ -525,7 +564,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
     });
   }
 
-  async drawDown(_reservationId: string, _actual: FreePoolBudgetUsage): Promise<void> {
+  async drawDown(_reservationId: string, _actual: FreePoolBudgetUsage): Promise<FreePoolBudgetDrawDownResult | null> {
     throw new ActionableError({
       goal: 'drawDown', problem: 'drawDown is not yet implemented (t/4491 AC1 is types-only)',
       location: 'BlobFreePoolBudget.drawDown', nextSteps: ['Land the t/4491 implementation PR before calling this in production'],
