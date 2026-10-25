@@ -1248,6 +1248,15 @@ jobs:
             -StagingApp '${{ env.CONTAINER_APP_NAME }}-staging' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}'
 
+      - name: ALLOWED_ORIGINS matches each app's own ingress FQDN (warn-only, t/4407 — SO follow-up to #3665)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./operations/devops/Test-AllowedOriginsFqdnParity.ps1 `
+            -Apps '${{ env.CONTAINER_APP_NAME }}', '${{ env.CONTAINER_APP_NAME }}-staging' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────
   # Set-TaxEditorKnownGood was manual-only and never actually run, consistently, across the org
