@@ -68,7 +68,7 @@ foreach ($DocId in $DocIds) {
     $SumPath  = Join-Path $DataDir "summaries\$DocId.json"
     if (-not (Test-Path $SnapPath) -or -not (Test-Path $SumPath)) { Write-Warning "skip $DocId (missing snapshot or summary)"; continue }
 
-    $Snap = Get-Content -LiteralPath $SnapPath -Raw
+    $Snap = Read-SnapshotForModel -Path $SnapPath -CallerName 'Measure-RagWindowingArms'
     $Summary = Get-Content -LiteralPath $SumPath -Raw | ConvertFrom-Json
 
     $Chunks = @(Split-DocumentChunks -Text $Snap)
