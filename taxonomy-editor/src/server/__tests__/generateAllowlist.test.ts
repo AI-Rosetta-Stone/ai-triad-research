@@ -24,7 +24,7 @@ vi.mock('../ai/proxyTiers.js', () => ({
   resolveTier: () => h.tier,
   isBackendAllowed: () => true,
   parseFreeTierKeys: () => [],
-  byokGeminiFallbackKey: () => undefined,
+  byokGeminiFallbackApplies: () => false,
 }));
 const generateTextByUsage = vi.fn().mockResolvedValue({ text: 'ok', tokenUsage: undefined, servedModel: 'gemini-3.5-flash-lite' });
 vi.mock('../ai/aiBackends.js', () => ({

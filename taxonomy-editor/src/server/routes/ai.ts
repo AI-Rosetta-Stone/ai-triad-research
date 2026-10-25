@@ -107,7 +107,8 @@ function enforceAiRateLimits(res: http.ServerResponse, isFree: boolean, limitKey
  *  geo restriction (t/4486) — 403 `free_pool_region` when the caller's IP is EEA/CH/UK or
  *  unresolvable, 503 if the pool has no keys configured; platform → undefined (server-side
  *  keys); BYOK → client key, with a free-tier Gemini fallback for a BYOK user with no key for
- *  the pinned backend (t/945) — BYOK never reaches the geo gate. Returns `{ ok: false }` after
+ *  the pinned backend (t/945) — **also geo-gated** (t/4486#4, TL review: this fallback used to
+ *  read the pool directly, a fourth bypass of the restriction). Returns `{ ok: false }` after
  *  sending the error response when the free tier is unavailable or geo-restricted. */
 async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend):
   Promise<{ ok: true; key: string | string[] | undefined } | { ok: false }> {
@@ -122,7 +123,13 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
     return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys };
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
-  explicitKey = explicitKey ?? proxyTiers.byokGeminiFallbackKey(tier.level, backend, explicitKey);
+  if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
+    const poolResult = await getFreePoolKeys(req, res);
+    if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
+    if (poolResult.keys.length > 0) explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
+    // An empty pool is NOT an error for this branch — unlike the free tier's own 503, a BYOK
+    // user with no fallback available just proceeds with no key, same as pre-t/4486 behavior.
+  }
   return { ok: true, key: explicitKey };
 }
 

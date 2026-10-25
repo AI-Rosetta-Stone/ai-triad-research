@@ -133,16 +133,41 @@ describe('checkFreePoolGeo (AC1 — region checks against the real bundled DB)',
     expect(result.country).toBe('US');
   });
 
-  it('refuses an unresolvable (non-IPv4) address with reason no-public-ip', async () => {
+  it('refuses a genuine (non-mapped) IPv6 address with its OWN reason, ipv6-unsupported (t/4486#4)', async () => {
     const result = await checkFreePoolGeo('2001:db8::1');
     expect(result.allowed).toBe(false);
     expect(result.country).toBeNull();
-    expect(result.reason).toBe('no-public-ip');
+    expect(result.reason).toBe('ipv6-unsupported'); // NOT no-public-ip — a different, less alarming signal
   });
 
   it('refuses the "unknown" sentinel with reason no-public-ip', async () => {
     const result = await checkFreePoolGeo('unknown');
     expect(result.allowed).toBe(false);
     expect(result.reason).toBe('no-public-ip');
+  });
+
+  it('refuses a private IPv4 address with reason no-public-ip (t/4486#4)', async () => {
+    const result = await checkFreePoolGeo('10.1.2.3');
+    expect(result.allowed).toBe(false);
+    expect(result.country).toBeNull();
+    expect(result.reason).toBe('no-public-ip');
+  });
+
+  it('refuses a loopback IPv4 address with reason no-public-ip', async () => {
+    const result = await checkFreePoolGeo('127.0.0.1');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBe('no-public-ip');
+  });
+
+  it('refuses a CGNAT IPv4 address (100.64.0.0/10) with reason no-public-ip', async () => {
+    const result = await checkFreePoolGeo('100.70.0.1');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBe('no-public-ip');
+  });
+
+  it('allows a US IP arriving as an IPv4-mapped IPv6 address (common Node dual-stack shape)', async () => {
+    const result = await checkFreePoolGeo('::ffff:8.8.8.8');
+    expect(result.allowed).toBe(true);
+    expect(result.country).toBe('US');
   });
 });

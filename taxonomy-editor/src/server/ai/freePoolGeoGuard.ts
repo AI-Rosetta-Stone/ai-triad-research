@@ -9,10 +9,12 @@
 // including BYOK, is unaffected (BYOK callers never reach this module — see freePoolKeyAccess.ts).
 //
 // Data: ai/data/geoCountryIpv4.json, built by ai/scripts/build-geo-db.mjs. IPv4 only (v1 scope,
-// TL-acknowledged deviation, t/4486#2) — an IPv6 client address can't be resolved against this
-// table, so it takes the SAME fail-closed "unknown" path as a resolvable-but-uncategorized IP.
-// That over-restricts (an IPv6 EEA... or non-EEA... visitor is refused either way) rather than
-// under-restricting, which is the safe direction for a compliance gate.
+// t/4486#4) — an IPv6 client address is refused with its OWN reason, `ipv6-unsupported` (never
+// folded into `no-public-ip`, which means something operationally different: an ingress/XFF
+// derivation failure that would refuse EVERYONE, not just IPv6 visitors). The refusal itself is
+// still fail-closed either way, the safe direction for a compliance gate. Full IPv6 range
+// coverage is a follow-up if the IPv6 client share turns out non-trivial (t/4486#4, pending
+// Azure's read from prod logs).
 //
 // Lazily loaded (t/4486#2): the ~3.6MB data file is NOT imported at module scope. It loads once,
 // on the first real lookup, via a cached dynamic import() — a server that serves zero free-pool
@@ -20,6 +22,8 @@
 
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { log } from '../logger.js';
+import { isPrivateOrLoopback } from '../httpKit.js';
+import { logIpShapeIfEnabled } from './freePoolIpShapeDiag.js';
 
 /** EEA (27 EU member states + Iceland, Liechtenstein, Norway) + Switzerland + the UK — the
  *  "Paid Services only" region under Gemini's current API terms (t/4410#7, #9). ISO 3166-1
@@ -34,7 +38,7 @@ const RESTRICTED_COUNTRIES: ReadonlySet<string> = new Set([
   'CH', 'GB',
 ]);
 
-export type GeoRefusalReason = 'restricted_region' | 'no-public-ip' | 'not-in-db';
+export type GeoRefusalReason = 'restricted_region' | 'no-public-ip' | 'not-in-db' | 'ipv6-unsupported';
 
 export interface GeoCheckResult {
   allowed: boolean;
@@ -139,34 +143,55 @@ function ipv4ToUint32(ip: string): number | null {
   return n >>> 0;
 }
 
-/** Normalize a client-IP string (as `getClientIp` returns it) to a bare dotted-quad IPv4
- *  address, or null when it isn't one. Handles (t/4486#2):
+type ClassifiedIp =
+  | { kind: 'ipv4'; address: string; wasMapped: boolean }
+  | { kind: 'ipv6' }
+  | { kind: 'unresolvable' };
+
+/** Classify a client-IP string (as `getClientIp` returns it) into IPv4 (with the bare
+ *  dotted-quad extracted and whether it arrived as an IPv4-mapped IPv6 address), genuine IPv6,
+ *  or unresolvable. Handles (t/4486#2, #4):
  *  - an IPv4-mapped IPv6 address (`::ffff:1.2.3.4`), which Node dual-stack sockets commonly
- *    produce as `req.socket.remoteAddress`;
+ *    produce as `req.socket.remoteAddress` — classified `ipv4`, not `ipv6` (`wasMapped: true`);
  *  - a zone id suffix (`fe80::1%eth0`) — stripped before the mapped-v4 check;
- *  - a bracketed host with a port (`[::ffff:1.2.3.4]:443`) — unbracketed before the above.
- *  Any other IPv6 address, or the literal `'unknown'`, returns null (v1 is IPv4-only, see the
- *  module header). */
-export function normalizeToIpv4(ip: string): string | null {
+ *  - a bracketed host with a port (`[::ffff:1.2.3.4]:443`) — unbracketed before the above;
+ *  - any other IPv6 address — classified `ipv6` (v1 has no IPv6 range table, see the module
+ *    header; this is NOT the same as `unresolvable` — callers must distinguish the two, t/4486#4);
+ *  - the literal `'unknown'`, empty, or anything else unparseable — classified `unresolvable`. */
+function classifyClientIp(ip: string): ClassifiedIp {
   let s = ip.trim();
   const bracketed = s.match(/^\[(.+)\]:\d+$/);
   if (bracketed) s = bracketed[1];
   s = s.split('%')[0]; // strip a zone id, if present
   const mapped = s.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
   if (mapped) s = mapped[1];
-  return ipv4ToUint32(s) !== null ? s : null;
+  if (ipv4ToUint32(s) !== null) return { kind: 'ipv4', address: s, wasMapped: !!mapped };
+  if (s.includes(':')) return { kind: 'ipv6' };
+  return { kind: 'unresolvable' };
+}
+
+/** Normalize a client-IP string to a bare dotted-quad IPv4 address, or null when it isn't one
+ *  (covers both genuine IPv6 and unresolvable — this helper doesn't need the distinction;
+ *  `checkFreePoolGeo` does, via `classifyClientIp`, for its reason code). Exported for tests. */
+export function normalizeToIpv4(ip: string): string | null {
+  const c = classifyClientIp(ip);
+  return c.kind === 'ipv4' ? c.address : null;
 }
 
 /** The request-path geo check. `ip` is whatever `getClientIp(req)` returned — raw, un-normalized.
- *  Fails closed: an unresolvable IP (including any non-IPv4 address) is refused, same as a
- *  restricted country, with `reason: 'no-public-ip'` when the normalized form itself isn't a
- *  usable address and `'not-in-db'` when it is but the table has no entry for it. Never logs the
- *  IP — callers log only `country` and `reason` (AC3). */
+ *  Fails closed: every non-allowed case refuses the free pool, but the reason is distinguishable
+ *  (t/4486#4) so a misconfigured ingress — which would refuse EVERYONE via `no-public-ip` — reads
+ *  as a different, more alertable signal than ordinary IPv6 traffic (`ipv6-unsupported`, v1 has
+ *  no IPv6 table) or a private/loopback/CGNAT address genuinely carrying no public IP. Never logs
+ *  the IP — callers log only `country` and `reason` (AC3). */
 export async function checkFreePoolGeo(ip: string): Promise<GeoCheckResult> {
-  const v4 = normalizeToIpv4(ip);
-  if (!v4) return { allowed: false, country: null, reason: 'no-public-ip' };
+  logIpShapeIfEnabled(ip); // t/4486#4, TEMPORARY — see freePoolIpShapeDiag.ts
+  const classified = classifyClientIp(ip);
+  if (classified.kind === 'ipv6') return { allowed: false, country: null, reason: 'ipv6-unsupported' };
+  if (classified.kind === 'unresolvable') return { allowed: false, country: null, reason: 'no-public-ip' };
+  if (isPrivateOrLoopback(classified.address)) return { allowed: false, country: null, reason: 'no-public-ip' };
   const idx = await getIndex();
-  const asUint32 = ipv4ToUint32(v4);
+  const asUint32 = ipv4ToUint32(classified.address);
   const country = asUint32 === null ? null : binarySearchCountry(idx, asUint32);
   if (!country) return { allowed: false, country: null, reason: 'not-in-db' };
   if (RESTRICTED_COUNTRIES.has(country)) return { allowed: false, country, reason: 'restricted_region' };

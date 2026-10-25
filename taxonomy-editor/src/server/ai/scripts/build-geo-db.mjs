@@ -5,12 +5,16 @@
 // t/4486 (t/4410 item 2) — builds the offline IPv4 country database the free-pool geo guard
 // (freePoolGeoGuard.ts) looks up at request time, so the server never makes a third-party
 // IP-lookup call. Source: DB-IP "Country Lite" (download.db-ip.com), CC-BY 4.0 — attribution is
-// required and lives in THIRD-PARTY-NOTICES.txt + the generated file's own `attribution` field.
+// required and lives in ai/data/README.md + the generated file's own `attribution` field (NOT
+// THIRD-PARTY-NOTICES.txt, which is auto-generated from the npm dependency closure, not bundled
+// third-party data).
 //
-// IPv4 only (v1 scope, TL-acknowledged deviation on t/4486): an IPv6 client address falls through
-// the runtime guard's "not resolvable" branch, which is a SAFE direction (fail-closed, refuses
-// the free pool) — it over-restricts rather than under-restricts. Extending to IPv6 is tracked as
-// a follow-up, not required for initial ship.
+// IPv4 only (v1 scope, t/4486#4): an IPv6 client address is refused with its OWN reason,
+// `ipv6-unsupported` — distinct from `no-public-ip` (an ingress/derivation failure that would
+// refuse everyone). The refusal is still fail-closed either way. Full IPv6 coverage is a
+// follow-up pending real-traffic evidence of the IPv6 client share (Azure is adding shape-only
+// diagnostic logging, p/793#46/#47 — no IP is logged on the app request path today, so there's
+// no existing data to check).
 //
 // Usage:
 //   node src/server/ai/scripts/build-geo-db.mjs [path/to/dbip-country-lite.csv.gz]

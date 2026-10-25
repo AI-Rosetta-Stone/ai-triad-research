@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { resolveTier, freeTierEnabled, isBackendAllowed, parseFreeTierKeys, scaledFreeTierRpm, byokGeminiFallbackKey, LOCAL_EMBED_RPM_PER_IP } from '../ai/proxyTiers.js';
+import { resolveTier, freeTierEnabled, isBackendAllowed, parseFreeTierKeys, scaledFreeTierRpm, byokGeminiFallbackApplies, LOCAL_EMBED_RPM_PER_IP } from '../ai/proxyTiers.js';
 import { checkRate } from '../security/rateLimiter.js';
 
 describe('free-tier RPM scales with key-pool size (t/906)', () => {
@@ -113,32 +113,28 @@ describe('free tier (t/793)', () => {
   });
 });
 
-describe('byokGeminiFallbackKey (t/945)', () => {
-  afterEach(() => { delete process.env.FREE_TIER_GEMINI_KEY; });
-
-  it('gives a Claude-only BYOK user the free-tier Gemini pool on Gemini stages (AC#1/#2)', () => {
-    process.env.FREE_TIER_GEMINI_KEY = 'k1,k2';
-    expect(byokGeminiFallbackKey('byok', 'gemini', undefined)).toEqual(['k1', 'k2']);
-    process.env.FREE_TIER_GEMINI_KEY = 'only';
-    expect(byokGeminiFallbackKey('byok', 'gemini', undefined)).toBe('only');
+// t/4486#4 (TL review): byokGeminiFallbackKey used to read process.env.FREE_TIER_GEMINI_KEY
+// directly and return the actual key(s) — a fourth, ungated bypass of the free-pool geo
+// restriction. It's now byokGeminiFallbackApplies: a PURE decision with NO env read. The actual
+// key fetch moved to the caller (routes/ai.ts, routes/chat.ts), through the same geo-gated
+// ai/freePoolKeyAccess.ts accessor the free tier itself uses — covered by
+// freePoolGeoRouteIntegration.test.ts, not here (this file no longer touches the env var for
+// this decision at all, by design).
+describe('byokGeminiFallbackApplies (t/945, t/4486#4)', () => {
+  it('applies to a Claude-only BYOK user on a Gemini-pinned stage (AC#1/#2)', () => {
+    expect(byokGeminiFallbackApplies('byok', 'gemini', undefined)).toBe(true);
   });
 
-  it('does NOT override a key the BYOK user already has', () => {
-    process.env.FREE_TIER_GEMINI_KEY = 'k1';
-    expect(byokGeminiFallbackKey('byok', 'gemini', 'user-gemini-key')).toBeUndefined();
-    expect(byokGeminiFallbackKey('byok', 'gemini', ['a', 'b'])).toBeUndefined();
+  it('does NOT apply when the BYOK user already has a key', () => {
+    expect(byokGeminiFallbackApplies('byok', 'gemini', 'user-gemini-key')).toBe(false);
+    expect(byokGeminiFallbackApplies('byok', 'gemini', ['a', 'b'])).toBe(false);
   });
 
   it('only applies to BYOK + gemini (AC#5: platform/free/other backends unchanged)', () => {
-    process.env.FREE_TIER_GEMINI_KEY = 'k1';
-    expect(byokGeminiFallbackKey('byok', 'claude', undefined)).toBeUndefined(); // non-gemini backend
-    expect(byokGeminiFallbackKey('platform', 'gemini', undefined)).toBeUndefined();
-    expect(byokGeminiFallbackKey('anonymous', 'gemini', undefined)).toBeUndefined();
-    expect(byokGeminiFallbackKey('free', 'gemini', undefined)).toBeUndefined();
-  });
-
-  it('returns undefined when the free-tier pool is unset (still 422s, as before)', () => {
-    expect(byokGeminiFallbackKey('byok', 'gemini', undefined)).toBeUndefined();
+    expect(byokGeminiFallbackApplies('byok', 'claude', undefined)).toBe(false); // non-gemini backend
+    expect(byokGeminiFallbackApplies('platform', 'gemini', undefined)).toBe(false);
+    expect(byokGeminiFallbackApplies('anonymous', 'gemini', undefined)).toBe(false);
+    expect(byokGeminiFallbackApplies('free', 'gemini', undefined)).toBe(false);
   });
 });
 

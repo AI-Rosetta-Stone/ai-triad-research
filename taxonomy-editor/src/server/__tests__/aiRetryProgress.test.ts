@@ -44,7 +44,7 @@ vi.mock('../ai/proxyTiers.js', () => ({
   })),
   isBackendAllowed: vi.fn(() => true),
   parseFreeTierKeys: vi.fn(() => []),
-  byokGeminiFallbackKey: vi.fn(() => undefined),
+  byokGeminiFallbackApplies: vi.fn(() => false),
 }));
 
 vi.mock('../security/rateLimiter.js', () => ({

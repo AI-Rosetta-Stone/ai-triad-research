@@ -168,8 +168,9 @@ export function boundedId(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v.slice(0, 128) : undefined;
 }
 
-/** Pure mirror of routes/ai.ts resolveExplicitAiKey — including the t/4486 geo gate on the
- *  free-tier branch (getFreePoolKeys is the sole injection-path reader of the pool). */
+/** Pure mirror of routes/ai.ts resolveExplicitAiKey — including the t/4486 geo gate on BOTH
+ *  the free-tier branch and the BYOK fallback (getFreePoolKeys is the sole injection-path
+ *  reader of the pool; t/4486#4 TL review found the fallback was a fourth bypass). */
 async function resolveExplicitAiKey(
   req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend,
 ): Promise<{ ok: true; key: string | string[] | undefined } | { ok: false }> {
@@ -181,7 +182,11 @@ async function resolveExplicitAiKey(
     return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys };
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
-  explicitKey = explicitKey ?? proxyTiers.byokGeminiFallbackKey(tier.level, backend, explicitKey);
+  if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
+    const poolResult = await getFreePoolKeys(req, res);
+    if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
+    if (poolResult.keys.length > 0) explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
+  }
   return { ok: true, key: explicitKey };
 }
 

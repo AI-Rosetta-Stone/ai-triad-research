@@ -67,11 +67,19 @@ const FREE_TIER = {
   level: 'free', allowedBackends: ['gemini'], pinnedModel: 'gemini-2.5-flash',
   limits: { requestsPerMinute: 30, tokensPerDay: 100_000 }, serverProvidedKey: true,
 };
+// t/945: a BYOK tier with no Gemini key, so the fallback branch applies (serverProvidedKey:
+// false distinguishes it from FREE_TIER — it must NOT take the free-tier branch).
+const BYOK_TIER = {
+  level: 'byok', allowedBackends: ['gemini'], pinnedModel: undefined,
+  limits: { requestsPerMinute: 100, tokensPerDay: 1_000_000 }, serverProvidedKey: false,
+};
+
+const h = vi.hoisted(() => ({ tier: null as unknown, byokFallbackApplies: false }));
 
 vi.mock('../ai/proxyTiers.js', () => ({
-  resolveTier: vi.fn(() => FREE_TIER),
+  resolveTier: vi.fn(() => h.tier),
   isBackendAllowed: vi.fn(() => true),
-  byokGeminiFallbackKey: vi.fn(() => undefined),
+  byokGeminiFallbackApplies: vi.fn(() => h.byokFallbackApplies),
   freeTierEnabled: vi.fn(() => true),
   freeTierKeyCount: vi.fn(() => 1),
   LOCAL_EMBED_RPM_PER_IP: 120,
@@ -107,7 +115,8 @@ vi.mock('../ai/aiBackends.js', () => ({
 
 vi.mock('./generationContext.js', () => ({
   resolveGenerationContext: vi.fn(() => ({
-    tier: FREE_TIER, isFree: true, limitKey: 'free:1.2.3.4', effectiveModel: 'gemini-2.5-flash', backend: 'gemini',
+    tier: h.tier, isFree: (h.tier as { level: string } | null)?.level === 'free',
+    limitKey: 'free:1.2.3.4', effectiveModel: 'gemini-2.5-flash', backend: 'gemini',
   })),
   enforceBackendAllowed: vi.fn(() => false),
   enforceAnonDebateGate: vi.fn(() => false),
@@ -173,6 +182,8 @@ function registerAll() {
 
 describe('free-pool geo gate wiring across generate, chat and NLI (t/4486)', () => {
   beforeEach(() => {
+    h.tier = FREE_TIER;
+    h.byokFallbackApplies = false;
     getFreePoolKeys.mockReset();
     classifyNli.mockReset().mockResolvedValue({ results: [] });
     generateTextByUsage.mockReset().mockResolvedValue({ text: 'ok', tokenUsage: null });
@@ -200,6 +211,73 @@ describe('free-pool geo gate wiring across generate, chat and NLI (t/4486)', () 
     expect(res._statusCode).not.toBe(403);
     expect(generateTextByUsage).toHaveBeenCalled();
     expect(generateTextByUsage.mock.calls[0][4]).toBe('server-key-1');
+  });
+
+  // t/4486#4 (TL review) — the BYOK-Gemini-fallback bypass. A BYOK user with no Gemini key
+  // falls back to the free pool too (t/945); that fallback must be geo-gated exactly like
+  // free-tier traffic, not read the pool directly. These prove the fallback path also calls
+  // getFreePoolKeys and respects its refusal.
+  it('POST /api/ai/generate: BYOK fallback+DE → 403 free_pool_region, never reaches the provider', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getFreePoolKeys.mockImplementation(async (_req: unknown, res: ServerResponse) => {
+      (res as unknown as { writeHead: (n: number) => void }).writeHead(403);
+      (res as unknown as { end: (s: string) => void }).end(JSON.stringify({ error: 'free_pool_region' }));
+      return { ok: false };
+    });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi' });
+    expect(res._statusCode).toBe(403);
+    expect(res._body).toMatchObject({ error: 'free_pool_region' });
+    expect(generateTextByUsage).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/ai/generate: BYOK fallback+US → allowed, provider called with the fallback key', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getFreePoolKeys.mockResolvedValue({ ok: true, keys: ['server-key-1'] });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi' });
+    expect(res._statusCode).not.toBe(403);
+    expect(generateTextByUsage).toHaveBeenCalled();
+    expect(generateTextByUsage.mock.calls[0][4]).toBe('server-key-1');
+  });
+
+  it('POST /api/ai/chat-stream: BYOK fallback+DE → 403 free_pool_region', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getFreePoolKeys.mockImplementation(async (_req: unknown, res: ServerResponse) => {
+      (res as unknown as { writeHead: (n: number) => void }).writeHead(403);
+      (res as unknown as { end: (s: string) => void }).end(JSON.stringify({ error: 'free_pool_region' }));
+      return { ok: false };
+    });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
+    expect(res._statusCode).toBe(403);
+    expect(res._body).toMatchObject({ error: 'free_pool_region' });
+  });
+
+  it('POST /api/ai/chat-stream: BYOK fallback+US → allowed, getFreePoolKeys called', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = true;
+    getFreePoolKeys.mockResolvedValue({ ok: true, keys: ['server-key-1'] });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
+    expect(res._statusCode).not.toBe(403);
+    expect(getFreePoolKeys).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /api/ai/generate: BYOK with no fallback (byokFallbackApplies=false) never calls getFreePoolKeys', async () => {
+    h.tier = BYOK_TIER;
+    h.byokFallbackApplies = false;
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi' });
+    expect(getFreePoolKeys).not.toHaveBeenCalled();
   });
 
   it('POST /api/ai/chat-stream: free+DE → 403 free_pool_region before any provider call', async () => {
