@@ -32,6 +32,17 @@ INPUTS_RE = re.compile(r'\$\{\{\s*inputs\.\w+\s*\}\}')
 
 PERMISSIONS_RE = re.compile(r'^\s*permissions:', re.MULTILINE)
 
+# t/4414 (e/349#6, SO follow-up): "an alert issue opened without a watched label" is a class --
+# continuous-deploy.yml's dead-gate issue (#3771) opened once, then sat unseen for two days because
+# nothing watched its label. This check flags any `gh issue create`/`gh issue edit` call in a run:
+# block that doesn't apply the label the r/23 escalation bridge (Get-CiAlertEscalations.ps1) watches
+# -- or carry an exemption comment recording why it's covered another way. WARN-ONLY for now, same
+# promotion discipline as the required-context rules above (t/3646): a later blocking-promotion PR
+# needs its own evidence + its own Second Opinion, not bundled into this one.
+ALERT_LABEL = 'alert-escalated'
+GH_ISSUE_RE = re.compile(r'\bgh issue (?:create|edit)\b')
+ALERT_LABEL_EXEMPT_RE = re.compile(r'#\s*lint:alert-label-exempt:\s*(t/\d+|\d{4}-\d{2}-\d{2})\s+\S')
+
 
 def parse_step_key(line):
     """Return (key_name, line_indent) for a YAML key line, handling compact list-item form.
@@ -447,6 +458,89 @@ def check_required_context(path, content, context_name, posts=None):
     return errs
 
 
+def _find_run_blocks(lines):
+    """Return [(start_idx, end_idx, run_indent)] 0-based spans for every `run:` block value,
+    mirroring Check 2's in_run/run_indent tracking in lint_file()."""
+    blocks = []
+    in_run = False
+    run_indent = 0
+    start = None
+    for i, line in enumerate(lines):
+        key, indent = parse_step_key(line)
+        # Block-scalar CONTENT one line can look exactly like "word: value" (e.g. a bash
+        # string `Run: $RUN_URL"`) even though it's inside the run: block, not a sibling
+        # YAML key. Valid block-scalar content is always indented > the `run:` key's own
+        # indent -- so a parse_step_key "hit" only counts as a real key line while in_run
+        # when it's at or above that indent; deeper, it's content, whatever it looks like.
+        if in_run and key is not None and indent > run_indent:
+            key = None
+        if key is not None:
+            if in_run:
+                blocks.append((start, i, run_indent))
+                in_run = False
+            if key == 'run':
+                in_run = True
+                run_indent = indent
+                start = i
+        elif in_run:
+            stripped = line.lstrip()
+            if stripped and len(line) - len(stripped) <= run_indent:
+                blocks.append((start, i, run_indent))
+                in_run = False
+    if in_run:
+        blocks.append((start, len(lines), run_indent))
+    return blocks
+
+
+def check_alert_label(path, content):
+    """WARN-ONLY (t/4414, e/349#6): flag a `gh issue create`/`gh issue edit` call, inside a run:
+    block, that applies neither the `alert-escalated` label nor a `# lint:alert-label-exempt:
+    <ticket-or-date> <reason>` comment elsewhere in the SAME run: block. Joins backslash
+    line-continuations into one logical command before searching, so a multi-line
+    `gh issue create \` invocation is read as a whole."""
+    findings = []
+    lines = content.splitlines()
+    for start, end, _indent in _find_run_blocks(lines):
+        block = lines[start:end]
+        has_exempt = any(ALERT_LABEL_EXEMPT_RE.search(bl) for bl in block)
+        # Join backslash continuations into logical commands, tracking the first physical
+        # line number of each so a finding points somewhere useful.
+        commands = []  # (first_line_no, joined_text)
+        buf = []
+        buf_start = None
+        for j, bl in enumerate(block):
+            # A bash comment line (not mid backslash-continuation) can say "gh issue create"
+            # in prose describing past behavior (deploy-drift-check.yml:131 does exactly this)
+            # without being a real invocation. Skip pure comment lines entirely.
+            if not buf and bl.lstrip().startswith('#'):
+                continue
+            if buf_start is None:
+                buf_start = start + j
+            stripped = bl.rstrip()
+            if stripped.endswith('\\'):
+                buf.append(stripped[:-1])
+                continue
+            buf.append(bl)
+            commands.append((buf_start, ' '.join(buf)))
+            buf = []
+            buf_start = None
+        if buf:
+            commands.append((buf_start, ' '.join(buf)))
+        for line_no, cmd in commands:
+            if not GH_ISSUE_RE.search(cmd):
+                continue
+            if ALERT_LABEL in cmd or has_exempt:
+                continue
+            findings.append(
+                f'{path}:{line_no + 1}: `gh issue create`/`edit` without the `{ALERT_LABEL}` label '
+                f'(the r/23 escalation bridge only watches that label) — add `--label {ALERT_LABEL}` '
+                f'(create) / `--add-label {ALERT_LABEL}` (edit), or add a co-located '
+                f'`# lint:alert-label-exempt: <ticket-or-date> <reason>` recording why this alert is '
+                f'covered another way.'
+            )
+    return findings
+
+
 def self_test():
     """Verify that both uses: syntax forms and run: forms are correctly detected."""
     print('=== workflow-lint self-test ===')
@@ -806,6 +900,92 @@ jobs:
     else:
         print('  PASS: t/3691 E — a matrixed reporting job R2-fails a bare context (name (value) != name)')
 
+    # t/4414 (e/349#6): check_alert_label fixtures.
+    fixture_alert_missing = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh issue create --title "x" --label "some-other-label" --body "y"
+"""
+    findings = check_alert_label('fixture_alert_missing', fixture_alert_missing)
+    if not any('without the' in f for f in findings):
+        failures.append('check_alert_label MISSED a gh issue create with no alert-escalated label')
+    else:
+        print('  PASS: check_alert_label catches gh issue create missing alert-escalated')
+
+    fixture_alert_present = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh issue create --title "x" --label "alert-escalated" --body "y"
+"""
+    findings = check_alert_label('fixture_alert_present', fixture_alert_present)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED a gh issue create that already has alert-escalated')
+    else:
+        print('  PASS: check_alert_label ignores a call that already carries alert-escalated')
+
+    fixture_alert_multiline = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh issue create \\
+            --title "x" \\
+            --label "alert-escalated" \\
+            --body "y"
+"""
+    findings = check_alert_label('fixture_alert_multiline', fixture_alert_multiline)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED a backslash-continued gh issue create with alert-escalated on a later line')
+    else:
+        print('  PASS: check_alert_label joins backslash continuations before searching for the label')
+
+    fixture_alert_exempt = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          # lint:alert-label-exempt: t/4053 covered by the r/30 data-compliance watchdog bridge instead
+          gh issue create --title "x" --label "data-compliance" --body "y"
+"""
+    findings = check_alert_label('fixture_alert_exempt', fixture_alert_exempt)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED a call with a valid lint:alert-label-exempt comment')
+    else:
+        print('  PASS: check_alert_label honors a lint:alert-label-exempt comment in the same run: block')
+
+    fixture_alert_comment_mention = """\
+permissions:
+  issues: write
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          # history: `gh issue create --label` used to error here before this fix
+          gh issue create --title "x" --label "alert-escalated" --body "y"
+"""
+    findings = check_alert_label('fixture_alert_comment_mention', fixture_alert_comment_mention)
+    if findings:
+        failures.append('check_alert_label FALSE-FLAGGED a comment line that merely mentions "gh issue create" in prose')
+    else:
+        print('  PASS: check_alert_label ignores "gh issue create" mentioned inside a comment, not invoked')
+
     if failures:
         for f in failures:
             print(f'  FAIL: {f}')
@@ -885,11 +1065,19 @@ else:
         else:
             rc_warnings.append(_msg)
 
+# t/4414 (e/349#6): alert-label check — WARN-ONLY, same promotion discipline as rc_warnings above.
+alert_label_warnings = []
+for _path in workflows:
+    with open(_path, encoding='utf-8') as _f:
+        alert_label_warnings.extend(check_alert_label(_path, _f.read()))
+
 print(f'=== workflow-lint: {len(workflows)} workflows checked ===')
 for e in errors:
     print(f'FAIL: {e}')
 for w in rc_warnings:
     print(f'::warning::workflow-lint[required-context warn-only, t/3646]: {w}')
+for w in alert_label_warnings:
+    print(f'::warning::workflow-lint[alert-label warn-only, t/4414]: {w}')
 
 if errors:
     print(f'\n::error::workflow-lint: {len(errors)} violation(s) — see output above')
@@ -897,4 +1085,6 @@ if errors:
 
 if rc_warnings:
     print(f'\nworkflow-lint: {len(rc_warnings)} required-context WARNING(s) — warn-only (t/3646), not blocking yet')
+if alert_label_warnings:
+    print(f'\nworkflow-lint: {len(alert_label_warnings)} alert-label WARNING(s) — warn-only (t/4414), not blocking yet')
 print('OK — 0 blocking violations')

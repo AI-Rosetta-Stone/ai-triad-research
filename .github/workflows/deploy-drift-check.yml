@@ -137,11 +137,15 @@ jobs:
 
           if [ "$FIRE" = 'true' ]; then
             BODY=$(printf '**Prod is running a stale image (t/3278 deploy-drift gate).**\n\n- Running buildSha: `%s`\n- main HEAD: `%s`\n- Un-deployed age: **%s h** (reason: `%s`)\n\nShippable work — possibly including incident/security fixes — has sat un-deployed past the threshold. **Ship it:** owner-authorized `container.yml` build of HEAD + `deploy-azure.yml` (see production-release.md). This gate does not auto-deploy by design; it only makes the drift visible.\n\n_Auto-managed by deploy-drift-check.yml — auto-closes when prod catches up._' "${RUNNING_SHA:-<unreachable>}" "$MAIN_SHA" "$AGE_HOURS" "$REASON")
+            # t/4414 lint finding (e/349#6 class): this alert had no label the r/23 bridge
+            # watches, so a real prod-drift finding could sit open and unseen the same way
+            # continuous-deploy's dead-gate issue did (#3771).
             if [ -n "$EXISTING" ]; then
               gh issue comment "$EXISTING" --body "$BODY"
+              gh issue edit "$EXISTING" --remove-label "owner-acked" --add-label "alert-escalated" 2>/dev/null || true
               echo "Updated existing drift issue #$EXISTING"
             else
-              gh issue create --title "$TITLE" --label "$DRIFT_LABEL" --body "$BODY"
+              gh issue create --title "$TITLE" --label "$DRIFT_LABEL" --label "alert-escalated" --body "$BODY"
               echo "Opened new drift issue"
             fi
             echo "::error::Deploy drift: prod behind main by ${AGE_HOURS}h (${REASON}). See the deploy-drift issue."

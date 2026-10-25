@@ -152,6 +152,10 @@ jobs:
             echo "::error::Could not query the data-compliance alarm in $DATA_REPO — check AI_TRIAD_DATA_ALARM_TOKEN scope/expiry. A real corpus violation exists but the alarm state is unknown (t/3671 cond 1)."
             exit 1
           fi
+          # lint:alert-label-exempt: t/4053 this issue lives in $DATA_REPO, not this repo, so
+          # the r/23 bridge (scoped to AI-Rosetta-Stone/ai-triad-research) could never see it
+          # anyway -- it's already covered by its own separate escalation path, the r/30
+          # data-compliance watchdog bridge (Get-DataComplianceWatchdog.ps1).
           if [ -n "$NUM" ]; then
             gh issue comment "$NUM" --repo "$DATA_REPO" --body "$BODY" || true
             gh issue reopen "$NUM" --repo "$DATA_REPO" 2>/dev/null || true

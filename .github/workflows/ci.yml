@@ -1239,11 +1239,14 @@ jobs:
           gh label create "$LABEL" --color "B60205" --description "CI: contrast-check alert on main" 2>/dev/null || true
 
           EXISTING=$(gh issue list --state open --label "$LABEL" --json number --jq '.[0].number // empty')
+          # t/4414 lint finding (e/349#6 class): this alert had no label the r/23 bridge
+          # watches, so a persisting contrast regression could sit open and unseen.
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body-file "$BODY_FILE"
+            gh issue edit "$EXISTING" --remove-label "owner-acked" --add-label "alert-escalated" 2>/dev/null || true
             echo "::error::contrast-check RED on main — appended to issue #${EXISTING}"
           else
-            ISSUE_URL=$(gh issue create --title "$TITLE" --label "$LABEL" --body-file "$BODY_FILE")
+            ISSUE_URL=$(gh issue create --title "$TITLE" --label "$LABEL" --label "alert-escalated" --body-file "$BODY_FILE")
             echo "::error::contrast-check RED on main — alert issue created: ${ISSUE_URL}"
           fi
           rm -f "$BODY_FILE"
