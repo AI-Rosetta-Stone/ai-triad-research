@@ -30,14 +30,14 @@ Describe 'deploy-azure.yml AC2 rollback wiring (t/4309)' {
         $lastLine | Should -Be 'exit 1'
     }
 
-    It 'the sev-1 step also fires when the RECHECK STEP ITSELF fails (az error/timeout), not just when it ran clean and found a problem (SO review, e/360#5 -- the "silent red" gap)' {
+    It 'the sev-1 step also fires when the ROLLBACK STEP ITSELF fails (az error/timeout the script could not even catch, e.g. the script invocation itself), not just when it ran clean and found a problem (SO review, e/360#5 -- the "silent red" gap)' {
         $step = Get-Step 'Sev-1 alert — AC2 failure could not be resolved by rollback (t/4309)'
         # Anchored to the START of a line (after whitespace), not just the substring "if:" --
         # this step's own explanatory comment mentions another step's `if:` condition in prose,
         # which a bare substring match would grab instead of the real YAML key (caught running
         # this test: it initially matched into the comment, not the actual condition).
         $ifLine = ([regex]::Match($step, '(?m)^\s*if:\s*(.+)$')).Groups[1].Value
-        $ifLine | Should -Match "steps\.ac2_recheck\.outcome == 'failure'"
+        $ifLine | Should -Match "steps\.ac2_rollback\.outcome == 'failure'"
     }
 
     It 'C4 — tag-known-good''s gate is unchanged and still requires deploy to succeed' {
@@ -57,13 +57,19 @@ Describe 'deploy-azure.yml AC2 rollback wiring (t/4309)' {
         }
     }
 
-    It 'C2 — the AC2 rollback step uses steps.current_revision as the target, never a different revision source' {
-        $step = Get-Step 'Rollback for AC2 failure (t/4309 C2)'
-        $step | Should -Match "steps\.current_revision\.outputs\.revision"
+    It 'C2 — the AC2 rollback step passes steps.current_revision as -TargetRevision, never a different revision source' {
+        $step = Get-Step 'Rollback for AC2 failure (t/4309 C2, C3a)'
+        $step | Should -Match "-TargetRevision\s+'\$\{\{\s*steps\.current_revision\.outputs\.revision\s*\}\}'"
     }
 
-    It 'the AC2 recheck step checks current_revision (the restored target), not new_revision (the disabled one)' {
-        $step = Get-Step 'AC2 recheck after rollback (t/4309 C1)'
-        $step | Should -Match "'\$\{\{ steps\.current_revision\.outputs\.revision \}\}'"
+    It 'C3a — the rollback step calls Invoke-Ac2Rollback.ps1 (the real Azure calls live in a testable script, not inline in the workflow)' {
+        $step = Get-Step 'Rollback for AC2 failure (t/4309 C2, C3a)'
+        $step | Should -Match 'Invoke-Ac2Rollback\.ps1'
+    }
+
+    It 'Invoke-Ac2Rollback.ps1 exists and declares -DryRun (SO C3b -- the live read-only proof needs this switch)' {
+        $scriptPath = Join-Path $PSScriptRoot '..' 'operations' 'devops' 'Invoke-Ac2Rollback.ps1'
+        Test-Path $scriptPath | Should -BeTrue
+        (Get-Content -Raw $scriptPath) | Should -Match '\[switch\]\s*\$DryRun'
     }
 }

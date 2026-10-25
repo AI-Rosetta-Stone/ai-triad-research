@@ -1130,103 +1130,37 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Rollback for AC2 failure (t/4309 C2)
+      - name: Rollback for AC2 failure (t/4309 C2, C3a)
+        # SO review (e/361#2, C3a): the actual Azure calls live in Invoke-Ac2Rollback.ps1 now,
+        # not inline here -- so this step is the SAME code the -DryRun live proof (t/4309#7)
+        # exercised, not a copy of it. This step also absorbs what used to be the separate
+        # "AC2 recheck after rollback" step -- the script does both in one call.
         id: ac2_rollback
         if: always() && steps.ac2_verdict.outputs.action == 'rollback'
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
-          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
-          $Target = '${{ steps.current_revision.outputs.revision }}'
-          Write-Host "::error::t/4242 AC2 failed — rolling back to $Target"
-
-          # Everything below is wrapped: a genuine Azure API exception here (not just an
-          # unrecoverable-target finding) must ALSO route to target_unrecoverable=true, not just
-          # fail this step silently — otherwise the sev-1 step's `if:` (which checks for the
-          # literal string 'true') never fires, since an unset output is neither 'true' nor
-          # 'false', and the run goes red with no actionable alert at all.
-          try {
-            # SO C2: the rollback target is the CAPTURED prior revision, never "latest minus
-            # one". Assert it's still active before shifting; try to reactivate once if not;
-            # unrecoverable (no shift) if it can't be revived — shifting traffic to an inactive
-            # revision is a no-op that LOOKS like a successful rollback in the logs while prod
-            # stays broken.
-            $TargetInfo = az containerapp revision show `
-              --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Target `
-              --query '{active:properties.active}' -o json | ConvertFrom-Json
-            if (-not [bool]$TargetInfo.active) {
-              Write-Host "::warning::Rollback target '$Target' is inactive — attempting reactivation before shifting traffic."
-              az containerapp revision activate --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Target
-              $Recheck = az containerapp revision show `
-                --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Target `
-                --query '{active:properties.active}' -o json | ConvertFrom-Json
-              if (-not [bool]$Recheck.active) {
-                Add-Content -Path $env:GITHUB_OUTPUT -Value "target_unrecoverable=true"
-                Write-Host "::error::Rollback target '$Target' could not be reactivated — not shifting traffic to it."
-                exit 0  # the sev-1 step handles alerting + exit 1; this step must not fail the job before that runs
-              }
-            }
-
-            # TL note 4 (same pattern as the existing rollback step): traffic-shift BEFORE
-            # deactivate — shift failure is recoverable; deactivate-then-shift is not.
-            Set-ContainerAppTraffic `
-              -RevisionName $Target `
-              -AppName '${{ env.CONTAINER_APP_NAME }}' `
-              -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
-              -MaxAttempts 3 `
-              -RetryIntervalSec 10
-            if ('${{ steps.new_revision.outputs.revision }}') {
-              Disable-ContainerAppRevision `
-                -RevisionName '${{ steps.new_revision.outputs.revision }}' `
-                -AppName '${{ env.CONTAINER_APP_NAME }}' `
-                -ResourceGroup '${{ env.RESOURCE_GROUP }}'
-            }
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "target_unrecoverable=false"
-            Write-Host "AC2 rollback complete. Traffic restored to $Target."
-          } catch {
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "target_unrecoverable=true"
-            Write-Host "::error::AC2 rollback threw an exception attempting to restore '$Target': $($_.Exception.Message)"
-            exit 0  # the sev-1 step handles alerting + exit 1 for this case too
-          }
-
-      - name: AC2 recheck after rollback (t/4309 C1)
-        id: ac2_recheck
-        if: always() && steps.ac2_verdict.outputs.action == 'rollback' && steps.ac2_rollback.outputs.target_unrecoverable == 'false'
-        shell: pwsh
-        run: |
-          Set-StrictMode -Version Latest
-          $Rev = '${{ steps.current_revision.outputs.revision }}'
-          $Info = az containerapp revision show `
-            --name '${{ env.CONTAINER_APP_NAME }}' -g '${{ env.RESOURCE_GROUP }}' --revision $Rev `
-            --query '{active:properties.active,weight:properties.trafficWeight}' -o json | ConvertFrom-Json
-          $Reason = $null
-          if (-not [bool]$Info.active) {
-            $Reason = "rollback target '$Rev' is NOT active after the rollback shift"
-          } elseif ([int]$Info.weight -ne 100) {
-            $Reason = "rollback target '$Rev' traffic weight is $($Info.weight), not 100"
-          } else {
-            Import-Module ./scripts/AITriad/AITriad.psm1 -Force
-            $Health = Test-TaxEditorHealth -BaseUrl '${{ steps.deploy.outputs.appUrl }}' -TimeoutSec 15 -MaxAttempts 3 -RetryIntervalSec 10
-            if (-not $Health.Healthy) {
-              $Reason = "/health did not return a healthy 200 against the rolled-back revision. Detail: $($Health | ConvertTo-Json -Depth 3 -Compress)"
-            }
-          }
-          if ($Reason) {
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "failed=true"
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "reason=$Reason"
-            Write-Host "::error::t/4309 post-rollback recheck FAILED: $Reason"
-          } else {
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "failed=false"
-            Write-Host "t/4309 post-rollback recheck verified: '$Rev' active at weight 100, /health 200. Prod is healthy again."
-          }
+          $result = ./operations/devops/Invoke-Ac2Rollback.ps1 `
+            -TargetRevision '${{ steps.current_revision.outputs.revision }}' `
+            -NewRevisionToDisable '${{ steps.new_revision.outputs.revision }}' `
+            -AppUrl '${{ steps.deploy.outputs.appUrl }}' `
+            -AppName '${{ env.CONTAINER_APP_NAME }}' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "target_unrecoverable=$($result.TargetUnrecoverable.ToString().ToLower())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "recheck_failed=$($result.RecheckFailed.ToString().ToLower())"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "recheck_reason=$($result.RecheckReason)"
+          # Never fail this step's own exit code on a bad outcome -- the sev-1 step (gated on
+          # these outputs, plus `steps.ac2_rollback.outcome == 'failure'` as a last-resort
+          # catch-all) is what alerts + exits 1. Invoke-Ac2Rollback.ps1 itself only throws on a
+          # truly unexpected condition outside its own try/catch (e.g. the script file missing).
 
       - name: AC2 recheck verdict (t/4309 C1)
         id: ac2_recheck_verdict
-        if: always() && steps.ac2_recheck.outcome == 'success'
+        if: always() && steps.ac2_rollback.outcome == 'success' && steps.ac2_rollback.outputs.target_unrecoverable == 'false'
         shell: pwsh
         run: |
           . ./operations/devops/Get-PostDeployRollbackVerdict.ps1
-          $v = Get-PostDeployRollbackVerdict -Ac2Failed ('${{ steps.ac2_recheck.outputs.failed }}' -eq 'true') `
+          $v = Get-PostDeployRollbackVerdict -Ac2Failed ('${{ steps.ac2_rollback.outputs.recheck_failed }}' -eq 'true') `
             -EarlierRollbackFired $false -IsPostRollbackRecheck $true
           Add-Content -Path $env:GITHUB_OUTPUT -Value "action=$($v.Action)"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "reason=$($v.Reason)"
@@ -1263,7 +1197,7 @@ jobs:
         # gate-signal-integrity fixes exist to close. In every case, rolling back again would not
         # help -- a revision rollback can't fix an app-level cause (authConfig/ingress/secrets, SO
         # key risk #3), so the message says so explicitly to stop a responder from re-attempting it.
-        if: always() && (steps.ac2_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_recheck_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_rollback.outputs.target_unrecoverable == 'true' || steps.ac2_recheck.outcome == 'failure')
+        if: always() && (steps.ac2_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_recheck_verdict.outputs.action == 'stop-alert-sev1' || steps.ac2_rollback.outputs.target_unrecoverable == 'true' || steps.ac2_rollback.outcome == 'failure')
         env:
           GH_TOKEN: ${{ github.token }}
           REV: ${{ steps.new_revision.outputs.revision }}
