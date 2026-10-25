@@ -14,6 +14,7 @@ const reserveFreePoolCall = vi.fn();
 const commitFreePoolCall = vi.fn();
 const releaseFreePoolCall = vi.fn();
 const admitOrDrawDownDebateCall = vi.fn();
+const reconcileDebateDrawDown = vi.fn();
 const generateTextByUsage = vi.fn();
 const generateViaGeminiStream = vi.fn();
 
@@ -23,6 +24,7 @@ vi.mock('../ai/freePoolBudgetGate.js', () => ({
   commitFreePoolCall: (...a: unknown[]) => commitFreePoolCall(...a),
   releaseFreePoolCall: (...a: unknown[]) => releaseFreePoolCall(...a),
   admitOrDrawDownDebateCall: (...a: unknown[]) => admitOrDrawDownDebateCall(...a),
+  reconcileDebateDrawDown: (...a: unknown[]) => reconcileDebateDrawDown(...a),
   getFreePoolHeadroomSnapshot: vi.fn(async () => 'not-enforced'),
   FREE_POOL_CALL_TOKEN_ESTIMATE: 2000,
 }));
@@ -187,6 +189,7 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     commitFreePoolCall.mockReset().mockResolvedValue(undefined);
     releaseFreePoolCall.mockReset().mockResolvedValue(undefined);
     admitOrDrawDownDebateCall.mockReset();
+    reconcileDebateDrawDown.mockReset().mockResolvedValue(undefined);
     generateTextByUsage.mockReset().mockResolvedValue({ text: 'ok', tokenUsage: { inputTokens: 10, outputTokens: 20 } });
     generateViaGeminiStream.mockReset().mockResolvedValue(undefined);
   });
@@ -291,24 +294,26 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     expect(res._body).toMatchObject({ error: 'free_pool_debate_limit' });
   });
 
-  it('generate with a debateId: admitted (fallbackReservationId null) never commits/releases — already settled by draw-down', async () => {
-    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, fallbackReservationId: null });
+  it('generate with a debateId: admitted (debateReservationId set) reconciles the real tokens, never commits/releases the plain way', async () => {
+    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, debateReservationId: 'db-res-1', fallbackReservationId: null });
     const handlers = registerAll();
     const res = fakeRes();
     await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi', debateId: 'deb-1' });
     expect(res._statusCode).not.toBe(429);
     expect(generateTextByUsage).toHaveBeenCalled();
+    expect(reconcileDebateDrawDown).toHaveBeenCalledWith('db-res-1', 30); // 10 + 20 from the mocked tokenUsage
     expect(commitFreePoolCall).not.toHaveBeenCalled();
     expect(releaseFreePoolCall).not.toHaveBeenCalled();
   });
 
   it('generate with a debateId: past the overdraft cap (fallbackReservationId set) commits/releases it like a normal call', async () => {
-    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, fallbackReservationId: 'fallback-res-1' });
+    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, debateReservationId: null, fallbackReservationId: 'fallback-res-1' });
     const handlers = registerAll();
     const res = fakeRes();
     await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi', debateId: 'deb-1' });
     expect(res._statusCode).not.toBe(429);
     expect(commitFreePoolCall).toHaveBeenCalledWith('fallback-res-1', { calls: 1, tokens: 30 });
+    expect(reconcileDebateDrawDown).not.toHaveBeenCalled();
   });
 
   it('chat-stream with a debateId: refused admission is 429, stream never starts', async () => {
@@ -324,12 +329,13 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     expect(generateViaGeminiStream).not.toHaveBeenCalled();
   });
 
-  it('chat-stream with a debateId: admitted (fallbackReservationId null) never commits/releases', async () => {
-    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, fallbackReservationId: null });
+  it('chat-stream with a debateId: admitted (debateReservationId set) reconciles (a no-op delta here) and never commits/releases the plain way', async () => {
+    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, debateReservationId: 'db-res-1', fallbackReservationId: null });
     const handlers = registerAll();
     const res = fakeRes();
     await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }], linkedDebateId: 'deb-1' });
     expect(res._statusCode).not.toBe(429);
+    expect(reconcileDebateDrawDown).toHaveBeenCalledWith('db-res-1', 2000); // chat-stream's flat estimate — delta is 0, a no-op inside reconcileDebateDrawDown itself
     expect(commitFreePoolCall).not.toHaveBeenCalled();
     expect(releaseFreePoolCall).not.toHaveBeenCalled();
   });

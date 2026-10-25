@@ -21,7 +21,7 @@ vi.mock('../logger.js', () => ({ log: { api: { info: vi.fn(), warn: vi.fn(), err
 import {
   reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, getFreePoolHeadroomSnapshot,
   maybeWarnHeadroom, _resetHeadroomWarnForTest, FREE_POOL_CALL_TOKEN_ESTIMATE,
-  admitOrDrawDownDebateCall, debateRequesterKeyPrefix, DEBATE_ESTIMATE_CALLS, DEBATE_ESTIMATE_TOKENS,
+  admitOrDrawDownDebateCall, reconcileDebateDrawDown, debateRequesterKeyPrefix, DEBATE_ESTIMATE_CALLS, DEBATE_ESTIMATE_TOKENS,
   DEBATE_MAX_OPEN_PER_REQUESTER, DEBATE_OVERDRAFT_MULTIPLIER,
 } from '../ai/freePoolBudgetGate.js';
 import { log } from '../logger.js';
@@ -218,7 +218,7 @@ describe('admitOrDrawDownDebateCall (t/4485 phase 2, TL decision t/4485#5/#7)', 
   it('enforcement off: always allows, never touches the store', async () => {
     isFreePoolBudgetEnforced.mockReturnValue(false);
     const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
-    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+    expect(result).toEqual({ ok: true, debateReservationId: null, fallbackReservationId: null });
     expect(fakeStore.reserveForKey).not.toHaveBeenCalled();
   });
 
@@ -264,7 +264,7 @@ describe('admitOrDrawDownDebateCall (t/4485 phase 2, TL decision t/4485#5/#7)', 
     fakeStore.drawDown.mockResolvedValue({ drawnCalls: 5, drawnTokens: 10_000, estimateCalls: DEBATE_ESTIMATE_CALLS, estimateTokens: DEBATE_ESTIMATE_TOKENS });
     const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
     expect(fakeStore.drawDown).toHaveBeenCalledWith('db-res-1', { calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE });
-    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+    expect(result).toEqual({ ok: true, debateReservationId: 'db-res-1', fallbackReservationId: null });
   });
 
   it('AC2: under the overdraft cap, the call is covered by the debate reservation — never refused, no fallback reservation', async () => {
@@ -273,7 +273,7 @@ describe('admitOrDrawDownDebateCall (t/4485 phase 2, TL decision t/4485#5/#7)', 
     fakeStore.drawDown.mockResolvedValue({ drawnCalls: DEBATE_ESTIMATE_CALLS, drawnTokens: DEBATE_ESTIMATE_TOKENS, estimateCalls: DEBATE_ESTIMATE_CALLS, estimateTokens: DEBATE_ESTIMATE_TOKENS });
     const res = fakeRes();
     const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
-    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+    expect(result).toEqual({ ok: true, debateReservationId: 'db-res-1', fallbackReservationId: null });
     expect(res.writeHead).not.toHaveBeenCalled();
   });
 
@@ -299,21 +299,25 @@ describe('admitOrDrawDownDebateCall (t/4485 phase 2, TL decision t/4485#5/#7)', 
     });
     fakeStore.reserve.mockResolvedValue({ ok: true, reservationId: 'fallback-res-1' });
     const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
-    expect(result).toEqual({ ok: true, fallbackReservationId: 'fallback-res-1' });
+    expect(result).toEqual({ ok: true, debateReservationId: null, fallbackReservationId: 'fallback-res-1' });
   });
 
-  it('a null drawDown result (reservation already expired) is treated as covered, not refused', async () => {
+  it('t/4485#9 fix 2: a null drawDown result (expiry race) falls back to a per-call reserve, not treated as covered', async () => {
     fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
     fakeStore.drawDown.mockResolvedValue(null);
+    fakeStore.reserve.mockResolvedValue({ ok: true, reservationId: 'fallback-res-2' });
     const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
-    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+    expect(fakeStore.reserve).toHaveBeenCalledWith({ calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE, key: 'debate:alice:deb-1' });
+    expect(result).toEqual({ ok: true, debateReservationId: null, fallbackReservationId: 'fallback-res-2' });
   });
 
-  it('a drawDown() throw is logged but the call still proceeds — an admitted debate is never refused mid-run', async () => {
+  it('t/4485#9 fix 2: a drawDown() throw falls back to a per-call reserve, not treated as covered — an admitted debate is never refused mid-run, only the fallback reserve can refuse', async () => {
     fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
     fakeStore.drawDown.mockRejectedValue(new Error('transient store error'));
+    fakeStore.reserve.mockResolvedValue({ ok: true, reservationId: 'fallback-res-3' });
     const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
-    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+    expect(fakeStore.reserve).toHaveBeenCalledWith({ calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE, key: 'debate:alice:deb-1' });
+    expect(result).toEqual({ ok: true, debateReservationId: null, fallbackReservationId: 'fallback-res-3' });
   });
 
   it('a reserveForKey() throw fails closed with 503, never a 500', async () => {
@@ -330,5 +334,44 @@ describe('admitOrDrawDownDebateCall (t/4485 phase 2, TL decision t/4485#5/#7)', 
     const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
     expect(result).toEqual({ ok: false });
     expect(res.writeHead).toHaveBeenCalledWith(503, expect.anything());
+  });
+});
+
+describe('reconcileDebateDrawDown (t/4485#9 fix 1 — covered debate calls never reconciled real tokens)', () => {
+  const fakeStore = {
+    reserve: vi.fn(), renew: vi.fn(), commit: vi.fn(), release: vi.fn(), headroom: vi.fn(),
+    reserveForKey: vi.fn(), drawDown: vi.fn(), openCountForPrefix: vi.fn(),
+  };
+
+  beforeEach(() => {
+    isFreePoolBudgetEnforced.mockReturnValue(true);
+    getFreePoolBudget.mockReturnValue(fakeStore);
+    Object.values(fakeStore).forEach(fn => fn.mockReset());
+  });
+
+  it('draws down the positive difference (actual − estimate) — TL-required 30K-token case', async () => {
+    await reconcileDebateDrawDown('db-res-1', 30_000);
+    expect(fakeStore.drawDown).toHaveBeenCalledWith('db-res-1', { calls: 0, tokens: 30_000 - FREE_POOL_CALL_TOKEN_ESTIMATE });
+  });
+
+  it('is a no-op when actual usage is at or under the estimate (drawDown is additive-only, no negative deltas)', async () => {
+    await reconcileDebateDrawDown('db-res-1', FREE_POOL_CALL_TOKEN_ESTIMATE);
+    await reconcileDebateDrawDown('db-res-1', FREE_POOL_CALL_TOKEN_ESTIMATE - 1);
+    expect(fakeStore.drawDown).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op for a null debateReservationId (not a debate call, or enforcement was off)', async () => {
+    await reconcileDebateDrawDown(null, 30_000);
+    expect(fakeStore.drawDown).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the store is not wired', async () => {
+    getFreePoolBudget.mockReturnValue(null);
+    await expect(reconcileDebateDrawDown('db-res-1', 30_000)).resolves.toBeUndefined();
+  });
+
+  it('never throws on a store failure — logs a WARN instead', async () => {
+    fakeStore.drawDown.mockRejectedValue(new Error('transient store error'));
+    await expect(reconcileDebateDrawDown('db-res-1', 30_000)).resolves.toBeUndefined();
   });
 });

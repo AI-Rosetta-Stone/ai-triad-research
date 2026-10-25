@@ -26,6 +26,17 @@
 //   - abuse guards: the key is scoped to the requester, `reserveForKey`'s `maxOpenForPrefix`
 //     caps live debates per requester at DEBATE_MAX_OPEN_PER_REQUESTER (a 3rd → 429
 //     `free_pool_debate_limit`), and overdraft is capped at DEBATE_OVERDRAFT_MULTIPLIER.
+//
+// Two notes on scope (TL review, t/4485#9):
+//   - "An admitted debate is never refused mid-run" is a budget-exhaustion guarantee, not a
+//     store-outage one. AC2 covers the free pool having no MORE money for this debate, which
+//     this design absorbs via drawDown/overdraft; it does not cover the store itself being
+//     unreachable. A `reserveForKey`/`drawDown` throw mid-debate still fails closed to 503
+//     `free_pool_unavailable` — intended, not a gap: an outage is an infra problem the same way
+//     it is for a non-debate call (see the module-top note above), not a budget decision.
+//   - DEBATE_ESTIMATE_CALLS (80) is sized from t/4410#6's p90 (78), not p95 — a deliberate
+//     choice, not an oversight: the 2x overdraft cap is the backstop for the debates past p90
+//     that the estimate alone wouldn't cover, so a looser p95-sized estimate isn't needed.
 
 import type http from 'http';
 import { log } from '../logger.js';
@@ -234,12 +245,29 @@ function debateKey(requesterId: string, debateId: string): string {
   return `${debateRequesterKeyPrefix(requesterId)}${debateId}`;
 }
 
+/** Shared by all three fallback-to-per-call-reserve sites in admitOrDrawDownDebateCall (past
+ *  the overdraft cap, a drawDown() throw, or a null drawDown result) — kept out of that
+ *  function's own body so its complexity doesn't grow with each one (t/3821 baseline, same
+ *  reasoning as routes/ai.ts's trackFreePoolReservation extraction). */
+async function fallbackToPerCallReserve(res: http.ServerResponse, key: string): Promise<DebateCallResult> {
+  const fallback = await reserveFreePoolCall(res, key); // 429/503 already written on refusal
+  if (!fallback.ok) return { ok: false };
+  return { ok: true, debateReservationId: null, fallbackReservationId: fallback.reservationId };
+}
+
 export type DebateCallResult =
-  // `fallbackReservationId` is non-null only past the overdraft cap: the caller must then
-  // commit/release it exactly like a normal per-call reservation (trackFreePoolReservation).
-  // null means the call is fully covered by the debate's own admission + drawDown — nothing
-  // further for the caller to settle.
-  | { ok: true; fallbackReservationId: string | null }
+  // Exactly one of the two ids is non-null (never both) when ok is true:
+  //  - `debateReservationId` — the call is covered by the debate's own admission reservation
+  //    (drawDown already recorded the FREE_POOL_CALL_TOKEN_ESTIMATE estimate against it). The
+  //    caller must still reconcile the real token count once known, via
+  //    `reconcileDebateDrawDown` (TL review, t/4485#9 fix 1) — drawDown's estimate is a
+  //    placeholder, not the real usage, so without this every covered call's tokens are
+  //    permanently mis-recorded as the flat estimate.
+  //  - `fallbackReservationId` — past the overdraft cap (or a drawDown failure, fix 2 below),
+  //    this call fell back to a normal per-call reservation: the caller commits/releases it
+  //    exactly like a non-debate call (trackFreePoolReservation).
+  // Both null only when enforcement is off — nothing for the caller to settle.
+  | { ok: true; debateReservationId: string | null; fallbackReservationId: string | null }
   | { ok: false };
 
 /** Admit (on the first call) or draw down (on every later call) one free-tier debate call.
@@ -249,7 +277,7 @@ export type DebateCallResult =
 export async function admitOrDrawDownDebateCall(
   res: http.ServerResponse, requesterId: string, debateId: string,
 ): Promise<DebateCallResult> {
-  if (!isFreePoolBudgetEnforced()) return { ok: true, fallbackReservationId: null };
+  if (!isFreePoolBudgetEnforced()) return { ok: true, debateReservationId: null, fallbackReservationId: null };
   const store = resolveStore();
   if (!store) {
     writeRefusal(res, { reason: 'storage_unavailable' });
@@ -288,29 +316,62 @@ export async function admitOrDrawDownDebateCall(
   try {
     drawDownResult = await store.drawDown(admission.reservationId, { calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE });
   } catch (err) {
-    // drawDown() never refuses per the interface; a genuine store failure here just means this
-    // one call's usage didn't get recorded against the debate's reservation. The debate itself
-    // must never be refused mid-run over it (t/4485#5) — log and let the call proceed.
-    log.api.warn({ component: 'free-pool-budget', reservationId: admission.reservationId, err }, 'FreePoolBudget.drawDown() failed — usage not recorded for this call');
+    // t/4485#9 fix 2 (same reasoning as the null case below): drawDown() never refuses per the
+    // interface, but a genuine store failure here means this call's estimate did NOT get
+    // recorded against the debate's reservation — unlike a normal in-band overdraft, there is
+    // no running-totals signal to check, so there's nothing to reconcile. Fall back to a normal
+    // per-call reserve so the call is still accounted for somewhere, rather than going
+    // completely unrecorded. The debate itself is still never refused mid-run over this (t/4485#5)
+    // — only the fallback reserve's own daily-cap check can refuse.
+    log.api.warn({ component: 'free-pool-budget', reservationId: admission.reservationId, err }, 'FreePoolBudget.drawDown() threw — falling back to a per-call reserve so the call stays accounted for');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'free-pool-budget', level: 'warn',
-      message: 'FreePoolBudget.drawDown() failed',
+      message: 'FreePoolBudget.drawDown() threw',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
-    return { ok: true, fallbackReservationId: null };
+    return fallbackToPerCallReserve(res, key);
   }
 
-  // null means the reservation was already gone (expired) — the TTL-expiry path already
-  // released the remainder and logged its own WARN; treat this call as covered, not refused.
-  if (!drawDownResult) return { ok: true, fallbackReservationId: null };
+  // t/4485#9 fix 2 (TL review): null means the reservation was already gone (an expiry race —
+  // the TTL-expiry path already released the remainder and logged its own WARN) — this call's
+  // estimate was NEVER recorded anywhere. Treating it as "covered" (the original design) let it
+  // go unrecorded entirely. Fall back to a normal per-call reserve instead, same as the overdraft
+  // and drawDown-throw cases, so every call lands in the budget somewhere.
+  if (!drawDownResult) return fallbackToPerCallReserve(res, key);
 
   const overCalls = drawDownResult.drawnCalls > drawDownResult.estimateCalls * DEBATE_OVERDRAFT_MULTIPLIER;
   const overTokens = drawDownResult.drawnTokens > drawDownResult.estimateTokens * DEBATE_OVERDRAFT_MULTIPLIER;
-  if (overCalls || overTokens) {
-    // t/4485#5: past 2x the estimate, fall back to a normal per-call reserve — which CAN refuse.
-    const fallback = await reserveFreePoolCall(res, key); // 429/503 already written on refusal
-    if (!fallback.ok) return { ok: false };
-    return { ok: true, fallbackReservationId: fallback.reservationId };
+  // t/4485#5: past 2x the estimate, fall back to a normal per-call reserve — which CAN refuse.
+  if (overCalls || overTokens) return fallbackToPerCallReserve(res, key);
+  // Covered by the debate reservation. drawDown recorded only the FREE_POOL_CALL_TOKEN_ESTIMATE
+  // placeholder for tokens — the caller reconciles the real count via reconcileDebateDrawDown
+  // once the actual usage is known (fix 1).
+  return { ok: true, debateReservationId: admission.reservationId, fallbackReservationId: null };
+}
+
+/** t/4485#9 fix 1 (TL review): `admitOrDrawDownDebateCall`'s drawDown recorded only the flat
+ *  `FREE_POOL_CALL_TOKEN_ESTIMATE` placeholder for a covered call — call this once the real
+ *  token count is known to true that estimate up to the actual usage, same reconciliation
+ *  purpose as `commitFreePoolCall` for a non-debate reservation. Only the POSITIVE difference is
+ *  drawn down (drawDown is additive-only, t/4484's contract — it can't go backwards), so an
+ *  actual usage at or under the estimate needs no reconciliation call. No-op for a null
+ *  `debateReservationId` (not a debate call, or enforcement was off) or when the store isn't
+ *  wired. Never throws — the call already happened; a failure to reconcile just means this
+ *  call's tokens stay under-counted against the debate, logged as a WARN. */
+export async function reconcileDebateDrawDown(debateReservationId: string | null, actualTokens: number): Promise<void> {
+  if (!debateReservationId) return;
+  const delta = actualTokens - FREE_POOL_CALL_TOKEN_ESTIMATE;
+  if (delta <= 0) return;
+  const store = resolveStore();
+  if (!store) return;
+  try {
+    await store.drawDown(debateReservationId, { calls: 0, tokens: delta });
+  } catch (err) {
+    log.api.warn({ component: 'free-pool-budget', reservationId: debateReservationId, err }, 'FreePoolBudget.drawDown() (reconciliation) failed — this call\'s real token usage is under-counted against the debate');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'free-pool-budget', level: 'warn',
+      message: 'FreePoolBudget.drawDown() (reconciliation) failed',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
   }
-  return { ok: true, fallbackReservationId: null };
 }
