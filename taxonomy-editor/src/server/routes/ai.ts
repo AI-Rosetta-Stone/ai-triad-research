@@ -30,6 +30,7 @@ import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext, enforceBackendAllowed, enforceAnonDebateGate } from './generationContext.js';
 import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
+import { reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, getFreePoolHeadroomSnapshot, FREE_POOL_CALL_TOKEN_ESTIMATE } from '../ai/freePoolBudgetGate.js';
 
 import * as fileIO from '../storage/fileIO.js';
 import { beginEmbeddingCompute, endEmbeddingCompute, embeddingLoadSnapshot, evaluateEmbeddingLoadShed, isEmbeddingModelWarm, markEmbeddingModelWarm } from '../embeddingsLoad.js';
@@ -108,10 +109,15 @@ function enforceAiRateLimits(res: http.ServerResponse, isFree: boolean, limitKey
  *  unresolvable, 503 if the pool has no keys configured; platform → undefined (server-side
  *  keys); BYOK → client key, with a free-tier Gemini fallback for a BYOK user with no key for
  *  the pinned backend (t/945) — **also geo-gated** (t/4486#4, TL review: this fallback used to
- *  read the pool directly, a fourth bypass of the restriction). Returns `{ ok: false }` after
- *  sending the error response when the free tier is unavailable or geo-restricted. */
-async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend):
-  Promise<{ ok: true; key: string | string[] | undefined } | { ok: false }> {
+ *  read the pool directly, a fourth bypass of the restriction). **Also budget-gated** (t/4485):
+ *  both free-pool paths reserve 1 call against the daily budget — 429 `free_pool_exhausted` or
+ *  503 `free_pool_unavailable` when refused. `budgetKey` is a correlation id for the store's own
+ *  logs (the debate id if there is one, else a generic per-route tag). Returns `{ ok: false }`
+ *  after sending the error response on any refusal; on success, `reservationId` is non-null
+ *  only when budget enforcement is actually on (the caller commits or releases it later). */
+async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend, debateId: string | undefined):
+  Promise<{ ok: true; key: string | string[] | undefined; reservationId: string | null } | { ok: false }> {
+  const budgetKey = debateId ?? 'generate';
   if (tier.serverProvidedKey) {
     // t/4486: the ONLY injection-path reader of the free pool — applies the geo gate.
     const poolResult = await getFreePoolKeys(req, res);
@@ -120,17 +126,46 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
     // across server keys via callWithKeyRotation in generateText.
     const freeKeys = poolResult.keys;
     if (freeKeys.length === 0) { res.writeHead(503); res.end(JSON.stringify({ error: 'Free tier is not available' })); return { ok: false }; }
-    return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys };
+    const budgetResult = await reserveFreePoolCall(res, budgetKey); // t/4485: 429/503 already written on refusal
+    if (!budgetResult.ok) return { ok: false };
+    return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys, reservationId: budgetResult.reservationId };
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
   if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
     const poolResult = await getFreePoolKeys(req, res);
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
-    if (poolResult.keys.length > 0) explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
+    if (poolResult.keys.length > 0) {
+      explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
+      const budgetResult = await reserveFreePoolCall(res, budgetKey); // t/4485: same budget as the free tier itself
+      if (!budgetResult.ok) return { ok: false };
+      return { ok: true, key: explicitKey, reservationId: budgetResult.reservationId };
+    }
     // An empty pool is NOT an error for this branch — unlike the free tier's own 503, a BYOK
     // user with no fallback available just proceeds with no key, same as pre-t/4486 behavior.
+    // No budget reservation either — there's no free-pool key to reserve against.
   }
-  return { ok: true, key: explicitKey };
+  return { ok: true, key: explicitKey, reservationId: null };
+}
+
+/** t/4485: tracks one free-pool budget reservation's lifecycle so the generate handler doesn't
+ *  need its own `if (reservationId)` / `if (!committed)` branches at each of its several
+ *  commit/release points (that inline branching is what pushed the handler's cyclomatic
+ *  complexity over its baseline, t/3821) — `commit`/`releaseIfUnsettled` absorb the null-check
+ *  and the settled-or-not bookkeeping internally. A no-op throughout when `reservationId` is
+ *  null (budget enforcement off, the common case today, or a BYOK call with no free-pool key). */
+function trackFreePoolReservation(reservationId: string | null) {
+  let settled = false;
+  return {
+    async commit(usage: { inputTokens: number; outputTokens: number } | undefined): Promise<void> {
+      settled = true;
+      if (!reservationId) return;
+      await commitFreePoolCall(reservationId, { calls: 1, tokens: usage ? usage.inputTokens + usage.outputTokens : FREE_POOL_CALL_TOKEN_ESTIMATE });
+    },
+    async releaseIfUnsettled(): Promise<void> {
+      if (settled || !reservationId) return;
+      await releaseFreePoolCall(reservationId);
+    },
+  };
 }
 
 /** 422 fast-fail (t/896) when there's no usable key for the target backend — before
@@ -414,6 +449,10 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
     const t0 = Date.now();
     const abort = new AbortController();
     let finished = false;
+    // t/4485: a no-op tracker until resolveExplicitAiKey resolves a real reservationId below.
+    // `finally` always calls releaseIfUnsettled() — covers every early-return/catch path
+    // without duplicating release() calls at each one.
+    let freePoolBudget = trackFreePoolReservation(null);
     res.on('close', () => { if (shouldAbortOnClientClose(finished, res.writableEnded)) abort.abort(); });
     try {
       // Free-tier cost is bounded by tokensPerDay + per-IP rate limits; the redundant
@@ -432,9 +471,10 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // Key injection: free tier → server FREE_TIER_GEMINI_KEY, geo-gated (t/4486, 403 if no
       // keys or restricted region); platform → server-side keys; BYOK → client key, with a
       // free-tier Gemini fallback (t/945).
-      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend);
+      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, debateId);
       if (!keyResult.ok) return;
       let explicitKey = keyResult.key;
+      freePoolBudget = trackFreePoolReservation(keyResult.reservationId);
 
       // t/3498 (t/3495 epic): an allowlisted user running Gemini with no personal
       // key gets the admin's registered paid key injected server-side — never
@@ -479,7 +519,9 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       if (search) {
         // generateWithSearch returns { text, searchQueries?, citations? } — no servedModel.
         // Speaker turns never use search=true; servedModel is not required on this path (t/4125 AC).
-        json(res, await generateWithSearch(prompt, effectiveModel, explicitKey, { isFree, backend, requestModel, t0 }));
+        const searchResult = await generateWithSearch(prompt, effectiveModel, explicitKey, { isFree, backend, requestModel, t0 });
+        await freePoolBudget.commit((searchResult as { tokenUsage?: { inputTokens: number; outputTokens: number } }).tokenUsage);
+        json(res, searchResult);
       } else {
         const result = await generateWithPaidFallback(prompt, usageOverrides, explicitKey, {
           isFree, backend, requestModel, t0,
@@ -493,6 +535,10 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
           message: `generate success ${backend}/${requestModel}`,
           data: { model: requestModel, backend, responseLength: result.text?.length ?? 0, usage: result.tokenUsage },
         });
+
+        // t/4485: commit() records actual usage unconditionally (t/4484's own contract) —
+        // reconciles the upfront estimate to the real token count now that it's known.
+        await freePoolBudget.commit(result.tokenUsage);
 
         applyTokenBudgetHeaders(res, result, limitKey, tier);
         json(res, { text: result.text, tokenUsage: result.tokenUsage, servedModel: result.servedModel }); // t/4125: forward registry id so the renderer can track failover
@@ -528,6 +574,9 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       error(res, String(err), 500, err);
     } finally {
       finished = true; // clean-arm: any later 'close' (normal completion) won't abort
+      // t/4485: a no-op if commit() already settled it (or there was never a reservation) —
+      // otherwise returns the unused budget (early return, abort, or any error path above).
+      await freePoolBudget.releaseIfUnsettled();
     }
   });
 
@@ -583,10 +632,14 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
     }
   });
 
-  get('/api/proxy/tier', (_req, res) => {
+  get('/api/proxy/tier', async (_req, res) => {
     const { principalName, idp } = callerIdentity(); // t/848: verified context, not raw headers
     const tier = proxyTiers.resolveTier(principalName, idp);
-    json(res, { ...tier, principalName: principalName || null });
+    // t/4485 item 4: the free-pool headroom gauge. 'not-enforced' while the budget-enforcement
+    // flag is off (today's default); 'unknown' — never a zeroed number — when enforcement is on
+    // but the store can't be read. Also fires the once-a-day 80% WARN as a side effect.
+    const freePoolHeadroom = await getFreePoolHeadroomSnapshot();
+    json(res, { ...tier, principalName: principalName || null, freePoolHeadroom });
   });
 
   get('/api/proxy/usage', (_req, res) => {
