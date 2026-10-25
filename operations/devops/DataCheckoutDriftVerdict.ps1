@@ -64,6 +64,12 @@
     [Nullable[datetime]] last-write-time of the OLDEST file among TrackedModified+Untracked, in
     UTC (the caller reads it via GetLastWriteTimeUtc). $null when the caller could not determine
     it (fail-safe: treated as infinitely old below).
+.PARAMETER OldestUncommittedPath
+    The specific path that OldestUncommittedMtime belongs to (t/4005 real-incident fix, p/210#152:
+    the old Reasons message applied this ONE file's age to the entire dirty-file list, reading as
+    if every listed file shared it -- e.g. a 96.7h-old cache file's age got attached to taxonomy
+    files that were really ~3h old, costing a round-trip with the file's actual owner to sort out).
+    $null (the default) falls back to the pre-fix wording for callers that don't pass it.
 .PARAMETER Ahead
     Commits this checkout has that origin does not (`origin..HEAD`).
 .PARAMETER Behind
@@ -97,6 +103,7 @@ function Get-DataCheckoutDriftVerdict {
         [string[]]$TrackedModified = @(),
         [string[]]$Untracked = @(),
         [Nullable[datetime]]$OldestUncommittedMtime = $null,
+        [string]$OldestUncommittedPath = $null,
         [int]$Ahead = 0,
         [int]$Behind = 0,
         [string[]]$IncomingPaths = @(),
@@ -156,7 +163,16 @@ function Get-DataCheckoutDriftVerdict {
     if ($staleAlarm) {
         $oldest = @(@($tracked + $untracked) | Select-Object -First 20)
         $ageDesc = if ([double]::IsPositiveInfinity($ageHours)) { 'unknown (mtime unreadable — treated as stale)' } else { "$([Math]::Round($ageHours, 1))h" }
-        $reasons.Add("uncommitted work older than ${AgeThresholdHours}h (oldest age: $ageDesc): $([string]::Join(', ', $oldest))")
+        if ($OldestUncommittedPath) {
+            # t/4005 real-incident fix: name the ONE file this age actually belongs to, separately
+            # from the rest of the dirty-file list -- each of those may be a very different age.
+            # The old wording attached one file's age to the whole list, reading as if every listed
+            # file shared it (p/210#152: a 96.7h-old cache file's age got misread onto taxonomy files
+            # that were really ~3h old).
+            $reasons.Add("uncommitted work older than ${AgeThresholdHours}h -- oldest: $OldestUncommittedPath ($ageDesc); $($oldest.Count) total uncommitted file(s), ages vary: $([string]::Join(', ', $oldest))")
+        } else {
+            $reasons.Add("uncommitted work older than ${AgeThresholdHours}h (oldest age: $ageDesc): $([string]::Join(', ', $oldest))")
+        }
     }
     if ($trackedHits.Count -gt 0) {
         $listed = @($trackedHits | Select-Object -First 20)

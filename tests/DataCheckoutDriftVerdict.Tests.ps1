@@ -38,6 +38,25 @@ Describe 'Get-DataCheckoutDriftVerdict (t/4005)' -Tag 'devops' {
         $v.Reasons -join ' ' | Should -Match 'older than'
     }
 
+    It 'ALARM: names the specific oldest file separately from a fresher file in the same list (t/4005, p/210#152)' {
+        # One genuinely 97h-old file plus one 3h-old file in the same dirty set -- the message
+        # must not read as if the 3h-old file shares the 97h-old file's age.
+        $v = Get-DataCheckoutDriftVerdict -Name 'ai-triad-data' `
+            -Untracked @('cache/stale-cache.json', 'taxonomy/Origin/fresh.json') `
+            -OldestUncommittedMtime ($script:Now.AddHours(-97)) -OldestUncommittedPath 'cache/stale-cache.json' `
+            -Now $script:Now
+        $v.Alarm | Should -BeTrue
+        $v.Reasons -join ' ' | Should -Match 'oldest: cache/stale-cache\.json'
+        $v.Reasons -join ' ' | Should -Match 'ages vary'
+    }
+
+    It 'ALARM: falls back to the old wording when OldestUncommittedPath is not supplied (back-compat)' {
+        $v = Get-DataCheckoutDriftVerdict -Name 'ai-triad-data' -Untracked @('stale-source.json') `
+            -OldestUncommittedMtime ($script:Now.AddHours(-25)) -Now $script:Now
+        $v.Reasons -join ' ' | Should -Not -Match 'ages vary'
+        $v.Reasons -join ' ' | Should -Match '\(oldest age:'
+    }
+
     It 'QUIET: exactly at the threshold boundary does not alarm (strictly greater-than)' {
         $v = Get-DataCheckoutDriftVerdict -Name 'ai-triad-data' -Untracked @('boundary.json') `
             -OldestUncommittedMtime ($script:Now.AddHours(-24)) -Now $script:Now
