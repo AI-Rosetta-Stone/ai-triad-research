@@ -226,10 +226,14 @@ async function loadNodeMetaCacheFromSourcesDir(sourcesDir: string | null): Promi
   return { metaCache, identityMeta, snapshotHashes };
 }
 
-async function loadNodeMetaCache(sourcesDir: string | null): Promise<LoadedNodeMeta> {
+/** t/4499: `usedSourcesIndex` tells the phase-timing log which path
+ *  `loadNodeMetaMs` actually measured — the fast `sources-index.json` read
+ *  (hosted's normal case) or the slow per-doc `sourcesDir` fallback scan —
+ *  since the same field name covers two very differently-shaped costs. */
+async function loadNodeMetaCache(sourcesDir: string | null): Promise<LoadedNodeMeta & { usedSourcesIndex: boolean }> {
   const sourcesIndex = await loadSourcesIndex();
-  if (sourcesIndex) return buildNodeMetaFromSourcesIndex(sourcesIndex);
-  return loadNodeMetaCacheFromSourcesDir(sourcesDir);
+  if (sourcesIndex) return { ...buildNodeMetaFromSourcesIndex(sourcesIndex), usedSourcesIndex: true };
+  return { ...await loadNodeMetaCacheFromSourcesDir(sourcesDir), usedSourcesIndex: false };
 }
 
 /** t/4334/t/4333 (PI scope addition, p/548#306): % of sources carrying each
@@ -494,28 +498,49 @@ function cardMetaFor(r: SourceReference, metaCache: Record<string, NodeSourceMet
 }
 
 async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
+  // t/4499: phase timing, split out of the single `coldBuildMs` total — a
+  // real prod cold build (t/4333#11: ~5.5-5.7s of server time) needs to say
+  // WHICH phase is expensive before anything can be fixed. Each `*Ms` field
+  // below times exactly the step it's named for; `coldBuildMs` stays the
+  // existing end-to-end total so nothing that already reads it breaks.
   const start = Date.now();
   const summariesDir = resolveDataPath(loadDataConfig().summaries_dir);
   const sourcesDir = getSourcesDir();
   const index: NodeSourceIndex = {};
+
+  let t = Date.now();
   const summaryFiles = await getBackend().listDirectory(summariesDir, { ref: 'main' });
   warnIfEmptyConfiguredDir('summariesDir', summariesDir, summaryFiles);
-  const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
+  const summaryListMs = Date.now() - t;
+
+  t = Date.now();
+  const { metaCache, identityMeta, snapshotHashes, usedSourcesIndex } = await loadNodeMetaCache(sourcesDir);
+  const loadNodeMetaMs = Date.now() - t;
+
+  t = Date.now();
   const missingMetaIds = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
   warnMissingMetaIds(missingMetaIds);
+  const summaryReadMs = Date.now() - t;
+
+  t = Date.now();
   const { titleCollisions, urlConflicts, duplicateOfErrorCount } = applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
+  const applyCanonicalMs = Date.now() - t;
+
+  t = Date.now();
   const cards = buildCardMetaByCanonicalId(index, metaCache);
+  const cardBuildMs = Date.now() - t;
   nodeSourceIndexGeneration += 1;
 
   const entryCount = Object.values(index).reduce((n, refs) => n + refs.length, 0);
   const payloadBytes = Buffer.byteLength(JSON.stringify(index), 'utf-8');
   const coldBuildMs = Date.now() - start;
   const coverage = sourceCardFieldCoverage(metaCache);
+  const phaseMs = { summaryListMs, loadNodeMetaMs, usedSourcesIndex, summaryReadMs, applyCanonicalMs, cardBuildMs };
   log.server.info(
     {
       coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,
       titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length,
-      missingMetaCount: missingMetaIds.size, duplicateOfErrorCount, ...coverage,
+      missingMetaCount: missingMetaIds.size, duplicateOfErrorCount, ...coverage, ...phaseMs,
     },
     'Node source index rebuilt',
   );
@@ -530,16 +555,21 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   getGlobalRecorder()?.record({
     type: 'system.info', component: 'node-source-index', level: 'info',
     message: 'Node source index rebuilt',
-    data: { coldBuildMs, entryCount, payloadBytes, indexVersion: nodeSourceIndexGeneration, ...coverage },
+    data: { coldBuildMs, entryCount, payloadBytes, indexVersion: nodeSourceIndexGeneration, ...coverage, ...phaseMs },
   });
 
   return { index, cards, indexVersion: nodeSourceIndexGeneration, invalidationSignature: await currentInvalidationSignature() };
 }
 
-/** Builds lazily on first use (never at boot — avoids blocking server
- *  startup on a full summaries scan), reusing an in-flight build rather than
- *  starting a second one for concurrent callers. Invalidated by comparing
- *  the summaries-dir listing, not a TTL (t/4333 point 2). */
+/** Builds on first call — originally never at boot (t/4333 point 2's design),
+ *  but t/4499's `prewarmNodeSourceIndex()` now makes that first call happen
+ *  at server startup instead of waiting for the first real request, so a
+ *  cold build's ~5.5s (t/4333#11) lands before traffic arrives rather than
+ *  blocking it. This function itself is unchanged either way: it reuses an
+ *  in-flight build rather than starting a second one for concurrent callers
+ *  — exactly what makes the prewarm safe, since a request arriving mid-warm
+ *  gets that same build, never a redundant one. Invalidated by comparing the
+ *  summaries-dir listing, not a TTL. */
 async function getNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   if (nodeSourceIndexCache) {
     const sig = await currentInvalidationSignature();
@@ -550,6 +580,26 @@ async function getNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   }
   nodeSourceIndexCache = await nodeSourceIndexBuildPromise;
   return nodeSourceIndexCache;
+}
+
+/**
+ * t/4499 AC2/AC3 — kicks off the index build at server startup instead of
+ * waiting for the first real request to pay for it. Fire-and-forget: never
+ * throws, never blocks the caller (server.ts's startup sequence), and never
+ * races itself into a second build — `getNodeSourceIndexCache()`'s existing
+ * in-flight-promise dedup (above) is the only concurrency mechanism, unchanged.
+ * A real request arriving before the prewarm finishes awaits that exact same
+ * promise through the normal `getNodeSources()` path; it never starts (or
+ * waits on) a second one.
+ */
+export function prewarmNodeSourceIndex(): void {
+  getNodeSourceIndexCache().catch((err: unknown) => {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'warn',
+      message: 'prewarmNodeSourceIndex: boot prewarm failed; the first real request will build it instead',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  });
 }
 
 /**
