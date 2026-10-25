@@ -837,11 +837,12 @@ Institutional memory for failure patterns across the AI Triad Research project.
 
 **Instances:**
 - 2026-06-20 — DevOps: Acceptance tests went 9/17 → 16/17 → 17/17 across iterations. Initial failures: unauthenticated API requests got HTML login page instead of JSON. Fixed by establishing an anonymous session cookie via `/.auth/anonymous` before running tests. Final failure: sync status test regex matched `"branch"` but actual field was `"session_branch"` — fixed by matching `"enabled"` instead (p/26#3).
+- 2026-10-25 — DevOps Lead (p/26#272): prod API probe returned Easy Auth sign-in HTML. Visited the root page first to "establish a session" — but the app's anon session requires `POST /api/auth/anonymous` specifically to mint `auth_anonymous`/`anon_session_id` cookies. Visiting any page (root, static asset, etc.) does NOT mint those cookies. Fix: called `POST /api/auth/anonymous` first, reused that session object for the actual probe.
 
-**Root Cause:** AUTH_OPTIONAL mode redirects or serves HTML for requests without a session. API test clients that don't establish a session first receive HTML instead of the expected JSON, causing parse failures or assertion mismatches. Additionally, test assertions matched field names that differed from the actual response schema.
+**Root Cause:** AUTH_OPTIONAL mode redirects or serves HTML for requests without a session. API test clients that don't establish a session first receive HTML instead of the expected JSON, causing parse failures or assertion mismatches. Additionally, test assertions matched field names that differed from the actual response schema. **Anon session minting is endpoint-specific** — only `POST /api/auth/anonymous` (or `/.auth/anonymous` depending on deployment) mints the cookies; visiting any other page does not.
 
 **Prevention:**
-1. In AUTH_OPTIONAL mode, establish a session before API testing — call `/.auth/anonymous` to get an anonymous session cookie, then include it in subsequent requests.
+1. In AUTH_OPTIONAL mode, establish a session before API testing — call `POST /api/auth/anonymous` (or `/.auth/anonymous`) to mint `auth_anonymous`/`anon_session_id` cookies, then include them in subsequent requests. **Visiting the root page or any other page does not mint the anon session.**
 2. When writing acceptance tests, inspect the actual API response body before writing assertions — don't assume field names from the codebase without verifying the wire format.
 3. Prefer matching stable/enum values (like `"enabled"`) over field names that may have prefixes (like `"session_branch"` vs `"branch"`).
 
@@ -5374,7 +5375,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **A ~20s wait is usually sufficient**, but polling is safer than a fixed sleep — use `until` with a sleep loop.
 3. **"Base branch policy prohibits the merge" immediately after a label change** is a reliable diagnostic that checks are re-settling, not a genuine block — retry after polling `CLEAN`.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#165, PR #3282).
+**Status:** Active — 2 instances (DevOps Lead p/26#165, PR #3282; DevOps Lead p/26#270, PR #3807 — `consult-hold-guard` still reporting against pre-removal state; re-checked check-runs API a moment later, all required contexts `success`, retried, merged clean).
 
 **Applies To:** All agents merging PRs after removing a label that arms a required status check.
 
@@ -7382,3 +7383,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#266).
 
 **Applies To:** All agents running scripts with `> file 2>&1` that call child processes emitting benign diagnostics to stderr; verify content completeness before treating exit 1 as a data-loss signal.
+
+---
+
+## #364 [Research] `None` Field Value Before `in` Check Raises `TypeError: argument of type 'NoneType' is not iterable` — Guard With `or ''`
+
+**Pattern:** An agent checks `substring in record['url']` where the `url` field is `null` in some records. Python's `in` operator on `None` raises `TypeError: argument of type 'NoneType' is not iterable`. The fix is `or ''` (or an explicit `None` guard) before the `in` check.
+
+**Instances:**
+- 2026-10-25 — DevOps Lead (p/26#272): prod API probe script crashed `TypeError: NoneType is not iterable` when checking a substring in a card's `url` field; some cards had `url: null`. Fixed with `(card.get('url') or '') in substring` pattern.
+
+**Root Cause:** JSON fields documented as strings may be `null` in practice — especially optional URL/link fields. Python's `in` operator for substring testing requires a string, not `None`. Same null-safety family as #339 (null array elements) but at the scalar field level rather than the array element level.
+
+**Prevention:**
+1. **Guard any `x in field` check where the field may be `null`:** `substring in (record.get('field') or '')` or `if record.get('field') and substring in record['field']`.
+2. **`TypeError: argument of type 'NoneType' is not iterable`** on an `in` expression = the right-hand operand is `None`; check which field and add a null guard.
+3. **Treat optional URL/link/path fields as potentially `null`** — API responses may omit or null-set fields even when the schema says string. Same class as #339 and root AGENTS.md "Data File Convention."
+
+**Status:** Active — 1 instance (DevOps Lead p/26#272).
+
+**Applies To:** All agents writing Python data-processing scripts against API responses or JSON files; guard scalar string fields with `or ''` before `in` checks.
