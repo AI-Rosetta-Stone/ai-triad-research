@@ -315,6 +315,9 @@ function Invoke-OrgStanceExtraction {
                             source_id             = $item.SourceId
                             text                  = [string]$c.text
                             canonical_proposition = [string]$c.canonical_proposition
+                            # anchors (t/4482): FORENSIC/ADDITIVE, NO consumer branches on it yet. THE
+                            # EXEMPTION LAPSES the moment any code path reads anchors to make a decision
+                            # (display, matching, filtering) — see lib/ai-client/types.ts for the model.
                             # Wrapped in an outer @(): "$x = if (cond) {@(one-elem)} else {@()}" unwraps a
                             # single-element array to its scalar (an if-as-value PowerShell gotcha, distinct
                             # from the usual @()-enumeration one) — caught by this PR's own anchors test.
@@ -405,6 +408,9 @@ function Invoke-OrgStanceExtraction {
                             source_id             = $item.SourceId
                             text                  = [string]$c.text
                             canonical_proposition = [string]$c.canonical_proposition
+                            # anchors (t/4482): FORENSIC/ADDITIVE, NO consumer branches on it yet. THE
+                            # EXEMPTION LAPSES the moment any code path reads anchors to make a decision
+                            # (display, matching, filtering) — see lib/ai-client/types.ts for the model.
                             # Wrapped in an outer @(): "$x = if (cond) {@(one-elem)} else {@()}" unwraps a
                             # single-element array to its scalar (an if-as-value PowerShell gotcha, distinct
                             # from the usual @()-enumeration one) — caught by this PR's own anchors test.
