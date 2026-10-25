@@ -140,7 +140,7 @@ For each claim, also classify:
   Intentions: instrumental ("Achieve X by means of Y")
   SELF-CONTAINED: a reader who never saw the debate must understand the sentence on its own.
     1. Nothing may point outside the sentence: no "it", "they", "this policy", "the speaker", "the proposal".
-    2. Replace a name a debater coined mid-debate with what it is, using only what the debate itself says it is; never add detail the debate does not give: "the attestation" -> "a mandatory data-processing attestation", "the two-year verification test" -> "a two-year test comparing sampled data-practice attestations against actual practice".
+    2. Replace a name a debater coined mid-debate with what it is, using only what the debate itself says it is; never add detail the debate does not give: "the attestation" -> "a mandatory data-processing attestation" (when the debate has said so), "the two-year verification test" -> "a two-year test comparing sampled data-practice attestations against actual practice".
     3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
   Use controlled vocabulary terms where applicable. This field is used for taxonomy matching — precision matters.
 - "attribution_text": Rewrite this claim mirroring taxonomy node description format:
