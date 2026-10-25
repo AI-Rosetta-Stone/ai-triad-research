@@ -166,9 +166,46 @@ CANONICAL PROPOSITION (required for every key_point):
       programs funded by automation taxes."
 
   The canonical_proposition is the matching target for taxonomy alignment.
-  Write it in the same voice as taxonomy node descriptions. Use standardized
-  vocabulary_terms where applicable. Strip POV framing, caveats, and hedging —
-  state the core proposition directly.
+  Write it in the general register of taxonomy node descriptions, following
+  SELF-CONTAINED below. Use standardized vocabulary_terms where applicable.
+  Strip POV framing, caveats, and hedging — state the core proposition
+  directly.
+
+  SELF-CONTAINED:
+    A reader who has never seen the source must understand the sentence on its own.
+    1. Nothing may point outside the sentence: no "it", "they", "this policy",
+       "the authors", "the document", "the study", "the organization", "the company".
+    2. Replace a name the source invented with what it is:
+       "the attestation" -> "a mandatory data-processing attestation".
+    3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
+    4. Keep the proposition general enough to match a taxonomy node. Put the
+       specific instrument, jurisdiction, organization or date that the claim is
+       ABOUT in "anchors" instead (see below). Do not invent an anchor the source
+       does not give.
+
+    Examples:
+      Source: "In the EU, the Digital Services Act (DSA) requires major platforms to
+               conduct and publish annual systemic risk assessments ..."
+      canonical_proposition: "Major online platforms ought to conduct annual systemic
+               risk assessments and adopt proportionate mitigation measures."
+      anchors: ["EU Digital Services Act"]
+
+      Source: "... a big study out of China ... kids using A.I. had increases on their
+               homework scores, and then ... their test scores began falling."
+      canonical_proposition: "Heavy reliance on AI for schoolwork degrades students'
+               independent problem-solving and test performance."
+      anchors: []          (China is an example here, not what the claim is about)
+
+      Debate turn: "The attestation should cover everything the system touches."
+      canonical_proposition: "A mandatory data-processing attestation ought to cover
+               all personal data the system processes, including bystanders' data."
+      anchors: []
+
+  ANCHORS:
+    "anchors": list of the specific instruments, jurisdictions, organizations or
+    dates the claim is ABOUT, as named in the source, e.g. ["EU AI Act Article 62"],
+    ["California Judicial Council", "2025-12-15"]. Use [] for a general claim, and
+    when a name appears only as an example.
 
 ATTRIBUTION TEXT (required for every key_point):
   Provide an "attribution_text" field that rewrites the claim mirroring

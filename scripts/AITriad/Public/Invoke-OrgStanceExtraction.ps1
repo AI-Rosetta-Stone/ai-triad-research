@@ -315,6 +315,10 @@ function Invoke-OrgStanceExtraction {
                             source_id             = $item.SourceId
                             text                  = [string]$c.text
                             canonical_proposition = [string]$c.canonical_proposition
+                            # Wrapped in an outer @(): "$x = if (cond) {@(one-elem)} else {@()}" unwraps a
+                            # single-element array to its scalar (an if-as-value PowerShell gotcha, distinct
+                            # from the usual @()-enumeration one) — caught by this PR's own anchors test.
+                            anchors               = @(if ($c.PSObject.Properties['anchors']) { @($c.anchors | ForEach-Object { [string]$_ }) } else { @() })
                             polarity              = [string]$c.polarity
                             extraction_confidence = [double]$c.extraction_confidence
                             extracted_at          = (Get-Date).ToString('o')
@@ -401,6 +405,10 @@ function Invoke-OrgStanceExtraction {
                             source_id             = $item.SourceId
                             text                  = [string]$c.text
                             canonical_proposition = [string]$c.canonical_proposition
+                            # Wrapped in an outer @(): "$x = if (cond) {@(one-elem)} else {@()}" unwraps a
+                            # single-element array to its scalar (an if-as-value PowerShell gotcha, distinct
+                            # from the usual @()-enumeration one) — caught by this PR's own anchors test.
+                            anchors               = @(if ($c.PSObject.Properties['anchors']) { @($c.anchors | ForEach-Object { [string]$_ }) } else { @() })
                             polarity              = [string]$c.polarity
                             extraction_confidence = [double]$c.extraction_confidence
                             extracted_at          = (Get-Date).ToString('o')

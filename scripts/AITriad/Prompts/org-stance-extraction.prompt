@@ -9,7 +9,16 @@ For each position:
 - "text": the near-verbatim passage (or tight compression) expressing the stance
 - "canonical_proposition": one formal sentence, 30 words or fewer, stripped of
   rhetoric. Indicative mood for factual claims, deontic ("X ought...") for normative
-  ones, instrumental ("Achieve X by Y") for strategic ones.
+  ones, instrumental ("Achieve X by Y") for strategic ones. Must be SELF-CONTAINED
+  (see below). Never write "the organization" or "the company" — when the position
+  concerns the organization's own policy, write the role it acts in ("A frontier
+  AI developer ought to ..."). The organization's name is already recorded on the
+  claim; name its own instrument in "anchors" instead (e.g. ["Responsible Scaling
+  Policy"]).
+- "anchors": list of the specific instruments, jurisdictions, organizations or
+  dates the position is ABOUT, as named in the document, e.g. ["EU AI Act Article
+  62"], ["Responsible Scaling Policy"]. Use [] for a general position, and when a
+  name appears only as an example.
 - "polarity": "asserts" if the organization advances the position; "opposes" if it
   argues against it. The canonical_proposition states the POSITION and polarity
   carries the direction — when the org rejects X, write X as the proposition with
@@ -21,6 +30,31 @@ For each position:
   promising option") are polarity "asserts".
 - "extraction_confidence": 0.9-1.0 near-verbatim; 0.7-0.89 faithful compression;
   0.5-0.69 requires inference; below 0.5 do not include.
+
+SELF-CONTAINED:
+  A reader who has never seen the source must understand the sentence on its own.
+  1. Nothing may point outside the sentence: no "it", "they", "this policy",
+     "the authors", "the document", "the study", "the organization", "the company".
+  2. Replace a name the source invented with what it is:
+     "the attestation" -> "a mandatory data-processing attestation".
+  3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
+  4. Keep the proposition general enough to match a taxonomy node. Put the
+     specific instrument, jurisdiction, organization or date that the claim is
+     ABOUT in "anchors" instead (see above). Do not invent an anchor the source
+     does not give.
+
+  Examples:
+    Source: "In the EU, the Digital Services Act (DSA) requires major platforms to
+             conduct and publish annual systemic risk assessments ..."
+    canonical_proposition: "Major online platforms ought to conduct annual systemic
+             risk assessments and adopt proportionate mitigation measures."
+    anchors: ["EU Digital Services Act"]
+
+    Source: "... a big study out of China ... kids using A.I. had increases on their
+             homework scores, and then ... their test scores began falling."
+    canonical_proposition: "Heavy reliance on AI for schoolwork degrades students'
+             independent problem-solving and test performance."
+    anchors: []          (China is an example here, not what the claim is about)
 
 Extract 3-15 positions. Prefer positions with policy substance over
 mission-statement boilerplate.
