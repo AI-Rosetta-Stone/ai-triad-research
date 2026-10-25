@@ -54,6 +54,11 @@ function script:Get-RevisionActive([string]$Revision, [string]$App, [string]$RG)
     return $info
 }
 
+# Tracks whether the traffic shift itself succeeded, independent of what happens after it (TL
+# review of #3807) -- an exception in Disable-ContainerAppRevision, which runs AFTER the shift,
+# must not be reported as "rollback never happened" when it did.
+$script:trafficShifted = $false
+
 try {
     Write-Host "$(if ($DryRun) { '[DRY RUN] ' })Rolling back to '$TargetRevision'$(if ($NewRevisionToDisable) { " (disabling '$NewRevisionToDisable')" })"
 
@@ -83,6 +88,7 @@ try {
         # deactivate -- shift failure is recoverable; deactivate-then-shift is not.
         Set-ContainerAppTraffic -RevisionName $TargetRevision -AppName $AppName -ResourceGroup $ResourceGroup `
             -MaxAttempts 3 -RetryIntervalSec 10
+        $script:trafficShifted = $true
         if ($NewRevisionToDisable) {
             Disable-ContainerAppRevision -RevisionName $NewRevisionToDisable -AppName $AppName -ResourceGroup $ResourceGroup
         }
@@ -117,5 +123,13 @@ try {
 }
 catch {
     Write-Host "::error::AC2 rollback threw an exception attempting to restore '$TargetRevision': $($_.Exception.Message)"
+    if ($script:trafficShifted) {
+        # Traffic already moved to $TargetRevision before this exception (e.g. Disable-
+        # ContainerAppRevision failing after a successful shift) -- the rollback itself
+        # happened, so TargetUnrecoverable would mislead a triager into thinking it didn't.
+        # RecheckFailed=$true still routes to the louder sev-1 alert; it just carries the
+        # right label (TL review, #3807).
+        return [PSCustomObject]@{ TargetUnrecoverable = $false; RolledBack = $true; RecheckFailed = $true; RecheckReason = $_.Exception.Message }
+    }
     return [PSCustomObject]@{ TargetUnrecoverable = $true; RolledBack = $false; RecheckFailed = $null; RecheckReason = $_.Exception.Message }
 }
