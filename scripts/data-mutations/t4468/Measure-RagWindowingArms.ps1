@@ -3,22 +3,24 @@
 
 <#
 .SYNOPSIS
-    t/4468 offline measurement: Arm A (per-key_point recall@set, stratified by
-    verbatim/attribution_text position before/after char 2000 of its CHUNK)
-    and Arm B (overall displacement guard), OLD query construction (first
-    2000 chars of the chunk, single encode) vs NEW (the whole chunk, windowed
-    via Split-RagQueryWindows, scored MaxSim and RankFusion). No LLM spend —
-    only the local embedding model and the existing, already-generated
-    summaries' key_points / taxonomy_node_id ground truth.
+    t/4468 offline measurement (CL t/4468#2 and #4 spec): Arm A (recall@set of
+    each key_point's own per-key_point top-3 + mechanism5_candidates, a
+    reference independent of both the old candidate set and the LLM's pick)
+    and Arm B (the LLM-picked taxonomy_node_id, as a displacement guard).
+    OLD query construction (first 2000 chars of the chunk, single encode) vs
+    NEW (the whole chunk, windowed via Split-RagQueryWindows, scored MaxSim
+    and RankFusion). Uses the pipeline's own candidate-set parameters
+    (-MaxTotal 150 -TopK 60 -MinPerCategory 2, Invoke-DocumentSummary.ps1:268)
+    so a recall difference isn't just a set-size difference. No LLM spend —
+    local embedding model only, against existing summaries' key_points.
 .DESCRIPTION
     Read-only against ../ai-triad-sources and ../ai-triad-data. Chunks each
-    document with the real Split-DocumentChunks (same MaxChunkTokens default
-    as production), locates each key_point's attribution_text (or verbatim
-    fallback) inside its chunk by substring search, and records whether its
-    own recorded taxonomy_node_id appears anywhere in the RAG candidate set
-    built from that chunk under OLD vs NEW query construction. Per-chunk
-    candidate sets are computed once and reused across all key_points that
-    land in the same chunk.
+    document with the real Split-DocumentChunks, locates each key_point's
+    attribution_text (or verbatim fallback) inside its chunk by substring
+    search for stratification, and reports recall separately for Arm A and
+    Arm B, by stratum, plus mean/median candidate-set size per scoring arm.
+    Stale recorded node ids (not in the currently loaded taxonomy) are
+    dropped and counted rather than silently scored as misses.
 #>
 [CmdletBinding()]
 param(
@@ -32,7 +34,9 @@ param(
     ),
     [string]$SourcesDir = 'C:\Users\jsnov\repos\ai-triad-sources',
     [string]$DataDir = 'C:\Users\jsnov\repos\ai-triad-data',
-    [int]$MaxTotal = 150
+    [int]$MaxTotal = 150,
+    [int]$TopK = 60,
+    [int]$MinPerCategory = 2
 )
 
 Set-StrictMode -Version Latest
@@ -45,11 +49,19 @@ $AITriad = Get-Module AITriad
 # Split-DocumentChunks / Split-RagQueryWindows are Private; invoke the body inside the
 # module's own session state (outside Pester, InModuleScope isn't available).
 & $AITriad {
-param($DocIds, $SourcesDir, $DataDir, $MaxTotal, $ScriptRoot)
+param($DocIds, $SourcesDir, $DataDir, $MaxTotal, $TopK, $MinPerCategory, $ScriptRoot)
 
-# Rows: { doc_id, pov, node_id, stratum, old_hit, new_maxsim_hit, new_rrf_hit }
+# $script:CachedEmbeddings is lazily populated inside Get-RelevantTaxonomyNodes itself; force
+# the load with a throwaway call before reading it.
+$null = Get-RelevantTaxonomyNodes -Query 'warmup' -MaxTotal 1 -Format objects 3>$null
+$ValidNodeIds = [System.Collections.Generic.HashSet[string]]::new([string[]]@($script:CachedEmbeddings.Keys), [System.StringComparer]::OrdinalIgnoreCase)
+$PovOf = { param($Id) if ($Id -match '^acc-') { 'accelerationist' } elseif ($Id -match '^saf-') { 'safetyist' } elseif ($Id -match '^skp-') { 'skeptic' } else { 'situations' } }
+
+# Rows: one per key_point: { DocId, Pov, Stratum, ArmA_ref(string[]), ArmB_ref(string),
+#   OldSet/MaxSimSet/RrfSet (shared per chunk, referenced by key) }
 $Rows = [System.Collections.Generic.List[object]]::new()
-$ChunkCache = @{}   # "$DocId|$ChunkIndex" -> { OldHitSet; MaxSimHitSet; RrfHitSet }
+$ChunkCache = @{}           # "$DocId|$ChunkIndex" -> { OldSet; MaxSimSet; RrfSet; OldCount; MaxSimCount; RrfCount }
+$StaleDropped = 0
 
 foreach ($DocId in $DocIds) {
     $SnapPath = Join-Path (Join-Path $SourcesDir $DocId) 'snapshot.md'
@@ -70,7 +82,7 @@ foreach ($DocId in $DocIds) {
             if (-not $Q -or -not $Kp.taxonomy_node_id) { continue }
             $Needle = $Q.Substring(0, [Math]::Min(50, $Q.Length))
 
-            # Find which chunk contains the quote, and the offset within that chunk.
+            # Find which chunk contains the quote, and the offset within that chunk (for stratification).
             $ChunkIdx = -1; $Offset = -1
             for ($i = 0; $i -lt $Chunks.Count; $i++) {
                 $pos = $Chunks[$i].IndexOf($Needle)
@@ -78,12 +90,29 @@ foreach ($DocId in $DocIds) {
             }
             if ($ChunkIdx -lt 0) { continue }   # not locatable (paraphrase drift) — excluded, not counted as a miss
 
+            # ── Arm B reference: the LLM's own pick, filtered against the current taxonomy ──
+            $ArmBRef = @()
+            if ($ValidNodeIds.Contains($Kp.taxonomy_node_id)) { $ArmBRef = @($Kp.taxonomy_node_id) } else { $StaleDropped++ }
+
+            # ── Arm A reference: this key_point's OWN per-key_point top-3 (focused query, same
+            # text Mechanism #5 uses) union any surfaced mechanism5_candidates — independent of
+            # both the old candidate set and the LLM's pick (CL t/4468#2 item 1, t/4468#4 item 2).
+            $KpPov = & $PovOf $Kp.taxonomy_node_id
+            $OwnTop3 = @(Get-RelevantTaxonomyNodes -Query $Q -POV $KpPov -Format objects -MinPerCategory 1 3>$null | Select-Object -First 3 | ForEach-Object Id)
+            $Mech5Raw = if ($Kp.PSObject.Properties['mechanism5_candidates']) { @($Kp.mechanism5_candidates) } else { @() }
+            $Mech5 = @($Mech5Raw | ForEach-Object Id)
+            $ArmARefRaw = @($OwnTop3 + $Mech5 | Select-Object -Unique)
+            $ArmARef = @($ArmARefRaw | Where-Object { $ValidNodeIds.Contains($_) })
+            $StaleDropped += ($ArmARefRaw.Count - $ArmARef.Count)
+            if ($ArmARef.Count -eq 0) { continue }   # nothing left to measure recall against
+
+            # ── Per-chunk candidate sets (shared across all key_points in the same chunk) ──
             $CacheKey = "$DocId|$ChunkIdx"
             if (-not $ChunkCache.ContainsKey($CacheKey)) {
                 $ChunkText = $Chunks[$ChunkIdx]
                 $OldQuery = if ($ChunkText.Length -gt 2000) { $ChunkText.Substring(0, 2000) } else { $ChunkText }
 
-                $OldNodes = @(Get-RelevantTaxonomyNodes -Query $OldQuery -MaxTotal $MaxTotal -Format objects -IncludeSituations 3>$null | ForEach-Object Id)
+                $OldNodes = @(Get-RelevantTaxonomyNodes -Query $OldQuery -MaxTotal $MaxTotal -TopK $TopK -MinPerCategory $MinPerCategory -Format objects -IncludeSituations 3>$null | ForEach-Object Id)
 
                 $Split = Split-RagQueryWindows -Text $ChunkText
                 $WinTexts = @($Split.Windows)
@@ -95,52 +124,92 @@ foreach ($DocId in $DocIds) {
                     $MaxSimNodes = $OldNodes; $RrfNodes = $OldNodes   # windowing produced nothing; same as old-fallback path
                 }
                 else {
-                    $MaxSimNodes = @(Get-RelevantTaxonomyNodes -Query $ChunkText -QueryVectors $QVecs.ToArray() -WindowScoring MaxSim -MaxTotal $MaxTotal -Format objects -IncludeSituations 3>$null | ForEach-Object Id)
-                    $RrfNodes    = @(Get-RelevantTaxonomyNodes -Query $ChunkText -QueryVectors $QVecs.ToArray() -WindowScoring RankFusion -MaxTotal $MaxTotal -Format objects -IncludeSituations 3>$null | ForEach-Object Id)
+                    $MaxSimNodes = @(Get-RelevantTaxonomyNodes -Query $ChunkText -QueryVectors $QVecs.ToArray() -WindowScoring MaxSim -MaxTotal $MaxTotal -TopK $TopK -MinPerCategory $MinPerCategory -Format objects -IncludeSituations 3>$null | ForEach-Object Id)
+                    $RrfNodes    = @(Get-RelevantTaxonomyNodes -Query $ChunkText -QueryVectors $QVecs.ToArray() -WindowScoring RankFusion -MaxTotal $MaxTotal -TopK $TopK -MinPerCategory $MinPerCategory -Format objects -IncludeSituations 3>$null | ForEach-Object Id)
                 }
                 $ChunkCache[$CacheKey] = @{
-                    OldSet    = [System.Collections.Generic.HashSet[string]]::new([string[]]$OldNodes, [System.StringComparer]::OrdinalIgnoreCase)
-                    MaxSimSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$MaxSimNodes, [System.StringComparer]::OrdinalIgnoreCase)
-                    RrfSet    = [System.Collections.Generic.HashSet[string]]::new([string[]]$RrfNodes, [System.StringComparer]::OrdinalIgnoreCase)
+                    OldSet      = [System.Collections.Generic.HashSet[string]]::new([string[]]$OldNodes, [System.StringComparer]::OrdinalIgnoreCase)
+                    MaxSimSet   = [System.Collections.Generic.HashSet[string]]::new([string[]]$MaxSimNodes, [System.StringComparer]::OrdinalIgnoreCase)
+                    RrfSet      = [System.Collections.Generic.HashSet[string]]::new([string[]]$RrfNodes, [System.StringComparer]::OrdinalIgnoreCase)
+                    OldCount    = $OldNodes.Count
+                    MaxSimCount = $MaxSimNodes.Count
+                    RrfCount    = $RrfNodes.Count
                 }
             }
             $C = $ChunkCache[$CacheKey]
+
             $Rows.Add([PSCustomObject]@{
-                DocId        = $DocId
-                Pov          = $Pov
-                NodeId       = $Kp.taxonomy_node_id
-                Stratum      = if ($Offset -ge 2000) { 'after2000' } else { 'before2000' }
-                OldHit       = $C.OldSet.Contains($Kp.taxonomy_node_id)
-                MaxSimHit    = $C.MaxSimSet.Contains($Kp.taxonomy_node_id)
-                RrfHit       = $C.RrfSet.Contains($Kp.taxonomy_node_id)
+                DocId         = $DocId
+                Pov           = $Pov
+                Stratum       = if ($Offset -ge 2000) { 'after2000' } else { 'before2000' }
+                OldSetSize    = $C.OldCount
+                MaxSimSetSize = $C.MaxSimCount
+                RrfSetSize    = $C.RrfCount
+                ArmA_n        = $ArmARef.Count
+                ArmA_OldHits  = (@($ArmARef | Where-Object { $C.OldSet.Contains($_) })).Count
+                ArmA_MsHits   = (@($ArmARef | Where-Object { $C.MaxSimSet.Contains($_) })).Count
+                ArmA_RrfHits  = (@($ArmARef | Where-Object { $C.RrfSet.Contains($_) })).Count
+                ArmB_n        = $ArmBRef.Count
+                ArmB_OldHits  = (@($ArmBRef | Where-Object { $C.OldSet.Contains($_) })).Count
+                ArmB_MsHits   = (@($ArmBRef | Where-Object { $C.MaxSimSet.Contains($_) })).Count
+                ArmB_RrfHits  = (@($ArmBRef | Where-Object { $C.RrfSet.Contains($_) })).Count
             })
         }
     }
 }
 
-Write-Host ""
-Write-Host "=== Arm A: per-key_point recall@set, stratified by position in its chunk ==="
-foreach ($Stratum in 'before2000', 'after2000') {
-    $S = @($Rows | Where-Object Stratum -eq $Stratum)
-    $n = $S.Count
-    if ($n -eq 0) { Write-Host "$Stratum : n=0"; continue }
-    $oldR = [Math]::Round(100.0 * (@($S | Where-Object OldHit).Count) / $n, 1)
-    $msR  = [Math]::Round(100.0 * (@($S | Where-Object MaxSimHit).Count) / $n, 1)
-    $rrfR = [Math]::Round(100.0 * (@($S | Where-Object RrfHit).Count) / $n, 1)
-    Write-Host "$Stratum : n=$n  old=$oldR%  new-MaxSim=$msR%  new-RankFusion=$rrfR%"
+function Get-Median([double[]]$Values) {
+    if ($Values.Count -eq 0) { return 0 }
+    $Sorted = @($Values | Sort-Object)
+    $Mid = [int]($Sorted.Count / 2)
+    if ($Sorted.Count % 2 -eq 0) { ($Sorted[$Mid - 1] + $Sorted[$Mid]) / 2.0 } else { $Sorted[$Mid] }
+}
+
+function Report-Recall([object[]]$Set, [string]$Label, [string]$NField, [string]$OldField, [string]$MsField, [string]$RrfField) {
+    $n = (@($Set | ForEach-Object { $_.$NField })) | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+    if (-not $n) { Write-Host "$Label : n=0"; return }
+    $oldHits = (@($Set | ForEach-Object { $_.$OldField })) | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+    $msHits  = (@($Set | ForEach-Object { $_.$MsField }))  | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+    $rrfHits = (@($Set | ForEach-Object { $_.$RrfField })) | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+    $oldR = [Math]::Round(100.0 * $oldHits / $n, 1)
+    $msR  = [Math]::Round(100.0 * $msHits  / $n, 1)
+    $rrfR = [Math]::Round(100.0 * $rrfHits / $n, 1)
+    Write-Host "$Label : n=$n (over $(@($Set).Count) key_points)  old=$oldR%  new-MaxSim=$msR%  new-RankFusion=$rrfR%"
 }
 
 Write-Host ""
-Write-Host "=== Arm B: overall displacement guard (new recall >= old recall - 2pts) ==="
-$n = $Rows.Count
-$oldR = [Math]::Round(100.0 * (@($Rows | Where-Object OldHit).Count) / $n, 1)
-$msR  = [Math]::Round(100.0 * (@($Rows | Where-Object MaxSimHit).Count) / $n, 1)
-$rrfR = [Math]::Round(100.0 * (@($Rows | Where-Object RrfHit).Count) / $n, 1)
-Write-Host "overall n=$n  old=$oldR%  new-MaxSim=$msR%  new-RankFusion=$rrfR%"
-Write-Host "guard: MaxSim $(if ($msR -ge $oldR - 2) {'PASS'} else {'FAIL'}); RankFusion $(if ($rrfR -ge $oldR - 2) {'PASS'} else {'FAIL'})"
+Write-Host "=== Candidate-set size per chunk (mean / median), production params -MaxTotal $MaxTotal -TopK $TopK -MinPerCategory $MinPerCategory ==="
+$ChunkSizes = $ChunkCache.Values
+"Old", "MaxSim", "Rrf" | ForEach-Object {
+    $Field = "${_}Count"
+    $Vals = @($ChunkSizes | ForEach-Object { [double]$_.$Field })
+    $Mean = [Math]::Round(($Vals | Measure-Object -Average).Average, 1)
+    $Med = Get-Median $Vals
+    Write-Host "$_ : mean=$Mean  median=$Med  (n chunks=$($Vals.Count))"
+}
+
+Write-Host ""
+Write-Host "=== Arm A: recall@set of each key_point's OWN top-3 + mechanism5_candidates (independent reference) ==="
+foreach ($Stratum in 'before2000', 'after2000') {
+    $S = @($Rows | Where-Object Stratum -eq $Stratum)
+    Report-Recall $S $Stratum 'ArmA_n' 'ArmA_OldHits' 'ArmA_MsHits' 'ArmA_RrfHits'
+}
+Report-Recall $Rows 'overall' 'ArmA_n' 'ArmA_OldHits' 'ArmA_MsHits' 'ArmA_RrfHits'
+
+Write-Host ""
+Write-Host "=== Arm B: displacement guard on the LLM's recorded pick (new >= old - 2pts) ==="
+$ArmBOverall = $Rows | Where-Object { $_.ArmB_n -gt 0 }
+Report-Recall $ArmBOverall 'overall' 'ArmB_n' 'ArmB_OldHits' 'ArmB_MsHits' 'ArmB_RrfHits'
+$bn = (@($ArmBOverall | ForEach-Object ArmB_n)) | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+$boldR = 100.0 * ((@($ArmBOverall | ForEach-Object ArmB_OldHits)) | Measure-Object -Sum | Select-Object -ExpandProperty Sum) / $bn
+$bmsR  = 100.0 * ((@($ArmBOverall | ForEach-Object ArmB_MsHits))  | Measure-Object -Sum | Select-Object -ExpandProperty Sum) / $bn
+$brrfR = 100.0 * ((@($ArmBOverall | ForEach-Object ArmB_RrfHits)) | Measure-Object -Sum | Select-Object -ExpandProperty Sum) / $bn
+Write-Host "guard: MaxSim $(if ($bmsR -ge $boldR - 2) {'PASS'} else {'FAIL'}); RankFusion $(if ($brrfR -ge $boldR - 2) {'PASS'} else {'FAIL'})"
+
+Write-Host ""
+Write-Host "stale recorded node ids dropped (not in current taxonomy): $StaleDropped"
+Write-Host "chunks scored: $($ChunkCache.Count); key_points scored: $($Rows.Count)"
 
 $Rows | Export-Csv -LiteralPath (Join-Path $ScriptRoot 'arm-results.csv') -NoTypeInformation
-Write-Host ""
-Write-Host "chunks scored: $($ChunkCache.Count); rows: $($Rows.Count)"
 
-} $DocIds $SourcesDir $DataDir $MaxTotal $PSScriptRoot
+} $DocIds $SourcesDir $DataDir $MaxTotal $TopK $MinPerCategory $PSScriptRoot
