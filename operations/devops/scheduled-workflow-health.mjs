@@ -70,3 +70,31 @@ export function problemFingerprint(verdicts) {
 export function scheduledWorkflowFiles(files) {
   return files.filter(f => /^\s*schedule:\s*$/m.test(f.text)).map(f => f.name).sort();
 }
+
+/**
+ * t/4347: a push-event run with ZERO jobs and `conclusion: failure` means GitHub rejected the
+ * workflow file structurally (bad YAML, an invalid `permissions:` key, etc.) -- GitHub evaluates
+ * every workflow file's triggers on every push regardless of whether that file declares a
+ * `push:` trigger itself (environment-branch-policy-check.yml had none, yet got exactly this
+ * kind of run). Distinct from a JOB inside the workflow failing, which has jobCount > 0.
+ * `runs` = push-event run summaries {conclusion, jobCount, runId}, NEWEST FIRST. PURE: no I/O.
+ * @param {object} p
+ * @param {string} p.file
+ * @param {Array<{conclusion: string|null, jobCount: number, runId?: number}>} p.runs
+ * @returns {{file: string, invalid: boolean, reason: string, runId?: number}}
+ */
+export function invalidWorkflowFileVerdict({ file, runs = [] }) {
+  if (!runs.length) {
+    return { file, invalid: false, reason: 'no push-event run on record' };
+  }
+  const newest = runs[0];
+  if (newest.conclusion === 'failure' && newest.jobCount === 0) {
+    return {
+      file,
+      invalid: true,
+      reason: `push-event run has 0 jobs and conclusion failure -- GitHub rejected the file structurally, not a job failure`,
+      runId: newest.runId,
+    };
+  }
+  return { file, invalid: false, reason: 'ok' };
+}

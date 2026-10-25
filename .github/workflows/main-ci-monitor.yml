@@ -501,3 +501,75 @@ jobs:
                   body: `Cleared: \`${cleared.join(', ')}\` (no new problems). ${runUrl}` });
               }
             }
+
+      # ── ZERO-JOB PUSH-FAILURE: a workflow file GitHub rejected structurally (t/4347) ───────────
+      # PR #3527 (t/4340, TL review): environment-branch-policy-check.yml declared an invalid
+      # permissions: key. GitHub rejected the WHOLE file -- run 39478983829, a push-event run with
+      # ZERO jobs and conclusion: failure, for a workflow with no push: trigger at all (GitHub
+      # evaluates every workflow file's triggers on every push, regardless of what that file
+      # declares). workflow-lint's new Check 4 catches the invalid-key CLASS at PR time now; this
+      # catches the SYMPTOM live, for any workflow already on main and for any other way GitHub
+      # can reject a file (bad YAML, a key workflow-lint doesn't check yet, etc.) -- distinct from
+      # an ordinary job failing inside the workflow, which has jobCount > 0.
+      # Checks EVERY workflow file (not just declared/scheduled ones): the bug this is modeled on
+      # hit a workflow with no schedule: trigger either.
+      - name: Zero-job push-failure → invalid workflow file (t/4347)
+        if: github.event_name != 'workflow_run'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const { pathToFileURL } = require('url');
+            const fs = require('fs'), path = require('path');
+            const ws = process.env.GITHUB_WORKSPACE;
+            const { invalidWorkflowFileVerdict } = await import(pathToFileURL(`${ws}/operations/devops/scheduled-workflow-health.mjs`).href);
+            const { ESCALATED_LABEL } = await import(pathToFileURL(`${ws}/operations/devops/main-ci-monitor.mjs`).href);
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const LABEL = 'invalid-workflow-file';
+            const wfDir = path.join(ws, '.github', 'workflows');
+            const files = fs.readdirSync(wfDir).filter(n => /\.ya?ml$/.test(n));
+
+            const verdicts = [];
+            for (const file of files) {
+              let runs = [];
+              try {
+                const r = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: file, event: 'push', per_page: 1 });
+                if (r.data.workflow_runs.length) {
+                  const run0 = r.data.workflow_runs[0];
+                  const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run0.id, per_page: 1 });
+                  runs = [{ conclusion: run0.conclusion, jobCount: jobs.data.total_count, runId: run0.id }];
+                }
+              } catch (e) {
+                console.log(`  ${file}: could not check (${e.message})`);
+                continue;
+              }
+              const v = invalidWorkflowFileVerdict({ file, runs });
+              if (v.invalid) verdicts.push(v);
+            }
+            console.log(`zero-job push-failure: ${files.length} workflow file(s) checked, ${verdicts.length} invalid`);
+
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: LABEL, per_page: 1 });
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            if (!verdicts.length) {
+              if (open.data.length) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `Resolved — no workflow file currently shows a 0-job push-failure run. ${runUrl}` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, state: 'closed' });
+              }
+              return;
+            }
+            const fp = verdicts.map(v => `${v.file}:${v.runId}`).sort().join(',');
+            const rows = verdicts.map(v => `- **\`${v.file}\`** — run ${v.runId}: ${v.reason}`).join('\n');
+            const body = `<!-- fp:${fp} -->\n@${owner} **${verdicts.length} workflow file(s) GitHub rejected structurally** (t/4347) -- 0 jobs + \`conclusion: failure\` on a push-event run means the YAML itself is invalid (bad key, bad structure), not a job failing inside it. Every trigger the file declares is silently dead until this is fixed.\n\n${rows}\n\nFix the YAML (check \`permissions:\` keys first -- workflow-lint's Check 4 now catches that specific cause at PR time) and push; this closes automatically.\n\n- **Run:** ${runUrl}`;
+            if (!open.data.length) {
+              const created = await github.rest.issues.create({ owner, repo, title: `Invalid workflow file(s): ${verdicts.length}`, body, labels: [LABEL, ESCALATED_LABEL] });
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: created.data.number, assignees: [owner] }); }
+              catch (e) { core.warning(`could not assign ${owner}: ${e.message}`); }
+              return;
+            }
+            const issue = open.data[0];
+            const priorFp = ((issue.body || '').match(/<!-- fp:(.*?) -->/) || [])[1];
+            await github.rest.issues.update({ owner, repo, issue_number: issue.number, title: `Invalid workflow file(s): ${verdicts.length}`, body });
+            if (priorFp !== fp) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: 'owner-acked' }).catch(() => {});
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Problem set changed. ${runUrl}` });
+            }
