@@ -13,6 +13,7 @@ const getFreePoolKeys = vi.fn();
 const reserveFreePoolCall = vi.fn();
 const commitFreePoolCall = vi.fn();
 const releaseFreePoolCall = vi.fn();
+const admitOrDrawDownDebateCall = vi.fn();
 const generateTextByUsage = vi.fn();
 const generateViaGeminiStream = vi.fn();
 
@@ -21,11 +22,19 @@ vi.mock('../ai/freePoolBudgetGate.js', () => ({
   reserveFreePoolCall: (...a: unknown[]) => reserveFreePoolCall(...a),
   commitFreePoolCall: (...a: unknown[]) => commitFreePoolCall(...a),
   releaseFreePoolCall: (...a: unknown[]) => releaseFreePoolCall(...a),
+  admitOrDrawDownDebateCall: (...a: unknown[]) => admitOrDrawDownDebateCall(...a),
   getFreePoolHeadroomSnapshot: vi.fn(async () => 'not-enforced'),
   FREE_POOL_CALL_TOKEN_ESTIMATE: 2000,
 }));
 
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
+
+// t/4485 phase 2 tests send a debateId. generationContext.js's own mock below (a relative path
+// resolved from THIS file, not from routes/ai.ts's perspective) doesn't actually intercept the
+// real module — a pre-existing quirk invisible until a test exercises the debateId-present
+// branch of the REAL enforceAnonDebateGate, which otherwise 403s since anon-debates defaults
+// off. Mocking the flag directly sidesteps it without touching the unrelated mock-path issue.
+vi.mock('../featureFlags.js', () => ({ isAnonDebatesEnabled: () => true }));
 
 vi.mock('../security/accessControl.js', () => ({
   callerTierIdentity: vi.fn(() => ({ principalName: 'testuser', idp: 'aad' })),
@@ -177,6 +186,7 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     reserveFreePoolCall.mockReset();
     commitFreePoolCall.mockReset().mockResolvedValue(undefined);
     releaseFreePoolCall.mockReset().mockResolvedValue(undefined);
+    admitOrDrawDownDebateCall.mockReset();
     generateTextByUsage.mockReset().mockResolvedValue({ text: 'ok', tokenUsage: { inputTokens: 10, outputTokens: 20 } });
     generateViaGeminiStream.mockReset().mockResolvedValue(undefined);
   });
@@ -246,6 +256,81 @@ describe('free-pool budget gate wiring across generate and chat-stream (t/4485)'
     const res = fakeRes();
     await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }] });
     expect(commitFreePoolCall).toHaveBeenCalledWith('res-3', { calls: 1, tokens: 2000 });
+    expect(releaseFreePoolCall).not.toHaveBeenCalled();
+  });
+
+  // t/4485 phase 2 — a request carrying a debateId routes through admitOrDrawDownDebateCall,
+  // not the plain per-call reserveFreePoolCall. The admission logic itself (admit/draw-down/
+  // overdraft/debate_limit) is unit-tested in freePoolBudgetGate.test.ts; this only proves the
+  // routes dispatch to it correctly and respect its result.
+
+  it('generate with a debateId: refused admission (429 free_pool_exhausted) never reaches the provider', async () => {
+    admitOrDrawDownDebateCall.mockImplementation(async (res: ServerResponse) => {
+      (res as unknown as { writeHead: (n: number) => void }).writeHead(429);
+      (res as unknown as { end: (s: string) => void }).end(JSON.stringify({ error: 'free_pool_exhausted', resetsAt: '2026-10-26T00:00:00Z' }));
+      return { ok: false };
+    });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi', debateId: 'deb-1' });
+    expect(res._statusCode).toBe(429);
+    expect(reserveFreePoolCall).not.toHaveBeenCalled();
+    expect(generateTextByUsage).not.toHaveBeenCalled();
+  });
+
+  it('generate with a debateId: a 3rd-open-debate refusal maps to 429 free_pool_debate_limit', async () => {
+    admitOrDrawDownDebateCall.mockImplementation(async (res: ServerResponse) => {
+      (res as unknown as { writeHead: (n: number) => void }).writeHead(429);
+      (res as unknown as { end: (s: string) => void }).end(JSON.stringify({ error: 'free_pool_debate_limit' }));
+      return { ok: false };
+    });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi', debateId: 'deb-3' });
+    expect(res._statusCode).toBe(429);
+    expect(res._body).toMatchObject({ error: 'free_pool_debate_limit' });
+  });
+
+  it('generate with a debateId: admitted (fallbackReservationId null) never commits/releases — already settled by draw-down', async () => {
+    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, fallbackReservationId: null });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi', debateId: 'deb-1' });
+    expect(res._statusCode).not.toBe(429);
+    expect(generateTextByUsage).toHaveBeenCalled();
+    expect(commitFreePoolCall).not.toHaveBeenCalled();
+    expect(releaseFreePoolCall).not.toHaveBeenCalled();
+  });
+
+  it('generate with a debateId: past the overdraft cap (fallbackReservationId set) commits/releases it like a normal call', async () => {
+    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, fallbackReservationId: 'fallback-res-1' });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/generate'](fakeReq(), res, { prompt: 'hi', debateId: 'deb-1' });
+    expect(res._statusCode).not.toBe(429);
+    expect(commitFreePoolCall).toHaveBeenCalledWith('fallback-res-1', { calls: 1, tokens: 30 });
+  });
+
+  it('chat-stream with a debateId: refused admission is 429, stream never starts', async () => {
+    admitOrDrawDownDebateCall.mockImplementation(async (res: ServerResponse) => {
+      (res as unknown as { writeHead: (n: number) => void }).writeHead(429);
+      (res as unknown as { end: (s: string) => void }).end(JSON.stringify({ error: 'free_pool_exhausted', resetsAt: '2026-10-26T00:00:00Z' }));
+      return { ok: false };
+    });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }], linkedDebateId: 'deb-1' });
+    expect(res._statusCode).toBe(429);
+    expect(generateViaGeminiStream).not.toHaveBeenCalled();
+  });
+
+  it('chat-stream with a debateId: admitted (fallbackReservationId null) never commits/releases', async () => {
+    admitOrDrawDownDebateCall.mockResolvedValue({ ok: true, fallbackReservationId: null });
+    const handlers = registerAll();
+    const res = fakeRes();
+    await handlers['POST /api/ai/chat-stream'](fakeReq(), res, { messages: [{ role: 'user', content: 'hi' }], linkedDebateId: 'deb-1' });
+    expect(res._statusCode).not.toBe(429);
+    expect(commitFreePoolCall).not.toHaveBeenCalled();
     expect(releaseFreePoolCall).not.toHaveBeenCalled();
   });
 });

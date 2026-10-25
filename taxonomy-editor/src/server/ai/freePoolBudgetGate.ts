@@ -14,15 +14,27 @@
 // touches the store at all — free-pool calls behave exactly as before this ticket. Flip it on in
 // staging first, then prod, once `initFreePoolBudget()` is confirmed to have run at boot there.
 //
-// Debate admission control (reserving a whole debate's budget up front, held across rounds) is
-// NOT in this module — it needs a cross-role decision (round-tripping the reservation id
-// through the client) and is tracked separately, t/4485#3 phase 2.
+// Debate admission control (TL decision, t/4485#5/#7 — phase 2) is server-side only, keyed in
+// the store under `debate:<requester>:<debateId>`, with no client round-trip:
+//   - the first free-tier call with a `debateId` admits the whole debate's estimate via
+//     `reserveForKey` (idempotent per live key — a later call for the same debate is a no-op
+//     admission, same reservation);
+//   - every call in that debate draws down its actual usage via `drawDown`, which also renews
+//     the reservation's TTL — an admitted debate is never refused mid-run, up to 2x the estimate;
+//   - past 2x, calls fall back to the normal per-call `reserveFreePoolCall`, which CAN refuse;
+//   - end/abandon is handled by TTL expiry (the store releases the unused remainder on its own);
+//   - abuse guards: the key is scoped to the requester, `reserveForKey`'s `maxOpenForPrefix`
+//     caps live debates per requester at DEBATE_MAX_OPEN_PER_REQUESTER (a 3rd → 429
+//     `free_pool_debate_limit`), and overdraft is capped at DEBATE_OVERDRAFT_MULTIPLIER.
 
 import type http from 'http';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
-import { getFreePoolBudget, type FreePoolBudget, type FreePoolBudgetReserveResult, type FreePoolBudgetHeadroom } from '../storage/freePoolBudget.js';
+import {
+  getFreePoolBudget, type FreePoolBudget, type FreePoolBudgetReserveResult, type FreePoolBudgetHeadroom,
+  type FreePoolBudgetReserveForKeyResult, type FreePoolBudgetDrawDownResult,
+} from '../storage/freePoolBudget.js';
 
 /** Conservative per-call token estimate for the upfront reserve, true-up happens at commit()
  *  with the real usage. Deliberately rough — reserve() only needs to not systematically
@@ -34,6 +46,8 @@ export const FREE_POOL_EXHAUSTED_MESSAGE =
   "Today's free AI capacity is used up. Add your own key in Settings → API Keys to keep going.";
 export const FREE_POOL_UNAVAILABLE_MESSAGE =
   'Free AI capacity tracking is temporarily unavailable. Try again shortly, or add your own key in Settings → API Keys.';
+export const FREE_POOL_DEBATE_LIMIT_MESSAGE =
+  'You already have the maximum number of free-tier debates running. Finish one, or add your own key in Settings → API Keys.';
 
 /** t/4484's implementation (#3808) is live on `main` — `getFreePoolBudget()` returns the real
  *  blob-backed store once `initFreePoolBudget()` has run at boot, or `null` before that (or if
@@ -189,4 +203,114 @@ export async function getFreePoolHeadroomSnapshot(): Promise<FreePoolHeadroomSna
     });
     return 'unknown';
   }
+}
+
+// ── Debate admission control (t/4485 phase 2, TL decision t/4485#5/#7) ──────────────────────
+
+/** Just above t/4410#6's prod observation (p90 78 generate calls/debate, mean 27) — sized so a
+ *  p90 debate is admitted without needing the overdraft fallback. Revisit against real usage
+ *  once enforcement is live (same caveat as FREE_POOL_CALL_TOKEN_ESTIMATE). */
+export const DEBATE_ESTIMATE_CALLS = 80;
+export const DEBATE_ESTIMATE_TOKENS = DEBATE_ESTIMATE_CALLS * FREE_POOL_CALL_TOKEN_ESTIMATE;
+/** TL t/4485#5: a 3rd concurrent debate from the same requester is refused — without this, a
+ *  client minting a fresh debateId per call would reserve a full estimate each time and drain
+ *  the day's cap for everyone (a denial-of-service against the pool). */
+export const DEBATE_MAX_OPEN_PER_REQUESTER = 2;
+/** TL t/4485#5: past 2x the held estimate, a debate's calls stop being covered by the admission
+ *  reservation and fall back to a normal per-call reserve, which CAN refuse — bounds a reused/
+ *  abused debateId without breaking a real long debate (the estimate is sized for p90). */
+export const DEBATE_OVERDRAFT_MULTIPLIER = 2;
+
+/** `requesterId` must be the caller's OWN stable scope — the signed-in principal id, or
+ *  `ip:<correctly-derived-ip>` for anonymous callers (never the raw per-tier `limitKey`, which
+ *  free-tier rate limiting keys on IP even for signed-in users, t/793 — admission needs the
+ *  stronger per-principal scope the TL asked for, t/4485#5). Exported so route handlers build it
+ *  the same way on every call site. */
+export function debateRequesterKeyPrefix(requesterId: string): string {
+  return `debate:${requesterId}:`;
+}
+
+function debateKey(requesterId: string, debateId: string): string {
+  return `${debateRequesterKeyPrefix(requesterId)}${debateId}`;
+}
+
+export type DebateCallResult =
+  // `fallbackReservationId` is non-null only past the overdraft cap: the caller must then
+  // commit/release it exactly like a normal per-call reservation (trackFreePoolReservation).
+  // null means the call is fully covered by the debate's own admission + drawDown — nothing
+  // further for the caller to settle.
+  | { ok: true; fallbackReservationId: string | null }
+  | { ok: false };
+
+/** Admit (on the first call) or draw down (on every later call) one free-tier debate call.
+ *  Enforcement-off and store-unwired behave exactly like `reserveFreePoolCall`. On refusal, the
+ *  response is already written (429 `free_pool_exhausted`/`free_pool_debate_limit`, or 503); the
+ *  caller must return. */
+export async function admitOrDrawDownDebateCall(
+  res: http.ServerResponse, requesterId: string, debateId: string,
+): Promise<DebateCallResult> {
+  if (!isFreePoolBudgetEnforced()) return { ok: true, fallbackReservationId: null };
+  const store = resolveStore();
+  if (!store) {
+    writeRefusal(res, { reason: 'storage_unavailable' });
+    return { ok: false };
+  }
+
+  const key = debateKey(requesterId, debateId);
+  let admission: FreePoolBudgetReserveForKeyResult;
+  try {
+    admission = await store.reserveForKey({
+      key, calls: DEBATE_ESTIMATE_CALLS, tokens: DEBATE_ESTIMATE_TOKENS,
+      maxOpenForPrefix: { prefix: debateRequesterKeyPrefix(requesterId), max: DEBATE_MAX_OPEN_PER_REQUESTER },
+    });
+  } catch (err) {
+    log.api.warn({ component: 'free-pool-budget', err }, 'FreePoolBudget.reserveForKey() threw unexpectedly — refusing (fail closed)');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'free-pool-budget', level: 'warn',
+      message: 'FreePoolBudget.reserveForKey() threw unexpectedly',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    writeRefusal(res, { reason: 'storage_unavailable' });
+    return { ok: false };
+  }
+
+  if (!admission.ok) {
+    if (admission.reason === 'debate_limit') {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'free_pool_debate_limit', message: FREE_POOL_DEBATE_LIMIT_MESSAGE }));
+      return { ok: false };
+    }
+    writeRefusal(res, admission); // daily_cap | storage_unavailable
+    return { ok: false };
+  }
+
+  let drawDownResult: FreePoolBudgetDrawDownResult | null;
+  try {
+    drawDownResult = await store.drawDown(admission.reservationId, { calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE });
+  } catch (err) {
+    // drawDown() never refuses per the interface; a genuine store failure here just means this
+    // one call's usage didn't get recorded against the debate's reservation. The debate itself
+    // must never be refused mid-run over it (t/4485#5) — log and let the call proceed.
+    log.api.warn({ component: 'free-pool-budget', reservationId: admission.reservationId, err }, 'FreePoolBudget.drawDown() failed — usage not recorded for this call');
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'free-pool-budget', level: 'warn',
+      message: 'FreePoolBudget.drawDown() failed',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { ok: true, fallbackReservationId: null };
+  }
+
+  // null means the reservation was already gone (expired) — the TTL-expiry path already
+  // released the remainder and logged its own WARN; treat this call as covered, not refused.
+  if (!drawDownResult) return { ok: true, fallbackReservationId: null };
+
+  const overCalls = drawDownResult.drawnCalls > drawDownResult.estimateCalls * DEBATE_OVERDRAFT_MULTIPLIER;
+  const overTokens = drawDownResult.drawnTokens > drawDownResult.estimateTokens * DEBATE_OVERDRAFT_MULTIPLIER;
+  if (overCalls || overTokens) {
+    // t/4485#5: past 2x the estimate, fall back to a normal per-call reserve — which CAN refuse.
+    const fallback = await reserveFreePoolCall(res, key); // 429/503 already written on refusal
+    if (!fallback.ok) return { ok: false };
+    return { ok: true, fallbackReservationId: fallback.reservationId };
+  }
+  return { ok: true, fallbackReservationId: null };
 }

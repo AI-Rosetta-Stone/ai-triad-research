@@ -21,6 +21,8 @@ vi.mock('../logger.js', () => ({ log: { api: { info: vi.fn(), warn: vi.fn(), err
 import {
   reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, getFreePoolHeadroomSnapshot,
   maybeWarnHeadroom, _resetHeadroomWarnForTest, FREE_POOL_CALL_TOKEN_ESTIMATE,
+  admitOrDrawDownDebateCall, debateRequesterKeyPrefix, DEBATE_ESTIMATE_CALLS, DEBATE_ESTIMATE_TOKENS,
+  DEBATE_MAX_OPEN_PER_REQUESTER, DEBATE_OVERDRAFT_MULTIPLIER,
 } from '../ai/freePoolBudgetGate.js';
 import { log } from '../logger.js';
 
@@ -192,5 +194,141 @@ describe('maybeWarnHeadroom (AC5 — the 80% WARN, once per UTC day)', () => {
   it('a null tokensCap never contributes (no divide-by-null crash, no false trigger)', () => {
     maybeWarnHeadroom(headroom({ callsUsed: 10, callsCap: 1500, tokensUsed: 999_999_999, tokensCap: null }));
     expect(log.api.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('debateRequesterKeyPrefix', () => {
+  it('produces a stable, requester-scoped prefix', () => {
+    expect(debateRequesterKeyPrefix('alice')).toBe('debate:alice:');
+  });
+});
+
+describe('admitOrDrawDownDebateCall (t/4485 phase 2, TL decision t/4485#5/#7)', () => {
+  const fakeStore = {
+    reserve: vi.fn(), renew: vi.fn(), commit: vi.fn(), release: vi.fn(), headroom: vi.fn(),
+    reserveForKey: vi.fn(), drawDown: vi.fn(), openCountForPrefix: vi.fn(),
+  };
+
+  beforeEach(() => {
+    isFreePoolBudgetEnforced.mockReturnValue(true);
+    getFreePoolBudget.mockReturnValue(fakeStore);
+    Object.values(fakeStore).forEach(fn => fn.mockReset());
+  });
+
+  it('enforcement off: always allows, never touches the store', async () => {
+    isFreePoolBudgetEnforced.mockReturnValue(false);
+    const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
+    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+    expect(fakeStore.reserveForKey).not.toHaveBeenCalled();
+  });
+
+  it('admits with the estimate and the per-requester maxOpenForPrefix guard, scoped to the requester', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: false });
+    fakeStore.drawDown.mockResolvedValue({ drawnCalls: 1, drawnTokens: FREE_POOL_CALL_TOKEN_ESTIMATE, estimateCalls: DEBATE_ESTIMATE_CALLS, estimateTokens: DEBATE_ESTIMATE_TOKENS });
+    await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
+    expect(fakeStore.reserveForKey).toHaveBeenCalledWith({
+      key: 'debate:alice:deb-1', calls: DEBATE_ESTIMATE_CALLS, tokens: DEBATE_ESTIMATE_TOKENS,
+      maxOpenForPrefix: { prefix: 'debate:alice:', max: DEBATE_MAX_OPEN_PER_REQUESTER },
+    });
+  });
+
+  it('AC1: an admission refused at 0 headroom (daily_cap) makes no provider call — 429 free_pool_exhausted, drawDown never called', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: false, reason: 'daily_cap', resetsAt: '2026-10-26T00:00:00Z' });
+    const res = fakeRes();
+    const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
+    expect(result).toEqual({ ok: false });
+    expect(res.writeHead).toHaveBeenCalledWith(429, expect.anything());
+    expect(res._body).toMatchObject({ error: 'free_pool_exhausted', resetsAt: '2026-10-26T00:00:00Z' });
+    expect(fakeStore.drawDown).not.toHaveBeenCalled();
+  });
+
+  it('a 3rd concurrent debate from the same requester refuses with 429 free_pool_debate_limit', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: false, reason: 'debate_limit' });
+    const res = fakeRes();
+    const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-3');
+    expect(result).toEqual({ ok: false });
+    expect(res.writeHead).toHaveBeenCalledWith(429, expect.anything());
+    expect(res._body).toMatchObject({ error: 'free_pool_debate_limit' });
+  });
+
+  it('storage_unavailable at admission maps to 503, not 429', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: false, reason: 'storage_unavailable' });
+    const res = fakeRes();
+    const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
+    expect(result).toEqual({ ok: false });
+    expect(res.writeHead).toHaveBeenCalledWith(503, expect.anything());
+  });
+
+  it('an idempotent hit (existing reservation) still draws down the call, same key', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
+    fakeStore.drawDown.mockResolvedValue({ drawnCalls: 5, drawnTokens: 10_000, estimateCalls: DEBATE_ESTIMATE_CALLS, estimateTokens: DEBATE_ESTIMATE_TOKENS });
+    const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
+    expect(fakeStore.drawDown).toHaveBeenCalledWith('db-res-1', { calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE });
+    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+  });
+
+  it('AC2: under the overdraft cap, the call is covered by the debate reservation — never refused, no fallback reservation', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
+    // Drawn exactly at the estimate (1x) — well under the 2x cap.
+    fakeStore.drawDown.mockResolvedValue({ drawnCalls: DEBATE_ESTIMATE_CALLS, drawnTokens: DEBATE_ESTIMATE_TOKENS, estimateCalls: DEBATE_ESTIMATE_CALLS, estimateTokens: DEBATE_ESTIMATE_TOKENS });
+    const res = fakeRes();
+    const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
+    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+    expect(res.writeHead).not.toHaveBeenCalled();
+  });
+
+  it('AC2: past the overdraft cap, falls back to a normal per-call reserve, which can refuse', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
+    fakeStore.drawDown.mockResolvedValue({
+      drawnCalls: DEBATE_ESTIMATE_CALLS * DEBATE_OVERDRAFT_MULTIPLIER + 1, drawnTokens: 0,
+      estimateCalls: DEBATE_ESTIMATE_CALLS, estimateTokens: DEBATE_ESTIMATE_TOKENS,
+    });
+    fakeStore.reserve.mockResolvedValue({ ok: false, reason: 'daily_cap', resetsAt: '2026-10-26T00:00:00Z' });
+    const res = fakeRes();
+    const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
+    expect(fakeStore.reserve).toHaveBeenCalledWith({ calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE, key: 'debate:alice:deb-1' });
+    expect(result).toEqual({ ok: false }); // the fallback reserve refused — 429 already written by it
+    expect(res.writeHead).toHaveBeenCalledWith(429, expect.anything());
+  });
+
+  it('past the overdraft cap, an allowed fallback reserve returns its OWN reservationId for the caller to commit/release', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
+    fakeStore.drawDown.mockResolvedValue({
+      drawnCalls: 0, drawnTokens: DEBATE_ESTIMATE_TOKENS * DEBATE_OVERDRAFT_MULTIPLIER + 1,
+      estimateCalls: DEBATE_ESTIMATE_CALLS, estimateTokens: DEBATE_ESTIMATE_TOKENS,
+    });
+    fakeStore.reserve.mockResolvedValue({ ok: true, reservationId: 'fallback-res-1' });
+    const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
+    expect(result).toEqual({ ok: true, fallbackReservationId: 'fallback-res-1' });
+  });
+
+  it('a null drawDown result (reservation already expired) is treated as covered, not refused', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
+    fakeStore.drawDown.mockResolvedValue(null);
+    const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
+    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+  });
+
+  it('a drawDown() throw is logged but the call still proceeds — an admitted debate is never refused mid-run', async () => {
+    fakeStore.reserveForKey.mockResolvedValue({ ok: true, reservationId: 'db-res-1', existing: true });
+    fakeStore.drawDown.mockRejectedValue(new Error('transient store error'));
+    const result = await admitOrDrawDownDebateCall(fakeRes(), 'alice', 'deb-1');
+    expect(result).toEqual({ ok: true, fallbackReservationId: null });
+  });
+
+  it('a reserveForKey() throw fails closed with 503, never a 500', async () => {
+    fakeStore.reserveForKey.mockRejectedValue(new Error('transient store error'));
+    const res = fakeRes();
+    const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
+    expect(result).toEqual({ ok: false });
+    expect(res.writeHead).toHaveBeenCalledWith(503, expect.anything());
+  });
+
+  it('store not wired (enforcement on, getFreePoolBudget() null): fails closed with 503', async () => {
+    getFreePoolBudget.mockReturnValue(null);
+    const res = fakeRes();
+    const result = await admitOrDrawDownDebateCall(res, 'alice', 'deb-1');
+    expect(result).toEqual({ ok: false });
+    expect(res.writeHead).toHaveBeenCalledWith(503, expect.anything());
   });
 });
