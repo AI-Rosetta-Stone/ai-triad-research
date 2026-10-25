@@ -242,6 +242,11 @@ Describe 'Get-RelevantTaxonomyNodes windowed scoring (t/4468)' -Tag 'ingestion' 
 
     It 'long -Query text with no embedding available WARNs about the opening-only fallback, never throws' {
         Mock Invoke-BatchEmbeddings -ModuleName AITriad { @{} }   # simulate: no embeddings came back for any window
+        # The fallback path still needs ONE embedding (of the truncated opening) — mock the embedder
+        # subprocess too, so this test doesn't depend on a live Python/sentence-transformers environment
+        # (CI lacks one; a prior run failed here with a real "embed_taxonomy.py encode failed" error).
+        Mock python -ModuleName AITriad { $global:LASTEXITCODE = 0; '[0.1, 0.2, 0.3]' }
+        Mock python3 -ModuleName AITriad { $global:LASTEXITCODE = 0; '[0.1, 0.2, 0.3]' }
         $longQuery = ('sentence number word filler content here. ' * 100)   # > 900 chars, triggers windowing
         $w = Get-Warnings { Get-RelevantTaxonomyNodes -Query $longQuery -Format objects -MinPerCategory 1 }
         @($w | Where-Object { $_ -match 'falling back to one encode' }) | Should -Not -BeNullOrEmpty
