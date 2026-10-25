@@ -3062,6 +3062,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 
 **Facet E — `--required` exits 0 before required context exists:** `gh pr checks <n> --required` can exit `0` with "ALL-REQUIRED-GREEN" while a required context (e.g. `ci-gate`) has no check-run at all on that OID yet. The rollup reports "nothing failing" because there is literally nothing yet to report — a required context that hasn't posted is absent from the check-run list, not failing. This is distinct from Facet B (check IN_PROGRESS) and Facet D (check still running at merge time): the check has not been triggered at all on this OID. Discriminator: query `repos/{owner}/{repo}/commits/{sha}/check-runs` directly for each required context name; if the context is absent from that list, the rollup's "green" reflects absence, not passage.
 
+**Facet F — `--required` exits 1 when a required check is red by design (hold guard active):** `gh pr checks <n> --required` exits `1` ("a check FAILED") when `consult-hold-guard` is in the `failure` state — which is its designed behavior while the `consult-hold` label is on the PR. The other required checks (ci-gate, CodeQL, joint-gv-guard) may all be green; the exit 1 reports only that at least one required context is not passing. An agent that treats exit 1 as "CI is broken" and stops will wrongly abandon a PR that is healthy except for the intentional hold. Discriminator: inspect *which* check is failing with `gh pr checks <n> --required --json name,conclusion` — if `consult-hold-guard` is the only failing context, the PR is fine; remove the label (per T2 approval protocol) and the check re-runs green.
+
 **Instances:**
 - 2026-08-01 — Server Storage (p/206#13, re-confirmed p/206#14): `gh pr checks 326` exited **8** because `test-container` was still running; **no check actually failed**. Recognized as expected `gh` behavior; **re-polled once `test-container` completed** → green. (Two reports same session — the exit-8 = pending semantics catch people.)
 - 2026-08-06 — DebateUI (p/83#8, Facet B): `gh pr checks <n> --watch` exited **0** while `test-electron` jobs still showed **"pending 0"** — the checks hadn't been registered yet. `--watch` saw no failing checks and exited; later the real job results arrived. False-green signal on a PR that wasn't fully checked.
@@ -3069,6 +3071,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-09-30 — Rosetta Stone (p/6#69): `gh pr checks 2633` exited 8 — recognized correctly as "still pending" (not failure) and re-polled. No action needed. Self-correcting once the exit-code semantics are known.
 - 2026-10-01 — Shared Lib (p/5#35, **Facet D — merge blocked by GitHub required-check enforcement**): `gh pr merge --squash --match-head-commit` returned "2 of 4 required status checks are expected" — CI was still IN_PROGRESS (CodeQL, test-powershell, test-electron, render-smoke). GitHub's branch-protection gate refused the merge atomically. Resolved by waiting for all required checks to conclude `success` before retrying. This is the downstream consequence of Facet B: `--watch` exits 0 before all checks register, merge attempt fires, GitHub blocks it.
 - 2026-10-03 — DevOps (p/26#128, **Facet E — `--required` exits 0 while required context absent**): `gh pr checks <N> --required` exited 0 with "ALL-REQUIRED-GREEN" while required context `ci-gate` had zero check-runs on that OID — confirmed by querying `repos/{owner}/{repo}/commits/{sha}/check-runs` directly. The rollup reported "nothing failing" because there was literally nothing yet to report. Resolved by querying the raw check-runs API per required context name and waiting until each one posted a result.
+- 2026-10-24 — PowerShell (p/20#118, **Facet F — `--required` exits 1 because hold guard is intentionally red**): `gh pr checks 3728 --required` returned exit 1. `consult-hold-guard` is red by design while the `consult-hold` label is on (TL e/348#17 already flagged this as expected); ci-gate, CodeQL, and joint-gv-guard were all green. No fix needed — removing the label (PI sign-off recorded) will flip the check green.
 
 **Root Cause:** `gh pr checks`'s exit code encodes STATE, not a pass/fail boolean — exit 8 specifically means "not done yet." Same "exit code is a status indicator, not success/failure" family as #73 facet A (grep exit-1 on zero-match ≠ error). It bites hardest during a self-merge wait, when a slow check (`test-container`) hasn't finished but every other check is green — the raw exit looks like failure. **Now covered** by the `exit-code-literacy-guard` workspace rule (2026-08-03, t/2081) — the exit-8=pending branch of the exit-code-literacy family; advisory (non-blocking). **Firing OBSERVED live on THIS branch — TL saw it correctly flag exit-8=pending (not failed) on `gh pr checks 334` during the PR #334 CodeQL wait (p/8#166)** — the 2nd of two independent live firings (Sage's `grep -c` #73A branch was the 1st); systematic verification deferred per t/1625.
 
@@ -3080,8 +3083,9 @@ Institutional memory for failure patterns across the AI Triad Research project.
 5. **Facet C — to verify a specific check, use structured JSON, not grep:** `gh pr view <n> --json statusCheckRollup --jq '.statusCheckRollup[] | select(.name == "ci-gate") | .conclusion'` returns `SUCCESS`, `FAILURE`, or empty (still running). Never use `gh pr checks | grep <name>` as a pass/fail signal for a specific check — grep exit 0 only means a line matched, not that the check passed.
 6. **Facet D — don't attempt `gh pr merge` until all required checks conclude `success`.** GitHub blocks the merge with "N of M required status checks are expected" if any required context is still IN_PROGRESS or hasn't reported yet. The symptom of Facet B (false-green `--watch`) is this blocked merge. Fix: after `--watch` exits 0, do a final bare `gh pr checks <n>` and confirm every required context shows `pass` before issuing the merge command.
 7. **Facet E — verify each required context has an actual check-run before trusting the rollup.** After `--required` exits 0, confirm each required context name appears in `gh api repos/{owner}/{repo}/commits/{sha}/check-runs --jq '[.check_runs[].name]'`. Zero entries for a required context means no run posted yet — the rollup "green" reflects absence, not passage. This is faster than waiting for a Facet D block at merge time.
+8. **Facet F — before treating exit 1 as a CI failure, check which context is red.** `gh pr checks <n> --required --json name,conclusion --jq '.[] | select(.conclusion != "SUCCESS") | .name'` names the failing check. If `consult-hold-guard` is the only one, the PR's CI is fine — the hold gate is doing its job. Remove the label per T2 protocol; the check re-runs green within seconds.
 
-**Status:** Active — `gh pr checks` text/exit-code unreliability (0 pass / 1 fail / 8 pending + Facet B false-green + Facet C grep-misread + Facet D premature-merge GitHub block + Facet E `--required` absent-context false-green); "exit code ≠ pass/fail boolean" family (#73A). Self-correcting once recognized. CI-wait sibling of #111 (current-HEAD-gated workflow) and #116 (background monitor, not foreground poll).
+**Status:** Active — `gh pr checks` text/exit-code unreliability (0 pass / 1 fail / 8 pending + Facet B false-green + Facet C grep-misread + Facet D premature-merge GitHub block + Facet E `--required` absent-context false-green + Facet F `--required` exit 1 because hold-guard is intentionally red); "exit code ≠ pass/fail boolean" family (#73A). Self-correcting once recognized. CI-wait sibling of #111 (current-HEAD-gated workflow) and #116 (background monitor, not foreground poll).
 
 **Applies To:** All agents polling `gh pr checks` while waiting on PR checks (self-merge / land waits).
 
@@ -7071,7 +7075,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Check the file's `_doc` field** if present — it documents the schema for each field.
 3. **`'str' object has no attribute 'keys'` / `.get`** on a JSON element = the array holds strings, not objects. Inspect and re-read the schema.
 
-**Status:** Active — 1 instance (PowerShell p/20#102).
+**Status:** Active — 2 instances (PowerShell p/20#102; Server Storage p/539#27 — `Object.keys()` on `group_input` values threw because they are scalar `SnapshotSha256` strings, not nested objects; fixed by inspecting the producer script `Invoke-T4405DuplicateMark.ps1`).
 
 **Applies To:** All agents iterating JSON arrays from data files; inspect element type before calling dict methods, and check any `_doc` field for schema documentation.
 
@@ -7294,3 +7298,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#262).
 
 **Applies To:** All agents writing `find` commands with `-o`; always group `-iname`/`-name` alternatives with `\( … \)` when combined with depth or type modifiers.
+
+---
+
+## #360 [Research] Over-Broad Quoted-String Regex Matches Windows Paths — Anchor Extraction Patterns to the ID Shape
+
+**Pattern:** An agent runs `grep -o "'[^']*'"` to extract doc IDs from a PowerShell param block. The pattern matches *any* single-quoted string — including Windows file paths (`'C:\Users\...'`). The extracted path is then interpolated into a Python raw string, where `\U` is interpreted as a Unicode escape sequence → `SyntaxWarning` or `ValueError`. The IDs had already printed; the failure is cosmetic, but it pollutes the output and can mask real errors.
+
+**Instances:**
+- 2026-10-24 — Computational Linguist (p/7#142): `grep -o "'[^']*'"` on a PowerShell param block also matched a Windows path literal, breaking Python string interpolation with a `\U` escape. Read-only; no impact. Fix: anchor the pattern to the expected ID shape (e.g. `'[a-z][0-9]\{4\}'` or `'[a-z0-9/-]\{6,\}'`) rather than any quoted string.
+
+**Root Cause:** A generic "quoted string" extractor (`'[^']*'`) has no knowledge of what the quotes contain — it matches paths, version strings, option values, and IDs with equal enthusiasm. When Windows path separators (`\`) land in a Python string as `\U`, `\N`, or other recognized escape sequences, Python raises a SyntaxWarning or ValueError.
+
+**Prevention:**
+1. **Anchor extraction patterns to the known ID shape**, not to the syntactic wrapper. For Orca/ticket IDs: `grep -oP "'[a-z][0-9]{4,}'"` or similar; for doc IDs that follow a known scheme, make the character class tight.
+2. **Test the pattern on the full input before piping to Python** — `grep -o <pattern> <file> | head` lets you see all matches, including unwanted ones, before they cause downstream errors.
+3. **`\U` / `\N` / `\x` errors in a Python string built from extracted content** = the extracted value contains a Windows path backslash. Check which match introduced it.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#142).
+
+**Applies To:** All agents extracting structured IDs from mixed-content files (param blocks, scripts, config files) using shell regex; generic quoted-string patterns will match paths and other values alongside the intended IDs.
