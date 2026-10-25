@@ -32,6 +32,15 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
  * long-running holder calls periodically (well under the TTL) to keep its
  * reservation alive — implementations must document their TTL and the
  * renewal cadence that stays safely under it.
+ *
+ * **Debate admission control (TL p/538#199, decision on t/4485#5):**
+ * `reserveForKey`/`drawDown`/`openCountForPrefix` are a second lifecycle, key
+ * rather than id driven, for admitting a whole debate once and tracking its
+ * usage across every round without a client-round-tripped reservation id.
+ * `reserveForKey`-created reservations follow the same TTL-expiry contract as
+ * `reserve()`'s — except that on expiry, the store releases only the *unused
+ * remainder* (the gap between the held estimate and whatever `drawDown`
+ * actually recorded), WARN-logged, never the already-happened usage itself.
  */
 export interface FreePoolBudget {
   /** Reserve estimated usage before making a call. Refuses (does not throw)
@@ -72,6 +81,37 @@ export interface FreePoolBudget {
    *  (e.g. hide the gauge) catches the throw explicitly; nothing here can be
    *  mistaken for real headroom. */
   headroom(): Promise<FreePoolBudgetHeadroom>;
+
+  /** Idempotent-per-live-key reservation (t/4485 phase 2 debate admission).
+   *  If a live (unexpired, uncommitted) reservation already exists for
+   *  `req.key`, returns it unchanged — same `reservationId`, same TTL,
+   *  `existing: true`. This call does NOT renew it (call `drawDown` or
+   *  `renew` for that) — `reserveForKey` only decides "is there already one
+   *  of these", not "keep this one alive". Otherwise reserves the full
+   *  estimate as a new reservation (`existing: false`), same fail-closed
+   *  refusal contract as `reserve`. **Must be safe across replicas:** two
+   *  replicas calling this for the same key at the same moment must agree
+   *  on one reservation, never create two. */
+  reserveForKey(req: FreePoolBudgetKeyRequest): Promise<FreePoolBudgetReserveForKeyResult>;
+
+  /** Record actual usage against an open reservation and renew its TTL in
+   *  the same call — the per-round heartbeat for a running debate.
+   *
+   *  **Usage accumulates additively across calls** (unlike `commit`, which
+   *  replaces the estimate once with a final total) — a real call's usage
+   *  is never dropped by a later `drawDown`. **Never refuses, even past the
+   *  reservation's original estimate** — overdraft is recorded in full; the
+   *  *next admission* (`reserveForKey`) is what refuses once the day is
+   *  over its cap, same principle as `commit` recording actual usage past
+   *  the cap. A reservation unknown to the store (already expired) is a
+   *  no-op, same contract as `commit`. */
+  drawDown(reservationId: string, actual: FreePoolBudgetUsage): Promise<void>;
+
+  /** Count currently-open (unexpired, uncommitted) reservations whose key
+   *  starts with `prefix` — the per-requester open-debate limit (t/4485#5:
+   *  max 2, refuse the 3rd). Callers scope `prefix` to the requester (e.g.
+   *  `"debate:<principal-or-ip>:"`), never to a single debate. */
+  openCountForPrefix(prefix: string): Promise<number>;
 }
 
 export interface FreePoolBudgetRequest {
@@ -106,6 +146,28 @@ export interface FreePoolBudgetUsage {
  */
 export type FreePoolBudgetReserveResult =
   | { ok: true; reservationId: string }
+  | { ok: false; reason: 'daily_cap'; resetsAt: string }
+  | { ok: false; reason: 'storage_unavailable' };
+
+export interface FreePoolBudgetKeyRequest {
+  /** Caller-scoped correlation key, e.g. `"debate:<principal-or-ip>:<debateId>"`.
+   *  Never parsed or validated by the store — the caller owns its structure
+   *  and uses it for `openCountForPrefix`'s prefix matching. */
+  key: string;
+  /** Estimated call count the FULL reservation will consume (the whole
+   *  debate's estimate, not one round). */
+  calls: number;
+  /** Estimated token count the full reservation will consume. */
+  tokens: number;
+}
+
+/** Same shape as `FreePoolBudgetReserveResult`, plus `existing` on the `ok`
+ *  branch — `reserveForKey` is idempotent per live key, so a caller needs to
+ *  know whether this is the reservation it just created or one that was
+ *  already there (e.g. so it knows whether to run first-round admission
+ *  logic again). */
+export type FreePoolBudgetReserveForKeyResult =
+  | { ok: true; reservationId: string; existing: boolean }
   | { ok: false; reason: 'daily_cap'; resetsAt: string }
   | { ok: false; reason: 'storage_unavailable' };
 
@@ -448,6 +510,33 @@ export class BlobFreePoolBudget implements FreePoolBudget {
       });
       throw err instanceof ActionableError ? err : wrapBudgetError(err, 'headroom', day);
     }
+  }
+
+  // t/4491 AC1: types land first, same split as t/4484's #3798/#3808. These
+  // three stubs exist only so BlobFreePoolBudget keeps satisfying the
+  // interface — ServerAPI's t/4485 phase 2 can compile and unit-test its own
+  // consumer (DI'd against the interface, per p/541#132) without waiting on
+  // the real implementation. A real caller hitting one of these before the
+  // follow-up lands gets a clear, loud failure, never a silent no-op.
+  async reserveForKey(_req: FreePoolBudgetKeyRequest): Promise<FreePoolBudgetReserveForKeyResult> {
+    throw new ActionableError({
+      goal: 'reserveForKey', problem: 'reserveForKey is not yet implemented (t/4491 AC1 is types-only)',
+      location: 'BlobFreePoolBudget.reserveForKey', nextSteps: ['Land the t/4491 implementation PR before calling this in production'],
+    });
+  }
+
+  async drawDown(_reservationId: string, _actual: FreePoolBudgetUsage): Promise<void> {
+    throw new ActionableError({
+      goal: 'drawDown', problem: 'drawDown is not yet implemented (t/4491 AC1 is types-only)',
+      location: 'BlobFreePoolBudget.drawDown', nextSteps: ['Land the t/4491 implementation PR before calling this in production'],
+    });
+  }
+
+  async openCountForPrefix(_prefix: string): Promise<number> {
+    throw new ActionableError({
+      goal: 'openCountForPrefix', problem: 'openCountForPrefix is not yet implemented (t/4491 AC1 is types-only)',
+      location: 'BlobFreePoolBudget.openCountForPrefix', nextSteps: ['Land the t/4491 implementation PR before calling this in production'],
+    });
   }
 }
 
