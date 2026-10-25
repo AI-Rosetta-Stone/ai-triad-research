@@ -155,16 +155,22 @@ describe('BlobFreePoolBudget (Azurite)', () => {
     expect(afterExpiry.ok).toBe(true); // the expired reservation's budget returned
   });
 
+  // CI flake (t/4499's PR surfaced it): a 150ms TTL left only ~50ms of slack
+  // around each check, which real Azurite network round-trips under a loaded
+  // CI runner can eat into — the reservation could cross its expiry between
+  // the renew() call completing and the headroom() check running. Widened to
+  // a 1s TTL with 300ms sleeps (700ms slack instead of ~50ms); the logical
+  // assertion is unchanged, just far less timing-sensitive.
   it('renew() extends a reservation past its original TTL; returns false once gone', async () => {
-    const budget = makeBudget(prefix, { callsCap: 5, reservationTtlMs: 150 });
+    const budget = makeBudget(prefix, { callsCap: 5, reservationTtlMs: 1000 });
     const r = await budget.reserve({ calls: 2, tokens: 0, key: 'long-running' });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 300));
     expect(await budget.renew(r.reservationId)).toBe(true); // renewed before the original TTL hit
 
-    await new Promise((resolve) => setTimeout(resolve, 100)); // would have expired at 150ms without the renew
+    await new Promise((resolve) => setTimeout(resolve, 300)); // would have expired at 1000ms without the renew
     const h = await budget.headroom();
     expect(h.callsUsed).toBe(2); // still held — renew() kept it alive
 
