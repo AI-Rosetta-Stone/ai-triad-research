@@ -32,6 +32,14 @@ INPUTS_RE = re.compile(r'\$\{\{\s*inputs\.\w+\s*\}\}')
 
 PERMISSIONS_RE = re.compile(r'^\s*permissions:', re.MULTILINE)
 
+# GitHub's documented GITHUB_TOKEN permission scopes (t/4347). An invalid key here isn't a
+# style nit -- GitHub rejects the entire workflow file, killing every trigger it declares.
+PERMISSION_ALLOWLIST = {
+    'actions', 'attestations', 'checks', 'contents', 'deployments', 'discussions',
+    'id-token', 'issues', 'models', 'packages', 'pages', 'pull-requests',
+    'repository-projects', 'security-events', 'statuses',
+}
+
 # t/4414 (e/349#6, SO follow-up): "an alert issue opened without a watched label" is a class --
 # continuous-deploy.yml's dead-gate issue (#3771) opened once, then sat unseen for two days because
 # nothing watched its label. This check flags any `gh issue create`/`gh issue edit` call in a run:
@@ -132,6 +140,57 @@ def lint_file(path, content):
     if not PERMISSIONS_RE.search(content):
         errs.append(f'{path}: no permissions: block — add explicit minimal permissions')
 
+    # ── Check 4: permissions: keys against GitHub's documented allowlist (t/4347) ──
+    # PR #3527 (t/4340, TL review): environment-branch-policy-check.yml declared
+    # `permissions: { environments: read }` -- not a real GITHUB_TOKEN permission key.
+    # GitHub rejected the entire file outright (run 39478983829: a push-event run with
+    # ZERO jobs and conclusion failure, for a workflow with no push: trigger at all) --
+    # workflow-lint ran and passed, but nothing had proved the file was actually valid
+    # against GitHub's own acceptance of it. This check closes that: any `permissions:`
+    # child key not in the allowlist below is flagged, since GitHub rejects the WHOLE
+    # file on an invalid key, which silently kills every trigger the workflow declares,
+    # not just the job that would have used that permission.
+    errs.extend(_check_permissions_allowlist(path, content))
+
+    return errs
+
+
+def _check_permissions_allowlist(path, content):
+    """Check 4 (t/4347): every `permissions:` block's child keys must be in GitHub's
+    documented GITHUB_TOKEN permission set. Does NOT flag the shorthand forms
+    `permissions: read-all` / `write-all` / `none` / `{}` -- those have no child keys to
+    validate."""
+    errs = []
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
+        key, indent = parse_step_key(line)
+        if key != 'permissions':
+            continue
+        s = line.lstrip()
+        if s.startswith('- '):
+            s = s[2:].lstrip()
+        rest = s[len('permissions:'):].strip()
+        if rest and rest != '{}':
+            continue  # shorthand form (read-all/write-all/none/an expression) -- no child keys
+        j = i + 1
+        while j < len(lines):
+            cline = lines[j]
+            cstripped = cline.strip()
+            if not cstripped:
+                j += 1
+                continue
+            cindent = len(cline) - len(cline.lstrip())
+            if cindent <= indent:
+                break
+            ckey, _ = parse_step_key(cline)
+            if ckey is not None and ckey not in PERMISSION_ALLOWLIST:
+                errs.append(
+                    f'{path}:{j + 1}: permissions: key {ckey!r} is not a real GITHUB_TOKEN '
+                    f'permission -- GitHub rejects the WHOLE workflow file on an invalid key '
+                    f'(every trigger silently dead, not just this permission). Valid keys: '
+                    f'{", ".join(sorted(PERMISSION_ALLOWLIST))}.'
+                )
+            j += 1
     return errs
 
 
@@ -660,6 +719,75 @@ jobs:
         failures.append('Check 1 incorrectly flagged a properly SHA-pinned action')
     else:
         print('  PASS: Check 1 ignores properly pinned action')
+
+    # Fixture 3b (t/4347): an invalid permissions: key must be caught by Check 4
+    fixture_bad_permission = """\
+permissions:
+  environments: read
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+"""
+    errs = lint_file('fixture_bad_permission', fixture_bad_permission)
+    if not any("'environments'" in e for e in errs):
+        failures.append("Check 4 MISSED an invalid permissions: key ('environments')")
+    else:
+        print('  PASS: Check 4 catches an invalid permissions: key')
+
+    # Fixture 3c: a job-level permissions: block with an invalid key must also be caught
+    fixture_bad_job_permission = """\
+permissions:
+  contents: read
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    permissions:
+      environments: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+"""
+    errs = lint_file('fixture_bad_job_permission', fixture_bad_job_permission)
+    if not any("'environments'" in e for e in errs):
+        failures.append('Check 4 MISSED an invalid key in a JOB-level permissions: block')
+    else:
+        print('  PASS: Check 4 catches an invalid key in a job-level permissions: block')
+
+    # Fixture 3d: every valid allowlisted key must NOT be flagged
+    fixture_good_permissions = """\
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+  pull-requests: read
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+"""
+    errs = lint_file('fixture_good_permissions', fixture_good_permissions)
+    if any('is not a real GITHUB_TOKEN permission' in e for e in errs):
+        failures.append('Check 4 incorrectly flagged a valid allowlisted permissions: key')
+    else:
+        print('  PASS: Check 4 ignores every valid allowlisted permissions: key')
+
+    # Fixture 3e: shorthand forms (read-all/write-all/{}) must NOT be treated as a key block
+    fixture_shorthand_permissions = """\
+permissions: read-all
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+"""
+    errs = lint_file('fixture_shorthand_permissions', fixture_shorthand_permissions)
+    if any('is not a real GITHUB_TOKEN permission' in e for e in errs):
+        failures.append('Check 4 incorrectly treated a shorthand permissions: form as a key block')
+    else:
+        print('  PASS: Check 4 ignores shorthand permissions: forms (read-all/write-all/{})')
 
     # Fixture 4: bare ${{ inputs.X }} in run block must be caught
     fixture_inputs_run = """\

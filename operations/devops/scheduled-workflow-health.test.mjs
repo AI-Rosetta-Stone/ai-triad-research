@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scheduledWorkflowVerdict, problemFingerprint, scheduledWorkflowFiles } from './scheduled-workflow-health.mjs';
+import { scheduledWorkflowVerdict, problemFingerprint, scheduledWorkflowFiles, invalidWorkflowFileVerdict } from './scheduled-workflow-health.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..');
@@ -75,6 +75,33 @@ test('scheduledWorkflowFiles detects a `schedule:` trigger and ignores mentions 
     { name: 'b.yml', text: 'on:\n  push:\n# a comment about schedule: here\n' },
   ];
   assert.deepEqual(scheduledWorkflowFiles(files), ['a.yml']);
+});
+
+// ── t/4347: a zero-job push-failure run means GitHub rejected the file structurally ──────────────
+test('invalidWorkflowFileVerdict: 0 jobs + conclusion failure is INVALID (t/4347, PR #3527 / run 39478983829)', () => {
+  const v = invalidWorkflowFileVerdict({ file: 'environment-branch-policy-check.yml', runs: [{ conclusion: 'failure', jobCount: 0, runId: 39478983829 }] });
+  assert.equal(v.invalid, true);
+  assert.equal(v.runId, 39478983829);
+});
+
+test('invalidWorkflowFileVerdict: a job inside the workflow failing (jobCount > 0) is NOT structurally invalid', () => {
+  const v = invalidWorkflowFileVerdict({ file: 'ci.yml', runs: [{ conclusion: 'failure', jobCount: 12, runId: 1 }] });
+  assert.equal(v.invalid, false);
+});
+
+test('invalidWorkflowFileVerdict: a successful run with 0 jobs (e.g. every job skipped by if:) is NOT flagged', () => {
+  const v = invalidWorkflowFileVerdict({ file: 'x.yml', runs: [{ conclusion: 'success', jobCount: 0, runId: 1 }] });
+  assert.equal(v.invalid, false);
+});
+
+test('invalidWorkflowFileVerdict: no push-event run on record is NOT flagged (e.g. a workflow with no push trigger that has never had this bug)', () => {
+  const v = invalidWorkflowFileVerdict({ file: 'x.yml', runs: [] });
+  assert.equal(v.invalid, false);
+});
+
+test('invalidWorkflowFileVerdict: only the NEWEST run matters -- a fixed file with an old 0-job failure is not re-flagged', () => {
+  const v = invalidWorkflowFileVerdict({ file: 'x.yml', runs: [{ conclusion: 'success', jobCount: 3, runId: 2 }, { conclusion: 'failure', jobCount: 0, runId: 1 }] });
+  assert.equal(v.invalid, false);
 });
 
 // ── LINT: the declared list must cover EVERY scheduled workflow in the repo, and only real files ──
