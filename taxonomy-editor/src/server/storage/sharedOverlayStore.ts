@@ -71,13 +71,14 @@ export interface SharedOverlayEntry {
 export interface SharedOverlayStoreOptions {
   /** e.g. https://<account>.blob.core.windows.net — from AZURE_STORAGE_ACCOUNT_URL. */
   accountUrl: string;
-  /** Default `'user-content'` — same container as other user content, no new
-   *  resource (t/4311 SO condition S3: must resolve through the
-   *  environment's own container, e.g. `staging-user-content` in staging,
-   *  never a shared/hardcoded default — the caller passes the
-   *  environment-resolved name here, same convention `BlobFreePoolBudget`/
-   *  `AzureBlobBackend` already use via `AZURE_USER_CONTENT_CONTAINER`). */
-  container?: string;
+  /** REQUIRED, no default (SO e/332#10 E2) — a silent default of `'user-content'`
+   *  (prod's container) would mean a staging caller that forgets to pass
+   *  this writes straight into prod, exactly the t/4264 class of bug S3
+   *  exists to prevent. The caller always resolves this from the
+   *  environment (same convention `BlobFreePoolBudget`/`AzureBlobBackend`
+   *  already use via `AZURE_USER_CONTENT_CONTAINER`) and passes it
+   *  explicitly — never omitted. */
+  container: string;
   /** Default `'overlay-state'`. */
   blobPrefix?: string;
   /** Bounded retries on an ETag CAS conflict (412) for a per-entry stage,
@@ -122,7 +123,6 @@ export function decodePathKey(pathKey: string): string {
   return Buffer.from(pathKey, 'base64url').toString('utf-8');
 }
 
-const DEFAULT_CONTAINER = 'user-content';
 const DEFAULT_BLOB_PREFIX = 'overlay-state';
 const DEFAULT_MAX_CAS_RETRIES = 5;
 
@@ -134,7 +134,7 @@ export class SharedOverlayStore {
   constructor(opts: SharedOverlayStoreOptions) {
     const service = opts.serviceClient
       ?? new BlobServiceClient(opts.accountUrl, new DefaultAzureCredential());
-    this.containerClient = service.getContainerClient(opts.container ?? DEFAULT_CONTAINER);
+    this.containerClient = service.getContainerClient(opts.container);
     this.blobPrefix = opts.blobPrefix ?? DEFAULT_BLOB_PREFIX;
     this.maxCasRetries = opts.maxCasRetries ?? DEFAULT_MAX_CAS_RETRIES;
   }
@@ -192,10 +192,12 @@ export class SharedOverlayStore {
         });
         return { ok: false, reason: 'storage_unavailable' };
       }
+      let writtenEtag: string | undefined;
       try {
-        await client.upload(body, Buffer.byteLength(body), {
+        const uploadResp = await client.upload(body, Buffer.byteLength(body), {
           conditions: current ? { ifMatch: current.etag } : { ifNoneMatch: '*' },
         });
+        writtenEtag = uploadResp.etag;
       } catch (err) {
         if (isPreconditionFailed(err)) { lastErr = err; continue; } // lost the race — re-read and retry
         getGlobalRecorder()?.record({
@@ -215,7 +217,12 @@ export class SharedOverlayStore {
           message: `_gen bump failed after a successful entry write — deleting the unacknowledged entry: ${client.name}`,
           error: { name: (bumpErr as Error).name ?? 'Error', message: String(bumpErr), stack: (bumpErr as Error).stack },
         });
-        await this.deleteUnacknowledgedEntry(client);
+        // SO e/332#10 E1: delete conditional on OUR OWN just-written ETag.
+        // Without this, if another replica staged the same path and was
+        // acknowledged between our upload and our failed bump, an
+        // unconditional delete here would destroy that already-acknowledged
+        // write — a silent lost update, not an unacknowledged-entry cleanup.
+        await this.deleteUnacknowledgedEntry(client, writtenEtag!);
         return { ok: false, reason: 'storage_unavailable' };
       }
     }
@@ -224,13 +231,26 @@ export class SharedOverlayStore {
 
   /** D2: the bump failed (WARN-logged by the caller, `stage()`), so the
    *  write this entry represents was never acknowledged to the caller.
-   *  Delete it (best-effort — if the delete itself fails, the orphan-TTL
-   *  sweep, a separate follow-up PR, is the backstop) so the store's
-   *  invariant holds: every entry present was acknowledged. */
-  private async deleteUnacknowledgedEntry(client: BlockBlobClient): Promise<void> {
+   *  Delete it, conditional on `ifMatch: ourEtag` (SO e/332#10 E1) — our own
+   *  ETag from the upload that just succeeded. If another replica staged
+   *  the SAME path and was acknowledged in the gap between our upload and
+   *  our failed bump, its write now has a different ETag, the delete gets
+   *  a 412, and we correctly do nothing — their acknowledged edit survives.
+   *  Best-effort beyond that: if the conditional delete itself fails for a
+   *  genuine store reason, the orphan-TTL sweep (a separate follow-up PR)
+   *  is the backstop. */
+  private async deleteUnacknowledgedEntry(client: BlockBlobClient, ourEtag: string): Promise<void> {
     try {
-      await client.deleteIfExists();
+      await client.deleteIfExists({ conditions: { ifMatch: ourEtag } });
     } catch (deleteErr) {
+      if (isPreconditionFailed(deleteErr)) {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+          message: `Unacknowledged-entry cleanup skipped — the entry changed since our write (another replica's acknowledged edit survives): ${client.name}`,
+          data: { blobName: client.name },
+        });
+        return;
+      }
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'shared-overlay-store', level: 'warn',
         message: `Failed to delete an unacknowledged entry after a _gen bump failure — it will be caught by the orphan sweep: ${client.name}`,
@@ -250,23 +270,33 @@ export class SharedOverlayStore {
 
   /** Remove a staged entry (the user discarded a draft, or the commit path
    *  — a separate follow-up PR — is clearing a committed one). Bumps `_gen`
-   *  best-effort: unlike `stage()`, a bump failure here has no compensating
-   *  action to take (there is nothing to "un-delete"), so it's WARN-logged
-   *  and left for the orphan sweep rather than failing the caller — a
-   *  reader on a stale generation simply keeps seeing the entry for a bit
-   *  longer, which is a staleness window, not a lost-update risk. */
-  async unstage(userId: string, repoPath: string): Promise<void> {
+   *  best-effort after a real delete: unlike `stage()`, a bump failure here
+   *  has no compensating action to take (there is nothing to "un-delete"),
+   *  so it's WARN-logged and left for the orphan sweep rather than failing
+   *  the caller — a reader on a stale generation simply keeps seeing the
+   *  entry for a bit longer, which is a staleness window, not a
+   *  lost-update risk.
+   *
+   *  `opts.ifMatch` (SO e/332#10 E3): the commit path (a separate follow-up
+   *  PR) needs S2's "clear only if unchanged since the commit's snapshot"
+   *  semantics — pass the ETag `listEntries` returned for this path, and a
+   *  412 (someone restaged it since) returns `'changed'` instead of
+   *  deleting, so the newer edit is never silently discarded. Without
+   *  `ifMatch`, the delete is unconditional, matching the "user discarded a
+   *  draft" caller's intent (always remove whatever is there now). */
+  async unstage(userId: string, repoPath: string, opts?: { ifMatch?: string }): Promise<'deleted' | 'changed'> {
     const pathKey = encodePathKey(repoPath);
     const client = this.entryBlobClient(userId, pathKey);
     try {
-      await client.deleteIfExists();
+      await client.deleteIfExists(opts?.ifMatch ? { conditions: { ifMatch: opts.ifMatch } } : undefined);
     } catch (err) {
+      if (isPreconditionFailed(err)) return 'changed';
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'shared-overlay-store', level: 'warn',
         message: `unstage delete failed: ${client.name}`,
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      return;
+      return 'deleted'; // best-effort — the orphan sweep is the backstop, same as any other delete failure here
     }
     try {
       await this.bumpGeneration(userId);
@@ -277,10 +307,20 @@ export class SharedOverlayStore {
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
     }
+    return 'deleted';
   }
 
   /** Direct read of one path's staged entry, `null` if none exists. */
   async getEntry(userId: string, repoPath: string): Promise<SharedOverlayEntry | null> {
+    const got = await this.getEntryWithEtag(userId, repoPath);
+    return got?.entry ?? null;
+  }
+
+  /** Same as `getEntry`, plus the ETag `listEntries` needs for S2's
+   *  "clear only if unchanged" semantics (SO e/332#10 E3) — exposed
+   *  separately so `getEntry`'s public contract (just the entry) stays
+   *  unchanged for callers that don't need it. */
+  private async getEntryWithEtag(userId: string, repoPath: string): Promise<{ entry: SharedOverlayEntry; etag: string } | null> {
     const pathKey = encodePathKey(repoPath);
     const client = this.entryBlobClient(userId, pathKey);
     try {
@@ -289,7 +329,9 @@ export class SharedOverlayStore {
       for await (const chunk of resp.readableStreamBody ?? []) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array | string));
       }
-      return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as SharedOverlayEntry;
+      const entry = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as SharedOverlayEntry;
+      if (!resp.etag) throw wrapOverlayError(new Error('download succeeded but returned no ETag'), 'getEntryWithEtag', client.name);
+      return { entry, etag: resp.etag };
     } catch (err) {
       if (isNotFound(err)) return null;
       getGlobalRecorder()?.record({
@@ -328,16 +370,17 @@ export class SharedOverlayStore {
    *  calls this only after `getGeneration()` shows a change since the
    *  caller's last-seen value; the commit path calls it unconditionally to
    *  find everything to commit. */
-  async listEntries(userId: string): Promise<Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry }>> {
+  async listEntries(userId: string): Promise<Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry; etag: string }>> {
     const prefix = `${this.blobPrefix}/${userId}/`;
-    const out: Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry }> = [];
+    const out: Array<{ repoPath: string; pathKey: string; entry: SharedOverlayEntry; etag: string }> = [];
     try {
       for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
         const name = blob.name.slice(prefix.length);
         if (name === '_gen' || !name.endsWith('.json')) continue;
         const pathKey = name.slice(0, -'.json'.length);
-        const entry = await this.getEntry(userId, decodePathKey(pathKey));
-        if (entry) out.push({ repoPath: decodePathKey(pathKey), pathKey, entry });
+        const repoPath = decodePathKey(pathKey);
+        const got = await this.getEntryWithEtag(userId, repoPath);
+        if (got) out.push({ repoPath, pathKey, entry: got.entry, etag: got.etag });
       }
       return out;
     } catch (err) {
@@ -356,14 +399,12 @@ export class SharedOverlayStore {
       if (!props.etag) throw wrapOverlayError(new Error('getProperties succeeded but returned no ETag'), 'readEntryEtag', client.name);
       return { etag: props.etag };
     } catch (err) {
-      if (isNotFound(err)) {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'warn',
-          message: `readEntryEtag: no existing entry (expected on first stage): ${client.name}`,
-          data: { blobName: client.name },
-        });
-        return null;
-      }
+      // SO e/332#10 minor: no record here — this fires on EVERY first stage
+      // of EVERY new path (the common case, not a degraded one), so a WARN
+      // per occurrence would flood the flight recorder for routine traffic.
+      // Same "expected, not exceptional" status as the 412-retry branch in
+      // stage()'s own loop just above, which is likewise unrecorded.
+      if (isNotFound(err)) return null; /* telemetry — silent by design: routine "no entry yet", not a degraded condition */
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'shared-overlay-store', level: 'error',
         message: `readEntryEtag failed: ${client.name}`,

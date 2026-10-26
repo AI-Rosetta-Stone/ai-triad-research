@@ -182,6 +182,62 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
     expect(await store.getEntry('alice', 'taxonomy/foo.json')).toBeNull();
   });
 
+  // E1 (SO e/332#10): the D2 cleanup's delete must be conditional on OUR OWN
+  // etag — if another replica (B) stages the same path and is acknowledged
+  // in the gap between our (A's) upload and our failed _gen bump, A's
+  // cleanup must not destroy B's already-acknowledged edit.
+  it('E1: a bump-failure cleanup never deletes another replica\'s newer acknowledged write to the same path', async () => {
+    const prefix = `_test-${++counter}`;
+    const storeA = makeStore(container, prefix);
+    const storeB = makeStore(container, prefix);
+    const BlockBlobClientCtor = Object.getPrototypeOf(service.getContainerClient(container).getBlockBlobClient('x')).constructor;
+    const realUpload = BlockBlobClientCtor.prototype.upload;
+    let triggered = false;
+    const uploadSpy = vi.spyOn(BlockBlobClientCtor.prototype, 'upload').mockImplementation(async function (this: { name: string }, ...args: unknown[]) {
+      if (this.name.endsWith('/_gen') && !triggered) {
+        triggered = true; // set BEFORE the nested call so B's own bump isn't re-intercepted
+        const b = await storeB.stage('alice', 'taxonomy/foo.json', { content: 'B content (acknowledged)', baseSha: 'unknown', stagedAt: new Date().toISOString() });
+        expect(b).toEqual({ ok: true });
+        throw new Error('simulated A bump failure, after B already landed and acknowledged');
+      }
+      return realUpload.apply(this, args);
+    });
+
+    const resultA = await storeA.stage('alice', 'taxonomy/foo.json', { content: 'A content (should be discarded)', baseSha: 'unknown', stagedAt: new Date().toISOString() });
+    expect(resultA).toEqual({ ok: false, reason: 'storage_unavailable' });
+
+    uploadSpy.mockRestore();
+    // B's acknowledged write must survive A's failed cleanup.
+    expect(await storeA.getEntry('alice', 'taxonomy/foo.json')).toMatchObject({ content: 'B content (acknowledged)' });
+  });
+
+  // E3 (SO e/332#10): listEntries carries ETags, and unstage(ifMatch) must
+  // report 'changed' rather than deleting a write newer than the caller's
+  // snapshot — the primitive the (separate, follow-up-PR) commit path needs
+  // for S2's "clear only if unchanged" semantics.
+  it('E3: listEntries returns ETags, and unstage(ifMatch) reports "changed" instead of deleting a newer write', async () => {
+    const prefix = `_test-${++counter}`;
+    const store = makeStore(container, prefix);
+    await store.stage('alice', 'taxonomy/foo.json', { content: 'v1', baseSha: 'unknown', stagedAt: new Date().toISOString() });
+    const [staleEntry] = await store.listEntries('alice');
+    expect(typeof staleEntry.etag).toBe('string');
+    expect(staleEntry.etag.length).toBeGreaterThan(0);
+
+    // Someone else restages the same path, changing its ETag.
+    await store.stage('alice', 'taxonomy/foo.json', { content: 'v2', baseSha: 'unknown', stagedAt: new Date().toISOString() });
+
+    // unstage with the now-STALE etag must report 'changed', not delete.
+    const staleResult = await store.unstage('alice', 'taxonomy/foo.json', { ifMatch: staleEntry.etag });
+    expect(staleResult).toBe('changed');
+    expect(await store.getEntry('alice', 'taxonomy/foo.json')).toMatchObject({ content: 'v2' });
+
+    // unstage with the CURRENT etag does delete.
+    const [currentEntry] = await store.listEntries('alice');
+    const currentResult = await store.unstage('alice', 'taxonomy/foo.json', { ifMatch: currentEntry.etag });
+    expect(currentResult).toBe('deleted');
+    expect(await store.getEntry('alice', 'taxonomy/foo.json')).toBeNull();
+  });
+
   // S3: the container is always caller-supplied (environment-scoped at the
   // call site, per AZURE_USER_CONTENT_CONTAINER in server.ts) — never a
   // hardcoded default the class picks on its own regardless of environment.
