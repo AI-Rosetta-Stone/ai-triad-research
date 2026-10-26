@@ -30,7 +30,10 @@ import * as rateLimiter from '../security/rateLimiter.js';
 import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext, enforceBackendAllowed, enforceAnonDebateGate } from './generationContext.js';
 import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
-import { reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, getFreePoolHeadroomSnapshot, FREE_POOL_CALL_TOKEN_ESTIMATE } from '../ai/freePoolBudgetGate.js';
+import {
+  reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, getFreePoolHeadroomSnapshot,
+  admitOrDrawDownDebateCall, reconcileDebateDrawDown, FREE_POOL_CALL_TOKEN_ESTIMATE,
+} from '../ai/freePoolBudgetGate.js';
 
 import * as fileIO from '../storage/fileIO.js';
 import { beginEmbeddingCompute, endEmbeddingCompute, embeddingLoadSnapshot, evaluateEmbeddingLoadShed, isEmbeddingModelWarm, markEmbeddingModelWarm } from '../embeddingsLoad.js';
@@ -104,19 +107,52 @@ function enforceAiRateLimits(res: http.ServerResponse, isFree: boolean, limitKey
   return false;
 }
 
+/** t/4485#5: the debate-admission requester scope — the signed-in principal, or the correctly-
+ *  derived IP for anonymous callers. Deliberately called ONLY from the debate branch below, not
+ *  unconditionally — `getClientIp` has logging side effects (a proxy-without-XFF WARN) that a
+ *  platform/BYOK call has no reason to trigger just to compute a value it won't use. */
+function requesterIdFor(req: http.IncomingMessage): string {
+  return callerIdentity().principalName || `ip:${getClientIp(req)}`;
+}
+
+type AdmitFreePoolCallResult =
+  | { ok: true; reservationId: string | null; debateReservationId: string | null }
+  | { ok: false };
+
+/** t/4485 phase 2: admits (first call) or draws down (later calls) a free-tier debate's budget
+ *  when `debateId` is present, else falls back to a normal per-call reservation. Keeps this
+ *  branch out of resolveExplicitAiKey's own body so its complexity doesn't grow (t/3821
+ *  baseline) — same reasoning as trackFreePoolReservation below. `reservationId` (fallback or
+ *  plain per-call) and `debateReservationId` (covered-by-the-debate's-own-reservation) are
+ *  mutually exclusive — trackFreePoolReservation below dispatches on which one is set. */
+async function admitFreePoolCall(req: http.IncomingMessage, res: http.ServerResponse, budgetKey: string, debateId: string | undefined): Promise<AdmitFreePoolCallResult> {
+  if (!debateId) {
+    const result = await reserveFreePoolCall(res, budgetKey);
+    if (!result.ok) return { ok: false };
+    return { ok: true, reservationId: result.reservationId, debateReservationId: null };
+  }
+  const debateResult = await admitOrDrawDownDebateCall(res, requesterIdFor(req), debateId);
+  if (!debateResult.ok) return { ok: false };
+  return { ok: true, reservationId: debateResult.fallbackReservationId, debateReservationId: debateResult.debateReservationId };
+}
+
 /** Resolve the key to inject: free tier → server FREE_TIER_GEMINI_KEY, gated by the free-pool
  *  geo restriction (t/4486) — 403 `free_pool_region` when the caller's IP is EEA/CH/UK or
  *  unresolvable, 503 if the pool has no keys configured; platform → undefined (server-side
  *  keys); BYOK → client key, with a free-tier Gemini fallback for a BYOK user with no key for
  *  the pinned backend (t/945) — **also geo-gated** (t/4486#4, TL review: this fallback used to
  *  read the pool directly, a fourth bypass of the restriction). **Also budget-gated** (t/4485):
- *  both free-pool paths reserve 1 call against the daily budget — 429 `free_pool_exhausted` or
- *  503 `free_pool_unavailable` when refused. `budgetKey` is a correlation id for the store's own
- *  logs (the debate id if there is one, else a generic per-route tag). Returns `{ ok: false }`
- *  after sending the error response on any refusal; on success, `reservationId` is non-null
- *  only when budget enforcement is actually on (the caller commits or releases it later). */
+ *  both free-pool paths go through `admitFreePoolCall` — a debate's calls admit/draw-down
+ *  server-side (phase 2, t/4485#5); any other call reserves 1 call against the daily budget.
+ *  429 `free_pool_exhausted`/`free_pool_debate_limit` or 503 `free_pool_unavailable` when
+ *  refused. The debate-admission requester scope is the signed-in principal, or the correctly-
+ *  derived IP for anonymous callers (t/4485#5 — never the per-tier `limitKey`, which free-tier
+ *  rate limiting keys on IP even for signed-in users). Returns `{ ok: false }` after sending the
+ *  error response on any refusal; on success, `reservationId`/`debateReservationId` are
+ *  mutually exclusive and non-null only when the caller still has something to settle later
+ *  (trackFreePoolReservation dispatches on which one is set). */
 async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend, debateId: string | undefined):
-  Promise<{ ok: true; key: string | string[] | undefined; reservationId: string | null } | { ok: false }> {
+  Promise<{ ok: true; key: string | string[] | undefined; reservationId: string | null; debateReservationId: string | null } | { ok: false }> {
   const budgetKey = debateId ?? 'generate';
   if (tier.serverProvidedKey) {
     // t/4486: the ONLY injection-path reader of the free pool — applies the geo gate.
@@ -126,9 +162,9 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
     // across server keys via callWithKeyRotation in generateText.
     const freeKeys = poolResult.keys;
     if (freeKeys.length === 0) { res.writeHead(503); res.end(JSON.stringify({ error: 'Free tier is not available' })); return { ok: false }; }
-    const budgetResult = await reserveFreePoolCall(res, budgetKey); // t/4485: 429/503 already written on refusal
+    const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId); // t/4485: 429/503 already written on refusal
     if (!budgetResult.ok) return { ok: false };
-    return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys, reservationId: budgetResult.reservationId };
+    return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys, reservationId: budgetResult.reservationId, debateReservationId: budgetResult.debateReservationId };
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
   if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
@@ -136,33 +172,40 @@ async function resolveExplicitAiKey(req: http.IncomingMessage, res: http.ServerR
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     if (poolResult.keys.length > 0) {
       explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
-      const budgetResult = await reserveFreePoolCall(res, budgetKey); // t/4485: same budget as the free tier itself
+      const budgetResult = await admitFreePoolCall(req, res, budgetKey, debateId); // t/4485: same budget as the free tier itself
       if (!budgetResult.ok) return { ok: false };
-      return { ok: true, key: explicitKey, reservationId: budgetResult.reservationId };
+      return { ok: true, key: explicitKey, reservationId: budgetResult.reservationId, debateReservationId: budgetResult.debateReservationId };
     }
     // An empty pool is NOT an error for this branch — unlike the free tier's own 503, a BYOK
     // user with no fallback available just proceeds with no key, same as pre-t/4486 behavior.
     // No budget reservation either — there's no free-pool key to reserve against.
   }
-  return { ok: true, key: explicitKey, reservationId: null };
+  return { ok: true, key: explicitKey, reservationId: null, debateReservationId: null };
 }
 
-/** t/4485: tracks one free-pool budget reservation's lifecycle so the generate handler doesn't
- *  need its own `if (reservationId)` / `if (!committed)` branches at each of its several
- *  commit/release points (that inline branching is what pushed the handler's cyclomatic
- *  complexity over its baseline, t/3821) — `commit`/`releaseIfUnsettled` absorb the null-check
- *  and the settled-or-not bookkeeping internally. A no-op throughout when `reservationId` is
- *  null (budget enforcement off, the common case today, or a BYOK call with no free-pool key). */
-function trackFreePoolReservation(reservationId: string | null) {
+/** t/4485 (+ t/4485#9 debate reconciliation): tracks one free-pool budget reservation's
+ *  lifecycle so the generate handler doesn't need its own `if (reservationId)` / `if
+ *  (!committed)` branches at each of its several commit/release points (that inline branching is
+ *  what pushed the handler's cyclomatic complexity over its baseline, t/3821) — `commit`/
+ *  `releaseIfUnsettled` absorb the null-checks and the settled-or-not bookkeeping internally.
+ *  `reservationId` and `debateReservationId` are mutually exclusive: a plain/fallback
+ *  reservation commits/releases normally; a debate-covered call instead reconciles the real
+ *  token count via `reconcileDebateDrawDown` (its estimate was already drawn down up front) and
+ *  has nothing to release (there's no partial amount to undo once drawn down). A no-op
+ *  throughout when both are null (budget enforcement off, the common case today, or a BYOK call
+ *  with no free-pool key). */
+function trackFreePoolReservation(reservationId: string | null, debateReservationId: string | null = null) {
   let settled = false;
   return {
     async commit(usage: { inputTokens: number; outputTokens: number } | undefined): Promise<void> {
       settled = true;
+      const tokens = usage ? usage.inputTokens + usage.outputTokens : FREE_POOL_CALL_TOKEN_ESTIMATE;
+      if (debateReservationId) { await reconcileDebateDrawDown(debateReservationId, tokens); return; }
       if (!reservationId) return;
-      await commitFreePoolCall(reservationId, { calls: 1, tokens: usage ? usage.inputTokens + usage.outputTokens : FREE_POOL_CALL_TOKEN_ESTIMATE });
+      await commitFreePoolCall(reservationId, { calls: 1, tokens });
     },
     async releaseIfUnsettled(): Promise<void> {
-      if (settled || !reservationId) return;
+      if (settled || debateReservationId || !reservationId) return;
       await releaseFreePoolCall(reservationId);
     },
   };
@@ -471,10 +514,11 @@ export function registerAiRoutes(r: Router, ctx: ServerCtx): void {
       // Key injection: free tier → server FREE_TIER_GEMINI_KEY, geo-gated (t/4486, 403 if no
       // keys or restricted region); platform → server-side keys; BYOK → client key, with a
       // free-tier Gemini fallback (t/945).
+      // t/4485#5: the debate-admission requester scope — the signed-in principal, or the
       const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, debateId);
       if (!keyResult.ok) return;
       let explicitKey = keyResult.key;
-      freePoolBudget = trackFreePoolReservation(keyResult.reservationId);
+      freePoolBudget = trackFreePoolReservation(keyResult.reservationId, keyResult.debateReservationId);
 
       // t/3498 (t/3495 epic): an allowlisted user running Gemini with no personal
       // key gets the admin's registered paid key injected server-side — never
