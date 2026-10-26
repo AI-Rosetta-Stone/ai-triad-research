@@ -242,12 +242,18 @@ jobs:
           }
 
           # ── ci-gate / CodeQL check-run conclusions (t/4285 ported) ──
-          $checkRunsJson = gh api "repos/$($env:REPO)/commits/$($env:SHA)/check-runs" --paginate 2>&1
+          # t/3912 (issue #3822): `gh api ... --paginate` on this endpoint concatenates each
+          # page's whole `{total_count, check_runs:[...]}` object one after another, which is
+          # multiple JSON documents, not one -- piping the raw text to a single `ConvertFrom-Json`
+          # throws "Conversion from JSON failed with error: Additional text encountered" the
+          # moment a commit has more than one page of check-runs. `--jq '.check_runs[]'` makes gh
+          # emit one check-run object per line across every page instead, which parses cleanly.
+          $checkRunsJson = gh api "repos/$($env:REPO)/commits/$($env:SHA)/check-runs" --paginate --jq '.check_runs[]' 2>&1
           $ciGateConclusion = 'missing'
           $codeQlConclusion = $null
           if ($LASTEXITCODE -eq 0) {
-            $checkRuns = $checkRunsJson | ConvertFrom-Json
-            $liveByName = ConvertFrom-CheckRunsResponse -CheckRunsResponse $checkRuns
+            $checkRunsList = @($checkRunsJson | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+            $liveByName = ConvertFrom-CheckRunsResponse -CheckRunsResponse ([pscustomobject]@{ check_runs = $checkRunsList })
             if ($liveByName.ContainsKey('ci-gate')) { $ciGateConclusion = $liveByName['ci-gate'].Conclusion }
             if ($liveByName.ContainsKey('CodeQL')) { $codeQlConclusion = $liveByName['CodeQL'].Conclusion }
           } else {
