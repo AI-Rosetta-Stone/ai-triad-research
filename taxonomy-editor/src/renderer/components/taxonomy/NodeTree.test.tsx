@@ -318,11 +318,23 @@ describe('t/4532: a preselected/restored node does not auto-expand its category 
     expect(screen.queryByText('Maximize progress')).toBeNull(); // Desires stays collapsed
   });
 
-  it('explicit navigation within the same mount still auto-expands (search, link, keyboard-nav)', () => {
+  it('the first non-null selection on a first view is suppressed too (PovTab\'s "auto-select first node on load" effect sets selectedNodeId from null to an id ASYNCHRONOUSLY, shortly after mount — the exact same shape, not a user action)', () => {
     const { rerender } = render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
     expect(screen.queryByText('Maximize progress')).toBeNull();
     rerender(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />);
-    expect(screen.getByText('Maximize progress')).toBeDefined(); // now expanded: a later, explicit selection
+    expect(screen.queryByText('Maximize progress')).toBeNull(); // still suppressed: this transition IS the first view's auto-select
+  });
+
+  it('a later, genuinely explicit selection (search, link, keyboard-nav) still auto-expands', () => {
+    // The guard is consumed by the first selection change (PovTab's auto-select, above) — a
+    // SECOND change, in a different category, is what a real user-driven explicit navigation
+    // looks like from NodeTree's side, since it necessarily happens after the tree has already
+    // rendered for the user to act on.
+    const { rerender } = render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    rerender(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />); // consumes the guard
+    expect(screen.queryByText('Fund research')).toBeNull();
+    rerender(<NodeTree nodes={NODES} selectedNodeId="acc-I-001" onSelect={vi.fn()} pov="accelerationist" />); // a later, explicit selection
+    expect(screen.getByText('Fund research')).toBeDefined();
   });
 
   it('reopening a POV already visited this session: a preselected node DOES auto-expand (not a first view)', () => {

@@ -243,13 +243,18 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
     }
   }, [sortMode, nodes, storageKey]);
 
-  // Auto-expand category when keyboard nav selects a node in a collapsed group
+  // Auto-expand category when keyboard nav selects a node in a collapsed group.
+  // t/4532: PovTab's own "auto-select first node on load" effect sets selectedNodeId
+  // ASYNCHRONOUSLY, shortly after this component's own first mount (once orderedIds is
+  // ready) — not synchronously as this render's initial prop value. So the guard must be
+  // consumed on the first run that actually SEES a selection, not on this effect's first
+  // run unconditionally (an earlier run with selectedNodeId still null must leave it armed).
   useEffect(() => {
+    if (!selectedNodeId) return;
     if (justMountedFirstView.current) {
       justMountedFirstView.current = false;
       return;
     }
-    if (!selectedNodeId) return;
     const node = nodes.find(n => n.id === selectedNodeId);
     if (!node) return;
     if (collapsed.has(node.category)) {
