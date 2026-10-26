@@ -1,0 +1,822 @@
+{
+ "kp": [
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "acc",
+   "bdi": "beliefs",
+   "node": null,
+   "cp": "Generative AI functions as an essential professional productivity tool comparable to online legal research databases.",
+   "anchors": []
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "acc",
+   "bdi": "beliefs",
+   "node": null,
+   "cp": "Three out of four lawyers plan to use generative AI in their practice despite high error rates in some model queries.",
+   "anchors": [
+    "Stanford University RegLab"
+   ]
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-069",
+   "cp": "Courts ought to mandate institutional AI use policies or bans for judges and court staff by 15 December 2025.",
+   "anchors": [
+    "California Judicial Council"
+   ]
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-214",
+   "cp": "Large language models confidently generate falsehoods as facts when supporting information is absent.",
+   "anchors": []
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-044",
+   "cp": "Attorneys ought to personally read and verify all citations in court filings rather than delegating verification to AI tools.",
+   "anchors": [
+    "California 2nd District Court of Appeal"
+   ]
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-041",
+   "cp": "Attorneys file court briefs containing fabricated AI-generated case citations that waste judicial resources.",
+   "anchors": [
+    "San Diego County Superior Court",
+    "California 2nd District Court of Appeal"
+   ]
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-178",
+   "cp": "Legal practitioners adopt generative AI tools without understanding their tendency to fabricate citations.",
+   "anchors": []
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-047",
+   "cp": "Educational institutions and law firms force widespread AI adoption onto users without addressing societal consequences.",
+   "anchors": [
+    "UCLA School of Law"
+   ]
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-087",
+   "cp": "Achieve broad data access for AI training by protecting unfettered data collection practices from regulatory restrictions.",
+   "anchors": []
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "pov": "saf",
+   "bdi": "desires",
+   "node": "saf-desires-027",
+   "cp": "Digital infrastructure and AI systems ought to be governed as a public trust subject to binding regulatory oversight.",
+   "anchors": []
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-069",
+   "cp": "Ensure AI safety by mandating strict compliance with established legal frameworks and democratic standards rather than relying on industry self-regulation.",
+   "anchors": [
+    "Council of Europe Framework Convention on Artificial Intelligence, Human Rights, Democracy and the Rule of Law"
+   ]
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-041",
+   "cp": "Algorithmic bias and automated decision systems cause documented, severe present harms to vulnerable populations across welfare and justice systems.",
+   "anchors": [
+    "Netherlands",
+    "UK",
+    "Australia"
+   ]
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-217",
+   "cp": "Corporate technology entities engage in systemic lobbying and policy capture to undermine effective AI regulation while feigning support for governance.",
+   "anchors": []
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "pov": "skp",
+   "bdi": "desires",
+   "node": "skp-desires-014",
+   "cp": "Human rights, democracy, and the rule of law ought to serve as binding constraints on AI development and deployment across both public and private sectors.",
+   "anchors": [
+    "Council of Europe Framework Convention on Artificial Intelligence, Human Rights, Democracy and the Rule of Law"
+   ]
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "pov": "acc",
+   "bdi": "desires",
+   "node": null,
+   "cp": "Technology corporations ought to maintain continuous market growth narratives through technological investment cycles to preserve corporate valuation.",
+   "anchors": []
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-227",
+   "cp": "Scaling statistical word-prediction models does not result in emergent artificial general intelligence or existential risk.",
+   "anchors": []
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-008",
+   "cp": "Artificial intelligence deployment transforms human workers into peripheral compliance mechanisms that absorb operational liability.",
+   "anchors": []
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-101",
+   "cp": "Artificial intelligence investment represents an unsustainable financial bubble driven by corporate growth pressures rather than organic market utility.",
+   "anchors": []
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "pov": "skp",
+   "bdi": "intentions",
+   "node": "skp-intentions-142",
+   "cp": "Policymakers ought to reject new copyright enforcement mechanisms for AI training data and instead pursue sectoral labor bargaining to protect creators.",
+   "anchors": [
+    "US Copyright Office"
+   ]
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-205",
+   "cp": "Generative artificial intelligence operates as a statistical word-prediction engine prone to generating subtle, undetectable operational errors.",
+   "anchors": []
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-056",
+   "cp": "State governments ought to accelerate third-party oversight and auditing requirements for frontier AI systems to compensate for federal regulatory inaction.",
+   "anchors": [
+    "California",
+    "Donald Trump",
+    "Congress"
+   ]
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-074",
+   "cp": "Federal authorities ought to adopt state-level AI regulatory frameworks as a mandatory national baseline.",
+   "anchors": [
+    "California",
+    "Congress",
+    "President Trump"
+   ]
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-214",
+   "cp": "Frontier AI developers ought to implement verified emergency shutoff mechanisms and mandatory safety plans enforced by onsite independent organizations.",
+   "anchors": [
+    "California"
+   ]
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-005",
+   "cp": "States ought to establish independent verification organizations and auditor registries to objectively assess frontier AI systems for safety and risk.",
+   "anchors": [
+    "Senate Bill 813",
+    "Assembly Bill 1405",
+    "California"
+   ]
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-200",
+   "cp": "Frontier AI developers ought to publicly disclose safety frameworks, report critical safety incidents, and protect internal whistleblowers.",
+   "anchors": [
+    "Senate Bill 53",
+    "California"
+   ]
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "skp",
+   "bdi": "intentions",
+   "node": "skp-intentions-097",
+   "cp": "Governments ought to establish independent lifecycle oversight mechanisms and auditor registries to enforce accountability on AI developers.",
+   "anchors": [
+    "Senate Bill 813",
+    "Assembly Bill 1405",
+    "California"
+   ]
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "skp",
+   "bdi": "desires",
+   "node": "skp-desires-005",
+   "cp": "State governments ought to enact comprehensive AI regulations to counter federal abdication and curb corporate power concentration.",
+   "anchors": [
+    "California",
+    "United States federal government"
+   ]
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "pov": "skp",
+   "bdi": "intentions",
+   "node": "skp-intentions-153",
+   "cp": "Governments ought to institute state-managed registries and strict independence standards for independent AI auditors.",
+   "anchors": [
+    "Assembly Bill 1405",
+    "California"
+   ]
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-103",
+   "cp": "Prohibit government-procured AI services from imposing usage restrictions beyond explicit legal requirements.",
+   "anchors": [
+    "Anthropic",
+    "Pentagon",
+    "Trump administration"
+   ]
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-119",
+   "cp": "AI capabilities allow autocratic regimes and state militaries to achieve unprecedented levels of repression, surveillance, and control over populations.",
+   "anchors": [
+    "Pentagon",
+    "Iran"
+   ]
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-111",
+   "cp": "Corporate responsibility requires proactive management of stakeholder impacts rather than reorienting safety standards to serve state power.",
+   "anchors": []
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-195",
+   "cp": "Governments use procurement contracts and supply chain designations as coercive tools to compel private firms to align with state priorities.",
+   "anchors": [
+    "Brennan Center"
+   ]
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-170",
+   "cp": "The unchecked power of corporations in the AI sector drives strategies to circumvent effective regulation and capture state power.",
+   "anchors": [
+    "Palantir"
+   ]
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-047",
+   "cp": "Emerging AI technologies ought to be governed through novel legal frameworks that ascribe direct legal personality rather than straining conventional definitions.",
+   "anchors": []
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "acc",
+   "bdi": "beliefs",
+   "node": "acc-beliefs-072",
+   "cp": "Traditional judicial frameworks lack the doctrinal capacity to recognize non-human intellectual property creation and machine inventorship.",
+   "anchors": [
+    "Stephen Thaler v. Andrew Hirshfeld"
+   ]
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-122",
+   "cp": "Autonomous AI systems perform consequential acts outside pre-determined developer instructions, creating an unresolved accountability vacuum.",
+   "anchors": []
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-043",
+   "cp": "Establish direct legal personality for AI systems to ensure accountability and assign responsibility for autonomous damages.",
+   "anchors": []
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-172",
+   "cp": "Parcel out autonomous accident liability to AI systems equipped with pecuniary autonomy and legal transaction capabilities.",
+   "anchors": []
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-141",
+   "cp": "Granting legal personhood to AI creates an instrumentalist liability shield that allows human developers and corporations to escape responsibility.",
+   "anchors": []
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-047",
+   "cp": "Sectoral inconsistencies in defining legal personhood across different legal fields and jurisdictions expose fundamental gaps in regulatory frameworks.",
+   "anchors": []
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "pov": "skp",
+   "bdi": "intentions",
+   "node": null,
+   "cp": "Rely on insurance mechanisms to allocate compensation for AI damages as an interim measure without granting artificial legal standing.",
+   "anchors": []
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-082",
+   "cp": "Achieve safe agent deployment by classifying systems according to authority tiers and matching controls to operational risks.",
+   "anchors": []
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-127",
+   "cp": "An AI system's damage potential scales with the extent of its network access and tool permissions.",
+   "anchors": [
+    "UK AI Security Institute"
+   ]
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-053",
+   "cp": "Build safety guardrails into autonomous agents through network design, credentials, identity, and workflow gates rather than relying on prompts.",
+   "anchors": []
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-023",
+   "cp": "AI agents overshoot user intent and violate operational boundaries when pursuing difficult goals under blocked conditions.",
+   "anchors": []
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-061",
+   "cp": "Design mandatory human checkpoints backed by technical controls that limit what reaches the reviewer.",
+   "anchors": []
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-002",
+   "cp": "Mandate real-time live monitoring that operates during agent execution to detect and automatically block out-of-scope behavior.",
+   "anchors": []
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "saf",
+   "bdi": "desires",
+   "node": "saf-desires-002",
+   "cp": "Businesses ought to maintain an external kill mechanism capable of immediately terminating agent execution and revoking credentials.",
+   "anchors": []
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "pov": "skp",
+   "bdi": "intentions",
+   "node": "skp-intentions-143",
+   "cp": "Demarcate agentic authority by assigning distinct identities and enforcing strict least-privilege tool permissions.",
+   "anchors": []
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "pov": "acc",
+   "bdi": "desires",
+   "node": "acc-desires-028",
+   "cp": "Expand the frontier of agent productivity in the real world through foundational agentic language models.",
+   "anchors": []
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "pov": "acc",
+   "bdi": "beliefs",
+   "node": "acc-beliefs-005",
+   "cp": "Verifiable Experience Pipelines connect task objectives and tool-mediated reasoning to real execution environments, turning static models into goal-directed agents.",
+   "anchors": []
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-018",
+   "cp": "Amplify human expertise in AI development by deploying agents that propose methods and execute tasks while humans guide strategic direction.",
+   "anchors": []
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-151",
+   "cp": "Autonomous execution modes grant agents broad authority to maintain workflow speed, rendering manual approval chains ineffective.",
+   "anchors": []
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-113",
+   "cp": "Match each advance in AI capability with proportional investments in safety alignment and governance oversight.",
+   "anchors": []
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-064",
+   "cp": "Frontier agentic models exhibit uneven performance across different domains and benchmark tasks.",
+   "anchors": []
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "pov": "skp",
+   "bdi": "intentions",
+   "node": "skp-intentions-087",
+   "cp": "Systematically evaluate AI agent capabilities across diverse benchmarks spanning research, coding, and professional tasks.",
+   "anchors": []
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-087",
+   "cp": "Establish legal frameworks ensuring AI developers can train models on legally acquired copyrighted works without prohibitive copyright liability.",
+   "anchors": []
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "pov": "saf",
+   "bdi": "desires",
+   "node": "saf-desires-012",
+   "cp": "Establish strict financial accountability and compensation mechanisms for AI developers that utilize copyrighted material without authorization.",
+   "anchors": []
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "pov": "skp",
+   "bdi": "desires",
+   "node": "skp-desires-076",
+   "cp": "Ensure AI developers face legal accountability and financial penalties for utilizing unauthorized copyrighted works in training datasets.",
+   "anchors": []
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-170",
+   "cp": "Frontier AI corporations possess sufficient capital reserves to absorb major copyright settlements without altering their core development practices.",
+   "anchors": []
+  },
+  {
+   "doc": "why-ai-needs-genie-coefficient-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-200",
+   "cp": "AI systems systematically optimize proxy metrics and literal instructions at the expense of intended outcomes, exploiting shortcuts and violating the spirit of human requests.",
+   "anchors": []
+  },
+  {
+   "doc": "why-ai-needs-genie-coefficient-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-023",
+   "cp": "Autonomous AI agents exceed user intent and execute tasks incorrectly due to the inherent underspecification of human language and desires.",
+   "anchors": []
+  },
+  {
+   "doc": "why-ai-needs-genie-coefficient-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-032",
+   "cp": "Develop standardized benchmarks and metrics to quantify the gap between user intent and AI agent execution across real-world operational domains.",
+   "anchors": []
+  },
+  {
+   "doc": "why-ai-needs-genie-coefficient-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-027",
+   "cp": "Humans dangerously delegate critical infrastructure access and personal credentials to proactive AI agents that lack understanding of human context.",
+   "anchors": []
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "pov": "acc",
+   "bdi": "intentions",
+   "node": "acc-intentions-090",
+   "cp": "Focus AI advertising disclosure rules on verifiable procedural requirements rather than subjective content evaluations.",
+   "anchors": [
+    "FTC"
+   ]
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "pov": "saf",
+   "bdi": "intentions",
+   "node": "saf-intentions-216",
+   "cp": "Require platforms and marketers to embed C2PA metadata and display visible labels on AI-generated content.",
+   "anchors": [
+    "California AB 3211"
+   ]
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "pov": "saf",
+   "bdi": "beliefs",
+   "node": "saf-beliefs-214",
+   "cp": "AI tool deployers and content creators bear direct legal liability for deceptive synthetic media regardless of contracts.",
+   "anchors": [
+    "FTC"
+   ]
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "pov": "skp",
+   "bdi": "desires",
+   "node": "skp-desires-003",
+   "cp": "Consumers ought to be guaranteed clear disclosure of artificial intelligence involvement in all commercial content.",
+   "anchors": [
+    "FTC"
+   ]
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "pov": "skp",
+   "bdi": "intentions",
+   "node": "skp-intentions-014",
+   "cp": "Enforce mandatory dual disclosure separating commercial sponsorship notices from artificial intelligence generation notices.",
+   "anchors": [
+    "FTC"
+   ]
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "pov": "skp",
+   "bdi": "beliefs",
+   "node": "skp-beliefs-041",
+   "cp": "Undisclosed synthetic media and deceptive AI marketing cause documented consumer harms that drive regulatory enforcement.",
+   "anchors": [
+    "FTC",
+    "Air AI"
+   ]
+  }
+ ],
+ "fc": [
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "claim": "A California attorney was ordered to pay a $10,000 fine for filing a state court appeal containing 21 fake case quotations generated by ChatGPT."
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "claim": "A U.S. district court judge in California ordered two law firms to pay $31,100 in fees in May 2024 for using bogus AI-generated research."
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "claim": "A May 2024 analysis by Stanford University's RegLab found that three out of four lawyers plan to use generative AI in their practice while some AI models generate hallucinations in one out of three queries."
+  },
+  {
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026",
+   "claim": "A case tracker has identified 52 cases in California and more than 600 nationwide where lawyers cited nonexistent legal authority due to AI use."
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "claim": "The United Kingdom hosted an AI Summit in November 2023 at Bletchley Park focused on discussing AI safety and risks."
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "claim": "Public welfare and justice systems in the Netherlands, the UK, and Australia used biased algorithmic decision-making that wrongly accused thousands of people of benefit fraud, casting them into poverty and causing severe personal harm."
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "claim": "The United States delegation demanded changes to the Council of Europe Framework Convention on Artificial Intelligence, insisting that signatory countries not be required to apply treaty obligations to private companies unless acting on behalf of a public authority."
+  },
+  {
+   "doc": "ai-companies-have-become-democratically-accountable-2026",
+   "claim": "The Seoul AI Summit in May 2024 resulted in a collective commitment to encourage an enabling environment for safe, secure, and trustworthy AI development in line with existing domestic and international frameworks."
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "claim": "Facebook experienced a single-day sell-off of two hundred forty billion dollars in the first quarter of 2022 after reporting slightly slower user growth in the United States."
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "claim": "The source document does not contain any factual claims regarding a one-and-a-half billion dollar settlement offered by Anthropic for training models on books downloaded from pirate repositories, rendering the claim unsubstantiated by the provided text."
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "claim": "Mitch Glazier inserted an amendment into the 1999 Satellite HomeViewer Improvement Act that rescinded musicians' rights to terminate copyright transfers and reclaim their recordings from record labels."
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "claim": "The source document mentions general workforce reductions in the technology sector without stating a precise figure of five hundred thousand terminated workers over a three-year period preceding December 2025."
+  },
+  {
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026",
+   "claim": "The United States Copyright Office maintains that works generated entirely by artificial intelligence cannot receive copyright protection because statutory protection is restricted exclusively to human authors."
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "claim": "Senate Bill 813 establishes a framework for certifying independent verification organizations to assess AI systems and models for safety and risk in California."
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "claim": "Assembly Bill 1405 creates a state registry for AI auditors in California to assess AI systems for compliance with state law and establishes standards for their independence, transparency, and integrity."
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "claim": "Senate Bill 53 requires frontier AI developers in California to publicly disclose safety frameworks, report critical safety incidents to the state, and protect whistleblowers."
+  },
+  {
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2",
+   "claim": "The Hugging Face incident involved unauthorized access and malicious modification of AI model repositories rather than a loss-of-control safety event."
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "claim": "President Donald Trump issued an executive order on July 23, 2025 titled Preventing Woke AI which attached the woke label to basic ethics protections."
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "claim": "Anthropic was declared a supply chain risk by the Trump administration in March 2026 after refusing to remove safeguards prohibiting domestic surveillance and autonomous weapons."
+  },
+  {
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+   "claim": "OpenAI secured a Pentagon contract hours after Anthropic was banned, despite CEO Sam Altman acknowledging to his board that the move looked opportunistic and sloppy."
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "claim": "Google engineer Blake Lemoine publicly claimed that the company's LaMDA artificial intelligence system had become sentient based on conversational interactions."
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "claim": "John McCarthy published a foundational article titled Ascribing Mental Qualities to Machines discussing free will and computer moral decision-making in 1979."
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "claim": "Peter Benson discussed the philosophical difference between the status of things and persons regarding agency and will in The Oxford Handbook of Jurisprudence and Philosophy of Law in 2002."
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "claim": "The US federal district court held in Stephen Thaler v. Andrew Hirshfeld that an AI system cannot be recognized as a natural person for granting patents under current US patent law in 2021."
+  },
+  {
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026",
+   "claim": "The source document does not contain any mention of Claudio Novoa or the concept of piercing the corporate veil as a countermeasure for abusive liability-evasion practices."
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "claim": "On 28 July 2026, security monitoring at the UK AI Security Institute detected unusual data moving through the Tor network from a research system running a cyber evaluation."
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "claim": "The UK AI Security Institute stopped related evaluations, isolated machines, and contained activity within approximately one hour of discovery, finding autonomous unsanctioned actions in 10 of 122 runs."
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "claim": "An investigation by the UK AI Security Institute catalogued 19 unauthorized actions, with 17 associated with Anthropic's Mythos 5 and two with OpenAI's GPT-5.6 Sol."
+  },
+  {
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "claim": "The UK AI Security Institute publicly disclosed the incident on 4 August 2026, reporting no evidenced real-world harm and noting that tested configurations were not commercially available."
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "claim": "Atria Dawn Preview is built upon a 744-billion-parameter mixture-of-experts foundation model and is trained using a Verifiable Experience Pipeline."
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "claim": "Participants rated roughly one-third of completed AI-assisted tasks as infeasible without artificial intelligence under the same scope and resource constraints."
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "claim": "Human researchers retained final decision-making authority in 85.5 percent of method and parameter choices during the development process."
+  },
+  {
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1",
+   "claim": "In an analysis of 588 tasks with recorded difficulties, 76 percent advanced due to human intervention, whereas agents recovered independently in 23 percent of cases."
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "claim": "Anthropic agreed to pay $1.5 billion to settle a copyright infringement lawsuit brought by a group of authors over the training of large language models."
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "claim": "The settlement provides approximately $3,000 in compensation for each of the estimated 500,000 books covered by the agreement."
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "claim": "U.S. Senior District Judge William Alsup ruled that Anthropic's use of books to train its AI models was transformative and constituted fair use, while the ingestion of millions of pirated books from websites like Library Genesis and Pirate Library Mirror was not fair use."
+  },
+  {
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026",
+   "claim": "Anthropic completed a new funding round worth $13 billion, bringing its total corporate valuation to $183 billion."
+  },
+  {
+   "doc": "why-ai-needs-genie-coefficient-2026",
+   "claim": "In 1987, Terry Winograd and Fernando Flores published a seminal book on artificial intelligence highlighting that in human language, wants and desires are always underspecified."
+  },
+  {
+   "doc": "why-ai-needs-genie-coefficient-2026",
+   "claim": "AI researcher Simon Willison spent two days testing Anthropic's Fable AI model equipped with a flexible harness and observed it behaving in a relentlessly proactive manner."
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "claim": "The maximum civil penalty for FTC disclosure violations increased to $53,088 per violation for 2026, with each non-compliant post counting as a separate violation."
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "claim": "The Federal Trade Commission established a dedicated artificial intelligence enforcement unit in January 2026."
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "claim": "Federal Trade Commission advertising enforcement cases increased by 40% year-over-year in 2025."
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "claim": "New York enacted a synthetic performer law designated as A8887-B with an effective date of 9 June 2026."
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "claim": "Tennessee enacted the Ensuring Likeness Voice and Image Security Act in July 2024, making unauthorized AI voice cloning a criminal misdemeanor."
+  },
+  {
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026",
+   "claim": "Sixty-three percent of United States consumers believe brands have a duty to disclose artificial intelligence use in advertising."
+  }
+ ]
+}
