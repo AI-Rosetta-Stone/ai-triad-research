@@ -190,16 +190,42 @@ export function approvalWaitByTier(prs) {
 // detector rather than re-deriving the phrasing independently.
 export const SO_CLEARED_RE = /\bSO (?:cleared|clearing|did not review)\b/i;
 
-/** PURE helper: the LAST comment matching SO_CLEARED_RE (re-confirmations across rebases push
- * the boundary later, matching the real #3386 shape from t/4091#40). comments: [{ body, createdAt }]. */
-export function findSoClearedAt(comments) {
-  let latest = null;
+// t/4537 (TL, p/702#87) fix: the original "take the LAST text match anywhere in the body" logic
+// mis-picked a LATER comment that merely *quotes or references* an earlier clearance -- e.g. a
+// PI-approval comment saying "SO conditions R1-R5 are met per the SO clearing comment" matches
+// SO_CLEARED_RE just as well as a genuine clearance, and being later in time, won under the old
+// "take the latest" rule. Confirmed on PR #3423: this inflated the measured agent-controllable
+// leg from ~8.9h to ~26.7h (t/4091#45). Every genuine SO clearance comment observed in practice
+// opens with "SO " as the very first words of its own bolded header ("**SO clearing comment...**",
+// "**SO did not review.**") -- a comment that only MENTIONS the phrase in body prose does not.
+// HEADER_SO_RE anchors the match to the comment's opening (stripping leading whitespace and
+// markdown bold markers), which is the practical stand-in for "the SO's own identity" the TL
+// asked for: this repo's agents share one GitHub login, so there is no actual author field to
+// filter by -- the comment's own declared voice is the only distinguishing signal. Deliberately
+// does NOT also match "SO review of #N..." (an initial review WITH conditions, not a clearance --
+// including it would wrongly treat a conditional review as "cleared" before the conditions are met).
+const HEADER_SO_RE = /^[\s*_]*(?:the\s+)?SO (?:cleared|clearing|did not review)\b/i;
+
+/** PURE helper: the FIRST comment whose OWN HEADER (not just body text anywhere) matches
+ * HEADER_SO_RE, among those that postdate `afterISO` (the PR's latest push) -- not the latest
+ * match overall. Taking the first-after-push, rather than the last-overall, is what correctly
+ * handles the real #3386 shape (multiple genuine SO rounds across rebases): each rebase moves
+ * the relevant push forward, so only a clearing comment that postdates the CURRENT push counts,
+ * and the first one after it is the genuine answer -- no need to guess at "latest" at all once
+ * comments before the push are excluded. comments: [{ body, createdAt }]. afterISO: ISO string
+ * or null/undefined (no push-time filter, e.g. when the caller doesn't have it) -- in that case
+ * every header-matching comment is a candidate and the FIRST one overall is taken. */
+export function findSoClearedAt(comments, afterISO) {
+  const afterMs = afterISO ? new Date(afterISO).getTime() : null;
+  let earliest = null;
   for (const c of comments ?? []) {
-    if (!SO_CLEARED_RE.test(c.body ?? '')) continue;
+    if (!HEADER_SO_RE.test(c.body ?? '')) continue;
     const t = new Date(c.createdAt).getTime();
-    if (!Number.isNaN(t) && (latest == null || t > latest)) latest = t;
+    if (Number.isNaN(t)) continue;
+    if (afterMs != null && t <= afterMs) continue;
+    if (earliest == null || t < earliest) earliest = t;
   }
-  return latest == null ? null : new Date(latest).toISOString();
+  return earliest == null ? null : new Date(earliest).toISOString();
 }
 
 /** PURE. prs: [{ body, ciGreenAt, mergedAt, soClearedAt }] -- T2 only (others are ignored, same
