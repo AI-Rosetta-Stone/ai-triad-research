@@ -94,7 +94,7 @@ test('invalidWorkflowFileVerdict: a successful run with 0 jobs (e.g. every job s
   assert.equal(v.invalid, false);
 });
 
-test('invalidWorkflowFileVerdict: no push-event run on record is NOT flagged (e.g. a workflow with no push trigger that has never had this bug)', () => {
+test('invalidWorkflowFileVerdict: no run on record is NOT flagged (e.g. a workflow that has never run)', () => {
   const v = invalidWorkflowFileVerdict({ file: 'x.yml', runs: [] });
   assert.equal(v.invalid, false);
 });
@@ -102,6 +102,30 @@ test('invalidWorkflowFileVerdict: no push-event run on record is NOT flagged (e.
 test('invalidWorkflowFileVerdict: only the NEWEST run matters -- a fixed file with an old 0-job failure is not re-flagged', () => {
   const v = invalidWorkflowFileVerdict({ file: 'x.yml', runs: [{ conclusion: 'success', jobCount: 3, runId: 2 }, { conclusion: 'failure', jobCount: 0, runId: 1 }] });
   assert.equal(v.invalid, false);
+});
+
+// ── t/4508: the real recurrence -- a schedule/dispatch-triggered workflow's only PUSH run is
+// months-old and will never be superseded by a new push, even though every schedule/dispatch run
+// in the meantime proves the file is fine. 6 occurrences (#3821/#3828/#3843/#3863/#3896) all cited
+// the SAME ancient push failure as "current" because the caller fetched push-event runs only. The
+// fix is at the call site (fetch the newest run of ANY event type), but this proves the pure
+// function itself was never the problem: given the broader, correct feed -- the newest run overall,
+// regardless of event -- it already classifies correctly.
+test('invalidWorkflowFileVerdict: t/4508 -- a recent successful schedule-event run clears an old push-event structural failure', () => {
+  const v = invalidWorkflowFileVerdict({
+    file: 'deploy-azure.yml',
+    runs: [{ conclusion: 'success', jobCount: 5, runId: 2, event: 'schedule' }],
+  });
+  assert.equal(v.invalid, false);
+});
+
+test('invalidWorkflowFileVerdict: reason text names the actual trigger event, not always "push-event" (t/4508)', () => {
+  const v = invalidWorkflowFileVerdict({
+    file: 'x.yml',
+    runs: [{ conclusion: 'failure', jobCount: 0, runId: 1, event: 'workflow_dispatch' }],
+  });
+  assert.equal(v.invalid, true);
+  assert.match(v.reason, /^workflow_dispatch-event run has 0 jobs/);
 });
 
 // ── LINT: the declared list must cover EVERY scheduled workflow in the repo, and only real files ──
@@ -122,6 +146,8 @@ test('LINT: every declared entry is a real scheduled workflow with a positive si
   for (const w of declared) {
     assert.ok(existsSync(join(wfDir, w.file)), `${w.file} is declared but does not exist`);
     assert.ok(actual.includes(w.file), `${w.file} is declared but has no schedule: trigger`);
-    assert.ok(Number.isFinite(w.maxSilentHours) && w.maxSilentHours >= 12, `${w.file}: maxSilentHours must be >= 12`);
+    // Floor lowered 12->10 (t/4501#8, PR #3835, TL-approved): health-monitor.yml/
+    // main-ci-monitor.yml/sources-index.yml deliberately set to 10h (2x measured p95 gap).
+    assert.ok(Number.isFinite(w.maxSilentHours) && w.maxSilentHours >= 10, `${w.file}: maxSilentHours must be >= 10`);
   }
 });
