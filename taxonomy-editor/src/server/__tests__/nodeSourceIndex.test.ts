@@ -10,7 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import * as fileIO from '../storage/fileIO.js';
-import { resetNodeSourceIndexCacheForTests, prewarmNodeSourceIndex } from '../storage/nodeSourceIndex.js';
+import { resetNodeSourceIndexCacheForTests, prewarmNodeSourceIndex, getNodeSourceIndexStatus } from '../storage/nodeSourceIndex.js';
 import { log } from '../logger.js';
 
 let dataRoot: string;
@@ -224,6 +224,70 @@ describe('buildNodeSourceIndex / getNodeSources (t/4333/t/4334)', () => {
 
     const call = warnSpy.mock.calls.find(([, msg]) => typeof msg === 'string' && msg.includes('no source metadata'));
     expect(call).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  // t/4517 AC1: a transient read failure (fails once, succeeds on retry) must
+  // not drop the doc from the index — the bounded retry gives it a real
+  // second chance before counting it as a failure.
+  it('a transient summary read failure is retried and the index stays complete', async () => {
+    writeSourceMeta('flaky-doc', { title: 'Flaky', url: 'https://example.com/flaky' });
+    writeSummary('flaky-doc', 'n1');
+    const summaryPath = path.join(dataRoot, 'summaries', 'flaky-doc.json');
+    const realReadFile = fileIO.getBackend().readFile.bind(fileIO.getBackend());
+    let attempts = 0;
+    const readSpy = vi.spyOn(fileIO.getBackend(), 'readFile').mockImplementation(async (p: string, opts) => {
+      if (path.resolve(p) === path.resolve(summaryPath)) {
+        attempts++;
+        if (attempts === 1) throw new Error('simulated transient GitHub 503');
+      }
+      return realReadFile(p, opts);
+    });
+
+    const result = await fileIO.getNodeSources('n1');
+
+    expect(attempts).toBeGreaterThanOrEqual(2); // failed once, retried, succeeded
+    expect(result.sources).toHaveLength(1);
+    expect(getNodeSourceIndexStatus()).toMatchObject({ complete: true, summaryReadFailures: 0 });
+    readSpy.mockRestore();
+  });
+
+  // t/4517 AC2/proof-arm: a persistent read failure (exhausts all retries)
+  // must WARN with the count, mark the cache incomplete, and have the NEXT
+  // request rebuild rather than live with the shrunk index until the next
+  // unrelated data change. This test goes red if indexSummaryFile's catch is
+  // made silent again (TL p/538#218's proof-arm requirement) — reverting to
+  // `catch { return; }` makes both the WARN assertion and the complete:false
+  // assertion fail, since nothing would record the failure at all.
+  it('a persistent summary read failure WARNs with the count, marks the cache incomplete, and the next request rebuilds (proof arm)', async () => {
+    writeSourceMeta('known-doc', { title: 'Known', url: 'https://example.com/known' });
+    writeSummary('known-doc', 'n1');
+    writeSourceMeta('broken-doc', { title: 'Broken', url: 'https://example.com/broken' });
+    writeSummary('broken-doc', 'n1');
+    const brokenPath = path.join(dataRoot, 'summaries', 'broken-doc.json');
+    const realReadFile = fileIO.getBackend().readFile.bind(fileIO.getBackend());
+    const readSpy = vi.spyOn(fileIO.getBackend(), 'readFile').mockImplementation(async (p: string, opts) => {
+      if (path.resolve(p) === path.resolve(brokenPath)) throw new Error('simulated persistent GitHub outage');
+      return realReadFile(p, opts);
+    });
+    const warnSpy = vi.spyOn(log.server, 'warn').mockImplementation(() => undefined as unknown as ReturnType<typeof log.server.warn>);
+
+    const first = await fileIO.getNodeSources('n1');
+    expect(first.sources).toHaveLength(1); // known-doc only — broken-doc dropped, not crashed
+    const warnCall = warnSpy.mock.calls.find(([, msg]) => typeof msg === 'string' && msg.includes('failed to read after retry'));
+    expect(warnCall).toBeDefined();
+    expect(warnCall![0]).toMatchObject({ summaryReadFailures: 1, failedDocIds: ['broken-doc'] });
+    expect(getNodeSourceIndexStatus()).toMatchObject({ complete: false, summaryReadFailures: 1 });
+
+    // Fix the backend, then the NEXT request must rebuild (not reuse the
+    // incomplete cache) and pick up broken-doc this time.
+    readSpy.mockRestore();
+    const versionBefore = first.indexVersion;
+    const second = await fileIO.getNodeSources('n1');
+    expect(second.indexVersion).toBeGreaterThan(versionBefore);
+    expect(second.sources).toHaveLength(2);
+    expect(getNodeSourceIndexStatus()).toMatchObject({ complete: true, summaryReadFailures: 0 });
+
     warnSpy.mockRestore();
   });
 });

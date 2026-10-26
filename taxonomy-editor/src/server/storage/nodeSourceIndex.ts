@@ -252,25 +252,47 @@ function sourceCardFieldCoverage(metaCache: Record<string, NodeSourceMeta>): { a
   };
 }
 
-async function indexSummaryFile(
-  summariesDir: string, file: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
-  missingMetaIds: Set<string>,
-): Promise<void> {
-  const backend = getBackend();
-  const docId = file.replace(/\.json$/, '');
-  let summary: {
-    pov_summaries?: Record<string, {
-      key_points?: Array<{
-        taxonomy_node_id?: string | null;
-        point?: string; stance?: string; verbatim?: string; excerpt_context?: string;
-      }>;
+// t/4517: a summary file just came back from listDirectory() moments ago, so
+// a null/thrown read here is anomalous (not "legitimately absent" — that case
+// doesn't exist for a freshly-listed file), most likely a transient backend
+// hiccup (GitHub secondary rate limit, a tripped circuit breaker, a timeout).
+// Bounded retry gives a transient failure a real chance before this doc is
+// dropped from the build.
+const SUMMARY_READ_MAX_ATTEMPTS = 3;
+const SUMMARY_READ_RETRY_BACKOFF_MS = [50, 150];
+
+async function readSummaryFileWithRetry(summariesDir: string, file: string): Promise<string> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < SUMMARY_READ_MAX_ATTEMPTS; attempt++) {
+    try {
+      const raw = await getBackend().readFile(path.join(summariesDir, file), { ref: 'main' });
+      if (raw !== null) return raw;
+      lastErr = new Error('backend.readFile returned null for a just-listed summary file');
+    } catch (err) {
+      // t/4517: per-attempt only — a transient hiccup that succeeds on retry
+      // is not worth recording. The FINAL outcome (all attempts exhausted) is
+      // recorded by indexSummaryFile's catch below, aggregated per build.
+      lastErr = err; /* telemetry — silent by design, see comment above */
+    }
+    if (attempt < SUMMARY_READ_MAX_ATTEMPTS - 1) {
+      await new Promise(resolve => setTimeout(resolve, SUMMARY_READ_RETRY_BACKOFF_MS[attempt]));
+    }
+  }
+  throw lastErr;
+}
+
+type SummaryDoc = {
+  pov_summaries?: Record<string, {
+    key_points?: Array<{
+      taxonomy_node_id?: string | null;
+      point?: string; stance?: string; verbatim?: string; excerpt_context?: string;
     }>;
-  };
-  try {
-    const raw = await backend.readFile(path.join(summariesDir, file), { ref: 'main' });
-    if (raw === null) return;
-    summary = JSON.parse(raw);
-  } catch { /* telemetry — silent by design */ return; }
+  }>;
+};
+
+function applySummaryToIndex(
+  docId: string, summary: SummaryDoc, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex, missingMetaIds: Set<string>,
+): void {
   const cached = metaCache[docId];
   if (!cached) missingMetaIds.add(docId); // t/4334#25: aggregated, not per-occurrence — logged once per build
   const meta = cached ?? { title: docId, url: null, sourceType: 'unknown', datePublished: '', authors: [], topicTags: [], oneLiner: null };
@@ -291,14 +313,76 @@ async function indexSummaryFile(
   }
 }
 
+async function indexSummaryFile(
+  summariesDir: string, file: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
+  missingMetaIds: Set<string>, readFailures: Map<string, string>,
+): Promise<void> {
+  const docId = file.replace(/\.json$/, '');
+  try {
+    const raw = await readSummaryFileWithRetry(summariesDir, file);
+    applySummaryToIndex(docId, JSON.parse(raw), metaCache, index, missingMetaIds);
+  } catch (err) {
+    // t/4517: was silent — no WARN, no record, nothing. Under concurrent
+    // cold-boot reads against a shared rate-limited backend, a subset of
+    // these failing would silently and non-deterministically shrink the
+    // index (TL root-cause, t/4499#7/t/4517). Aggregated, not per-occurrence,
+    // by warnSummaryReadFailures below (matches readAndParseMetadata's
+    // per-occurrence record() above, but this one is already covered by that
+    // aggregate WARN+record, so a second per-occurrence record() here would
+    // just double the signal for the same failure).
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'warn',
+      message: `indexSummaryFile: summary read/parse failed after retry, excluding doc from this build: ${docId}`,
+      error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+    });
+    readFailures.set(docId, (err as Error)?.name ?? 'Error');
+  }
+}
+
+// t/4517 (TL concurrency note, t/4517#1): ~900 unbounded parallel reads at
+// cold boot, across multiple replicas booting near-simultaneously, share one
+// GitHub App's rate-limit budget — the same load that produces the transient
+// failures this ticket retries. Capping concurrency reduces how often that
+// budget gets exhausted in the first place (also helps t/4499's summaryReadMs).
+const SUMMARY_READ_CONCURRENCY = 16;
+
+async function mapWithConcurrencyLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const item = items[next++];
+      await fn(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 async function indexSummaryFiles(
   summaryFiles: string[], summariesDir: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
-): Promise<Set<string>> {
+): Promise<{ missingMetaIds: Set<string>; readFailures: Map<string, string> }> {
   const missingMetaIds = new Set<string>();
-  await Promise.all(
-    summaryFiles.filter(f => f.endsWith('.json')).map(file => indexSummaryFile(summariesDir, file, metaCache, index, missingMetaIds))
+  const readFailures = new Map<string, string>();
+  await mapWithConcurrencyLimit(
+    summaryFiles.filter(f => f.endsWith('.json')), SUMMARY_READ_CONCURRENCY,
+    file => indexSummaryFile(summariesDir, file, metaCache, index, missingMetaIds, readFailures),
   );
-  return missingMetaIds;
+  return { missingMetaIds, readFailures };
+}
+
+/** t/4517: the aggregated counterpart to indexSummaryFile's per-doc catch —
+ *  one WARN per build naming the count and the doc ids/error classes, never
+ *  one per occurrence. Mirrors warnMissingMetaIds' shape. */
+function warnSummaryReadFailures(readFailures: Map<string, string>): void {
+  if (readFailures.size === 0) return;
+  log.server.warn(
+    { summaryReadFailures: readFailures.size, failedDocIds: [...readFailures.keys()].sort(), failures: Object.fromEntries(readFailures) },
+    'Node source index: some summary files failed to read after retry — index for this build is INCOMPLETE, will rebuild on next access',
+  );
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'node-source-index', level: 'warn',
+    message: 'Node source index: summary read failures after retry — build marked incomplete',
+    data: { summaryReadFailures: readFailures.size, failedDocIds: [...readFailures.keys()] },
+  });
 }
 
 /** t/4334#25 (Rosetta): a per-doc fallback (no `metaCache` entry — identity
@@ -445,7 +529,9 @@ export async function buildNodeSourceIndex(): Promise<NodeSourceIndex> {
   }
 
   const { metaCache, identityMeta, snapshotHashes } = await loadNodeMetaCache(sourcesDir);
-  warnMissingMetaIds(await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index));
+  const { missingMetaIds, readFailures } = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
+  warnMissingMetaIds(missingMetaIds);
+  warnSummaryReadFailures(readFailures);
   applyCanonicalDocIds(index, identityMeta, snapshotHashes, metaCache);
   return index;
 }
@@ -462,6 +548,13 @@ type NodeSourceIndexCache = {
   /** The summaries-dir listing at build time — the cheapest available
    *  data-change signal: an add/remove changes the file count or names. */
   invalidationSignature: string;
+  /** t/4517: count of summary files that failed to read after retry during
+   *  this build (0 = complete). Still served to the caller that produced it
+   *  (prefer serving something over nothing, TL t/4517#1 option (a)) — but a
+   *  non-zero count is never reused by a later call, so the next request
+   *  retries the build instead of silently living with a shrunk index until
+   *  the next unrelated data change. */
+  summaryReadFailures: number;
 };
 
 let nodeSourceIndexCache: NodeSourceIndexCache | null = null;
@@ -518,8 +611,9 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const loadNodeMetaMs = Date.now() - t;
 
   t = Date.now();
-  const missingMetaIds = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
+  const { missingMetaIds, readFailures } = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
   warnMissingMetaIds(missingMetaIds);
+  warnSummaryReadFailures(readFailures);
   const summaryReadMs = Date.now() - t;
 
   t = Date.now();
@@ -540,7 +634,8 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
     {
       coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,
       titleCollisionCount: titleCollisions.length, urlConflictCount: urlConflicts.length,
-      missingMetaCount: missingMetaIds.size, duplicateOfErrorCount, ...coverage, ...phaseMs,
+      missingMetaCount: missingMetaIds.size, summaryReadFailures: readFailures.size, complete: readFailures.size === 0,
+      duplicateOfErrorCount, ...coverage, ...phaseMs,
     },
     'Node source index rebuilt',
   );
@@ -555,10 +650,16 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   getGlobalRecorder()?.record({
     type: 'system.info', component: 'node-source-index', level: 'info',
     message: 'Node source index rebuilt',
-    data: { coldBuildMs, entryCount, payloadBytes, indexVersion: nodeSourceIndexGeneration, ...coverage, ...phaseMs },
+    data: {
+      coldBuildMs, entryCount, payloadBytes, indexVersion: nodeSourceIndexGeneration,
+      summaryReadFailures: readFailures.size, complete: readFailures.size === 0, ...coverage, ...phaseMs,
+    },
   });
 
-  return { index, cards, indexVersion: nodeSourceIndexGeneration, invalidationSignature: await currentInvalidationSignature() };
+  return {
+    index, cards, indexVersion: nodeSourceIndexGeneration,
+    invalidationSignature: await currentInvalidationSignature(), summaryReadFailures: readFailures.size,
+  };
 }
 
 /** Builds on first call — originally never at boot (t/4333 point 2's design),
@@ -571,7 +672,12 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
  *  gets that same build, never a redundant one. Invalidated by comparing the
  *  summaries-dir listing, not a TTL. */
 async function getNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
-  if (nodeSourceIndexCache) {
+  // t/4517: an incomplete cache (some summary reads failed after retry) is
+  // still returned to the caller whose build produced it, but is never
+  // reused by a later call — the signature check alone would otherwise treat
+  // a permanently-shrunk index as "unchanged" forever, until the next
+  // unrelated data edit happened to trigger a rebuild.
+  if (nodeSourceIndexCache && nodeSourceIndexCache.summaryReadFailures === 0) {
     const sig = await currentInvalidationSignature();
     if (sig === nodeSourceIndexCache.invalidationSignature) return nodeSourceIndexCache;
   }
@@ -624,6 +730,20 @@ export async function getNodeSources(nodeId: string): Promise<{ sources: SourceR
     if (card) cards[ref.canonicalDocId] = card;
   }
   return { sources, cards, indexVersion: cache.indexVersion };
+}
+
+/** t/4517 AC3: exposes build completeness for ServerAPI's `/health` wiring
+ *  (the visibility TL's design requires, t/4517#1 point 3) without this module
+ *  reaching into ServerAPI's route files. `null` means no build has happened
+ *  yet (nothing to report). */
+export function getNodeSourceIndexStatus(): { built: boolean; complete: boolean; indexVersion: number; summaryReadFailures: number } | null {
+  if (!nodeSourceIndexCache) return null;
+  return {
+    built: true,
+    complete: nodeSourceIndexCache.summaryReadFailures === 0,
+    indexVersion: nodeSourceIndexCache.indexVersion,
+    summaryReadFailures: nodeSourceIndexCache.summaryReadFailures,
+  };
 }
 
 /** Test-only: forces the next `getNodeSourceIndexCache()` call to rebuild,
