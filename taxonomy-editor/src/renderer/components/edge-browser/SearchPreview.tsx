@@ -2,8 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, povOfNode } from '../../hooks/useTaxonomyStore/superseded';
 import { nodeTypeFromId } from '@lib/debate/nodeIdUtils';
-import { POV_KEYS } from '@lib/debate/types';
 import { NodeDetail } from '../taxonomy/NodeDetail';
 import { SituationDetail } from '../debate/SituationDetail';
 import { ConflictDetail } from '../conflict/ConflictDetail';
@@ -31,21 +31,20 @@ export function SearchPreview({ searchPreviewId, onClear }: SearchPreviewProps) 
     const conflict = state.conflicts.find(c => c.claim_id === searchPreviewId);
     if (conflict) return <ConflictDetail conflict={conflict} readOnly chipDepth={0} />;
   } else {
-    for (const p of POV_KEYS) {
-      const node = state[p]?.nodes.find(n => n.id === searchPreviewId);
-      if (node) return (
-        <>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px 0', gap: 6 }}>
-            <button
-              onClick={() => openInTree(p, node.id)}
-              title="Open this node in the tree view for full editing context"
-              style={{ padding: '2px 10px', fontSize: '0.7rem', fontWeight: 600, borderRadius: 4, border: '1px solid var(--focus-ring)', background: 'none', color: 'var(--focus-ring)', cursor: 'pointer' }}
-            >Open in Tree</button>
-          </div>
-          <NodeDetail pov={p} node={node} chipDepth={0} />
-        </>
-      );
-    }
+    const node = allNodesById(state).get(searchPreviewId);
+    const pov = node ? povOfNode(state, searchPreviewId) : undefined;
+    if (node && pov) return (
+      <>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px 0', gap: 6 }}>
+          <button
+            onClick={() => openInTree(pov, node.id)}
+            title="Open this node in the tree view for full editing context"
+            style={{ padding: '2px 10px', fontSize: '0.7rem', fontWeight: 600, borderRadius: 4, border: '1px solid var(--focus-ring)', background: 'none', color: 'var(--focus-ring)', cursor: 'pointer' }}
+          >Open in Tree</button>
+        </div>
+        <NodeDetail pov={pov} node={node} chipDepth={0} />
+      </>
+    );
   }
   return <div className="detail-panel-empty">Node not found</div>;
 }

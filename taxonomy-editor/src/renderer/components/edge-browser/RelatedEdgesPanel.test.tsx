@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 const { openExternal } = vi.hoisted(() => ({ openExternal: vi.fn() }));
 
@@ -50,6 +50,10 @@ describe('RelatedEdgesPanel (t/2446)', () => {
       selectedEdge: null,
       selectEdge: vi.fn(),
       getLabelForId: (id: string) => `L:${id}`,
+      navigateToNode: vi.fn(),
+      accelerationist: null,
+      safetyist: null,
+      skeptic: null,
     };
     // Wire static getState used by EdgeRow
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,5 +85,46 @@ describe('RelatedEdgesPanel (t/2446)', () => {
     render(<RelatedEdgesPanel />);
 
     expect(screen.getByText(/Loading edges/)).toBeDefined();
+  });
+
+  describe('superseded "other" endpoint marker (t/4364)', () => {
+    it('marks a superseded other-node and navigates to its replacement on click', () => {
+      const edge = makeEdge(); // source acc-belief-001, target saf-belief-002
+      storeValue.relatedNodeId = 'acc-belief-001';
+      storeValue.selectedEdge = edge; // auto-expands this edge's group so the row renders
+      storeValue.edgesFile = {
+        edges: [edge],
+        edge_types: [{ type: 'SUPPORTS', bidirectional: false, definition: 'A supports B.' }],
+      };
+      storeValue.accelerationist = { nodes: [{ id: 'acc-belief-001', label: 'Live' }] };
+      storeValue.safetyist = {
+        nodes: [
+          { id: 'saf-belief-002', label: 'Old safety belief', superseded_by: 'saf-belief-003' },
+          { id: 'saf-belief-003', label: 'New safety belief' },
+        ],
+      };
+
+      render(<RelatedEdgesPanel />);
+
+      const mark = screen.getByText('superseded');
+      expect(mark).toBeInTheDocument();
+      fireEvent.click(mark);
+      expect(storeValue.navigateToNode).toHaveBeenCalledWith('safetyist', 'saf-belief-003');
+    });
+
+    it('shows no marker when the other node is not superseded', () => {
+      const edge = makeEdge();
+      storeValue.relatedNodeId = 'acc-belief-001';
+      storeValue.selectedEdge = edge;
+      storeValue.edgesFile = {
+        edges: [edge],
+        edge_types: [{ type: 'SUPPORTS', bidirectional: false, definition: 'A supports B.' }],
+      };
+      storeValue.safetyist = { nodes: [{ id: 'saf-belief-002', label: 'Live safety belief' }] };
+
+      render(<RelatedEdgesPanel />);
+
+      expect(screen.queryByText('superseded')).not.toBeInTheDocument();
+    });
   });
 });

@@ -3,6 +3,7 @@
 
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, isSuperseded, povOfNode } from '../../hooks/useTaxonomyStore/superseded';
 import type { Edge, EdgeType, EdgeStatus } from '../../types/taxonomy';
 import { POV_META, povKeyFromNodeId, type PovMetaKey } from '@lib/electron-shared/povMeta';
 import { TheoryLink } from '../shared/TheoryLink';
@@ -51,7 +52,17 @@ function EdgeRow({
   const isSource = edge.source === nodeId;
   const otherNodeId = isSource ? edge.target : edge.source;
   const direction = edge.bidirectional ? '\u2194' : isSource ? '\u2192' : '\u2190';
-  const otherLabel = useTaxonomyStore.getState().getLabelForId(otherNodeId);
+  const state = useTaxonomyStore.getState();
+  const otherLabel = state.getLabelForId(otherNodeId);
+  const otherSuperseded = isSuperseded(state, otherNodeId);
+  const supersededByTarget = otherSuperseded ? allNodesById(state).get(otherNodeId)?.superseded_by : undefined;
+
+  const openSupersededTarget = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!supersededByTarget) return;
+    const pov = povOfNode(state, supersededByTarget);
+    if (pov) state.navigateToNode(pov, supersededByTarget);
+  };
 
   return (
     <div
@@ -66,6 +77,13 @@ function EdgeRow({
         >
           {otherLabel}
         </span>
+        {otherSuperseded && (
+          supersededByTarget ? (
+            <button type="button" className="related-edge-superseded-mark related-edge-superseded-mark-link" title={`Superseded by ${supersededByTarget}`} onClick={openSupersededTarget}>superseded</button>
+          ) : (
+            <span className="related-edge-superseded-mark" title="Superseded">superseded</span>
+          )
+        )}
         {edge.status !== 'approved' && (
           <span className={`related-edge-status status-${edge.status}`}>
             {edge.status === 'rejected' ? '\u2717 ' : '\u25CF '}{STATUS_LABEL[edge.status]}
