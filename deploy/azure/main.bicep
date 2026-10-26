@@ -1284,8 +1284,13 @@ resource restartLoopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
   location: location
   tags: tags
   properties: {
-    displayName: 'Container Restart Loop Detected'
-    description: 'Fires when a container revision restarts 5+ times in 10 minutes — likely a crash loop from a bad deploy.'
+    displayName: 'taxonomy-editor PROD — Restart Loop Detected'
+    // t/4426: was unscoped (any app) and counted StoppingContainer, which every deploy emits —
+    // 38h of data showed 12 prod StoppingContainer events (all deploy churn, 0 real backoffs)
+    // plus staging canary/test-revision crash loops, both firing this as if they were prod.
+    // ContainerAppName_s=="taxonomy-editor" + dropping StoppingContainer leaves only the real
+    // crash-loop signals (ContainerBackOff, ImagePullBackOff) on the prod app.
+    description: 'Fires when the PRODUCTION container revision crash-loops (ContainerBackOff/ImagePullBackOff) 5+ times in 10 minutes. Scoped to prod only — staging crash loops do not page this (t/4426).'
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
@@ -1296,7 +1301,8 @@ resource restartLoopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
         {
           query: '''
             ContainerAppSystemLogs_CL
-            | where Reason_s in ("ContainerBackOff", "StoppingContainer", "ImagePullBackOff")
+            | where ContainerAppName_s == "taxonomy-editor"
+            | where Reason_s in ("ContainerBackOff", "ImagePullBackOff")
             | summarize RestartCount = count() by RevisionName_s
             | where RestartCount > 5
           '''
@@ -1993,10 +1999,12 @@ resource eventLoopLagAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pr
   location: location
   tags: tags
   properties: {
-    displayName: 'Event Loop Blocked (>1s starvation) — t/3167'
-    description: '''Node.js event loop blocked >1s — leading indicator of ingress-fabricated 5xx under load (t/3165 pattern).
+    displayName: 'taxonomy-editor PROD — Event Loop Blocked (>1s starvation) — t/3167'
+    description: '''Node.js event loop blocked >1s on the PRODUCTION app — leading indicator of ingress-fabricated 5xx under load (t/3165 pattern).
 Signal: Pino WARN "event loop blocked" fires ONLY on blocks >EVENT_LOOP_LAG_WARN_MS (1000ms); routine 5s gauges say "event-loop max…" without "blocked" and do not trip this.
-Structured fields: component="event-loop", level=warn(40). Primary detector for t/3167. (t/3167)'''
+Structured fields: component="event-loop", level=warn(40). Primary detector for t/3167.
+t/4426: scoped to ContainerAppName_s=="taxonomy-editor" — unscoped, 200/202 matching lines in a
+38h window came from staging (load-test/canary traffic), so this paged on staging noise. (t/3167, t/4426)'''
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
@@ -2008,6 +2016,7 @@ Structured fields: component="event-loop", level=warn(40). Primary detector for 
         {
           query: '''
             ContainerAppConsoleLogs_CL
+            | where ContainerAppName_s == "taxonomy-editor"
             | where Log_s has "event loop blocked"
           '''
           timeAggregation: 'Count'
