@@ -778,6 +778,13 @@ export class GitHubAPIBackend implements StorageBackend {
    * version is its own git blob SHA (gitBlobSha(overlay content)), computed
    * the same way writeFile's overlay fast path does, so a write that follows
    * this read with that version as baseSha matches cleanly.
+   *
+   * t/4510 (TL t/4510#3): this has the same overlay-before-ref-resolve order
+   * readFile() had before its fix — no current caller passes `opts.ref`
+   * (confirmed by grep), so it's out of scope for that fix. It MUST get the
+   * same precedence rule (skip the overlay when `opts.ref` pins away from
+   * the effective ref, with the same `consultOverlayOnPin` escape hatch)
+   * before any caller starts pinning a ref here.
    */
   async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
     const repoPath = this.toRepoPath(filePath);
