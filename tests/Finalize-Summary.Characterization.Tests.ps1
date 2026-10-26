@@ -237,7 +237,7 @@ BeforeAll {
     # Run-phase constants (top-level script variables exist only at discovery in Pester 5).
     $script:DefaultNodeIds = @('acc-beliefs-001', 'acc-desires-002', 'saf-beliefs-003', 'skp-beliefs-001', 'sit-004')
     # confidence_threshold: what Invoke-IterativeExtraction reports at its default (t/4079).
-    $script:FireStats = [ordered]@{ confidence_threshold = 0.7; total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; elapsed_seconds = 41.5; termination_reason = 'converged' }
+    $script:FireStats = [ordered]@{ confidence_threshold = 0.7; total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; claims_dropped_verification = 0; elapsed_seconds = 41.5; termination_reason = 'converged' }
 
     # e2e canned model output. Aligned key points carry no verbatim/canonical/attribution reps, so the
     # REAL polarity gate selects them (gated > 0) but has no pair to send to the Python directional engine.

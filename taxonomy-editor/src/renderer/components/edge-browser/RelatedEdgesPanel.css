@@ -170,3 +170,21 @@
   font-size: var(--text-sm);
 }
 
+/* t/4364: marker for an edge endpoint that's a superseded node (kept, not hidden — TL p/336#633). */
+.related-edge-superseded-mark {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  border: 1px solid var(--warning, #d97706);
+  color: var(--warning, #d97706);
+  background: none;
+}
+
+.related-edge-superseded-mark-link {
+  cursor: pointer;
+}
+

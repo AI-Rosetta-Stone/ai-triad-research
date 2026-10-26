@@ -45,6 +45,9 @@ describe('EdgeDetailPanel (t/1009)', () => {
       setActiveTab: vi.fn(),
       setSelectedNodeId: vi.fn(),
       showRelatedEdges: vi.fn(),
+      accelerationist: null,
+      safetyist: null,
+      skeptic: null,
     };
   });
 
@@ -106,5 +109,35 @@ describe('EdgeDetailPanel (t/1009)', () => {
     // Falls back to the empty-state placeholder and records the failure to the flight recorder.
     expect(await screen.findByText(/No rationale recorded/)).toBeDefined();
     expect(record).toHaveBeenCalled();
+  });
+
+  describe('superseded endpoint marker (t/4364)', () => {
+    it('marks a superseded source endpoint, linking to its replacement', () => {
+      const edge = makeEdge({ rationale: 'x' }); // source acc-belief-001
+      storeValue.selectedEdge = edge;
+      storeValue.edgesFile = { edges: [edge], edge_types: EDGE_TYPES };
+      storeValue.accelerationist = {
+        nodes: [{ id: 'acc-belief-001', label: 'Old', superseded_by: 'acc-belief-003' }],
+      };
+
+      render(<EdgeDetailPanel />);
+
+      const mark = screen.getByText('superseded');
+      expect(mark).toBeInTheDocument();
+      fireEvent.click(mark);
+      expect(storeValue.setActiveTab).toHaveBeenCalledWith('accelerationist');
+      expect(storeValue.setSelectedNodeId).toHaveBeenCalledWith('acc-belief-003');
+    });
+
+    it('shows no marker when neither endpoint is superseded', () => {
+      const edge = makeEdge({ rationale: 'x' });
+      storeValue.selectedEdge = edge;
+      storeValue.edgesFile = { edges: [edge], edge_types: EDGE_TYPES };
+      storeValue.accelerationist = { nodes: [{ id: 'acc-belief-001', label: 'Live' }] };
+
+      render(<EdgeDetailPanel />);
+
+      expect(screen.queryByText('superseded')).not.toBeInTheDocument();
+    });
   });
 });

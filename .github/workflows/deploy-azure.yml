@@ -821,39 +821,39 @@ jobs:
           $BaseUrl = '${{ steps.health_check.outputs.base_url }}'
           $RevisionCreatedAt = Get-Date  # closest available proxy; the step runs immediately after revision creation
 
-          $Routes = @(
-            @{ Path = '/api/entities';                  Field = '';      Label = 'entities' }
-            @{ Path = '/api/organizations';             Field = '';      Label = 'organizations' }
-            @{ Path = '/api/taxonomy/accelerationist';  Field = 'nodes'; Label = 'taxonomy nodes' }
-          )
-          $Probe = {
-            try {
-              $DataSession = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec 15
-              foreach ($R in $Routes) {
-                $Params = @{ BaseUrl = $BaseUrl; Path = $R.Path; Method = 'GET'; TimeoutSec = 15; ExpectJson = $true }
-                if ($DataSession) { $Params.Session = $DataSession }
-                $Check  = Invoke-RemoteCheck @Params
-                $Assert = Test-DataPresenceAssertion -Body $Check.Body -ContentType $Check.ContentType `
-                  -CountField $R.Field -Label $R.Label
-                if (-not $Assert.Pass) {
-                  Write-Host "mount-readiness probe: $($R.Label) not ready — $($Assert.Reason)"
-                  return $false
-                }
-              }
-              return $true
-            } catch {
-              Write-Host "mount-readiness probe error (treated as not-ready): $($_.Exception.Message)"
-              return $false
+          # t/4513 incident (run 40358394585): the first implementation here called
+          # New-AnonymousWebSession/Invoke-RemoteCheck/Test-DataPresenceAssertion directly --
+          # module-Private helpers, invisible to a `run:` block that only has `Import-Module` in
+          # scope. Every attempt failed "not recognized" and read as "mount not ready" for all 13
+          # rounds, rolling prod back on a FALSE NEGATIVE (fail-safe, but no deploy could succeed).
+          # Fix: Test-TaxEditorMountReadiness is a PUBLIC cmdlet (exported, resolves from
+          # Import-Module alone, same as Test-EmbeddingHealth/Test-TaxEditorHealth already do) that
+          # owns the actual HTTP probing; this step only owns the retry loop around it.
+          #
+          # Observability (TL incident requirement 3): a command that doesn't resolve is a defect
+          # in the GATE ITSELF, not a genuine "not ready" signal, and must fail fast and say so --
+          # never be silently absorbed into 13 "not ready" attempts again. The probe scriptblock
+          # below deliberately does NOT catch CommandNotFoundException (or any other
+          # infrastructure-level exception) -- only Test-TaxEditorMountReadiness's own documented
+          # $false-returning "not ready" outcome is treated as a retryable condition. An uncaught
+          # exception propagates out of Wait-MountReady on the FIRST attempt (proven by
+          # tests/Get-MountReadinessVerdict.Tests.ps1's "treats a probe exception as a failed round"
+          # case) and is caught here, once, and reported as a gate defect distinctly from a real
+          # not-ready mount.
+          try {
+            $Probe = { (Test-TaxEditorMountReadiness -BaseUrl $BaseUrl -TimeoutSec 15).Ready }
+            $Verdict = Wait-MountReady -Probe $Probe -MaxAttempts 13 -IntervalSeconds 10
+            $ElapsedSec = [math]::Round(((Get-Date) - $RevisionCreatedAt).TotalSeconds, 1)
+            if ($Verdict.Verdict -eq 'ready') {
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=true"
+              Write-Host "Mount readiness probe passed after $($Verdict.Attempts) attempt(s), ~${ElapsedSec}s since this step started — post this on t/4513 (live-fire proof)"
+            } else {
+              Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=false"
+              Write-Host "::error::Mount readiness probe failed after $($Verdict.Attempts) attempt(s) (~${ElapsedSec}s) — entities/organizations/taxonomy never all returned real data. See t/4504/t/4513."
             }
-          }
-          $Verdict = Wait-MountReady -Probe $Probe -MaxAttempts 13 -IntervalSeconds 10
-          $ElapsedSec = [math]::Round(((Get-Date) - $RevisionCreatedAt).TotalSeconds, 1)
-          if ($Verdict.Verdict -eq 'ready') {
-            Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=true"
-            Write-Host "Mount readiness probe passed after $($Verdict.Attempts) attempt(s), ~${ElapsedSec}s since this step started — post this on t/4513 (TL condition 3, live-fire)"
-          } else {
+          } catch {
             Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=false"
-            Write-Host "::error::Mount readiness probe failed after $($Verdict.Attempts) attempt(s) (~${ElapsedSec}s) — entities/organizations/taxonomy never all returned real data. See t/4504/t/4513."
+            Write-Host "::error::MOUNT READINESS GATE DEFECT (not a mount problem) — $($_.Exception.GetType().Name): $($_.Exception.Message). The probe itself could not run; this is a bug in the gate, same failure class as the t/4513 incident (run 40358394585). Treated as not-ready (fail-closed) without burning the full retry budget. See t/4513."
           }
           $global:LASTEXITCODE = 0
           exit 0

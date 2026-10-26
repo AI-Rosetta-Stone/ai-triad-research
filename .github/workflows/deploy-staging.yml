@@ -357,39 +357,28 @@ jobs:
             exit 1
           }
 
+          # t/4513 incident (run 40358394585, deploy-azure.yml): the first implementation called
+          # New-AnonymousWebSession/Invoke-RemoteCheck/Test-DataPresenceAssertion directly --
+          # module-Private helpers, invisible to a `run:` block that only has `Import-Module` in
+          # scope. Fixed by Test-TaxEditorMountReadiness, a PUBLIC cmdlet owning the HTTP probing;
+          # this step only owns the retry loop + the gate-defect-vs-not-ready distinction (TL
+          # incident requirement 3) -- an uncaught exception (e.g. a command that doesn't resolve)
+          # propagates out of Wait-MountReady on the FIRST attempt and is caught once, below,
+          # reported distinctly from a genuine not-ready mount.
           $MountProbeStart = Get-Date
-          $Routes = @(
-            @{ Path = '/api/entities';                  Field = '';      Label = 'entities' }
-            @{ Path = '/api/organizations';             Field = '';      Label = 'organizations' }
-            @{ Path = '/api/taxonomy/accelerationist';  Field = 'nodes'; Label = 'taxonomy nodes' }
-          )
-          $MountProbe = {
-            try {
-              $DataSession = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec 15
-              foreach ($R in $Routes) {
-                $Params = @{ BaseUrl = $BaseUrl; Path = $R.Path; Method = 'GET'; TimeoutSec = 15; ExpectJson = $true }
-                if ($DataSession) { $Params.Session = $DataSession }
-                $Check  = Invoke-RemoteCheck @Params
-                $Assert = Test-DataPresenceAssertion -Body $Check.Body -ContentType $Check.ContentType `
-                  -CountField $R.Field -Label $R.Label
-                if (-not $Assert.Pass) {
-                  Write-Host "mount-readiness probe: $($R.Label) not ready — $($Assert.Reason)"
-                  return $false
-                }
-              }
-              return $true
-            } catch {
-              Write-Host "mount-readiness probe error (treated as not-ready): $($_.Exception.Message)"
-              return $false
+          try {
+            $MountProbe = { (Test-TaxEditorMountReadiness -BaseUrl $BaseUrl -TimeoutSec 15).Ready }
+            $MountVerdict = Wait-MountReady -Probe $MountProbe -MaxAttempts 13 -IntervalSeconds 10
+            $MountElapsedSec = [math]::Round(((Get-Date) - $MountProbeStart).TotalSeconds, 1)
+            if ($MountVerdict.Verdict -ne 'ready') {
+              Write-Host "::error::Mount readiness probe failed after $($MountVerdict.Attempts) attempt(s) (~${MountElapsedSec}s) — NOT promoting staging traffic. See t/4504/t/4513."
+              exit 1
             }
-          }
-          $MountVerdict = Wait-MountReady -Probe $MountProbe -MaxAttempts 13 -IntervalSeconds 10
-          $MountElapsedSec = [math]::Round(((Get-Date) - $MountProbeStart).TotalSeconds, 1)
-          if ($MountVerdict.Verdict -ne 'ready') {
-            Write-Host "::error::Mount readiness probe failed after $($MountVerdict.Attempts) attempt(s) (~${MountElapsedSec}s) — NOT promoting staging traffic. See t/4504/t/4513."
+            Write-Host "Mount readiness probe passed after $($MountVerdict.Attempts) attempt(s), ~${MountElapsedSec}s"
+          } catch {
+            Write-Host "::error::MOUNT READINESS GATE DEFECT (not a mount problem) — $($_.Exception.GetType().Name): $($_.Exception.Message). The probe itself could not run; this is a bug in the gate, same failure class as the t/4513 incident. NOT promoting staging traffic. See t/4513."
             exit 1
           }
-          Write-Host "Mount readiness probe passed after $($MountVerdict.Attempts) attempt(s), ~${MountElapsedSec}s"
           $global:LASTEXITCODE = 0
 
           # Full smoke: all 6 endpoint categories (mandatory pre-traffic gate, t/2376).

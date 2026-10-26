@@ -13,6 +13,8 @@ import {
   deployRecoveryMinutes,
   reworkRate,
   approvalWaitByTier,
+  splitT2ApprovalWait,
+  findSoClearedAt,
   prSizeDistribution,
   openPRAgeDays,
   parsePILoadLines,
@@ -142,6 +144,76 @@ test('approvalWaitByTier: buckets by extractTier, defaults to none', () => {
   assert.equal(r.T0.n, 1);
   assert.equal(r.T2.n, 1);
   assert.equal(r.none.n, 1);
+});
+
+test('findSoClearedAt: matches "SO cleared" and "SO clearing comment", takes the LATEST match', () => {
+  const comments = [
+    { body: 'Some unrelated discussion', createdAt: '2026-10-19T08:00:00Z' },
+    { body: '**The SO cleared it at head `abc123`.**', createdAt: '2026-10-19T09:00:00Z' },
+    { body: '**SO clearing comment (T2, head `def456`).**', createdAt: '2026-10-20T01:00:00Z' },
+  ];
+  assert.equal(findSoClearedAt(comments), '2026-10-20T01:00:00.000Z');
+});
+
+test('findSoClearedAt: does NOT match "SO re-confirmation ... Not cleared yet" (SO isn\'t adjacent to clear*)', () => {
+  const comments = [{ body: 'SO re-confirmation at the new head. Not cleared yet; one gap remains.', createdAt: '2026-10-19T08:00:00Z' }];
+  assert.equal(findSoClearedAt(comments), null);
+});
+
+test('findSoClearedAt: "SO did not review" also matches (the time-box-lapsed fallback phrase)', () => {
+  const comments = [{ body: 'Per the time-box, SO did not review -- going to the PI marked accordingly.', createdAt: '2026-10-19T10:00:00Z' }];
+  assert.equal(findSoClearedAt(comments), '2026-10-19T10:00:00.000Z');
+});
+
+test('findSoClearedAt: no matching comment returns null, not a guess', () => {
+  assert.equal(findSoClearedAt([{ body: 'Looks good to me', createdAt: '2026-10-19T10:00:00Z' }]), null);
+  assert.equal(findSoClearedAt([]), null);
+  assert.equal(findSoClearedAt(undefined), null);
+});
+
+test('splitT2ApprovalWait: fast SO-clear + slow PI sign-off (this week\'s dominant real shape, t/4091#40) splits correctly', () => {
+  // Modeled on this week's #3423 shape: SO cleared ~1h after CI-green, PI approved ~27h later.
+  const prs = [{
+    body: 'Tier: T2\n...',
+    ciGreenAt: '2026-10-19T00:00:00Z',
+    soClearedAt: '2026-10-19T01:00:00Z',
+    mergedAt: '2026-10-20T04:00:00Z',
+  }];
+  const r = splitT2ApprovalWait(prs);
+  assert.equal(r.agentControllable.n, 1);
+  assert.equal(r.agentControllable.median, 60); // 1h
+  assert.equal(r.humanApproval.n, 1);
+  assert.equal(r.humanApproval.median, 27 * 60); // 27h
+  assert.equal(r.unclassified.n, 0);
+});
+
+test('splitT2ApprovalWait: no SO-cleared comment detected goes to unclassified, not guessed', () => {
+  const prs = [{ body: 'Tier: T2\n...', ciGreenAt: '2026-10-19T00:00:00Z', mergedAt: '2026-10-19T02:00:00Z', soClearedAt: null }];
+  const r = splitT2ApprovalWait(prs);
+  assert.equal(r.unclassified.n, 1);
+  assert.equal(r.unclassified.median, 120); // 2h
+  assert.equal(r.agentControllable.n, 0);
+  assert.equal(r.humanApproval.n, 0);
+});
+
+test('splitT2ApprovalWait: a re-confirmation comment that postdates mergedAt is clamped to 0, never negative', () => {
+  // Pathological but possible if an SO posts a late "still cleared" note after merge already happened.
+  const prs = [{
+    body: 'Tier: T2\n...',
+    ciGreenAt: '2026-10-19T00:00:00Z',
+    soClearedAt: '2026-10-19T05:00:00Z',
+    mergedAt: '2026-10-19T03:00:00Z',
+  }];
+  const r = splitT2ApprovalWait(prs);
+  assert.equal(r.humanApproval.median, 0);
+});
+
+test('splitT2ApprovalWait: non-T2 PRs are ignored (same bucketing convention as approvalWaitByTier)', () => {
+  const prs = [{ body: 'Tier: T0\n...', ciGreenAt: '2026-10-19T00:00:00Z', mergedAt: '2026-10-19T02:00:00Z', soClearedAt: '2026-10-19T01:00:00Z' }];
+  const r = splitT2ApprovalWait(prs);
+  assert.equal(r.agentControllable.n, 0);
+  assert.equal(r.humanApproval.n, 0);
+  assert.equal(r.unclassified.n, 0);
 });
 
 test('prSizeDistribution: lines and files, both numeric and array changedFiles forms', () => {
