@@ -198,7 +198,8 @@ function Invoke-SummaryPipeline {
     $VocabularyBlock = Build-VocabularyBlock
     if ($VocabularyBlock) { Write-Verbose "Pipeline: vocabulary block injected ($([int]($VocabularyBlock.Length / 4)) tokens est.)" }
 
-    if ($Metadata.PSObject.Properties['pov_tags']) { $PovTagLine = $Metadata.pov_tags -join ', ' } else { $PovTagLine = '' }
+    if ($Metadata.PSObject.Properties['pov_tags']) { $PovTagsArray = @($Metadata.pov_tags) } else { $PovTagsArray = @() }
+    $PovTagLine = $PovTagsArray -join ', '
     if ($Metadata.PSObject.Properties['topic_tags']) { $TopicTagLine = $Metadata.topic_tags -join ', ' } else { $TopicTagLine = '' }
     if ($Metadata.PSObject.Properties['title']) { $TitleLine = $Metadata.title } else { $TitleLine = $DocId }
 
@@ -243,76 +244,70 @@ $SnapshotText
         $SummaryObject = $FireResult.Summary
         $AiBackend = $FireResult.Backend
         $FireStats = $FireResult.FireStats
+
+        $DensityCheck = Test-SummaryDensity -SummaryObject $SummaryObject -PovTags $PovTagsArray
+        if (-not $DensityCheck.Pass) {
+            foreach ($Shortfall in $DensityCheck.Shortfalls) {
+                Write-Warning "WARN: ${DocId}: $Shortfall"
+            }
+        }
     }
     else {
-        # Single-shot with density validation + retry
+        # Single-shot extraction. No density retry (t/4473/t/4519): the floor was
+        # unreachable (281/288 single-shot documents still failed it after one
+        # retry) and the retry bought nothing but a second billed call.
         Write-Verbose "Pipeline: using single-shot extraction"
-        $DensityFloors = Get-DensityFloors -WordCount $WordCount
-        $MaxRetries = 1
-        $DensityRetryNudge = ''
 
-        for ($Attempt = 0; $Attempt -le $MaxRetries; $Attempt++) {
-            $AttemptPrompt = $FullPrompt
-            if ($Attempt -gt 0 -and $DensityRetryNudge) {
-                Write-Verbose "Pipeline: density retry $Attempt/$MaxRetries"
-                $AttemptPrompt = $FullPrompt + "`n`n" + $DensityRetryNudge
-            }
+        $__SsSw = [System.Diagnostics.Stopwatch]::StartNew()
+        $AiResult = Invoke-AIApi `
+            -Prompt      $FullPrompt `
+            -SystemInstruction $SysInstruction `
+            -Model       $Model `
+            -ApiKey      $ApiKey `
+            -Temperature $Temperature `
+            -MaxTokens   $ExtractionMaxTokens `
+            -JsonMode `
+            -TimeoutSec  600
+        $__SsSw.Stop()
+        Add-StageTiming -Name 'api.extraction (single-shot)' -Milliseconds $__SsSw.Elapsed.TotalMilliseconds
 
-            $__SsSw = [System.Diagnostics.Stopwatch]::StartNew()
-            $AiResult = Invoke-AIApi `
-                -Prompt      $AttemptPrompt `
-                -SystemInstruction $SysInstruction `
-                -Model       $Model `
-                -ApiKey      $ApiKey `
-                -Temperature $Temperature `
-                -MaxTokens   $ExtractionMaxTokens `
-                -JsonMode `
-                -TimeoutSec  600
-            $__SsSw.Stop()
-            Add-StageTiming -Name 'api.extraction (single-shot)' -Milliseconds $__SsSw.Elapsed.TotalMilliseconds
+        if ($null -eq $AiResult) {
+            Write-Warning "Single-shot summary: AI call returned null for '$DocId' (model=$Model, backend=unknown — call failed before returning a response)"
+            return @{ Success = $false; DocId = $DocId; Error = 'API call returned null' }
+        }
 
-            if ($null -eq $AiResult) {
-                Write-Warning "Single-shot summary: AI call returned null for '$DocId' (model=$Model, backend=unknown — call failed before returning a response)"
-                return @{ Success = $false; DocId = $DocId; Error = 'API call returned null' }
-            }
+        $AiBackend = $AiResult.Backend
+        Write-Verbose "Pipeline: response from $AiBackend"
 
-            $AiBackend = $AiResult.Backend
-            Write-Verbose "Pipeline: response from $AiBackend"
+        $CleanedText = $AiResult.Text -replace '(?s)^```json\s*', '' -replace '(?s)\s*```$', ''
+        try {
+            $SummaryObject = $CleanedText.Trim() | ConvertFrom-Json
+        }
+        catch {
+            # Try repair
+            $Repaired = Repair-TruncatedJson -Text $CleanedText
+            try { $SummaryObject = $Repaired | ConvertFrom-Json } catch { $SummaryObject = $null }
+        }
 
-            $CleanedText = $AiResult.Text -replace '(?s)^```json\s*', '' -replace '(?s)\s*```$', ''
+        if ($null -eq $SummaryObject) {
+            # Mirror the chunked path (Parse-AIResponse): persist the raw model
+            # output so a parse failure on a small doc is diagnosable. Use a
+            # -single-shot suffix so it never clobbers the chunked debug file.
             try {
-                $SummaryObject = $CleanedText.Trim() | ConvertFrom-Json
+                $DebugPath = Join-Path (Get-SummariesDir) "${DocId}-single-shot.debug-raw.txt"
+                Write-Utf8NoBom -Path $DebugPath -Value $AiResult.Text
+                Write-Verbose "Pipeline: invalid JSON from $AiBackend — raw response saved: $DebugPath"
             }
             catch {
-                # Try repair
-                $Repaired = Repair-TruncatedJson -Text $CleanedText
-                try { $SummaryObject = $Repaired | ConvertFrom-Json } catch { $SummaryObject = $null }
+                Write-Warning "Single-shot summary: invalid JSON for '$DocId' (backend=$AiBackend); additionally failed to save debug-raw: $($_.Exception.Message)"
             }
+            return @{ Success = $false; DocId = $DocId; Error = 'InvalidJson' }
+        }
 
-            if ($null -eq $SummaryObject) {
-                # Mirror the chunked path (Parse-AIResponse): persist the raw model
-                # output so a parse failure on a small doc is diagnosable. Use a
-                # -single-shot suffix so it never clobbers the chunked debug file.
-                try {
-                    $DebugPath = Join-Path (Get-SummariesDir) "${DocId}-single-shot.debug-raw.txt"
-                    Write-Utf8NoBom -Path $DebugPath -Value $AiResult.Text
-                    Write-Verbose "Pipeline: invalid JSON from $AiBackend — raw response saved: $DebugPath"
-                }
-                catch {
-                    Write-Warning "Single-shot summary: invalid JSON for '$DocId' (backend=$AiBackend); additionally failed to save debug-raw: $($_.Exception.Message)"
-                }
-                return @{ Success = $false; DocId = $DocId; Error = 'InvalidJson' }
-            }
-
-            # Density check
-            $DensityCheck = Test-SummaryDensity -SummaryObject $SummaryObject -Floors $DensityFloors
-            if ($DensityCheck.Pass) { break }
-
-            $DensityRetryNudge = Build-DensityRetryNudge -Shortfalls $DensityCheck.Shortfalls
-            Write-Verbose "Pipeline: density check failed — $($DensityCheck.Shortfalls -join '; ')"
-
-            if ($Attempt -eq $MaxRetries) {
-                Write-Verbose 'Pipeline: accepting under-dense result after retries'
+        $DensityCheck = Test-SummaryDensity -SummaryObject $SummaryObject -PovTags $PovTagsArray
+        if (-not $DensityCheck.Pass) {
+            foreach ($Shortfall in $DensityCheck.Shortfalls) {
+                Write-Warning "WARN: ${DocId}: $Shortfall"
             }
         }
     }
@@ -326,8 +321,12 @@ $SnapshotText
         $Sniff2 = Test-FireRequired -SummaryObject $SummaryObject
         if ($Sniff2.ShouldFire) {
             Write-Verbose "Pipeline AutoFire Stage 2: $($Sniff2.Reason) — re-running with FIRE"
+            # -SystemInstruction was missing here (t/4473/t/4519 spec review): Invoke-IterativeExtraction
+            # defaults it to '', so the re-run's extraction call carried no system prompt at all —
+            # dropping CAMP EXPECTATIONS, the BDI rules, and every other system-prompt instruction.
             $FireResult = Invoke-IterativeExtraction `
-                -Prompt $FullPrompt -Model $Model -ApiKey $ApiKey -Temperature $Temperature -MaxTokens $ExtractionMaxTokens
+                -Prompt $FullPrompt -SystemInstruction $SysInstruction `
+                -Model $Model -ApiKey $ApiKey -Temperature $Temperature -MaxTokens $ExtractionMaxTokens
             if ($FireResult.Summary) {
                 $SummaryObject = $FireResult.Summary
                 $AiBackend = $FireResult.Backend

@@ -104,7 +104,8 @@
       "      ]",
       "    }",
       "  ],",
-      "  \"unmapped_concepts\": []",
+      "  \"unmapped_concepts\": [],",
+      "  \"empty_cells\": []",
       "}",
       ""
     ]

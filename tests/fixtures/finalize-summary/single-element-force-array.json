@@ -100,7 +100,8 @@
       "      \"concept\": \"Only one.\",",
       "      \"reason\": \"novel\"",
       "    }",
-      "  ]",
+      "  ],",
+      "  \"empty_cells\": []",
       "}",
       ""
     ]

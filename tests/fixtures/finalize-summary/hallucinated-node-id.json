@@ -105,6 +105,7 @@
       "      \"reason\": \"Hallucinated node ID 'skp-desires-404' not found in taxonomy — moved from skeptic key_points\"",
       "    }",
       "  ],",
+      "  \"empty_cells\": [],",
       "  \"warnings\": [",
       "    \"Hallucinated node ID: safetyist/saf-beliefs-999\",",
       "    \"Hallucinated node ID: skeptic/skp-desires-404\"",

@@ -349,3 +349,34 @@ Describe 'item 6: a missing metadata.json is a WARN, and the summary is still wr
     }
 }
 
+Describe 'item 8: empty_cells persists through finalize, and an empty camp does not break the metadata rollup (t/4473/t/4519)' -Tag 'summarization' {
+
+    It 'carries empty_cells into the written summary.json verbatim' {
+        $meta = script:New-MetaFile 'empty-cells'
+        $json = @'
+{ "pov_summaries": { "accelerationist": { "key_points": [] }, "safetyist": { "key_points": [ { "point": "p", "taxonomy_node_id": "saf-beliefs-003", "stance": "aligned" } ] }, "skeptic": { "key_points": [] } },
+  "factual_claims": [], "unmapped_concepts": [],
+  "empty_cells": [
+    { "camp": "accelerationist", "category": "Beliefs", "reason": "no accelerationist content" },
+    { "camp": "skeptic", "category": "Intentions", "reason": "no skeptic argument" }
+  ] }
+'@
+        $r = script:Invoke-Finalize -SummaryJson $json -MetaFile $meta
+        $r.Result.Success | Should -BeTrue
+        $s = $r.Writes[(Join-Path $TestDrive 'summaries' 'doc-1.json')] | ConvertFrom-Json
+        @($s.empty_cells).Count | Should -Be 2
+        ($s.empty_cells | Where-Object { $_.camp -eq 'skeptic' }).reason | Should -Be 'no skeptic argument'
+    }
+
+    It 'defaults empty_cells to [] (present, not null) when the model omits the field, and the metadata write still succeeds' {
+        $meta = script:New-MetaFile 'no-empty-cells-field'
+        $r = script:Invoke-Finalize -SummaryJson "{ $($script:EmptyCamps), `"factual_claims`": $($script:FourPovClaims), `"unmapped_concepts`": [] }" -MetaFile $meta
+        $r.Result.Success | Should -BeTrue
+        $s = $r.Writes[(Join-Path $TestDrive 'summaries' 'doc-1.json')] | ConvertFrom-Json
+        $s.PSObject.Properties['empty_cells'] | Should -Not -BeNullOrEmpty -Because 'empty_cells is always present, default []'
+        @($s.empty_cells).Count | Should -Be 0
+        $metaWritten = $r.Writes[$meta] | ConvertFrom-Json
+        $metaWritten.node_references_by_pov | Should -Not -BeNullOrEmpty -Because 'an empty camp plus empty_cells must not break the metadata rollup'
+    }
+}
+

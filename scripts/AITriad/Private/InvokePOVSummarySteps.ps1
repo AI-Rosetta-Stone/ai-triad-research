@@ -160,14 +160,10 @@ function Show-POVSummaryDryRun {
 
     $WordCount = ($SnapshotText -split '\s+').Count
     $OutputSchema = Get-Prompt -Name 'pov-summary-schema'
-    $KpMin = [Math]::Max(3,  [int]($WordCount / 500))
     $SystemPrompt = Get-Prompt -Name 'pov-summary-system' -Replacements @{
         WORD_COUNT   = $WordCount
-        KP_MIN       = $KpMin
         KP_MAX       = [Math]::Max(8,  [int]($WordCount / 200))
-        UC_MIN       = [Math]::Max(2,  [int]($WordCount / 2000))
         UC_MAX       = [Math]::Max(5,  [int]($WordCount / 800))
-        TOTAL_FLOOR  = [Math]::Max(6,  $KpMin * 2)
     }
 
     Write-Host "`n$('─' * 72)" -ForegroundColor DarkGray

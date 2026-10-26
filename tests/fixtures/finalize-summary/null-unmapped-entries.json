@@ -68,7 +68,8 @@
       "      \"concept\": \"Survives the filter.\",",
       "      \"reason\": \"novel\"",
       "    }",
-      "  ]",
+      "  ],",
+      "  \"empty_cells\": []",
       "}",
       ""
     ]

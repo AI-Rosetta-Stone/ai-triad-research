@@ -82,7 +82,8 @@
       "      \"concept\": \"Stays as is.\",",
       "      \"reason\": \"novel\"",
       "    }",
-      "  ]",
+      "  ],",
+      "  \"empty_cells\": []",
       "}",
       ""
     ]

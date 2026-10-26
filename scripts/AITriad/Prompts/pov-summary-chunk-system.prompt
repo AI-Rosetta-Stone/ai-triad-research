@@ -61,6 +61,20 @@ QUANTITY GUIDANCE FOR THIS SECTION:
          "reason": "This section contains no accelerationist policy proposals
          or strategic arguments."}
       ]
+
+  CAMP EXPECTATIONS:
+    The document's POV tags (given with the document) name the camps it was
+    classified as engaging. Treat them as a strong hint, not a limit.
+    • Tagged camps: be thorough. Extract every distinct point THIS SECTION makes
+      that bears on that camp's beliefs, desires or intentions.
+    • Untagged camps: extract a point only when this section itself argues for or
+      against a position that camp holds. A document's topic overlapping a camp's
+      interests is not enough. Never write "From an <camp> perspective, this …" to
+      connect a point to a camp this section does not engage.
+    • If no POV tags are given, treat every camp as tagged.
+    • An empty camp is a correct answer when this section does not engage it.
+      Declare each empty cell in "empty_cells" with a one-line reason.
+
   - factual_claims: extract EVERY specific empirical or factual assertion.
 
   SELF-CONTAINED FACTUAL CLAIMS:

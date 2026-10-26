@@ -479,6 +479,7 @@ function New-SummaryDocument {
     param(
         [string]$DocId, [string]$TaxonomyVersion, [string]$Now, [object]$ModelInfo, [object]$ContextRot,
         [object]$SummaryObject, [object]$FactualClaims, [object]$UnmappedConcepts,
+        [object]$EmptyCells = @(),
         [object]$SchemaErrors, [object]$InvalidNodeIds, [object]$CrossCampWarnings
     )
     if ($SummaryObject.PSObject.Properties['pov_summaries']) { $PovSummariesVal = $SummaryObject.pov_summaries } else { $PovSummariesVal = [ordered]@{} }
@@ -491,6 +492,7 @@ function New-SummaryDocument {
         pov_summaries     = $PovSummariesVal
         factual_claims    = @($FactualClaims)
         unmapped_concepts = @($UnmappedConcepts)
+        empty_cells       = @($EmptyCells)
     }
     $AllWarnings = [System.Collections.Generic.List[string]]::new()
     foreach ($e in $SchemaErrors)       { $AllWarnings.Add("Schema: $e") }

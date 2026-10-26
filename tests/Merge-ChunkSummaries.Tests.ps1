@@ -64,3 +64,43 @@ Describe 'Merge-ChunkSummaries malformed-chunk resilience' -Tag 'ingestion' {
         }
     }
 }
+
+Describe 'Merge-ChunkSummaries empty_cells merge (t/4473/t/4519)' -Tag 'ingestion' {
+
+    It 'carries a cell into merged empty_cells only when EVERY chunk declared it empty' {
+        InModuleScope AITriad {
+            $ChunkA = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[],"empty_cells":[{"camp":"skeptic","category":"Intentions","reason":"chunk A reason"}]}' | ConvertFrom-Json
+            $ChunkB = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[],"empty_cells":[{"camp":"skeptic","category":"Intentions","reason":"chunk B reason"}]}' | ConvertFrom-Json
+
+            $Merged = Merge-ChunkSummaries -ChunkResults @($ChunkA, $ChunkB)
+
+            $Cell = @($Merged['empty_cells']) | Where-Object { $_.camp -eq 'skeptic' -and $_.category -eq 'Intentions' }
+            @($Cell).Count | Should -Be 1 -Because 'every chunk declared this cell empty and no chunk has a key_point in it'
+            $Cell.reason | Should -Be 'chunk A reason' -Because 'the first chunk to declare it wins the reason'
+        }
+    }
+
+    It 'does NOT carry a cell into merged empty_cells when only SOME chunks declared it empty' {
+        InModuleScope AITriad {
+            $ChunkA = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[],"empty_cells":[{"camp":"skeptic","category":"Intentions","reason":"chunk A reason"}]}' | ConvertFrom-Json
+            # Chunk B says nothing about the cell (neither a key_point nor an empty_cells entry).
+            $ChunkB = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[]}' | ConvertFrom-Json
+
+            $Merged = Merge-ChunkSummaries -ChunkResults @($ChunkA, $ChunkB)
+
+            @($Merged['empty_cells'] | Where-Object { $_.camp -eq 'skeptic' -and $_.category -eq 'Intentions' }).Count |
+                Should -Be 0 -Because 'chunk B never declared the cell empty, so the merged cell has no rationale'
+        }
+    }
+
+    It 'does NOT carry a cell into merged empty_cells when the merged key_points have a point in that category' {
+        InModuleScope AITriad {
+            $ChunkA = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[{"point":"a skeptic point","category":"Intentions"}]}},"factual_claims":[],"unmapped_concepts":[],"empty_cells":[{"camp":"skeptic","category":"Intentions","reason":"stale"}]}' | ConvertFrom-Json
+
+            $Merged = Merge-ChunkSummaries -ChunkResults @($ChunkA)
+
+            @($Merged['empty_cells'] | Where-Object { $_.camp -eq 'skeptic' -and $_.category -eq 'Intentions' }).Count |
+                Should -Be 0 -Because 'the merged key_points have a point in that cell, so it is not empty regardless of the stale declaration'
+        }
+    }
+}
