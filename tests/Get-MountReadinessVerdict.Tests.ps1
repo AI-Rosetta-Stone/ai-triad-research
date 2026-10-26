@@ -46,6 +46,21 @@ Describe 'Wait-MountReady' {
         $result.Attempts | Should -Be 2
     }
 
+    It 'recovers on the second-to-last attempt (TL review, t/4513#1 condition 3: exercise the recovery boundary, not just an early-attempt recovery)' {
+        $MaxAttempts = 13
+        $script:boundaryAttempts = 0
+        $probe = {
+            $script:boundaryAttempts++
+            # fails every attempt except the SECOND-TO-LAST (N-1) -- proves the loop doesn't give
+            # up early, and that a recovery on the final usable retry is still classified 'ready',
+            # not accidentally rounded into 'failed' by an off-by-one in the loop bound.
+            return ($script:boundaryAttempts -eq ($MaxAttempts - 1))
+        }
+        $result = Wait-MountReady -Probe $probe -MaxAttempts $MaxAttempts -IntervalSeconds 0
+        $result.Verdict | Should -Be 'ready'
+        $result.Attempts | Should -Be ($MaxAttempts - 1)
+    }
+
     It 'fails closed when the probe never succeeds within MaxAttempts (a real missing-file condition, not a transient race)' {
         $script:calls = 0
         $result = Wait-MountReady -Probe { $script:calls++; $false } -MaxAttempts 3 -IntervalSeconds 0
