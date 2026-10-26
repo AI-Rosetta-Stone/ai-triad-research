@@ -9,7 +9,7 @@
 // is the class of miss that hid this (flag read but not threaded into the nav context).
 
 import { describe, it, expect } from 'vitest';
-import { NAV_ITEMS, getVisibleNavItems } from './navConfig';
+import { NAV_ITEMS, getVisibleNavItems, getItemsByTier } from './navConfig';
 
 const hasOpeds = (flags: Record<string, boolean>): boolean =>
   getVisibleNavItems(NAV_ITEMS, { flags, isAdmin: false }).some(i => i.id === 'opeds');
@@ -52,5 +52,13 @@ describe('navConfig — Op-Eds OR-of-flags per-build reveal (t/2633)', () => {
 
   it('shows Op-Eds when both flags are on', () => {
     expect(hasOpeds({ 'env-electron-opeds': true, 'env-web-opeds': true })).toBe(true);
+  });
+});
+
+describe('navConfig — primary tier order (t/4535, PI request p/351#29)', () => {
+  it('is search, chat, opeds, inquiry, debate, taxonomy', () => {
+    expect(getItemsByTier(NAV_ITEMS, 'primary').map(i => i.id)).toEqual([
+      'search', 'chat', 'opeds', 'inquiry', 'debate', 'taxonomy',
+    ]);
   });
 });

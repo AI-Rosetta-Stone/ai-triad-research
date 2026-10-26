@@ -66,20 +66,21 @@ export function BottomNav({ onOpenMore }: BottomNavProps) {
         </button>
 
         {isDebateContext ? (
+          // t/4535: Chat before Debate, matching the new primary order (PI request, p/351#29).
           <>
-            <button
-              className={`bottom-nav-item${activeTab === 'debate' ? ' active' : ''}`}
-              onClick={() => switchTab('debate')}
-            >
-              {navIcon('debate')}
-              <span className="bottom-nav-label">Debate</span>
-            </button>
             <button
               className={`bottom-nav-item${activeTab === 'chat' ? ' active' : ''}`}
               onClick={() => switchTab('chat')}
             >
               {navIcon('chat')}
               <span className="bottom-nav-label">Chat</span>
+            </button>
+            <button
+              className={`bottom-nav-item${activeTab === 'debate' ? ' active' : ''}`}
+              onClick={() => switchTab('debate')}
+            >
+              {navIcon('debate')}
+              <span className="bottom-nav-label">Debate</span>
             </button>
           </>
         ) : (

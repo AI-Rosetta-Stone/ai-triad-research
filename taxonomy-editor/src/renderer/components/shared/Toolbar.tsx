@@ -281,31 +281,10 @@ export function Toolbar() {
   return (
     <nav className="toolbar" aria-label="Primary">
       <div className="toolbar-top">
-        {/* Primary nav — icon-over-label stacks */}
+        {/* Primary nav — icon-over-label stacks. t/4535: reordered to Chat, Op-Ed Studies,
+            Ask a Question, Debate, Taxonomy (PI request, p/351#29; order only). */}
         {/* t/2813: Search removed from the nav rail; entry points now live in the
             Taxonomy panel header + POV detail header. toggle('search') still works. */}
-        <button
-          className={`toolbar-nav${isTaxonomyActive ? ' toolbar-nav-active' : ''}`}
-          onClick={() => {
-            clearCurrentPanel();
-            setToolbarPanel(null);
-            if (['situations', 'conflicts', 'debate', 'chat', 'opeds', 'summaries', 'validation'].includes(activeTab)) {
-              setActiveTab('accelerationist');
-            }
-          }}
-          aria-label="Taxonomy"
-        >
-          <LayoutGrid size="1.25em" />
-          <span className="toolbar-nav-label">Taxonomy</span>
-        </button>
-        <button
-          className={`toolbar-nav${activeTab === 'debate' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
-          onClick={() => switchTab('debate')}
-          aria-label="Debate"
-        >
-          <MessageSquare size="1.25em" />
-          <span className="toolbar-nav-label">Debate</span>
-        </button>
         <button
           className={`toolbar-nav${activeTab === 'chat' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
           onClick={() => switchTab('chat')}
@@ -334,6 +313,28 @@ export function Toolbar() {
             <span className="toolbar-nav-label">Ask a<br />Question</span>
           </button>
         )}
+        <button
+          className={`toolbar-nav${activeTab === 'debate' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
+          onClick={() => switchTab('debate')}
+          aria-label="Debate"
+        >
+          <MessageSquare size="1.25em" />
+          <span className="toolbar-nav-label">Debate</span>
+        </button>
+        <button
+          className={`toolbar-nav${isTaxonomyActive ? ' toolbar-nav-active' : ''}`}
+          onClick={() => {
+            clearCurrentPanel();
+            setToolbarPanel(null);
+            if (['situations', 'conflicts', 'debate', 'chat', 'opeds', 'summaries', 'validation'].includes(activeTab)) {
+              setActiveTab('accelerationist');
+            }
+          }}
+          aria-label="Taxonomy"
+        >
+          <LayoutGrid size="1.25em" />
+          <span className="toolbar-nav-label">Taxonomy</span>
+        </button>
       </div>
       <div className="toolbar-bottom">
         <button

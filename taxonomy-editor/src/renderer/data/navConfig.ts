@@ -32,13 +32,14 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  // ── Primary tier ──
+  // ── Primary tier ── t/4535: reordered (PI request, p/351#29). Order only — labels,
+  // icons and gates unchanged.
   { id: 'search', label: 'Search', icon: Search, tier: 'primary', action: { type: 'togglePanel', target: 'search' } },
-  { id: 'taxonomy', label: 'Taxonomy', icon: LayoutGrid, tier: 'primary', action: { type: 'custom', id: 'taxonomy' } },
-  { id: 'debate', label: 'Debate', icon: MessageSquare, tier: 'primary', action: { type: 'switchTab', target: 'debate' } },
   { id: 'chat', label: 'Chat', icon: MessageCircle, tier: 'primary', action: { type: 'switchTab', target: 'chat' } },
   { id: 'opeds', label: 'Op-Ed Studies', icon: Newspaper, tier: 'primary', action: { type: 'switchTab', target: 'opeds' }, gate: { anyFlag: ['env-electron-opeds', 'env-web-opeds'] } },
   { id: 'inquiry', label: 'Ask a Question', icon: Sparkles, tier: 'primary', action: { type: 'switchTab', target: 'inquiry' } },
+  { id: 'debate', label: 'Debate', icon: MessageSquare, tier: 'primary', action: { type: 'switchTab', target: 'debate' } },
+  { id: 'taxonomy', label: 'Taxonomy', icon: LayoutGrid, tier: 'primary', action: { type: 'custom', id: 'taxonomy' } },
 
   // ── Secondary tier — browse group ──
   { id: 'situations', label: 'Situations', icon: Crosshair, tier: 'secondary', group: 'browse', action: { type: 'switchTab', target: 'situations' } },

@@ -172,3 +172,29 @@ describe('Toolbar — primary Ask a Question button (t/3583, t/3616)', () => {
     expect(screen.getByRole('button', { name: 'Ask a Question' })).toBeInTheDocument();
   });
 });
+
+describe('Toolbar — primary nav order (t/4535, PI request p/351#29)', () => {
+  beforeEach(() => { mockFlags.value = { 'env-electron-opeds': true }; mockPrefsState.viewMode = 'simple'; });
+
+  it('renders Chat, Op-Ed Studies, Ask a Question, Debate, Taxonomy in that DOM order (no Search button on this rail, t/2813)', () => {
+    render(<Toolbar />);
+    const labels = ['Chat', 'Op-Ed Studies', 'Ask a Question', 'Debate', 'Taxonomy'];
+    const buttons = labels.map(name => screen.getByRole('button', { name }));
+    // Document order === tab order for plain (no explicit tabIndex) buttons, so this also
+    // proves the AC's "keyboard tab order follows the visual order".
+    for (let i = 1; i < buttons.length; i++) {
+      expect(buttons[i - 1].compareDocumentPosition(buttons[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('keeps Chat-Op-Eds-Ask a Question-Taxonomy order when Op-Eds is gated off (Debate absent from the DOM entirely is not the point here — order among what IS shown)', () => {
+    mockFlags.value = {};
+    render(<Toolbar />);
+    const labels = ['Chat', 'Ask a Question', 'Debate', 'Taxonomy'];
+    const buttons = labels.map(name => screen.getByRole('button', { name }));
+    expect(screen.queryByRole('button', { name: 'Op-Ed Studies' })).toBeNull(); // still gated (AC)
+    for (let i = 1; i < buttons.length; i++) {
+      expect(buttons[i - 1].compareDocumentPosition(buttons[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+});
