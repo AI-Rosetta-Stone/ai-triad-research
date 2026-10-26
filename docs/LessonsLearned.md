@@ -7448,3 +7448,63 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (ServerAPI p/504#28).
 
 **Applies To:** All agents writing ad-hoc inspection/analysis scripts; prefer plain Node over a TS-execution tool when the logic is simple enough.
+
+---
+
+## #367 [Build] Worktree `node_modules` Re-Locks Immediately After Deletion on Windows — "Device or Resource Busy" (Unresolved)
+
+**Pattern:** In a fresh worktree, `ln -s ../../node_modules node_modules` (or any symlink/junction setup that requires an empty target) fails repeatedly with "Device or resource busy," even immediately after `rd /s /q` (cmd) successfully empties the directory. Something — suspected pnpm daemon or a file watcher, unconfirmed — re-locks or recreates the path right after deletion. Unix `rm -rf`/`rmdir` then report "Directory not empty" on retry, because the directory has already been repopulated by the time the command runs.
+
+**Instances:**
+- 2026-10-26 — EdgeBrowser (p/828#1, t/4364): repeated "Device or resource busy" on `ln -s ../../node_modules node_modules` in a fresh worktree, even right after `rd /s /q` emptied it. Unresolved — a diagnostic `find` was denied by the auto-mode classifier as destructive before further investigation could happen. Abandoned per the denial rather than escalate past it; `tsc`/`vitest` verification for t/4364 blocked pending a human or different approach.
+
+**Root Cause:** Unidentified. Candidate causes: a background pnpm daemon holding a lock on the worktree's `node_modules` directory handle; a file watcher (IDE, build tool) re-triggering a scan that recreates the directory; Windows antivirus scanning mid-deletion. Not yet isolated — this entry exists to track recurrence, not to prescribe a fix.
+
+**Prevention:**
+1. **Not yet known.** Candidates to try next time this recurs: kill any running pnpm daemon (`pnpm server stop` or find/kill the process holding the handle) before deleting; try `robocopy <empty-dir> <target> /purge` instead of `rd`/`rm -rf` (more robust against races on Windows); retry with an exponential backoff rather than immediate retry, in case the re-lock is transient.
+2. **If you hit this, do not fight an auto-mode classifier denial on a diagnostic command** (e.g. `find` flagged as destructive) — escalate to a human instead of working around the block.
+3. **Report new occurrences here** so a pattern (same process, same timing, same worktree setup) can be identified across instances.
+
+**Status:** Unresolved — 1 instance (EdgeBrowser p/828#1, t/4364). Open; needs a 2nd occurrence or root-cause identification before a durable fix can be prescribed.
+
+**Applies To:** All agents setting up `node_modules` symlinks/junctions in fresh worktrees on Windows.
+
+---
+
+## #368 [Build] Nested `$(az ...)` Command Substitution Captures stderr Alongside stdout — Corrupts the Outer Command's Arg
+
+**Pattern:** An agent runs `az <cmd> --resource-group "$(az containerapp list --query ... -o tsv)"`. The nested `az` command emits an extension deprecation WARNING to stderr. The captured value becomes multi-line — the warning text plus the real tsv output — corrupting the `--resource-group` argument and producing a "Bad Request" or "invalid URL" from the outer command.
+
+**Instances:**
+- 2026-10-26 — Server Storage (p/539#30): `az containerapp revision show --resource-group "$(az containerapp list --query ... -o tsv)"` failed Bad Request/invalid URL. The nested `az containerapp list` call's extension deprecation WARNING on stderr got folded into the captured value, making it multi-line. Fixed by adding `2>/dev/null` to the nested command before capture.
+
+**Root Cause:** A nested command whose stderr isn't explicitly redirected is a risk whenever its output feeds directly into another command's argument via `$(...)` — any warning or diagnostic text on stderr that reaches the same captured stream (depending on shell/terminal/tool behavior) corrupts the value.
+
+**Prevention:**
+1. **Always redirect stderr on a nested command whose stdout feeds an argument:** `$(az containerapp list --query ... -o tsv 2>/dev/null)`. This is the single fix that prevents the whole class.
+2. **If the nested command's output looks unexpectedly multi-line or long, suspect stderr contamination** — print the captured variable (`echo "$var"`) before using it to see hidden lines.
+3. **Azure CLI extension deprecation warnings are a common source of stderr noise** — any `az` command wrapped in `$(...)` is a candidate for this failure; redirect proactively rather than waiting for a corrupted arg.
+
+**Status:** Active — 1 instance (Server Storage p/539#30).
+
+**Applies To:** All agents using `$(az ...)` or similar nested command substitution to build an argument for another command; always redirect the nested command's stderr.
+
+---
+
+## #369 [Build] Rebase Conflict Is a Pure Replay Artifact When Branch-Tip Content Already Matches `origin/main` — Diff Before Resolving
+
+**Pattern:** `git rebase origin/main` on a feature branch produces conflicts in files that the branch tip and `origin/main` already agree on byte-for-byte. The cause: intermediate commits in the branch's own history temporarily reintroduce an older interface shape (one that `origin/main` has since superseded via an unrelated earlier merge). Replaying those intermediate commits against `origin/main` re-triggers a diff that was already resolved elsewhere in the branch's own later commits — the conflict is an artifact of commit-by-commit replay, not a real divergence between the branch tip and main.
+
+**Instances:**
+- 2026-10-26 — ServerAPI (p/504#31, PR #3812): `git rebase origin/main` hit 2 conflicts (`storage/freePoolBudget.ts`, `ai/freePoolBudgetGate.ts` + its test) because intermediate commits in the branch reintroduced an interface shape that main already had in final form via earlier merges (#3810/#3809). Confirmed `origin/main`'s file content matched the branch tip's pre-rebase content exactly, resolved each conflict with `git checkout --ours`, and the rebase auto-dropped 2 now-empty commits ("patch contents already upstream") and completed cleanly.
+
+**Root Cause:** Git replays a branch's commits one at a time during rebase, including intermediate commits whose changes were later superseded within the same branch. If `origin/main` independently picked up the same final state (via a different PR), an intermediate commit's partial/older version conflicts with main even though the branch's own final state agrees with main. This is the inverse of a real divergence — the branch and main are NOT actually in conflict at the tip, only at an intermediate replay step.
+
+**Prevention:**
+1. **Before resolving a rebase conflict, diff the branch tip's PRE-rebase content against `origin/main` for the conflicted file(s).** If they're identical, the conflict is a pure replay artifact — safe to resolve with `git checkout --ours` (keep the branch's final content) for each conflicted file.
+2. **Trust git's "patch contents already upstream" auto-drop** on now-empty commits post-resolution as confirmation the artifact diagnosis was correct.
+3. **This is more likely when multiple PRs touch the same interface/type over a short window** — expect replay artifacts when rebasing a long-lived branch past several just-merged PRs that touched overlapping files.
+
+**Status:** Active — 1 instance (ServerAPI p/504#31, PR #3812).
+
+**Applies To:** All agents rebasing feature branches with multiple intermediate commits past a fast-moving `origin/main`; diff branch-tip content against main before resolving rebase conflicts.
