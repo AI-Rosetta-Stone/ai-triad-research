@@ -30,10 +30,13 @@ import {
   deployRecoveryMinutes,
   reworkRate,
   approvalWaitByTier,
+  splitT2ApprovalWait,
+  findSoClearedAt,
   prSizeDistribution,
   openPRAgeDays,
   parsePILoadLines,
 } from './fleet-delivery-metrics.mjs';
+import { extractTier } from './tier-check-predicate.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -123,6 +126,18 @@ function fetchMergedPRs(repo, since, until) {
     } catch (e) {
       warnings.push(`PR #${pr.number}: could not fetch commits/files/statusCheckRollup (${e.message})`);
     }
+    // soClearedAt (t/4520): only T2 PRs need the agent-vs-human wait split, so comments are
+    // fetched only for those -- avoids an extra API call per T0/T1 PR (the large majority).
+    let soClearedAt = null;
+    if (extractTier(pr.body) === 'T2') {
+      try {
+        const craw = gh(['pr', 'view', String(pr.number), '-R', repo, '--json', 'comments']);
+        const commentsDetail = JSON.parse(craw).comments ?? [];
+        soClearedAt = findSoClearedAt(commentsDetail.map((c) => ({ body: c.body, createdAt: c.createdAt })));
+      } catch (e) {
+        warnings.push(`PR #${pr.number}: could not fetch comments for T2 wait-split (${e.message})`);
+      }
+    }
     return {
       number: pr.number,
       title: pr.title,
@@ -136,6 +151,7 @@ function fetchMergedPRs(repo, since, until) {
       body: pr.body,
       firstCommitAt,
       ciGreenAt,
+      soClearedAt,
     };
   });
   return { prs, warning: warnings.length > 0 ? `${warnings.length} PR(s) missing firstCommitAt/changedFilePaths (see individual errors, omitted here for brevity)` : null };
@@ -253,6 +269,9 @@ function main() {
   const approvalWait = approvalWaitByTier(
     prs.map((pr) => ({ body: pr.body, mergedAt: pr.mergedAt, ciGreenAt: pr.ciGreenAt })),
   );
+  const t2WaitSplit = splitT2ApprovalWait(
+    prs.map((pr) => ({ body: pr.body, mergedAt: pr.mergedAt, ciGreenAt: pr.ciGreenAt, soClearedAt: pr.soClearedAt })),
+  );
   const prSize = prSizeDistribution(prs);
   const openAge = openPRAgeDays(openPRs);
   const { verdict: t2Verdict, warning: w5 } = fetchT2Budget(args.repo, args.since, args.until);
@@ -301,6 +320,15 @@ function main() {
   for (const tier of ['T0', 'T1', 'T2', 'none']) {
     lines.push(`- ${tier}: ${fmtDist(approvalWait[tier], 'min')}`);
   }
+  lines.push('');
+  lines.push('### T2 approval-wait split (t/4520): agent-controllable vs human-approval');
+  lines.push('_Combined T2 figure above is CI-green → merge. Split at the SO-clearing comment (a known'
+    + ' approximation — a PR whose clearing comment doesn\'t match the literal "SO cleared"/"SO did not'
+    + ' review" phrasing falls into `unclassified`, not a guessed bucket). **The t/4093 ≤2h target is'
+    + ' measured against agent-controllable, not the combined figure.**_');
+  lines.push(`- Agent-controllable (CI-green → SO-cleared): ${fmtDist(t2WaitSplit.agentControllable, 'min')}`);
+  lines.push(`- Human-approval (SO-cleared → merge): ${fmtDist(t2WaitSplit.humanApproval, 'min')}`);
+  lines.push(`- Unclassified (no SO-cleared comment detected): ${fmtDist(t2WaitSplit.unclassified, 'min')}`);
   lines.push('');
   lines.push('### PR size / open-PR age');
   lines.push(`- Lines changed: ${fmtDist(prSize.lines)}`);
