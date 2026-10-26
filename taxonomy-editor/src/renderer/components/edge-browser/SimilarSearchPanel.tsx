@@ -3,8 +3,8 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { nodePovFromId, SITUATION_PREFIX } from '@lib/debate/nodeIdUtils';
-import { POV_KEYS } from '@lib/debate/types';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, isSuperseded } from '../../hooks/useTaxonomyStore/superseded';
 import { useLongPressContextMenu, type ContextMenuLikeEvent } from '../../hooks/useLongPressContextMenu';
 import { ApiKeyErrorMessage } from '../settings/ApiKeyErrorMessage';
 import { useDescriptionMode, resolveDescription } from '../shared/DescriptionToggle';
@@ -142,40 +142,30 @@ export function SimilarSearchPanel({ width, onAnalyze }: SimilarSearchPanelProps
       const conflict = state.conflicts.find(c => c.claim_id === id);
       return conflict?.description || '';
     }
-    for (const pov of POV_KEYS) {
-      const file = state[pov];
-      if (file) {
-        const node = file.nodes.find(n => n.id === id);
-        if (node) return resolveDescription(node, descMode).text;
-      }
-    }
-    return '';
+    const node = allNodesById(state).get(id);
+    return node ? resolveDescription(node, descMode).text : '';
   };
 
   const getCategory = (id: string): string => {
     const state = useTaxonomyStore.getState();
     if (id.startsWith(SITUATION_PREFIX)) return 'situations';
     if (id.startsWith('conflict-')) return 'conflict';
-    for (const pov of POV_KEYS) {
-      const file = state[pov];
-      if (file) {
-        const node = file.nodes.find(n => n.id === id);
-        if (node) return node.category;
-      }
-    }
-    return '';
+    return allNodesById(state).get(id)?.category ?? '';
   };
 
   // Build resolved rows once, then filter & sort
   const resolvedRows = useMemo((): ResolvedRow[] => {
     if (!similarResults) return [];
-    return similarResults.map(r => ({
-      id: r.id,
-      score: r.score,
-      label: getLabelForId(r.id) || r.id,
-      description: getDescription(r.id),
-      category: getCategory(r.id),
-    }));
+    const state = useTaxonomyStore.getState();
+    return similarResults
+      .filter(r => !isSuperseded(state, r.id))
+      .map(r => ({
+        id: r.id,
+        score: r.score,
+        label: getLabelForId(r.id) || r.id,
+        description: getDescription(r.id),
+        category: getCategory(r.id),
+      }));
   }, [similarResults]);
 
   const filteredAndSorted = useMemo(() => {

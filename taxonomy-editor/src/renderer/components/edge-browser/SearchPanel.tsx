@@ -5,6 +5,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { nodePovFromId, nodeTypeFromId } from '@lib/debate/nodeIdUtils';
 import { POV_KEYS } from '@lib/debate/types';
 import { useTaxonomyStore, type SearchMode } from '../../hooks/useTaxonomyStore';
+import { allNodesById } from '../../hooks/useTaxonomyStore/superseded';
 import type { TabId, Category, PovNode, SituationNode, ConflictFile } from '../../types/taxonomy';
 import { interpretationText } from '../../types/taxonomy';
 import { buildSearchRegex } from '../../utils/searchRegex';
@@ -680,11 +681,7 @@ export function SearchPanel({ onAnalyze, onSelectResult }: SearchPanelProps) {
     setRelatedQuery('');
     const label = getLabelForId(nodeId);
     const state = useTaxonomyStore.getState();
-    let desc = '';
-    for (const pov of POV_KEYS) {
-      const n = state[pov]?.nodes.find(n => n.id === nodeId);
-      if (n) { desc = n.description; break; }
-    }
+    let desc = allNodesById(state).get(nodeId)?.description ?? '';
     if (!desc && state.situations) {
       const n = state.situations.nodes.find(n => n.id === nodeId);
       if (n) desc = n.description;
@@ -922,11 +919,7 @@ export function SearchPanel({ onAnalyze, onSelectResult }: SearchPanelProps) {
     setRelatedQuery('');
     const label = getLabelForId(nodeId);
     const state = useTaxonomyStore.getState();
-    let desc = '';
-    for (const pov of POV_KEYS) {
-      const n = state[pov]?.nodes.find(n => n.id === nodeId);
-      if (n) { desc = n.description; break; }
-    }
+    let desc = allNodesById(state).get(nodeId)?.description ?? '';
     if (!desc && state.situations) {
       const n = state.situations.nodes.find(n => n.id === nodeId);
       if (n) desc = n.description;

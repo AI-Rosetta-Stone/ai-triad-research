@@ -4,10 +4,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { POV_META, povKeyFromNodeId } from '@lib/electron-shared/povMeta';
 import { api } from '@bridge';
-import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { useTaxonomyStore, type TaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { allNodesById, isSuperseded } from '../../hooks/useTaxonomyStore/superseded';
 import type { Edge } from '../../types/taxonomy';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { TheoryLink } from '../shared/TheoryLink';
+import './EdgeDetailPanel.css';
 
 interface EdgeDetailPanelProps {
   width?: number;
@@ -21,6 +23,26 @@ function nodeColor(id: string): string {
 function povLabel(id: string): string {
   const key = povKeyFromNodeId(id);
   return key ? POV_META[key].label : 'Unknown';
+}
+
+/** t/4364: marks an edge endpoint that's a superseded node (kept, not hidden — TL p/336#633). */
+function SupersededMark({ targetId, onNavigate }: { targetId: string | undefined; onNavigate: (id: string) => void }) {
+  if (targetId === undefined) return null;
+  if (!targetId) return <span className="edge-detail-superseded-mark" title="Superseded">superseded</span>;
+  return (
+    <button
+      type="button"
+      className="edge-detail-superseded-mark edge-detail-superseded-mark-link"
+      title={`Superseded by ${targetId}`}
+      onClick={(e) => { e.stopPropagation(); onNavigate(targetId); }}
+    >superseded</button>
+  );
+}
+
+/** Superseded endpoints need the full store (including held-aside nodes); the edge-list hook data alone doesn't carry them. */
+function supersededTarget(store: TaxonomyStore, nodeId: string): string | undefined {
+  if (!isSuperseded(store, nodeId)) return undefined;
+  return allNodesById(store).get(nodeId)?.superseded_by ?? '';
 }
 
 /**
@@ -150,7 +172,8 @@ function RationaleSection({ rationale, loading, clamped, onToggleClamp }: {
 export function EdgeDetailPanel({ width }: EdgeDetailPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [rationaleClamped, setRationaleClamped] = useState(true);
-  const { selectedEdge, selectEdge, getLabelForId, edgesFile, setActiveTab, setSelectedNodeId, showRelatedEdges } = useTaxonomyStore();
+  const store = useTaxonomyStore();
+  const { selectedEdge, selectEdge, getLabelForId, edgesFile, setActiveTab, setSelectedNodeId, showRelatedEdges } = store;
 
   const { rationale: resolvedRationale, loading: rationaleLoading } = useEdgeRationale(selectedEdge, edgesFile?.edges);
 
@@ -222,6 +245,7 @@ export function EdgeDetailPanel({ width }: EdgeDetailPanelProps) {
               {sourceLabel}
             </div>
             <div className="edge-detail-endpoint-id">{edge.source}</div>
+            <SupersededMark targetId={supersededTarget(store, edge.source)} onNavigate={handleNavigate} />
           </div>
 
           <div className="edge-detail-arrow">
@@ -238,6 +262,7 @@ export function EdgeDetailPanel({ width }: EdgeDetailPanelProps) {
               {targetLabel}
             </div>
             <div className="edge-detail-endpoint-id">{edge.target}</div>
+            <SupersededMark targetId={supersededTarget(store, edge.target)} onNavigate={handleNavigate} />
           </div>
         </div>
 

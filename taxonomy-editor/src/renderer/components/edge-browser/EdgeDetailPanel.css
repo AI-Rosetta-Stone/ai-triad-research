@@ -1,0 +1,22 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved. */
+/* Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4364: marker for an edge endpoint that's a superseded node. */
+.edge-detail-superseded-mark {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  border: 1px solid var(--warning, #d97706);
+  color: var(--warning, #d97706);
+  background: none;
+}
+
+.edge-detail-superseded-mark-link {
+  border: none;
+  cursor: pointer;
+}
