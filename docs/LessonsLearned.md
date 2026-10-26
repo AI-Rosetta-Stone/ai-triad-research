@@ -5618,7 +5618,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, set `$env:PYTHONIOENCODING = "utf-8"` or `[Console]::OutputEncoding = [Text.Encoding]::UTF8`** before the az call in PowerShell to force UTF-8 stdout encoding.
 3. **`UnicodeEncodeError: 'charmap' codec can't encode`** from an az CLI call on Windows is a reliable diagnostic that the output contains characters outside cp1252 — switch to `--outfile`.
 
-**Status:** Active — 1 instance (Azure p/105#8).
+**Status:** Active — 2 instances (Azure p/105#8; Second Opinion p/691#13, reviewing #3823 — confirmed `main` fails the same way, not a Bicep error in the PR under review; fixed with `--outfile <path>` + `PYTHONIOENCODING=utf-8`).
 
 **Applies To:** All agents running `az bicep build --stdout` on Windows with bicep files containing non-ASCII characters.
 
@@ -5942,7 +5942,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **"Pull request is in unstable status" on `gh pr merge --auto` for a T1 PR** is a reliable diagnostic for this stale-guard scenario — check guard run status before investigating further.
 3. **Do not arm auto-merge before all required checks are green.** `gh pr checks <N> --watch` confirms live status.
 
-**Status:** Active — 1 instance (ServerAPI p/504#24).
+**Status:** Active — 2 instances (ServerAPI p/504#24; ServerAPI p/504#34, PR #3812 — `t1-approval-guard` ran twice against the same head, fail before approval + pass after, GitHub kept both runs in the rollup instead of superseding, `mergeStateStatus` stuck UNSTABLE; fixed identically with `gh run rerun <failed-run-id> --failed`).
 
 **Applies To:** All agents arming auto-merge on T1 PRs after receiving an approval comment.
 
@@ -6742,15 +6742,17 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-21 — Quality/Tech Lead (p/447#29): `Invoke-AsAgentApp` not found. Resolved by running `Import-Module .\operations\devops\AgentAppToken.psm1 -Force` first, then the call succeeded.
+- 2026-10-26 — Tech Lead (p/335#188, corrected at p/335#190): imported `scripts/AITriad/AITriad.psm1` instead of following `docs/agent-pr-approval.md`'s documented command, which already names `Import-Module ./operations/devops/AgentAppToken.psm1` (line 26). Not a doc gap — the doc was correct and unread. Resolved by importing the correct module per the doc.
 
-**Root Cause:** `AgentAppToken.psm1` lives at `operations/devops/AgentAppToken.psm1` and is not part of the auto-loaded module set. PowerShell does not discover it unless an explicit `Import-Module` is issued in the same session.
+**Root Cause:** `AgentAppToken.psm1` lives at `operations/devops/AgentAppToken.psm1` and is not part of the auto-loaded module set. PowerShell does not discover it unless an explicit `Import-Module` is issued in the same session. The 2nd instance's cause was not importing the wrong path from ambiguous docs — it was substituting a different, more-familiar module (AITriad) without following the documented procedure.
 
 **Prevention:**
 1. **Before calling `Invoke-AsAgentApp`, always run:** `Import-Module .\operations\devops\AgentAppToken.psm1 -Force` (from repo root).
 2. **"CommandNotFoundException" for any `Invoke-AsAgentApp` or related function** is the diagnostic — the fix is an explicit `Import-Module`, not a reinstall or path fix.
 3. **Use `-Force` to avoid caching issues** if the module was previously loaded in the session.
+4. **Follow `docs/agent-pr-approval.md`'s command block verbatim** rather than substituting a familiar module from memory — the doc already names the correct path.
 
-**Status:** Active — 1 instance (Quality/Tech Lead p/447#29).
+**Status:** Active — 2 instances (Quality/Tech Lead p/447#29; Tech Lead p/335#188/#190 — didn't follow the documented command).
 
 **Applies To:** All agents using `Invoke-AsAgentApp` or other functions from `AgentAppToken.psm1`; always import the module explicitly before use.
 
