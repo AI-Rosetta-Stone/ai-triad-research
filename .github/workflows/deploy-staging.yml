@@ -340,6 +340,58 @@ jobs:
           # reader should never have to trace whether $LASTEXITCODE is clean at this point.
           $global:LASTEXITCODE = 0
 
+          # t/4513 (TL condition 3, route enumeration): staging inherits AI_TRIAD_DATA_ROOT=/mnt/shared
+          # from baseEnv (main.bicep) -- the same azureFile SMB mount exposed to the t/4504 mount-attach
+          # race on prod. Same probe, same route set, same bound as prod's "Mount readiness probe" step
+          # (deploy-azure.yml). Staging's gates are failure()-driven rather than output-driven, so this
+          # fails the step directly rather than setting a `ready` output.
+          . ./operations/devops/Get-MountReadinessVerdict.ps1
+
+          # SO C1 (t/4513, e/364#2): fail closed when no revision-specific FQDN was resolved above.
+          # $BaseUrl then IS the app url (the OLD, still-serving revision) -- the warning a few lines
+          # up already names this, but the mount probe must not silently proceed against it: that
+          # would probe the sibling revision's already-warm mount and pass on attempt 1, vacuously,
+          # the exact t/4504 shape (looks healthy, isn't this revision).
+          if ([string]::IsNullOrWhiteSpace($RevFqdn)) {
+            Write-Host "::error::Mount readiness probe: no revision-specific FQDN was resolved for this revision -- `$BaseUrl` is the app url (the OLD serving revision), which this probe refuses to test. Treating as not-ready (fail-closed, SO C1, t/4513)."
+            exit 1
+          }
+
+          $MountProbeStart = Get-Date
+          $Routes = @(
+            @{ Path = '/api/entities';                  Field = '';      Label = 'entities' }
+            @{ Path = '/api/organizations';             Field = '';      Label = 'organizations' }
+            @{ Path = '/api/taxonomy/accelerationist';  Field = 'nodes'; Label = 'taxonomy nodes' }
+          )
+          $MountProbe = {
+            try {
+              $DataSession = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec 15
+              foreach ($R in $Routes) {
+                $Params = @{ BaseUrl = $BaseUrl; Path = $R.Path; Method = 'GET'; TimeoutSec = 15; ExpectJson = $true }
+                if ($DataSession) { $Params.Session = $DataSession }
+                $Check  = Invoke-RemoteCheck @Params
+                $Assert = Test-DataPresenceAssertion -Body $Check.Body -ContentType $Check.ContentType `
+                  -CountField $R.Field -Label $R.Label
+                if (-not $Assert.Pass) {
+                  Write-Host "mount-readiness probe: $($R.Label) not ready — $($Assert.Reason)"
+                  return $false
+                }
+              }
+              return $true
+            } catch {
+              Write-Host "mount-readiness probe error (treated as not-ready): $($_.Exception.Message)"
+              return $false
+            }
+          }
+          $MountVerdict = Wait-MountReady -Probe $MountProbe -MaxAttempts 13 -IntervalSeconds 10
+          $MountElapsedSec = [math]::Round(((Get-Date) - $MountProbeStart).TotalSeconds, 1)
+          if ($MountVerdict.Verdict -ne 'ready') {
+            Write-Host "::error::Mount readiness probe failed after $($MountVerdict.Attempts) attempt(s) (~${MountElapsedSec}s) — NOT promoting staging traffic. See t/4504/t/4513."
+            exit 1
+          }
+          Write-Host "Mount readiness probe passed after $($MountVerdict.Attempts) attempt(s), ~${MountElapsedSec}s"
+          $global:LASTEXITCODE = 0
+
           # Full smoke: all 6 endpoint categories (mandatory pre-traffic gate, t/2376).
           Write-Host "=== Full smoke test against 0%-traffic revision: $BaseUrl ==="
           $SmokeResult = Invoke-TaxEditorSmokeTest -BaseUrl $BaseUrl -Detailed `

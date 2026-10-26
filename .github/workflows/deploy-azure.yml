@@ -724,6 +724,13 @@ jobs:
 
           $BaseUrl = if ([string]::IsNullOrWhiteSpace($RevFqdn)) { "${{ steps.deploy.outputs.appUrl }}" } else { "https://$RevFqdn" }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "base_url=$BaseUrl"
+          # SO C1 (t/4513, e/364#2): base_url falls back to the APP url (the OLD, still-serving
+          # revision) when the revision-specific FQDN lookup returns nothing. The mount probe below
+          # must never reuse that fallback — probing the app url would hit the sibling revision's
+          # already-warm mount and pass on attempt 1, vacuously, which is exactly the t/4504 shape
+          # (looks healthy, isn't the revision being deployed). is_revision_url says whether base_url
+          # is actually revision-specific.
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "is_revision_url=$(-not [string]::IsNullOrWhiteSpace($RevFqdn))"
 
           # Unified check (t/1495): server-up (/health) and data-loaded (/healthz) in one probe per round.
           # t/4158: a bounded loop that also reads the revision's own state and log, so a revision that can
@@ -775,9 +782,85 @@ jobs:
           # line cleanly — never a leftover $LASTEXITCODE from a native call made above.
           exit 0
 
+      - name: Mount readiness probe (t/4513)
+        # t/4513 (TL design review, t/4513#1, head c469a125): /health and /healthz (the health check
+        # above) don't read any arbitrary taxonomy file, so they passed cleanly on revision `-10951`
+        # (t/4504) -- health passed at 10:36:38, the smoke failed at 10:36:47, while the failing
+        # reads happened 49-90s after revision creation. A brand-new replica's Azure Files
+        # (azureFile) SMB mount attach has a short propagation window the health check cannot see.
+        # Bounded retry (Get-MountReadinessVerdict.ps1) closes that gap before the smoke runs: a
+        # transient attach race clears within the bound; a real missing/broken mount does not, and
+        # fails the deploy the same way an unhealthy health check does (t/4249 — no silent skip).
+        # Runs only when the health check itself passed; a failed health check already fails the
+        # deploy on its own.
+        #
+        # TL condition 1: budget >= 120s (observed window was 49-90s) -- 13 attempts x 10s = 130s.
+        # TL condition 2: probe exactly what -10951's smoke failed on (/api/taxonomy/accelerationist,
+        # /api/entities, /api/organizations), using the SAME success test the smoke's data-presence
+        # phase uses (Invoke-SmokeDataPresencePhase / Test-DataPresenceAssertion: anonymous session,
+        # application/json, > 0 rows) -- not a bare HTTP 200, which a JSON `[]`/interstitial would
+        # pass despite carrying no usable data.
+        id: mount_probe
+        if: steps.health_check.outputs.healthy == 'true'
+        shell: pwsh
+        run: |
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force
+          . ./operations/devops/Get-MountReadinessVerdict.ps1
+
+          # SO C1 (t/4513, e/364#2): fail closed when health_check couldn't resolve a
+          # revision-specific FQDN. base_url would then be the APP url, which routes to the OLD,
+          # still-serving revision -- probing it would pass on attempt 1 against the sibling's
+          # already-warm mount, vacuously, the exact t/4504 shape (looks healthy, isn't this
+          # revision). Never probe the fallback; name the cause and stop before probing.
+          if ('${{ steps.health_check.outputs.is_revision_url }}' -ne 'true') {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=false"
+            Write-Host "::error::Mount readiness probe: no revision-specific FQDN was resolved for this revision -- base_url would fall back to the app url (the OLD serving revision), which this probe refuses to test. Treating as not-ready (fail-closed, SO C1, t/4513)."
+            exit 0
+          }
+
+          $BaseUrl = '${{ steps.health_check.outputs.base_url }}'
+          $RevisionCreatedAt = Get-Date  # closest available proxy; the step runs immediately after revision creation
+
+          $Routes = @(
+            @{ Path = '/api/entities';                  Field = '';      Label = 'entities' }
+            @{ Path = '/api/organizations';             Field = '';      Label = 'organizations' }
+            @{ Path = '/api/taxonomy/accelerationist';  Field = 'nodes'; Label = 'taxonomy nodes' }
+          )
+          $Probe = {
+            try {
+              $DataSession = New-AnonymousWebSession -BaseUrl $BaseUrl -TimeoutSec 15
+              foreach ($R in $Routes) {
+                $Params = @{ BaseUrl = $BaseUrl; Path = $R.Path; Method = 'GET'; TimeoutSec = 15; ExpectJson = $true }
+                if ($DataSession) { $Params.Session = $DataSession }
+                $Check  = Invoke-RemoteCheck @Params
+                $Assert = Test-DataPresenceAssertion -Body $Check.Body -ContentType $Check.ContentType `
+                  -CountField $R.Field -Label $R.Label
+                if (-not $Assert.Pass) {
+                  Write-Host "mount-readiness probe: $($R.Label) not ready — $($Assert.Reason)"
+                  return $false
+                }
+              }
+              return $true
+            } catch {
+              Write-Host "mount-readiness probe error (treated as not-ready): $($_.Exception.Message)"
+              return $false
+            }
+          }
+          $Verdict = Wait-MountReady -Probe $Probe -MaxAttempts 13 -IntervalSeconds 10
+          $ElapsedSec = [math]::Round(((Get-Date) - $RevisionCreatedAt).TotalSeconds, 1)
+          if ($Verdict.Verdict -eq 'ready') {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=true"
+            Write-Host "Mount readiness probe passed after $($Verdict.Attempts) attempt(s), ~${ElapsedSec}s since this step started — post this on t/4513 (TL condition 3, live-fire)"
+          } else {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=false"
+            Write-Host "::error::Mount readiness probe failed after $($Verdict.Attempts) attempt(s) (~${ElapsedSec}s) — entities/organizations/taxonomy never all returned real data. See t/4504/t/4513."
+          }
+          $global:LASTEXITCODE = 0
+          exit 0
+
       - name: Acceptance tests — full smoke (pre-traffic shift)
         id: acceptance
-        if: steps.health_check.outputs.healthy == 'true'
+        if: steps.health_check.outputs.healthy == 'true' && steps.mount_probe.outputs.ready == 'true'
         shell: pwsh
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
@@ -1000,7 +1083,7 @@ jobs:
       - name: Collect failure diagnostics
         # t/3148: warm_gate is a peer failure trigger — a warm-timeout (warm=='false') collects
         # diagnostics on the same footing as an acceptance/persona failure.
-        if: steps.health_check.outputs.healthy != 'true' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false'
+        if: steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -1021,7 +1104,7 @@ jobs:
           else { Write-Host '(no system logs available)' }
 
       - name: Re-authenticate before rollback
-        if: always() && (steps.health_check.outputs.healthy != 'true' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != ''
+        if: always() && (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != ''
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -1029,7 +1112,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Rollback on failure
-        if: always() && (steps.health_check.outputs.healthy != 'true' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != ''
+        if: always() && (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != ''
         shell: pwsh
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
@@ -1054,7 +1137,7 @@ jobs:
           exit 1
 
       - name: Fail if unhealthy (no previous revision to rollback to)
-        if: (steps.health_check.outputs.healthy != 'true' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision == ''
+        if: (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision == ''
         run: |
           echo "::error::Health check failed and no previous revision exists for rollback"
           exit 1
@@ -1068,7 +1151,7 @@ jobs:
         id: earlier_rollback
         if: always()
         run: |
-          echo "fired=${{ (steps.health_check.outputs.healthy != 'true' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != '' }}" >> "$GITHUB_OUTPUT"
+          echo "fired=${{ (steps.health_check.outputs.healthy != 'true' || steps.mount_probe.outputs.ready == 'false' || steps.acceptance.outputs.accepted == 'false' || steps.persona.outputs.accepted == 'false' || steps.warm_gate.outputs.warm == 'false') && steps.current_revision.outputs.revision != '' }}" >> "$GITHUB_OUTPUT"
 
       - name: Post-deploy verification — serving revision active + /health 200 (t/4242 AC2)
         id: ac2
