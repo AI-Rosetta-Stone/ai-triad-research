@@ -1279,6 +1279,24 @@ resource restartAlertActionGroup 'Microsoft.Insights/actionGroups@2023-09-01-pre
   }
 }
 
+// t/4426 SO C1: the 10-13 incident (t/4176, OOM-kill) produced Reason_s=="Error" x16 — it never
+// produced a ContainerBackOff/ImagePullBackOff burst. Backtested over 30d prod logs:
+// BackOff/ImagePullBackOff alone never exceeds 3 events total (never fires); adding "Error" fires
+// EXACTLY once, 17 events at 2026-10-13T10:10Z (the real incident), and nowhere else. Dropping
+// StoppingContainer (t/4426's original fix, still correct — it's deploy churn, not a crash signal)
+// without adding Error would have made this alert blind to the one incident it exists to catch.
+//
+// t/4426 SO C2: ContainerAppName_s is injected via replace() from containerApp.name, the single
+// source of truth, instead of a second hardcoded "taxonomy-editor" literal — a future rename of
+// the prod app can't silently blind this alert the way two independent literals could.
+var restartLoopQuery = replace('''
+  ContainerAppSystemLogs_CL
+  | where ContainerAppName_s == "__APP_NAME__"
+  | where Reason_s in ("ContainerBackOff", "ImagePullBackOff", "Error")
+  | summarize RestartCount = count() by RevisionName_s
+  | where RestartCount > 5
+''', '__APP_NAME__', containerApp.name)
+
 resource restartLoopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-restart-loop'
   location: location
@@ -1288,9 +1306,9 @@ resource restartLoopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     // t/4426: was unscoped (any app) and counted StoppingContainer, which every deploy emits —
     // 38h of data showed 12 prod StoppingContainer events (all deploy churn, 0 real backoffs)
     // plus staging canary/test-revision crash loops, both firing this as if they were prod.
-    // ContainerAppName_s=="taxonomy-editor" + dropping StoppingContainer leaves only the real
-    // crash-loop signals (ContainerBackOff, ImagePullBackOff) on the prod app.
-    description: 'Fires when the PRODUCTION container revision crash-loops (ContainerBackOff/ImagePullBackOff) 5+ times in 10 minutes. Scoped to prod only — staging crash loops do not page this (t/4426).'
+    // Scoped to the prod app (see restartLoopQuery above) + Error added back (SO C1) + dropping
+    // StoppingContainer leaves the real crash-loop signals: ContainerBackOff, ImagePullBackOff, Error.
+    description: 'Fires when the PRODUCTION container revision crash-loops (ContainerBackOff/ImagePullBackOff/Error, e.g. OOM-kill) 5+ times in 10 minutes. Scoped to prod only — staging crash loops do not page this (t/4426).'
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
@@ -1299,13 +1317,7 @@ resource restartLoopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
     criteria: {
       allOf: [
         {
-          query: '''
-            ContainerAppSystemLogs_CL
-            | where ContainerAppName_s == "taxonomy-editor"
-            | where Reason_s in ("ContainerBackOff", "ImagePullBackOff")
-            | summarize RestartCount = count() by RevisionName_s
-            | where RestartCount > 5
-          '''
+          query: restartLoopQuery
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0
@@ -1994,6 +2006,13 @@ resource prodBackoffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
 // Diagnosis: AppInsights `requests` absent + client log present → envoy-fabricated.
 // See operational-commands.md for the KQL cross-reference runbook.
 
+// t/4426 SO C2: injected via replace() from containerApp.name — see restartLoopQuery's comment.
+var eventLoopBlockedQuery = replace('''
+  ContainerAppConsoleLogs_CL
+  | where ContainerAppName_s == "__APP_NAME__"
+  | where Log_s has "event loop blocked"
+''', '__APP_NAME__', containerApp.name)
+
 resource eventLoopLagAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-event-loop-blocked'
   location: location
@@ -2003,8 +2022,8 @@ resource eventLoopLagAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pr
     description: '''Node.js event loop blocked >1s on the PRODUCTION app — leading indicator of ingress-fabricated 5xx under load (t/3165 pattern).
 Signal: Pino WARN "event loop blocked" fires ONLY on blocks >EVENT_LOOP_LAG_WARN_MS (1000ms); routine 5s gauges say "event-loop max…" without "blocked" and do not trip this.
 Structured fields: component="event-loop", level=warn(40). Primary detector for t/3167.
-t/4426: scoped to ContainerAppName_s=="taxonomy-editor" — unscoped, 200/202 matching lines in a
-38h window came from staging (load-test/canary traffic), so this paged on staging noise. (t/3167, t/4426)'''
+t/4426: scoped to the prod app (see eventLoopBlockedQuery above) — unscoped, 200/202 matching lines
+in a 38h window came from staging (load-test/canary traffic), so this paged on staging noise. (t/3167, t/4426)'''
     severity: 1
     enabled: true
     scopes: [ logAnalytics.id ]
@@ -2014,11 +2033,7 @@ t/4426: scoped to ContainerAppName_s=="taxonomy-editor" — unscoped, 200/202 ma
     criteria: {
       allOf: [
         {
-          query: '''
-            ContainerAppConsoleLogs_CL
-            | where ContainerAppName_s == "taxonomy-editor"
-            | where Log_s has "event loop blocked"
-          '''
+          query: eventLoopBlockedQuery
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0
