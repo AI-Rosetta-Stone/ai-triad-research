@@ -348,7 +348,7 @@ export class AzureBlobBackend implements StorageBackend {
     }
   }
 
-  async fileExists(filePath: string): Promise<boolean> {
+  async fileExists(filePath: string, _opts?: { ref?: string }): Promise<boolean> {
     const blob = this.toBlobPath(filePath);
     try {
       return await this.containerFor(blob).getBlobClient(blob).exists();

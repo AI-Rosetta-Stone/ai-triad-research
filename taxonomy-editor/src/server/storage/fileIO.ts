@@ -1107,7 +1107,12 @@ export async function discoverSources(): Promise<DiscoveredSource[]> {
         sourceType: meta.source_type || 'unknown',
         datePublished: meta.date_published || meta.source_time || '',
         dateIngested: meta.date_ingested || '',
-        hasSummary: await backend.fileExists(summaryPath),
+        // t/4428: pinned to main — same pipeline-generated-data rule as the
+        // sourceEntries/metaPath reads above and loadSummary() below; this
+        // also keeps the check off the session-branch Contents-API path for
+        // every source in this loop (the hot-path concern from t/4428#2
+        // condition 2) rather than needing a per-request memo.
+        hasSummary: await backend.fileExists(summaryPath, { ref: 'main' }),
         tags: meta.pov_tags || [],
         authors: meta.authors || [],
       });

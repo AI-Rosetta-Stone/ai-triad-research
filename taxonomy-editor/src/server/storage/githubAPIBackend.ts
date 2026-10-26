@@ -1320,48 +1320,60 @@ export class GitHubAPIBackend implements StorageBackend {
     await this.removeFromDiskCache(repoPath);
   }
 
-  async fileExists(filePath: string): Promise<boolean> {
+  async fileExists(filePath: string, opts?: { ref?: string }): Promise<boolean> {
     const repoPath = this.toRepoPath(filePath);
+    const effectiveRef = this.getEffectiveRef();
+    const ref = opts?.ref ?? effectiveRef;
 
-    // Check session overlay
-    const existsBranch = this.getEffectiveRef();
+    // Check session overlay — only when this call isn't pinned away from the
+    // session's own ref (t/4428#2 condition 1). An explicit opts.ref that
+    // differs from the effective ref is asking for that ref's real content,
+    // and answering from this session's overlay would defeat the pin.
     const existsUserId = this.getEffectiveUserId();
-    if (existsBranch !== this.baseBranch && existsUserId) {
+    if (ref === effectiveRef && effectiveRef !== this.baseBranch && existsUserId) {
       const overlay = this.sessionOverlays.get(existsUserId);
       if (overlay?.has(repoPath)) return overlay.get(repoPath) !== GitHubAPIBackend.TOMBSTONE;
     }
 
-    // Check disk cache manifest
+    // t/4428: the disk-cache manifest and in-memory repoTree represent
+    // `baseBranch` only — same reasoning as t/4215/t/4393's "a session read
+    // must not fall through to main's cache." A ref other than baseBranch
+    // (explicit pin or active session) always goes straight to the
+    // Contents-API fallback below, which resolves the real ref.
+    if (ref === this.baseBranch && await this.fileExistsInBaseBranchCache(repoPath)) return true;
+
+    // t/4179 R3: a non-holder never falls through to the per-call Contents
+    // API below — same reasoning as listDirectory.
+    if (!this.mayFallBackToContentsApi()) return false;
+    return this.fileExistsViaContentsApi(repoPath, ref);
+  }
+
+  /** Extracted from fileExists() to keep its own complexity under budget.
+   *  `baseBranch`-only: manifest, then the in-memory tree (file or directory). */
+  private async fileExistsInBaseBranchCache(repoPath: string): Promise<boolean> {
     if (this.manifest?.files[repoPath]) return true;
 
     if (this.repoTree.size === 0 && this.blobLease) await this.ensureRepoTreeFilled();
 
-    // Check in-memory tree
     if (this.repoTree.has(repoPath)) return true;
 
-    // Check for directory in tree
     if (this.repoTree.size > 0) {
       const prefix = repoPath + '/';
       for (const [p] of this.repoTree) {
         if (p.startsWith(prefix)) return true;
       }
     }
-
-    // t/4179 R3: a non-holder never falls through to the per-call Contents
-    // API below — same reasoning as listDirectory.
-    if (!this.mayFallBackToContentsApi()) return false;
-    return this.fileExistsViaContentsApi(repoPath);
+    return false;
   }
 
   /** Extracted from fileExists() to keep its own complexity under budget. */
-  private async fileExistsViaContentsApi(repoPath: string): Promise<boolean> {
+  private async fileExistsViaContentsApi(repoPath: string, ref: string): Promise<boolean> {
     if (this.rest.isTripped()) return false;
 
     const creds = await this.getCredsCached();
     if (!creds) return false;
 
-    const ref = this.getEffectiveRef();
-    const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
+    const qRef = ref === this.baseBranch ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'HEAD',
       `/repos/${creds.repo}/contents/${repoPath}${qRef}`);
     return resp.ok;
