@@ -180,10 +180,11 @@ CANONICAL PROPOSITION (required for every key_point):
        "the attestation" -> "the mandatory data-processing attestation" only if
        the source has said it is mandatory and about data processing.
     3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
-    4. Keep the proposition general enough to match a taxonomy node. Put the
-       specific instrument, jurisdiction, organization or date that the claim is
-       ABOUT in "anchors" instead (see below). Do not invent an anchor the source
-       does not give.
+    4. Keep the proposition general enough to match a taxonomy node. Put a name
+       in "anchors" only if removing it would change what the claim asserts. A
+       name that illustrates a general claim, or is where a figure or quotation
+       came from, is not an anchor. Do not invent an anchor the source does not
+       give.
 
     Examples:
       Source: "In the EU, the Digital Services Act (DSA) requires major platforms to
@@ -200,6 +201,15 @@ CANONICAL PROPOSITION (required for every key_point):
                taken without it."
       anchors: []          (China is an example here, not what the claim is about)
 
+      Source: welfare and justice systems "in the Netherlands, the UK, and
+               Australia" used biased algorithmic decision-making that wrongly
+               accused thousands of people of benefit fraud.
+      canonical_proposition: "Algorithmic bias and automated decision systems cause
+               documented, severe present harms to vulnerable populations across
+               welfare and justice systems."
+      anchors: []          (remove the three countries and the claim asserts the
+                            same thing; they illustrate it)
+
       Earlier in the debate: "We propose a mandatory attestation of how the system
                processes personal data."
       Later turn: "The attestation should cover everything the system processes,
@@ -210,10 +220,11 @@ CANONICAL PROPOSITION (required for every key_point):
 
   ANCHORS (t/4482; forensic/additive — see the point-of-use exemption note on the
   "anchors" field in pov-summary-schema.prompt):
-    "anchors": list of the specific instruments, jurisdictions, organizations or
-    dates the claim is ABOUT, as named in the source, e.g. ["EU AI Act Article 62"],
-    ["California Judicial Council", "2025-12-15"]. Use [] for a general claim, and
-    when a name appears only as an example.
+    "anchors": the names (instruments, jurisdictions, organizations or dates),
+    as given in the source, that the claim would lose its meaning without, e.g.
+    ["EU AI Act Article 62"], ["California Judicial Council", "2025-12-15"].
+    Use [] for a general claim. Names that only illustrate the claim, or that
+    are where a figure or quotation came from, are not anchors.
 
 ATTRIBUTION TEXT (required for every key_point):
   Provide an "attribution_text" field that rewrites the claim mirroring
@@ -363,6 +374,30 @@ EXAMPLE KEY POINTS:
     Note: category is Desires because the ASSIGNED node (skp-desires-003) is a Desire —
     category tracks the node, not the stance. The document opposes that desire; it does
     not thereby change categories. This is the CATEGORY CONSISTENCY rule in action.
+
+SELF-CONTAINED FACTUAL CLAIMS:
+  Each factual_claim "claim" is read on its own, in a list of claims from many
+  documents. A reader who has never seen the source must know what it is about.
+  1. Name the subject the way the source names it: the study, system, incident,
+     settlement, law or organization. Never lean on "the study", "the analysis",
+     "participants", "the incident", "the settlement", "the company", "it",
+     "they", "this policy", "the authors" or "the document" to supply it.
+  2. Replace a name the source invented with what it is, using only what the
+     source itself says it is. Never add detail the source does not give.
+  3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
+  A factual claim KEEPS its specific names in the sentence. It has no anchors field.
+
+  Examples:
+    Wrong: "Participants rated roughly one-third of completed AI-assisted tasks
+            as infeasible without artificial intelligence."
+    Right: "An analysis of 769 task records from 56 participants developing
+            Atria Dawn showed that participants rated 33.2% of completed
+            AI-assisted tasks as infeasible without AI."
+    Wrong: "The settlement provides approximately $3,000 in compensation for
+            each of the estimated 500,000 books covered by the agreement."
+    Right: "Anthropic's copyright settlement with authors provides approximately
+            $3,000 in compensation for each of the estimated 500,000 books it
+            covers."
 
 EXAMPLE FACTUAL CLAIM:
     {
