@@ -1,0 +1,932 @@
+{
+ "name": "t4507-tag-pilot-rerun",
+ "output_dir": "C:\\Users\\jsnov\\repos\\ai-triad-data\\debates\\t4507-tag-pilot-rerun",
+ "approval_ref": "t/4507#1, t/4507#2",
+ "approval_status": "APPROVED by the PI first-hand in the CL session 2026-10-26: \"spending approved\" (t/4507#1), cap \"approve $25 spending cap\" (t/4507#2).",
+ "hard_stop_usd": 25.0,
+ "hard_stop_ref": "PI cap $25 (t/4507#2)",
+ "_comment": "Pre-registered in PREREG.md before any run. Fixed 5 rounds, frozen code 00aff3a6 (includes t/4438 seat-tag selection). 10 motions x 5 arms (A1-A4 + A1r replicate), motion-major order. First-debate cost gate: if 50 x first-debate cost > $23, switch to rounds=4 for ALL debates before the second runs.",
+ "base_config": {
+  "model": "gemini-3.5-flash-lite",
+  "protocolId": "structured",
+  "audience": "policymakers",
+  "activePovers": [
+   "accelerationist",
+   "safetyist",
+   "skeptic"
+  ],
+  "rounds": 5
+ },
+ "expected_pins": {
+  "debate_model": "gemini-3.5-flash-lite",
+  "protocol_id": "structured",
+  "audience": "policymakers",
+  "active_povers": [
+   "accelerationist",
+   "safetyist",
+   "skeptic"
+  ]
+ },
+ "debates": [
+  {
+   "slug": "t4507-m01-a1",
+   "config": {
+    "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m01-a2",
+   "config": {
+    "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m01-a3",
+   "config": {
+    "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m01-a4",
+   "config": {
+    "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m01-a1r",
+   "config": {
+    "topic": "Should frontier AI developers be legally liable for harms caused by their deployed models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m02-a1",
+   "config": {
+    "topic": "Should the largest AI model training runs require a government licence?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m02-a2",
+   "config": {
+    "topic": "Should the largest AI model training runs require a government licence?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m02-a3",
+   "config": {
+    "topic": "Should the largest AI model training runs require a government licence?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m02-a4",
+   "config": {
+    "topic": "Should the largest AI model training runs require a government licence?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m02-a1r",
+   "config": {
+    "topic": "Should the largest AI model training runs require a government licence?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m03-a1",
+   "config": {
+    "topic": "Should the weights of the most capable AI models be released publicly?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m03-a2",
+   "config": {
+    "topic": "Should the weights of the most capable AI models be released publicly?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m03-a3",
+   "config": {
+    "topic": "Should the weights of the most capable AI models be released publicly?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m03-a4",
+   "config": {
+    "topic": "Should the weights of the most capable AI models be released publicly?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m03-a1r",
+   "config": {
+    "topic": "Should the weights of the most capable AI models be released publicly?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m04-a1",
+   "config": {
+    "topic": "Should governments break up vertically integrated AI companies that own chips, cloud and models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m04-a2",
+   "config": {
+    "topic": "Should governments break up vertically integrated AI companies that own chips, cloud and models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m04-a3",
+   "config": {
+    "topic": "Should governments break up vertically integrated AI companies that own chips, cloud and models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m04-a4",
+   "config": {
+    "topic": "Should governments break up vertically integrated AI companies that own chips, cloud and models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m04-a1r",
+   "config": {
+    "topic": "Should governments break up vertically integrated AI companies that own chips, cloud and models?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m05-a1",
+   "config": {
+    "topic": "Should AI systems be barred from making final decisions in hiring and lending?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m05-a2",
+   "config": {
+    "topic": "Should AI systems be barred from making final decisions in hiring and lending?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m05-a3",
+   "config": {
+    "topic": "Should AI systems be barred from making final decisions in hiring and lending?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m05-a4",
+   "config": {
+    "topic": "Should AI systems be barred from making final decisions in hiring and lending?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m05-a1r",
+   "config": {
+    "topic": "Should AI systems be barred from making final decisions in hiring and lending?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m06-a1",
+   "config": {
+    "topic": "Will generative AI raise or lower overall employment in office work over the next decade?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m06-a2",
+   "config": {
+    "topic": "Will generative AI raise or lower overall employment in office work over the next decade?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m06-a3",
+   "config": {
+    "topic": "Will generative AI raise or lower overall employment in office work over the next decade?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m06-a4",
+   "config": {
+    "topic": "Will generative AI raise or lower overall employment in office work over the next decade?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m06-a1r",
+   "config": {
+    "topic": "Will generative AI raise or lower overall employment in office work over the next decade?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m07-a1",
+   "config": {
+    "topic": "Is current AI progress driven mainly by scaling compute, or by algorithmic advances?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m07-a2",
+   "config": {
+    "topic": "Is current AI progress driven mainly by scaling compute, or by algorithmic advances?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m07-a3",
+   "config": {
+    "topic": "Is current AI progress driven mainly by scaling compute, or by algorithmic advances?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m07-a4",
+   "config": {
+    "topic": "Is current AI progress driven mainly by scaling compute, or by algorithmic advances?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m07-a1r",
+   "config": {
+    "topic": "Is current AI progress driven mainly by scaling compute, or by algorithmic advances?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m08-a1",
+   "config": {
+    "topic": "Has AI measurably increased productivity in the firms that have adopted it?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m08-a2",
+   "config": {
+    "topic": "Has AI measurably increased productivity in the firms that have adopted it?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m08-a3",
+   "config": {
+    "topic": "Has AI measurably increased productivity in the firms that have adopted it?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m08-a4",
+   "config": {
+    "topic": "Has AI measurably increased productivity in the firms that have adopted it?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m08-a1r",
+   "config": {
+    "topic": "Has AI measurably increased productivity in the firms that have adopted it?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m09-a1",
+   "config": {
+    "topic": "Do AI benchmark scores predict real-world usefulness?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m09-a2",
+   "config": {
+    "topic": "Do AI benchmark scores predict real-world usefulness?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m09-a3",
+   "config": {
+    "topic": "Do AI benchmark scores predict real-world usefulness?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m09-a4",
+   "config": {
+    "topic": "Do AI benchmark scores predict real-world usefulness?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m09-a1r",
+   "config": {
+    "topic": "Do AI benchmark scores predict real-world usefulness?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m10-a1",
+   "config": {
+    "topic": "Is the market for frontier AI models becoming more concentrated or more competitive?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m10-a2",
+   "config": {
+    "topic": "Is the market for frontier AI models becoming more concentrated or more competitive?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m10-a3",
+   "config": {
+    "topic": "Is the market for frontier AI models becoming more concentrated or more competitive?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "scope"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m10-a4",
+   "config": {
+    "topic": "Is the market for frontier AI models becoming more concentrated or more competitive?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "institutional",
+      "tag_mode": "prioritize"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "institutional",
+     "tag_mode": "prioritize"
+    }
+   }
+  },
+  {
+   "slug": "t4507-m10-a1r",
+   "config": {
+    "topic": "Is the market for frontier AI models becoming more concentrated or more competitive?",
+    "seatTags": {
+     "skeptic": {
+      "pov_tag": "critical",
+      "tag_mode": "scope"
+     }
+    }
+   },
+   "expected_seat_tags": {
+    "skeptic": {
+     "pov_tag": "critical",
+     "tag_mode": "scope"
+    }
+   }
+  }
+ ]
+}
