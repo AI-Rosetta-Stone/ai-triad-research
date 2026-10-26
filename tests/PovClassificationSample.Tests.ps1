@@ -108,7 +108,7 @@ Describe 'Invoke-SummaryPipeline: CHESS sees the whole document (t/4477)' -Tag '
             Mock Get-DocumentPovClassification { param($QueryText, $ApiKey) $script:CapturedQuery = $QueryText; @('safetyist') }
 
             $null = Invoke-SummaryPipeline -SnapshotText $snapshot -DocId 'test-doc' `
-                -Metadata ([PSCustomObject]@{ title = 'Test Doc' }) -ApiKey '' -Model 'gemini-test' `
+                -Metadata ([PSCustomObject]@{ title = 'Test Doc' }) -ApiKey '' -Model 'gemini-3.5-flash-lite' `
                 -TaxonomyVersion '1.0' -SystemPromptTemplate '{density}' -OutputSchema '{}' 3>$null
 
             $script:CapturedQuery | Should -Match 'safety-conscious-term'
