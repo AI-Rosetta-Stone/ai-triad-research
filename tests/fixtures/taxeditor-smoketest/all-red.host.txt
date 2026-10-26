@@ -49,6 +49,10 @@ Smoke testing: https://stub
   [DEGRADED] GET /readyz — 503 10ms — embeddings cache warming
 ::warning::Embeddings cache not present (/readyz=503, warming) — monitoring signal, does not block the gate. A sustained 'warming'/'unreachable' is the t/3085 dead-cache class.
 
+=== Identity Allowlist Unreachable ===
+  [DEGRADED] GET /health — identityAllowlistUnreachable=3 (known-pending 2)
+::warning::Identity allowlist unreachable count 3 exceeds the known-pending list (2) or /health was unreachable — monitoring signal, does not block the gate (t/4505 AC3). New unreachable entries may mean an admin lost access; investigate via the admin-only /health or /admin endpoint.
+
 === Summary ===
   Overall: FAIL
   Health:  Unhealthy

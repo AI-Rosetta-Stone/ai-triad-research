@@ -78,6 +78,7 @@ Describe 'Invoke-TaxEditorSmokeTest characterization (t/3910)' -Tag 'health' {
                 'POST /api/analytics/event'     = (New-RC -Body ([pscustomobject]@{ ok = $true; count = 2 }))
                 'GET /api/health/oped-files'    = (New-RC -Body ([pscustomobject]@{ ok = $true; assets = @('a', 'b', 'c') }))
                 'GET /readyz'                   = (New-RC)
+                'GET /health'                   = (New-RC -Body ([pscustomobject]@{ status = 'ok'; identityAllowlistUnreachable = 2 }))
                 'GET /api/entities'             = (New-RC -Body @(1, 2, 3))
                 'GET /api/organizations'        = (New-RC -Body @(1, 2))
                 'GET /api/taxonomy/accelerationist' = (New-RC -Body ([pscustomobject]@{ nodes = @(1, 2, 3, 4) }))
@@ -130,7 +131,7 @@ Describe 'Invoke-TaxEditorSmokeTest characterization (t/3910)' -Tag 'health' {
             $run.Result.OverallPass | Should -BeTrue
         }
 
-        It 'EVERY PHASE RED (health, endpoints, azure, github, analytics, data, oped, embedding, cache)' {
+        It 'EVERY PHASE RED (health, endpoints, azure, github, analytics, data, oped, embedding, cache, identity allowlist)' {
             $run = Get-NormalizedRun @(InModuleScope AITriad {
                 $script:HealthOk = $false; $script:AzureOk = $false; $script:GitHubOk = $false; $script:EndpointPass = $false
                 $script:Q = @((New-RC -Body (New-QueryBody -Total 5 -EventTypes @{})), (New-RC -Body (New-QueryBody -Total 5 -EventTypes @{ 'view.dwell' = 0 })))
@@ -140,6 +141,7 @@ Describe 'Invoke-TaxEditorSmokeTest characterization (t/3910)' -Tag 'health' {
                 $script:RC['GET /api/taxonomy/accelerationist'] = New-RC -Body '<html>Sign in</html>' -ContentType 'text/html'
                 $script:RC['GET /api/health/oped-files'] = New-RC -Status 500 -Body ([pscustomobject]@{ ok = $false; missing = @('soul.json', 'p.prompt') })
                 $script:RC['GET /readyz'] = New-RC -Success $true -Status 503
+                $script:RC['GET /health'] = New-RC -Body ([pscustomobject]@{ status = 'ok'; identityAllowlistUnreachable = 3 })
                 $script:EmbedThrows = $true
                 Mock New-AnonymousWebSession -MockWith { $null }
                 Invoke-TaxEditorSmokeTest -BaseUrl 'https://stub' -AssertDataPresence -Detailed 6>&1

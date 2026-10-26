@@ -34,6 +34,9 @@ Smoke testing: https://stub
 === Embeddings Cache Presence ===
   [PASS] GET /readyz — 200 10ms — embeddings cache present
 
+=== Identity Allowlist Unreachable ===
+  [PASS] GET /health — identityAllowlistUnreachable=2 (known-pending 2)
+
 === Summary ===
   Overall: PASS
   Health:  Healthy

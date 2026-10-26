@@ -127,6 +127,7 @@ function Invoke-TaxEditorSmokeTest {
     $OpedFiles = Invoke-SmokeOpedFilesPhase -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec
     $Embedding = Invoke-SmokeEmbeddingLatencyPhase -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec -CeilingSec $EmbeddingCeilingSec
     $Cache     = Invoke-SmokeCachePresencePhase -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec
+    $IdentityAllowlist = Invoke-SmokeIdentityAllowlistPhase -BaseUrl $BaseUrl -TimeoutSec $TimeoutSec
 
     # ── Summary ──────────────────────────────────────────────────────────
     $AllResults = @($Endpoints) + @($AnonEndpoints) + @($Analytics) + @($DataPresence) + @($OpedFiles.Result)
@@ -157,6 +158,9 @@ function Invoke-TaxEditorSmokeTest {
         EmbeddingCeilingSec = $EmbeddingCeilingSec
         EmbeddingCachePresent = $Cache.Present
         EmbeddingCacheStatus  = $Cache.Status
+        IdentityAllowlistUnreachable      = $IdentityAllowlist.Count
+        IdentityAllowlistKnownPendingCount = $IdentityAllowlist.KnownPendingCount
+        IdentityAllowlistStatus           = $IdentityAllowlist.Status
         EndpointsPassed = $Passed
         EndpointsFailed = $Failed
         EndpointsTotal  = $Total
