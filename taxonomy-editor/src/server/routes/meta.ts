@@ -28,6 +28,7 @@ import { LLMS_TXT } from '../llmsTxt.js';
 import { getLastEventLoopSample } from '../eventLoopMonitor.js';
 import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
 import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
+import { getNodeSourceIndexStatus } from '../storage/nodeSourceIndex.js';
 
 // t/2059: throttle the readiness log to state transitions. ACA probes /healthz
 // every few seconds, so logging every not-ready probe would spam the log. Emit
@@ -175,7 +176,12 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // t/4505: a count only (never names/reasons — those stay on /api/admin/health and the boot
     // WARN) so the unauthenticated deploy smoke check can read it with no admin session.
     const identityAllowlistUnreachable = findUnreachableAllowlistEntries(community.getAdminUsers(), getReadOnlyPrincipalEntries()).length;
-    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize }, eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable }); return; }
+    // t/4521: public /health gets a bare boolean (never built yet → null, same precedent as
+    // t/4505's count-only split) — the full status (indexVersion, summaryReadFailures) stays
+    // admin-only below, since those are operational detail, not a liveness signal.
+    const nodeSourceIndexStatus = getNodeSourceIndexStatus();
+    const nodeSourceIndexComplete = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.complete;
+    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize }, eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete }); return; }
     const base: Record<string, unknown> = {
       status: 'ok',
       version: ctx.serverVersion,
@@ -206,6 +212,10 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // t/3086: embeddings cache probe result — surfaces t/3085 condition in /health without FR access.
     const embeddingsStatus = getEmbeddingsCacheStatus();
     base.embeddings = { cachePresent: embeddingsStatus.present, nodeCount: embeddingsStatus.nodeCount };
+
+    // t/4521: full status admin-only (summaryReadFailures is operator diagnostic detail);
+    // public /health above only got the boolean. null (never built) passes through as-is.
+    base.nodeSourceIndex = nodeSourceIndexStatus;
 
     const githubBackend = ctx.getGithubBackend();
     if (githubBackend) {
