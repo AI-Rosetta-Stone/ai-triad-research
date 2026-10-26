@@ -261,3 +261,36 @@ describe('other idps and no-ops', () => {
     expect(warnMock).not.toHaveBeenCalled();
   });
 });
+
+describe('unreviewed idp WARN (t/4326 follow-up, p/822#3)', () => {
+  it('an idp other than github/google reaching the trusted-name path WARNs once', () => {
+    const r = { headers: {
+      'x-ms-client-principal-name': 'someone@example.com', 'x-ms-client-principal-idp': 'facebook',
+      'x-ms-client-principal': principal([[EMAIL, 'someone@example.com']], 'facebook'),
+    } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBe('someone@example.com'); // behavior unchanged — still trusted as-is
+    expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback' && (fields as Record<string, unknown>).idp === 'facebook')).toBe(true);
+  });
+
+  it('google does not WARN (explicitly reviewed)', () => {
+    const r = { headers: {
+      'x-ms-client-principal-name': 'user@gmail.com', 'x-ms-client-principal-idp': 'google',
+      'x-ms-client-principal': principal([[EMAIL, 'user@gmail.com']], 'google'),
+    } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback')).toBe(false);
+  });
+
+  it('github does not WARN (has its own canonicalization path)', () => {
+    const r = githubReq({ id: '1', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback')).toBe(false);
+  });
+
+  it('an unreviewed idp with no claims blob at all still WARNs (no encoded principal to decode)', () => {
+    const r = { headers: { 'x-ms-client-principal-idp': 'okta', 'x-ms-client-principal-name': 'x' } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback' && (fields as Record<string, unknown>).idp === 'okta')).toBe(true);
+  });
+});
