@@ -10,7 +10,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 const { mockIsAdmin } = vi.hoisted(() => ({ mockIsAdmin: vi.fn(() => false) }));
-vi.mock('../community/community.js', () => ({ isAdmin: mockIsAdmin }));
+// t/4505: GET /health's unauth branch now also calls community.getAdminUsers() (for the
+// identityAllowlistUnreachable count) — stub it so this file's mock stays self-contained.
+vi.mock('../community/community.js', () => ({ isAdmin: mockIsAdmin, getAdminUsers: vi.fn(() => []) }));
 
 const { mockGetLastSample } = vi.hoisted(() => ({ mockGetLastSample: vi.fn(() => null as { maxMs: number } | null) }));
 vi.mock('../eventLoopMonitor.js', () => ({ getLastEventLoopSample: mockGetLastSample }));

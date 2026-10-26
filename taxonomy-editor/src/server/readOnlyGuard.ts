@@ -32,6 +32,11 @@ function parseReadOnlyPrincipals(raw: string | undefined): Set<string> {
 }
 const READ_ONLY_PRINCIPALS = parseReadOnlyPrincipals(process.env.READ_ONLY_PRINCIPALS);
 
+/** t/4505: the parsed `idp:name` set, for the boot reachability check — no re-parse. */
+export function getReadOnlyPrincipalEntries(): ReadonlySet<string> {
+  return READ_ONLY_PRINCIPALS;
+}
+
 /** Pure, I/O-free, cannot throw — the fail-closed half of the read-only flag. */
 export function isEnvReadOnlyPrincipal(principalName: string, idp: string): boolean {
   if (!principalName || !idp) return false;

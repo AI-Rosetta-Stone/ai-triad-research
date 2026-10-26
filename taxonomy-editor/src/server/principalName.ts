@@ -125,6 +125,34 @@ function getIdentityMap(): Map<string, string> {
   return identityMap;
 }
 
+/** Number of parsed IDENTITY_MAP entries — for the t/4505 boot WARN's "map is empty" flag. */
+export function identityMapSize(): number {
+  return getIdentityMap().size;
+}
+
+// Same shape canonicalizeGithub/canonicalizeAad produce with no IDENTITY_MAP entry —
+// `${idp}-${stableId}`, where stableId is STABLE_ID_RE's charset, already lowercased.
+const GITHUB_SELF_PRODUCED_RE = /^github-[A-Za-z0-9_-]{1,128}$/;
+const AAD_SELF_PRODUCED_RE = /^aad-[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * t/4505: whether some `idp` sign-in, under the CURRENT IDENTITY_MAP, can produce `name` as
+ * the canonical x-ms-client-principal-name. Mirrors canonicalizeGithub/canonicalizeAad's two
+ * sources (the self-produced `${idp}-<stableId>` shape, or an IDENTITY_MAP entry for that idp
+ * whose value is `name`) exactly, so the reachability check used by the boot WARN can never
+ * drift from the canonicalization it's auditing — this IS that rule, not a copy of it.
+ */
+export function canProducePrincipal(idp: 'github' | 'aad', name: string): boolean {
+  if (!name) return false;
+  const selfProduced = idp === 'github' ? GITHUB_SELF_PRODUCED_RE : AAD_SELF_PRODUCED_RE;
+  if (selfProduced.test(name)) return true;
+  const prefix = `${idp}:`;
+  for (const [key, mapped] of getIdentityMap()) {
+    if (key.startsWith(prefix) && mapped === name) return true;
+  }
+  return false;
+}
+
 const warned = new Set<string>();
 function warnOnce(key: string, fields: Record<string, unknown>, message: string): void {
   if (warned.has(key)) return;

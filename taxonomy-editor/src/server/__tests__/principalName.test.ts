@@ -12,7 +12,7 @@ vi.mock('../logger.js', async (importOriginal) => {
   return { ...orig, log: { ...orig.log, security: { ...orig.log.security, warn: warnMock } } };
 });
 
-import { normalizePrincipalNameHeader, parseIdentityMap, _resetPrincipalNameForTest } from '../principalName.js';
+import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, _resetPrincipalNameForTest } from '../principalName.js';
 import { deriveStorageUserId } from '../security/userContext.js';
 import { isAdmin } from '../community/community.js';
 
@@ -225,6 +225,44 @@ describe('fail closed', () => {
     const r = { headers: { 'x-ms-client-principal': '%%%', 'x-ms-client-principal-idp': 'github', 'x-ms-client-principal-name': 'jpsnover' } } as unknown as IncomingMessage;
     expect(() => normalizePrincipalNameHeader(r, true)).not.toThrow();
     expect(nameOf(r)).toBeUndefined();
+  });
+});
+
+describe('canProducePrincipal (t/4505): round-trips with what normalizePrincipalNameHeader actually produces', () => {
+  it('a self-produced github-<id> name (no map entry) is accepted', () => {
+    const r = githubReq({ id: '555' });
+    normalizePrincipalNameHeader(r, true);
+    expect(canProducePrincipal('github', nameOf(r)!)).toBe(true);
+  });
+
+  it('a self-produced aad-<tid>-<oid> name (no map entry) is accepted', () => {
+    const r = aadReq({ tid: 't1', oid: 'o1', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(canProducePrincipal('aad', nameOf(r)!)).toBe(true);
+  });
+
+  it('a mapped github name is accepted for github, not for aad', () => {
+    process.env.IDENTITY_MAP = 'github:1234=jpsnover';
+    const r = githubReq({ id: '1234' });
+    normalizePrincipalNameHeader(r, true);
+    expect(canProducePrincipal('github', nameOf(r)!)).toBe(true);
+    expect(canProducePrincipal('aad', nameOf(r)!)).toBe(false);
+  });
+
+  it('a bare legacy name with no map entry is rejected by both idps', () => {
+    expect(canProducePrincipal('github', 'jpsnover')).toBe(false);
+    expect(canProducePrincipal('aad', 'jpsnover')).toBe(false);
+  });
+
+  it('an empty name is never producible', () => {
+    expect(canProducePrincipal('github', '')).toBe(false);
+  });
+
+  it('identityMapSize reflects the parsed IDENTITY_MAP', () => {
+    expect(identityMapSize()).toBe(0);
+    process.env.IDENTITY_MAP = 'github:1=a, github:2=b';
+    _resetPrincipalNameForTest();
+    expect(identityMapSize()).toBe(2);
   });
 });
 
