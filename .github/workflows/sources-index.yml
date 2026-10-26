@@ -29,7 +29,10 @@ on:
     # schedule trigger from scratch.
     # t/4501: offset off round-minute marks -- health-monitor.yml and main-ci-monitor.yml showed
     # the same every-~3h-instead-of-every-15/30m symptom on the round marks this cadence used to
-    # land on; still every 30 minutes, just not on :00/:30.
+    # land on. The offset did NOT fix it: post-fix measurement (29h+ window) showed gaps still
+    # 2.18-5.32h, p95 ~=4.8h. Real bound for this cron is best-effort, 2-5h, not 30min -- this
+    # is GitHub scheduler congestion for this repo's high-frequency crons, not specific to the
+    # round-minute mark. Liveness floor (scheduled-workflows.json) set to 10h accordingly.
     - cron: '11,41 * * * *'
   workflow_dispatch:
 
