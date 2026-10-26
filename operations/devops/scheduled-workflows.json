@@ -1,5 +1,5 @@
 {
-  "_comment": "t/4058: every workflow with a `schedule:` trigger MUST be listed (lint: scheduled-workflow-health.test.mjs). maxSilentHours ~= 2x cron interval + 12h headroom for GitHub cron throttling (observed: */15 workflows going 6h between runs), floor 12h. t/4173#8: the Build B alarm (ScheduledWorkflowLivenessVerdict.ps1) intentionally PERSISTS for a while after a stalled cron actually resumes — it looks at the max gap across the last 5 fetched schedule-triggered runs (t/4173#6, cadence not last-run-age), so a stale run stays inside that 5-run window until enough fresh runs push it out. For a */15 workflow that's about 75 minutes (5 x 15min) after real recovery; for the hourly watchdog it's about 5 hours. This is NOT a bug — do not shorten per_page below 5 to clear the alarm faster, since a smaller window is exactly what let a single burst run read as 'recovered' in the first place (t/4173#5).",
+  "_comment": "t/4058: every workflow with a `schedule:` trigger MUST be listed (lint: scheduled-workflow-health.test.mjs). maxSilentHours ~= 2x cron interval + 12h headroom for GitHub cron throttling (observed: */15 workflows going 6h between runs), floor 12h. t/4173#8: the Build B alarm (ScheduledWorkflowLivenessVerdict.ps1) intentionally PERSISTS for a while after a stalled cron actually resumes — it looks at the max gap across the last 5 fetched schedule-triggered runs (t/4173#6, cadence not last-run-age), so a stale run stays inside that 5-run window until enough fresh runs push it out. For a */15 workflow that's about 75 minutes (5 x 15min) after real recovery; for the hourly watchdog it's about 5 hours. This is NOT a bug — do not shorten per_page below 5 to clear the alarm faster, since a smaller window is exactly what let a single burst run read as 'recovered' in the first place (t/4173#5). t/4501: health-monitor.yml/main-ci-monitor.yml/sources-index.yml offset off round-minute marks (PR #3816) to dodge cron congestion -- it did NOT work. Post-fix measured gaps (18 samples, 29h+ window) were still 2.18-5.32h, p95 ~=4.8h -- essentially the pre-fix symptom. These three are GitHub-scheduler-congestion-bound, 'best-effort, 2-5h' not their declared 15/30min cadence; maxSilentHours set to 10h (2x measured p95) per TL ruling, not tightened to 3x declared cadence as originally proposed (that would alarm on ordinary behavior).",
   "workflows": [
     { "file": "base-image.yml",               "maxSilentHours": 348 },
     { "file": "cache-cleanup.yml",            "maxSilentHours": 348 },
@@ -18,12 +18,12 @@
     { "file": "environment-branch-policy-check.yml", "maxSilentHours": 24 },
     { "file": "future-clock-weekly.yml",       "maxSilentHours": 348 },
     { "file": "ghcr-cleanup.yml",             "maxSilentHours": 348 },
-    { "file": "health-monitor.yml",           "maxSilentHours": 12  },
+    { "file": "health-monitor.yml",           "maxSilentHours": 10  },
     { "file": "key-pool-health.yml",          "maxSilentHours": 60  },
-    { "file": "main-ci-monitor.yml",          "maxSilentHours": 12  },
+    { "file": "main-ci-monitor.yml",          "maxSilentHours": 10  },
     { "file": "models-drift.yml",             "maxSilentHours": 348 },
     { "file": "pr-triage.yml",                "maxSilentHours": 12  },
     { "file": "required-contexts-drift.yml",  "maxSilentHours": 60  },
-    { "file": "sources-index.yml",            "maxSilentHours": 13  }
+    { "file": "sources-index.yml",            "maxSilentHours": 10  }
   ]
 }

@@ -21,9 +21,12 @@ on:
     types: [completed]
     branches: [main]
   # BACKSTOP: still needed for what workflow_run cannot see — a CI run that never concludes (hung →
-  # the deadline alert) and the liveness heartbeat. Requested every 15 min; do not assume it fires so.
+  # the deadline alert) and the liveness heartbeat. Requested every 15 min; real bound is
+  # best-effort, 2-5h (t/4501: the round-minute offset below did NOT fix GitHub's scheduler
+  # congestion for this repo's high-frequency crons — post-fix measured p95 gap ~=4.8h). Do not
+  # assume it fires anywhere close to every 15 min.
   schedule:
-    - cron: '7,22,37,52 * * * *'  # t/4501: off round-minute marks, GitHub's congestion peak
+    - cron: '7,22,37,52 * * * *'  # t/4501: off round-minute marks (did not restore cadence — see above)
   workflow_dispatch:
 
 # One evaluation at a time: a workflow_run and a cron run landing together would otherwise both see
