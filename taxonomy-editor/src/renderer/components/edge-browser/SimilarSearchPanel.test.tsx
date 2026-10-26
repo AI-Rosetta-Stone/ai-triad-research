@@ -48,6 +48,7 @@ describe('SimilarSearchPanel — drops superseded ids from results (t/4364)', ()
         { id: 'acc-beliefs-002', score: 0.9 },
         { id: 'acc-beliefs-001', score: 0.9 },
       ],
+      getLabelForId: (id: string) => ({ 'acc-beliefs-001': 'Live belief', 'acc-beliefs-002': 'Old belief' } as Record<string, string>)[id] ?? id,
       accelerationist: {
         nodes: [
           { id: 'acc-beliefs-002', label: 'Old belief', description: 'old', category: 'Beliefs', superseded_by: 'acc-beliefs-001' },
