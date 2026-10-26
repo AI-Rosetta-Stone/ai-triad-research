@@ -1,65 +1,90 @@
-/* ─── Chat Getting Started (t/4536) ──────────────────── */
+/* ─── Chat Getting Started (t/4536 round 3) ──────────────
+   Rendered inside LibraryListPage's `intro` slot, so it uses the --lib-* tokens that page
+   defines for itself (not the app's generic --text-*/--bg-* tokens) to stay visually
+   consistent with its container. */
 
 .chat-getting-started {
-  flex: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: var(--sp-4);
-  max-width: 560px;
-  margin: 0 auto;
-  padding: var(--sp-6) var(--sp-4);
+  align-items: flex-start;
+  text-align: left;
+  gap: 8px;
+  background: var(--lib-bg);
+  border: 1px solid var(--lib-border-control);
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.chat-getting-started-hide {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--lib-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
 }
 
 .chat-getting-started-heading {
-  font-size: var(--text-lg);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--lib-text);
   margin: 0;
+  padding-right: 48px; /* room for Hide */
 }
 
 .chat-getting-started-why {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+  font-size: 13px;
+  color: var(--lib-text-secondary);
   margin: 0;
 }
 
 .chat-getting-started-chips {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--sp-2);
+  gap: 8px;
 }
 
 .chat-getting-started-chip {
   min-height: 44px;
-  padding: var(--sp-2) var(--sp-3);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
+  padding: 8px 12px;
+  border: 1px solid var(--lib-border-control);
+  border-radius: 5px;
+  background: var(--lib-row-hover);
+  color: var(--lib-text);
+  font-size: 13px;
   cursor: pointer;
   text-align: left;
 }
 
 .chat-getting-started-chip:hover {
-  background: var(--bg-hover);
+  border-color: var(--lib-accent);
 }
 
 .chat-getting-started-chip:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--lib-accent);
   outline-offset: 2px;
 }
 
 .chat-getting-started-mode-hint {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+  font-size: 13px;
+  color: var(--lib-text-secondary);
   margin: 0;
 }
 
-.chat-getting-started-new {
-  min-height: 44px;
+.chat-getting-started-show-link {
+  display: inline-block;
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: var(--lib-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
 }
