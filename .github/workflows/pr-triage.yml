@@ -453,6 +453,7 @@ jobs:
               classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits,
               REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, ARM_EVENT_RE,
             } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/stuck-pr-classifier.mjs`).href);
+            const { SO_CLEARED_RE } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/operations/devops/fleet-delivery-metrics.mjs`).href);
 
             const owner = context.repo.owner, repo = context.repo.repo;
             const nowMs = Date.now();
@@ -475,13 +476,19 @@ jobs:
             // activity) from "last activity", or every scheduled run resets its own idle/held
             // clock. Last activity = newest of the head commit date and the latest comment or
             // review from a NON-bot actor.
-            async function lastNonBotActivity(pr) {
+            //
+            // t/4533: also returns soClearanceDetected (any comment, bot or not -- the SO's own
+            // reply is itself posted via an agent App account, so excluding bots here would hide
+            // every real SO reply) -- reuses the SAME comments fetch rather than a second call.
+            async function activityAndSoFacts(pr) {
               const times = [pr.head?.commit?.committer?.date ?? pr.created_at];
               const [{ data: comments }, { data: reviews }] = await Promise.all([
                 github.rest.issues.listComments({ owner, repo, issue_number: pr.number, per_page: 100 }),
                 github.rest.pulls.listReviews({ owner, repo, pull_number: pr.number, per_page: 100 }),
               ]);
+              let soClearanceDetected = false;
               for (const c of comments) {
+                if (SO_CLEARED_RE.test(c.body ?? '')) soClearanceDetected = true;
                 if (c.user?.type === 'Bot') continue;
                 times.push(c.created_at);
               }
@@ -489,7 +496,22 @@ jobs:
                 if (r.user?.type === 'Bot') continue;
                 times.push(r.submitted_at);
               }
-              return times.filter(Boolean).sort().at(-1);
+              return { lastActivityAt: times.filter(Boolean).sort().at(-1), soClearanceDetected };
+            }
+
+            // t/4533: when did `consult-hold` first FIRST get applied to this PR? Fetched only
+            // for PRs that currently carry the label (the large majority don't), via the issue
+            // timeline's `labeled` events -- the FIRST such event, not the last, since a label
+            // can be removed and re-applied (re-request after a scope change) and the time-box
+            // question is "how long has the SO been on the hook since first asked".
+            async function consultHoldAppliedAt(pr) {
+              try {
+                const events = await github.paginate(github.rest.issues.listEvents, { owner, repo, issue_number: pr.number, per_page: 100 });
+                const first = events.find((e) => e.event === 'labeled' && e.label?.name === 'consult-hold');
+                return first?.created_at ?? null;
+              } catch {
+                return null; // never guessed -- classifyBlocker treats a missing value as "don't age this one"
+              }
             }
 
             const blockerFindings = [];
@@ -557,6 +579,12 @@ jobs:
                 mergeableStateRecheck = recheck.mergeable_state;
               }
 
+              const labels = (full.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
+              const { lastActivityAt, soClearanceDetected } = await activityAndSoFacts(full);
+              // t/4533: the consult-hold timeline fetch is only worth paying for when the label
+              // is actually present -- the large majority of open PRs carry neither label.
+              const holdAppliedAt = labels.includes('consult-hold') ? await consultHoldAppliedAt(full) : null;
+
               const prFacts = {
                 mergeableState: full.mergeable_state,
                 mergeableStateRecheck,
@@ -568,12 +596,14 @@ jobs:
                 // actually implemented.
                 isConflicting: full.mergeable === false || full.mergeable_state === 'dirty',
                 autoMergeEnabled: !!full.auto_merge,
-                labels: (full.labels || []).map((l) => (typeof l === 'string' ? l : l.name)),
+                labels,
                 runs: [...byPath.values()],
                 mergeRefusalText: full.mergeable_state === 'blocked'
                   ? `Derived (not a live REST attempt): mergeable_state=blocked with required contexts ${JSON.stringify([...byPath.entries()].map(([p, r]) => `${p}:${r.status}/${r.conclusion}`))}`
                   : null,
-                lastActivityAt: await lastNonBotActivity(full),
+                lastActivityAt,
+                consultHoldAppliedAt: holdAppliedAt,
+                soClearanceDetected,
               };
 
               const blocker = classifyBlocker(prFacts, nowMs);

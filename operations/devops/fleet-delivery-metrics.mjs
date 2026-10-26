@@ -186,7 +186,9 @@ export function approvalWaitByTier(prs) {
 // actual thread, t/4520). A PR whose SO-clearing comment doesn't match this phrasing falls into
 // `unclassified` rather than being silently mis-bucketed. Does NOT match "SO re-confirmation...
 // Not cleared yet" (confirmed: "SO" isn't immediately followed by a clear* word there).
-const SO_CLEARED_RE = /\bSO (?:cleared|clearing|did not review)\b/i;
+// Exported (t/4533) so stuck-pr-classifier.mjs's consult-hold-aged detection reuses the SAME
+// detector rather than re-deriving the phrasing independently.
+export const SO_CLEARED_RE = /\bSO (?:cleared|clearing|did not review)\b/i;
 
 /** PURE helper: the LAST comment matching SO_CLEARED_RE (re-confirmations across rebases push
  * the boundary later, matching the real #3386 shape from t/4091#40). comments: [{ body, createdAt }]. */

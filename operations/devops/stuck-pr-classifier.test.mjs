@@ -10,7 +10,7 @@ import {
   classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits, ARM_EVENT_RE,
   REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, QUEUED_STUCK_MINUTES, IN_PROGRESS_STUCK_MINUTES,
   OWNER_SLA_HOURS, TL_SLA_HOURS, SWEEP_WINDOW_SECONDS, SWEEP_BURST_SECONDS,
-  MERGE_EQUIVALENT_WINDOW_SECONDS,
+  MERGE_EQUIVALENT_WINDOW_SECONDS, SO_TIMEBOX_HOURS,
 } from './stuck-pr-classifier.mjs';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -47,6 +47,60 @@ test('held: consult-hold label never escalates, reports age only', () => {
 });
 test('held: joint-gv label also never escalates', () => {
   const pr = basePr({ labels: ['joint-gv'] });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+// ── consult-hold-aged (t/4533) ──
+test('consult-hold-aged: consult-hold past SO_TIMEBOX_HOURS with no SO reply detected escalates', () => {
+  const pr = basePr({
+    labels: ['consult-hold'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 1),
+    soClearanceDetected: false,
+  });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'consult-hold-aged');
+  assert.ok(v.detail.holdAgeHours > SO_TIMEBOX_HOURS);
+  assert.equal(escalationLevel(v.class, 0), 'owner'); // escalates immediately, not after another OWNER_SLA_HOURS
+});
+
+test('consult-hold-aged: NOT fired when under the time-box (ordinary held)', () => {
+  const pr = basePr({
+    labels: ['consult-hold'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS - 0.5),
+    soClearanceDetected: false,
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: NOT fired when an SO has already replied, even well past the time-box (ordinary held, waiting on PI/TL)', () => {
+  const pr = basePr({
+    labels: ['consult-hold'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 10),
+    soClearanceDetected: true,
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: NOT fired without a known consultHoldAppliedAt -- never guessed, stays ordinary held', () => {
+  const pr = basePr({ labels: ['consult-hold'], soClearanceDetected: false });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: joint-gv-held PRs are exempt (no SO time-box applies to them)', () => {
+  const pr = basePr({
+    labels: ['joint-gv'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 5),
+    soClearanceDetected: false,
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
+});
+
+test('consult-hold-aged: a PR with BOTH consult-hold and joint-gv is exempt from aging (still just held)', () => {
+  const pr = basePr({
+    labels: ['consult-hold', 'joint-gv'],
+    consultHoldAppliedAt: hoursAgo(SO_TIMEBOX_HOURS + 5),
+    soClearanceDetected: false,
+  });
   assert.equal(classifyBlocker(pr, NOW)?.class, 'held');
 });
 
