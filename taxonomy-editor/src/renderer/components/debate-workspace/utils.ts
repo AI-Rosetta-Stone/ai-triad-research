@@ -136,6 +136,20 @@ export function handleExplainEntry(entry: TranscriptEntry) {
   void api.openExternal('https://gemini.google.com/app');
 }
 
+/** t/4514: the right-click "Explain…" prompt for a selection, scoped to that excerpt only
+ *  (not the whole entry) — kept separate from buildExplainPrompt's whole-entry scoping. */
+export function buildSelectionExplainPrompt(selectedText: string): string {
+  return `Explain this excerpt from a debate between the Accelerationist, the Safetyist, and the Skeptic:\n\n${selectedText}\n`;
+}
+
+/** t/4514: copy a prompt to the clipboard and open Gemini — the "Open in Gemini" escape hatch,
+ *  now secondary to the inline in-app answer. Prompt-agnostic so it serves both the card's
+ *  whole-entry prompt and the right-click selection prompt. */
+export function openPromptInGemini(prompt: string): void {
+  void api.clipboardWriteText(prompt);
+  void api.openExternal('https://gemini.google.com/app');
+}
+
 // ── Markdown helpers ─────────────────────────────────────
 
 /** Strip markdown headings the AI sometimes hallucinates at the top of a statement (e.g. "# Engine Thermometer Accelerator"). */

@@ -5,6 +5,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { DebateWorkspace } from './DebateWorkspace';
 import { usePreferencesStore } from '../../store/preferencesStore';
+import { api } from '@bridge';
 
 // ── Store mocks ───────────────────────────────────────────────
 
@@ -212,6 +213,10 @@ vi.mock('./OpeningPanel', () => ({
 }));
 vi.mock('./TaxonomyRefs', () => ({
   CoverageBadge: () => <div data-testid="coverage-badge" />,
+}));
+const mockRequestExplainForSelection = vi.fn(() => false);
+vi.mock('./explainRequestBus', () => ({
+  requestExplainForSelection: (...args: unknown[]) => mockRequestExplainForSelection(...args),
 }));
 vi.mock('./utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./utils')>();
@@ -841,6 +846,37 @@ describe('selection context menu', () => {
     });
     act(() => { vi.advanceTimersByTime(60); });
     expect(container.querySelector('.debate-context-menu')).toBeNull();
+  });
+
+  // t/4514: right-click "Explain…" routes through the same inline in-app panel the card's
+  // "Explain" button uses, via explainRequestBus — not clipboard+browser directly.
+  describe('"Explain…"', () => {
+    afterEach(() => { mockRequestExplainForSelection.mockClear(); (api.clipboardWriteText as any).mockClear(); (api.openExternal as any).mockClear(); });
+
+    it('when an inline panel is registered for the entry, routes through the bus and does not fall back to Gemini', () => {
+      mockRequestExplainForSelection.mockReturnValue(true);
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+
+      expect(mockRequestExplainForSelection).toHaveBeenCalledWith('', 'hello world');
+      expect(api.clipboardWriteText).not.toHaveBeenCalled();
+      expect(api.openExternal).not.toHaveBeenCalled();
+      expect(container.querySelector('.debate-context-menu')).toBeNull(); // menu closes either way
+    });
+
+    it('falls back to the Gemini escape hatch when no inline panel is registered for the entry', () => {
+      mockRequestExplainForSelection.mockReturnValue(false);
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+
+      expect(mockRequestExplainForSelection).toHaveBeenCalledWith('', 'hello world');
+      expect(api.clipboardWriteText).toHaveBeenCalledWith('EXPLAIN: hello world');
+      expect(api.openExternal).toHaveBeenCalledWith('https://gemini.google.com/app');
+    });
   });
 });
 

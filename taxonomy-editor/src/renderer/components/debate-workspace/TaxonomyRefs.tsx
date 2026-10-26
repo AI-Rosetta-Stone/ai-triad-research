@@ -1,8 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useState } from 'react';
-import { TOAST_DURATION_FEEDBACK } from '../../constants';
+import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
@@ -10,13 +9,15 @@ import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverage
 import { humanizeSpeakerIds } from '../../utils/humanizeSpeakers';
 import {
   nodeIdToTab, getNodeLabel, getNodeWeight, focusMainWindowNode,
-  handleExplainEntry, fixMarkdownLinks, resolvePolRef, getPolicyAction,
+  buildExplainPrompt, buildSelectionExplainPrompt, fixMarkdownLinks, resolvePolRef, getPolicyAction,
 } from './utils';
 import type { PolicyRefEntry } from './utils';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { TaxonomyRefDetail, type TaxRefNode } from '../taxonomy/TaxonomyRefDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
+import { ExplainPanel } from './ExplainPanel';
+import { registerExplainTarget } from './explainRequestBus';
 import './TaxonomyRefs.css';
 
 // Prevents a TheoryLink click inside a <summary> from toggling its parent <details>
@@ -150,18 +151,23 @@ function CaveatsBox({ caveats }: { caveats: string[] }) {
   );
 }
 
-function RefsHeader({ entry, explainCopied, onExplain, onToggleCaveats }: {
+function RefsHeader({ entry, explainOpen, onExplain, onToggleCaveats }: {
   entry?: TranscriptEntry;
-  explainCopied: boolean;
+  explainOpen: boolean;
   onExplain: () => void;
   onToggleCaveats: () => void;
 }) {
   return (
     <div className="debate-taxonomy-refs">
       {entry && entry.speaker !== 'system' && entry.type !== 'fact-check' && (
-        explainCopied
-          ? <span className="debate-reasoning-toggle taxrefs-explain-copied">✓ Explain prompt copied to clipboard</span>
-          : <button className="debate-reasoning-toggle" onClick={onExplain} title="Copy an explain prompt to clipboard and open Gemini">Explain</button>
+        <button
+          className="debate-reasoning-toggle"
+          onClick={onExplain}
+          aria-expanded={explainOpen}
+          title="Explain this exchange in-app"
+        >
+          Explain
+        </button>
       )}
       {entry?.caveats && entry.caveats.length > 0 && (
         <>
@@ -522,6 +528,54 @@ function ReasoningList({ briefStage, planStage, refs, polRefs, selectedPlanNodeI
   );
 }
 
+/**
+ * t/4514: the inline Explain panel's open/close state, shared by the card's "Explain" button
+ * (whole-exchange scope) and the right-click "Explain…" on a selection within this entry (scoped
+ * to that selection via the explainRequestBus). Extracted from TaxonomyRefsSection to keep that
+ * component's complexity under the file's budget.
+ */
+function useExplainPanel(entry: TranscriptEntry | undefined) {
+  // `explainKey` bumps on every (re)open so the panel remounts and fetches fresh — including when
+  // a selection-scoped request arrives while the whole-exchange explanation is already open, or
+  // vice versa.
+  const [explainScope, setExplainScope] = useState<{ prompt: string; label: string } | null>(null);
+  const [explainKey, setExplainKey] = useState(0);
+
+  const openExplain = (scope: { prompt: string; label: string }) => {
+    setExplainScope(scope);
+    setExplainKey(k => k + 1);
+  };
+  const closeExplain = () => setExplainScope(null);
+
+  const handleExplainClick = () => {
+    if (!entry) return;
+    if (explainScope) { closeExplain(); return; } // toggle: already open → collapse
+    openExplain({ prompt: buildExplainPrompt(entry), label: 'this exchange' });
+  };
+
+  // The right-click "Explain…" on a selection within this entry opens the SAME inline panel,
+  // scoped to the selection rather than the whole exchange (t/4514 scoping rule).
+  useEffect(() => {
+    if (!entry) return;
+    return registerExplainTarget(entry.id, ({ text }) => {
+      openExplain({ prompt: buildSelectionExplainPrompt(text), label: 'this selection' });
+    });
+  }, [entry]);
+
+  return { explainScope, explainKey, handleExplainClick, closeExplain };
+}
+
+/** Isolates the explainScope && <ExplainPanel> branch in its own function, out of
+ *  TaxonomyRefsSection's complexity count (local/complexity-budget). */
+function ExplainPanelSlot({ explainScope, explainKey, onClose }: {
+  explainScope: { prompt: string; label: string } | null;
+  explainKey: number;
+  onClose: () => void;
+}) {
+  if (!explainScope) return null;
+  return <ExplainPanel key={explainKey} prompt={explainScope.prompt} scopeLabel={explainScope.label} onClose={onClose} />;
+}
+
 export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, stageDiagnostics, forceExpanded }: {
   refs: TaxonomyRef[];
   policyRefs?: PolicyRefEntry[];
@@ -531,7 +585,7 @@ export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, s
   forceExpanded?: boolean;
 }) {
   const [caveatsExpanded, setCaveatsExpanded] = useState(false);
-  const [explainCopied, setExplainCopied] = useState(false);
+  const { explainScope, explainKey, handleExplainClick, closeExplain } = useExplainPanel(entry);
   // Selected PLAN-view taxonomy anchor → shows its POV details inline (t/1724).
   const [selectedPlanNodeId, setSelectedPlanNodeId] = useState<string | null>(null);
   // Selected BDI ref → shows its POV details inline below the list, in place of
@@ -539,13 +593,6 @@ export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, s
   const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
   const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
   const polRefs = metaPolicyRefs || policyRefs || [];
-
-  const handleExplain = () => {
-    if (!entry) return;
-    handleExplainEntry(entry);
-    setExplainCopied(true);
-    setTimeout(() => setExplainCopied(false), TOAST_DURATION_FEEDBACK);
-  };
 
   const briefStage = stageDiagnostics?.find(s => s.stage === 'brief');
   const planStage = stageDiagnostics?.find(s => s.stage === 'plan');
@@ -558,10 +605,11 @@ export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, s
     <div className="debate-taxonomy-refs-section">
       <RefsHeader
         entry={entry}
-        explainCopied={explainCopied}
-        onExplain={handleExplain}
+        explainOpen={!!explainScope}
+        onExplain={handleExplainClick}
         onToggleCaveats={() => setCaveatsExpanded(e => !e)}
       />
+      <ExplainPanelSlot explainScope={explainScope} explainKey={explainKey} onClose={closeExplain} />
       {caveatsExpanded && entry?.caveats && entry.caveats.length > 0 && <CaveatsBox caveats={entry.caveats} />}
       {forceExpanded && (
         <ReasoningList
