@@ -222,7 +222,7 @@ function Move-GitHubIdentityData {
             Write-Verbose "Copying preferences file -> '$PrefDestPath'..."
             $null = & az storage file copy start `
                 --account-name $StorageAccount --destination-share $PreferencesShare --destination-path $PrefDestPath `
-                --source-uri $SourceFileUri --output none 2>$null
+                --source-uri $SourceFileUri --auth-mode login --output none 2>$null
             if ($LASTEXITCODE -ne 0) {
                 throw (New-ActionableError -AsErrorRecord `
                     -Goal 'Copy preferences file' `
@@ -233,12 +233,12 @@ function Move-GitHubIdentityData {
 
             $PrefCopyStatus = Wait-AzStorageCopyComplete -TimeoutSeconds $TimeoutSeconds -GetStatus ({
                 $StatusTsv = & az storage file show --account-name $StorageAccount --share-name $PreferencesShare `
-                    --path $PrefDestPath --query 'copy.status' --output tsv 2>$null
+                    --path $PrefDestPath --auth-mode login --query 'copy.status' --output tsv 2>$null
                 if ($LASTEXITCODE -eq 0) { "$StatusTsv".Trim() } else { $null }
             })
 
             $PrefDestShow = & az storage file show --account-name $StorageAccount --share-name $PreferencesShare `
-                --path $PrefDestPath --output json 2>$null
+                --path $PrefDestPath --auth-mode login --output json 2>$null
             $PrefVerified = ($PrefCopyStatus -eq 'success') -and ($LASTEXITCODE -eq 0) -and $PrefDestShow
 
             $CopyLog.Add([pscustomobject]@{
