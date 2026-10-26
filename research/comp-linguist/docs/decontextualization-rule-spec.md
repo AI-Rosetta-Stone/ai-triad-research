@@ -1,7 +1,7 @@
 # Self-contained claims: decontextualization rule and `anchors` field
 
 **Ticket:** t/4471 (epic t/4467) · **Author:** Computational Linguist · **Date:** 2026-10-25
-**Status:** spec ready for implementation (PowerShell: document and org prompts; DebateTool: debate prompt).
+**Status:** round 1 landed (#3802, #3799) and measured (`analyses/t4471-decontextualization/after/RESULTS.md`). Round 2 (§7) is ready for implementation by PowerShell.
 **Provenance:** the baseline is a CL single-rater hand annotation of a fixed sample. The matching check is deterministic. Data and scripts are in `analyses/t4471-decontextualization/`.
 
 ## 1. What the baseline showed
@@ -113,3 +113,100 @@ The spend for re-extraction is routed through the TL. Rates are reported with n,
 2. **Org:** re-run stance extraction for the documents behind the 5 "The organization" claims, plus 15 others. Pass: 0 "the organization / the company" subjects.
 3. **Debate:** the next eval batch (≥3 debates). Pass: no source-internal definite descriptions in a 20-claim sample. The ticket's t/507 debate MRR needs re-run debates, so it is reported from that batch, and not claimed before.
 4. **Anchors precision:** on 30 document key_points with non-empty `anchors`, check that each anchor is what the claim is *about*, not an incidental example. Pass ≥ 80%; otherwise tighten the rule-4 wording.
+
+## 7. Round 2 (after-measurement, t/4471#4)
+
+Round 1 passed for org claims and key-point canonical propositions. It failed two bars: factual-claim outward references (5/45 against ≤ 2%) and `anchors` precision (16/29 against ≥ 80%). Round 2 changes only those two things, as pre-registered in `after/RESULTS.md`. Debate claims are unchanged.
+
+### 7a. Factual claims: move rules 1–3 into the system prompt
+
+In flash-lite, the rules sat inside a long schema-field description next to "2-5 sentences …" and had no effect. The Atria Dawn claims got worse: "An analysis of 769 task records from 56 participants developing Atria Dawn showed …" (before) became "Participants rated roughly one-third …" (after).
+
+**`pov-summary-system.prompt`:** insert this block immediately before `EXAMPLE FACTUAL CLAIM:`. **`pov-summary-chunk-system.prompt`:** insert it directly after the `- factual_claims: extract EVERY …` bullet, indented to match.
+
+```
+SELF-CONTAINED FACTUAL CLAIMS:
+  Each factual_claim "claim" is read on its own, in a list of claims from many
+  documents. A reader who has never seen the source must know what it is about.
+  1. Name the subject the way the source names it: the study, system, incident,
+     settlement, law or organization. Never lean on "the study", "the analysis",
+     "participants", "the incident", "the settlement", "the company", "it",
+     "they", "this policy", "the authors" or "the document" to supply it.
+  2. Replace a name the source invented with what it is, using only what the
+     source itself says it is. Never add detail the source does not give.
+  3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
+  A factual claim KEEPS its specific names in the sentence. It has no anchors field.
+
+  Examples:
+    Wrong: "Participants rated roughly one-third of completed AI-assisted tasks
+            as infeasible without artificial intelligence."
+    Right: "An analysis of 769 task records from 56 participants developing
+            Atria Dawn showed that participants rated 33.2% of completed
+            AI-assisted tasks as infeasible without AI."
+    Wrong: "The settlement provides approximately $3,000 in compensation for
+            each of the estimated 500,000 books covered by the agreement."
+    Right: "Anthropic's copyright settlement with authors provides approximately
+            $3,000 in compensation for each of the estimated 500,000 books it
+            covers."
+```
+
+**`pov-summary-schema.prompt`:** shorten the `SELF-CONTAINED: (1) … (3) …` text in the factual_claims `claim` description to `Must follow SELF-CONTAINED FACTUAL CLAIMS in the system prompt.` Leave the rest of the description unchanged, including "2-5 sentences", so that the location of the rules is the only variable.
+
+Provenance of the examples: both "Wrong" lines and the first "Right" line are **observed** (the #3802 run and the pre-#3802 extraction of the same document). The second "Right" line is **constructed** from the observed claim and the document's title.
+
+### 7b. Anchors: replace rule 4 with a removal test
+
+13 of the 29 non-empty anchor lists held a name that only illustrated the claim or was the source of a figure, for example `["Netherlands", "UK", "Australia"]` on a general claim about algorithmic harm. The round-1 "about vs example" wording gave the model no test it could apply.
+
+In **all three files that carry rule 4** (`pov-summary-system.prompt`, `pov-summary-chunk-system.prompt`, `org-stance-extraction.prompt`), replace rule 4 with:
+
+```
+    4. Keep the proposition general enough to match a taxonomy node. Put a name
+       in "anchors" only if removing it would change what the claim asserts. A
+       name that illustrates a general claim, or is where a figure or quotation
+       came from, is not an anchor. Do not invent an anchor the source does not
+       give.
+```
+
+Add this negative example after the China example, in the same three files:
+
+```
+      Source: welfare and justice systems "in the Netherlands, the UK, and
+               Australia" used biased algorithmic decision-making that wrongly
+               accused thousands of people of benefit fraud.
+      canonical_proposition: "Algorithmic bias and automated decision systems cause
+               documented, severe present harms to vulnerable populations across
+               welfare and justice systems."
+      anchors: []          (remove the three countries and the claim asserts the
+                            same thing; they illustrate it)
+```
+
+Replace the ANCHORS definition (in the system and chunk prompts; the org prompt's `"anchors"` bullet gets the same substance with "position" for "claim") with:
+
+```
+    "anchors": the names (instruments, jurisdictions, organizations or dates),
+    as given in the source, that the claim would lose its meaning without, e.g.
+    ["EU AI Act Article 62"], ["California Judicial Council", "2025-12-15"].
+    Use [] for a general claim. Names that only illustrate the claim, or that
+    are where a figure or quotation came from, are not anchors.
+```
+
+The schema-field description of `anchors` in `pov-summary-schema.prompt` gets the same last two sentences in place of "[] for a general claim or when a name appears only as an example." Its exemption note stays as it is.
+
+Provenance: the Netherlands source line is a paraphrase of the **observed** factual claim from the same document. The canonical proposition is **observed**; the `[]` is the CL's label.
+
+### 7c. Re-measure
+
+Same 11 summary documents and 10 org documents, same model, same scratch isolation (both data and sources roots redirected; both real repos checked clean after every run), from the remaining PI-approved budget.
+
+| Arm | Bar |
+|---|---|
+| Factual-claim outward references, hand-labelled | ≤ 2% |
+| `anchors` precision | ≥ 80% |
+| Key-point canonical outward references | ≤ 2% (no regression) |
+| Org "the organization / the company" subjects | 0 (no regression) |
+| Hit@5 of the assigned node | no fall > 2 pts against the round-1 0.62 |
+
+**Contamination guard (added before any round-2 run).** Two of the 11 documents supply the new examples: `atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1` and `ai-companies-have-become-democratically-accountable-2026`, and the settlement example comes from `anthropic-pays-authors-15-billion-settle-copyright-2026`. The factual-claim and anchors verdicts are read on the **other 8 documents**, with all-11 figures reported alongside. A pass that holds only with those three documents included is a fail.
+
+If round 2 fails either bar again, the next step is a model-tier check (one run on the default extraction model rather than flash-lite) before any third wording round.
