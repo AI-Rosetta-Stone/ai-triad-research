@@ -474,7 +474,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
 ) {
   const {
     config, myRows, myLoading, communityRows, communityLoading, onOpenMy, onOpenCommunity,
-    actionVisibility = 'hover',
+    actionVisibility = 'hover', intro,
   } = props;
 
   // t/3703#8: My-tab visibility is auth-driven, read here rather than taken as a prop — the
@@ -544,6 +544,8 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   return (
     <div className="library-list-page" data-action-visibility={actionVisibility}>
       <HeaderRow1 config={config} editModeActive={editModeActive} />
+
+      {intro}
 
       <HeaderRow2
         listView={listView}

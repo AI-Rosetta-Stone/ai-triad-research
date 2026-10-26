@@ -345,3 +345,21 @@ describe('LibraryListPage — rename', () => {
     expect(screen.getByDisplayValue('Alpha topic')).toBeInTheDocument();
   });
 });
+
+describe('LibraryListPage — intro slot (t/4536)', () => {
+  it('renders nothing extra when intro is omitted (Debates/Op-Eds, unchanged)', () => {
+    const { container } = renderPage();
+    expect(container.querySelector('.lib-header-row1')).toBeTruthy();
+    expect(screen.queryByText('Getting started')).toBeNull();
+  });
+
+  it('renders the given intro between the header row and the My/Community tabs', () => {
+    renderPage({}, { intro: <div role="region" aria-label="Getting started">Pick a mode</div> });
+    const header = document.querySelector('.lib-header-row1')!;
+    const intro = screen.getByRole('region', { name: 'Getting started' });
+    const tabs = screen.getByRole('tablist');
+    // DOM order: header, then intro, then tabs.
+    expect(header.compareDocumentPosition(intro) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(intro.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
