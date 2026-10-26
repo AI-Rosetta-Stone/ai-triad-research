@@ -87,13 +87,18 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend.readFile — overlay-before-p
   const fetchCalls: Array<{ url: string }> = [];
   const originalFetch = globalThis.fetch;
 
+  // `fetchCalls` tracks only `/contents/` calls (the actual file-content
+  // fetch) — not `/git/refs/heads/`, which `initialize()` itself calls once
+  // unconditionally to resolve main's current SHA, regardless of whether
+  // this test ever reads a file. Matches `githubApiFileExistsRef.test.ts`'s
+  // `seenRefs` convention for the same reason.
   function stubFetch(mainContent: string): void {
     globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      fetchCalls.push({ url });
 
       if (url.includes('/git/refs/heads/')) return jsonResponse(200, { object: { sha: 'main-sha' } });
       if (url.includes('/contents/')) {
+        fetchCalls.push({ url });
         return jsonResponse(200, { sha: 'blob-sha', size: mainContent.length, type: 'file', encoding: 'base64', content: base64(mainContent) });
       }
       return jsonResponse(404, { message: 'Not Found' });
