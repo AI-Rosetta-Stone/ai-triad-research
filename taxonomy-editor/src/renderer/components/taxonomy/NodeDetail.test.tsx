@@ -481,3 +481,70 @@ describe('NodeDetail — POV tag editing is admin-only (t/4167)', () => {
     expect(screen.getByRole('combobox', { name: 'Add POV tag' })).toBeInTheDocument();
   });
 });
+
+// ── t/4532: Steelman Vulnerability / Intellectual Lineage, collapsed by default ──
+
+describe('t/4532: Steelman Vulnerability and Intellectual Lineage collapse', () => {
+  const nodeWithBoth: PovNode = {
+    ...mockNode,
+    graph_attributes: {
+      steelman_vulnerability: 'A real vulnerability.',
+      intellectual_lineage: ['Rawls', 'Nozick'],
+    } as never,
+  };
+
+  beforeEach(() => {
+    mockPrefsState.viewMode = 'advanced';
+    vi.clearAllMocks();
+  });
+
+  it('both sections are collapsed when the node opens', () => {
+    render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /Intellectual Lineage/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('A real vulnerability.')).toBeNull();
+    expect(screen.queryByText('Rawls')).toBeNull();
+  });
+
+  it('toggling Steelman Vulnerability expands it, and editing still writes through updatePovNode', () => {
+    render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Steelman Vulnerability/ }));
+    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'true');
+    const textarea = screen.getByDisplayValue('A real vulnerability.');
+    fireEvent.change(textarea, { target: { value: 'An updated vulnerability.' } });
+    expect(mockTaxonomyStore.updatePovNode).toHaveBeenCalledWith(
+      'acc', nodeWithBoth.id,
+      { graph_attributes: expect.objectContaining({ steelman_vulnerability: 'An updated vulnerability.' }) },
+    );
+  });
+
+  it('toggling Intellectual Lineage expands it, and the chip drill-down still works', () => {
+    render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Intellectual Lineage/ }));
+    expect(screen.getByText('Rawls')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Rawls'));
+    // getLineageInfo is mocked to return null (module mock above) — the "no detail" arm still proves the drill-down fired.
+    expect(screen.getByText('No detailed information available for this lineage.')).toBeInTheDocument();
+  });
+
+  it('collapsing after expanding hides the content again', () => {
+    render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    const header = screen.getByRole('button', { name: /Steelman Vulnerability/ });
+    fireEvent.click(header);
+    expect(screen.queryByText('A real vulnerability.')).toBeInTheDocument();
+    fireEvent.click(header);
+    expect(screen.queryByText('A real vulnerability.')).toBeNull();
+  });
+
+  it('switching to a different node re-collapses both sections', () => {
+    const { rerender } = render(<NodeDetail pov="acc" node={nodeWithBoth} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Steelman Vulnerability/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Intellectual Lineage/ }));
+    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'true');
+
+    const otherNode: PovNode = { ...nodeWithBoth, id: 'acc-beliefs-002' };
+    rerender(<NodeDetail pov="acc" node={otherNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /Steelman Vulnerability/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /Intellectual Lineage/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+});

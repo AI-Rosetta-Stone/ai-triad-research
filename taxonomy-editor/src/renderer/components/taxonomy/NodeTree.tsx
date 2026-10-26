@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { PovNode, Pov, Category } from '../../types/taxonomy';
 import { EditConflictBadge, type NodeConflict } from '../conflict/edit-conflicts';
@@ -101,11 +101,31 @@ export function getOrderedNodeIds(
 // starts fully collapsed (t/2720): a fresh app launch / new tab has no stored state
 // → loadCollapsed() returns all categories collapsed. In-session toggles, POV switches,
 // and keyboard-nav auto-expand still persist for the life of the session.
+//
+// t/4532: keyed per POV, so Accelerationist/Safetyist/Skeptic each keep their own collapse
+// state — expanding Desires in one camp no longer leaves it expanded in the others.
+// `pov` is optional only for callers that render NodeTree standalone (tests); production
+// (PovTab) always passes it. No `pov` falls back to the pre-t/4532 bare key, so those callers
+// are unaffected.
 const COLLAPSE_STORAGE_KEY = 'taxonomy-editor-collapsed-categories';
 
-function loadCollapsed(): Set<string> {
+function collapseStorageKey(pov: Pov | undefined): string {
+  return pov ? `${COLLAPSE_STORAGE_KEY}:${pov}` : COLLAPSE_STORAGE_KEY;
+}
+
+/** Whether this POV's collapse key already had a stored value — i.e. not a first-ever view this session. */
+function hadStoredCollapsed(key: string): boolean {
   try {
-    const raw = sessionStorage.getItem(COLLAPSE_STORAGE_KEY);
+    return sessionStorage.getItem(key) !== null;
+  } catch (err) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'node-tree', level: 'warn', message: 'collapsed state presence check failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    return true; // unreadable storage: don't claim "first view" and suppress auto-expand on a guess.
+  }
+}
+
+function loadCollapsed(key: string): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(key);
     if (raw) return new Set(JSON.parse(raw));
   } catch (err) {
     getGlobalRecorder()?.record({ type: 'system.error', component: 'node-tree', level: 'warn', message: 'collapsed state load failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
@@ -114,8 +134,8 @@ function loadCollapsed(): Set<string> {
   return new Set(CATEGORY_ORDER);
 }
 
-function saveCollapsed(collapsed: Set<string>) {
-  sessionStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify([...collapsed]));
+function saveCollapsed(key: string, collapsed: Set<string>) {
+  sessionStorage.setItem(key, JSON.stringify([...collapsed]));
 }
 
 function computeVisibleIds(
@@ -188,7 +208,24 @@ function computeVisibleIds(
 }
 
 export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id', similarScores, clusters, clusterLoading, misfits, onVisibleIdsChange, conflicts, resolveUrl, showDebateTestedChip }: NodeTreeProps & { showDebateTestedChip?: boolean }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed());
+  // t/4532: the storage key is fixed for the life of this mount (PovTab never changes a
+  // mounted NodeTree's `pov` — switching camps unmounts/remounts via App.tsx's `activeTab &&`
+  // guard), so computing it once is safe and avoids re-deriving it every render.
+  const storageKey = useMemo(() => collapseStorageKey(pov), [pov]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed(storageKey));
+  // t/4532: true only when THIS mount is this POV's first view this session (no stored
+  // collapse state yet). Consumed by the auto-expand effect below on its first run only, so a
+  // restored/preselected node doesn't force its category open on that first view, while a later
+  // explicit selection (search, link, keyboard-nav) within the same mount still does.
+  const justMountedFirstView = useRef(!hadStoredCollapsed(storageKey));
+
+  // A genuine first view persists its (all-collapsed) default state right away, so a LATER
+  // mount of the same POV this session — even with nothing toggled in between — is correctly
+  // recognized as already-seen, and the auto-expand-on-restore guard below doesn't suppress
+  // again. Mount-only by design: `collapsed`/`storageKey` are this render's (the first one's).
+  useEffect(() => {
+    if (justMountedFirstView.current) saveCollapsed(storageKey, collapsed);
+  }, []);
 
   // Collapse all parent/cluster groups when sort mode changes
   const prevSortMode = useRef(sortMode);
@@ -200,22 +237,31 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
         for (const n of nodes) {
           if (n.children && n.children.length > 0) next.add(`parent-${n.id}`);
         }
-        saveCollapsed(next);
+        saveCollapsed(storageKey, next);
         return next;
       });
     }
-  }, [sortMode, nodes]);
+  }, [sortMode, nodes, storageKey]);
 
-  // Auto-expand category when keyboard nav selects a node in a collapsed group
+  // Auto-expand category when keyboard nav selects a node in a collapsed group.
+  // t/4532: PovTab's own "auto-select first node on load" effect sets selectedNodeId
+  // ASYNCHRONOUSLY, shortly after this component's own first mount (once orderedIds is
+  // ready) — not synchronously as this render's initial prop value. So the guard must be
+  // consumed on the first run that actually SEES a selection, not on this effect's first
+  // run unconditionally (an earlier run with selectedNodeId still null must leave it armed).
   useEffect(() => {
     if (!selectedNodeId) return;
+    if (justMountedFirstView.current) {
+      justMountedFirstView.current = false;
+      return;
+    }
     const node = nodes.find(n => n.id === selectedNodeId);
     if (!node) return;
     if (collapsed.has(node.category)) {
       setCollapsed(prev => {
         const next = new Set(prev);
         next.delete(node.category);
-        saveCollapsed(next);
+        saveCollapsed(storageKey, next);
         return next;
       });
     }
@@ -233,10 +279,10 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
       } else {
         next.add(key);
       }
-      saveCollapsed(next);
+      saveCollapsed(storageKey, next);
       return next;
     });
-  }, []);
+  }, [storageKey]);
 
   // Cluster view
   if (sortMode === 'similarity' && clusters && clusters.length > 0) {
@@ -464,9 +510,8 @@ function NodeItem({ node, isSelected, onSelect, score, indent, isMisfit, priorit
         {isMisfit && <span className="misfit-badge" title="This node contradicts most of its cluster — it may belong in a different Perspective">misfit?</span>}
         <EditConflictBadge conflict={conflict} resolveUrl={resolveUrl} />
       </div>
-      {node.graph_attributes?.aphorism && (
-        <div className="node-item-aphorism">{node.graph_attributes.aphorism}</div>
-      )}
+      {/* t/4532: the aphorism line was removed from the nav row (PI direction, title-only nav).
+          It still shows in the detail-pane header (NodeDetailAphorismSection). */}
       {/* Raw node.id removed from end-user view per t/2317. Class name kept ('node-item-id')
           to reuse existing styles.css layout; the row now carries only relationship + metric
           chips. Guarded so it never renders an empty line in sort modes with no metadata. */}
