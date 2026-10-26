@@ -63,8 +63,12 @@ export interface StorageBackend {
   /** Delete a file. No-op if the file does not exist. */
   deleteFile(filePath: string): Promise<void>;
 
-  /** Check whether a file or directory exists at the given path. */
-  fileExists(filePath: string): Promise<boolean>;
+  /** Check whether a file or directory exists at the given path.
+   *  `opts.ref` pins the check to a specific ref (e.g. 'main') for shared
+   *  data that lives on main rather than a per-user session branch — same
+   *  contract as `readFile`/`readBinaryFile` (t/4428). Backends without
+   *  branches ignore it. */
+  fileExists(filePath: string, opts?: { ref?: string }): Promise<boolean>;
 
   /** Read a file as a raw binary Buffer. Returns null if the file does not exist.
    *  `opts.ref` pins the read to a specific ref (e.g. 'main') for shared data

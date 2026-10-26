@@ -126,7 +126,7 @@ export class FilesystemBackend implements StorageBackend {
     }
   }
 
-  async fileExists(filePath: string): Promise<boolean> {
+  async fileExists(filePath: string, _opts?: { ref?: string }): Promise<boolean> {
     try {
       await fs.access(filePath);
       return true;
