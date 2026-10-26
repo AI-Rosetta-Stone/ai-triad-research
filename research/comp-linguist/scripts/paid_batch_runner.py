@@ -104,6 +104,70 @@ def debate_cost(flight_recorder, prices):
     return {"usd": round(usd, 4), "calls": calls, "in": tin, "out": tout}
 
 
+USAGE_LINE = re.compile(r"^\[usage\] (\{.*\})\s*$", re.M)
+SAFE_SLUG = re.compile(r"[A-Za-z0-9._-]+")   # slugs name files and reach a Windows shell (run_cli)
+
+
+def usage_cost(output, prices):
+    """Price the CLI's own `[usage] {...}` lines: spend evidence that survives a missing flight recorder
+    (t/4507: a run killed mid-opening had paid calls in its output and was booked at $0)."""
+    worst = max(prices.values(), key=lambda p: p.get("outputPer1M", 0)) if prices else {"inputPer1M": 0, "outputPer1M": 0}
+    usd = tin = tout = calls = 0
+    for m in USAGE_LINE.finditer(output or ""):
+        try:
+            u = json.loads(m.group(1))
+        except ValueError:
+            continue
+        i, o = int(u.get("promptTokens") or 0), int(u.get("completionTokens") or 0)
+        p = prices.get(u.get("model") or u.get("modelId") or "") or worst
+        usd += i / 1e6 * p.get("inputPer1M", 0) + o / 1e6 * p.get("outputPer1M", 0)
+        tin += i; tout += o; calls += 1
+    return {"usd": round(usd, 4), "calls": calls, "in": tin, "out": tout}
+
+
+def set_aside_attempt_files(out_dir, slug):
+    """Move an earlier attempt's partial and flight recorder aside, so the files read after this run are
+    this attempt's own. A stale partial from a run that died before any call read as zero spend (t/4507)."""
+    moved = []
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for suffix in ("-partial.json", "-flight-recorder.jsonl"):
+        src = os.path.join(out_dir, slug + suffix)
+        if os.path.exists(src):
+            dst_dir = os.path.join(out_dir, "_attempts")
+            os.makedirs(dst_dir, exist_ok=True)
+            dst = os.path.join(dst_dir, f"{slug}-{stamp}{suffix}")
+            os.replace(src, dst)
+            moved.append(dst)
+    return moved
+
+
+def run_cli(cmd, cwd, timeout):
+    """Run the debate CLI; on timeout kill the WHOLE process tree. With shell=True on Windows,
+    subprocess.run's timeout kills cmd.exe but leaves npx/node running and then waits on its pipes,
+    so a 1800s timeout became 6463s (t/4507) with an orphan that could keep spending."""
+    nt = os.name == "nt"
+    # shell=True only on Windows, where npx is a .cmd shim. Every dynamic argument is a path built from a
+    # slug that SAFE_SLUG has validated, so no shell metacharacter reaches it.
+    with subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                          encoding="utf-8", errors="replace", shell=nt, start_new_session=not nt) as proc:
+        try:
+            out, _ = proc.communicate(timeout=timeout)
+            return proc.returncode, out or ""
+        except subprocess.TimeoutExpired:
+            if nt:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+            else:
+                import signal
+                os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                out, _ = proc.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                out = ""
+            sys.stderr.write(f"WARN paid_batch_runner: debate timed out after {timeout}s; "
+                             f"killed process tree {proc.pid}\n")
+            return "timeout", out or ""
+
+
 def seat_tags_of(d):
     """{speaker: {pov_tag, tag_mode}} only, so extra recorded fields don't read as a mismatch."""
     st = d.get("seat_tags") or {}
@@ -197,6 +261,10 @@ def main():
               f"${budget:.2f}"); return 11
 
     item = todo[0]
+    if not SAFE_SLUG.fullmatch(str(item.get("slug", ""))):
+        print(f"ABORT before run: slug {item.get('slug')!r} has characters outside [A-Za-z0-9._-]; "
+              "it names files and reaches a shell on Windows. Rename it in the plan.")
+        return 3
     cfg = dict(plan["base_config"]); cfg.update(item.get("config", {}))
     cfg.update({"slug": item["slug"], "outputDir": out_dir})
     # The CLI applies `pacing` only with useAdaptiveStaging=true; without it the debate runs fixed rounds
@@ -217,39 +285,49 @@ def main():
                 "note": "booked at --reserve before the run; a row left in this state means the run was killed",
                 "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     ledger["debates"].append(inflight); save(a.ledger, ledger)
+    for moved in set_aside_attempt_files(out_dir, item["slug"]):
+        print(f"set aside an earlier attempt's file: {moved}")
     t0 = time.time()
-    try:
-        proc = subprocess.run(["npx", "tsx", "lib/debate/cli.ts", "--config", cfg_path], cwd=a.code_root,
-                              capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              timeout=a.timeout, shell=(os.name == "nt"))
-        rc, tail = proc.returncode, (proc.stdout + proc.stderr)[-1500:]
-    except subprocess.TimeoutExpired:
-        rc, tail = "timeout", ""
+    rc, output = run_cli(["npx", "tsx", "lib/debate/cli.ts", "--config", cfg_path], a.code_root, a.timeout)
+    tail = output[-1500:]
     secs = round(time.time() - t0)
     ledger["debates"].remove(inflight)  # replaced below by the measured (or failed) row
-    cost = debate_cost(os.path.join(out_dir, f"{item['slug']}-flight-recorder.jsonl"), price_table(a.code_root))
+    prices = price_table(a.code_root)
+    cost = debate_cost(os.path.join(out_dir, f"{item['slug']}-flight-recorder.jsonl"), prices)
     row = {"plan": plan["name"], "slug": item["slug"], "usd": cost["usd"], "calls": cost["calls"],
            "in": cost["in"], "out": cost["out"], "secs": secs, "rc": rc,
            "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
     debate = load(os.path.join(out_dir, f"{item['slug']}-debate.json"))
     if rc != 0 or debate is None:
-        if cost["usd"] is None:  # no flight recorder: fall back to the partial's own AI-call count
-            partial = load(os.path.join(out_dir, f"{item['slug']}-partial.json")) or {}
+        used = usage_cost(output, prices)
+        if cost["usd"] is None:  # no flight recorder: fall back to the CLI's [usage] lines and the partial
+            partial_path = os.path.join(out_dir, f"{item['slug']}-partial.json")
+            # Only THIS attempt's partial is evidence (earlier attempts' files were set aside above).
+            fresh = os.path.exists(partial_path) and os.path.getmtime(partial_path) >= t0
+            partial = (load(partial_path) or {}) if fresh else {}
             overview = (partial.get("diagnostics") or {}).get("overview") or {}
             n_calls = overview.get("total_ai_calls")
             n_in = overview.get("total_input_tokens") or 0
             n_turns = len(partial.get("transcript") or [])
-            # `total_ai_calls` can read 0 on a run that spent (t3790a32: 0 calls, 583,910 input tokens,
-            # 14 turns), so it is only "no spend" when the tokens and the transcript agree. Unknown spend
-            # is booked at the worst case.
-            zero_spend = n_calls == 0 and n_in == 0 and n_turns == 0
-            row["usd"] = 0.0 if zero_spend else a.reserve
-            row["note"] = (f"no flight recorder; partial total_ai_calls={n_calls}, "
+            # Zero spend must be PROVEN, never inferred from missing evidence (t/4507): no [usage] line in
+            # the output, not a timeout (a killed tree may have spent unlogged), and either no partial at all
+            # or this attempt's partial agreeing on 0 calls, 0 tokens and 0 turns (t3790a32: total_ai_calls
+            # can read 0 on a run that spent).
+            partial_zero = (not fresh) or (n_calls == 0 and n_in == 0 and n_turns == 0)
+            zero_spend = used["calls"] == 0 and rc != "timeout" and partial_zero
+            row["usd"] = 0.0 if zero_spend else max(a.reserve, used["usd"])
+            row.update({"calls": used["calls"], "in": used["in"], "out": used["out"]})
+            row["note"] = (f"no flight recorder; [usage] lines={used['calls']} (${used['usd']}); "
+                           f"partial {'this attempt' if fresh else 'absent or stale'}: total_ai_calls={n_calls}, "
                            f"total_input_tokens={n_in}, transcript turns={n_turns}")
-            if not zero_spend and n_calls == 0:
-                sys.stderr.write(f"WARN paid_batch_runner: {item['slug']} partial reports 0 AI calls but "
-                                 f"{n_in} input tokens and {n_turns} turns; booked at the reserve ${a.reserve}\n")
+            if not zero_spend:
+                sys.stderr.write(f"WARN paid_batch_runner: {item['slug']} spend not proven zero; "
+                                 f"booked ${row['usd']} (reserve ${a.reserve}, [usage] ${used['usd']})\n")
+        elif rc == "timeout":
+            # The recorder may lag a killed tree's last calls; never book a timeout below the reserve.
+            row["usd"] = max(a.reserve, cost["usd"])
+            row["note"] = f"timeout: flight recorder priced ${cost['usd']}; booked at least the reserve"
         row["status"] = "failed"; ledger["debates"].append(row); save(a.ledger, ledger)
         print(f"FAILED {item['slug']} rc={rc} after {secs}s, booked ${row['usd']}\n--- CLI output tail ---\n{tail}")
         return 4
