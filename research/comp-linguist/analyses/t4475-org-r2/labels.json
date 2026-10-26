@@ -1,0 +1,6 @@
+{
+ "_rubric": "Is the proposed ADVOCATES_FOR edge supported by the org's own extracted stance claims (organization_stance_claims.json, same org, the edge's source docs)? Y = a claim asserts the node's proposition; P = a claim asserts part of it, or a close neighbour; N = no claim asserts it (topic overlap only, or the claims point the other way). CL single rater, 2026-10-26. This is a precision estimate, NOT a review decision: no edge status was changed.",
+ "O01":"Y","O02":"N","O03":"N","O04":"N","O05":"N","O06":"P","O07":"N","O08":"Y","O09":"Y","O10":"P",
+ "O11":"N","O12":"N","O13":"N","O14":"Y","O15":"N","O16":"N","O17":"Y","O18":"P","O19":"N","O20":"Y",
+ "O21":"Y","O22":"N","O23":"N","O24":"P","O25":"N","O26":"N","O27":"N","O28":"Y","O29":"Y"
+}
