@@ -17,7 +17,6 @@ vi.mock('remark-gfm', () => ({ default: {} }));
 const mockSendMessage = vi.fn();
 const mockGenerateOpening = vi.fn();
 const mockChangeMode = vi.fn();
-const mockLoadChat = vi.fn();
 
 let mockChatStoreState: Record<string, unknown> = {};
 
@@ -33,21 +32,9 @@ vi.mock('../../hooks/useChatStore', () => ({
       sendMessage: mockSendMessage,
       generateOpening: mockGenerateOpening,
       changeMode: mockChangeMode,
-      loadChat: mockLoadChat,
       ...mockChatStoreState,
     };
     return selector ? selector(state) : state;
-  },
-}));
-
-// t/4536 — the getting-started empty state opens the real NewChatDialog, which has its own
-// heavy dependency surface (tag picker, model backends, etc.) covered by its own test file;
-// here it's a stub that records the props it was mounted with.
-const mockNewChatDialogProps = vi.fn();
-vi.mock('./NewChatDialog', () => ({
-  NewChatDialog: (props: Record<string, unknown>) => {
-    mockNewChatDialogProps(props);
-    return <div data-testid="new-chat-dialog" />;
   },
 }));
 
@@ -147,8 +134,6 @@ describe('ChatWorkspace', () => {
     mockGenerateOpening.mockClear();
     mockChangeMode.mockClear();
     mockExportChatToFile.mockClear();
-    mockLoadChat.mockClear();
-    mockNewChatDialogProps.mockClear();
   });
 
   it('shows loading state when chatLoading is true', () => {
@@ -157,50 +142,10 @@ describe('ChatWorkspace', () => {
     expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
-  it('shows the getting-started region with its 4 starter chips when no active chat', () => {
+  it('shows empty state when no active chat', () => {
     mockChatStoreState = { activeChat: null };
     render(<ChatWorkspace />);
-    expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Ask anything about AI policy/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'How would a Safetyist see compute caps?' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Strongest evidence for the Accelerationist case' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Brainstorm counterarguments to my position' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Work through a policy decision' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '+ New chat' })).toBeInTheDocument();
-    expect(screen.queryByTestId('new-chat-dialog')).not.toBeInTheDocument();
-  });
-
-  it('opens NewChatDialog prefilled with the chip\'s mode and topic on click', async () => {
-    mockChatStoreState = { activeChat: null };
-    const user = userEvent.setup();
-    render(<ChatWorkspace />);
-    await user.click(screen.getByRole('button', { name: 'Work through a policy decision' }));
-    expect(screen.getByTestId('new-chat-dialog')).toBeInTheDocument();
-    expect(mockNewChatDialogProps).toHaveBeenLastCalledWith(expect.objectContaining({
-      initialMode: 'decide',
-      initialTopic: 'Work through a policy decision',
-    }));
-  });
-
-  it('opens NewChatDialog unprefilled from the "+ New chat" button', async () => {
-    mockChatStoreState = { activeChat: null };
-    const user = userEvent.setup();
-    render(<ChatWorkspace />);
-    await user.click(screen.getByRole('button', { name: '+ New chat' }));
-    expect(mockNewChatDialogProps).toHaveBeenLastCalledWith(expect.objectContaining({
-      initialMode: undefined,
-      initialTopic: undefined,
-    }));
-  });
-
-  it('loads the created chat inline via loadChat, not a popout, on dialog onCreated', async () => {
-    mockChatStoreState = { activeChat: null };
-    const user = userEvent.setup();
-    render(<ChatWorkspace />);
-    await user.click(screen.getByRole('button', { name: '+ New chat' }));
-    const { onCreated } = mockNewChatDialogProps.mock.calls.at(-1)![0] as { onCreated: (id: string) => void };
-    onCreated('chat-99');
-    expect(mockLoadChat).toHaveBeenCalledWith('chat-99');
+    expect(screen.getByText('Select a chat or start a new one.')).toBeInTheDocument();
   });
 
   it('renders chat header with POVer label, mode selector, and topic', () => {
