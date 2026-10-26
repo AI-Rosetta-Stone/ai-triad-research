@@ -301,7 +301,7 @@ Describe 't/4172 item 3: FIRE''s parse-failure FireStats has the full stats shap
         $noClaims = (script:Invoke-FireOn '{ "pov_summaries": {} }').FireStats
         $noClaims.termination_reason | Should -Be 'no_claims'
         @($failed.Keys | Where-Object { $_ -notin 'parse_failed', 'phase1_only' } | Sort-Object) | Should -Be @($noClaims.Keys | Sort-Object)
-        @($noClaims.Keys | Sort-Object) | Should -Be @('claims_confident', 'claims_drifted', 'claims_iterated', 'claims_total', 'confidence_threshold',
+        @($noClaims.Keys | Sort-Object) | Should -Be @('claims_confident', 'claims_drifted', 'claims_dropped_verification', 'claims_iterated', 'claims_total', 'confidence_threshold',
             'elapsed_seconds', 'guardrails', 'mode', 'termination_reason', 'total_api_calls', 'total_iterations')
     }
 }
