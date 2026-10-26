@@ -207,26 +207,48 @@ export class SharedOverlayStore {
         });
         return { ok: false, reason: 'storage_unavailable' };
       }
-      // Entry write landed — now the D1/D2 generation bump.
-      try {
-        await this.bumpGeneration(userId);
-        return { ok: true };
-      } catch (bumpErr) {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'shared-overlay-store', level: 'warn',
-          message: `_gen bump failed after a successful entry write — deleting the unacknowledged entry: ${client.name}`,
-          error: { name: (bumpErr as Error).name ?? 'Error', message: String(bumpErr), stack: (bumpErr as Error).stack },
-        });
-        // SO e/332#10 E1: delete conditional on OUR OWN just-written ETag.
-        // Without this, if another replica staged the same path and was
-        // acknowledged between our upload and our failed bump, an
-        // unconditional delete here would destroy that already-acknowledged
-        // write — a silent lost update, not an unacknowledged-entry cleanup.
-        await this.deleteUnacknowledgedEntry(client, writtenEtag!);
-        return { ok: false, reason: 'storage_unavailable' };
-      }
+      // Entry write landed — now the D1/D2/F2 generation bump + cleanup.
+      if (await this.bumpGenerationOrCleanup(userId, client, writtenEtag)) return { ok: true };
+      return { ok: false, reason: 'storage_unavailable' };
     }
     return this.failStorageUnavailable(lastErr ?? new Error('CAS retries exhausted'), 'stage', client.name);
+  }
+
+  /** Extracted from stage() to keep its own complexity under budget. Returns
+   *  `true` on a successful bump (the write is now acknowledged), `false` on
+   *  a bump failure (cleanup already attempted internally per D2/E1/F2). */
+  private async bumpGenerationOrCleanup(userId: string, client: BlockBlobClient, writtenEtag: string | undefined): Promise<boolean> {
+    try {
+      await this.bumpGeneration(userId);
+      return true;
+    } catch (bumpErr) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+        message: `_gen bump failed after a successful entry write — deleting the unacknowledged entry: ${client.name}`,
+        error: { name: (bumpErr as Error).name ?? 'Error', message: String(bumpErr), stack: (bumpErr as Error).stack },
+      });
+      // SO e/332#10 E1: delete conditional on OUR OWN just-written ETag.
+      // Without this, if another replica staged the same path and was
+      // acknowledged between our upload and our failed bump, an
+      // unconditional delete here would destroy that already-acknowledged
+      // write — a silent lost update, not an unacknowledged-entry cleanup.
+      //
+      // F2 (SO e/332#12): if upload() itself returned no ETag, we have no
+      // safe precondition to delete with — `ifMatch: undefined` would
+      // silently become an unconditional delete, reintroducing E1. Skip
+      // the cleanup entirely rather than risk it; the orphan sweep (a
+      // separate follow-up PR) is the backstop for this already-rare case.
+      if (writtenEtag) {
+        await this.deleteUnacknowledgedEntry(client, writtenEtag);
+      } else {
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'shared-overlay-store', level: 'warn',
+          message: `Skipped unacknowledged-entry cleanup — upload() returned no ETag to delete conditionally on: ${client.name}`,
+          data: { blobName: client.name },
+        });
+      }
+      return false;
+    }
   }
 
   /** D2: the bump failed (WARN-logged by the caller, `stage()`), so the
@@ -283,8 +305,13 @@ export class SharedOverlayStore {
    *  412 (someone restaged it since) returns `'changed'` instead of
    *  deleting, so the newer edit is never silently discarded. Without
    *  `ifMatch`, the delete is unconditional, matching the "user discarded a
-   *  draft" caller's intent (always remove whatever is there now). */
-  async unstage(userId: string, repoPath: string, opts?: { ifMatch?: string }): Promise<'deleted' | 'changed'> {
+   *  draft" caller's intent (always remove whatever is there now).
+   *
+   *  F1 (SO e/332#12): a genuine delete failure returns `'failed'`, never
+   *  `'deleted'` — the S2 commit-path caller must not believe the entry is
+   *  cleared when it isn't, or the stale entry trips t/4312's fence as a
+   *  false conflict on the user's own already-committed edit. */
+  async unstage(userId: string, repoPath: string, opts?: { ifMatch?: string }): Promise<'deleted' | 'changed' | 'failed'> {
     const pathKey = encodePathKey(repoPath);
     const client = this.entryBlobClient(userId, pathKey);
     try {
@@ -296,7 +323,7 @@ export class SharedOverlayStore {
         message: `unstage delete failed: ${client.name}`,
         error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
-      return 'deleted'; // best-effort — the orphan sweep is the backstop, same as any other delete failure here
+      return 'failed';
     }
     try {
       await this.bumpGeneration(userId);

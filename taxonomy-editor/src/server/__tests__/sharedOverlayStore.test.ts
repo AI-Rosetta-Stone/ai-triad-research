@@ -238,6 +238,50 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
     expect(await store.getEntry('alice', 'taxonomy/foo.json')).toBeNull();
   });
 
+  // F1 (SO e/332#12): a genuine delete failure (not a 412) must report
+  // 'failed', never 'deleted' — a caller that believed a stale entry was
+  // cleared would otherwise trip the (separate, follow-up-PR) commit path's
+  // t/4312 fence as a false conflict on the user's own committed edit.
+  it('F1: a genuine delete failure returns "failed", not "deleted"', async () => {
+    const prefix = `_test-${++counter}`;
+    const store = makeStore(container, prefix);
+    await store.stage('alice', 'taxonomy/foo.json', { content: 'v1', baseSha: 'unknown', stagedAt: new Date().toISOString() });
+
+    const client = service.getContainerClient(container).getBlockBlobClient(`${prefix}/alice/${encodePathKey('taxonomy/foo.json')}.json`);
+    const BlockBlobClientCtor = Object.getPrototypeOf(client).constructor;
+    const deleteSpy = vi.spyOn(BlockBlobClientCtor.prototype, 'deleteIfExists').mockRejectedValue(new Error('simulated genuine delete failure'));
+
+    const result = await store.unstage('alice', 'taxonomy/foo.json');
+    expect(result).toBe('failed');
+
+    deleteSpy.mockRestore();
+    // The entry must still be there — the delete genuinely never happened.
+    expect(await store.getEntry('alice', 'taxonomy/foo.json')).toMatchObject({ content: 'v1' });
+  });
+
+  // F2 (SO e/332#12): if upload() returns no ETag, the D2 cleanup must skip
+  // the delete entirely rather than fall back to an unconditional one
+  // (ifMatch: undefined), which would reintroduce E1's lost-update bug.
+  it('F2: a bump failure with no written ETag skips the cleanup delete (never goes unconditional)', async () => {
+    const prefix = `_test-${++counter}`;
+    const store = makeStore(container, prefix);
+    const BlockBlobClientCtor = Object.getPrototypeOf(service.getContainerClient(container).getBlockBlobClient('x')).constructor;
+    const realUpload = BlockBlobClientCtor.prototype.upload;
+    const uploadSpy = vi.spyOn(BlockBlobClientCtor.prototype, 'upload').mockImplementation(async function (this: { name: string }, ...args: unknown[]) {
+      if (this.name.endsWith('/_gen')) throw new Error('simulated _gen bump failure');
+      const resp = await realUpload.apply(this, args);
+      return { ...resp, etag: undefined }; // simulate upload() returning no ETag
+    });
+
+    const result = await store.stage('alice', 'taxonomy/foo.json', { content: 'x', baseSha: 'unknown', stagedAt: new Date().toISOString() });
+    expect(result).toEqual({ ok: false, reason: 'storage_unavailable' });
+
+    uploadSpy.mockRestore();
+    // The entry must still exist — cleanup was skipped, not performed
+    // unconditionally, since we had no safe ETag to delete with.
+    expect(await store.getEntry('alice', 'taxonomy/foo.json')).toMatchObject({ content: 'x' });
+  });
+
   // S3: the container is always caller-supplied (environment-scoped at the
   // call site, per AZURE_USER_CONTENT_CONTAINER in server.ts) — never a
   // hardcoded default the class picks on its own regardless of environment.
