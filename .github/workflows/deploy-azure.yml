@@ -724,6 +724,13 @@ jobs:
 
           $BaseUrl = if ([string]::IsNullOrWhiteSpace($RevFqdn)) { "${{ steps.deploy.outputs.appUrl }}" } else { "https://$RevFqdn" }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "base_url=$BaseUrl"
+          # SO C1 (t/4513, e/364#2): base_url falls back to the APP url (the OLD, still-serving
+          # revision) when the revision-specific FQDN lookup returns nothing. The mount probe below
+          # must never reuse that fallback — probing the app url would hit the sibling revision's
+          # already-warm mount and pass on attempt 1, vacuously, which is exactly the t/4504 shape
+          # (looks healthy, isn't the revision being deployed). is_revision_url says whether base_url
+          # is actually revision-specific.
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "is_revision_url=$(-not [string]::IsNullOrWhiteSpace($RevFqdn))"
 
           # Unified check (t/1495): server-up (/health) and data-loaded (/healthz) in one probe per round.
           # t/4158: a bounded loop that also reads the revision's own state and log, so a revision that can
@@ -799,6 +806,18 @@ jobs:
         run: |
           Import-Module ./scripts/AITriad/AITriad.psm1 -Force
           . ./operations/devops/Get-MountReadinessVerdict.ps1
+
+          # SO C1 (t/4513, e/364#2): fail closed when health_check couldn't resolve a
+          # revision-specific FQDN. base_url would then be the APP url, which routes to the OLD,
+          # still-serving revision -- probing it would pass on attempt 1 against the sibling's
+          # already-warm mount, vacuously, the exact t/4504 shape (looks healthy, isn't this
+          # revision). Never probe the fallback; name the cause and stop before probing.
+          if ('${{ steps.health_check.outputs.is_revision_url }}' -ne 'true') {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "ready=false"
+            Write-Host "::error::Mount readiness probe: no revision-specific FQDN was resolved for this revision -- base_url would fall back to the app url (the OLD serving revision), which this probe refuses to test. Treating as not-ready (fail-closed, SO C1, t/4513)."
+            exit 0
+          }
+
           $BaseUrl = '${{ steps.health_check.outputs.base_url }}'
           $RevisionCreatedAt = Get-Date  # closest available proxy; the step runs immediately after revision creation
 

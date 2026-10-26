@@ -346,6 +346,17 @@ jobs:
           # (deploy-azure.yml). Staging's gates are failure()-driven rather than output-driven, so this
           # fails the step directly rather than setting a `ready` output.
           . ./operations/devops/Get-MountReadinessVerdict.ps1
+
+          # SO C1 (t/4513, e/364#2): fail closed when no revision-specific FQDN was resolved above.
+          # $BaseUrl then IS the app url (the OLD, still-serving revision) -- the warning a few lines
+          # up already names this, but the mount probe must not silently proceed against it: that
+          # would probe the sibling revision's already-warm mount and pass on attempt 1, vacuously,
+          # the exact t/4504 shape (looks healthy, isn't this revision).
+          if ([string]::IsNullOrWhiteSpace($RevFqdn)) {
+            Write-Host "::error::Mount readiness probe: no revision-specific FQDN was resolved for this revision -- `$BaseUrl` is the app url (the OLD serving revision), which this probe refuses to test. Treating as not-ready (fail-closed, SO C1, t/4513)."
+            exit 1
+          }
+
           $MountProbeStart = Get-Date
           $Routes = @(
             @{ Path = '/api/entities';                  Field = '';      Label = 'entities' }
