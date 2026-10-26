@@ -25,6 +25,7 @@ import * as ai from '../ai/aiBackends.js';
 import { resolveGenerationContext } from './generationContext.js';
 import { getApiKeys, hasApiKey, type AIBackend } from '../config.js';
 import { getFreePoolKeys } from '../ai/freePoolKeyAccess.js';
+import { reserveFreePoolCall, commitFreePoolCall, releaseFreePoolCall, FREE_POOL_CALL_TOKEN_ESTIMATE } from '../ai/freePoolBudgetGate.js';
 
 type ResolvedTier = ReturnType<typeof proxyTiers.resolveTier>;
 type ChatMessage = { role: 'user' | 'model'; content: string };
@@ -170,24 +171,52 @@ export function boundedId(v: unknown): string | undefined {
 
 /** Pure mirror of routes/ai.ts resolveExplicitAiKey — including the t/4486 geo gate on BOTH
  *  the free-tier branch and the BYOK fallback (getFreePoolKeys is the sole injection-path
- *  reader of the pool; t/4486#4 TL review found the fallback was a fourth bypass). */
+ *  reader of the pool; t/4486#4 TL review found the fallback was a fourth bypass), and the
+ *  t/4485 budget gate on both of those same branches, keyed on `debateId` (the budget store's
+ *  own correlation id) when there is one, else a generic per-route tag. */
 async function resolveExplicitAiKey(
-  req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend,
-): Promise<{ ok: true; key: string | string[] | undefined } | { ok: false }> {
+  req: http.IncomingMessage, res: http.ServerResponse, tier: ResolvedTier, clientKey: string | undefined, backend: AIBackend, debateId: string | undefined,
+): Promise<{ ok: true; key: string | string[] | undefined; reservationId: string | null } | { ok: false }> {
+  const budgetKey = debateId ?? 'chat-stream';
   if (tier.serverProvidedKey) {
     const poolResult = await getFreePoolKeys(req, res);
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
     const freeKeys = poolResult.keys;
     if (freeKeys.length === 0) { res.writeHead(503); res.end(JSON.stringify({ error: 'Free tier is not available' })); return { ok: false }; }
-    return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys };
+    const budgetResult = await reserveFreePoolCall(res, budgetKey); // t/4485: 429/503 already written on refusal
+    if (!budgetResult.ok) return { ok: false };
+    return { ok: true, key: freeKeys.length === 1 ? freeKeys[0] : freeKeys, reservationId: budgetResult.reservationId };
   }
   let explicitKey: string | string[] | undefined = tier.level === 'platform' ? undefined : (clientKey || undefined);
   if (!explicitKey && proxyTiers.byokGeminiFallbackApplies(tier.level, backend, explicitKey)) {
     const poolResult = await getFreePoolKeys(req, res);
     if (!poolResult.ok) return { ok: false }; // 403 free_pool_region already written
-    if (poolResult.keys.length > 0) explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
+    if (poolResult.keys.length > 0) {
+      explicitKey = poolResult.keys.length === 1 ? poolResult.keys[0] : poolResult.keys;
+      const budgetResult = await reserveFreePoolCall(res, budgetKey);
+      if (!budgetResult.ok) return { ok: false };
+      return { ok: true, key: explicitKey, reservationId: budgetResult.reservationId };
+    }
   }
-  return { ok: true, key: explicitKey };
+  return { ok: true, key: explicitKey, reservationId: null };
+}
+
+/** t/4485: pure mirror of routes/ai.ts's trackFreePoolReservation — keeps this handler's own
+ *  commit/release bookkeeping out of its cyclomatic complexity (t/3821 baseline). chat-stream
+ *  never surfaces a token count back to this handler, so `commit` here takes no usage. */
+function trackFreePoolReservation(reservationId: string | null) {
+  let settled = false;
+  return {
+    async commit(): Promise<void> {
+      settled = true;
+      if (!reservationId) return;
+      await commitFreePoolCall(reservationId, { calls: 1, tokens: FREE_POOL_CALL_TOKEN_ESTIMATE });
+    },
+    async releaseIfUnsettled(): Promise<void> {
+      if (settled || !reservationId) return;
+      await releaseFreePoolCall(reservationId);
+    },
+  };
 }
 
 /** Write one SSE event. No-op when the response is already closed (client disconnect). */
@@ -223,6 +252,8 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       linkedDebateId?: string;
     };
 
+    // t/4485: a no-op tracker until resolveExplicitAiKey resolves a real reservationId below.
+    let freePoolBudget = trackFreePoolReservation(null);
     try {
       const { tier, isFree, limitKey, effectiveModel, backend } = resolveGenerationContext(req, model);
 
@@ -248,9 +279,10 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
         return;
       }
 
-      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend);
+      const keyResult = await resolveExplicitAiKey(req, res, tier, clientKey, backend, linkedDebateId);
       if (!keyResult.ok) return;
       const explicitKey = keyResult.key;
+      freePoolBudget = trackFreePoolReservation(keyResult.reservationId);
 
       // 422 fast-fail when there is no usable key for the backend (t/896 pattern).
       const haveExplicitKey = (typeof explicitKey === 'string' && explicitKey.length > 0)
@@ -332,6 +364,10 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
         data: { model: requestModel, backend, urlContext },
       });
 
+      // t/4485: chat-stream doesn't surface a token count back to this handler (SSE chunks, no
+      // final usage event) — commits the same conservative estimate used at reserve time,
+      // rather than a real reconciled count. Known simplification vs. the generate path.
+      await freePoolBudget.commit();
     } catch (err) {
       log.server.error({ component: 'ai-chat-stream', err }, 'chat-stream failed');
       const chatErrMsg = err instanceof ActionableError
@@ -354,6 +390,8 @@ export function registerChatRoutes(r: Router, _ctx: ServerCtx): void {
       }
     } finally {
       if (!res.writableEnded) res.end();
+      // t/4485: return any reservation that never made it to a successful commit.
+      await freePoolBudget.releaseIfUnsettled();
     }
   });
 }

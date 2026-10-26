@@ -135,6 +135,17 @@ const SEED_FLAGS: Record<string, FlagDef> = {
     created_at: '2026-09-02T00:00:00.000Z', updated_at: '2026-09-02T00:00:00.000Z',
     created_by: 'seed',
   },
+  'free-pool-budget-enforced': {
+    // t/4485: default OFF — decouples this PR's merge from Server Storage's blob-backed
+    // FreePoolBudget implementation (t/4484) landing. While OFF, ai/freePoolBudgetGate.ts never
+    // calls getFreePoolBudget(), so free-pool generate calls behave exactly as before this
+    // ticket. Flip to true (admin, no redeploy) once the implementation is live and verified in
+    // staging — prod after that.
+    name: 'free-pool-budget-enforced', enabled: false, scope: 'global',
+    description: 'Enforce the persistent daily free-pool budget (reserve/commit/release) — OFF until t/4484\'s blob-backed implementation lands',
+    created_at: '2026-10-25T00:00:00.000Z', updated_at: '2026-10-25T00:00:00.000Z',
+    created_by: 'seed',
+  },
 };
 
 // ── Config loading (mtime cache, quotas.ts pattern) ──
@@ -345,6 +356,14 @@ export function getFlag(name: string): boolean {
  *  to true re-enables without a redeploy. Single swap-point for the mechanism. */
 export function isAnonDebatesEnabled(): boolean {
   return getFlag('anon-debates');
+}
+
+/** t/4485: is the persistent daily free-pool budget (reserve/commit/release) enforced? Default
+ *  false — decouples this gate's merge from t/4484's blob-backed FreePoolBudget implementation
+ *  landing (ai/freePoolBudgetGate.ts never touches the store while this is off). An admin flip
+ *  to true re-enables without a redeploy, once the implementation is live and verified. */
+export function isFreePoolBudgetEnforced(): boolean {
+  return getFlag('free-pool-budget-enforced');
 }
 
 /** All flags resolved for the current user. */
