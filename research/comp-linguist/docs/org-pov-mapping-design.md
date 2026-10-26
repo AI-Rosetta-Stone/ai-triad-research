@@ -163,3 +163,56 @@ per-org cap and evidence bundles are designed around.
   our debates, not about the org.
 - **Camp scores don't feed scoring/relevance anywhere**, matching the presentational
   discipline of `aphorism` and `external_evidence`, until R2 rollups are validated.
+
+## Amendment (t/4475, 2026-10-26): recency rule and the single-claim threshold
+
+Evidence: `analyses/t4475-org-r2/` on `ai-triad-data` `b93a2dbc`.
+
+### State of the pipeline
+
+- 6 of 25 orgs have stance claims (81 claims, `organization_stance_claims.json`).
+- The matcher wrote **29** org→POV-node proposals on 2026-07-13, and **none has been reviewed**. All 29 are still `proposed`. The 92 approved and 5 rejected org edges are all other types (`PUBLISHED`, `ALLIED_WITH`, and situation-node `ADVOCATES_FOR`).
+- So the R2 rollup (`Invoke-OrgDerivedCampScores`, approved edges only) has **no input**. Every org's derived camp score is the null state. The review tool from t/1554 exists; the review hasn't been done.
+
+### Recency (7a): supersession, not decay
+
+**Rule.** For one (org, node) pair with both an approved `ADVOCATES_FOR` and an approved `OPPOSES` edge, only the edge whose evidence is newer counts in the rollup. The other is reported as `superseded` and kept, not deleted. An edge's evidence date is the latest `date_published` among its `source_refs`. When either edge has no dated evidence, or both share a date, both count (their contributions cancel in the net ratio) and the rollup WARNs that the pair is unresolved, for a reviewer.
+
+**Why supersession:**
+- **Explainable.** "The 2026 statement replaced the 2023 one" is a sentence a reviewer can check against the evidence bundle. A decay weight is not.
+- **Decay needs dates the corpus doesn't have.** 34 of 81 stance claims come from documents with no `date_published`. A half-life would weight 42% of the evidence by whatever fallback is chosen, which is a hidden stipulation.
+- **Decay would also discount old positions an org still holds.** An org that said X in 2023 and hasn't said otherwise still holds X. Supersession only acts on a recorded change of position.
+
+**Scope.** Supersession acts only on opposite-polarity pairs on the same node. Same-polarity evidence already merges into one edge at Stage 3 (one edge per org, node and type). A position on a *related* node is not a supersession. That is a judgement for the reviewer, not the rollup.
+
+**Current effect: none.** No (org, node) pair has more than one edge today. The rule is cheap and deterministic, and it is specified now so the first pivot that appears is handled by design rather than by accident. Class: **stipulated**.
+
+### Single-claim threshold (7b): no accept-rate data yet
+
+**The ticket's telemetry doesn't exist.** The accept rate per similarity band has n = 0 in every band, because nothing has been reviewed. The threshold stays **stipulated at 0.60**.
+
+**Interim precision estimate** (CL single rater; the edge statuses are unchanged; `labels.json`). Y = an org claim asserts the node; P = partial; N = topic overlap only:
+
+| Cosine band | n | Y | P | N |
+|---|---|---|---|---|
+| < 0.60 (multi-claim basis) | 1 | 1 | 0 | 0 |
+| 0.60–0.65 | 13 | 3 | 2 | 8 |
+| 0.65–0.70 | 8 | 3 | 1 | 4 |
+| ≥ 0.70 | 7 | 2 | 1 | 4 |
+| **All** | **29** | **9** | **4** | **16** |
+
+- **Cosine doesn't separate supported from unsupported proposals in this range.** The ≥ 0.70 band is no cleaner than 0.60–0.65. Raising the threshold would cut recall without buying precision, so it stays at 0.60.
+- **False positives concentrate in large claim pools.** NIST has 34 claims and 8 of its 11 proposals are N. Taking the best cosine over many near-duplicate claims finds *some* topical neighbour for many nodes. This is a best-of-many effect, not a band effect.
+- **The existing directional gate isn't a precision gate.** By design (t/2751#3) it only detects opposition, and it rates a genuine agreement 'unrelated'. It cannot reject a topical-only match.
+
+**Decision: add an endorsement-confirmation gate rather than moving cosine.** For each proposal's representative claims, an LLM judges whether the claim *asserts* the node's proposition (entails or restates it), as opposed to sharing its topic. Proposals with no endorsing claim are still written, as `proposed`, but tagged `endorsement: none` and sorted after the endorsed ones in the review queue. A gate on a review queue should reorder and annotate, not delete, until its precision is known. Acceptance before it can drop anything: on the 29 labelled proposals it keeps ≥ 12 of the 13 Y/P and tags ≥ 10 of the 16 N, followed by a check on the first human-reviewed batch. Class: **stipulated** until that human-reviewed check.
+
+**Re-check trigger for the 0.60 threshold:** once ≥ 20 proposals are human-reviewed in each of the 0.60–0.65 and ≥ 0.65 bands, compare accept rates. Move the threshold only if the lower band's accept rate is ≥ 15 points below the upper band's. Until then it stays where it is.
+
+### Provenance additions
+
+| Parameter | Value | Class |
+|---|---|---|
+| Rollup recency rule | supersession on opposite-polarity pairs by evidence date; undated → both count, WARN | stipulated |
+| Single-claim cosine threshold | 0.60 (unchanged, n = 0 reviewed) | stipulated; re-check at ≥ 20 reviewed per band |
+| Endorsement-confirmation gate | reorder and tag, never drop, until validated | stipulated |

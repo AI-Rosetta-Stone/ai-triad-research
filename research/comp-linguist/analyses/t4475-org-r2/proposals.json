@@ -1,0 +1,234 @@
+[
+ {
+  "id": "O01",
+  "source": "org-014",
+  "target": "skp-intentions-094",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.58,
+  "basis": "multi-claim-agreement"
+ },
+ {
+  "id": "O02",
+  "source": "org-014",
+  "target": "saf-beliefs-097",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.608,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O03",
+  "source": "org-018",
+  "target": "skp-beliefs-115",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.608,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O04",
+  "source": "org-002",
+  "target": "skp-beliefs-145",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.61,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O05",
+  "source": "org-002",
+  "target": "acc-beliefs-015",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.617,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O06",
+  "source": "org-014",
+  "target": "saf-intentions-069",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.622,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O07",
+  "source": "org-018",
+  "target": "saf-beliefs-028",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.629,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O08",
+  "source": "org-023",
+  "target": "saf-intentions-201",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.629,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O09",
+  "source": "org-002",
+  "target": "saf-intentions-095",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.63,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O10",
+  "source": "org-014",
+  "target": "saf-intentions-016",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.635,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O11",
+  "source": "org-014",
+  "target": "saf-intentions-201",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.635,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O12",
+  "source": "org-014",
+  "target": "saf-intentions-144",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.64,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O13",
+  "source": "org-014",
+  "target": "acc-intentions-103",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.641,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O14",
+  "source": "org-002",
+  "target": "saf-intentions-032",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.647,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O15",
+  "source": "org-002",
+  "target": "saf-beliefs-109",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.657,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O16",
+  "source": "org-014",
+  "target": "acc-beliefs-069",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.659,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O17",
+  "source": "org-017",
+  "target": "acc-beliefs-043",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.666,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O18",
+  "source": "org-002",
+  "target": "saf-beliefs-146",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.667,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O19",
+  "source": "org-002",
+  "target": "saf-beliefs-127",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.679,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O20",
+  "source": "org-001",
+  "target": "saf-intentions-054",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.689,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O21",
+  "source": "org-023",
+  "target": "skp-intentions-102",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.69,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O22",
+  "source": "org-023",
+  "target": "saf-intentions-149",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.696,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O23",
+  "source": "org-014",
+  "target": "saf-desires-012",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.702,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O24",
+  "source": "org-023",
+  "target": "saf-intentions-016",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.72,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O25",
+  "source": "org-014",
+  "target": "saf-desires-010",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.73,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O26",
+  "source": "org-023",
+  "target": "saf-desires-012",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.731,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O27",
+  "source": "org-014",
+  "target": "skp-intentions-143",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.738,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O28",
+  "source": "org-017",
+  "target": "acc-intentions-074",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.758,
+  "basis": "high-cosine"
+ },
+ {
+  "id": "O29",
+  "source": "org-002",
+  "target": "saf-beliefs-203",
+  "type": "ADVOCATES_FOR",
+  "cos": 0.768,
+  "basis": "high-cosine"
+ }
+]
