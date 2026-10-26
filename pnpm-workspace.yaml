@@ -16,6 +16,12 @@ overrides:
   "@opentelemetry/core": ">=2.8.0"
   js-yaml: ">=5.4.1 <6"
   image-size: ">=2.0.3 <3"
+  # Security bump (t/4504 incident, Dependabot #437/#449, Trivy container gate blocking the
+  # urgent incident fix image). Arrives transitively via @azure/identity@4.14.0 (direct dep
+  # plus azurite-devDependency path). CLOSES the HIGH "MSAL Node authorization code flow may
+  # disclose parameters to an attacker-controlled endpoint" advisory (CVE-2026-109461),
+  # fixed in 7.1.0. Capped to the 7.x line per the convergence rule above.
+  "@azure/msal-node": ">=7.1.0 <8"
   # adm-zip pinned >=0.6.1 — CLOSES two HIGH uncontrolled-memory-allocation DoS advisories on the 0.6.x
   # line. The original >=0.6.0 pin closed the first DoS (Dependabot #303/#307, range <0.6.0, fixed in
   # 0.6.0) and stops the graph regressing to 0.5.18 (onnxruntime-node 1.24.3), the t/3442 round-2 hit.
