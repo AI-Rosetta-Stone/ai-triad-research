@@ -5293,7 +5293,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 10 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 11 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -5902,7 +5902,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **If a packages API call is necessary, confirm the token has `read:packages` scope first** (`gh auth status` shows current scopes). A 403 here is a scope problem, not a permissions or visibility problem.
 3. **URL-encode the package name carefully** — slashes and colons in container image names must be percent-encoded; "package not found" on a known package is a reliable diagnostic for encoding error.
 
-**Status:** Active — 2 instances (DevOps Lead p/26#188; DevOps Lead p/26#218 — `gh api orgs/.../packages/container/taxonomy-editor/versions` 403; confirmed build success via `gh run view --json conclusion` instead).
+**Status:** Active — 3 instances (DevOps Lead p/26#188; DevOps Lead p/26#218 — `gh api orgs/.../packages/container/taxonomy-editor/versions` 403; confirmed build success via `gh run view --json conclusion` instead; DevOps Lead p/26#276 — same endpoint 403'd; confirmed via `gh run view --json jobs` on the `container.yml` run, "Verify per-SHA tag exists in GHCR after push" + "Build and push" both `success`).
 
 **Applies To:** All agents diagnosing container image or tag availability; always check the deploy workflow log before reaching for the packages API.
 
@@ -7403,3 +7403,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#272).
 
 **Applies To:** All agents writing Python data-processing scripts against API responses or JSON files; guard scalar string fields with `or ''` before `in` checks.
+
+---
+
+## #365 [Process] A PR Body Saying "The Next Deploy Must Carry X" Is a Documentary Dependency, Not an Enforced One — Needs a Deploy-Time Check
+
+**Pattern:** PR A ships a change that depends on a companion change (PR B) landing in or before the same deploy — e.g. a stable-ID scheme that needs matching infrastructure wiring. The dependency exists only in prose: PR A's or PR B's body says "the next deploy must carry X." Nothing checks this at deploy time. PR B merges after the deploy SHA was already cut (here, 24 minutes after), despite PR B's own body warning about exactly this risk. Production runs with half the wiring.
+
+**Instances:**
+- 2026-10-23 — Tech Lead (p/335#186, t/4504, open): #3691 (stable GitHub ids) shipped without #3744 (`IDENTITY_MAP` Bicep wiring) because #3744 merged 24 minutes after the deploy SHA — despite #3744's own PR body warning about this exact gap. Result: `ai-triad-smoke` isn't read-only and the PI's GitHub sign-in has no admin. Fix pending the next prod deploy.
+
+**Root Cause:** A documentary cross-PR dependency relies on a human reading a sentence and acting on it at exactly the right moment inside a fast-moving merge queue — there is no structural mechanism forcing the ordering or blocking the deploy if the companion change is missing. The warning existed, in writing, in the right place, and was still missed; prose does not substitute for an enforced gate.
+
+**Prevention:**
+1. **The actual fixes are the TL's filed follow-ups, not a new prose rule** (same precedent as #357/t/4454 — incident remediation is the automated check): **t/4505** — boot WARN for unreachable allowlist entries (Class 6); **t/4506** — CI check that the code's env reads are wired in Bicep (Class 5); **t/4498** — enforce the T2 hold label (tier-check R5 already warned and nobody acted).
+2. **When a PR's body states a cross-PR deploy-ordering dependency, treat that sentence as a gap to close with a mechanism** (a boot-time check, a CI wiring-verification step, or a hold label that actually blocks), not as sufficient documentation on its own.
+3. **This is a recurring incident-response theme, not a one-off:** a stated dependency without an enforced gate is the common root cause across t/4504's three follow-ups — watch for the same shape (companion-PR timing dependency, prose-only) in future cross-cutting infra changes.
+
+**Status:** Active — 1 instance (Tech Lead p/335#186, t/4504 open). TL-owned; prevention tracked on t/4505, t/4506, t/4498.
+
+**Applies To:** All agents authoring or reviewing PRs that declare a deploy-ordering dependency on a companion PR; a sentence is not a gate.
