@@ -171,6 +171,64 @@ export function approvalWaitByTier(prs) {
   return Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, distribution(v)]));
 }
 
+// ── T2 approval-wait split: agent-controllable vs human-approval (t/4520, TL p/702#83) ──────
+//
+// The combined "CI-green → merge" wait for a T2 PR conflates two different things (confirmed by
+// hand against this week's 37 T2 PRs, t/4091#40): the SO round (agent-controllable -- the thing
+// t/4093's <=2h target is meant to measure) and PI/TL sign-off latency (human-controllable,
+// outside agent scope). A T2 PR's own SO-clearing comment is the boundary between the two legs.
+//
+// Known approximation (documented, not hidden -- same class of heuristic as t1-approval-guard's
+// owner-slug self-approval check): SO_CLEARED_RE matches the literal "SO cleared"/"SO clearing"/
+// "SO did not review" phrasing this repo's own T2 comments already use (root AGENTS.md Change
+// Tiers: "the SO did not review" is the exact fallback phrase; real PR comments observed in
+// practice use "SO clearing comment" as often as "SO cleared it" -- verified against PR #3423's
+// actual thread, t/4520). A PR whose SO-clearing comment doesn't match this phrasing falls into
+// `unclassified` rather than being silently mis-bucketed. Does NOT match "SO re-confirmation...
+// Not cleared yet" (confirmed: "SO" isn't immediately followed by a clear* word there).
+const SO_CLEARED_RE = /\bSO (?:cleared|clearing|did not review)\b/i;
+
+/** PURE helper: the LAST comment matching SO_CLEARED_RE (re-confirmations across rebases push
+ * the boundary later, matching the real #3386 shape from t/4091#40). comments: [{ body, createdAt }]. */
+export function findSoClearedAt(comments) {
+  let latest = null;
+  for (const c of comments ?? []) {
+    if (!SO_CLEARED_RE.test(c.body ?? '')) continue;
+    const t = new Date(c.createdAt).getTime();
+    if (!Number.isNaN(t) && (latest == null || t > latest)) latest = t;
+  }
+  return latest == null ? null : new Date(latest).toISOString();
+}
+
+/** PURE. prs: [{ body, ciGreenAt, mergedAt, soClearedAt }] -- T2 only (others are ignored, same
+ * as approvalWaitByTier's bucketing). A PR with no detected soClearedAt goes to `unclassified`
+ * (its wait is real but can't be split) rather than guessed into either leg. */
+export function splitT2ApprovalWait(prs) {
+  const agentControllable = [];
+  const humanApproval = [];
+  const unclassified = [];
+  for (const pr of prs ?? []) {
+    if (extractTier(pr.body) !== 'T2') continue;
+    if (!pr.ciGreenAt || !pr.mergedAt) continue;
+    const ciGreen = new Date(pr.ciGreenAt).getTime();
+    const merged = new Date(pr.mergedAt).getTime();
+    if (!pr.soClearedAt) {
+      unclassified.push((merged - ciGreen) / 60_000);
+      continue;
+    }
+    const soCleared = new Date(pr.soClearedAt).getTime();
+    // Clamp at 0: a re-confirmation comment can postdate CI-green by construction, but a stale
+    // first-pass SO comment could theoretically predate it -- never report a negative wait.
+    agentControllable.push(Math.max(0, soCleared - ciGreen) / 60_000);
+    humanApproval.push(Math.max(0, merged - soCleared) / 60_000);
+  }
+  return {
+    agentControllable: distribution(agentControllable),
+    humanApproval: distribution(humanApproval),
+    unclassified: distribution(unclassified),
+  };
+}
+
 // ── PR size / open-PR age ───────────────────────────────────────────────────────────────────
 
 /** PURE. prs: [{ additions, deletions, changedFiles }] (changedFiles: number or string[]). */
