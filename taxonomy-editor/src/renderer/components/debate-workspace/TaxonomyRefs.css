@@ -135,11 +135,6 @@
   border-color: var(--focus-ring) !important;
 }
 
-.taxrefs-explain-copied {
-  color: #22c55e;
-  cursor: default;
-}
-
 .taxrefs-caveats-btn {
   color: #d97706;
 }

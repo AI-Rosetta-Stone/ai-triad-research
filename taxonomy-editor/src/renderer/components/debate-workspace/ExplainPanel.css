@@ -1,0 +1,100 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved. */
+/* Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4514: inline Explain panel — participates in normal transcript scrolling, no overlay. */
+
+.debate-explain-panel {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary, var(--bg-elevated));
+  font-size: var(--text-sm);
+}
+
+.debate-explain-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.debate-explain-panel-title {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.debate-explain-gemini-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.debate-explain-gemini-link:hover {
+  color: var(--text-secondary);
+}
+
+.debate-explain-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+}
+
+.debate-explain-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--text-secondary);
+  animation: debate-explain-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes debate-explain-spin {
+  to { transform: rotate(360deg); }
+}
+
+.debate-explain-error {
+  color: var(--text-secondary);
+}
+
+.debate-explain-error-line {
+  margin-bottom: var(--sp-1);
+}
+
+.debate-explain-error-steps {
+  margin: var(--sp-1) 0 var(--sp-2) var(--sp-4);
+  padding: 0;
+}
+
+.debate-explain-result:focus {
+  outline: none;
+}
+
+.debate-explain-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-color);
+}
+
+.debate-explain-model-tag {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.debate-explain-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}

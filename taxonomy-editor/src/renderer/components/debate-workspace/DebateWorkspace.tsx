@@ -31,6 +31,7 @@ import type { NavigateCommand } from '../debate-diagnostics/chat';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { initDebatePopoutCloseHandler, isDebatePopoutWindow } from '../../hooks/useDebateStore/shared/guards';
 import { RemoteDriverOverlay } from './RemoteDriverOverlay';
+import { requestExplainForSelection } from './explainRequestBus';
 import { useCommunityStore } from '../../hooks/useCommunityStore';
 import { useUserProfile } from '../../hooks/useAuthStatus';
 import { CommunityShareBanner } from '../shared/CommunityShareBanner';
@@ -349,8 +350,13 @@ function DebateContextMenu({
         Similar Perspectives for &lsquo;{truncatedText}&rsquo;
       </button>
       <button className="debate-context-menu-item" onClick={() => {
-        void api.clipboardWriteText(`EXPLAIN: ${menu.selectedText}`);
-        void api.openExternal('https://gemini.google.com/app');
+        // t/4514: open the same inline in-app panel the card's "Explain" button uses, scoped to
+        // this selection, via the entry's registered handler. No handler registered (panel not
+        // mounted for this entry) falls back to the old clipboard+browser escape hatch.
+        if (!requestExplainForSelection(menu.entryId, menu.selectedText)) {
+          void api.clipboardWriteText(`EXPLAIN: ${menu.selectedText}`);
+          void api.openExternal('https://gemini.google.com/app');
+        }
         onClose();
       }}>
         Explain&hellip;
