@@ -162,6 +162,12 @@ function Invoke-IterativeExtraction {
     $TerminationReason = 'all_confident'
 
     $DriftChecks = [System.Collections.Generic.List[PSObject]]::new()
+    # t/4509: a claim whose own verification step says "verified: false" is a statement that the
+    # source does NOT contain the claim — not a factual claim at all. Index tracked here (not
+    # removed mid-loop, since DriftChecks below also indexes into $Claims); the set is filtered out
+    # of $Summary.factual_claims right before return.
+    $DroppedIndices = [System.Collections.Generic.HashSet[int]]::new()
+    $ClaimsDroppedVerification = 0
 
     Write-Verbose "FIRE Phase 2-3: Assessing $($Claims.Count) claims..."
 
@@ -323,19 +329,27 @@ Return JSON: {"claim_label": "$ClaimLabel", "verified": true/false, "refined_cla
                             }
                         }
 
+                        # t/4509: verified=false means the claim is NOT in the source — drop the
+                        # candidate entirely, before applying $Refined.refined_claim. The model's
+                        # "refined_claim" on a failed verification is typically its explanation of
+                        # the absence ("The source document does not contain...") rather than a
+                        # corrected claim, and writing that into $Claim.claim is exactly the bug:
+                        # a statement of absence persisted to the corpus as if it were a claim.
+                        if ($Refined.PSObject.Properties['verified'] -and -not $Refined.verified) {
+                            $Claim.fire_confidence = 0.1
+                            $Confidence = 0.1
+                            [void]$DroppedIndices.Add($i)
+                            $ClaimsDroppedVerification++
+                            Write-Warning "FIRE: $ClaimLabel failed verification against the source — dropped, not written as a factual claim."
+                            Write-Verbose "${Indent}iter $ClaimIter/$MaxIterPerClaim`: verified=false → dropped"
+                            break
+                        }
+
                         # Update claim text if refined
                         if ($Refined.PSObject.Properties['refined_claim'] -and $Refined.refined_claim -and $Refined.refined_claim -ne $ClaimText) {
                             $Claim.claim = $Refined.refined_claim
                             $ClaimText = $Refined.refined_claim
                             $Changes.Add('refined')
-                        }
-
-                        # If verified=false, mark as low confidence and stop
-                        if ($Refined.PSObject.Properties['verified'] -and -not $Refined.verified) {
-                            $Claim.fire_confidence = 0.1
-                            $Confidence = 0.1
-                            Write-Verbose "${Indent}iter $ClaimIter/$MaxIterPerClaim`: verified=false → 0.10, stopped"
-                            break
                         }
 
                         # Log iteration result
@@ -452,8 +466,21 @@ Return JSON: {"claim_label": "$ClaimLabel", "verified": true/false, "refined_cla
         }
     }
 
+    # ── Drop candidates that failed verification (t/4509) ────────────────────
+    # claims_total (below) still counts every candidate the loop considered, so the drop is visible
+    # alongside claims_dropped_verification rather than silently shrinking the total.
+    $OriginalClaimsCount = $Claims.Count
+    if ($DroppedIndices.Count -gt 0) {
+        $KeptClaims = [System.Collections.Generic.List[object]]::new()
+        for ($k = 0; $k -lt $Claims.Count; $k++) {
+            if (-not $DroppedIndices.Contains($k)) { $KeptClaims.Add($Claims[$k]) }
+        }
+        $Claims = $KeptClaims.ToArray()
+        $Summary.factual_claims = $Claims
+    }
+
     # ── Final summary log ─────────────────────────────────────────────────────
-    Write-Verbose "FIRE complete: $($Claims.Count) claims | $ClaimsConfident confident | $ClaimsIterated iterated | $TotalIter total iterations | $TotalApiCalls API calls | $([Math]::Round($Stopwatch.Elapsed.TotalSeconds, 1))s"
+    Write-Verbose "FIRE complete: $OriginalClaimsCount claims | $ClaimsConfident confident | $ClaimsIterated iterated | $ClaimsDroppedVerification dropped (failed verification) | $TotalIter total iterations | $TotalApiCalls API calls | $([Math]::Round($Stopwatch.Elapsed.TotalSeconds, 1))s"
     Write-Verbose "  Termination: $TerminationReason"
     Write-Verbose "  Guardrails: max_iter_per_claim=$MaxIterPerClaim, max_iter_per_doc=$MaxIterPerDoc, wall_clock=${WallClockSeconds}s, max_api_calls=$MaxApiCalls"
     if ($ClaimsExhausted -gt 0) {
@@ -469,8 +496,9 @@ Return JSON: {"claim_label": "$ClaimLabel", "verified": true/false, "refined_cla
         RawText   = $InitialResult.Text
         Backend   = $InitialResult.Backend
         FireStats = New-FireStats -ConfidenceThreshold $ConfidenceThreshold -TotalIterations $TotalIter `
-            -TotalApiCalls $TotalApiCalls -ClaimsTotal $Claims.Count -ClaimsConfident $ClaimsConfident `
-            -ClaimsIterated $ClaimsIterated -ClaimsDrifted $DriftCount -ElapsedSeconds $Stopwatch.Elapsed.TotalSeconds `
+            -TotalApiCalls $TotalApiCalls -ClaimsTotal $OriginalClaimsCount -ClaimsConfident $ClaimsConfident `
+            -ClaimsIterated $ClaimsIterated -ClaimsDrifted $DriftCount -ClaimsDroppedVerification $ClaimsDroppedVerification `
+            -ElapsedSeconds $Stopwatch.Elapsed.TotalSeconds `
             -TerminationReason $TerminationReason `
             -MaxIterPerClaim $MaxIterPerClaim -MaxIterPerDoc $MaxIterPerDoc -WallClockSeconds $WallClockSeconds -MaxApiCalls $MaxApiCalls
     }
@@ -490,21 +518,23 @@ function New-FireStats {
     param(
         [double]$ConfidenceThreshold, [int]$TotalIterations = 0, [int]$TotalApiCalls = 0,
         [int]$ClaimsTotal = 0, [int]$ClaimsConfident = 0, [int]$ClaimsIterated = 0, [int]$ClaimsDrifted = 0,
+        [int]$ClaimsDroppedVerification = 0,
         [double]$ElapsedSeconds = 0, [string]$TerminationReason,
         [int]$MaxIterPerClaim, [int]$MaxIterPerDoc, [int]$WallClockSeconds, [int]$MaxApiCalls
     )
     @{
-        mode                 = 'fire'
-        confidence_threshold = $ConfidenceThreshold
-        total_iterations     = $TotalIterations
-        total_api_calls      = $TotalApiCalls
-        claims_total         = $ClaimsTotal
-        claims_confident     = $ClaimsConfident
-        claims_iterated      = $ClaimsIterated
-        claims_drifted       = $ClaimsDrifted
-        elapsed_seconds      = [Math]::Round($ElapsedSeconds, 1)
-        termination_reason   = $TerminationReason
-        guardrails           = [ordered]@{
+        mode                        = 'fire'
+        confidence_threshold        = $ConfidenceThreshold
+        total_iterations            = $TotalIterations
+        total_api_calls             = $TotalApiCalls
+        claims_total                = $ClaimsTotal
+        claims_confident             = $ClaimsConfident
+        claims_iterated             = $ClaimsIterated
+        claims_drifted              = $ClaimsDrifted
+        claims_dropped_verification = $ClaimsDroppedVerification
+        elapsed_seconds             = [Math]::Round($ElapsedSeconds, 1)
+        termination_reason          = $TerminationReason
+        guardrails                  = [ordered]@{
             max_iter_per_claim = $MaxIterPerClaim
             max_iter_per_doc   = $MaxIterPerDoc
             wall_clock_seconds = $WallClockSeconds
