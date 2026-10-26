@@ -1,0 +1,5 @@
+{
+ "_rubric": "Does the uncovered window hold a claim the extraction should have captured? Y = yes, B = borderline, N = no (references, maths, methods, tables, garbled conversion). Single rater (CL), 2026-10-26.",
+ "G01":"N","G02":"N","G03":"N","G04":"N","G05":"B","G06":"Y","G07":"N","G08":"N","G09":"N","G10":"N",
+ "G11":"N","G12":"N","G13":"N","G14":"N","G15":"N"
+}

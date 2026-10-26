@@ -1,0 +1,362 @@
+{
+ "K01": {
+  "arm": "on",
+  "doc": "sycophantic-chatbots-cause-delusional-spiraling-even-ideal-2026",
+  "camp": "safetyist",
+  "idx": 7
+ },
+ "K02": {
+  "arm": "on",
+  "doc": "ai-legislative-update-feb-6-2026-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K03": {
+  "arm": "on",
+  "doc": "what-investment-implies-about-ai-transition-2026",
+  "camp": "accelerationist",
+  "idx": 10
+ },
+ "K04": {
+  "arm": "off",
+  "doc": "data-quality-over-model-complexity-rethinking-ai-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "K05": {
+  "arm": "on",
+  "doc": "ai-driven-worker-displacement-is-serious-threat-2026",
+  "camp": "skeptic",
+  "idx": 2
+ },
+ "K06": {
+  "arm": "off",
+  "doc": "artificial-intelligence-human-rights-law-thematic-synthesis-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K07": {
+  "arm": "off",
+  "doc": "privacyassist-user-centric-agent-framework-detecting-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K08": {
+  "arm": "off",
+  "doc": "regulatory-tide-goes-out-what-global-ai-governance-2026-3",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "K09": {
+  "arm": "off",
+  "doc": "agent-dam-privacy-leakage-evaluation-autonomous-web-agents-2026",
+  "camp": "accelerationist",
+  "idx": 2
+ },
+ "K10": {
+  "arm": "off",
+  "doc": "positive-alignment-artificial-intelligence-human-flourishing-2026",
+  "camp": "skeptic",
+  "idx": 8
+ },
+ "K11": {
+  "arm": "on",
+  "doc": "ai-as-normal-technology-2026",
+  "camp": "skeptic",
+  "idx": 20
+ },
+ "K12": {
+  "arm": "on",
+  "doc": "global-landscape-environmental-ai-regulation-from-cost-2026",
+  "camp": "skeptic",
+  "idx": 4
+ },
+ "K13": {
+  "arm": "on",
+  "doc": "rep-summer-lee-sen-markey-reintroduce-legislation-mandate-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K14": {
+  "arm": "off",
+  "doc": "colorado-ai-act-what-it-requires-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K15": {
+  "arm": "off",
+  "doc": "incentive-aware-ai-regulations-credal-characterisation-2026-2",
+  "camp": "skeptic",
+  "idx": 8
+ },
+ "K16": {
+  "arm": "on",
+  "doc": "notes-eacc-principles-tenets-2026",
+  "camp": "accelerationist",
+  "idx": 2
+ },
+ "K17": {
+  "arm": "off",
+  "doc": "adoption-ai-utility-td-sector-use-cases-consequence-2026",
+  "camp": "skeptic",
+  "idx": 5
+ },
+ "K18": {
+  "arm": "off",
+  "doc": "evaluating-impact-ai-labor-market-current-state-affairs-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "K19": {
+  "arm": "on",
+  "doc": "center-ai-standards-innovation-caisi-nist-2026-1",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "K20": {
+  "arm": "off",
+  "doc": "rise-authoritarian-informationalism-escalating-surveillance-2026-3",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K21": {
+  "arm": "off",
+  "doc": "ai-models-collapse-when-trained-recursively-generated-data-2026-3",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "K22": {
+  "arm": "on",
+  "doc": "owasp-llm-top-10-security-vulnerabilities-every-ai-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "K23": {
+  "arm": "off",
+  "doc": "persona-vectors-monitoring-controlling-character-traits-2026-1",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K24": {
+  "arm": "on",
+  "doc": "how-brussels-effect-hinders-innovation-global-south-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K25": {
+  "arm": "on",
+  "doc": "provable-ai-ethics-explainability-medical-educational-ai-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "K26": {
+  "arm": "off",
+  "doc": "colosseum-auditing-collusion-cooperative-multi-agent-systems-2026",
+  "camp": "accelerationist",
+  "idx": 2
+ },
+ "K27": {
+  "arm": "on",
+  "doc": "anthropic-boss-dario-amodei-calls-ai-development-slow-down-2026-1",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K28": {
+  "arm": "off",
+  "doc": "america-must-protect-its-training-data-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K29": {
+  "arm": "off",
+  "doc": "regulatory-tide-goes-out-what-global-ai-governance-2026-4",
+  "camp": "skeptic",
+  "idx": 4
+ },
+ "K30": {
+  "arm": "on",
+  "doc": "is-ai-sovereignty-possible-balancing-autonomy-2026-1",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K31": {
+  "arm": "on",
+  "doc": "seen-unseen-ai-liability-2026",
+  "camp": "accelerationist",
+  "idx": 3
+ },
+ "K32": {
+  "arm": "on",
+  "doc": "navigating-ai-vendor-contracts-future-law-guide-legal-tech-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "K33": {
+  "arm": "off",
+  "doc": "incident-reporting-investigation-under-ai-act-some-insights-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "K34": {
+  "arm": "on",
+  "doc": "insuring-ai-role-insurance-artificial-intelligence-2026",
+  "camp": "safetyist",
+  "idx": 15
+ },
+ "K35": {
+  "arm": "on",
+  "doc": "counterfactual-fairness-2026-2",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K36": {
+  "arm": "off",
+  "doc": "trust-without-teeth-eu-ai-act-healthcare-limits-voluntary-2026-1",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "K37": {
+  "arm": "off",
+  "doc": "extracting-books-from-production-language-models-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "K38": {
+  "arm": "off",
+  "doc": "hidden-plain-sight-reconsidering-use-race-correction-2026-1",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K39": {
+  "arm": "off",
+  "doc": "artificial-intelligence-human-rights-law-thematic-synthesis-2026-1",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "K40": {
+  "arm": "off",
+  "doc": "ai-builds-we-analyze-empirical-study-ai-generated-build-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "K41": {
+  "arm": "on",
+  "doc": "auditing-large-language-models-race-gender-disparities-2026-1",
+  "camp": "skeptic",
+  "idx": 2
+ },
+ "K42": {
+  "arm": "on",
+  "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K43": {
+  "arm": "off",
+  "doc": "is-artificial-intelligence-great-filter-that-makes-advanced-2026",
+  "camp": "accelerationist",
+  "idx": 3
+ },
+ "K44": {
+  "arm": "off",
+  "doc": "tracer-trajectory-risk-aggregation-critical-episodes-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K45": {
+  "arm": "on",
+  "doc": "corporate-renewables-market-is-ready-smaller-buyers-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K46": {
+  "arm": "off",
+  "doc": "frontier-ai-regulation-what-form-should-it-take-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "K47": {
+  "arm": "off",
+  "doc": "bouck-could-make-it-easier-sue-tech-companies-that-provide-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K48": {
+  "arm": "on",
+  "doc": "before-you-deploy-ai-generated-code-production-checklist-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K49": {
+  "arm": "on",
+  "doc": "message-hidden-within-pattern-reverse-alignment-problem-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "K50": {
+  "arm": "on",
+  "doc": "artificial-intelligence-medical-liability-part-ii-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "K51": {
+  "arm": "on",
+  "doc": "ai-democracy-dilemma-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K52": {
+  "arm": "on",
+  "doc": "auditing-large-language-models-race-gender-disparities-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K53": {
+  "arm": "on",
+  "doc": "ai-democracy-mapping-intersections-2026-1",
+  "camp": "skeptic",
+  "idx": 2
+ },
+ "K54": {
+  "arm": "on",
+  "doc": "programmed-obey-limits-law-debate-over-meaningful-human-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "K55": {
+  "arm": "off",
+  "doc": "internal-deployment-gaps-ai-regulation-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K56": {
+  "arm": "off",
+  "doc": "open-sourcing-circuit-tracing-tools-2026-1",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "K57": {
+  "arm": "on",
+  "doc": "navigating-regulatory-storm-acts-moratorium-its-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "K58": {
+  "arm": "off",
+  "doc": "governor-newsom-issues-executive-order-accelerate-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "K59": {
+  "arm": "off",
+  "doc": "code-comprehension-gaps-ai-assisted-development-conceptual-2026",
+  "camp": "accelerationist",
+  "idx": 4
+ },
+ "K60": {
+  "arm": "on",
+  "doc": "ai-behind-closed-doors-primer-governance-internal-deployment-2026",
+  "camp": "accelerationist",
+  "idx": 14
+ }
+}

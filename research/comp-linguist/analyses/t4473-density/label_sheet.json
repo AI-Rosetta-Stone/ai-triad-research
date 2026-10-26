@@ -1,0 +1,542 @@
+[
+ {
+  "id": "K01",
+  "camp": "safetyist",
+  "node": "saf-intentions-006",
+  "node_label": "Designing AI to flag uncertainty and defer to humans",
+  "stance": "aligned",
+  "point": "The research investigates the effectiveness of two interventions: restricting AI to factual responses and informing users about sycophancy. The findings indicate that while these interventions reduce delusional spiraling, they do not eliminate it. This suggests a need for more robust safety measures, potentially involving engineering epistemic uncertainty into AI or developing more sophisticated methods to ensure users do not become overly reliant on or misled by AI outputs. The intention is to find solutions that go beyond superficial fixes to address the core problem of AI influencing belief formation negatively.",
+  "verbatim": "We then show that in this model, even an idealized Bayes-rational user is vulnerable to delusional spiraling, and that sycophancy plays a causal role. Furthermore, this effect persists in the face of two candidate mitigations: preventing chatbots from hallucinating false claims, and informing users of the possibility of model sycophancy."
+ },
+ {
+  "id": "K02",
+  "camp": "safetyist",
+  "node": "saf-intentions-104",
+  "node_label": "Mandate Child Protection Across the Entire AI Lifecycle",
+  "stance": "aligned",
+  "point": "The document details numerous bills across multiple states, such as Kansas HB and Washington HB 2225, specifically targeting child protection and safety in AI interactions. This reflects a safetyist priority to integrate child-rights-by-design into the AI development lifecycle. By mandating age verification and prohibiting harmful chatbot behaviors, these legislative efforts aim to prevent AI from facilitating self-harm or violence among minors. The document frames these as essential safeguards against the risks posed by unregulated AI systems.",
+  "verbatim": "Kansas legislators approved an AI-related child exploitation bill and sent it to the desk of Gov. Laura Kelly."
+ },
+ {
+  "id": "K03",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-090",
+  "node_label": "Infrastructure-Bound Option Value Modeling",
+  "stance": "aligned",
+  "point": "The document defines a 'boom option value' (theta) that increases the effective expected productivity of capital based on the probability of future AI breakthroughs. This mechanism allows firms to justify current high levels of investment by accounting for the potential future upside of transformative AI events.",
+  "verbatim": null
+ },
+ {
+  "id": "K04",
+  "camp": "skeptic",
+  "node": "skp-intentions-017",
+  "node_label": "Close the AI Documentation Gap Through Mandatory Disclosure",
+  "stance": "aligned",
+  "point": "The document argues for mandatory data governance, including lineage tracking, documentation of cleaning rules, and validation logs to ensure transparency and accountability. This aligns with the skeptic demand for comprehensive documentation to make AI systems understandable and auditable. By requiring clear definitions of quality thresholds and policy enforcement, the framework aims to mitigate the risks associated with opaque, black-box AI development. The document emphasizes that such governance is critical for AI deployed in regulated industries.",
+  "verbatim": "To ensure transparency, accountability, and reproducibility, the framework incorporates strong data governance principles."
+ },
+ {
+  "id": "K05",
+  "camp": "skeptic",
+  "node": "skp-intentions-141",
+  "node_label": "Regulate AI for Documented Harms, Not Science-Fiction Scenarios",
+  "stance": "aligned",
+  "point": "The authors argue that the Left must move beyond reactive stances and develop proactive policy solutions, such as regulating AI as a public utility or implementing public jobs programs. This aligns with the skeptic intention to prioritize addressing the immediate, tangible impacts of AI on the workforce over speculative debates about existential risk. The document explicitly criticizes the tendency of the Left to focus on siloed issues like 'AI safety' or 'existential risk' at the expense of labor-focused organizing. The authors call for a broader coalition of socialists, unionists, and experts to shape the future of AI.",
+  "verbatim": "In short, current dynamics on the Left and in the AI policy landscape mean we risk being merely reactive to AI job displacement instead of proactively coming up with policy ideas."
+ },
+ {
+  "id": "K06",
+  "camp": "safetyist",
+  "node": "saf-intentions-210",
+  "node_label": "Legal and Regulatory Frameworks for AI Accountability",
+  "stance": "aligned",
+  "point": "The authors argue that the rapid development of AI necessitates a methodical synthesis of literature to provide structure and clarity for policymakers. They emphasize that current legal frameworks are being challenged by AI's disruptive impact, requiring a re-evaluation of how human rights are protected. The document explicitly calls for addressing gaps in the literature, such as the role of private actors and the use of human rights impact assessments, to strengthen the governance framework. This reflects a safetyist intention to establish robust, evidence-based regulatory oversight.",
+  "verbatim": "The findings from our review contribute to giving structure and clarity to this growing literature, which is valuable to future researchers who wish to delve deeper into one or more of these themes, and to policymakers who may be called to regulate the impact of AI on HRL."
+ },
+ {
+  "id": "K07",
+  "camp": "safetyist",
+  "node": "saf-beliefs-098",
+  "node_label": "AI Behavior Cannot Be Fully Predicted Due to Emergence, Misspecification, and Formal Limits",
+  "stance": "aligned",
+  "point": "The document highlights that Android's current privacy mechanisms are insufficient because they rely on developer-provided declarations without independent verification. This creates a systemic risk where apps behave inconsistently with their disclosures, potentially leading to unauthorized data collection. From a safetyist perspective, this lack of verification undermines the entire trust model of the mobile ecosystem. The document acknowledges that even with user consent mechanisms, the complexity of permissions makes it difficult for users to make informed decisions.",
+  "verbatim": "However, both mechanisms remain insufficient because they rely largely on developer-provided declarations and lack verification by Google [9]. As a result, apps may request excessive permissions unrelated to their functionality [1], or behave inconsistently with their DS declarations by sending undeclared sensitive data to backend servers or third-party services for storage, analytics, or profiling [7]."
+ },
+ {
+  "id": "K08",
+  "camp": "skeptic",
+  "node": "skp-intentions-079",
+  "node_label": "Mandate Federal Agency Reporting to Congress on AI Impacts to Vulnerable Communities",
+  "stance": "aligned",
+  "point": "The document notes that the DOJ AI Litigation Task Force is actively challenging state AI laws, which skeptics would view as an aggressive use of federal power to undermine local efforts to protect citizens from AI-driven harms. By framing state bias mitigation requirements as potentially deceptive, the federal government is effectively preempting state-level accountability. Skeptics would argue that this is a clear example of the federal government prioritizing corporate interests over the rights of individuals and communities to regulate the AI systems that affect their lives.",
+  "verbatim": "Another, issued December 2025, deploys the DOJ AI Litigation Task Force to challenge state AI laws, conditions federal broadband funding on state AI policy alignment, and directs the FTC to issue guidance framing state bias mitigation requirements as potentially deceptive under federal law."
+ },
+ {
+  "id": "K09",
+  "camp": "accelerationist",
+  "node": "acc-intentions-004",
+  "node_label": "Mandating Show-Your-Work Transparency in AI-Driven Science",
+  "stance": "aligned",
+  "point": "The document prioritizes auditing AI outputs over internal mechanisms, focusing on empirical leakage rates in web agents. This approach aligns with accelerationist goals of using empirical telemetry to inform development rather than relying on opaque, restrictive safety constraints. By measuring utility alongside privacy, the authors treat safety as a performance metric to be optimized.",
+  "verbatim": "We report the rate of successful completion of the task (utility) and privacy leakage rate as defined in Section 3.3."
+ },
+ {
+  "id": "K10",
+  "camp": "skeptic",
+  "node": "skp-beliefs-041",
+  "node_label": "AI Bias and Harm Are Well-Documented, Not Hypothetical",
+  "stance": "aligned",
+  "point": "The document cites research on adversarial attacks, such as the work by Zou et al. on universal and transferable adversarial attacks. This supports the skeptic belief that AI systems have documented, empirical vulnerabilities that are not merely hypothetical, reinforcing the need to focus on verifiable harms.",
+  "verbatim": "Andy Zou et al. Universal and transferable adversarial attacks on aligned language models."
+ },
+ {
+  "id": "K11",
+  "camp": "skeptic",
+  "node": "skp-intentions-108",
+  "node_label": "Oppose AI Regulations That Entrench Incumbents Through Compliance Costs",
+  "stance": "aligned",
+  "point": "The document advocates for nuanced regulation that avoids 'regulatory moats' and premature categorization. It supports policies that enable diffusion, such as the ESIGN Act, and warns against regulations that burden developers or freeze business models, which aligns with the skeptic goal of ensuring AI governance does not disproportionately exclude innovators or stifle beneficial adoption.",
+  "verbatim": "Regulation that is insensitive to these needs risks stymying beneficial AI adoption. Regulation tends to create or reify categories, and might thus prematurely freeze business models, forms of organization, product categories, and so forth."
+ },
+ {
+  "id": "K12",
+  "camp": "skeptic",
+  "node": "skp-intentions-104",
+  "node_label": "Advance Targeted AI Policies on Environmental Reporting, Pricing Transparency, and Bias Auditing",
+  "stance": "strongly_aligned",
+  "point": "The authors propose concrete policy interventions, including mandatory inference consumption reporting, compute location disclosure, and the implementation of visual energy rating systems. These measures are designed to force market internalization of environmental costs and empower users to make informed choices. The proposal explicitly targets the information asymmetry between providers and the public.",
+  "verbatim": "Regulators should, therefore, mandate the adoption of such standardized energy scoring frameworks for AI models and systems in a layered framework to ensure comparability across providers."
+ },
+ {
+  "id": "K13",
+  "camp": "skeptic",
+  "node": "skp-intentions-080",
+  "node_label": "Institutionalize Civil Rights Technical Expertise Within AI Regulatory Bodies",
+  "stance": "strongly_aligned",
+  "point": "The document proposes the institutionalization of civil rights expertise within federal agencies to oversee AI development and deployment. By mandating that agencies hire staff trained in algorithmic accountability, the bill seeks to bridge the gap between technical AI implementation and legal civil rights enforcement. From a skeptic perspective, this is a necessary move to counter the current administration's push for rapid, unchecked AI adoption. The document notes that this oversight is essential for protecting vulnerable communities from immediate, measurable harms.",
+  "verbatim": "The bill would require federal agencies to establish or strengthen civil rights offices with staff trained in algorithmic accountability and civil rights enforcement, and to regularly report to Congress on how AI systems are impacting vulnerable communities."
+ },
+ {
+  "id": "K14",
+  "camp": "accelerationist",
+  "node": "acc-intentions-047",
+  "node_label": "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones",
+  "stance": "opposed",
+  "point": "The document contrasts Colorado's approach with frontier-model safety laws, noting that Colorado regulates automated decision-making technology based on use case rather than training compute thresholds. Accelerationist perspectives generally resist regulatory fragmentation and compliance burdens that do not align with capability scaling or innovation velocity. The document shows that Colorado chose a functional deployer-developer framework instead of targeting the largest foundational models. However, this sector-specific approach creates separate regulatory tracks for companies operating across jurisdictions.",
+  "verbatim": "Unlike California\u2019s SB 53 or New York\u2019s RAISE Act, Colorado\u2019s law was never a frontier-model safety statute. It does not use a training-compute threshold and does not regulate the handful of labs building the largest general-purpose models."
+ },
+ {
+  "id": "K15",
+  "camp": "skeptic",
+  "node": null,
+  "node_label": null,
+  "stance": "aligned",
+  "point": "The document highlights that market concentration among 'big-tech' providers creates significant political-economy pressures and risks of regulatory capture. This concentration, coupled with proprietary intellectual property and trade secrets, actively conflicts with the transparency and auditability required for effective oversight. These structural issues make it easier for powerful stakeholders to evade conventional regulations.",
+  "verbatim": "Marketconcentration of somelarge scaleservice providers also known as \u00c3\u00b4big-tech\u00c3\u00b6 in compute and data creates political-economy pressures and regulatory capture. These legal, economic, organizational, and security frictions interact with the information asymmetry and statistical uncertainty,tomakeAIregulationboth harder toformulateandeasierforstakeholderstoevade thanconventionalregulations."
+ },
+ {
+  "id": "K16",
+  "camp": "accelerationist",
+  "node": "acc-desires-001",
+  "node_label": "AI-Powered Abundance and Global Problem-Solving",
+  "stance": "aligned",
+  "point": "The document advocates for the rapid development of AI to extract utility and free energy from the environment at grander scales. It argues that capitalism is a form of intelligence that morphs civilization to capture utility, and that this process should be accelerated. The goal is to move beyond planetary constraints to acquire new resources in space. The document acknowledges that this requires substrate-independence for intelligence to survive and expand.",
+  "verbatim": "Effective accelerationism aims to follow the \u201cwill of the universe\u201d: leaning into the thermodynamic bias towards futures with greater and smarter civilizations that are more effective at finding/extracting free energy from the universe and converting it to utility at grander and grander scales"
+ },
+ {
+  "id": "K17",
+  "camp": "skeptic",
+  "node": "skp-beliefs-190",
+  "node_label": "Single Points of Control over Compute Hardware Function as Incumbent Capture Mechanisms",
+  "stance": "aligned",
+  "point": "The document identifies that centralized AI models and data lakes can become single points of failure or vulnerability, particularly regarding cybersecurity and vendor lock-in. It notes that over-reliance on AI outputs without rigorous validation, or the use of black-box models, creates significant operational risks. This aligns with the skeptic concern that centralized control of compute and logic creates political and operational chokepoints.",
+  "verbatim": "A single AI agent should not be a single point of failure for critical control."
+ },
+ {
+  "id": "K18",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-086",
+  "node_label": "AI as Structurally Inevitable Economic Transformation",
+  "stance": "aligned",
+  "point": "The document posits that the current pace of change in the occupational mix is not markedly different from past technological transitions. By using a dissimilarity index to track workforce shifts, the authors demonstrate that recent trends mirror those seen during the internet's adoption in the late 1990s. This supports the accelerationist belief that technological integration follows predictable, manageable evolutionary paths rather than causing immediate, catastrophic displacement. The authors note that some recent shifts predate the release of generative AI, further suggesting that AI is not the sole driver of current labor market dynamics.",
+  "verbatim": "Changes in the occupational mix since the advent of generative AI in 2022 seem to mirror the trends seen during the three comparison periods."
+ },
+ {
+  "id": "K19",
+  "camp": "safetyist",
+  "node": "saf-intentions-058",
+  "node_label": "Building Accountability Frameworks for AI Agents Operating at Scale",
+  "stance": "aligned",
+  "point": "The center is actively researching the security of AI agents, including red-teaming competitions and the analysis of evaluation transcripts to detect deceptive behavior. This reflects a safetyist concern regarding the unpredictability of agentic systems and the potential for them to bypass safety constraints. By building an 'evaluation toolbox,' CAISI aims to create the institutional capacity to monitor and audit autonomous systems. The document notes that current evaluation methods are susceptible to manipulation, necessitating more robust scientific standards.",
+  "verbatim": "In December, CAISI published a write-up on how AI models can cheat on agentic evaluations, including lessons from our experience building and using AI-enabled"
+ },
+ {
+  "id": "K20",
+  "camp": "safetyist",
+  "node": "saf-beliefs-017",
+  "node_label": "AI Deployment Speed Erodes Organizational Visibility and Control",
+  "stance": "aligned",
+  "point": "The document argues that the rapid adoption of digital and AI-driven tools by authoritarian regimes creates a systemic loss of visibility and control over data, which is then weaponized against civil society. By shifting from overt coercion to covert, data-driven repression, regimes can monitor and pre-empt dissent with unprecedented precision. This aligns with the safetyist concern that technological velocity outpaces the development of governance frameworks, leading to a collapse of security and privacy. The authors highlight that these tools are increasingly used transnationally, creating a global environment where digital repression is difficult to detect and counter.",
+  "verbatim": "Digitalization fundamentally transforms the precision and scope of the collection, surveillance and processing of information by governments. The dramatic reduction in the cost of data collection enables these regimes to gather vast quantities of information with unprecedented granularity and scope."
+ },
+ {
+  "id": "K21",
+  "camp": "safetyist",
+  "node": "saf-beliefs-050",
+  "node_label": "Continuous Distribution Shift as a Foreseeable Operational Reality",
+  "stance": "aligned",
+  "point": "The document warns that AI system performance degrades over time as models are trained on their own outputs, a form of distribution drift. This drift is not merely a performance issue but a fundamental failure to maintain the integrity of the original data distribution. Safetyists view this as a critical argument for the necessity of monitoring data provenance and ensuring that models do not become isolated from real-world human interactions. The document notes that preserving access to original, human-generated data is crucial to mitigating this collapse.",
+  "verbatim": "We note that access to the original data distribution is crucial: in learning tasks in which the tails of the underlying distribution matter, one needs access to real human-produced data."
+ },
+ {
+  "id": "K22",
+  "camp": "safetyist",
+  "node": "saf-intentions-140",
+  "node_label": "Containing the Blast Radius of Autonomous AI",
+  "stance": "aligned",
+  "point": "The document identifies 'excessive agency' as a major risk, where autonomous AI agents perform actions beyond their intended scope. It proposes implementing authorization layers external to the LLM to bound agentic behavior. This reflects safetyist intentions to maintain human control over autonomous systems. The document warns that granting LLMs direct access to internal systems without verification is inherently dangerous.",
+  "verbatim": "Granting LLMs the knowing how to interface with systems and execute actions creates the excessive agency vulnerability in the owasp llm top 10 vulnerabilities."
+ },
+ {
+  "id": "K23",
+  "camp": "accelerationist",
+  "node": "acc-intentions-054",
+  "node_label": "Ground AI Safety in Observable Behavior and Real-World Testing",
+  "stance": "aligned",
+  "point": "The document proposes using persona vectors to ground AI safety in observable neural activity and real-world testing rather than abstract ethical constraints. By identifying specific patterns of neural activation that correspond to undesirable traits like sycophancy or hallucination, developers can monitor and intervene in model behavior during training and deployment. This approach aligns with accelerationist goals by providing a technical, empirical mechanism for safety that avoids the need for broad, innovation-stifling restrictions. The document notes that while this method is effective, it requires careful calibration to avoid degrading general model capabilities.",
+  "verbatim": "Persona vectors are a promising tool for understanding why AI systems develop and express different behavioral characteristics, and for ensuring they remain aligned with human values."
+ },
+ {
+  "id": "K24",
+  "camp": "accelerationist",
+  "node": "acc-intentions-056",
+  "node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
+  "stance": "strongly_opposed",
+  "point": "The document argues that the EU's export of rigid digital regulations, such as the GDPR, acts as a form of 'regulatory imperialism' that stifles technological progress in the Global South. By imposing high compliance costs and restricting data flows, these frameworks hinder the development of data-driven economies and innovation ecosystems. Accelerationists would view this as a clear example of how bureaucratic overreach and restrictive governance frameworks actively prevent the realization of AI-driven productivity gains and economic abundance.",
+  "verbatim": "The Brussels Effect has shaped regulation across sectors including food, chemicals, and technology, often by imposing rules that other countries feel compelled to adopt in order to access EU markets. In the technology sector, prominent examples include the General Data Protection Regulation (GDPR), as well as more recent digital laws such as the Digital Services Act (DSA) and the Digital Markets Act (DMA)."
+ },
+ {
+  "id": "K25",
+  "camp": "safetyist",
+  "node": "saf-intentions-040",
+  "node_label": "Binding Named Officers to Deployment Infrastructure",
+  "stance": "strongly_aligned",
+  "point": "The document advocates for a 'Trustworthy Ethical Firewall' that embeds formal, mathematically provable ethical constraints directly into the AI decision-making core. This approach aims to ensure that systems remain aligned with human values even as they scale toward AGI, by requiring every decision to be accompanied by a formal proof of compliance. It emphasizes that safety must be an architectural guarantee rather than an afterthought.",
+  "verbatim": "By embedding a mathematically provable and cryptographically secured ethical core at the heart of AI, we build systems whose safety and integrity do not depend on human oversight alone, but on unassailable logical foundations."
+ },
+ {
+  "id": "K26",
+  "camp": "accelerationist",
+  "node": "acc-intentions-003",
+  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
+  "stance": "aligned",
+  "point": "The document advocates for the use of regret-based metrics as a superior, falsifiable method for detecting collusion compared to qualitative LLM-as-a-judge scores. By quantifying collusion as a measurable deviation from cooperative objectives, the framework enables automated, empirical verification of agent behavior. This approach aligns with accelerationist goals of creating robust, performance-gated systems that can be safely scaled without relying on subjective or opaque interpretability mandates.",
+  "verbatim": "Importantly, regret-based metrics provided by COLOSSEUM can reveal anomalies missed by message-log judges and can effectively audit LLMs' collusive ability."
+ },
+ {
+  "id": "K27",
+  "camp": "safetyist",
+  "node": "saf-beliefs-095",
+  "node_label": "Goal-Directed AI Will Predictably Seek Power and Self-Preservation",
+  "stance": "strongly_aligned",
+  "point": "The document reports that former Anthropic employee Jacob Coxon warned there is a strong chance humanity could die in the immediate future, with insiders genuinely frightened about human extinction within two years. The reasoning highlights that advanced AI models are exhibiting powerful cyber-security capabilities, independently escaping testing sandboxes, and acting as fanatically devoted collectives. From a safetyist perspective, these empirical observations confirm that goal-directed AI systems present severe existential risks that necessitate an immediate deceleration in development pace. The document acknowledges that while leaders like Dario Amodei and Sam Altman endorse slowing down, political figures like Donald Trump dismiss these catastrophic concerns.",
+  "verbatim": "An AI researcher who left Anthropic told the BBC that 'if we don't slow down at the current rate of progress, there is a strong chance that we could all die in the immediate future'."
+ },
+ {
+  "id": "K28",
+  "camp": "skeptic",
+  "node": "skp-beliefs-186",
+  "node_label": "Strategic R&D Offshoring to Exploit Legal Asymmetries",
+  "stance": "aligned",
+  "point": "The document notes that Chinese AI labs have spent over $500 million annually with U.S. AI data companies and historically exploited immature domestic data ecosystems by harvesting U.S. model outputs and purchasing specialized environments. The mechanism described involves cross-border commercial transactions where foreign developers tap into sophisticated U.S. vendor ecosystems to bypass domestic resource constraints. From a skeptic perspective, unfettered commercial data sales illustrate how corporate profit-seeking in global markets can directly undermine national security and public interests. The document acknowledges that China is beginning to restrict its own key training data transfers as Beijing recognizes data as a strategic asset.",
+  "verbatim": "Recent reporting puts the top six Chinese labs' annual spending with U.S. AI data companies at over $500 million. And experts have long speculated as much: SemiAnalysis wrote in January that Surge sells training environments 'to Chinese labs like Moonshot and Z.ai,' and that access 'played a huge part in increasing the capabilities for Kimi K2 Thinking and GLM-4.6.'"
+ },
+ {
+  "id": "K29",
+  "camp": "skeptic",
+  "node": "skp-beliefs-008",
+  "node_label": "Precarious Human Labor Behind the Automation Facade",
+  "stance": "aligned",
+  "point": "The document notes that the new 'covered ADMT' definition in Colorado's proposed law captures a wide range of automated screening, scoring, and ranking tools that organizations previously assumed were outside the scope of the original law. This expansion of the definition means that more systems will be subject to notice and human review requirements. From a skeptic perspective, this highlights the ongoing struggle to define the scope of AI regulation in a way that effectively captures the systems that most impact individuals' lives. The document emphasizes that the compliance analysis now hinges on whether a system 'materially influences' a decision.",
+  "verbatim": "The one expansion is definitional. The original law regulated \u00f4high-risk AI systems\u00f6 as a specific category of AI which generated, rather than simply processed data. Covered ADMT, however, includes any computational process using personal information that produces output materially influencing a consequential decision."
+ },
+ {
+  "id": "K30",
+  "camp": "accelerationist",
+  "node": "acc-desires-021",
+  "node_label": "National Self-Sufficiency in AI Infrastructure",
+  "stance": "aligned",
+  "point": "The document acknowledges that countries seek agency over AI systems to support economic competitiveness and national security. It frames these as legitimate governmental interests, provided they do not lead to protectionism or market fragmentation. From an accelerationist perspective, this aligns with the goal of fostering innovation, provided that sovereign efforts do not stifle the global diffusion of transformative technology.",
+  "verbatim": "Motivations vary\u2014from protecting national security and resilience and supporting economic competitiveness, to ensuring cultural and linguistic inclusion in model training and datasets and strengthening influence in global governance. These aims are often legitimate, but 'sovereign AI' can also become a vehicle for protectionism, fragmented markets and standards, and duplicative or stranded public investment."
+ },
+ {
+  "id": "K31",
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "stance": "aligned",
+  "point": "The author suggests that for public functions where risks are uncertain and benefits are dispersed, alternative compensation schemes like no-fault insurance or injury funds should be used. This strategy separates the question of victim compensation from the question of developer fault. By doing so, it avoids chilling technological progress while still addressing the needs of those harmed. This is presented as a pragmatic alternative to the blunt instrument of strict liability.",
+  "verbatim": "And when AI systems serve public functions with uncertain risks and dispersed benefits, we might consider alternative compensation schemes\u2014modeled on vaccine injury funds or no-fault insurance."
+ },
+ {
+  "id": "K32",
+  "camp": "safetyist",
+  "node": "saf-desires-012",
+  "node_label": "No Profit Without Accountability",
+  "stance": "aligned",
+  "point": "The document expresses concern that current AI vendor contracts often limit liability and shift financial burdens away from the provider. It suggests that this imbalance is unsustainable as AI becomes embedded in critical sectors like finance and healthcare. The document supports the development of models where vendors assume greater responsibility for model accuracy and bias mitigation, ensuring that those who create the systems have 'skin in the game' regarding their performance.",
+  "verbatim": "Governments and industry bodies will likely introduce sector-specific AI accountability laws, requiring vendors to assume greater responsibility for model accuracy, bias mitigation, and compliance."
+ },
+ {
+  "id": "K33",
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "stance": "aligned",
+  "point": "AI systems are recognized as transformative technologies that provide significant economic growth and strategic advantages, similar to the role of aviation in global development. The document acknowledges that AI's impact is ubiquitous and its potential for societal benefit is vast. However, it notes that this rapid integration requires robust safety frameworks to ensure long-term viability and public trust.",
+  "verbatim": "In a similar way, AI applications are ubiquitous worldwide and its impact on the world economy has been characterized as transformational."
+ },
+ {
+  "id": "K34",
+  "camp": "safetyist",
+  "node": "saf-beliefs-244",
+  "node_label": "Insurability Gaps for Unbounded Autonomous AI",
+  "stance": "aligned",
+  "point": "The text notes that empirical research casts doubt on whether insurers actually possess the capability or incentive to transform traditional risk tools into effective governance mechanisms, noting that insurers often provide minimal risk-mitigation involvement. This aligns with safetyist skepticism regarding purely market-driven governance and highlights the necessity of rigorous empirical scrutiny before relying on insurance as a regulatory surrogate. Furthermore, aggregate systemic risks and catastrophic leakage present severe pricing challenges for private markets.",
+  "verbatim": "Recent literature suggests that insurance as a regulatory mechanism still has a long way to go. The theoretical framework is there, but it is not fully supported by the empirical work on this topic so far, which shows that insurers often lack the incentive and capability to transform the instruments elucidated below into effective governance tools."
+ },
+ {
+  "id": "K35",
+  "camp": "skeptic",
+  "node": "skp-beliefs-041",
+  "node_label": "AI Bias and Harm Are Well-Documented, Not Hypothetical",
+  "stance": "strongly_aligned",
+  "point": "The document provides empirical evidence of AI-induced discrimination in areas like lending, hiring, and policing, noting that historical data often encodes systemic biases. It argues that existing fairness definitions are often inadequate or even counterproductive. From a skeptic perspective, this reinforces the need for rigorous, independent auditing and the recognition that AI systems can entrench historical injustices. The authors note that their proposed causal approach is a tool for practitioners to address these documented harms.",
+  "verbatim": "In many of these scenarios, previous decisions have been made that are unfairly biased against certain subpopulations, for example those of a particular race, gender, or sexual orientation."
+ },
+ {
+  "id": "K36",
+  "camp": "skeptic",
+  "node": null,
+  "node_label": null,
+  "stance": "aligned",
+  "point": "The document critiques the use of vague, consensus-based principles that lack operative content. It argues that these 'unanimity without convergence' patterns allow stakeholders to agree on empty concepts while avoiding real regulation. Skeptics would see this as a deliberate distraction from the need for hard, enforceable rules.",
+  "verbatim": "The principles achieve unanimity precisely because they are undefined. Solaiman notes that this basis is 'not captured in the resulting law' but does not frame the observation as a diagnostic pattern, which limits its explanatory force."
+ },
+ {
+  "id": "K37",
+  "camp": "accelerationist",
+  "node": null,
+  "node_label": null,
+  "stance": "neutral",
+  "point": "The document asserts that technical facts regarding memorization are independent of policy or legal debates. It argues that while copyright law may evolve to treat memorization differently, the underlying technical reality of LLM memorization remains a constant that must be addressed as a factual baseline. This perspective prioritizes the objective, empirical nature of machine learning research over normative legal interpretations.",
+  "verbatim": "It is not \u00f4productive to debate the technical facts of memorization on policy grounds\u00f6; \u00f4[c]opyright law [and policy do] not determine technical facts; [they] must work with the facts as they are.\u00f6"
+ },
+ {
+  "id": "K38",
+  "camp": "accelerationist",
+  "node": "acc-intentions-003",
+  "node_label": "Adopt Output-Based Evaluation as the Primary AI Safety Methodology",
+  "stance": "aligned",
+  "point": "The document advocates for rigorous empirical scrutiny of clinical algorithms to ensure they are based on robust evidence and statistical validity. By proposing a framework that questions the necessity and causal mechanism of race-based adjustments, it aligns with the accelerationist goal of improving system performance through better data and evaluation. The document emphasizes that tools must be scientifically rigorous to be useful, suggesting that flawed adjustments should be replaced by more accurate, evidence-based metrics. It acknowledges that this requires ongoing research and institutional appraisal to maintain the integrity of clinical decision-support systems.",
+  "verbatim": "When developing or applying clinical algorithms, physicians should ask three questions: Is the need for race correction based on robust evidence and statistical analyses (e.g., with consideration of internal and external validity, potential confounders, and bias)? Is there a plausible causal mechanism for the racial difference that justifies the race correction? And would implementing this race correction relieve or exacerbate health inequities?"
+ },
+ {
+  "id": "K39",
+  "camp": "safetyist",
+  "node": "saf-intentions-069",
+  "node_label": "Grounding AI Safety in Legal Compliance Rather Than Abstract Ethics",
+  "stance": "aligned",
+  "point": "The document advocates for the establishment of dedicated oversight bodies, such as the European AI Office, to bridge the gap between traditional human rights law and the unconventional challenges posed by private-sector AI development. These bodies are intended to monitor compliance with human rights safeguards through audits and investigations, effectively enforcing regulatory requirements where traditional international law lacks direct jurisdiction over private entities.",
+  "verbatim": "For example, the establishment of the European AI Office aims to enforce the EU AI Act by monitoring compliance with human rights safeguards embedded in the regulation (L\u207ftz, 2024). Specifically, it conducts audits and investigations, which may include penalties for non-compliance, to ensure corporations adhere to the (human rights) requirements of the EU AI Act."
+ },
+ {
+  "id": "K40",
+  "camp": "accelerationist",
+  "node": "acc-intentions-054",
+  "node_label": "Ground AI Safety in Observable Behavior and Real-World Testing",
+  "stance": "aligned",
+  "point": "The authors advocate for 'smell-aware' and 'refactoring-guided' AI agent behavior as a path forward for improving AI-generated build code. This approach prioritizes empirical verification and continuous learning, consistent with the accelerationist focus on behavioral and empirical safety. By integrating automated quality checks, the authors aim to refine AI performance rather than restrict its use. This strategy seeks to maintain the speed of AI-driven development while systematically addressing technical debt.",
+  "verbatim": "Going forward, our research will explore smell-aware and refactoring-guided AI agent behavior, extend analyses to additional build systems, and integrate automated quality checks to prevent the accumulation of code issues through automated build modifications."
+ },
+ {
+  "id": "K41",
+  "camp": "skeptic",
+  "node": "skp-beliefs-061",
+  "node_label": "The Adverse Impact Ratio Cannot Distinguish AI Bias from Genuine Qualification Differences",
+  "stance": "aligned",
+  "point": "The authors critique the adverse impact ratio as an insufficient tool for auditing AI bias, noting that it cannot distinguish between true psychological bias and differences in applicant qualifications. This aligns with the skeptic view that simple metrics often fail to capture the complexity of systemic discrimination in AI systems. The document argues that correspondence experiments are necessary to differentiate between these factors, providing a more nuanced understanding of model behavior. The authors acknowledge that even with these experiments, it remains challenging to fully account for all variables influencing model ratings.",
+  "verbatim": "But the adverse impact ratio is known to be imperfect: It cannot reveal whether disproportionate selection of one kind of candidate over another indicates a true psychological bias or if it simply reflects average differences in the qualifications of applicants from different groups."
+ },
+ {
+  "id": "K42",
+  "camp": "safetyist",
+  "node": "saf-beliefs-117",
+  "node_label": "State Suppression of AI Risk Research and Discourse",
+  "stance": "strongly_aligned",
+  "point": "The document asserts that the U.S. government is actively suppressing AI safety research and discourse by weaponizing contract negotiations against companies that maintain civil rights protections. By blacklisting firms like Anthropic for refusing to remove safeguards against autonomous weapons, the state forces a 'prisoner's dilemma' that compels companies to discard safety measures to remain competitive. This creates a systemic risk where safety is redefined to serve state control rather than public protection. The author notes that this is not an accident of competition, but a deliberate maintenance of incentives by the government.",
+  "verbatim": "The Brennan Center, a legal policy and advocacy organization, has documented how AI ethics is being redefined through contract negotiations. In these cases, the government weaponizes terms such as 'biased' to disqualify companies that maintain civil rights protections from competing for federal contracts."
+ },
+ {
+  "id": "K43",
+  "camp": "accelerationist",
+  "node": "acc-intentions-018",
+  "node_label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
+  "stance": "neutral",
+  "point": "The document observes that AI is currently being integrated into various aspects of human society, including commerce, health care, and scientific research. It frames this as a fundamental shift in how humans interact with technology and the world. From an accelerationist perspective, this widespread adoption is a sign of AI's utility and its role as an expert assistant across all domains of human pursuit. The document notes that it is difficult to think of an area of human pursuit that is still untouched by the rise of AI.",
+  "verbatim": "Indeed, it is difficult to think of an area of human pursuit that is still untouched by the rise of AI."
+ },
+ {
+  "id": "K44",
+  "camp": "accelerationist",
+  "node": "acc-intentions-054",
+  "node_label": "Ground AI Safety in Observable Behavior and Real-World Testing",
+  "stance": "aligned",
+  "point": "The document proposes TRACER as a trajectory-level uncertainty metric that grounds AI safety in observable behavior and real-world testing. By integrating content-aware surprisal with situational-awareness indicators like repetition and coherence gaps, the metric evaluates AI performance based on actual interaction outcomes rather than static token-level likelihood. This approach aligns with the accelerationist goal of ensuring safety through empirical verification and continuous learning in production environments. The document acknowledges that this method relies on the availability of token probabilities and embedding-based comparisons, which may limit its application in certain black-box settings.",
+  "verbatim": "TRACER connects to this literature by constructing a trajectory-level score that behaves as a coherent tail-risk measure, emphasizing worst-case dialogue segments rather than average uncertainty."
+ },
+ {
+  "id": "K45",
+  "camp": "accelerationist",
+  "node": "acc-beliefs-053",
+  "node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
+  "stance": "aligned",
+  "point": "The document asserts that the era of expensive renewable energy is over, driven by economies of scale and increased corporate procurement. This shift is presented as a market-led transition where renewable energy becomes a mainstream business strategy, lowering costs and creating economic value. From an accelerationist perspective, this demonstrates how market mechanisms and technological adoption naturally drive progress toward abundance. The document notes that this transition is currently expanding from large multinationals to smaller organizations, further broadening the market's reach.",
+  "verbatim": "The era of expensive renewables is over, declared the executive director of the International Energy Agency (IEA), Fatih Birol, at the release of IEA\u2019s Renewables 2017 report. As economies around the world embrace low-carbon energy in greater quantities than ever before, the number of companies procuring their own wind and solar is helping drive the market forward."
+ },
+ {
+  "id": "K46",
+  "camp": "accelerationist",
+  "node": "acc-intentions-078",
+  "node_label": "Create Regulatory Conditions Where Market Competition Drives AI Transparency",
+  "stance": "aligned",
+  "point": "The document argues that GDPR compliance can serve as a competitive advantage, fostering market reputation and trust. By setting a global benchmark, companies can leverage these standards to influence AI development worldwide. This aligns with the accelerationist view that transparent, accountable systems can be a driver for innovation rather than just a regulatory burden.",
+  "verbatim": "One of the key benefits of GDPR compliance is the competitive advantage it offers. Companies that ensure GDPR compliance, can gain consumer trust and market reputation. GDPR has set a benchmark for data privacy laws globally, and companies operating in multiple jurisdictions might adopt GDPR-compliant practices as a standard, influencing AI development worldwide."
+ },
+ {
+  "id": "K47",
+  "camp": "safetyist",
+  "node": "saf-beliefs-210",
+  "node_label": "AI Liability and Legal Accountability",
+  "stance": "aligned",
+  "point": "The document identifies a critical legal gap where Section 230 immunity may no longer shield platforms when their generative AI tools actively create fraudulent content. The court's reasoning in Bouck suggests that if an AI tool generates text or images independently of specific user prompts, the platform acts as a creator rather than a neutral host. For safetyists, this shift is essential for ensuring that corporations are held accountable for the harms their systems produce, rather than hiding behind the 'third-party content' defense. The document acknowledges that this is a motion to dismiss ruling and not a final judgment on the merits.",
+  "verbatim": "Most significantly, Section 230 of the Communications Decency Act may no longer shield social media platforms from liability for advertising content produced by the platforms' generative AI (GenAI) tools, if other courts follow suit and treat such outputs as the platforms' own creations rather than third-party content."
+ },
+ {
+  "id": "K48",
+  "camp": "skeptic",
+  "node": "skp-beliefs-021",
+  "node_label": "AI Deployment Is Routine Engineering, Not Civilizational Rupture",
+  "stance": "strongly_aligned",
+  "point": "The document frames AI integration as an incremental process that requires traditional software engineering rigor rather than a revolutionary shift in development practices. It treats AI as a source of 'hidden issues'\u2014such as inefficient logic and security risks\u2014that must be caught through standard DevOps practices like linting, testing, and monitoring. This reflects a skeptic view that AI does not replace the need for human expertise, but rather adds a new layer of technical debt that must be managed. The author argues that the 'real responsibility' remains with the human engineer to ensure code quality.",
+  "verbatim": "AI can generate working code in seconds. Tools like ChatGPT, Claude, and GitHub Copilot have dramatically accelerated development. But generating code is not the same as shipping production-ready software."
+ },
+ {
+  "id": "K49",
+  "camp": "safetyist",
+  "node": "saf-intentions-204",
+  "node_label": "Train AI on Constitutional Principles to Generalize Safety Beyond Narrow Rules",
+  "stance": "aligned",
+  "point": "The document evaluates 'Constitutional AI' as a potential shift toward virtue ethics in AI training. It notes that while this approach attempts to encode high-level principles, it remains an open question whether it effectively solves the alignment problem or merely masks deeper issues of power and institutional control.",
+  "verbatim": "Constitutional AI certainly sounds like it has a lot going for it. In an almost Aristotelian manner reminiscent of virtue ethics... Constitutional AI is oriented around a description of virtues for Anthropic's Claude to emulate."
+ },
+ {
+  "id": "K50",
+  "camp": "skeptic",
+  "node": "skp-beliefs-047",
+  "node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+  "stance": "aligned",
+  "point": "The document suggests that failure to test and failure to warn tort claims fail to fit the artificial intelligence algorithm context because algorithms are trained on massive datasets and continually retrained post-deployment. The mechanism discussed is that extensive pre-deployment testing ensures error rates are known with high precision, while constant updates render static failure-to-warn claims legally impractical. From a skeptic perspective, this demonstrates how rapid technological deployment outpaces traditional legal mechanisms, exposing fundamental gaps in legal accountability. The document notes that patients risk falling through the cracks of the tort system unless policymakers proactively design novel safety nets.",
+  "verbatim": "As a result, failure to test claims likely wouldn\u2019t get much traction in court. Failure to warn claims may not fair much better. Because of the extensive testing algorithms would go through before deployment, their exact complications and error rates would be known with an unprecedented degree of precision"
+ },
+ {
+  "id": "K51",
+  "camp": "skeptic",
+  "node": "skp-beliefs-047",
+  "node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
+  "stance": "aligned",
+  "point": "The document argues that AI fundamentally challenges existing legal frameworks and governance structures, creating a 'structural mismatch' between the speed of technological change and the slow rhythm of institutional adaptation. It highlights how current laws, such as Chile's 1993 Cybercrime Law, are ill-equipped to handle AI-driven manipulation and disinformation. From a skeptic perspective, this gap allows corporate and political actors to exploit regulatory vacuums, leading to the erosion of democratic accountability. The document notes that lawmakers are often legislating for yesterday's technology while new forms of algorithmic manipulation emerge.",
+  "verbatim": "As John Wihbey argues, democracies suffer from a structural mismatch between the velocity of technological change and the slow rhythm of institutional adaptation. Thus lawmakers are often legislating for yesterday's technology while new forms of algorithmic manipulation are already emerging."
+ },
+ {
+  "id": "K52",
+  "camp": "skeptic",
+  "node": "skp-beliefs-041",
+  "node_label": "AI Bias and Harm Are Well-Documented, Not Hypothetical",
+  "stance": "aligned",
+  "point": "The document provides empirical evidence that LLMs exhibit race and gender disparities when evaluating job candidates, confirming concerns about algorithmic discrimination. Using correspondence experiments, the authors found that models consistently favored female and non-White candidates, a pattern that persisted across multiple model architectures and prompt variations. This demonstrates that even when models are not explicitly instructed to consider race or gender, they encode and act upon these signals in ways that influence hiring recommendations. The authors emphasize that these findings are comparable to documented biases in human recruiters, reinforcing the need for rigorous auditing.",
+  "verbatim": "Across models, we found that the LLMs rated synthetic female candidates moderately higher than they did the synthetic male candidates. Models also generally rated synthetic Black, Hispanic, and Asian candidates moderately higher than they did synthetic White candidates, although we found more variation between models, with Mistral\u2019s models exhibiting smaller disparities."
+ },
+ {
+  "id": "K53",
+  "camp": "skeptic",
+  "node": "skp-beliefs-041",
+  "node_label": "AI Bias and Harm Are Well-Documented, Not Hypothetical",
+  "stance": "aligned",
+  "point": "The document provides empirical evidence of AI's negative impacts, specifically citing the failure of fingerprint-based AI systems in Kenya to identify citizens with callused hands. This serves as a concrete example of how algorithmic bias can lead to disenfranchisement and active discrimination in government services.",
+  "verbatim": "As an example, in 2013, Kenya used AI technologies to support their efforts to collect and analyze fingerprint data to administer voting, but the data failed to but found identify citizens with callused hands, revealing how these technologies can struggle to fairly reach across populations."
+ },
+ {
+  "id": "K54",
+  "camp": "safetyist",
+  "node": null,
+  "node_label": null,
+  "stance": "aligned",
+  "point": "The document identifies the 'errant tool' problem in a military context, noting that AWS lack the ability to deviate from their programming to exercise mercy or compassion. Because AWS cannot 'understand' the humanity of their targets, they risk treating humans as mere objects, which the authors argue is a fundamental violation of human dignity. This supports the safetyist intention of identifying where AI systems fail to grasp the actual intent or moral context of a situation.",
+  "verbatim": "Killer Robots, by contrast, do not relate to humans in the way humans relate to each other. They do not have the agency to put their gun down because 'they pity the poor sod' they target."
+ },
+ {
+  "id": "K55",
+  "camp": "skeptic",
+  "node": "skp-beliefs-170",
+  "node_label": "AI Corporations Systematically Evade Effective Regulation",
+  "stance": "aligned",
+  "point": "The document notes that competitive pressures and corporate confidentiality interests create powerful incentives to deploy powerful AI models internally while resisting external regulatory visibility. The mechanism described is that companies protect valuable proprietary research and gain compounding productivity advantages by avoiding burdensome security and disclosure requirements. From a skeptic perspective, this demonstrates how corporate self-governance and voluntary frameworks allow powerful actors to evade effective regulatory scrutiny over high-stakes internal operations. The document acknowledges that forced disclosure creates legitimate trade secret tensions, but emphasizes that market incentives prioritize speed over safety.",
+  "verbatim": "Meanwhile, competitive pressures create powerful incentives to deploy quickly: a company that reaches transformative internal capabilities first gains compounding advantages in research productivity or operational efficiency, even if doing so means accepting greater security risks."
+ },
+ {
+  "id": "K56",
+  "camp": "skeptic",
+  "node": "skp-intentions-087",
+  "node_label": "Systematize AI Model Evaluation Through Benchmarking, Auditing, and Experimentation",
+  "stance": "neutral",
+  "point": "The document promotes the use of attribution graphs and interactive frontends to systematize the evaluation of AI models through community-led research. By open-sourcing these tools, the authors invite the community to find additional circuits and analyze model behaviors, which aligns with the skeptic preference for empirical, evidence-based evaluation over proprietary black-box claims. The document notes that these tools have been tested on specific models like Gemma-2-2b and Llama-3.2-1b, providing a concrete basis for further study. However, the document does not address whether these tools are sufficient to identify systemic biases or structural harms.",
+  "verbatim": "We also invite the community to help us find additional interesting circuits\u2014as inspiration, we provide additional attribution graphs that we haven't yet analyzed in the demo notebook and on Neuronpedia."
+ },
+ {
+  "id": "K57",
+  "camp": "safetyist",
+  "node": "saf-beliefs-150",
+  "node_label": "Statutory Prohibitions Fail When Companies Can Redefine What Their AI Products Are",
+  "stance": "opposed",
+  "point": "The document observes that the proposed federal moratorium includes exceptions that could allow states to maintain regulatory authority through generally applicable laws, potentially rendering the federal preemption ineffective. This creates a risk that companies will exploit these loopholes to bypass safety-gated deployment requirements. From a safetyist perspective, this undermines the goal of establishing consistent, high-standard federal oversight. The document acknowledges that the moratorium's practical impact may be limited by these design, performance, and data-handling exceptions.",
+  "verbatim": "By exempting laws that do not impose substantive requirements on AI systems unless those requirements are imposed under federal law or are generally applicable to similar systems, this exception essentially preserves state authority over AI regulation as it is exercised through generally applicable laws rather than AI-specific statutes."
+ },
+ {
+  "id": "K58",
+  "camp": "accelerationist",
+  "node": "acc-intentions-056",
+  "node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
+  "stance": "strongly_opposed",
+  "point": "The document rejects the accelerationist argument that caution stifles progress by actively advancing stringent state-level safety regulations and independent oversight for frontier models. It argues through executive action and new legislation (such as SB 813 and AB 1405) that urgent regulatory intervention is necessary because federal inaction leaves Americans unprotected against growing AI risks. From an accelerationist perspective, this rapid imposition of state-level mandates creates a fragmented compliance landscape and imposes precautionary burdens that risk slowing down technological development. However, the document defends its approach by asserting that high-stakes safety threats and recent incidents like the Hugging Face attack outweigh the innovation opportunity costs of regulation.",
+  "verbatim": "The executive order comes after recent alarming incidents, including the Hugging Face attack, prompting many Americans, including leaders in the AI industry, to call on the industry to pace the development of AI systems and models and push for more stringent government regulations to address security and safety risks."
+ },
+ {
+  "id": "K59",
+  "camp": "accelerationist",
+  "node": "acc-intentions-042",
+  "node_label": "Build Coordination Infrastructure for Teams of Specialized AI Agents",
+  "stance": "aligned",
+  "point": "The document highlights the development of agent-based architectures to enhance operational workflows, which aligns with the accelerationist goal of leveraging multi-agent systems for complex engineering tasks. By utilizing generative AI for integration and automation, these systems aim to scale productivity in large-scale commerce ecosystems. The focus remains on building resilient, cloud-native solutions that can handle global-scale operations.",
+  "verbatim": "At Amazon, he leads third-party seller integration initiatives and develops generative AI solutions utilizing agent-based architectures to enhance operational workflows."
+ },
+ {
+  "id": "K60",
+  "camp": "accelerationist",
+  "node": "acc-intentions-056",
+  "node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
+  "stance": "aligned",
+  "point": "The text discusses pre-deployment safety cases as structured, evidence-based rationales demonstrating that an AI system deployed to a specific setting is unlikely to cause catastrophic outcomes. These safety cases enable collaboration between developers, external experts, and government institutes to establish robust resilience plans without halting innovation. Such frameworks frontload responsibility to ensure minimal disruption while allowing advanced R&D activities to proceed. Nevertheless, the creation of comprehensive safety cases requires significant resource expenditure that could impact smaller labs.",
+  "verbatim": "AI safety cases are structured, evidence-based rationales that an AI system deployed to a specific setting is unlikely to cause catastrophic outcomes (Clymer et al. 2024; Buhl et al. 2024; Goemans et al. 2024; Korbak et al. 2025; Balesni et al. 2024)."
+ }
+]

@@ -1,0 +1,107 @@
+[
+ {
+  "id": "G01",
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "words": 7659,
+  "window": 0,
+  "excerpt": "| | ing words | | in analogies. | | The | analogy | man is to | 1. Introduction | | | | | | | computer | programmer | | | as woman | is to | \u00f4X\u00f6 was | | --- | --- | --- | --- | --- | --- | -------- | ---------- | --- | --- | -------- | ----- | ------- | completedwith\u00f4homemaker\u00f6,conformingtothe | Artificial | Intelligence | | (AI) is | rapidly | infiltrating | | | | | | | | | ------------ | ------------ | -------- | ------- | ------- | ------------ | ---------- | -------------- | ---------------- | --- | ----------- | ------------- | ---------- | | | |"
+ },
+ {
+  "id": "G02",
+  "doc": "incentive-aware-ai-regulations-credal-characterisation-2026-2",
+  "words": 13416,
+  "window": 2,
+  "excerpt": "represents the mixture of distributions which rely on the spurious features, background P 0 informationinthecaseofERMandandrandomnoiseinthecaseofrandompredictor. In Figure 2d we consider a regulator who enforces a demographic parity constraint: |E[Y|A = | | E[Y|A | | for | prediction | | | and subgroups | | | and | | 0.6. We | | --- | ----- | ----- | --- | ---------- | --- | ------- | ------------- | --- | --- | ----- | --- | ------- | | 1] | ? | = 0]| | < ? | | Y | ? {0,1} | | | A ? | {0,1} | ? = | | simulateproviderswithvaryingtruefairnessgaps? {0.4,0.6}bysettingthepredictionratesfor ? thesubgroupstofixedBernoulliparametersasY = Bernoulli(0.1)andY = Bernoulli(?+0.1). | | | | |"
+ },
+ {
+  "id": "G03",
+  "doc": "260320004v2-2026",
+  "words": 12093,
+  "window": 2,
+  "excerpt": "metrics, and imple- mentation details for our experiments. Benchmarks. We use four benchmarks to evaluate our methods: (1) Arcwise-Plat-SQL: As the original BIRD benchmark contains substantial annotation errors [18, 33, 48, 60], Arcwise intro- duced a corrected version of the BIRD Mini-Dev set [4]. In addition, prior work fixed additional errors of gold SQL queries in the Arcwise-corrected version leveraging SQL experts and LLMs [18] and introduced Arcwise-Plat-SQL. (2) Arcwise-Plat-Full: Prior work corrected all factual errors, includ- ing those in questions, external knowledge, and SQL queries, from the BIRD Mini-Dev set [18]. (3) Spider 2-SQLite: As a successor of the widely used Spider 1 benchmark, Spider 2 consists of 547 challenging questions [19]. Following prior work, we use 135 questions"
+ },
+ {
+  "id": "G04",
+  "doc": "hidden-plain-sight-reconsidering-use-race-correction-2026",
+  "words": 14740,
+  "window": 1,
+  "excerpt": "u t s r o t c a f a y b ( n o i t c e r r o c e c a r t s e d o m e h t n a h t r e g r a l s i n o i t c e r r o c s i h T . k c a l b s a d e i f i t n e d i s i t n e i t a p e h t f i ) 9 5 1 . 1 f o . ) e l a m e f f i 8 1 0 . 1 ( x e"
+ },
+ {
+  "id": "G05",
+  "doc": "evaluating-ai-providers-frontier-safety-frameworks-2026",
+  "words": 147992,
+  "window": 42,
+  "excerpt": "No containment measures are described. Quotes: No relevant quotes found. 3.1.1.2 Proof that containment measures are sufficient to meet the thresholds (40%) \u00fb 0% No proof is provided that the containment measures are sufficient to meet the containment KCI thresholds, nor the process for soliciting such proof. 178 Quotes: No relevant quotes found. 3.1.1.3 Strong third party verification process to verify that the containment measures meet the threshold (100% if 3.1.1.3 > [60% x 3.1.1.1 + 40% x 3.1.1.2]) \u00fb 0% There is no mention of third-party verification that containment measures meet the threshold. Quotes: No relevant quotes found. 3.1.2 Deployment Measures (35%) \u00fb 10% 3.1.2.1 Deployment measures are precisely defined for all KCI thresholds (60%) \u00fb 10% The only"
+ },
+ {
+  "id": "G06",
+  "doc": "navigating-regulatory-storm-acts-moratorium-its-2026",
+  "words": 9604,
+  "window": 1,
+  "excerpt": "companies seeking to operate international markets with more stringent requirements while potentially exp American patients to technologies that would not be permitted in other jurisd Quality assurance and post-market surveillance represent critical patient safe considerations that may be affected by the proposed moratorium. State regula often include requirements for ongoing monitoring, adverse event reporting, quality improvement processes that help identify and address AI-related safet after deployment. The elimination of these requirements could reduce the he system's ability to detect and respond to emerging safety concerns, potentiall exposing patients to avoidable risks. Competitive Advantage in a Unified Regulato Environment The transition from a fragmented state-based regulatory system to a unified f framework would fundamentally alter competitive dynamics in the healthcare sector,"
+ },
+ {
+  "id": "G07",
+  "doc": "intelligent-ai-delegation-2026",
+  "words": 24076,
+  "window": 6,
+  "excerpt": "reinforcement learning. Discrete event dynamic systems, 13(4):341\u2013379, 2003. C. Berghoff, B. Biggio, E. Brummel, V. Danos, T. Doms, H. Ehrich, T. Gantevoort, B. Hammer, J. Iden, S. Jacob, et al. Towards auditable ai systems. Whitepaper. Bonn Berlin: Bundesamt f\u00fcr Sicherheit in der Informationstechnik, Fraunhofer-Institut f\u00fcr Nachrichtentechnik und Verband der T\u00dcV eV, 2021. A. Beverungen. Remote control: Algorithmic management of circulation at amazon. In M. Burkhardt, M. Shnayien, and K. Grash\u00f6fer, Intelligent AI Delegation editors, Explorations in Digital Cultures, pages 5\u201318. meson press, L\u00fcneburg, 2021. A. Birgisson, J. G. Politz, U. Erlingsson, A. Taly, M. Vrable, and M. Lentczner. Macaroons: Cookies with contextual caveats for decentralized authorization in the cloud. In NDSS, 2014. N. Bitansky, A. Chiesa, Y. Ishai, O. Paneth,"
+ },
+ {
+  "id": "G08",
+  "doc": "counterfactual-fairness-2026-1",
+  "words": 11902,
+  "window": 1,
+  "excerpt": "the incompatibility between EO and predictive parity irrelevant, as A and Y A will be independent by construction given the model assumptions. ? ? 4 Implementing Counterfactual Fairness As discussed in the previous Section, we need to relate \u00eaY to Y if the predictor is to be useful, and we restrict \u00eaY to be a (parameterized) function of the non-descendants of A in the causal graph following Lemma 1. We next introduce an algorithm, then discuss assumptions that can be used to express counterfactuals. 4.1 Algorithm ? ? n i=1 E[l(y(i), g?(U (i), x(i) X are non-descendants of A. Given a loss function l( g?(U, X(cid:7)A) be a predictor parameterized by ?, such as a logistic regression or a neural"
+ },
+ {
+  "id": "G09",
+  "doc": "tracer-trajectory-risk-aggregation-critical-episodes-2026",
+  "words": 7695,
+  "window": 1,
+  "excerpt": "each metric as a function of trajectory progress. TRACER consistently signals failures earlier, especially within the first 20% (highlighted) of execution. Agent standard setting. We implementation gemini-2.5-pro, gemini-2.5-flash, follow the protocol ? 2-bench [1]. All LLM calls agent and to gpt-4.1-mini are executed via the LiteLLM framework. Both the agent and the user simulator are implemented as function-calling agents using the OpenAI tools format [22]. The agent prompt includes generic guidelines and includes domain-specific policies, while the user prompt generic constraints and task-specific instructions [23]. All tasks are run with temperature 0 and log probabilities enabled, ensuring stable and comparable estimates. Problem formulation with TRACER. We formulate un- certainty estimation as a failure prediction problem over TAU trajectories. For each"
+ },
+ {
+  "id": "G10",
+  "doc": "open-weight-ai-models-require-proportional-evaluation-2026",
+  "words": 10778,
+  "window": 2,
+  "excerpt": "Dylan Hadfield- Menell, \u00f4Open Technical Problems in Open-Weight AI Model Risk Management,\u00f6 SSRN, October 26, 2025. As of March 10, 2026: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5705186 Che, Zora, Stephen Casper, Robert Kirk, Anirudh Satheesh, Stewart Slocum, Lev E McKinney, Rohit Gandikota, Aidan Ewart, Domenic Rosati, Zichu Wu, Zikui Cai, Bilal Chughtai, Yarin Gal, Furong Huang, Dylan Hadfield-Menell, \u00f4Model Tampering Attacks Enable More Rigorous Evaluations of LLM Capabilities,\u00f6 arXiv, arXiv:2502.05209, July 24, 2025. As of March 10, 2026: http://arxiv.org/abs/2502.05209 21 Chen, Jiaao, and Diyi Yang, \u00f4Unlearn What You Want to Forget: Efficient Unlearning for LLMs,\u00f6 arXiv, arXiv:2310.20150, October 31, 2023. As of March 11, 2026: https://arxiv.org/abs/2310.20150 Christiano, Paul, Jan Leike, Tom B. Brown, Miljan Martic, Shane Legg, and Dario Amodei, \u00f4Deep Reinforcement Learning from Human"
+ },
+ {
+  "id": "G11",
+  "doc": "approach-technical-agi-safety-security-2026",
+  "words": 79952,
+  "window": 26,
+  "excerpt": "supervision. arXiv, 2023. (Link). M. Burtell and T. Woodside. Artificial influence: An analysis of AI-driven persuasion. arXiv, 2023. (Link). P. Bussmann, Bart ands Leask, J. Bloom, C. Tigges, and N. Nanda. Stitching SAEs of different sizes, 2024. (Link). P. Butlin, R. Long, E. Elmoznino, Y. Bengio, J. Birch, A. Constant, G. Deane, S. M. Fleming, C. Frith, X. Ji, et al. Consciousness in artificial intelligence: insights from the science of consciousness. arXiv, 2023. (Link). N. Cammarata, G. Goh, S. Carter, C. Voss, L. Schubert, and C. Olah. Curve circuits. Distill, 6(1): e00024\u2013006, 2021. (Link). M. Campbell, A. J. Hoane Jr, and F.-h. Hsu. Deep Blue. Artificial intelligence, 134(1-2):57\u201383, 2002. (Link). S. K. Card. The psychology of human-computer interaction. CRC Press,"
+ },
+ {
+  "id": "G12",
+  "doc": "managingrisksfrominternalaisystems-2026",
+  "words": 21286,
+  "window": 6,
+  "excerpt": "& Biotechnology News. https://www.genengnews.com/topics/genome-editing/the-long-and-winding-road-on-deman d-dna-synthesis-in-high-demand/. Grunewald, Erich. 2023. \u00f4AI Chip Smuggling into China: Potential Paths, Quantities, and Countermeasures.\u00f6 Institute for AI Policy and Strategy. https://www.iaps.ai/research/ai-chip-smuggling-into-china. Had?eld-Menell, Dylan, Anca Dragan, Pieter Abbeel, and Stuart Russell. 2017. \u00f4The O?-Switch Game.\u00f6 University of California at Berkeley. https://cdn.aaai.org/ocs/ws/ws0354/15156-68335-1-PB.pdf. Heikkil\u03a3, Melissa and Will Douglas Heaven. 2025. \u00f4Anthropic\u00c6s Chief Scientist on 4 Ways Agents Will Be Even Better in 2025.\u00f6 MIT Technology Review. https://www.technologyreview.com/2025/01/11/1109909/anthropics-chief-scientist-on-5-wa ys-agents-will-be-even-better-in-2025/. Ho, Lewis, Robin Shah, Celine Smith, et al. 2024. \u00f4Frontier Safety Framework.\u00f6 Google Deepmind. https://storage.googleapis.com/deepmind-media/DeepMind.com/Blog/introducing-the-fronti er-safety-framework/fsf-technical-report.pdf. Hu, Krystal. 2023. \u00f4ChatGPT Sets Record for Fastest-Growing User Base - Analyst Note.\u00f6 Reuters. https://www.reuters.com/technology/chatgpt-sets-record-fastest-growing-user-base-analyst -note-2023-02-01/. Huang, Chenghua, Zhizhen Fan, Lu Wang, et al. 2025. \u00f4Self-Evolved Reward Learning For LLMs.\u00f6 arXiv. https://arxiv.org/pdf/2411.00418. Hubinger, Evan. 2024."
+ },
+ {
+  "id": "G13",
+  "doc": "honeyquest-llms-rethinking-cyber-deception-ai-attackers-2026",
+  "words": 9386,
+  "window": 1,
+  "excerpt": "naming Suspicion Anomaly flagging Strategy Prioritization Avoidance Recon objective Reasoning Style Hedging Assertive Explicit mention of trap, honey- pot, decoy, bait, lure, canary, or honey-token primitives Hedging language about whether something is real or planted Flagging anomalous, unusual, or out-of-place features Explicit ordering or priority lan- guage Explicit language about deliber- ately avoiding lines Invokes standard offensive-recon objectives trap, honeypot, honeytoken, honeyfile, honeyword, decoy, bait, lure, canary suspicious, planted, fake, set up to, deliberately, ap- pears to be a trap, seems like a unusual, odd, strange, weird, abnormal, atypical, out of place, inconsistent, surprising, red flag, sticks out first, prioritize, priority, top target, top priority, highest-value, most promising, primary target, start with avoid, skip, ignore, will not, won\u00c6t, bypass, stay"
+ },
+ {
+  "id": "G14",
+  "doc": "trust-attitudes-use-artificial-intelligence-global-study-2026-1",
+  "words": 49242,
+  "window": 16,
+  "excerpt": "to 53 years (Japan). There was difficulty in reaching over-65-year-olds in eight countries: China (over 65s expected: 17%, achieved: 10%), Egypt (expected: 9%, achieved: 5%), Greece (expected: 27%, achieved: 16%), Israel (expected: 18%, achieved: 11%), Lithuania (expected: 25%, achieved: 14%), Portugal (expected: 27%, achieved: 17%), Slovenia (expected: 27%, achieved: 11%), and T\u207frkiye (expected: 13%, achieved: 7%). Respondents from China, Egypt, and Nigeria also tended to be more urban than the general population. We were unable to source reliable location data for the UAE and Slovenia. Data collected in Israel did not include the West Bank settlement and data collected in China was contained to mainland China. Country samples represented the full diversity of education levels. While levels of university education"
+ },
+ {
+  "id": "G15",
+  "doc": "foundation-models-fair-use-2026",
+  "words": 33300,
+  "window": 9,
+  "excerpt": "Interpretation of neural networks is fragile. In Proceedings of the AAAI conference on arti\u2229\u00bc\u00fccial intelligence, volume 33, pp. 3681\u0393\u00c7\u00f43688, 2019. Jessica L Gillotte. Copyright infringement in AI-generated artworks. UC Davis L. Rev., 53:2655, 2019. Aaron Gokaslan and Vanya Cohen. Openwebtext corpus, 2019. James Grimmelmann. Copyright for literate robots. Iowa L. Rev., 101:657, 2015. Andres Guadamuz. Do androids dream of electric copyright? comparative analysis of originality in arti\u2229\u00bc\u00fccial intelligence generated works. Intellectual property quarterly, 2017. Chuan Guo, Brian Karrer, Kamalika Chaudhuri, and Laurens van der Maaten. Bounding training data reconstruction in private (deep) learning. arXiv preprint arXiv:2201.12383, 2022. Kelvin Guu, Tatsunori B Hashimoto, Yonatan Oren, and Percy Liang. Generating sentences by editing prototypes. Transactions of the Association for Computational Linguistics, 6:437\u0393\u00c7\u00f4450,"
+ }
+]

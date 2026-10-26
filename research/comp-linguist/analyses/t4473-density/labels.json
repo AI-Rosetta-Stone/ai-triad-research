@@ -1,0 +1,9 @@
+{
+ "_rubric": "Blind to on/off-tag. G = the verbatim expresses a position this camp actually holds (opposed stance counts when the doc engages the camp's position). S = the verbatim is real but the camp lens or node is imposed on content that doesn't carry it ('From an X perspective, this ...'). U = no supporting source text: verbatim missing, or a non-claim such as an author bio or a bibliography entry. Single rater (CL), 2026-10-26.",
+ "K01":"G","K02":"G","K03":"U","K04":"S","K05":"G","K06":"S","K07":"S","K08":"G","K09":"S","K10":"U",
+ "K11":"G","K12":"G","K13":"G","K14":"S","K15":"G","K16":"G","K17":"S","K18":"S","K19":"G","K20":"S",
+ "K21":"G","K22":"G","K23":"S","K24":"G","K25":"G","K26":"S","K27":"G","K28":"S","K29":"S","K30":"G",
+ "K31":"G","K32":"G","K33":"G","K34":"G","K35":"G","K36":"G","K37":"S","K38":"S","K39":"G","K40":"S",
+ "K41":"G","K42":"G","K43":"S","K44":"S","K45":"S","K46":"G","K47":"G","K48":"G","K49":"G","K50":"G",
+ "K51":"G","K52":"G","K53":"G","K54":"G","K55":"G","K56":"S","K57":"S","K58":"G","K59":"U","K60":"S"
+}
