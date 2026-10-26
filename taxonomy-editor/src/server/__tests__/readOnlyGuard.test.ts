@@ -115,7 +115,9 @@ describe('t/4296 — wiring (TL condition 1): server.ts still calls enforceReadO
   const serverSrc = fs.readFileSync(path.join(here, '..', 'server.ts'), 'utf-8');
 
   it('imports enforceReadOnlyGuard from readOnlyGuard.js', () => {
-    expect(serverSrc).toMatch(/import\s*\{\s*enforceReadOnlyGuard\s*\}\s*from\s*'\.\/readOnlyGuard\.js'/);
+    // t/4505 added a sibling named import (getReadOnlyPrincipalEntries) to the same
+    // statement — widened to allow any import list from this module, not just the lone name.
+    expect(serverSrc).toMatch(/import\s*\{[^}]*\benforceReadOnlyGuard\b[^}]*\}\s*from\s*'\.\/readOnlyGuard\.js'/);
   });
 
   it('calls enforceReadOnlyGuard in the dispatch sequence, after the route is matched and before it is dispatched', () => {

@@ -24,7 +24,8 @@ import { prewarmEmbeddingsCache, getEmbeddingsCacheStatus } from './ai/aiBackend
 import { startEventLoopMonitor } from './eventLoopMonitor.js';
 import { startEmbedQueueDepthMonitor } from './embedQueueDepthMonitor.js';
 import { startGroundingSweep } from './groundingSweepScheduler.js';
-import { enforceReadOnlyGuard } from './readOnlyGuard.js';
+import { enforceReadOnlyGuard, getReadOnlyPrincipalEntries } from './readOnlyGuard.js';
+import { logUnreachableAllowlistEntriesAtBoot } from './identityAllowlistCheck.js';
 
 const require = createRequire(import.meta.url);
 
@@ -1362,6 +1363,8 @@ try {
 // AI_TRIAD_DATA_ROOT (a data-root writer would otherwise silently become what this server
 // serves, with no check against GitHub). Synchronous, never throws, no-op on filesystem mode.
 fileIO.validateCacheDirDisjoint();
+// t/4505 (t/4504 follow-up): WARN-only boot check — an allowlist entry no sign-in can produce under IDENTITY_MAP fails silently (t/4504 ran prod read-write for 2 days unnoticed).
+logUnreachableAllowlistEntriesAtBoot(community.getAdminUsers(), getReadOnlyPrincipalEntries());
 // t/2532 (M12): loopback (127.0.0.1) in dev / 0.0.0.0 in prod; HOST opts into LAN exposure (logged loudly below).
 const BIND_HOST = resolveBindHost(process.env);
 server.listen(PORT, BIND_HOST, () => {

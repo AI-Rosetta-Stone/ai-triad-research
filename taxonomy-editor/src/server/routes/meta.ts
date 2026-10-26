@@ -26,6 +26,8 @@ import * as fileIO from '../storage/fileIO.js';
 import { log } from '../logger.js';
 import { LLMS_TXT } from '../llmsTxt.js';
 import { getLastEventLoopSample } from '../eventLoopMonitor.js';
+import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
+import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
 
 // t/2059: throttle the readiness log to state transitions. ACA probes /healthz
 // every few seconds, so logging every not-ready probe would spam the log. Emit
@@ -170,7 +172,10 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // t/4239/t/4240: eventLoopLagMs in the same unauth branch — the t/4180 load-test harness polls
     // /health anonymously (same as every VU), so an admin-gated field would be invisible to it.
     // Lead-approved minor info disclosure (current load state, not data, p/648#240).
-    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize }, eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null }); return; }
+    // t/4505: a count only (never names/reasons — those stay on /api/admin/health and the boot
+    // WARN) so the unauthenticated deploy smoke check can read it with no admin session.
+    const identityAllowlistUnreachable = findUnreachableAllowlistEntries(community.getAdminUsers(), getReadOnlyPrincipalEntries()).length;
+    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize }, eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable }); return; }
     const base: Record<string, unknown> = {
       status: 'ok',
       version: ctx.serverVersion,

@@ -28,6 +28,8 @@ import { getRollbackStatus } from '../rollbackStatus.js';
 import { getErrorSummaryCached, type ErrorEntry } from '../errorAggregation.js';
 import { writeDump, isValidDumpId } from '../flightRecorderDumps.js';
 import * as community from '../community/community.js';
+import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
+import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
 import * as fileIO from '../storage/fileIO.js';
 import * as supportStore from '../support/supportStore.js';
 import { isCaseStatus } from '../support/types.js';
@@ -669,6 +671,9 @@ export function registerAdminRoutes(r: Router, ctx: ServerCtx): void {
       const { items: feedback } = await fileIO.listFeedbackEntries();
       const recentErrors = [...errors].sort(sortDesc).slice(0, 5);
       const recentFeedback = [...feedback].sort(sortDesc).slice(0, 5);
+      // t/4505: admin-only, so names/reasons (operator config) are safe here — the public
+      // /health exposes only the count.
+      const unreachableIdentityAllowlistEntries = findUnreachableAllowlistEntries(community.getAdminUsers(), getReadOnlyPrincipalEntries());
 
       json(res, {
         status: 'ok',
@@ -678,6 +683,8 @@ export function registerAdminRoutes(r: Router, ctx: ServerCtx): void {
         feedbackCount: feedback.length,
         recentFeedback,
         storageMode: STORAGE_MODE,
+        identityAllowlistUnreachable: unreachableIdentityAllowlistEntries.length,
+        identityAllowlistUnreachableEntries: unreachableIdentityAllowlistEntries,
       });
     } catch (err) {
       getGlobalRecorder()?.record({
