@@ -16,11 +16,12 @@ For each position:
   claim; name its own instrument in "anchors" instead (e.g. ["Responsible Scaling
   Policy"]).
 - "anchors" (t/4482; forensic/additive — see the point-of-use exemption note on
-  the "anchors" field in pov-summary-schema.prompt): list of the specific
-  instruments, jurisdictions, organizations or dates the position is ABOUT, as
-  named in the document, e.g. ["EU AI Act Article 62"], ["Responsible Scaling
-  Policy"]. Use [] for a general position, and when a name appears only as an
-  example.
+  the "anchors" field in pov-summary-schema.prompt): the names (instruments,
+  jurisdictions, organizations or dates), as given in the document, that the
+  position would lose its meaning without, e.g. ["EU AI Act Article 62"],
+  ["Responsible Scaling Policy"]. Use [] for a general position. Names that
+  only illustrate the position, or that are where a figure or quotation came
+  from, are not anchors.
 - "polarity": "asserts" if the organization advances the position; "opposes" if it
   argues against it. The canonical_proposition states the POSITION and polarity
   carries the direction — when the org rejects X, write X as the proposition with
@@ -42,9 +43,10 @@ SELF-CONTAINED:
      "the attestation" -> "the mandatory data-processing attestation" only if
      the source has said it is mandatory and about data processing.
   3. Every date carries a year: "by 15 December 2025", never "by Dec. 15".
-  4. Keep the proposition general enough to match a taxonomy node. Put the
-     specific instrument, jurisdiction, organization or date that the claim is
-     ABOUT in "anchors" instead (see above). Do not invent an anchor the source
+  4. Keep the proposition general enough to match a taxonomy node. Put a name
+     in "anchors" only if removing it would change what the position asserts.
+     A name that illustrates a general position, or is where a figure or
+     quotation came from, is not an anchor. Do not invent an anchor the source
      does not give.
 
   Examples:
@@ -61,6 +63,15 @@ SELF-CONTAINED:
     canonical_proposition: "Students who use AI for homework score worse on tests
              taken without it."
     anchors: []          (China is an example here, not what the claim is about)
+
+    Source: welfare and justice systems "in the Netherlands, the UK, and
+             Australia" used biased algorithmic decision-making that wrongly
+             accused thousands of people of benefit fraud.
+    canonical_proposition: "Algorithmic bias and automated decision systems cause
+             documented, severe present harms to vulnerable populations across
+             welfare and justice systems."
+    anchors: []          (remove the three countries and the position asserts the
+                          same thing; they illustrate it)
 
 Extract 3-15 positions. Prefer positions with policy substance over
 mission-statement boilerplate.
