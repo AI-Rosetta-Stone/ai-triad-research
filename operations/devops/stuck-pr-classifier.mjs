@@ -14,6 +14,8 @@
  * reads as "expected" even though an older green suite for the same workflow exists and is
  * visible everywhere else. That blind spot is exactly what stuck-required-run exists to catch.
  */
+import { SO_CLEARED_RE } from './fleet-delivery-metrics.mjs';
+
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL', 'joint-gv-guard', 'consult-hold-guard'];
 
 // MUST-fix (Lead review, PR #3141): `actions/runs`' `name` field is the WORKFLOW name
@@ -52,6 +54,11 @@ export const IN_PROGRESS_STUCK_MINUTES = {
   'consult-hold-guard': 10,
 };
 
+// t/4533 (TL, t/4091#44): the SO's own 2h time-box (root AGENTS.md Change Tiers) isn't enforced
+// today -- a consult-hold PR with no SO reply past this mark silently sits, instead of routing
+// to the approver marked "SO did not review" per the documented fallback.
+export const SO_TIMEBOX_HOURS = 2;
+
 export const IDLE_DETECT_HOURS = 1;    // no PR activity for this long, with no other named blocker, names "idle".
 export const OWNER_SLA_HOURS = 2;      // blocker episode age at which the owning role is pinged.
 export const TL_SLA_HOURS = 6;         // blocker episode age at which the TL is pinged (never the PI).
@@ -89,6 +96,14 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
  *   comment/review (MUST exclude the alert's OWN comments and label writes, and other bot
  *   activity — PR #3141 review: using raw `updated_at` let the alert's own writes reset the
  *   idle/held-age clock every time it ran).
+ * @param {string|null} [pr.consultHoldAppliedAt] - ISO timestamp the `consult-hold` label was
+ *   FIRST applied (t/4533) -- only meaningful/needed when `labels` includes 'consult-hold'.
+ *   Omit or null if unknown; a PR with the label but no known apply-time is treated as `held`
+ *   (never escalated), never guessed into `consult-hold-aged`.
+ * @param {boolean} [pr.soClearanceDetected] - true if any comment on the PR matches
+ *   SO_CLEARED_RE (t/4533, reusing fleet-delivery-metrics.mjs's own detector) -- an SO has
+ *   replied (cleared, or explicitly "did not review"), so the time-box question is already
+ *   answered and this is ordinary `held` (waiting on PI/TL), never `consult-hold-aged`.
  * @param {number} nowMs
  * @returns {{class:string, detail:object}|null}
  */
@@ -101,6 +116,27 @@ export function classifyBlocker(pr, nowMs) {
 
   // 1. held — checked FIRST and reported alone: a hold is deliberate, so a PR carrying one
   //    is never escalated even if it also matches another class underneath.
+  //
+  //    EXCEPTION (t/4533): a `consult-hold` (not `joint-gv`, which has no SO time-box) past
+  //    SO_TIMEBOX_HOURS since the label was applied, with NO SO reply detected at all, is not
+  //    a deliberate hold anymore -- it's the 2h time-box rule going unenforced. This escalates
+  //    as `consult-hold-aged`, distinct from ordinary `held`. A hold under the time-box, OR one
+  //    where an SO has already replied (cleared, or explicitly "did not review") and it's now
+  //    just waiting on PI/TL sign-off, is still ordinary `held` and never escalates -- only the
+  //    specific "nobody has enforced the time-box" gap is new here.
+  if (labels.includes('consult-hold') && !labels.includes('joint-gv') && !pr.soClearanceDetected && pr.consultHoldAppliedAt) {
+    const holdAgeHours = (nowMs - Date.parse(pr.consultHoldAppliedAt)) / 3600000;
+    if (holdAgeHours > SO_TIMEBOX_HOURS) {
+      return {
+        class: 'consult-hold-aged',
+        detail: {
+          holdAgeHours: Math.round(holdAgeHours * 10) / 10,
+          consultHoldAppliedAt: pr.consultHoldAppliedAt,
+          remedy: 'No SO reply past the 2h time-box -- route to the approver marked "SO did not review" (root AGENTS.md Change Tiers fallback).',
+        },
+      };
+    }
+  }
   if (labels.includes('consult-hold') || labels.includes('joint-gv')) {
     const ageHours = pr.lastActivityAt ? (nowMs - Date.parse(pr.lastActivityAt)) / 3600000 : null;
     return { class: 'held', detail: { labels: labels.filter((l) => l === 'consult-hold' || l === 'joint-gv'), ageHours } };
@@ -188,11 +224,17 @@ export function classifyBlocker(pr, nowMs) {
 /**
  * PURE. Given a named blocker and how long its episode has been open, decides who to ping.
  * 'held' never escalates, regardless of age — holds are deliberate (t/4115 design).
+ * 'consult-hold-aged' (t/4533) escalates to the owner IMMEDIATELY on the episode's first scan
+ * (episodeAgeHours can be ~0 here) -- the class only exists once the SO's own 2h time-box has
+ * already passed with no reply, so waiting an additional OWNER_SLA_HOURS on top would double
+ * the real delay. It still escalates to the TL at the normal TL_SLA_HOURS if the owner ping
+ * itself goes unaddressed.
  * @returns {'none'|'owner'|'tl'}
  */
 export function escalationLevel(blockerClass, episodeAgeHours) {
   if (blockerClass === 'held') return 'none';
   if (episodeAgeHours >= TL_SLA_HOURS) return 'tl';
+  if (blockerClass === 'consult-hold-aged') return 'owner';
   if (episodeAgeHours >= OWNER_SLA_HOURS) return 'owner';
   return 'none';
 }
