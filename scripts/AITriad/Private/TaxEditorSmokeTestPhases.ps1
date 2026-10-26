@@ -456,6 +456,46 @@ function Invoke-SmokeCachePresencePhase {
     return [pscustomobject]@{ Present = $Present; Status = $Status }
 }
 
+# Dated known-pending list (t/4516): the PI's two legacy AAD-derived admin names,
+# unreachable until #3741/t/4326's tid/oid capture lands and they're added to
+# IDENTITY_MAP. EXPIRY TRIGGER: once that lands, drop this to 0 and change
+# Invoke-SmokeIdentityAllowlistPhase's comparison from "<=" to a hard "-eq 0" gate.
+$script:SmokeIdentityAllowlistKnownPendingCount = 2   # dated 2026-10-26
+
+function Invoke-SmokeIdentityAllowlistPhase {
+    # ── Phase 10: Identity allowlist unreachable count (t/4505 AC3, t/4516) ──────
+    # /health exposes identityAllowlistUnreachable as a COUNT ONLY (never names) to an
+    # anonymous caller (meta.ts's !isAdmin() branch) — t/4326's canonicalization means an
+    # admin allowlist entry keyed on a legacy free-text name/email can go unreachable
+    # (its new principal name no longer matches) with nothing else surfacing it. WARN-FIRST
+    # like Phases 8/9: the PI's two legacy AAD names correctly show as unreachable today and
+    # stay that way until IDENTITY_MAP is updated, so a hard `== 0` would fail every deploy.
+    # EXCLUDED from $OverallPass, same as Phases 8/9.
+    param([string]$BaseUrl, [int]$TimeoutSec)
+    Write-Host '=== Identity Allowlist Unreachable ===' -ForegroundColor Cyan
+    $Count = $null
+    $Status = 'unreachable'
+    try {
+        $Check = Invoke-RemoteCheck -BaseUrl $BaseUrl -Path '/health' -Method 'GET' `
+            -TimeoutSec $TimeoutSec -ExpectedField 'identityAllowlistUnreachable'
+        if ($Check.Success -and $Check.Body -and $Check.Body.PSObject.Properties['identityAllowlistUnreachable']) {
+            $Count = [int]$Check.Body.identityAllowlistUnreachable
+            $Status = if ($Count -le $script:SmokeIdentityAllowlistKnownPendingCount) { 'ok' } else { 'breach' }
+        }
+    } catch {
+        Write-Host "  [DEGRADED] GET /health — unreachable: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    $Icon  = if ($Status -eq 'ok') { '[PASS]' } else { '[DEGRADED]' }
+    $Color = if ($Status -eq 'ok') { 'Green' } else { 'Yellow' }
+    $CountText = if ($null -ne $Count) { "$Count" } else { 'n/a' }
+    Write-Host "  $Icon GET /health — identityAllowlistUnreachable=$CountText (known-pending $script:SmokeIdentityAllowlistKnownPendingCount)" -ForegroundColor $Color
+    if ($Status -ne 'ok') {
+        Write-Host "::warning::Identity allowlist unreachable count $CountText exceeds the known-pending list ($script:SmokeIdentityAllowlistKnownPendingCount) or /health was unreachable — monitoring signal, does not block the gate (t/4505 AC3). New unreachable entries may mean an admin lost access; investigate via the admin-only /health or /admin endpoint."
+    }
+    Write-Host ''
+    return [pscustomobject]@{ Count = $Count; KnownPendingCount = $script:SmokeIdentityAllowlistKnownPendingCount; Status = $Status }
+}
+
 function Get-SmokeCategorySummary {
     # Pass/fail counts per category, sorted by category name.
     param([object[]]$AllResults)
