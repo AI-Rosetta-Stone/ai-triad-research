@@ -508,14 +508,30 @@ export class GitHubAPIBackend implements StorageBackend {
    *
    * `opts.ref` pins the GitHub API fallback to a specific ref (e.g. 'main') for
    * shared data that lives on main rather than the caller's session branch —
-   * community submissions, calibration logs. Without it, a cache miss fetches
-   * with the effective session-branch ref, which 404s for shared files (the file
-   * doesn't exist on the branch) and burns rate limit. See t/684.
+   * pipeline-generated taxonomy/source/summary data. Without it, a cache miss
+   * fetches with the effective session-branch ref, which 404s for shared files
+   * (the file doesn't exist on the branch) and burns rate limit. See t/684.
    *
-   * The session overlay is still consulted first regardless of `opts.ref`, so
-   * in-session writes remain visible (read-your-writes) — this is required by the
-   * read-modify-write flows in community/calibration curation, where the same
-   * shared file is appended to multiple times within one request.
+   * t/4510: the session overlay is consulted first ONLY when the call isn't
+   * pinned away from the session's own ref (same precedence as `fileExists`,
+   * t/4428#2) — an explicit `opts.ref` is asking for that ref's real content,
+   * and answering from this session's overlay would defeat the pin. The
+   * dozens of genuinely-pipeline-only `{ ref: 'main' }` callers across
+   * fileIO.ts/nodeSourceIndex.ts/sourcesIndexReader.ts already follow the
+   * established convention of pinning only where nothing writes that path
+   * through the session backend (fileIO.ts's readLineageEnrichments comment,
+   * TL p/538#161) — for them this is a no-op today (no overlay entry would
+   * ever exist at those paths) and closes a latent gap (a future caller
+   * accidentally writing to a nominally-pipeline-only path would otherwise
+   * silently leak into these reads).
+   *
+   * `opts.consultOverlayOnPin: true` is the one documented exception —
+   * calibrationStore.ts's append-within-request flows (appendIntegrationRecord,
+   * promoteAndIntegrate) pin reads to `ref: 'main'` while still needing to see
+   * the SAME request's own earlier append, which lands in the session overlay
+   * (the effective ref during an active session is the session branch, not
+   * 'main'). Passing this explicitly opts back into the pre-t/4510 "overlay
+   * regardless of opts.ref" behavior for exactly those call sites.
    */
   /**
    * `opts.forWrite`: this read precedes a write by the caller (t/4215
@@ -526,17 +542,24 @@ export class GitHubAPIBackend implements StorageBackend {
    * view-only session trusts its cache indefinitely instead of paying a ref
    * call it gets no benefit from) — see revalidateSessionReadCache().
    */
-  async readFile(filePath: string, opts?: { ref?: string; optional?: boolean; forWrite?: boolean }): Promise<string | null> {
+  async readFile(
+    filePath: string,
+    opts?: { ref?: string; optional?: boolean; forWrite?: boolean; consultOverlayOnPin?: boolean },
+  ): Promise<string | null> {
     const repoPath = this.toRepoPath(filePath);
-
-    // Check session overlay first
-    const overlayVal = this.checkSessionOverlay(repoPath);
-    if (overlayVal !== undefined) {
-      return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : overlayVal;
-    }
-
+    const effectiveRef = this.getEffectiveRef();
     // Pinned ref (e.g. 'main') for shared data; else the effective session ref.
-    const ref = opts?.ref ?? this.getEffectiveRef();
+    const ref = opts?.ref ?? effectiveRef;
+
+    // t/4510: skip the overlay only when genuinely pinned away from the
+    // session's own ref, unless the caller explicitly opts back in (see the
+    // docstring above — calibrationStore.ts's append-within-request flows).
+    if (ref === effectiveRef || opts?.consultOverlayOnPin) {
+      const overlayVal = this.checkSessionOverlay(repoPath);
+      if (overlayVal !== undefined) {
+        return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : overlayVal;
+      }
+    }
 
     // t/4215: a session-branch read with no overlay entry must not fall
     // through to main's on-disk cache below — that cache represents main
