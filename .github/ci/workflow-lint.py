@@ -598,6 +598,34 @@ def _gh_issue_commands(block, start):
     return commands
 
 
+GITHUB_SECRET_RE = re.compile(r'\$\{\{[^}]*secrets\.(GITHUB_\w*)[^}]*\}\}')
+
+
+def check_github_secret_prefix(path, content):
+    """WARN-ONLY (t/4422, the t/4418 class): GitHub forbids repository secret names
+    starting with `GITHUB_`, so any `${{ secrets.GITHUB_<anything> }}` other than the
+    built-in `secrets.GITHUB_TOKEN` can never be set and always evaluates to empty. In
+    t/4418, that silently disabled the GitHub half of a sign-in drift check -- the
+    workflow ran green the whole time, reading an always-empty secret as "no drift."
+
+    This is a plain substring/regex scan, not scoped to run: blocks or any particular
+    context -- a `secrets.GITHUB_*` reference anywhere in a workflow file is dead by
+    construction, so there's no legitimate use to exempt.
+    """
+    findings = []
+    for i, line in enumerate(content.splitlines(), 1):
+        for m in GITHUB_SECRET_RE.finditer(line):
+            name = m.group(1)
+            if name == 'GITHUB_TOKEN':
+                continue
+            findings.append(
+                f'{path}:{i}: `secrets.{name}` can never be set -- GitHub forbids repository '
+                f'secret names starting with `GITHUB_` (except the built-in `secrets.GITHUB_TOKEN`), '
+                f'so this always evaluates to empty (t/4418 class).'
+            )
+    return findings
+
+
 def check_alert_label(path, content):
     """WARN-ONLY (t/4414, e/349#6, e/349#8): flag an alert-issue call -- `gh issue create`,
     an ALERT-path `gh issue edit` (one that touches labels, not a plain close/comment), or
@@ -1127,6 +1155,57 @@ jobs:
     else:
         print('  PASS: check_alert_label ignores a call that already carries alert-escalated')
 
+    # t/4422: secrets.GITHUB_* fixtures.
+    fixture_github_secret_fires = """\
+permissions:
+  contents: read
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ secrets.GITHUB_CLIENT_SECRET }}"
+"""
+    findings = check_github_secret_prefix('fixture_github_secret_fires', fixture_github_secret_fires)
+    if not any('GITHUB_CLIENT_SECRET' in f for f in findings):
+        failures.append('check_github_secret_prefix MISSED secrets.GITHUB_CLIENT_SECRET (always empty)')
+    else:
+        print('  PASS: check_github_secret_prefix catches secrets.GITHUB_CLIENT_SECRET')
+
+    fixture_github_secret_clean = """\
+permissions:
+  contents: read
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ secrets.GITHUB_TOKEN }} ${{ secrets.GH_OAUTH_CLIENT_SECRET }}"
+"""
+    findings = check_github_secret_prefix('fixture_github_secret_clean', fixture_github_secret_clean)
+    if findings:
+        failures.append('check_github_secret_prefix FALSE-FLAGGED secrets.GITHUB_TOKEN or secrets.GH_OAUTH_CLIENT_SECRET')
+    else:
+        print('  PASS: check_github_secret_prefix ignores secrets.GITHUB_TOKEN and secrets.GH_OAUTH_CLIENT_SECRET')
+
+    # Regression: a comment mentioning "secrets.GITHUB_X" in PROSE (explaining a past bug) is not
+    # a live ${{ }} reference -- caught against deploy-azure.yml's own real t/4418 history comment.
+    fixture_github_secret_comment_mention = """\
+permissions:
+  contents: read
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          # repo secret names starting GITHUB_, so secrets.GITHUB_CLIENT_SECRET was always empty
+          GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
+        run: echo "$GH_OAUTH_CLIENT_SECRET"
+"""
+    findings = check_github_secret_prefix('fixture_github_secret_comment_mention', fixture_github_secret_comment_mention)
+    if findings:
+        failures.append('check_github_secret_prefix FALSE-FLAGGED a comment mentioning secrets.GITHUB_X in prose, not a live ${{ }} reference')
+    else:
+        print('  PASS: check_github_secret_prefix ignores a comment mentioning secrets.GITHUB_X in prose')
+
     fixture_alert_multiline = """\
 permissions:
   issues: write
@@ -1383,6 +1462,12 @@ for _path in workflows:
     with open(_path, encoding='utf-8') as _f:
         alert_label_warnings.extend(check_alert_label(_path, _f.read()))
 
+# t/4422 (the t/4418 class): secrets.GITHUB_* check — WARN-ONLY, same promotion discipline.
+github_secret_warnings = []
+for _path in workflows:
+    with open(_path, encoding='utf-8') as _f:
+        github_secret_warnings.extend(check_github_secret_prefix(_path, _f.read()))
+
 print(f'=== workflow-lint: {len(workflows)} workflows checked ===')
 for e in errors:
     print(f'FAIL: {e}')
@@ -1390,6 +1475,8 @@ for w in rc_warnings:
     print(f'::warning::workflow-lint[required-context warn-only, t/3646]: {w}')
 for w in alert_label_warnings:
     print(f'::warning::workflow-lint[alert-label warn-only, t/4414]: {w}')
+for w in github_secret_warnings:
+    print(f'::warning::workflow-lint[github-secret-prefix warn-only, t/4422]: {w}')
 
 if errors:
     print(f'\n::error::workflow-lint: {len(errors)} violation(s) — see output above')
@@ -1399,4 +1486,6 @@ if rc_warnings:
     print(f'\nworkflow-lint: {len(rc_warnings)} required-context WARNING(s) — warn-only (t/3646), not blocking yet')
 if alert_label_warnings:
     print(f'\nworkflow-lint: {len(alert_label_warnings)} alert-label WARNING(s) — warn-only (t/4414), not blocking yet')
+if github_secret_warnings:
+    print(f'\nworkflow-lint: {len(github_secret_warnings)} github-secret-prefix WARNING(s) — warn-only (t/4422), not blocking yet')
 print('OK — 0 blocking violations')
