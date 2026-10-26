@@ -945,6 +945,9 @@ Export-ModuleMember -Function @(
     'Test-TaxEditorInquiry'
     # t/2787 — smoke-test /api/embeddings/compute in production
     'Test-EmbeddingHealth'
+    # t/4513 — deploy-pipeline mount-readiness probe (must be Public: called from a
+    # workflow's `run:` block, which only has `Import-Module` in scope, no dot-sourcing)
+    'Test-TaxEditorMountReadiness'
     'Test-TaxEditorEndpoints'
     'Test-AnonymousDebateFlow'
     'Test-PersonaEndpoints'
