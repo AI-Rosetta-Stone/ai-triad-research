@@ -182,6 +182,7 @@
         'Deploy-TaxEditorInfra'
         'Get-TaxEditorBlob'
         'Restore-TaxEditorBlob'
+        'Move-GitHubIdentityData'
         'Get-CriticalInteraction'
         'Test-CriticalInteractions'
         'Merge-FlightRecorderDumps'
