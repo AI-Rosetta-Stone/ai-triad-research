@@ -222,10 +222,20 @@ export interface FreePoolBudgetHeadroom {
 
 // ── Blob-backed implementation (t/4484 AC2-6) ───────────────────────────────
 
-/** One reservation's bookkeeping inside a day's budget document. */
+/** One reservation's bookkeeping inside a day's budget document.
+ *
+ *  `calls`/`tokens`: for a legacy `reserve()` entry, the estimate until
+ *  `commit()` replaces it with the actual. For a `reserveForKey` entry, the
+ *  running total `drawDown` accumulates into (starts at 0).
+ *
+ *  `reservedCalls`/`reservedTokens` (t/4491 AC2-5): the fixed original
+ *  estimate from `reserveForKey`, read but never mutated by `drawDown`.
+ *  Undefined on every legacy `reserve()` entry. */
 interface ReservationRecord {
   calls: number;
   tokens: number;
+  reservedCalls?: number;
+  reservedTokens?: number;
   key: string;
   createdAt: string;
   /** Absent once `committed` — a committed reservation is final accounting
@@ -277,8 +287,20 @@ function isNotFound(err: unknown): boolean {
   return err instanceof RestError ? (err.statusCode === 404 || err.code === 'BlobNotFound') : false;
 }
 
+/** t/4491: a lost CAS race on an EXISTING blob (`ifMatch`, stale ETag) comes
+ *  back as 412. A lost race on a brand-new day's FIRST write (`ifNoneMatch:
+ *  '*'`, two replicas racing to create the same not-yet-existing blob) comes
+ *  back as 409 `BlobAlreadyExists` instead — a different status for the same
+ *  "lost the race, re-download and retry" case. This was a latent gap in
+ *  every `rmw` caller (`reserve`/`renew`/`commit`/`release`, not just the new
+ *  `reserveForKey`) since t/4484 — never caught because the existing tests
+ *  happen to pre-seed the day's blob before racing, so they only ever hit
+ *  the 412 path. `reserveForKey`'s own replica-safety test is what surfaced
+ *  it (two replicas racing a genuinely fresh day). */
 function isPreconditionFailed(err: unknown): boolean {
-  return err instanceof RestError && err.statusCode === 412;
+  if (!(err instanceof RestError)) return false;
+  if (err.statusCode === 412) return true;
+  return err.statusCode === 409 && err.code === 'BlobAlreadyExists';
 }
 
 function todayUtc(now: Date = new Date()): string {
@@ -376,23 +398,55 @@ export class BlobFreePoolBudget implements FreePoolBudget {
     }
   }
 
-  /** Sweep expired, uncommitted reservations out of `doc` in place. Returns
-   *  the number swept (for WARN logging by the caller). */
-  private sweepExpired(doc: BudgetDoc, now: Date): string[] {
-    const expired: string[] = [];
+  /** Sweep expired, uncommitted reservations out of `doc` in place.
+   *
+   *  t/4491 AC5: a key-based entry (`reservedCalls !== undefined`) that has
+   *  drawn any real usage (`calls > 0 || tokens > 0`) is auto-committed in
+   *  place instead of deleted — the usage that already happened must never
+   *  be erased from today's accounting; only the unused gap between the
+   *  held estimate and the drawn total disappears (that gap simply stops
+   *  being counted once `committed: true` drops it out of `usage()`'s
+   *  `reservedCalls` max). A zero-draw key-based entry, and every legacy
+   *  `reserve()` entry (which never carries `reservedCalls`), deletes
+   *  exactly as before. Returns the swept ids split by what happened, so the
+   *  caller can WARN with a message that names which case it was. */
+  private sweepExpired(doc: BudgetDoc, now: Date): { deleted: string[]; autoCommitted: string[] } {
+    const deleted: string[] = [];
+    const autoCommitted: string[] = [];
     const nowMs = now.getTime();
     for (const [id, r] of Object.entries(doc.reservations)) {
-      if (!r.committed && r.expiresAt !== null && new Date(r.expiresAt).getTime() <= nowMs) {
-        expired.push(id);
+      if (r.committed || r.expiresAt === null || new Date(r.expiresAt).getTime() > nowMs) continue;
+      const isKeyBased = r.reservedCalls !== undefined;
+      const hasDrawn = r.calls > 0 || r.tokens > 0;
+      if (isKeyBased && hasDrawn) {
+        r.committed = true;
+        r.expiresAt = null;
+        delete r.reservedCalls;
+        delete r.reservedTokens;
+        autoCommitted.push(id);
+      } else {
+        delete doc.reservations[id];
+        deleted.push(id);
       }
     }
-    for (const id of expired) delete doc.reservations[id];
-    return expired;
+    return { deleted, autoCommitted };
   }
 
+  /** `reservedCalls`/`reservedTokens` (t/4491): the fixed estimate a
+   *  `reserveForKey` reservation holds, counted instead of the running drawn
+   *  total whenever the drawn total hasn't yet overdrafted past it — so
+   *  other callers' cap checks see the full held promise, not a
+   *  momentarily-smaller "nothing drawn down yet" number. Once `drawDown`
+   *  pushes the running total past the estimate (AC3 allows this, never
+   *  refuses), the larger real total counts instead, keeping the cap honest
+   *  against actual spend. Legacy `reserve()` entries are unaffected
+   *  (`reservedCalls` undefined → `max(r.calls, r.calls)` is just `r.calls`). */
   private usage(doc: BudgetDoc): { calls: number; tokens: number } {
     let calls = 0, tokens = 0;
-    for (const r of Object.values(doc.reservations)) { calls += r.calls; tokens += r.tokens; }
+    for (const r of Object.values(doc.reservations)) {
+      calls += Math.max(r.calls, r.reservedCalls ?? r.calls);
+      tokens += Math.max(r.tokens, r.reservedTokens ?? r.tokens);
+    }
     return { calls, tokens };
   }
 
@@ -401,27 +455,51 @@ export class BlobFreePoolBudget implements FreePoolBudget {
    * returns the result to hand back to the caller, or `undefined` to signal
    * "don't write, nothing changed" (an RMW the caller decided to skip after
    * seeing the current state, e.g. `commit`/`release` on an unknown id).
+   *
+   * `skipWrite` (t/4491): set on the returned outcome to return `result`
+   * WITHOUT uploading, even though `mutate` ran — needed for
+   * `reserveForKey`'s idempotent-hit path and its `daily_cap`/`debate_limit`
+   * refusals, none of which change the doc. Distinct from returning
+   * `undefined` (which also skips the write) only in that `skipWrite` still
+   * carries a `result` to return — existing callers (`reserve`/`renew`/
+   * `commit`/`release`) never set it, so their behavior is unchanged.
+   *
    * Throws on a genuine failure or CAS-retry exhaustion — callers translate
    * that into their own fail-closed contract (reserve/renew vs. commit/
    * release vs. headroom all differ, per the interface doc comments).
    */
-  private async rmw<T>(day: string, mutate: (doc: BudgetDoc) => { result: T } | undefined): Promise<T> {
+  /** Extracted from rmw() to keep its own complexity under budget. */
+  private warnSweptReservations(deleted: string[], autoCommitted: string[]): void {
+    for (const id of deleted) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'free-pool-budget', level: 'warn',
+        message: `Reservation expired without commit/release: ${id}`,
+        data: { reservationId: id },
+      });
+    }
+    for (const id of autoCommitted) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'free-pool-budget', level: 'warn',
+        message: `reserveForKey reservation expired with drawn usage — auto-committed the drawn amount, released the unused remainder: ${id}`,
+        data: { reservationId: id },
+      });
+    }
+  }
+
+  private async rmw<T>(
+    day: string, mutate: (doc: BudgetDoc) => { result: T; skipWrite?: boolean } | undefined,
+  ): Promise<T> {
     const client = this.blobClientFor(day);
     let lastErr: unknown;
     for (let attempt = 0; attempt < this.maxCasRetries; attempt++) {
       const current = await this.download(day);
       const doc = current?.doc ?? freshDoc(day, this.callsCap, this.tokensCap);
       const now = new Date();
-      const expired = this.sweepExpired(doc, now);
-      for (const id of expired) {
-        getGlobalRecorder()?.record({
-          type: 'system.error', component: 'free-pool-budget', level: 'warn',
-          message: `Reservation expired without commit/release: ${id}`,
-          data: { reservationId: id },
-        });
-      }
+      const { deleted, autoCommitted } = this.sweepExpired(doc, now);
+      this.warnSweptReservations(deleted, autoCommitted);
       const outcome = mutate(doc);
       if (outcome === undefined) return undefined as unknown as T; // nothing to write
+      if (outcome.skipWrite) return outcome.result; // mutate inspected state but made no change
       const body = JSON.stringify(doc);
       try {
         await client.upload(body, Buffer.byteLength(body), {
@@ -551,31 +629,111 @@ export class BlobFreePoolBudget implements FreePoolBudget {
     }
   }
 
-  // t/4491 AC1: types land first, same split as t/4484's #3798/#3808. These
-  // three stubs exist only so BlobFreePoolBudget keeps satisfying the
-  // interface — ServerAPI's t/4485 phase 2 can compile and unit-test its own
-  // consumer (DI'd against the interface, per p/541#132) without waiting on
-  // the real implementation. A real caller hitting one of these before the
-  // follow-up lands gets a clear, loud failure, never a silent no-op.
-  async reserveForKey(_req: FreePoolBudgetKeyRequest): Promise<FreePoolBudgetReserveForKeyResult> {
-    throw new ActionableError({
-      goal: 'reserveForKey', problem: 'reserveForKey is not yet implemented (t/4491 AC1 is types-only)',
-      location: 'BlobFreePoolBudget.reserveForKey', nextSteps: ['Land the t/4491 implementation PR before calling this in production'],
-    });
+  // t/4491 AC2-5: the implementation follow-up to the AC1 types-only stubs.
+  async reserveForKey(req: FreePoolBudgetKeyRequest): Promise<FreePoolBudgetReserveForKeyResult> {
+    const day = todayUtc();
+    try {
+      return await this.rmw<FreePoolBudgetReserveForKeyResult>(day, (doc) => {
+        // AC2: a live reservation for this exact key already exists — return
+        // it unchanged, inside the same CAS pass as everything else below, so
+        // a concurrent replica racing this call either sees the pre-write
+        // state (creates it) or the post-write state (finds it) — never both.
+        const existingEntry = Object.entries(doc.reservations)
+          .find(([, r]) => !r.committed && r.key === req.key);
+        if (existingEntry) {
+          return { result: { ok: true, reservationId: existingEntry[0], existing: true }, skipWrite: true };
+        }
+
+        // TL p/538#201 point 2: enforced in this SAME atomic write, not a
+        // separate openCountForPrefix check beforehand (a check-then-act
+        // race across replicas).
+        if (req.maxOpenForPrefix) {
+          const { prefix, max } = req.maxOpenForPrefix;
+          const openCount = Object.values(doc.reservations).filter(r => !r.committed && r.key.startsWith(prefix)).length;
+          if (openCount >= max) {
+            return { result: { ok: false, reason: 'debate_limit' }, skipWrite: true };
+          }
+        }
+
+        const used = this.usage(doc);
+        const overCalls = used.calls + req.calls > doc.callsCap;
+        const overTokens = doc.tokensCap !== null && used.tokens + req.tokens > doc.tokensCap;
+        if (overCalls || overTokens) {
+          return { result: { ok: false, reason: 'daily_cap', resetsAt: nextUtcMidnightIso() }, skipWrite: true };
+        }
+
+        const reservationId = `${day}:${randomUUID()}`;
+        const now = new Date();
+        doc.reservations[reservationId] = {
+          calls: 0, tokens: 0, reservedCalls: req.calls, reservedTokens: req.tokens, key: req.key,
+          createdAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + this.reservationTtlMs).toISOString(),
+          committed: false,
+        };
+        return { result: { ok: true, reservationId, existing: false } };
+      });
+    } catch (err) {
+      // Same fail-closed contract as reserve() — never throws.
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'free-pool-budget', level: 'error',
+        message: 'reserveForKey failed; refusing (fail closed)',
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return { ok: false, reason: 'storage_unavailable' };
+    }
   }
 
-  async drawDown(_reservationId: string, _actual: FreePoolBudgetUsage): Promise<FreePoolBudgetDrawDownResult | null> {
-    throw new ActionableError({
-      goal: 'drawDown', problem: 'drawDown is not yet implemented (t/4491 AC1 is types-only)',
-      location: 'BlobFreePoolBudget.drawDown', nextSteps: ['Land the t/4491 implementation PR before calling this in production'],
-    });
+  async drawDown(reservationId: string, actual: FreePoolBudgetUsage): Promise<FreePoolBudgetDrawDownResult | null> {
+    const day = this.dayOf(reservationId);
+    try {
+      return await this.rmw<FreePoolBudgetDrawDownResult | null>(day, (doc) => {
+        const r = doc.reservations[reservationId];
+        if (!r || r.committed) return { result: null, skipWrite: true }; // unknown/already-resolved id — no-op, not an error
+        // AC3: additive, never replaces; never refuses, even past the
+        // reservation's own estimate (overdraft is recorded in full — the
+        // NEXT admission is what refuses, per the interface doc comment).
+        r.calls += actual.calls;
+        r.tokens += actual.tokens;
+        r.expiresAt = new Date(Date.now() + this.reservationTtlMs).toISOString(); // the heartbeat
+        return {
+          result: {
+            drawnCalls: r.calls, drawnTokens: r.tokens,
+            estimateCalls: r.reservedCalls ?? r.calls, estimateTokens: r.reservedTokens ?? r.tokens,
+          },
+        };
+      });
+    } catch (err) {
+      // Same best-effort contract as commit(): the usage already happened;
+      // a storage failure here can't undo it. Caller sees null either way
+      // (unknown id vs. genuine failure are indistinguishable to drawDown's
+      // own no-throw contract) but gets a WARN trail for diagnosis.
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'free-pool-budget', level: 'warn',
+        message: `drawDown failed — usage recorded in-memory only for this round, will be retried next round: ${reservationId}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return null;
+    }
   }
 
-  async openCountForPrefix(_prefix: string): Promise<number> {
-    throw new ActionableError({
-      goal: 'openCountForPrefix', problem: 'openCountForPrefix is not yet implemented (t/4491 AC1 is types-only)',
-      location: 'BlobFreePoolBudget.openCountForPrefix', nextSteps: ['Land the t/4491 implementation PR before calling this in production'],
-    });
+  async openCountForPrefix(prefix: string): Promise<number> {
+    // AC4: diagnostics/gauge only — download-only, no rmw, no write. A
+    // thrown error here must not be mistaken for "zero open" (same contract
+    // as headroom()).
+    const day = todayUtc();
+    try {
+      const current = await this.download(day);
+      const doc = current?.doc ?? freshDoc(day, this.callsCap, this.tokensCap);
+      this.sweepExpired(doc, new Date());
+      return Object.values(doc.reservations).filter(r => !r.committed && r.key.startsWith(prefix)).length;
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'free-pool-budget', level: 'error',
+        message: `openCountForPrefix failed: ${prefix}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      throw err instanceof ActionableError ? err : wrapBudgetError(err, 'openCountForPrefix', day);
+    }
   }
 }
 
