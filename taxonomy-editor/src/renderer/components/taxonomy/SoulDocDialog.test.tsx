@@ -10,6 +10,25 @@ import { render, screen, fireEvent } from '@testing-library/react';
 const record = vi.fn();
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record }) }));
 
+// t/4534 ask 2: a tag id that fails to PARSE/VALIDATE (file exists, content's bad) must be
+// distinguished from one that's genuinely missing. Real resolvePoverInfo for every other call.
+vi.mock('@lib/debate/tagSoulRegistry', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@lib/debate/tagSoulRegistry')>();
+  const { ActionableError } = await import('@lib/debate/errors');
+  return {
+    ...real,
+    resolvePoverInfo: (speaker: string, tagSelection?: { tag: string }) => {
+      if (tagSelection?.tag === 'broken') {
+        throw new ActionableError({
+          goal: 'Parse tag soul for skeptic:broken', problem: 'Schema validation failed: bad JSON',
+          location: 'test', nextSteps: [],
+        });
+      }
+      return real.resolvePoverInfo(speaker as never, tagSelection as never);
+    },
+  };
+});
+
 // The registry is real unless a test adds a tag with no soul file behind it.
 let extraSkepticTag: { id: string; label: string; soul_doc: string; description: string } | null = null;
 vi.mock('@lib/schema/povTags', async (importOriginal) => {
@@ -84,6 +103,18 @@ describe('SoulDocDialog (t/4200)', () => {
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', component: 'soul-doc-dialog' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Critical' }));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a tag whose soul file exists but fails to parse/validate shows "couldn\'t load", NOT "not found" (t/4534)', () => {
+    extraSkepticTag = { id: 'broken', label: 'Broken', soul_doc: 'skeptic.broken', description: 'Exists, but the content is bad.' };
+    render(<SoulDocDialog pov="skeptic" nodeTags={['broken']} onClose={vi.fn()} />);
+    expect(selectedTab()).toBe('Broken');
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text).toMatch(/Couldn't load this soul document/);
+    expect(text).toMatch(/skeptic\.broken\.soul\.json/);
+    expect(text).toMatch(/flight-recorder/i);
+    expect(text).not.toMatch(/not found/i);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', component: 'soul-doc-dialog' }));
   });
 
   it('tabs follow the ARIA pattern: one selected, roving tabindex, arrow keys wrap', () => {

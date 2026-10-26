@@ -9,6 +9,7 @@ import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { resolvePoverInfo } from '@lib/debate/tagSoulRegistry';
 import { loadPovTagRegistry, tagSoulFileName } from '@lib/schema/povTags';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { ActionableError } from '@lib/debate/errors';
 import type { PovInfo, SpeakerId } from '@lib/debate/types';
 import './SoulDocDialog.css';
 
@@ -29,7 +30,12 @@ interface SoulTab {
   description?: string;
 }
 
-type TabContent = { soul: PovInfo } | { missing: string };
+// t/4534 ask 2 (Design copy call): a parse/schema error (the file exists but didn't load) is
+// NOT "not found" — that label pointed at the wrong fix (adding a file that already exists).
+// `ActionableError.problem` distinguishes them without string-matching the whole message; the
+// registry's own "not found in registry" problem text (tagSoulRegistry.ts) is the one case that
+// really is missing.
+type TabContent = { soul: PovInfo } | { missing: string } | { loadError: string };
 
 function resolveTab(speaker: Speaker, tabId: string): TabContent {
   if (tabId === BASE_TAB) return { soul: resolvePoverInfo(speaker).soul };
@@ -37,12 +43,13 @@ function resolveTab(speaker: Speaker, tabId: string): TabContent {
     // The mode only affects how debates use the tag, not the soul's content.
     return { soul: resolvePoverInfo(speaker, { tag: tabId, mode: 'scope' }).soul };
   } catch (err) {
+    const notFound = err instanceof ActionableError && err.problem.startsWith('Tag soul not found in registry');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'soul-doc-dialog', level: 'warn',
-      message: `Soul document not found for ${speaker}:${tabId}; showing the not-found message`,
+      message: `Soul document ${notFound ? 'not found' : 'failed to load'} for ${speaker}:${tabId}`,
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
     });
-    return { missing: tagSoulFileName(speaker, tabId) };
+    return notFound ? { missing: tagSoulFileName(speaker, tabId) } : { loadError: tagSoulFileName(speaker, tabId) };
   }
 }
 
@@ -176,11 +183,17 @@ export function SoulDocDialog({ pov, nodeTags, onClose }: SoulDocDialogProps) {
           {activeTab?.description && <p className="soul-doc-tab-description">{activeTab.description}</p>}
           {'soul' in content
             ? <SoulBody soul={content.soul} />
-            : (
-              <p className="soul-doc-missing" role="alert">
-                Soul document not found: <code>{content.missing}</code>. Add it under <code>lib/debate/soul-docs/</code> and rebuild.
-              </p>
-            )}
+            : 'missing' in content
+              ? (
+                <p className="soul-doc-missing" role="alert">
+                  Soul document not found: <code>{content.missing}</code>. Add it under <code>lib/debate/soul-docs/</code> and rebuild.
+                </p>
+              )
+              : (
+                <p className="soul-doc-missing" role="alert">
+                  Couldn't load this soul document (<code>{content.loadError}</code>). Check the flight-recorder entry for <code>soul-doc-dialog</code>.
+                </p>
+              )}
         </div>
       </div>
     </div>
