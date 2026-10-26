@@ -24,11 +24,20 @@ export interface StorageBackend {
 
   /** Read a file as UTF-8. Returns null if the file does not exist.
    *  `opts.ref` pins the read to a specific ref (e.g. 'main') for shared data
-   *  that lives on main rather than a per-user session branch (community
-   *  submissions, calibration logs). Backends without branches ignore it.
+   *  that lives on main rather than a per-user session branch (pipeline-
+   *  generated taxonomy/source/summary data). Backends without branches
+   *  ignore it.
    *  `opts.optional` signals the file may legitimately not exist — backends
-   *  that log 404s can downgrade from error to debug level. */
-  readFile(filePath: string, opts?: { ref?: string; optional?: boolean }): Promise<string | null>;
+   *  that log 404s can downgrade from error to debug level.
+   *  `opts.consultOverlayOnPin` (t/4510): by default a pinned `opts.ref` skips
+   *  the session overlay — the pin is asking for that ref's real content,
+   *  same precedence as `fileExists` (t/4428#2). Pass `true` to keep
+   *  consulting the overlay anyway; the one documented exception is
+   *  `calibrationStore.ts`'s append-within-request flows, which pin to
+   *  `'main'` while still needing to see the same request's own earlier
+   *  append (which lands in the session overlay). Backends without branches
+   *  ignore it. */
+  readFile(filePath: string, opts?: { ref?: string; optional?: boolean; consultOverlayOnPin?: boolean }): Promise<string | null>;
 
   /** Write content to a file (UTF-8). Creates parent directories and uses
    *  atomic write (tmp+rename) where the backend supports it.
