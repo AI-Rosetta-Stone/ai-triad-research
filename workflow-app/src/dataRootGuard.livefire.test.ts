@@ -13,8 +13,9 @@ import { DATA_ROOT_TEST_WRITE_TOKEN, protectedDataRoot } from '../../lib/test-su
 
 describe('data-root guard is wired into this config (t/4462)', () => {
   it('a write under the real data root WARNs with the token, target and caller', () => {
-    const dir = path.join(protectedDataRoot(), '__guard_livefire__', 'missing');
-    expect(fs.existsSync(dir)).toBe(false); // the ENOENT that keeps this harmless
+    const livefire = path.join(protectedDataRoot(), '__guard_livefire__');
+    const dir = path.join(livefire, 'missing');
+    expect(fs.existsSync(livefire)).toBe(false); // before: the ENOENT that keeps this harmless
     const target = path.join(dir, 'x.json');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -27,5 +28,6 @@ describe('data-root guard is wired into this config (t/4462)', () => {
     } finally {
       warn.mockRestore();
     }
+    expect(fs.existsSync(livefire)).toBe(false); // after: nothing was created in the real data repo (TL, p/825#14)
   });
 });
