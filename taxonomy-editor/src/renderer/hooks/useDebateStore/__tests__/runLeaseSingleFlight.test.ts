@@ -325,17 +325,28 @@ describe('debate run lease — another window owns the debate (t/3917)', () => {
     vi.spyOn(useDebateStore.getState(), 'requestSynthesis').mockResolvedValue(undefined);
     __setRunLeaseTimingForTests({ ttlMs: 20 });
 
-    __deliverRunLeaseMessageForTests({ type: 'beat', debateId, windowId: 'crashed-window', caller: 'runOpeningStatements:x', startedAt: 1 });
-    await new Promise(r => setTimeout(r, 40)); // no further beats: the holder is gone
+    // Pin the clock and advance it explicitly rather than sleeping a real 40ms (t/4460): a real
+    // sleep only advances Date.now() when the ambient clock is unpinned, and the weekly
+    // future-clock run (t/4279) already fakes Date here with no real-time ticking, so the sleep
+    // elapsed nothing and the expiry never fired at +365 days.
+    const start = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(start);
+      __deliverRunLeaseMessageForTests({ type: 'beat', debateId, windowId: 'crashed-window', caller: 'runOpeningStatements:x', startedAt: 1 });
+      vi.setSystemTime(start + 40); // no further beats: the holder is gone
 
-    await useDebateStore.getState().runOpeningStatements('after-crash');
+      await useDebateStore.getState().runOpeningStatements('after-crash');
 
-    expect(messages('Adaptive loop lease expired — holder stopped heartbeating')).toHaveLength(1);
-    const takeover = messages('Adaptive loop lease taken over from unresponsive holder');
-    expect(takeover).toHaveLength(1);
-    expect(takeover[0].level).toBe('warn');
-    expect((takeover[0].data as { dead_holder: { window: string } }).dead_holder.window).toBe('crashed-window');
-    expect(messages('Adaptive loop started')).toHaveLength(1);
+      expect(messages('Adaptive loop lease expired — holder stopped heartbeating')).toHaveLength(1);
+      const takeover = messages('Adaptive loop lease taken over from unresponsive holder');
+      expect(takeover).toHaveLength(1);
+      expect(takeover[0].level).toBe('warn');
+      expect((takeover[0].data as { dead_holder: { window: string } }).dead_holder.window).toBe('crashed-window');
+      expect(messages('Adaptive loop started')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a live holder (beat inside the TTL) is NOT expired', async () => {
