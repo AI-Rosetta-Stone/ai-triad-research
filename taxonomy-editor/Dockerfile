@@ -265,6 +265,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get update \
     && apt-get install -y --no-install-recommends powershell
 
+# 7b. Security bump: libbrotli1 (t/4504, blocking the container Trivy gate). CVE-2026-111497,
+# HIGH, out-of-bounds write in the Brotli decoder, fixed in 1.1.0-2+deb13u1 -- the base image
+# (ai-triad-base:2026-10-19) baked the vulnerable 1.1.0-2+b7. --only-upgrade pulls just this
+# package from the already-configured apt sources rather than waiting on a full base rebuild.
+# hadolint ignore=DL3008
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install --only-upgrade -y libbrotli1
+
 # 8. Strip global npm from the runtime image (t/3135). npm is NOT reachable at
 # runtime — CMD is a direct `node`; npm/pnpm are used only in the discarded
 # builder/prod-deps stages; the web console spawns pwsh (not npm); there is no
