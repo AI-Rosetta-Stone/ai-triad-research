@@ -142,7 +142,7 @@ $script:Scenarios = @(
        # MaxTokens and confidence_threshold differ from the old hard-coded 32768 / 0.7, so the golden
        # shows model_info records what the pipeline reports (t/4172).
        Pipeline = @{ Summary = $script:BareSummary; FactualCount = 0; UnmappedCount = 0; TaxonomyJson = $script:FullContext; UsedFire = $true; MaxTokens = 16384
-                     FireStats = [ordered]@{ confidence_threshold = 0.65; total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; elapsed_seconds = 41.5; termination_reason = 'converged' } } }
+                     FireStats = [ordered]@{ confidence_threshold = 0.65; total_api_calls = 9; total_iterations = 3; claims_total = 12; claims_confident = 10; claims_iterated = 2; claims_dropped_verification = 0; elapsed_seconds = 41.5; termination_reason = 'converged' } } }
     @{ Name = 'fire-no-stats-unknown-prefix'; Params = @{ Model = 'xai-grok-4-6' }
        Pipeline = @{ Summary = $script:SmallSummary; FactualCount = 2; UnmappedCount = 0; TaxonomyJson = $script:FullContext; UsedFire = $true } }
     @{ Name = 'metadata-write-failed'; FailWrite = 'sources/doc-1/metadata.json'

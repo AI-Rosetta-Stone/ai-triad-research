@@ -290,13 +290,14 @@ function Get-POVSummaryModelInfo {
     if ($UsedFire -and $FireStats) {
         $ModelInfo['fire_confidence_threshold'] = Get-SummaryField $FireStats 'confidence_threshold'
         $ModelInfo['fire_stats'] = [ordered]@{
-            api_calls          = $FireStats.total_api_calls
-            iterations         = $FireStats.total_iterations
-            claims_total       = $FireStats.claims_total
-            claims_confident   = $FireStats.claims_confident
-            claims_iterated    = $FireStats.claims_iterated
-            elapsed_seconds    = $FireStats.elapsed_seconds
-            termination_reason = $FireStats.termination_reason
+            api_calls                   = $FireStats.total_api_calls
+            iterations                  = $FireStats.total_iterations
+            claims_total                = $FireStats.claims_total
+            claims_confident             = $FireStats.claims_confident
+            claims_iterated             = $FireStats.claims_iterated
+            claims_dropped_verification = (Get-SummaryField $FireStats 'claims_dropped_verification')
+            elapsed_seconds             = $FireStats.elapsed_seconds
+            termination_reason          = $FireStats.termination_reason
         }
     }
     $ModelInfo
