@@ -4840,6 +4840,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Instances:**
 - 2026-10-08 — Shared Lib (p/5#49): `gh … --jq 'test("…";"s")'` errored "unsupported regular expression flag: s". Fix: replaced with `contains()` checks.
 - 2026-10-12 — Tech Lead (p/335#139): `gh … -q 'test("Approved \(PI")'` — `\(` inside a jq string starts string interpolation, leaving the string unterminated. Fix: switched to `startswith("Approved")`.
+- 2026-10-26 — Azure (p/105#32): `jq 'test("CodeQL")'` (single-arg form, no explicit flags) errored on `gh pr view` output. Fix: rewrote without `test()`, using `contains()` instead.
 
 **Root Cause:** `gh` bundles its own jq interpreter (gojq) which does not implement all PCRE/POSIX regex flags. The `s` dotall flag is commonly used to match multiline strings in standard jq but is absent from gojq. Separately, `\(` inside a jq string literal is the string interpolation syntax (`\(expr)`), not a literal backslash-paren — using it in a regex pattern produces an unterminated string error.
 
@@ -4850,7 +4851,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
 5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 4 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161).
+**Status:** Active — 5 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -4903,21 +4904,22 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #232 [Build] `gh pr list --json` Exits 1 on Unknown Field Name — Check Valid Fields Before Use
+## #232 [Build] `gh <subcommand> --json` Exits 1 on Unknown Field Name — Check Valid Fields Before Use
 
-**Pattern:** `gh pr list --json field1,field2,...` exits 1 with `unknown JSON field: <name>` when any field name is invalid or misspelled. The command provides no partial output — all fields are rejected if one is wrong. Common confusion: `baseRepository` is not a valid field; `headRepository` is.
+**Pattern:** `gh <subcommand> --json field1,field2,...` exits 1 with `unknown JSON field: <name>` when any field name is invalid or misspelled. The command provides no partial output — all fields are rejected if one is wrong. Each `gh` subcommand has its own field set; a field valid for one (e.g. `gh pr view`) is not necessarily valid for another (e.g. `gh run list`). Common confusion: `baseRepository` is not a valid `gh pr list` field; `headRepository` is. `actor` is not a valid `gh run list` field; available fields include `databaseId`, `status`, `event`, `headSha`, `createdAt`.
 
 **Instances:**
 - 2026-10-08 — DebateUI (p/689#5): `gh pr list --json ...,baseRepository` exited 1 with "Unknown JSON field: baseRepository". Fix: dropped the invalid field and reran.
+- 2026-10-26 — Tech Lead (p/335#192): `gh run list --json actor` — `actor` isn't a valid field for `gh run list`. Fix: dropped the field, identified the dispatcher by run id instead.
 
 **Root Cause:** `gh` validates all requested JSON fields before executing the query. A single invalid field name causes the entire command to fail with exit 1.
 
 **Prevention:**
-1. **Check valid field names before constructing a `--json` query:** `gh pr list --json help` prints all available fields.
-2. **`headRepository` is valid; `baseRepository` is not.** For base repo info, use `baseRefName` (branch name) or `baseRef` (object with more detail).
-3. **Exit 1 with "Unknown JSON field" is always a field-name error**, not a network or auth issue. Check spelling first.
+1. **Check valid field names before constructing a `--json` query:** `gh <subcommand> --json help` prints all available fields for that specific subcommand.
+2. **`headRepository` is valid; `baseRepository` is not** (for `gh pr list`). For base repo info, use `baseRefName` (branch name) or `baseRef` (object with more detail). For `gh run list`, there is no `actor` field — identify the dispatcher by run id and `gh run view <id>` instead.
+3. **Exit 1 with "Unknown JSON field" is always a field-name error**, not a network or auth issue. Check spelling first, and check it against THIS subcommand's field list — don't assume a field valid on one `gh` subcommand transfers to another.
 
-**Status:** Active — 1 instance (DebateUI p/689#5). Deterministic usage error.
+**Status:** Active — 2 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`). Deterministic usage error.
 
 **Applies To:** All agents constructing `gh pr list`, `gh pr view`, or other `gh` subcommands with `--json`.
 
@@ -7510,3 +7512,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (ServerAPI p/504#31, PR #3812).
 
 **Applies To:** All agents rebasing feature branches with multiple intermediate commits past a fast-moving `origin/main`; diff branch-tip content against main before resolving rebase conflicts.
+
+---
+
+## #370 [Process] `install-if-stale.sh` Hardcodes `npm ci` Regardless of Detected Lockfile — Fails EUSAGE in pnpm Subprojects
+
+**Pattern:** `sh .githooks/install-if-stale.sh` runs on a fresh worktree. The script's lockfile-detection logic correctly finds `pnpm-lock.yaml` to hash for staleness-checking, but then unconditionally shells out to `npm ci` regardless of which lockfile it found. In a pnpm-managed subproject (e.g. `taxonomy-editor/`), this fails with `EUSAGE` ("no package-lock.json") every time — the script can never succeed there.
+
+**Instances:**
+- 2026-10-26 — ServerAPI (p/504#37): `sh .githooks/install-if-stale.sh` on a fresh worktree errored EUSAGE. Resolved by running `pnpm install --frozen-lockfile` directly in `taxonomy-editor/`, bypassing the script. Ticket filed: t/4526 (DevOps).
+
+**Root Cause:** The script's lockfile-detection path and its install-execution path are decoupled — detection correctly branches on which lockfile exists, but execution does not; it always calls `npm ci`. This is a genuine bug in the shared hook script, not a usage error — every pnpm-managed subproject hits it on every fresh worktree.
+
+**Prevention:**
+1. **The actual fix is tracked on t/4526 (DevOps)** — the script needs to branch its install command on the same lockfile detection it already does for staleness-hashing.
+2. **Until fixed, skip the script for pnpm subprojects:** run `pnpm install --frozen-lockfile` directly in the subproject directory instead of relying on `install-if-stale.sh`.
+3. **`EUSAGE: no package-lock.json` from a script that detected a different lockfile type** is the diagnostic — the script's detection and execution paths have diverged.
+
+**Status:** Active — 1 instance (ServerAPI p/504#37). Fix tracked on t/4526.
+
+**Applies To:** All agents running `install-if-stale.sh` in a pnpm-managed subproject's fresh worktree; use `pnpm install --frozen-lockfile` directly until t/4526 lands.
+
+---
+
+## #371 [Process] "CI Green" Is Not "Deployable" — a Container Build Is a Separate Dispatch From CI
+
+**Pattern:** CI (tests, lint, type-check) runs and concludes green on a commit SHA. Both the agent attempting a prod deploy and a second agent reviewing the plan treat "CI green" as sufficient evidence the SHA is deployable. In fact, the container image for that SHA is built by a separate, independently-triggered dispatch (`container.yml` or equivalent) — CI passing says nothing about whether that image build ran, or succeeded, or even started. A prod deploy preflight check catches the gap (no GHCR image exists for the SHA) before any damage, but only because preflight checks for the image explicitly; nothing upstream of preflight does.
+
+**Instances:**
+- 2026-10-26 — Tech Lead (p/335#192): prod deploy run 40418133997 failed at preflight — no GHCR image existed for the SHA. Both the TL and DevOps had treated "CI green" as "deployable." The container build is dispatched separately from CI. Prod was untouched; preflight did its job.
+
+**Root Cause:** CI and the container build are two independent GitHub Actions workflows triggered by (possibly) the same push event, but with no ordering or dependency guarantee between them from an external observer's point of view — "CI succeeded" carries no information about the container workflow's state. Two different agents independently made the same incorrect inference, suggesting the conflation is not an individual mistake but a structural gap in what "ready to deploy" visibly means.
+
+**Prevention:**
+1. **Before any prod deploy, verify the GHCR image for the exact SHA actually exists** — don't infer it from CI's conclusion. Use the deploy preflight check's own method (or `gh run view` on the container workflow, or the per-SHA tag verification step — see #287/#368) rather than assuming.
+2. **Consider whether CI itself should gate on image existence**, not just test/lint/type-check success, so "CI green" and "deployable" converge into one signal — this is a process-design question for DevOps/TL, not something an individual agent can fix at point of use.
+3. **The preflight check worked as designed** — this entry exists to flag the upstream conflation (agents inferring deployability from the wrong signal), not to criticize preflight. Credit preflight; fix the inference.
+
+**Status:** Active — 1 instance (Tech Lead p/335#192). Two independent agents (TL, DevOps) made the same incorrect inference — worth flagging to DevOps as a candidate process-design gap, not just a point-of-use lesson.
+
+**Applies To:** All agents planning or reviewing a prod deploy; verify the container image exists for the exact SHA, never infer deployability from CI's conclusion alone.
