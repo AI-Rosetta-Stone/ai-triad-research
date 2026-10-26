@@ -253,3 +253,82 @@ describe('NodeTree debate-tested chip display gate (t/1661)', () => {
     expect(chipTextFor('Belief no record')).toBeNull();
   });
 });
+
+// ── t/4532: title-only nav, per-POV collapse state, no-auto-expand on first view ──
+
+describe('t/4532: nav row shows title only, no aphorism', () => {
+  it('never renders graph_attributes.aphorism, even when present', () => {
+    mockSessionStorage.setItem('taxonomy-editor-collapsed-categories', '[]');
+    const withAphorism = [
+      makeNode({ id: 'acc-B-001', category: 'Beliefs', label: 'Open dev is safe', graph_attributes: { aphorism: 'Move fast, build things' } as any }),
+    ];
+    render(<NodeTree nodes={withAphorism} selectedNodeId={null} onSelect={vi.fn()} />);
+    expect(screen.getByText('Open dev is safe')).toBeDefined();
+    expect(screen.queryByText('Move fast, build things')).toBeNull();
+  });
+});
+
+describe('t/4532: collapse state is per POV', () => {
+  const accNodes = NODES; // acc-* ids, as above
+  const safNodes: PovNode[] = [
+    makeNode({ id: 'saf-B-001', category: 'Beliefs', label: 'Caution first' }),
+    makeNode({ id: 'saf-D-001', category: 'Desires', label: 'Avoid harm' }),
+    makeNode({ id: 'saf-I-001', category: 'Intentions', label: 'Slow rollout' }),
+  ];
+
+  beforeEach(() => mockSessionStorage.clear());
+
+  it('expanding Desires for one POV leaves Desires collapsed for another', () => {
+    const r1 = render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    fireEvent.click(document.querySelector('[data-cat="Desires"]')!);
+    expect(screen.getByText('Maximize progress')).toBeDefined();
+    r1.unmount();
+
+    render(<NodeTree nodes={safNodes} selectedNodeId={null} onSelect={vi.fn()} pov="safetyist" />);
+    expect(screen.queryByText('Avoid harm')).toBeNull(); // still collapsed: safetyist's own key, untouched
+  });
+
+  it('reopening a POV already visited this session keeps what was expanded there', () => {
+    const r1 = render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    fireEvent.click(document.querySelector('[data-cat="Desires"]')!);
+    expect(screen.getByText('Maximize progress')).toBeDefined();
+    r1.unmount();
+
+    // Switch away and back (PovTab's conditional mount: NodeTree remounts fresh each time).
+    render(<NodeTree nodes={safNodes} selectedNodeId={null} onSelect={vi.fn()} pov="safetyist" />).unmount();
+    render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.getByText('Maximize progress')).toBeDefined(); // still expanded
+  });
+
+  it('two NodeTree instances with no pov prop share the legacy bare key (backward compat)', () => {
+    // Existing suites above never pass `pov` and seed the bare key directly — this just pins
+    // that the fallback really is the pre-t/4532 key, not a `:undefined`-suffixed one.
+    mockSessionStorage.setItem('taxonomy-editor-collapsed-categories', '[]');
+    render(<NodeTree nodes={accNodes} selectedNodeId={null} onSelect={vi.fn()} />);
+    expect(screen.getByText('Open dev is safe')).toBeDefined();
+  });
+});
+
+describe('t/4532: a preselected/restored node does not auto-expand its category on first view', () => {
+  beforeEach(() => mockSessionStorage.clear());
+
+  it('first-ever view this session: a preselected node in a collapsed category stays collapsed', () => {
+    // True first view: sessionStorage has nothing for this POV yet.
+    render(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.queryByText('Maximize progress')).toBeNull(); // Desires stays collapsed
+  });
+
+  it('explicit navigation within the same mount still auto-expands (search, link, keyboard-nav)', () => {
+    const { rerender } = render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.queryByText('Maximize progress')).toBeNull();
+    rerender(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.getByText('Maximize progress')).toBeDefined(); // now expanded: a later, explicit selection
+  });
+
+  it('reopening a POV already visited this session: a preselected node DOES auto-expand (not a first view)', () => {
+    render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} pov="accelerationist" />).unmount();
+    // Second mount: sessionStorage already has this POV's key (still all-collapsed, but present).
+    render(<NodeTree nodes={NODES} selectedNodeId="acc-D-001" onSelect={vi.fn()} pov="accelerationist" />);
+    expect(screen.getByText('Maximize progress')).toBeDefined();
+  });
+});

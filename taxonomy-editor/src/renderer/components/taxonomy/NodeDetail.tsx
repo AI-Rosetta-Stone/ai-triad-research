@@ -47,6 +47,7 @@ import { InlineEditTitle } from '../shared/InlineEditTitle';
 import { publicPovSharePath } from '../../utils/shareLinks';
 import { DebateTestedChip } from './DebateTestedChip';
 import { DebateTestedDrilldown } from './DebateTestedDrilldown';
+import { CollapsibleSection } from './CollapsibleSection';
 import './NodeDetail.css';
 
 interface MoveTarget {
@@ -150,6 +151,10 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const [showDelete, setShowDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<NodeDetailTabId>('content');
   const [expandedLineage, setExpandedLineage] = useState<string | null>(null);
+  // t/4532: both collapsed by default, and reset to collapsed whenever a different node opens
+  // (effect below, alongside the existing per-node setSelectedFact(null) reset).
+  const [steelmanExpanded, setSteelmanExpanded] = useState(false);
+  const [lineageExpanded, setLineageExpanded] = useState(false);
 
   // Reset to a visible tab when switching to Simple (which hides most tabs).
   useEffect(() => {
@@ -233,6 +238,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
 
   // Clear fact selection on node change
   useEffect(() => { setSelectedFact(null); }, [node.id]);
+  useEffect(() => { setSteelmanExpanded(false); setLineageExpanded(false); }, [node.id]); // t/4532
 
   const handleFactSplitMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -467,6 +473,10 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
             hasGraphAttrs={hasGraphAttrs}
             descriptionMention={descriptionMention}
             plainDescriptionMention={plainDescriptionMention}
+            steelmanExpanded={steelmanExpanded}
+            setSteelmanExpanded={setSteelmanExpanded}
+            lineageExpanded={lineageExpanded}
+            setLineageExpanded={setLineageExpanded}
           />
         )}
 
@@ -786,12 +796,13 @@ interface SteelmanVulnerabilitySectionProps {
   node: PovNode;
   readOnly?: boolean;
   update: (updates: Partial<PovNode>) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }
 
-function SteelmanVulnerabilitySection({ node, readOnly, update }: SteelmanVulnerabilitySectionProps) {
+function SteelmanVulnerabilitySection({ node, readOnly, update, expanded, onToggle }: SteelmanVulnerabilitySectionProps) {
   return (
-    <div className="form-group">
-      <label>Steelman Vulnerability</label>
+    <CollapsibleSection title="Steelman Vulnerability" sectionId="steelman-vulnerability" expanded={expanded} onToggle={onToggle}>
       {typeof node.graph_attributes!.steelman_vulnerability === 'string' ? (
         readOnly ? (
           <div className="ga-promoted-text">{node.graph_attributes!.steelman_vulnerability}</div>
@@ -845,7 +856,7 @@ function SteelmanVulnerabilitySection({ node, readOnly, update }: SteelmanVulner
       ) : (
         <div className="ga-empty">&mdash;</div>
       )}
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -856,6 +867,8 @@ interface IntellectualLineageSectionProps {
   expandedLineage: string | null;
   setExpandedLineage: (v: string | null) => void;
   showAttributeInfo: (field: string, value: string) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }
 
 // t/3382: touch devices never fire `contextmenu` on a long-press — extracted so
@@ -887,10 +900,9 @@ function LineageChip({ label, selected, onSelect, onShowInfo }: {
   );
 }
 
-function IntellectualLineageSection({ node, expandedLineage, setExpandedLineage, showAttributeInfo }: IntellectualLineageSectionProps) {
+function IntellectualLineageSection({ node, expandedLineage, setExpandedLineage, showAttributeInfo, expanded, onToggle }: IntellectualLineageSectionProps) {
   return (
-    <div className="form-group">
-      <label>Intellectual Lineage</label>
+    <CollapsibleSection title="Intellectual Lineage" sectionId="intellectual-lineage" expanded={expanded} onToggle={onToggle}>
       <div className="ga-promoted-list">
         {[...node.graph_attributes!.intellectual_lineage!].map(v => typeof v === 'string' ? v : (v as { name?: string })?.name).filter((v): v is string => typeof v === 'string' && v.length > 0).sort((a, b) => a.localeCompare(b)).map((l, i) => (
           <LineageChip
@@ -943,7 +955,7 @@ function IntellectualLineageSection({ node, expandedLineage, setExpandedLineage,
           </div>
         );
       })()}
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -968,9 +980,15 @@ interface NodeDetailContentTabProps {
   descriptionMention?: DescriptionMention;
   /** t/2811: mention segments for the plain_description read-only highlight path. */
   plainDescriptionMention?: DescriptionMention;
+  /** t/4532: Steelman Vulnerability / Intellectual Lineage collapse state, lifted to NodeDetail
+   *  so it resets to collapsed on every node switch (same lifting pattern as expandedLineage). */
+  steelmanExpanded: boolean;
+  setSteelmanExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  lineageExpanded: boolean;
+  setLineageExpanded: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode, update, updatePovNode, showDtDrilldown, setShowDtDrilldown, expandedLineage, setExpandedLineage, showAttributeInfo, hasGraphAttrs, descriptionMention, plainDescriptionMention }: NodeDetailContentTabProps) {
+function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode, update, updatePovNode, showDtDrilldown, setShowDtDrilldown, expandedLineage, setExpandedLineage, showAttributeInfo, hasGraphAttrs, descriptionMention, plainDescriptionMention, steelmanExpanded, setSteelmanExpanded, lineageExpanded, setLineageExpanded }: NodeDetailContentTabProps) {
   const canEditPovTags = useCanEditPovTags();
   return (
     <>
@@ -999,7 +1017,13 @@ function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode,
       />
 
       {hasGraphAttrs && (
-        <SteelmanVulnerabilitySection node={node} readOnly={readOnly} update={update} />
+        <SteelmanVulnerabilitySection
+          node={node}
+          readOnly={readOnly}
+          update={update}
+          expanded={steelmanExpanded}
+          onToggle={() => setSteelmanExpanded(v => !v)}
+        />
       )}
 
       {node.graph_attributes?.intellectual_lineage && node.graph_attributes.intellectual_lineage.length > 0 && (
@@ -1008,6 +1032,8 @@ function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode,
           expandedLineage={expandedLineage}
           setExpandedLineage={setExpandedLineage}
           showAttributeInfo={showAttributeInfo}
+          expanded={lineageExpanded}
+          onToggle={() => setLineageExpanded(v => !v)}
         />
       )}
     </>
