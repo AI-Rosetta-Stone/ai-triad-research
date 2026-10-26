@@ -1,0 +1,65 @@
+/* ─── Chat Getting Started (t/4536) ──────────────────── */
+
+.chat-getting-started {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--sp-4);
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4);
+}
+
+.chat-getting-started-heading {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.chat-getting-started-why {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.chat-getting-started-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-2);
+}
+
+.chat-getting-started-chip {
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-getting-started-chip:hover {
+  background: var(--bg-hover);
+}
+
+.chat-getting-started-chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.chat-getting-started-mode-hint {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.chat-getting-started-new {
+  min-height: 44px;
+}

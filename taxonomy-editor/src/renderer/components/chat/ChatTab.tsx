@@ -110,7 +110,7 @@ function MyChatsList({
       )}
       {!sessionsLoading && sessions.length === 0 && (
         <div className="chat-session-empty">
-          No chats yet.
+          Talk AI policy through with one of three perspectives.
           <br />
           Click <strong>+ New</strong> to start one.
         </div>

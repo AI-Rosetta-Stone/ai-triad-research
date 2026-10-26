@@ -27,10 +27,11 @@ import { useTierInfo, isFreeTier } from '../../hooks/useTierInfo';
 import { GeminiOnboardingModal } from '../settings/GeminiOnboardingModal';
 import { CampGlyph, povToCamp } from '../shared/CampGlyph';
 import { SpeakerIdentity } from '../shared/SpeakerIdentity';
-import { EmptyState } from '../shared/EmptyState';
 import { ThinkingIndicator, MessageBubble, StreamingBubble } from '../shared/ChatBubble';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
+import { ChatGettingStarted } from './ChatGettingStarted';
+import { NewChatDialog } from './NewChatDialog';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -522,11 +523,13 @@ function ChatDetailPane({ selectedRef, onSelectRef, detailWidth, onDetailResize,
 export function ChatWorkspace() {
   const {
     activeChat, chatLoading, chatError, chatGenerating, chatActivity,
-    sendMessage, generateOpening, changeMode,
+    sendMessage, generateOpening, changeMode, loadChat,
   } = useChatStore();
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const hasTriggeredOpening = useRef(false);
   const [input, setInput] = useState('');
+  const [newChatPrefill, setNewChatPrefill] = useState<{ mode: ChatMode; topic: string } | null>(null);
+  const [showNewChat, setShowNewChat] = useState(false);
   const [shareState, setShareState] = useState<'idle' | 'sharing' | 'success' | 'error'>('idle');
   const [shareError, setShareError] = useState<string | null>(null);
   const [selectedRef, setSelectedRef] = useState<EntityRef | null>(null);
@@ -619,10 +622,18 @@ export function ChatWorkspace() {
   if (!activeChat) {
     return (
       <div className="chat-workspace">
-        <EmptyState
-          headline="No chat selected"
-          direction="Select a chat or start a new one."
+        <ChatGettingStarted
+          onPickStarter={(mode, topic) => { setNewChatPrefill({ mode, topic }); setShowNewChat(true); }}
+          onNewChat={() => { setNewChatPrefill(null); setShowNewChat(true); }}
         />
+        {showNewChat && (
+          <NewChatDialog
+            initialMode={newChatPrefill?.mode}
+            initialTopic={newChatPrefill?.topic}
+            onClose={() => setShowNewChat(false)}
+            onCreated={(id) => { setShowNewChat(false); void loadChat(id); }}
+          />
+        )}
       </div>
     );
   }

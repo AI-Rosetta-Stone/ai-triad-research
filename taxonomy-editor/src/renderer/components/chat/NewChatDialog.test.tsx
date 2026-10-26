@@ -179,3 +179,35 @@ describe('NewChatDialog POV tag wiring (t/3959)', () => {
     expect(screen.getByLabelText('safetyist tag')).toHaveValue('');
   });
 });
+
+describe('NewChatDialog starter-chip prefill (t/4536)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTier = null;
+    mockIsFree = false;
+    mockApi.hasApiKey.mockResolvedValue(false);
+    mockRegistry.povs = {};
+    mockCreateChat.mockResolvedValue('chat-1');
+  });
+
+  it('seeds mode and topic from initialMode/initialTopic, and focuses the first POVer choice', () => {
+    render(<NewChatDialog onClose={vi.fn()} initialMode="decide" initialTopic="Work through a policy decision" />);
+    expect(screen.getByDisplayValue('Work through a policy decision')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /start chat/i })).not.toBeDisabled();
+    expect(document.activeElement).toHaveAttribute('name', 'chatPover');
+  });
+
+  it('starts with an empty topic and no forced focus when opened unprefilled', () => {
+    render(<NewChatDialog onClose={vi.fn()} />);
+    expect(screen.getByPlaceholderText(/explore/i)).toHaveValue('');
+  });
+
+  it('creates the chat with the prefilled mode once a topic is given', async () => {
+    const user = userEvent.setup();
+    render(<NewChatDialog onClose={vi.fn()} initialMode="inform" initialTopic="Strongest evidence for the Accelerationist case" />);
+    await user.click(screen.getByRole('button', { name: /start chat/i }));
+    expect(mockCreateChat).toHaveBeenCalledWith(
+      'inform', 'accelerationist', 'Strongest evidence for the Accelerationist case', undefined, undefined,
+    );
+  });
+});
