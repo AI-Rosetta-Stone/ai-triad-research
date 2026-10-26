@@ -1,7 +1,7 @@
 {
  "name": "t4507-tag-pilot-rerun",
  "output_dir": "C:\\Users\\jsnov\\repos\\ai-triad-data\\debates\\t4507-tag-pilot-rerun",
- "approval_ref": "t/4507#1, t/4507#2",
+ "approval_ref": "t/4507#2",
  "approval_status": "APPROVED by the PI first-hand in the CL session 2026-10-26: \"spending approved\" (t/4507#1), cap \"approve $25 spending cap\" (t/4507#2).",
  "hard_stop_usd": 25.0,
  "hard_stop_ref": "PI cap $25 (t/4507#2)",
