@@ -5,7 +5,7 @@
 // model attribution, cancel-via-Esc/button, and the "Open in Gemini" escape hatch.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import { ExplainPanel } from './ExplainPanel';
 
 vi.mock('react-markdown', () => ({
@@ -124,6 +124,20 @@ describe('ExplainPanel', () => {
     await waitFor(() => expect(screen.getByTestId('markdown')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
     expect(clipboardWriteText).toHaveBeenCalledWith('the explanation text');
+  });
+
+  it('Copy shows a brief "Copied" confirmation, then reverts', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    generateText.mockResolvedValue({ text: 'the explanation text', servedModel: 'm' });
+    render(<ExplainPanel prompt="p" scopeLabel="this exchange" onClose={vi.fn()} />);
+    await vi.waitFor(() => expect(screen.getByTestId('markdown')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it('"Open in Gemini" copies the prompt (not the answer) and opens Gemini — available even while loading', () => {

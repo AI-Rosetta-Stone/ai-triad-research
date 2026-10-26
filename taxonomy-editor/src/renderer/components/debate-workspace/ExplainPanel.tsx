@@ -11,6 +11,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { TOAST_DURATION_FEEDBACK } from '../../constants';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useTaxonomyStore, getStoredModel } from '../../hooks/useTaxonomyStore';
 import { fixMarkdownLinks, openPromptInGemini } from './utils';
@@ -98,7 +99,12 @@ export function ExplainPanel({ prompt, scopeLabel, onClose }: ExplainPanelProps)
     else onClose();
   };
 
-  const handleCopy = () => { void api.clipboardWriteText(text); };
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    void api.clipboardWriteText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), TOAST_DURATION_FEEDBACK);
+  };
   const handleOpenInGemini = () => openPromptInGemini(prompt);
 
   return (
@@ -147,7 +153,7 @@ export function ExplainPanel({ prompt, scopeLabel, onClose }: ExplainPanelProps)
           <div className="debate-explain-meta">
             {servedModel && <span className="debate-explain-model-tag">via {servedModel}</span>}
             <div className="debate-explain-actions">
-              <button type="button" className="btn btn-sm" onClick={handleCopy}>Copy</button>
+              <button type="button" className="btn btn-sm" onClick={handleCopy}>{copied ? 'Copied' : 'Copy'}</button>
               <button type="button" className="btn btn-sm" onClick={run}>Regenerate</button>
               <button type="button" className="btn btn-sm" onClick={onClose}>Collapse</button>
             </div>
