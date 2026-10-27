@@ -16,13 +16,24 @@
 # group sits there for the ~25-30min suite runtime. Only (a) and (b) layer time
 # thresholds onto it.
 #
-# Usage: check-merge-queue-liveness.sh <repo> <branch>
+# Usage: check-merge-queue-liveness.sh <repo> <branch> [no_checks_threshold_min]
+# The third arg overrides the "(a) no checks started" minute threshold (default 15) --
+# SO P1 (e/381#2): a live-fire arm run seconds after enqueue needs threshold=0 to prove
+# anything about CHECK_COUNT at all, since AGE_MIN=0 would pass the default ">15" gate
+# regardless of the real check state.
 # Prints a JSON array of violations: [{number, kind: "no-checks-started"|"awaiting-checks-stale"|"queued-too-long", ageMinutes}]
 # Exits 0 always (this check alerts, it never fails closed/open like the C2 enumeration script).
 set -uo pipefail
 
 REPO="$1"
 BRANCH="$2"
+NO_CHECKS_THRESHOLD_MIN="${3:-15}"
+# `${3:-15}` only substitutes when $3 is UNSET, not when it's an empty string -- and a
+# workflow_dispatch input left blank (or a schedule trigger, where the input context
+# doesn't exist at all) both arrive here as an explicit empty string, not an absent arg.
+if [ -z "$NO_CHECKS_THRESHOLD_MIN" ]; then
+  NO_CHECKS_THRESHOLD_MIN=15
+fi
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
 
@@ -103,8 +114,8 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
       fi
     fi
 
-    # ---- (a) no check run started within 15 minutes ----
-    if [ "$CHECK_COUNT" -eq 0 ] && [ "$AGE_MIN" -gt 15 ]; then
+    # ---- (a) no check run started within the threshold ----
+    if [ "$CHECK_COUNT" -eq 0 ] && [ "$AGE_MIN" -gt "$NO_CHECKS_THRESHOLD_MIN" ]; then
       VIOLATIONS=$(echo "$VIOLATIONS" | jq --argjson n "$num" --argjson age "$AGE_MIN" '. + [{number: $n, kind: "no-checks-started", ageMinutes: $age}]')
     # ---- (b) awaiting checks beyond the real worst-case suite time ----
     elif [ "$AGE_MIN" -gt 60 ]; then

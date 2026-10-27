@@ -9,6 +9,10 @@ on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      no_checks_threshold_min:
+        description: 'Override the "(a) no checks started" minute threshold (live-fire use only; leave unset for the real 15min default)'
+        required: false
 
 permissions:
   issues: write
@@ -26,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x operations/devops/check-merge-queue-liveness.sh
-          VIOLATIONS=$(operations/devops/check-merge-queue-liveness.sh "${{ github.repository }}" "main")
+          VIOLATIONS=$(operations/devops/check-merge-queue-liveness.sh "${{ github.repository }}" "main" "${{ github.event.inputs.no_checks_threshold_min }}")
           echo "violations: $VIOLATIONS"
           echo "violations=$(echo "$VIOLATIONS" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
