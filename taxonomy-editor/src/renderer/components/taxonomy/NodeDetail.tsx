@@ -469,6 +469,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           setAphorismEditing={setAphorismEditing}
           aphorismDraft={aphorismDraft}
           setAphorismDraft={setAphorismDraft}
+          nodeDetailMode={nodeDetailMode}
         />
         <NodeLastEditedLine node={node} nodeDetailMode={nodeDetailMode} />
       </div>
@@ -699,9 +700,10 @@ interface NodeDetailAphorismSectionProps {
   setAphorismEditing: (v: boolean) => void;
   aphorismDraft: string;
   setAphorismDraft: (v: string) => void;
+  nodeDetailMode?: 'simple' | 'advanced';
 }
 
-function NodeDetailAphorismSection({ node, readOnly, update, aphorismEditing, setAphorismEditing, aphorismDraft, setAphorismDraft }: NodeDetailAphorismSectionProps) {
+function NodeDetailAphorismSection({ node, readOnly, update, aphorismEditing, setAphorismEditing, aphorismDraft, setAphorismDraft, nodeDetailMode }: NodeDetailAphorismSectionProps) {
   return (
     <>
       {/* Aphorism display */}
@@ -1488,6 +1490,8 @@ function EvidenceGraphSection({ nodeId }: { nodeId: string }) {
     </div>
   );
 }
+
+
 
 
 

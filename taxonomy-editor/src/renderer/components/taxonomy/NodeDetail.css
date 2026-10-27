@@ -939,3 +939,44 @@
   color: var(--text-secondary);
   font-weight: 500;
 }
+
+/* ── Description section - unboxed serif layout (t/4574) ── */
+.nd-description-section {
+  margin: 12px 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.nd-description-section h3 {
+  font-family: 'Source Serif 4', serif;
+  font-size: var(--text-lg);
+  font-weight: 400;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+  letter-spacing: 0.02em;
+}
+
+.nd-description-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-family: 'Source Serif 4', serif;
+}
+
+/* ── Last edited footer - accent rule separator (t/4574) ── */
+.nd-last-edited {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 2px solid var(--accent-color, #d4af37);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ── Node detail meta line (POV + Category) ── */
+.nd-header-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-transform: capitalize;
+}
