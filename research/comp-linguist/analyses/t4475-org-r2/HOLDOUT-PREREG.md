@@ -58,3 +58,16 @@ Each metric is reported **with its counts**:
 `unknown` tags (a backend failure) are reported but excluded from the denominators. If more than 10% of the sample is `unknown`, the run is repeated.
 
 **Provenance:** these bars are **stipulated**. They carry over the t/4523 acceptance bars (CL). A PASS here moves the gate's provenance to **derived**, recorded in `metric-provenance-register.md`.
+
+## Amendment 1 (2026-10-27): repeated runs, recorded before any held-out data exists
+
+**Why:** the gate's tag is an LLM verdict, and it varies from run to run. Two live runs of the same v2 gate on the same 29 development proposals gave 7 and then 9 `direction_conflict` flags (t/4523, #3918). So a single run of the held-out sample is one draw, not a measurement.
+
+**What changes:**
+- **Three runs.** Run the gate **3 times** on the held-out sample, with no prompt or code change between runs.
+- **Score the modal tag.** Each item's tag is the most common of its 3; a three-way tie scores as `partial`. All the metrics and the PASS/FAIL verdict above are computed on this modal tag.
+- **Report stability alongside the verdict:**
+  - per-item agreement: the share of items whose 3 tags all match, with counts;
+  - the counts for each metric in each individual run, so the spread is visible.
+- **Stability guard:** if fewer than **70%** of items agree across all 3 runs, report the verdict as **UNSTABLE** rather than PASS or FAIL. The tag is then too noisy to validate at this sample size, whatever its average accuracy. This bar is **stipulated**.
+- **Blinding is unchanged:** labels are committed before the first run.
