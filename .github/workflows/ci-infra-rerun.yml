@@ -23,7 +23,7 @@ on:
     types: [completed]
 
 permissions:
-  actions: read
+  actions: write
   issues: write
 
 jobs:
