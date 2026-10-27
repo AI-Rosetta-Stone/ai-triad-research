@@ -479,6 +479,20 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         </div>
       )}
 
+      {/* Description above tabs (t/4574) — shows in both Simple and Advanced views */}
+      <DescriptionSection
+        pov={pov}
+        node={node}
+        readOnly={readOnly}
+        err={err}
+        descMode={descMode}
+        setDescMode={setDescMode}
+        update={update}
+        updatePovNode={updatePovNode}
+        descriptionMention={descriptionMention}
+        plainDescriptionMention={plainDescriptionMention}
+      />
+
       <NodeDetailTabBar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -1029,18 +1043,7 @@ function NodeDetailContentTab({ pov, node, readOnly, err, descMode, setDescMode,
       {/* t/4167: tags are admin-only; the rest of the node stays editable. */}
       <PovTagEditor pov={pov} tags={node.pov_tags} readOnly={!!readOnly || !canEditPovTags} error={err('pov_tags')} onChange={(next) => update({ pov_tags: next })} />
 
-      <DescriptionSection
-        pov={pov}
-        node={node}
-        readOnly={readOnly}
-        err={err}
-        descMode={descMode}
-        setDescMode={setDescMode}
-        update={update}
-        updatePovNode={updatePovNode}
-        descriptionMention={descriptionMention}
-        plainDescriptionMention={plainDescriptionMention}
-      />
+      {/* Description moved above tabs (t/4574) */}
 
       {hasGraphAttrs && (
         <SteelmanVulnerabilitySection
