@@ -34,6 +34,15 @@ NO_CHECKS_THRESHOLD_MIN="${3:-15}"
 if [ -z "$NO_CHECKS_THRESHOLD_MIN" ]; then
   NO_CHECKS_THRESHOLD_MIN=15
 fi
+# SO finding (e/382#2, not blocking): a non-integer override (fat-fingered manual
+# dispatch input) must not crash the later `-gt` comparisons -- fall back to the real
+# default with a WARN rather than letting the script die on a malformed input.
+case "$NO_CHECKS_THRESHOLD_MIN" in
+  ''|*[!0-9]*)
+    echo "::warning::check-merge-queue-liveness: no_checks_threshold_min='${NO_CHECKS_THRESHOLD_MIN}' is not a non-negative integer -- falling back to 15." >&2
+    NO_CHECKS_THRESHOLD_MIN=15
+    ;;
+esac
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
 
