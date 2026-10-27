@@ -23,6 +23,7 @@ import type { LibraryListPageConfig, LibraryVariant } from '../shared/LibraryLis
 import { OpEdCampTags } from './OpEdCampTags';
 import { OpEdReader } from './OpEdReader';
 import { NewOpEdDialog } from './NewOpEdDialog';
+import { OpEdGettingStarted } from './OpEdGettingStarted';
 import { opedRoutePath, navigateTo, replaceRoute } from '../../routing/appRoutes';
 import './OpEdTab.css';
 
@@ -299,6 +300,9 @@ export function OpEdTab() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [showNewDialog, setShowNewDialog] = useState(false);
+  // t/4562: a getting-started chip seeds this before opening the dialog; "+ New Op-Ed" leaves
+  // it undefined, so the dialog keeps whatever topic (if any) the user last typed.
+  const [newDialogTopic, setNewDialogTopic] = useState<string | undefined>(undefined);
 
   // The set currently open in the reader — may come from the personal store (My)
   // or a community load (Community). null = table view.
@@ -504,6 +508,17 @@ export function OpEdTab() {
     });
   }, [deleteSelected, flash]);
 
+  // t/4562: a getting-started chip seeds the topic, then opens the same dialog "+ New Op-Ed" uses.
+  const handlePickStarter = useCallback((topic: string) => {
+    setNewDialogTopic(topic);
+    setShowNewDialog(true);
+  }, []);
+
+  const handleNewClick = useCallback(() => {
+    setNewDialogTopic(undefined);
+    setShowNewDialog(true);
+  }, []);
+
   // ── LibraryListPage adoption (t/3703) — id adapter + config ──
 
   const myLibRows = useMemo<OpEdMyLibRow[]>(() => orderedSets.map(s => ({ ...s, id: s.set_id })), [orderedSets]);
@@ -511,7 +526,7 @@ export function OpEdTab() {
   const libConfig: LibraryListPageConfig<OpEdMyLibRow, OpEdCommunityLibRow> = useMemo(() => ({
     title: 'Op-Ed Studies',
     newLabel: '+ New Op-Ed',
-    onNew: () => setShowNewDialog(true),
+    onNew: handleNewClick,
     showEdit: true,
     // t/3703#8: unlike Debates, an anonymous session has real (temporary) op-eds — NewOpEdDialog
     // only gates URL-source creation for anonymous, not topic-only creation, and the temp anon
@@ -573,7 +588,7 @@ export function OpEdTab() {
   }), [
     editMode, selectedIds, customOrder, exitEditMode, handleBulkDelete, clearSelected, saveCustomOrder,
     toggleSelected, myLibRows, moveSet, handleRename, renamingId, handleExportMy, handleExportCommunity,
-    handleShare, handleCopy, auth?.anonymous,
+    handleShare, handleCopy, auth?.anonymous, handleNewClick,
   ]);
 
   // ── Reader view ──
@@ -613,6 +628,8 @@ export function OpEdTab() {
         communityLoading={communityLoading}
         onOpenMy={openMy}
         onOpenCommunity={openCommunity}
+        intro={<OpEdGettingStarted hasNoOpEds={myLibRows.length === 0} onPickStarter={handlePickStarter} />}
+        defaultCommunityOnWeb
       />
 
       {/* Create dialog — both builds (t/2614). URL/source create is desktop-only in v1
@@ -622,6 +639,7 @@ export function OpEdTab() {
         onClose={() => setShowNewDialog(false)}
         onCreated={setId => { void handleCreated(setId); }}
         allowUrlSource={isElectron}
+        initialTopic={newDialogTopic}
       />
     </>
   );

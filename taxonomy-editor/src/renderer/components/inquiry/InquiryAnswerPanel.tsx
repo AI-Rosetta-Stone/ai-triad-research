@@ -50,7 +50,7 @@ async function runSubmitToCommunity(jobId: string): Promise<{ ok: true; submissi
 }
 
 export function InquiryAnswerPanel() {
-  const { status, result, error, terminationReason, jobId, reset } = useInquiryStore();
+  const { status, result, error, terminationReason, jobId, reset, openList } = useInquiryStore();
   const [exportError, setExportError] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const loadDebate = useDebateStore(s => s.loadDebate);
@@ -86,6 +86,7 @@ export function InquiryAnswerPanel() {
         </div>
         <div className="inquiry-rawrow">
           <button className="inquiry-ghost" onClick={reset}>Ask another question</button>
+          <button className="inquiry-ghost" onClick={openList}>My Questions</button>
         </div>
       </div>
     );
@@ -111,6 +112,7 @@ export function InquiryAnswerPanel() {
           <InquiryExportDropdown onExport={(f) => void handleExport(f)} />
           {jobId && <InquiryShareControl jobId={jobId} result={result} />}
           {result.debateId && <button className="inquiry-ghost" onClick={() => void handleViewRawRun(result.debateId!)}>View raw run</button>}
+          <button className="inquiry-ghost" onClick={openList}>My Questions</button>
         </div>
         {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
         {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}
@@ -231,6 +233,7 @@ export function InquiryAnswerPanel() {
         <InquiryExportDropdown onExport={(f) => void handleExport(f)} />
         {jobId && <InquiryShareControl jobId={jobId} result={result} />}
         {result.debateId && <button className="inquiry-ghost" onClick={() => void handleViewRawRun(result.debateId!)}>View raw run</button>}
+        <button className="inquiry-ghost" onClick={openList}>My Questions</button>
       </div>
       {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
       {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}

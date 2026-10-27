@@ -75,6 +75,11 @@ interface InquiryStoreState {
   fetchHistory: () => Promise<void>;
   /** Opens a past question from history directly onto the Answer screen (t/3620). */
   openFromHistory: (jobId: string) => Promise<void>;
+  /** t/4562: opens a community question directly onto the Answer screen — mirrors
+   *  openFromHistory, but loads the full result from the community store rather than the
+   *  caller's own history. jobId stays null (not the caller's own run), which naturally hides
+   *  the Share-link control (My-only) without a separate "community source" flag. */
+  openCommunityResult: (id: string) => Promise<void>;
 
   /** Internal — exposed for the unmount-cleanup effect in InquiryTab.tsx. */
   _stopPolling: () => void;
@@ -198,7 +203,11 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
     pollError: null,
     result: null,
 
-    viewingList: false,
+    // t/4562: the library page (My/Community) is now the tab's default landing view, matching
+    // Op-Eds/Chats/Debates — true rather than false. A fresh startInquiry()/openFromHistory()
+    // flips this to false explicitly; reset() returns here too ("Ask another question"/"+ New
+    // Question" from any screen).
+    viewingList: true,
     history: [],
     historyLoading: false,
     historyError: null,
@@ -262,7 +271,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
       consecutivePollFailures = 0;
       set({
         jobId: null, status: null, progressPct: 0, terminationReason: null,
-        error: null, pollError: null, result: null,
+        error: null, pollError: null, result: null, viewingList: false,
       });
     },
 
@@ -309,6 +318,25 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
           component: 'inquiry-store',
           level: 'error',
           message: `openFromHistory failed for ${jobId}`,
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        set({ status: 'failed', error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+
+    openCommunityResult: async (id: string) => {
+      clearPollTimer();
+      consecutivePollFailures = 0;
+      set({ viewingList: false, error: null, pollError: null, result: null, jobId: null, status: 'queued', progressPct: 0, terminationReason: null });
+      try {
+        const result = await api.loadCommunityInquiry(id);
+        set({ status: 'done', progressPct: 100, result });
+      } catch (err) {
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          component: 'inquiry-store',
+          level: 'error',
+          message: `openCommunityResult failed for ${id}`,
           error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
         });
         set({ status: 'failed', error: err instanceof Error ? err.message : String(err) });

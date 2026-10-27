@@ -6,10 +6,16 @@ import { STAGE_ORDER, STAGE_META, stageStatus } from './inquiryDisplay';
 import './InquiryTab.css';
 
 export function InquiryRunningPanel() {
-  const { question, jobId, status, progressPct, pollError } = useInquiryStore();
+  const { question, jobId, status, progressPct, pollError, openList } = useInquiryStore();
 
   return (
     <div className="inquiry-run">
+      <div className="inquiry-rawrow">
+        {/* t/4562: the persistent Ask/My/Community strip is gone (replaced by the library page
+         *  on the list screen) — this is the running screen's own way back while the poll
+         *  continues in the background (the poll is keyed on jobId, not on which screen is shown). */}
+        <button className="inquiry-ghost" onClick={openList}>My Questions</button>
+      </div>
       <div className="inquiry-runhead">
         <p className="inquiry-runq">{question}</p>
         {jobId && <span className="inquiry-jobid mono">{jobId}</span>}
