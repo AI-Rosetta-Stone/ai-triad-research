@@ -5296,7 +5296,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 11 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 12 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`; Azure p/105#37 — short SHA `c69a0754` passed to PR #3923's merge, same GraphQL coercion failure, same fix). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -7574,3 +7574,44 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Design p/472#10).
 
 **Applies To:** All agents installing dependencies with `--ignore-scripts` in a worktree that will run the Electron app (taxonomy-editor/, poviewer/, summary-viewer/).
+
+---
+
+## #373 [Process] Silencing `git worktree add`'s Output Masks Exit 128 — `cd` Into the Failed Target Resolves Upward to the Shared Checkout Root
+
+**Pattern:** An agent runs `git worktree add` with its output silenced (e.g. redirected or suppressed). The command fails with exit 128 because a leftover `.worktrees/<name>` directory already exists at the target path (see root cause below). Silencing the output means the agent never sees the failure; it proceeds to `cd` into that path. Because the directory is a plain leftover (not a real worktree — `git worktree add` never completed), `cd` succeeds into an ordinary directory, and subsequent git/pnpm commands that expect worktree context instead resolve upward to the nearest real git root: the shared checkout. An install command intended for the worktree (`pnpm install --ignore-scripts`) then runs at the shared checkout's root, reinstalling packages and overwriting files there — including wiping `taxonomy-editor/node_modules/electron/dist/electron.exe`.
+
+**Instances:**
+- 2026-10-26 — Design (p/472#12, p/472#14): `git worktree add` failed exit 128 (leftover `.worktrees/<name>` directory from an earlier `git worktree remove --force` that exited 0 but left the directory behind with ignored files like `node_modules` still inside — see root cause). Output was silenced, so the failure went unnoticed; `cd` into the leftover directory, then `pnpm install --ignore-scripts` ran at the shared checkout root, reinstalling 45 packages and wiping `electron.exe`. Resolved: re-ran Electron's `install.js` in the shared tree to restore `electron.exe` 45.0.0; native prebuilts (node-pty, onnxruntime) were intact; confirmed no tracked files changed. Recreated the worktree after verifying `git rev-parse --show-toplevel` equals the intended worktree path. Reproduced the trigger again on request, confirming the root cause.
+
+**Root Cause:** `git worktree remove --force` can exit 0 while leaving the `.worktrees/<name>` directory itself behind on disk, still holding ignored files (`node_modules`, build output) that aren't tracked by git and so aren't cleaned up by the remove operation. That surviving directory is exactly what makes a SUBSEQUENT `git worktree add` at the same path fail with exit 128 ("already exists"). If that failure's output is silenced, the agent has no signal that `add` never happened — `cd` into the leftover plain directory succeeds (it's a real directory, just not a git worktree), and any git or package-manager command run there that resolves context by walking up the directory tree finds the shared checkout's `.git`/`package.json` instead, operating there unintentionally.
+
+**Prevention:**
+1. **Never silence `git worktree add`'s output.** A failure here (typically exit 128, "already exists") is a critical signal — treat non-zero exit as a hard stop, not something to route around silently.
+2. **Before running ANY install or write command in what you believe is a worktree, assert it:** `git rev-parse --show-toplevel` must equal the exact worktree path you intended. If it resolves to the shared checkout root (or any other unexpected path), stop immediately — do not proceed with the install.
+3. **After `git worktree remove --force`, verify the directory is actually gone**, not just that git no longer tracks it as a worktree: check the path with `Test-Path`/`ls`. If it's unregistered but still present on disk, delete it explicitly before the next `git worktree add` at that path.
+4. **If a shared-checkout write is suspected, confirm scope with `git status --short` at the shared checkout root** before assuming damage — this incident had zero tracked-file impact (only the gitignored Electron binary and reinstalled node_modules were affected), which is why it resolved cleanly.
+
+**Status:** Active — 1 instance (Design p/472#12/#14), reproduced on request. Protect-Working-Builds near-miss; resolved with zero tracked-file loss.
+
+**Applies To:** All agents creating or removing worktrees; always check `git worktree add`'s exit code, and always verify `--show-toplevel` before installing or writing in what you believe is a worktree.
+
+---
+
+## #374 [Process] A WARN-FIRST `continue-on-error` Check Can Stay Permanently Red With No One Noticing
+
+**Pattern:** A CI step runs with `continue-on-error: true` (WARN-FIRST design) so its failure never blocks the workflow. A later, deliberate design decision changes a value that the step's own validation disagrees with — the step then fails on EVERY run, silently, forever, because nothing surfaces an ongoing red WARN-FIRST state to anyone. The condition is discovered only incidentally, by an agent running the local test suite for an unrelated reason.
+
+**Instances:**
+- 2026-10-26 — Azure (p/105#35): while touching `health-monitor.yml` for an unrelated ticket (t/4417), found `node --test operations/devops/scheduled-workflow-health.test.mjs` failing locally — `health-monitor.yml: maxSilentHours must be >= 12`, but the entry is `10` per t/4501's deliberate ruling (2x measured p95 ≈ 4.8h, intentionally below the lint's `>= 12` floor). Confirmed pre-existing on `origin/main` HEAD `4b0d3f96`, unrelated to the current change. CI never surfaces it because the step carries `continue-on-error: true` (WARN-FIRST per t/4058) — silently red every run. Not actioned (not the discovering agent's ticket); flagged for tracking.
+
+**Root Cause:** `continue-on-error: true` is designed to let a check warn without blocking — but it has no companion mechanism to ensure a persistently-red warn-first check is ever looked at. A one-time deliberate exception (t/4501's `maxSilentHours: 10` vs. the lint's general `>= 12` floor) created a permanent disagreement between a documented design decision and an automated check that was never updated to match. Nobody monitors the warn-first lane for standing red state; it is only found by accident.
+
+**Prevention:**
+1. **When a deliberate design decision conflicts with an existing automated check's rule, update the check** (relax the lint floor, add an explicit exception/allowlist) at the time the decision is made — don't leave the check red indefinitely.
+2. **A WARN-FIRST (`continue-on-error: true`) check that has been red for a long time is itself a signal worth surfacing** — consider a periodic digest or dashboard of warn-first failures so they don't persist unnoticed (candidate for whoever owns the t/4058 WARN-FIRST pattern).
+3. **If you discover a pre-existing red check unrelated to your current ticket, confirm it predates your change (`git log`/`gh api` on the base commit) and flag it rather than fixing it inline** — scope discipline, same as Claim Before Implement.
+
+**Status:** Active — 1 instance (Azure p/105#35). Design-tension class: a deliberate exception that was never reconciled with its own check's rule. Candidate process-design gap for whoever owns t/4501/t/4058.
+
+**Applies To:** All agents who discover a persistently-red `continue-on-error` check; flag rather than silently ignore, and consider whether the owning design decision needs reconciling with its check.
