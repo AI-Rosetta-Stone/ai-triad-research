@@ -106,7 +106,12 @@ const { mockDebateTestedChip } = vi.hoisted(() => ({ mockDebateTestedChip: vi.fn
 vi.mock('./DebateTestedChip', () => ({ DebateTestedChip: mockDebateTestedChip }));
 vi.mock('./DebateTestedDrilldown', () => ({ DebateTestedDrilldown: () => null }));
 vi.mock('../shared/MentionField', () => ({
-  useContainerMentionKit: () => ({ renderMentionField: () => null, descriptionMention: null }),
+  useContainerMentionKit: () => ({
+    mentions: [],
+    onSelectRef: vi.fn(),
+    renderField: (_fieldName: string, fallback: string) => fallback,
+    segmentsFor: () => [],
+  }),
   MentionField: () => null,
 }));
 vi.mock('../../utils/regeneratePlainDescription', () => ({ triggerPovNodeRegeneration: vi.fn() }));
@@ -115,7 +120,10 @@ vi.mock('../../prompts/research', () => ({ researchPrompt: () => '' }));
 // t/4167: who may edit POV tags (default: may, so the other tests are unaffected).
 const tagPerm = vi.hoisted(() => ({ canEdit: true }));
 vi.mock('../../hooks/useCanEditPovTags', () => ({ useCanEditPovTags: () => tagPerm.canEdit }));
-vi.mock('../../utils/shareLinks', () => ({ publicPovSharePath: () => '' }));
+// t/4559: who sees the "..." menu / Pin fallback (default: admin, so the other tests —
+// written against the pre-t/4559 always-visible menu — are unaffected).
+const adminState = vi.hoisted(() => ({ isAdmin: true }));
+vi.mock('../../hooks/useIsAdmin', () => ({ useIsAdmin: () => adminState.isAdmin }));
 vi.mock('../conflict/edit-conflicts', () => ({
   EditConflictBadge: () => null,
 }));
@@ -175,7 +183,7 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
     ).not.toThrow();
   });
 
-  it('surfaces Content, Related, and Attributes in simple mode; other advanced tabs stay hidden (t/3003)', () => {
+  it('surfaces Content and Related in simple mode; Attributes and other advanced tabs stay hidden (t/4559, reverses t/3003)', () => {
     render(
       <NodeDetail
         pov="acc"
@@ -188,7 +196,7 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
     );
     expect(screen.getByRole('button', { name: /content/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /related/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /attributes/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /attributes/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /research/i })).not.toBeInTheDocument();
   });
 
@@ -208,6 +216,26 @@ describe('NodeDetail — Zustand scalar selector regression (t/2142)', () => {
     expect(screen.getByRole('button', { name: /related/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /attributes/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /research/i })).toBeInTheDocument();
+  });
+
+  // t/4559 — Attributes is now Advanced-only; a user on it who drops to Simple lands on Content.
+  it('resets the active tab to Content when switching advanced→simple while on Attributes', () => {
+    mockPrefsState.viewMode = 'advanced';
+    const { rerender } = render(
+      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+
+    const attributesTab = screen.getByRole('button', { name: /attributes/i });
+    fireEvent.click(attributesTab);
+    expect(attributesTab.className).toContain('node-detail-tab-active');
+
+    mockPrefsState.viewMode = 'simple';
+    rerender(
+      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+
+    expect(screen.queryByRole('button', { name: /attributes/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /content/i }).className).toContain('node-detail-tab-active');
   });
 
   // t/2826 — the Pin-for-comparison ("bookmark") control is Advanced-view only.
@@ -479,6 +507,47 @@ describe('NodeDetail — POV tag editing is admin-only (t/4167)', () => {
     renderTagged();
     expect(screen.getByRole('button', { name: 'Remove tag Critical' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Add POV tag' })).toBeInTheDocument();
+  });
+});
+
+// ── t/4559: the "..." overflow menu and the read-only Pin fallback are admin-only ──
+// (desktop: always admin; web: profile.isAdmin === true; while loading/on error: not admin —
+// covered by useIsAdmin.test.ts. Here: the component actually hides the controls either way.)
+
+describe('NodeDetail — "..." menu and Pin fallback are admin-only (t/4559)', () => {
+  beforeEach(() => {
+    adminState.isAdmin = true;
+    mockPrefsState.viewMode = 'advanced';
+  });
+
+  it('admin: sees the "..." menu (editable) in advanced mode', () => {
+    render(
+      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+    expect(screen.getByTitle('More actions')).toBeInTheDocument();
+  });
+
+  it('non-admin: the "..." menu is hidden (editable) in advanced mode', () => {
+    adminState.isAdmin = false;
+    render(
+      <NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+    expect(screen.queryByTitle('More actions')).not.toBeInTheDocument();
+  });
+
+  it('admin: sees the Pin fallback button in read-only advanced mode', () => {
+    render(
+      <NodeDetail pov="acc" node={mockNode} readOnly onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+    expect(screen.getByTitle('Pin for comparison')).toBeInTheDocument();
+  });
+
+  it('non-admin: the Pin fallback button is hidden in read-only advanced mode', () => {
+    adminState.isAdmin = false;
+    render(
+      <NodeDetail pov="acc" node={mockNode} readOnly onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />,
+    );
+    expect(screen.queryByTitle('Pin for comparison')).not.toBeInTheDocument();
   });
 });
 
