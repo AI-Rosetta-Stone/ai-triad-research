@@ -818,5 +818,95 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 $r.EndorsementCounts.unknown | Should -Be 1
             }
         }
+
+        It 'sets DirectionConflict when endorsement says endorses/partial but the directional gate flips the edge to OPPOSES (CL t/4523#5)' {
+            InModuleScope AITriad -Parameters @{
+                ClaimsPath = $script:claimsPath
+                EmbPath    = $script:endEmbPath
+                VecA       = [double[]]$script:vecA
+            } {
+                param($ClaimsPath, $EmbPath, $VecA)
+
+                @{ claims = @(
+                    [PSCustomObject]@{ org_id='org-703'; source_id='src-conflict'; polarity='asserts'
+                        text='CONFLICTED verbatim'; canonical_proposition='CONFLICTED canonical'; extraction_confidence=0.9 }
+                ) } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+
+                $vecAref = $VecA
+                function python {
+                    process {
+                        $payload = @($input | Out-String | ConvertFrom-Json)
+                        if ($payload.Count -gt 0 -and $payload[0].PSObject.Properties['claim_prop']) {
+                            # Directional gate (NLI engine): claim opposes the node.
+                            $out = foreach ($it in $payload) {
+                                [pscustomobject]@{ id = $it.id; direction = 'opposes'; confidence = 1.5; method = 'nli' }
+                            }
+                            ConvertTo-Json -InputObject @($out) -Depth 5
+                        } else {
+                            $o = [ordered]@{}
+                            foreach ($it in $payload) { $o[$it.id] = $vecAref }
+                            $o | ConvertTo-Json -Depth 5 -Compress
+                        }
+                    }
+                }
+                Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
+                # Endorsement gate (LLM): the position favours the node — the two gates disagree.
+                Mock Test-OrgEndorsement {
+                    foreach ($p in @($Pair)) { [PSCustomObject]@{ Id = $p.Id; Verdict = 'endorses'; Reason = 'favours the node' } }
+                }
+
+                $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
+                    -MatchThreshold 0.60 -Verbose:$false 6>$null
+
+                $r.Proposals[0].EdgeType          | Should -Be 'OPPOSES' -Because 'the directional gate flipped it'
+                $r.Proposals[0].Endorsement       | Should -Be 'endorses'
+                $r.Proposals[0].DirectionConflict | Should -BeTrue -Because 'endorses + OPPOSES is exactly the unresolved conflict a reviewer must see'
+                $r.Proposals[0].Rationale         | Should -Match 'direction_conflict=true'
+                $r.DirectionConflicts             | Should -Be 1
+            }
+        }
+
+        It 'does NOT set DirectionConflict when endorsement and the final edge type agree' {
+            InModuleScope AITriad -Parameters @{
+                ClaimsPath = $script:claimsPath
+                EmbPath    = $script:endEmbPath
+                VecA       = [double[]]$script:vecA
+            } {
+                param($ClaimsPath, $EmbPath, $VecA)
+
+                @{ claims = @(
+                    [PSCustomObject]@{ org_id='org-704'; source_id='src-agree'; polarity='asserts'
+                        text='AGREED verbatim'; canonical_proposition='AGREED canonical'; extraction_confidence=0.9 }
+                ) } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+
+                $vecAref = $VecA
+                function python {
+                    process {
+                        $payload = @($input | Out-String | ConvertFrom-Json)
+                        if ($payload.Count -gt 0 -and $payload[0].PSObject.Properties['claim_prop']) {
+                            $out = foreach ($it in $payload) {
+                                [pscustomobject]@{ id = $it.id; direction = 'unrelated'; confidence = 0.1; method = 'nli' }
+                            }
+                            ConvertTo-Json -InputObject @($out) -Depth 5
+                        } else {
+                            $o = [ordered]@{}
+                            foreach ($it in $payload) { $o[$it.id] = $vecAref }
+                            $o | ConvertTo-Json -Depth 5 -Compress
+                        }
+                    }
+                }
+                Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
+                Mock Test-OrgEndorsement {
+                    foreach ($p in @($Pair)) { [PSCustomObject]@{ Id = $p.Id; Verdict = 'endorses'; Reason = 'test' } }
+                }
+
+                $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
+                    -MatchThreshold 0.60 -Verbose:$false 6>$null
+
+                $r.Proposals[0].EdgeType          | Should -Be 'ADVOCATES_FOR' -Because 'no opposition detected, no flip'
+                $r.Proposals[0].DirectionConflict | Should -BeFalse
+                $r.DirectionConflicts             | Should -Be 0
+            }
+        }
     }
 }

@@ -58,6 +58,19 @@ function Invoke-OrgClaimMatching {
         only changes which proposals the existing per-org cap keeps when it has
         to cut (a 'none' proposal sorts after everything else); every proposal
         is still written as 'proposed'. Off only under -SkipEndorsementGate.
+
+        FORENSIC/ADDITIVE, PROVENANCE STIPULATED (CL t/4523#5; dev-check 10/13 Y/P,
+        14/16 N — t/4523#4; register `metric-provenance-register.md` §22): a
+        consumer may SORT on .Endorsement, but must not filter, hide, or
+        auto-reject on it until the t/4545 held-out set validates it. The
+        exemption lapses the moment a consumer does either — see
+        lib/ai-client/types.ts for the model of this note.
+
+        .DirectionConflict (CL t/4523#5 condition 2) is set when .Endorsement is
+        'endorses' or 'partial' but the directional-reconciled .EdgeType is
+        'OPPOSES' — the two gates disagree about which way the org's position
+        points. NEVER AUTO-RESOLVED: surfaced in .Rationale for a human reviewer.
+        Feeds t/4546 (the directional gate's own type-flip-stability finding).
     .PARAMETER ClaimsPath
         Stage 1 claims JSON. Defaults to <taxonomy-dir>/organization_stance_claims.json.
     .PARAMETER EmbeddingsPath
@@ -418,6 +431,7 @@ function Invoke-OrgClaimMatching {
             DirMethod   = 'skipped'
             Endorsement = 'skipped'
             EndorsementReason = ''
+            DirectionConflict = $false
             Reason      = $reason
             BestCosine  = $bestScore
             Independent = $independence
@@ -570,7 +584,16 @@ function Invoke-OrgClaimMatching {
 
             $prop.Endorsement = $tag
             $prop.EndorsementReason = if ($winningVerdict) { [string]$winningVerdict.Reason } else { '' }
-            $prop.Rationale = "$($prop.Rationale) endorsement=$tag reps=$($repVerdicts.Count)"
+
+            # direction_conflict (CL t/4523#5, condition 2): the endorsement gate's own
+            # direction step says this org favours the node, but the directional gate
+            # (t/2751) flipped the edge to OPPOSES. Never auto-resolved — a reviewer must
+            # see it. Fires on 7/29 in the dev check, feeding t/4546 (the directional
+            # gate's own type-flip-stability finding).
+            $prop.DirectionConflict = ($tag -in @('endorses', 'partial')) -and ($prop.EdgeType -eq 'OPPOSES')
+
+            $flagNote = if ($prop.DirectionConflict) { ' direction_conflict=true' } else { '' }
+            $prop.Rationale = "$($prop.Rationale) endorsement=$tag reps=$($repVerdicts.Count)$flagNote"
         }
     }
 
@@ -676,6 +699,7 @@ function Invoke-OrgClaimMatching {
         DirectionalGate     = (-not $SkipDirectionalGate)
         EndorsementCounts   = $endorsementCounts
         EndorsementGate     = (-not $SkipEndorsementGate)
+        DirectionConflicts  = @($capped | Where-Object { $_.DirectionConflict }).Count
         Failed              = @($failed)
         EmbeddingsPath      = $EmbeddingsPath
     }

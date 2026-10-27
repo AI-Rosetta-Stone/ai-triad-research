@@ -499,6 +499,17 @@ The threshold below which a camp's grounding is flagged `lowCoverage` in `buildG
 | Item | Value | Provenance | Evidence / notes |
 |---|---|---|---|
 | `LOW_COVERAGE_THRESHOLD` | best raw (unboosted) cosine over the camp's eligible nodes < 0.45 | **stipulated** | `analyses/t4292-envelope-floor/findings.md` (offline, 15 questions, 45 camp sets): the selected-node median is 0.500, the two observed generic q3 saf nodes score 0.448 and 0.444, and every forecasting camp set's best score is ≤ 0.45. **It isn't validated as a classifier:** some policy sets also score below it, and only 4 selections are labelled (n = 4). |
+
+## 22. Org endorsement-confirmation gate tag (t/4475 7b, t/4523)
+
+`Invoke-OrgClaimMatching`'s `.Endorsement` field (`endorses`/`partial`/`none`/`unknown`), the LLM verdict judging whether an org's claim asserts a matched taxonomy node's proposition. **It isn't a `CalibrationDataPoint` field, so it's excluded from the §5 count.**
+
+| Item | Value | Provenance | Evidence / notes |
+|---|---|---|---|
+| `endorsement` tag (v2 prompt, `org-endorsement-gate.prompt`) | `endorses`/`partial`/`none`/`unknown` per proposal | **stipulated** | Dev check (t/4523#4) on the 29 proposals the prompt was itself revised against: Y/P tagged endorses/partial 10/13 (bar ≥12/13, NOT MET), N tagged none 14/16 (bar ≥10/16, MET), `endorses` precision 7/8. Exemption note at the field (CL t/4523#5): a consumer may SORT on it; must not filter, hide, or auto-reject until the t/4545 held-out set validates it. |
+| `direction_conflict` marker | `endorsement` is `endorses`/`partial` AND the directional-reconciled edge type is `OPPOSES` | **observation** (a flag over two other stipulated verdicts, not itself judged) | Fires 7/29 in the dev check, 7 of them CL Y/P labels, 7/7 agreeing with the human label (t/4546#2) — evidence feeding t/4546 (the directional gate's own type-flip-stability finding). Never auto-resolved; a reviewer must see it. |
+
+**Revisit when** the t/4545 held-out set reports. A pass on t/4545 lifts the `endorsement` tag's provenance from stipulated; a fail may mean another prompt revision or dropping the Y/P bar entirely in favor of the N-only use (reorder, never filter).
 ## Maintenance
 
 - Every PR adding or modifying a metric, threshold, weight, or lexicon must state its provenance class and update this register in the same PR (CL review checklist item).
