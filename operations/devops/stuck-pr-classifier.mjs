@@ -234,8 +234,22 @@ export function classifyBlocker(pr, nowMs) {
       return run && run.status === 'completed' && run.conclusion === 'success';
     });
     const tier = extractTier(pr.body);
-    if (allGreen && (pr.hasApproval || tier === 'T0')) {
-      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and the PR is ready (approved, or T0 needing no approval), but auto-merge was never armed -- arm it (gh pr merge --auto --squash --match-head-commit <sha>), or merge directly if mergeStateStatus is already CLEAN.' } };
+    if (allGreen && pr.hasApproval) {
+      // A real APPROVED review already happened -- that review IS the named-review question
+      // settled, so no caveat is needed here.
+      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and the PR has an approved review, but auto-merge was never armed -- arm it (gh pr merge --auto --squash --match-head-commit <sha>), or merge directly if mergeStateStatus is already CLEAN.' } };
+    }
+    if (allGreen && tier === 'T0') {
+      // t/4566 (TL, p/702#97): PR #3926 was nudged to arm and merged before the CL's required
+      // re-review cleared -- a T0 needs no GitHub review by default (root AGENTS.md Change
+      // Tiers), but a SPECIFIC ticket's own ACs can still name a required reviewer (t/4092#8),
+      // and this check has no visibility into that ticket's ACs at all. Caveat the remedy
+      // rather than asserting it's unconditionally safe to arm -- puts the judgment call back
+      // on the human/owner. Deliberately NOT attempting to parse the linked ticket's ACs for
+      // named-reviewer language here (TL: "a follow-up T0 is fine") -- freeform-text parsing
+      // for "names a reviewer" risks a false negative that looks identical to no requirement
+      // at all, which would be worse than this caveat alone.
+      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and this is a T0 PR with no outstanding GitHub review required by default -- arm it, UNLESS the linked ticket\'s own acceptance criteria name a required review (e.g. CL, Quality, PI copy review) that has not yet cleared. Check the ticket before arming.' } };
     }
   }
 
