@@ -38,6 +38,8 @@ from data_tree_guard import assert_clean_data_tree  # t/2902
 
 import numpy as np
 
+import embed_taxonomy
+
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _SCRIPT_DIR.parent
 
@@ -549,20 +551,8 @@ def main():
 
     # Classify attack types
     if not args.skip_nli:
-        from sentence_transformers import CrossEncoder
         _log("  Loading NLI model...")
-        nli_model = CrossEncoder(NLI_MODEL_NAME)
-        # Derive label order from model config (t/4572: do not assume column order)
-        id2label = getattr(getattr(nli_model, "config", None), "id2label", None)
-        if not id2label:
-            raise ValueError(f"NLI model {NLI_MODEL_NAME} missing config.id2label")
-        try:
-            label_order = [str(id2label[i]).lower() for i in range(len(id2label))]
-        except (KeyError, TypeError) as exc:
-            raise ValueError(f"Could not extract label order from {NLI_MODEL_NAME} config.id2label") from exc
-        if len(label_order) != 3 or set(label_order) != {"entailment", "neutral", "contradiction"}:
-            raise ValueError(f"NLI model {NLI_MODEL_NAME} has unexpected labels: {label_order}")
-        nli_model._nli_label_order = label_order
+        nli_model = embed_taxonomy._load_nli_model()
         consolidated = classify_attack_types(consolidated, nli_model)
     else:
         _log("  Skipping NLI (--skip-nli)")
