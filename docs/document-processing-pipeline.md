@@ -154,22 +154,20 @@ The entire document is sent to the AI model in a single call, along with the ful
 | JsonMode | Enabled (forces valid JSON response) |
 | Timeout | 120 seconds |
 
-**Density-scaled extraction targets:**
+**Extraction targets — ceilings only (t/4473/t/4519):**
 
-The system scales extraction targets based on document length to ensure thorough coverage of longer documents and prevent over-extraction from short ones.
+There are no minimum-density floors and no density retry; extraction makes a single AI call. The prompt carries upper "up to" guidance only — nothing reads these as a floor:
 
-| Target | Formula | 5,000-word doc | 15,000-word doc |
-|--------|---------|----------------|-----------------|
-| Key points MIN (per POV) | MAX(3, wordCount / 500) | 10 | 30 |
-| Key points MAX (per POV) | MAX(8, wordCount / 200) | 25 | 75 |
-| Factual claims MIN | MAX(3, wordCount / 800) | 6 | 19 |
-| Factual claims MAX | MAX(8, wordCount / 300) | 17 | 50 |
-| Unmapped concepts MIN | MAX(2, wordCount / 2000) | 2 | 8 |
-| Unmapped concepts MAX | MAX(5, wordCount / 800) | 6 | 19 |
+| Ceiling | Formula | 5,000-word doc | 15,000-word doc |
+|---------|---------|----------------|-----------------|
+| Key points per tagged camp (`KP_MAX`) | MAX(8, wordCount / 200) | 25 | 75 |
+| Unmapped concepts (`UC_MAX`) | MAX(5, wordCount / 800) | 6 | 19 |
 
-**Density validation and retry:**
+The system prompt (`pov-summary-system.prompt` / `pov-summary-chunk-system.prompt`) carries a **CAMP EXPECTATIONS** block: extract the camps the document is tagged for, and declare any genuinely empty BDI cell in `empty_cells` with a one-line reason ("licensed emptiness", REC-1 / t/529; `empty_cells` is persisted per summary). The former per-camp `wordCount/500` floor, the document-level total floor, the unmapped-concepts floor, and the single-shot "density nudge" retry (`Build-DensityRetryNudge`, `Get-DensityFloors`) were removed in t/4473/t/4519 — at the old formula ~98% of single-shot documents failed the floor, retried, and failed again. Spec: `research/comp-linguist/docs/density-floor-replacement-spec.md`.
 
-After the AI response, the system counts key_points, factual_claims, and unmapped_concepts. If any fall below the minimum thresholds, a single retry is attempted with a "density nudge" appended to the prompt specifying the exact shortfalls (e.g., "Expected at least 10 key_points for accelerationist, got 6").
+**Density check — WARN-only, all paths (t/4473):**
+
+One check runs in every path (single-shot, chunked, FIRE) and only ever warns; it never triggers a retry. A camp named in the document's `pov_tags` that has 0 key_points and no `empty_cells` entry for that camp emits `WARN: <doc>: tagged camp '<camp>' has 0 key_points and no empty_cells rationale`.
 
 **JSON repair:** If the response is truncated (common with long outputs), `Repair-TruncatedJson` attempts to close open brackets and quotes to salvage a partial response.
 
@@ -207,7 +205,7 @@ Results from all chunks are merged with deduplication:
 
 The algorithm uses HashSets for O(1) lookup. First occurrence wins — later duplicates are discarded without aggregation.
 
-Density validation runs on the merged result but issues **warnings only** (no retry for chunked results, since re-running all chunks is expensive).
+The WARN-only density check (tagged camp with 0 key_points and no `empty_cells`; see above) runs on the merged result, as in every path — it only warns and never retries. `empty_cells` is merged across chunks (a cell counts as empty for the document only if every chunk that declared it had no key_point in it; the first chunk's reason is kept).
 
 ---
 
@@ -252,6 +250,8 @@ Cross-POV empirical assertions extracted from the document. These are the raw ma
   "linked_taxonomy_nodes": ["acc-beliefs-003", "saf-beliefs-007"]
 }
 ```
+
+Each `claim` must be **self-contained** — readable on its own in a cross-document list: the subject is named the way the source names it (never "the study", "it", "this policy", "the authors"), a source-invented name is replaced with what it is using only what the source says, and every date carries a year. A factual claim keeps its specific names in the sentence and has no `anchors` field. The authoritative rule is the `SELF-CONTAINED FACTUAL CLAIMS` block in `pov-summary-system.prompt` (t/4471); key_points (not factual_claims) carry the `canonical_proposition` field.
 
 ### Unmapped Concepts
 
@@ -367,13 +367,16 @@ After a summary is written, the system examines its `factual_claims` for cross-P
 | Overlap | None | Non-overlapping, dedup at merge |
 | Split boundaries | Markdown headings (##/###/####) | Fallback: paragraph breaks |
 
-### Density Scaling
+### Extraction Ceilings
 
-| Metric | Formula (MIN) | Formula (MAX) |
-|--------|--------------|---------------|
-| Key points per POV | MAX(3, words / 500) | MAX(8, words / 200) |
-| Factual claims | MAX(3, words / 800) | MAX(8, words / 300) |
-| Unmapped concepts | MAX(2, words / 2000) | MAX(5, words / 800) |
+No minimum floors remain (t/4473); only upper "up to" guidance, applied per tagged camp:
+
+| Metric | Ceiling |
+|--------|---------|
+| Key points per tagged camp (`KP_MAX`) | MAX(8, words / 200) |
+| Unmapped concepts (`UC_MAX`) | MAX(5, words / 800) |
+
+See **Extraction targets — ceilings only** and the WARN-only density check above for the full model.
 
 ### Environment
 

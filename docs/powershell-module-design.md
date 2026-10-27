@@ -160,7 +160,7 @@ Source Document (Markdown)
 │   └─ per-claim confidence scoring                          │
 │   └─ low-confidence claims trigger targeted follow-ups     │
 │   └─ guardrails: 5 iter/claim, 20 iter/doc, 5 min wall    │
-│ Single-shot path: one AI call, density retry if too sparse │
+│ Single-shot path: one AI call (no density retry, t/4473)   │
 └────────────────────────────────────────────────┬────────────┘
                                                  ▼
 ┌─── Stage 6: AutoFire Stage 2 (optional) ───────────────────┐
