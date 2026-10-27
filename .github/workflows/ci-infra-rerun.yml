@@ -1,0 +1,117 @@
+name: ci-infra-rerun
+
+# t/4548 arm 3: one automatic rerun of infra-classified test-powershell shard failures.
+# Context: at least 6 open PRs plus main went red overnight on 2026-10-26/27 because
+# Install-Module Pester hit a transient PowerShell Gallery flake. The job's own classifier
+# step (ci.yml "Explain a test-powershell mid-run kill") already correctly labels this
+# "not a test failure" -- but nobody acted on that label until an owner woke up hours later.
+# This workflow closes that gap: it reads the SAME classifier's structured verdict (an
+# uploaded JSON artifact per shard, t/4548#2 -- the TL explicitly rejected a log-grep
+# classifier, since a future edit to the ::error:: wording would silently disable the rerun
+# with nothing to notice) and reruns ONLY the shards that ended abnormally, exactly once.
+#
+# A real test failure never gets auto-rerun: the classifier (Get-TestPowerShellAbnormalEndVerdict.ps1)
+# sets abnormalEnd=false whenever the completion marker is present, i.e. the suite actually ran
+# to completion (pass or fail) -- see that function's own Pester tests for the fail-safe proof.
+#
+# "Once" is enforced by run_attempt == 1: this handler's own rerun bumps the run's attempt
+# counter, so if the SAME shard fails again on the rerun, the handler's own `if:` condition
+# below skips it on the next workflow_run event -- no retry loop.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  issues: write
+
+jobs:
+  rerun-infra-failures:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download abnormal-end classifications
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        continue-on-error: true
+        with:
+          pattern: pester-classify-shard-*
+          path: classify
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+
+      - name: Rerun each abnormal-end shard job once, and log it
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const fs = require('fs'), path = require('path');
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const runId = context.payload.workflow_run.id;
+            const runUrl = context.payload.workflow_run.html_url;
+            const headBranch = context.payload.workflow_run.head_branch;
+            const headSha = context.payload.workflow_run.head_sha;
+
+            const dir = 'classify';
+            const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.json')) : [];
+            if (!files.length) {
+              console.log('No abnormal-end classification artifacts found for this run -- nothing to do.');
+              return;
+            }
+
+            const { data: jobsResp } = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: runId, per_page: 100 });
+            const jobsByName = new Map(jobsResp.jobs.map(j => [j.name, j.id]));
+
+            const reruns = [];
+            for (const f of files) {
+              let entry;
+              try {
+                entry = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+              } catch (e) {
+                console.log(`  ${f}: could not parse (${e.message})`);
+                continue;
+              }
+              if (!entry.abnormalEnd) {
+                console.log(`  ${entry.jobName}: abnormalEnd=false (a real result) -- not rerunning.`);
+                continue;
+              }
+              const jobId = jobsByName.get(entry.jobName);
+              if (!jobId) {
+                console.log(`::warning::no job id found for "${entry.jobName}" in run ${runId}`);
+                continue;
+              }
+              console.log(`Rerunning ${entry.jobName} (job ${jobId}) -- reason: ${entry.reason}`);
+              try {
+                await github.rest.actions.reRunJobForWorkflowRun({ owner, repo, job_id: jobId });
+                reruns.push({ jobName: entry.jobName, jobId, reason: entry.reason });
+              } catch (e) {
+                console.log(`::warning::rerun request for ${entry.jobName} (job ${jobId}) failed: ${e.message}`);
+              }
+            }
+
+            if (!reruns.length) {
+              console.log('No abnormal-end jobs to rerun (classifications present, all abnormalEnd=false).');
+              return;
+            }
+
+            // t/4548 AC4: log every auto-rerun somewhere a weekly report can count -- a dedicated,
+            // perpetually-open tracking issue (find-or-create by label), one comment per run that
+            // triggered a rerun. Mirrors main-ci-monitor.yml's existing find-or-create-by-label shape.
+            const LABEL = 't4548-infra-rerun-log';
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: LABEL, per_page: 1 });
+            const lines = reruns.map(r => `- \`${r.jobName}\` (job ${r.jobId}) — ${r.reason}`).join('\n');
+            const body = `**Auto-rerun (t/4548 arm 3):** ${reruns.length} abnormal-end job(s) on \`${headBranch}\` @ \`${headSha.slice(0, 7)}\`\n\n${lines}\n\n- **Triggering run:** ${runUrl}`;
+            if (open.data.length) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
+              // lint:alert-label-exempt: t/4548 2026-10-27 -- passive append-only log for a weekly
+              // headcount, not an incident needing r/23 triage; the rerun itself already recovered
+              // the failure, so there is nothing here for the escalation bridge to act on.
+              const created = await github.rest.issues.create({
+                owner, repo,
+                title: 'CI infra auto-rerun log (t/4548)',
+                body: `Running log of automatic reruns for infra-classified test-powershell failures (t/4548 arm 3). Never closes itself -- append-only record for the weekly report.\n\n${body}`,
+                labels: [LABEL],
+              });
+              console.log(`Created tracking issue #${created.data.number}`);
+            }

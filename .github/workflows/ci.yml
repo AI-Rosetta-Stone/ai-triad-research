@@ -748,19 +748,53 @@ jobs:
         # Pester step's own ::error:: verdict speaks. This step is diagnostic only — it never fails
         # the job (the Pester step already drove red). Caveat: a kill that takes the RUNNER itself
         # away leaves no runner to execute this step; it covers signalled cancels + step timeouts.
-        if: ${{ always() && steps.pester.outcome != 'success' }}
+        #
+        # t/4548 arm 3 (TL design call, t/4548#2): ALSO writes a structured JSON verdict file,
+        # using the SAME pure classifier (Get-TestPowerShellAbnormalEndVerdict.ps1) this step's
+        # own log line uses, so the two can never silently drift apart. A log-grep classifier was
+        # explicitly rejected ("a grep on the ::error:: wording silently disables the rerun the
+        # first time someone edits the message, and nothing would notice") -- job outputs aren't
+        # readable from a separate workflow_run handler either (confirmed: GitHub's Jobs API has
+        # no outputs field; job-level `outputs:` only flow to needs-declared jobs in the SAME run).
+        # An uploaded artifact is the documented cross-workflow mechanism, so the next step
+        # uploads this JSON for ci-infra-rerun.yml to read.
+        if: ${{ always() }}
+        id: classify
         shell: pwsh
         env:
           PESTER_OUTCOME: ${{ steps.pester.outcome }}
         run: |
-          # Marker present => the suite ran to completion (pass or fail); nothing to explain here.
-          if (Test-Path "$env:RUNNER_TEMP/pester-suite-ran.marker") { exit 0 }
-          switch ($env:PESTER_OUTCOME) {
-            'failure'   { Write-Host "::error::test-powershell: TIMED OUT after 25 minutes — not a test failure. The Pester suite was killed by timeout-minutes before finishing; durable fix is trimming/parallelizing the suite (t/3665, PowerShell scope)." }
-            'cancelled' { Write-Host "::error::test-powershell: CANCELLED mid-run (runner preemption or external cancel) — not a test failure. Rerun the job; if it recurs it is infra, not the suite (t/3665 lowers exposure by shortening the run)." }
-            default     { Write-Host "::error::test-powershell: ended abnormally (outcome=$($env:PESTER_OUTCOME)) with the suite unfinished — not a test failure. Rerun; investigate if it recurs." }
+          . ./operations/devops/Get-TestPowerShellAbnormalEndVerdict.ps1
+          $markerPresent = Test-Path "$env:RUNNER_TEMP/pester-suite-ran.marker"
+          $verdict = Get-TestPowerShellAbnormalEndVerdict -MarkerPresent $markerPresent -PesterOutcome $env:PESTER_OUTCOME
+
+          $classifyDir = Join-Path $env:RUNNER_TEMP 'pester-classify'
+          New-Item -ItemType Directory -Force -Path $classifyDir | Out-Null
+          [PSCustomObject]@{
+            shard       = [int]$env:SHARD
+            jobName     = "test-powershell ($env:SHARD)"
+            pesterOutcome = $env:PESTER_OUTCOME
+            abnormalEnd = $verdict.AbnormalEnd
+            reason      = $verdict.Reason
+          } | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $classifyDir "shard-$($env:SHARD).json")
+
+          if (-not $verdict.AbnormalEnd) { exit 0 }
+          switch ($verdict.Reason) {
+            'timed-out-after-25-minutes' { Write-Host "::error::test-powershell: TIMED OUT after 25 minutes — not a test failure. The Pester suite was killed by timeout-minutes before finishing; durable fix is trimming/parallelizing the suite (t/3665, PowerShell scope)." }
+            'cancelled-mid-run'          { Write-Host "::error::test-powershell: CANCELLED mid-run (runner preemption or external cancel) — not a test failure. Rerun the job; if it recurs it is infra, not the suite (t/3665 lowers exposure by shortening the run)." }
+            default                      { Write-Host "::error::test-powershell: ended abnormally (outcome=$($env:PESTER_OUTCOME)) with the suite unfinished — not a test failure. Rerun; investigate if it recurs." }
           }
           exit 0
+
+      - name: Upload test-powershell abnormal-end classification (t/4548 arm 3)
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: pester-classify-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/pester-classify/shard-${{ matrix.shard }}.json
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: In-memory job store scale guard (real files)
         # Runs the gate against the ACTUAL main.bicep + briefExportJobs.ts — distinct
