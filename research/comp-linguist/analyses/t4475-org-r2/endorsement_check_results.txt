@@ -7,60 +7,71 @@ Live run produced 29 proposals; matched 29 of the 29 frozen snapshot entries by 
 Y/P (n=13): 
  N EndorsesOrPartial None Unknown
  - ----------------- ---- -------
-13                 6    7       0
+13                10    3       0
 
 
 N   (n=16): 
  N EndorsesOrPartial None Unknown
  - ----------------- ---- -------
-16                 3   13       0
+16                 2   14       0
 
 
-=== Confusion table, excluding O25 (the in-sample worked example) ===
-Y/P (n=13): 
- N EndorsesOrPartial None Unknown
- - ----------------- ---- -------
-13                 6    7       0
-
-
-N   (n=15): 
- N EndorsesOrPartial None Unknown
- - ----------------- ---- -------
-15                 3   12       0
-
-
-=== Per-item detail ===
-
-Id  Label Endorsement
---  ----- -----------
-O01 Y     none
-O02 N     partial
-O03 N     none
-O04 N     none
-O05 N     none
-O06 P     none
-O07 N     none
-O08 Y     endorses
-O09 Y     none
-O10 P     none
-O11 N     partial
-O12 N     none
-O13 N     none
-O14 Y     endorses
-O15 N     none
-O16 N     none
-O17 Y     endorses
-O18 P     none
-O19 N     none
-O20 Y     endorses
-O21 Y     endorses
-O22 N     none
-O23 N     none
-O24 P     none
-O25 N     none
-O26 N     partial
-O27 N     none
-O28 Y     endorses
-O29 Y     none
-
-
+=== Per-item detail (with reasons) ===
+O01 label=Y endorsement=none edge=ADVOCATES_FOR
+    reason: The position discusses assisting industry to develop voluntary standards with NIST, which shares the broad topic of AI standards, but it does not commit to proactively adopting these standards as durable compliance anchors for regulatory volatility.
+O02 label=N endorsement=partial edge=OPPOSES
+    reason: The position aligns with the direction of identifying security risks arising from AI systems, committing the organization to the specific component concerning vulnerability assessments without addressing the broader claims of architectural complexity.
+O03 label=N endorsement=none edge=ADVOCATES_FOR
+    reason: The position discusses a baseline framework for understanding AI, but holding this does not commit one to the specific skeptic belief that AI generality exists on a spectrum rather than as a binary threshold.
+O04 label=N endorsement=none edge=OPPOSES
+    reason: The position discusses understanding AI motivational structures, whereas the node is about the unreliability of model-graded benchmarks for hallucination and error rates, meaning the text is merely on the same general topic without committing to the specific proposition of the node.
+O05 label=N endorsement=none edge=OPPOSES
+    reason: The position discusses the development of situational awareness in more capable models under current training paradigms, whereas the taxonomy node focuses on better prompting unlocking capabilities already present in AI models; they are on related topics but the position does not commit to the node's specific claims about prompt engineering.
+O06 label=P endorsement=endorses edge=ADVOCATES_FOR
+    reason: The position favors grounding AI safety in legal and regulatory compliance, fully committing to the core proposition of the taxonomy node.
+O07 label=N endorsement=none edge=OPPOSES
+    reason: The position discusses standard AI risks like bias and explainability, but it does not address the safetyist claim that machine learning creates entirely new threat categories missed by conventional security.
+O08 label=Y endorsement=endorses edge=OPPOSES
+    reason: The position favours international cooperation and preventing regulatory fragmentation, thereby fully committing to the node's call for coordinating international AI governance and shared safety rules.
+O09 label=Y endorsement=partial edge=OPPOSES
+    reason: The position favors designing safeguards from the start, committing to the specific component of building safety into the system architecture rather than the entire safetyist discourse.
+O10 label=P endorsement=partial edge=OPPOSES
+    reason: The position aligns with the node's focus on severe and demonstrable risks like biosecurity and chemical weapons, but it does not fully commit to the specific criteria of civilization-ending, unrecoverable harm defined in the node.
+O11 label=N endorsement=none edge=OPPOSES
+    reason: The position promotes national advantage and dominance in international standards rather than shared international governance and coordination, meaning it favors a competing approach and does not commit to the node.
+O12 label=N endorsement=none edge=OPPOSES
+    reason: The position discusses mitigating risks from cybersecurity and biosecurity, but it does not commit to the specific practice of deploying AI to defend against other dangerous AI systems.
+O13 label=N endorsement=none edge=ADVOCATES_FOR
+    reason: The position focuses on protecting U.S. technologies from foreign regulation rather than prohibiting safety restrictions on government-procured AI services, making it only related to the broad topic of AI governance without committing to the node's specific proposal.
+O14 label=Y endorsement=endorses edge=ADVOCATES_FOR
+    reason: The position directly favors preserving reasoning transparency as an oversight method, which commits to the node's practice of mandating visibility into intermediate reasoning steps for detecting scheming.
+O15 label=N endorsement=none edge=ADVOCATES_FOR
+    reason: The position discusses safeguards for high-capability systems but does not commit to the node's specific epistemological view that safety boundaries are defined by acknowledged gaps rather than guarantees.
+O16 label=N endorsement=none edge=ADVOCATES_FOR
+    reason: The position discusses the general need for AI measurement science but does not commit to the accelerationist belief regarding metric-legible harm classes.
+O17 label=Y endorsement=endorses edge=OPPOSES
+    reason: The organization's position directly aligns with the accelerationist node by framing state-level regulation as a barrier to AI progress, thereby committing to the premise that regulatory factors hinder technological development.
+O18 label=P endorsement=none edge=OPPOSES
+    reason: The position discusses criteria for AI risks but does not commit to the specific safetyist discourse defining risk emergence from capability combinations rather than raw scale.
+O19 label=N endorsement=none edge=ADVOCATES_FOR
+    reason: The position discusses the need for safeguards for critical capability systems, which shares the subject of AI risk management with the node, but it does not commit to the specific claim that damage potential scales with access and permissions.
+O20 label=Y endorsement=endorses edge=OPPOSES
+    reason: The position favors responding to early warning signs by pausing training, which fully commits to the safetyist node's strategy of being continuously responsive to capability development indicators.
+O21 label=Y endorsement=endorses edge=ADVOCATES_FOR
+    reason: The position favours developing sophisticated AI governance models that balance innovation with the public good, which commits it to operationalizing pragmatic AI governance through adaptable strategies.
+O22 label=N endorsement=none edge=OPPOSES
+    reason: The organization's position evaluates mandatory safety standards and restrictions as least promising, which runs counter to the safetyist node's approach, rendering the text merely topically related.
+O23 label=N endorsement=none edge=OPPOSES
+    reason: The position discusses general accountability mechanisms in AI risk management, but it does not specifically address financial responsibility for developers or institutions as outlined in the node.
+O24 label=P endorsement=partial edge=OPPOSES
+    reason: The position shares the same general direction of reducing catastrophic AI risks, but only commits to adopting promising measures rather than the specific screening system described in the node.
+O25 label=N endorsement=endorses edge=OPPOSES
+    reason: The position favours the requirement for rigorous compliance with legal standards by stating that legal requirements must be understood, managed, and documented, thereby committing the organization to the core proposition of legal comprehension.
+O26 label=N endorsement=none edge=OPPOSES
+    reason: The position favors voluntary safety standards and risk disclosure incentives, which competes with the node's focus on mandatory financial accountability and liability.
+O27 label=N endorsement=none edge=OPPOSES
+    reason: The position addresses aligning risk management with legal standards, which shares a general interest in governance, but it does not commit to the specific concept of defining the scope and limits of an AI agent's decision-making power.
+O28 label=Y endorsement=endorses edge=OPPOSES
+    reason: The position directly favors the accelerationist approach of establishing federal preemption to prevent state-by-state fragmentation, thereby committing to the entirety of the node's proposition.
+O29 label=Y endorsement=none edge=ADVOCATES_FOR
+    reason: The position discusses adjusting safety requirements based on competitive pressures rather than the irreversibility of frontier AI risks and the insufficiency of post-hoc governance, so it only addresses the general topic.

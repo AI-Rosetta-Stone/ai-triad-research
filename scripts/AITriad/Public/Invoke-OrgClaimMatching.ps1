@@ -417,6 +417,7 @@ function Invoke-OrgClaimMatching {
             DirConfidence = $null
             DirMethod   = 'skipped'
             Endorsement = 'skipped'
+            EndorsementReason = ''
             Reason      = $reason
             BestCosine  = $bestScore
             Independent = $independence
@@ -556,16 +557,19 @@ function Invoke-OrgClaimMatching {
             $prop = $proposals[$pi]
             $repVerdicts = if ($endorseByProp.ContainsKey($pi)) { @($endorseByProp[$pi]) } else { @() }
 
-            if (@($repVerdicts | Where-Object { $_.Verdict -eq 'endorses' }).Count -gt 0) {
-                $tag = 'endorses'
-            } elseif (@($repVerdicts | Where-Object { $_.Verdict -eq 'partial' }).Count -gt 0) {
-                $tag = 'partial'
-            } elseif (@($repVerdicts | Where-Object { $_.Verdict -eq 'unknown' }).Count -gt 0) {
-                $tag = 'unknown'
-            } else {
-                $tag = 'none'   # every rep resolved to topic_only (or there were no reps)
-            }
+            $endorses = @($repVerdicts | Where-Object { $_.Verdict -eq 'endorses' })
+            $partial = @($repVerdicts | Where-Object { $_.Verdict -eq 'partial' })
+            $unk = @($repVerdicts | Where-Object { $_.Verdict -eq 'unknown' })
+            if ($endorses.Count -gt 0) { $winningVerdict = $endorses[0] }
+            elseif ($partial.Count -gt 0) { $winningVerdict = $partial[0] }
+            elseif ($unk.Count -gt 0) { $winningVerdict = $unk[0] }
+            elseif ($repVerdicts.Count -gt 0) { $winningVerdict = $repVerdicts[0] }   # every rep topic_only
+            else { $winningVerdict = $null }   # no reps
+            $tag = if ($winningVerdict) { [string]$winningVerdict.Verdict } else { 'none' }
+            if ($tag -eq 'topic_only') { $tag = 'none' }
+
             $prop.Endorsement = $tag
+            $prop.EndorsementReason = if ($winningVerdict) { [string]$winningVerdict.Reason } else { '' }
             $prop.Rationale = "$($prop.Rationale) endorsement=$tag reps=$($repVerdicts.Count)"
         }
     }

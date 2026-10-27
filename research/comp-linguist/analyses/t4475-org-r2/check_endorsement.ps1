@@ -1,9 +1,11 @@
 <#
 .SYNOPSIS
-    t/4523 acceptance check: runs the endorsement-confirmation gate against the
-    29 labelled proposals in labels.json (CL's precision estimate, t/4475) and
-    reports the confusion table against the ticket's bar: >= 12/13 Y/P tagged
-    endorses|partial, >= 10/16 N tagged none.
+    t/4523 acceptance check (prompt v2, t/4523#3): runs the endorsement-
+    confirmation gate against the 29 labelled proposals in labels.json (CL's
+    precision estimate, t/4475) and reports the confusion table + per-item
+    reasons against the ticket's bar: >= 12/13 Y/P tagged endorses|partial,
+    >= 10/16 N tagged none. v2's worked example is synthetic (not corpus-
+    derived), so there is no in-sample item to exclude — report the full 29.
 .DESCRIPTION
     Re-runs Invoke-OrgClaimMatching dry-run against the live corpus
     (organization_stance_claims.json + embeddings-orgstance-6733.json) and
@@ -63,7 +65,7 @@ foreach ($prop in @($result.Proposals)) {
         $matched++
         $id = $keyToId[$key]
         $label = if ($labels.PSObject.Properties[$id]) { [string]$labels.$id } else { $null }
-        $rows.Add([PSCustomObject]@{ Id = $id; Label = $label; Endorsement = $prop.Endorsement; EdgeType = $prop.EdgeType })
+        $rows.Add([PSCustomObject]@{ Id = $id; Label = $label; Endorsement = $prop.Endorsement; EdgeType = $prop.EdgeType; Reason = $prop.EndorsementReason })
     } else {
         $unmatched++
     }
@@ -89,11 +91,8 @@ Write-Host '=== Confusion table (full 29, modulo corpus drift) ==='
 Write-Host "Y/P (n=$($yp.Count)): $(Tally $yp | Out-String)"
 Write-Host "N   (n=$($n.Count)): $(Tally $n | Out-String)"
 
-$ypNoO25 = @($yp | Where-Object { $_.Id -ne 'O25' })
-$nNoO25 = @($n | Where-Object { $_.Id -ne 'O25' })
-Write-Host '=== Confusion table, excluding O25 (the in-sample worked example) ==='
-Write-Host "Y/P (n=$($ypNoO25.Count)): $(Tally $ypNoO25 | Out-String)"
-Write-Host "N   (n=$($nNoO25.Count)): $(Tally $nNoO25 | Out-String)"
-
-Write-Host '=== Per-item detail ==='
-$rows | Sort-Object Id | Format-Table Id, Label, Endorsement -AutoSize | Out-String | Write-Host
+Write-Host '=== Per-item detail (with reasons) ==='
+foreach ($row in ($rows | Sort-Object Id)) {
+    Write-Host "$($row.Id) label=$($row.Label) endorsement=$($row.Endorsement) edge=$($row.EdgeType)"
+    if ($row.Reason) { Write-Host "    reason: $($row.Reason)" }
+}
