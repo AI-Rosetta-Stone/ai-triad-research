@@ -188,4 +188,12 @@ export interface LibraryListPageProps<TMy extends { id: string }, TCommunity ext
    * Chat's getting-started card. Additive: Debates and Op-Eds pass nothing and are unchanged.
    */
   intro?: ReactNode;
+  /**
+   * t/4561: on the web build only, default the initial view to Community instead of My, on
+   * every mount. Electron is unchanged regardless of this prop. Additive and omit-safe — Chat
+   * does not set it and keeps today's 'my' default; Op-Eds, Ask a Question and Debates
+   * (t/4562/t/4563) opt in. `hideMyTab` still wins: an anonymous session with no My content
+   * never lands on a tab it can't see, same as before this prop existed.
+   */
+  defaultCommunityOnWeb?: boolean;
 }

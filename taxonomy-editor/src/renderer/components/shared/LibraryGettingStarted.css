@@ -1,8 +1,9 @@
-/* Chat Getting Started (t/4536 round 3). Rendered inside LibraryListPage's intro slot, so it
-   uses the --lib-* tokens that page defines for itself, not the app's generic text/background
-   tokens, to stay visually consistent with its container. */
+/* Shared getting-started card for library-page tools (t/4561, generalized from Chat's
+   ChatGettingStarted.css, t/4536 round 3). Rendered inside LibraryListPage's intro slot, so it
+   uses the --lib-* tokens that page already defines for itself — those were not renamed by this
+   refactor, only the class names (chat-getting-started-* → lib-getting-started-*) were. */
 
-.chat-getting-started {
+.lib-getting-started {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -18,7 +19,7 @@
   margin-top: 12px;
 }
 
-.chat-getting-started-hide {
+.lib-getting-started-hide {
   position: absolute;
   top: 10px;
   right: 14px;
@@ -31,7 +32,7 @@
   padding: 0;
 }
 
-.chat-getting-started-heading {
+.lib-getting-started-heading {
   font-size: 15px;
   font-weight: 600;
   color: var(--lib-text);
@@ -39,19 +40,19 @@
   padding-right: 48px; /* room for Hide */
 }
 
-.chat-getting-started-why {
+.lib-getting-started-why {
   font-size: 13px;
   color: var(--lib-text-secondary);
   margin: 0;
 }
 
-.chat-getting-started-chips {
+.lib-getting-started-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.chat-getting-started-chip {
+.lib-getting-started-chip {
   min-height: 44px;
   padding: 8px 12px;
   border: 1px solid var(--lib-border-control);
@@ -63,23 +64,23 @@
   text-align: left;
 }
 
-.chat-getting-started-chip:hover {
+.lib-getting-started-chip:hover {
   background: var(--lib-bg);
   border-color: var(--lib-accent);
 }
 
-.chat-getting-started-chip:focus-visible {
+.lib-getting-started-chip:focus-visible {
   outline: 2px solid var(--lib-accent);
   outline-offset: 2px;
 }
 
-.chat-getting-started-mode-hint {
+.lib-getting-started-hint {
   font-size: 13px;
   color: var(--lib-text-secondary);
   margin: 0;
 }
 
-.chat-getting-started-show-link {
+.lib-getting-started-show-link {
   display: inline-block;
   margin-top: 12px;
   background: none;
