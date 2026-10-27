@@ -136,6 +136,84 @@ describe('buildGroundingEnvelope — anchor situation', () => {
   });
 });
 
+// ── Top situation nodes (t/4592) ─────────────────────────────────────────────
+
+/** Taxonomy with 5 situation nodes, each with a distinct orthogonal embedding, for top-N tests. */
+function makeManySituationsTaxonomy(): GroundingTaxonomy {
+  const base = makeTaxonomy();
+  const situationNodes = [
+    { id: 'sit-001', label: 'Situation A', description: 'desc A' },
+    { id: 'sit-002', label: 'Situation B', description: 'desc B' },
+    { id: 'sit-003', label: 'Situation C', description: 'desc C' },
+    { id: 'sit-004', label: 'Situation D', description: 'desc D' },
+    { id: 'sit-005', label: 'Situation E', description: 'desc E' },
+  ] as unknown as GroundingTaxonomy['situationNodes'];
+  const nodeEmbeddings: NodeEmbeddingMap = {
+    ...base.nodeEmbeddings,
+    'sit-001': { pov: 'acc', vector: unitVec(8, 0) },
+    'sit-002': { pov: 'acc', vector: unitVec(8, 1) },
+    'sit-003': { pov: 'acc', vector: unitVec(8, 2) },
+    'sit-004': { pov: 'acc', vector: unitVec(8, 3) },
+    'sit-005': { pov: 'acc', vector: unitVec(8, 4) },
+  };
+  return { ...base, situationNodes, nodeEmbeddings };
+}
+
+describe('buildGroundingEnvelope — top situation nodes (t/4592)', () => {
+  it('returns the top 3 situation nodes ordered by similarity, anchor first', async () => {
+    // distinctEmbed gives the question vec[0] — sit-001 (vec[0]) scores highest, then sit-002, sit-003.
+    const { envelope } = await buildGroundingEnvelope('q', makeManySituationsTaxonomy(), distinctEmbed);
+    expect(envelope.situationNodes).toEqual([
+      { nodeId: 'sit-001', label: 'Situation A' },
+      { nodeId: 'sit-002', label: 'Situation B' },
+      { nodeId: 'sit-003', label: 'Situation C' },
+    ]);
+    expect(envelope.situationNodes?.[0]?.nodeId).toBe(envelope.anchorSituationId);
+  });
+
+  it('caps at 3 even with more embedded candidates', async () => {
+    const { envelope } = await buildGroundingEnvelope('q', makeManySituationsTaxonomy(), distinctEmbed);
+    expect(envelope.situationNodes).toHaveLength(3);
+  });
+
+  it('puts the pinned anchor first even when another candidate scores higher', async () => {
+    // Pin sit-003 — distinctEmbed makes sit-001 the highest-scoring candidate, not the pinned one.
+    const { envelope } = await buildGroundingEnvelope('q', makeManySituationsTaxonomy(), distinctEmbed, { situationId: 'sit-003' });
+    expect(envelope.anchorSituationId).toBe('sit-003');
+    expect(envelope.situationNodes?.[0]).toEqual({ nodeId: 'sit-003', label: 'Situation C' });
+    expect(envelope.situationNodes).toHaveLength(3);
+  });
+
+  it('excludes the pinned anchor from the fill-in list by id, not object identity', async () => {
+    // Two DISTINCT object literals share id 'sit-001' — pinned lookup finds one, embedding-scored
+    // entries reference the taxonomy array's own objects. If exclusion compared by reference instead
+    // of id, the pinned node's id could appear twice in situationNodes.
+    const taxonomy = makeManySituationsTaxonomy();
+    const pinnedCopy = { id: 'sit-001', label: 'Situation A (pinned copy)', description: 'desc A copy' };
+    taxonomy.situationNodes = [pinnedCopy, ...taxonomy.situationNodes.slice(1)] as unknown as GroundingTaxonomy['situationNodes'];
+    const { envelope } = await buildGroundingEnvelope('q', taxonomy, distinctEmbed, { situationId: 'sit-001' });
+    const ids = (envelope.situationNodes ?? []).map(n => n.nodeId);
+    expect(ids.filter(id => id === 'sit-001')).toHaveLength(1);
+    expect(ids).toEqual(['sit-001', 'sit-002', 'sit-003']);
+  });
+
+  it('breaks a score tie by the corpus\'s original order (Array#sort stability — first occurrence wins)', async () => {
+    // flatEmbed gives every node the same vector → every situation scores identically.
+    const { envelope } = await buildGroundingEnvelope('q', makeManySituationsTaxonomy(), flatEmbed);
+    expect(envelope.situationNodes).toEqual([
+      { nodeId: 'sit-001', label: 'Situation A' },
+      { nodeId: 'sit-002', label: 'Situation B' },
+      { nodeId: 'sit-003', label: 'Situation C' },
+    ]);
+  });
+
+  it('omits situationNodes entirely when the situation corpus is empty', async () => {
+    const taxonomy = makeTaxonomy({ situationNodes: [] });
+    const { envelope } = await buildGroundingEnvelope('q', taxonomy, flatEmbed);
+    expect(envelope.situationNodes).toBeUndefined();
+  });
+});
+
 // ── ADR-001 graceful-empty cases ─────────────────────────────────────────────
 
 describe('buildGroundingEnvelope — ADR-001 graceful empty', () => {
