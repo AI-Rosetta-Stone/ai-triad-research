@@ -55,6 +55,7 @@ function Invoke-IterativeExtraction {
         [string]$Model,
 
         [Parameter(Mandatory)]
+        [AllowEmptyString()]
         [string]$ApiKey,
 
         [double]$Temperature = 0.1,
