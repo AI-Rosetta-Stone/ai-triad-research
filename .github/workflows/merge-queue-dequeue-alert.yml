@@ -23,7 +23,12 @@ jobs:
     # -- confirmed via a payload dump (reason: "MERGE" on a clean merge, "CI_FAILURE" on a
     # real test failure). The wrong path here meant this job's `if:` was always false --
     # D1 never ran on this file, even though arm 5b's scratch copy (fixed separately) did.
-    if: github.event.reason != 'MERGE'
+    #
+    # M2 live-fire finding: MANUAL *is* a distinct GitHub reason value (confirmed via a
+    # real manual dequeue, not the "manual isn't distinct today" assumption this comment
+    # originally made) -- a human/agent choosing to pull a PR is the expected, routine
+    # outcome D1 exists to distinguish FROM a silent drop, not to alert on. Exclude it too.
+    if: github.event.reason != 'MERGE' && github.event.reason != 'MANUAL'
     runs-on: ubuntu-latest
     permissions:
       issues: write
