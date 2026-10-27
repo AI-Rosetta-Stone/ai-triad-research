@@ -11,6 +11,9 @@
 #>
 
 BeforeAll {
+    # t/4582 (GH #3978): the tests mock Invoke-AIByUsage, which AITriad exports, so load it here
+    # rather than depending on an earlier file in the shard having done it (order-dependent heal).
+    Import-Module (Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1') -Force -WarningAction SilentlyContinue
     $ModulePath = Join-Path $PSScriptRoot '..' 'scripts' 'AIEnrich.psm1'
     Import-Module $ModulePath -Force -WarningAction SilentlyContinue
 }
