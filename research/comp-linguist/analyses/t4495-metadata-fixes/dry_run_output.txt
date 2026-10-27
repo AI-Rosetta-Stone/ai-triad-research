@@ -1,0 +1,8 @@
+frozen list sha256 3cccee0ff97aec9854a61dcef6a64be0398e7c40796e13a77fbbc03ad7068d33  targets=6  mode=dry-run
+  OK text-2026: 5 field(s), 12 diff line(s), keys 21 unchanged, post_sha256 fe2b9ae4bd2cb9464d6b4cad472a54e9297b1476b6e36e684ad00fbec8687d10
+  OK text-2026-1: 5 field(s), 12 diff line(s), keys 26 unchanged, post_sha256 765b0d485c75ca0f4a40493373206c4b3a1592ad681e007bdc6769098761102c
+  OK california-lawyers-chatgpt-use-is-why-courts-want-ai-2026: 5 field(s), 12 diff line(s), keys 22 unchanged, post_sha256 68a109b62ec09b40c0cd244257185ceaeaaa1d50c892b1e52c5c34c13531b503
+  OK how-existing-liability-frameworks-can-handle-agentic-ai-2026: 4 field(s), 10 diff line(s), keys 25 unchanged, post_sha256 49348b76a9e5633fffd120b5e96a1fa5191ec2bfa0bb53662317b6ccff1e424d
+  OK international-ai-safety-report-2026-2026-1: 3 field(s), 8 diff line(s), keys 27 unchanged, post_sha256 6b4971d122a431a3c28bb8afacc26a3f991f4808549a535a797be99089b13656
+  OK scaling-laws-differentially-private-language-models-2026-1: 4 field(s), 10 diff line(s), keys 25 unchanged, post_sha256 ae0119c04d80ff7d962613c84f22a94adb2b6ff5d542d0b5a71ac58914e0f5e9
+dry-run: 6/6 targets pass all checks; nothing written
