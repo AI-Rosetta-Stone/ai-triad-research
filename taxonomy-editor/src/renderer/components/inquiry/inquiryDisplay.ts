@@ -21,7 +21,7 @@ export const FIDELITY_LABELS: Record<Fidelity, string> = {
 };
 
 export const FIDELITY_DESCRIPTIONS: Record<Fidelity, string> = {
-  quick: 'A first read on how the camps divide. Good for scoping a question.',
+  quick: 'A first read on how the perspectives divide. Good for scoping a question.',
   standard: 'Full debate with situation injection and neutral evaluation.',
   deep: 'Extended argumentation where cruxes need room to resolve.',
 };
