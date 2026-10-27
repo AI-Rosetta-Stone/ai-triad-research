@@ -10,7 +10,6 @@ import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { CAMP_LABELS, trustVerdictLabel, isZeroResult } from './inquiryDisplay';
 import { InquiryExportDropdown } from './InquiryExportDropdown';
 import { InquiryShareControl } from './InquiryShareControl';
-import { GroundingSection } from './GroundingSection';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import './InquiryTab.css';
 
@@ -199,7 +198,25 @@ export function InquiryAnswerPanel() {
         </div>
       )}
 
-      <GroundingSection result={result} />
+      {result.calibration.length > 0 && (
+        <div className="inquiry-sect">
+          <span className="inquiry-eyebrow">Calibration — every badge generated from the run</span>
+          <div className="inquiry-metrics">
+            {result.calibration.map((entry, i) => (
+              <div className="inquiry-metric" data-t={entry.trust.verdict === 'censored' ? 'bad' : 'ok'} key={i}>
+                <div className="inquiry-mt">
+                  <span className="inquiry-mn mono">{entry.metric}</span>
+                  <span className={`inquiry-pill ${entry.trust.verdict === 'censored' ? 'bad' : 'ok'}`}>{trustVerdictLabel(entry.trust.verdict)}</span>
+                </div>
+                <div className="inquiry-mv mono">{entry.displayValue ?? entry.value}</div>
+                {/* Renders TrustState.reason verbatim, never re-derives whether a metric is
+                 *  trustworthy (TL t/3583#1/#2). */}
+                <div className="inquiry-mr">{entry.trust.reason}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Adjacency-by-construction (t/3734, SO condition via t/3667#6): the headline is the most
        *  quotable element of the answer, and singleRunCaveat is what keeps it from reading as a
