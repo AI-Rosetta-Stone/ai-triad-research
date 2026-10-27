@@ -25,7 +25,7 @@ import {
   type SourceUrlConflict,
 } from '../../../../lib/sourceIndex/types.js';
 import { mergeGroupEvidence, type EvidenceUnionMember } from '../../../../lib/sourceIndex/evidenceUnion.js';
-import { getBackend, getSourcesDir } from './fileIO.js';
+import { getBackend, getSourcesDir, readFilesBatchOrEmpty } from './fileIO.js';
 import {
   type SnapshotHashCache, gitBlobSha, loadSnapshotHashCache, lookupCachedHash, recordHash, pruneAndSaveSnapshotHashCache,
 } from './snapshotHashCache.js';
@@ -313,6 +313,26 @@ function applySummaryToIndex(
   }
 }
 
+/** Shared by both the batch-fetched path and the per-file retry path below —
+ *  parses + applies one summary doc's already-read content, recording the
+ *  same aggregated-by-caller failure shape (t/4517) for a parse error as for
+ *  a read error, since both end up excluding the doc from this build. */
+function applyParsedSummaryOrRecordFailure(
+  docId: string, raw: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
+  missingMetaIds: Set<string>, readFailures: Map<string, string>,
+): void {
+  try {
+    applySummaryToIndex(docId, JSON.parse(raw), metaCache, index, missingMetaIds);
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'node-source-index', level: 'warn',
+      message: `applyParsedSummaryOrRecordFailure: summary JSON parse failed, excluding doc from this build: ${docId}`,
+      error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+    });
+    readFailures.set(docId, (err as Error)?.name ?? 'Error');
+  }
+}
+
 async function indexSummaryFile(
   summariesDir: string, file: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
   missingMetaIds: Set<string>, readFailures: Map<string, string>,
@@ -320,7 +340,7 @@ async function indexSummaryFile(
   const docId = file.replace(/\.json$/, '');
   try {
     const raw = await readSummaryFileWithRetry(summariesDir, file);
-    applySummaryToIndex(docId, JSON.parse(raw), metaCache, index, missingMetaIds);
+    applyParsedSummaryOrRecordFailure(docId, raw, metaCache, index, missingMetaIds, readFailures);
   } catch (err) {
     // t/4517: was silent — no WARN, no record, nothing. Under concurrent
     // cold-boot reads against a shared rate-limited backend, a subset of
@@ -357,16 +377,36 @@ async function mapWithConcurrencyLimit<T>(items: T[], limit: number, fn: (item: 
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
+/** t/4499 (TL design t/4499#18): a chunked GraphQL batch fetch replaces most
+ *  of the ~900 per-file Contents-API reads that dominated `summaryReadMs`
+ *  (the concurrency cap alone didn't move it — round-trip count, not
+ *  concurrency, was the cost, per DevOps's t/4499#16 re-measurement). A path
+ *  the batch didn't resolve (chunk failure, null or truncated blob) falls
+ *  back to the existing per-file retry path unchanged — same result either
+ *  way, just a different source for the raw content. */
 async function indexSummaryFiles(
   summaryFiles: string[], summariesDir: string, metaCache: Record<string, NodeSourceMeta>, index: NodeSourceIndex,
-): Promise<{ missingMetaIds: Set<string>; readFailures: Map<string, string> }> {
+): Promise<{ missingMetaIds: Set<string>; readFailures: Map<string, string>; batchFetchMs: number; archiveFallbackCount: number; graphqlCost: number }> {
   const missingMetaIds = new Set<string>();
   const readFailures = new Map<string, string>();
-  await mapWithConcurrencyLimit(
-    summaryFiles.filter(f => f.endsWith('.json')), SUMMARY_READ_CONCURRENCY,
-    file => indexSummaryFile(summariesDir, file, metaCache, index, missingMetaIds, readFailures),
-  );
-  return { missingMetaIds, readFailures };
+  const jsonFiles = summaryFiles.filter(f => f.endsWith('.json'));
+
+  const batchStart = Date.now();
+  const absolutePaths = jsonFiles.map(f => path.join(summariesDir, f));
+  const { contents, fallbackCount: archiveFallbackCount, graphqlCost } = await readFilesBatchOrEmpty(absolutePaths, { ref: 'main' });
+  const batchFetchMs = Date.now() - batchStart;
+
+  await mapWithConcurrencyLimit(jsonFiles, SUMMARY_READ_CONCURRENCY, async (file) => {
+    const docId = file.replace(/\.json$/, '');
+    const raw = contents.get(path.join(summariesDir, file));
+    if (raw !== undefined) {
+      applyParsedSummaryOrRecordFailure(docId, raw, metaCache, index, missingMetaIds, readFailures);
+      return;
+    }
+    await indexSummaryFile(summariesDir, file, metaCache, index, missingMetaIds, readFailures);
+  });
+
+  return { missingMetaIds, readFailures, batchFetchMs, archiveFallbackCount, graphqlCost };
 }
 
 /** t/4517: the aggregated counterpart to indexSummaryFile's per-doc catch —
@@ -611,9 +651,17 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const loadNodeMetaMs = Date.now() - t;
 
   t = Date.now();
-  const { missingMetaIds, readFailures } = await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
+  const { missingMetaIds, readFailures, batchFetchMs, archiveFallbackCount, graphqlCost } =
+    await indexSummaryFiles(summaryFiles, summariesDir, metaCache, index);
   warnMissingMetaIds(missingMetaIds);
   warnSummaryReadFailures(readFailures);
+  if (archiveFallbackCount > 0) {
+    // t/4499 (TL design t/4499#18): the GraphQL batch read's own fallback
+    // count — distinct from readFailures (a doc that failed even the
+    // per-file retry). A fallback here just means this doc took the slower
+    // per-file path this build, not that it's missing from the index.
+    log.server.warn({ archiveFallbackCount, graphqlCost }, 'Node source index: some summary reads fell back from the GraphQL batch to per-file');
+  }
   const summaryReadMs = Date.now() - t;
 
   t = Date.now();
@@ -629,7 +677,10 @@ async function rebuildNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
   const payloadBytes = Buffer.byteLength(JSON.stringify(index), 'utf-8');
   const coldBuildMs = Date.now() - start;
   const coverage = sourceCardFieldCoverage(metaCache);
-  const phaseMs = { summaryListMs, loadNodeMetaMs, usedSourcesIndex, summaryReadMs, applyCanonicalMs, cardBuildMs };
+  const phaseMs = {
+    summaryListMs, loadNodeMetaMs, usedSourcesIndex, summaryReadMs, batchFetchMs, archiveFallbackCount, graphqlCost,
+    applyCanonicalMs, cardBuildMs,
+  };
   log.server.info(
     {
       coldBuildMs, entryCount, payloadBytes, nodeCount: Object.keys(index).length, canonicalDocCount: Object.keys(cards).length,

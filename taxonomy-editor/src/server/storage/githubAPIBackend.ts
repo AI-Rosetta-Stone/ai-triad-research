@@ -26,7 +26,7 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorder/index.js';
 import { getCurrentUserId, getSessionBranchName } from '../security/userContext.js';
-import { GitHubRestClient, normalizeErrorForEvent, type CircuitState } from './githubRestClient.js';
+import { GitHubRestClient, normalizeErrorForEvent, type CircuitState, type ApiResult } from './githubRestClient.js';
 import { getDataRoot } from '../config.js';
 import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
@@ -162,6 +162,21 @@ const OVERLAY_SHARED_STATE_ENABLED = process.env.OVERLAY_SHARED_STATE_ENABLED ==
 // discarded or already-committed content keep serving as "staged" to
 // other replicas forever. Flips to true in that later PR, never by env var.
 const OVERLAY_SHARED_STATE_COMMIT_READY = false;
+
+/** t/4499: bounded concurrency for readFilesBatch's GraphQL chunks — same
+ *  shape as nodeSourceIndex.ts's mapWithConcurrencyLimit, duplicated rather
+ *  than shared since it's an 8-line generic and the two call sites (summary
+ *  reads, GraphQL chunks) have no other coupling. */
+async function mapWithLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const item = items[next++];
+      await fn(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
 
@@ -1717,6 +1732,148 @@ export class GitHubAPIBackend implements StorageBackend {
       });
     }
     return data.tree;
+  }
+
+  // ── Batched blob reads (t/4499, TL design t/4499#18) ────────────────────
+
+  private static readonly BATCH_CHUNK_SIZE = 80;
+  private static readonly BATCH_CHUNK_CONCURRENCY = 8;
+
+  /**
+   * t/4499: batched content read for many files on one ref via GitHub's
+   * GraphQL API, replacing N individual Contents-API round trips with
+   * ~N/80 GraphQL queries (one aliased `object(expression:...)` field per
+   * path, chunked to keep a single query a reasonable size). REST has no
+   * "get N blobs" verb; a repo tarball can't be scoped to a subtree and
+   * would pull the whole ~410MB data repo to read a few hundred summaries
+   * (ruled out, t/4499#18).
+   *
+   * Returns only the paths that resolved to a real, non-truncated blob —
+   * a path missing from `contents` (chunk failure, null object, or
+   * `isTruncated: true` — GraphQL's blob `text` has a size ceiling) is the
+   * caller's job to read itself via `readFile`, never a throw from here.
+   * `fallbackCount` is that absence count; `graphqlCost` is the summed
+   * GraphQL point cost (a separate budget from REST's 5000/hr), for the
+   * caller to log alongside its own phase timing.
+   */
+  async readFilesBatch(
+    filePaths: string[], opts?: { ref?: string },
+  ): Promise<{ contents: Map<string, string>; fallbackCount: number; graphqlCost: number }> {
+    const contents = new Map<string, string>();
+    if (filePaths.length === 0) return { contents, fallbackCount: 0, graphqlCost: 0 };
+
+    const creds = await this.getCredsCached();
+    if (!creds) return { contents, fallbackCount: filePaths.length, graphqlCost: 0 };
+
+    const ref = opts?.ref ?? this.getEffectiveRef();
+    const [owner, name] = creds.repo.split('/');
+    // repoPath (the GraphQL expression's path) <-> the caller's original
+    // absolute filePath, so the result map is keyed the same way callers
+    // pass paths in — same convention as readFile's repoPath/filePath split.
+    const byRepoPath = new Map(filePaths.map(fp => [this.toRepoPath(fp), fp]));
+    const repoPaths = [...byRepoPath.keys()];
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < repoPaths.length; i += GitHubAPIBackend.BATCH_CHUNK_SIZE) {
+      chunks.push(repoPaths.slice(i, i + GitHubAPIBackend.BATCH_CHUNK_SIZE));
+    }
+
+    let graphqlCost = 0;
+    await mapWithLimit(chunks, GitHubAPIBackend.BATCH_CHUNK_CONCURRENCY, async (chunk) => {
+      const chunkResult = await this.fetchBlobChunk(creds, owner, name, ref, chunk);
+      graphqlCost += chunkResult.cost;
+      for (const [repoPath, text] of chunkResult.texts) {
+        const fp = byRepoPath.get(repoPath);
+        if (fp !== undefined) contents.set(fp, text);
+      }
+    });
+
+    const fallbackCount = filePaths.length - contents.size;
+    if (fallbackCount > 0) {
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: `readFilesBatch: ${fallbackCount}/${filePaths.length} paths fell back to per-file read (chunk failure, null or truncated blob)`,
+        data: { requested: filePaths.length, fallbackCount, graphqlCost },
+      });
+      log.github.warn({ requested: filePaths.length, fallbackCount, graphqlCost },
+        'readFilesBatch: some paths fell back to per-file read');
+    }
+    return { contents, fallbackCount, graphqlCost };
+  }
+
+  /** GraphQL variables can't parameterize a per-field `expression` string
+   *  (each alias needs its own literal), so every path is inlined directly
+   *  — escaped, since paths come from a `listDirectory()` result, not a
+   *  fixed literal. Owner/repo come from the backend's own resolved creds,
+   *  never user input. */
+  private buildBatchQuery(
+    owner: string, name: string, ref: string, repoPaths: string[],
+  ): { query: string; aliasToPath: Map<string, string> } {
+    const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const aliasToPath = new Map<string, string>();
+    const fields = repoPaths.map((p, i) => {
+      const alias = `b${i}`;
+      aliasToPath.set(alias, p);
+      return `${alias}: object(expression: "${esc(`${ref}:${p}`)}") { ... on Blob { text isTruncated } }`;
+    }).join('\n        ');
+    const query = `query {
+      repository(owner: "${esc(owner)}", name: "${esc(name)}") {
+        ${fields}
+      }
+      rateLimit { cost }
+    }`;
+    return { query, aliasToPath };
+  }
+
+  private async fetchBlobChunk(
+    creds: SyncCredentials, owner: string, name: string, ref: string, repoPaths: string[],
+  ): Promise<{ texts: Map<string, string>; cost: number }> {
+    const texts = new Map<string, string>();
+    const { query, aliasToPath } = this.buildBatchQuery(owner, name, ref, repoPaths);
+
+    let resp: ApiResult;
+    try {
+      resp = await this.rest.request(creds, 'POST', '/graphql', { query });
+    } catch (err) {
+      log.github.warn({ chunkSize: repoPaths.length, error: normalizeErrorForEvent(err) },
+        'readFilesBatch: GraphQL chunk request threw — this chunk falls back to per-file read');
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: 'readFilesBatch: GraphQL chunk request threw — this chunk falls back to per-file read',
+        data: { chunkSize: repoPaths.length },
+        error: normalizeErrorForEvent(err),
+      });
+      return { texts, cost: 0 };
+    }
+    if (!resp.ok) {
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: `readFilesBatch: GraphQL chunk request failed (${resp.status}) — this chunk falls back to per-file read`,
+        data: { chunkSize: repoPaths.length, status: resp.status, error: resp.error },
+      });
+      return { texts, cost: 0 };
+    }
+
+    const body = resp.data as {
+      data?: { repository?: Record<string, { text?: string; isTruncated?: boolean } | null>; rateLimit?: { cost: number } };
+      errors?: Array<{ message: string }>;
+    };
+    if (body.errors && body.errors.length > 0) {
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message: `readFilesBatch: GraphQL chunk returned ${body.errors.length} error(s) alongside any data`,
+        data: { chunkSize: repoPaths.length, errors: body.errors.slice(0, 5).map(e => e.message) },
+      });
+    }
+
+    const repoData = body.data?.repository;
+    if (repoData) {
+      for (const [alias, p] of aliasToPath) {
+        const blob = repoData[alias];
+        if (blob && typeof blob.text === 'string' && !blob.isTruncated) texts.set(p, blob.text);
+      }
+    }
+    return { texts, cost: body.data?.rateLimit?.cost ?? 0 };
   }
 
   async createBranch(name: string, fromSha?: string): Promise<void> {

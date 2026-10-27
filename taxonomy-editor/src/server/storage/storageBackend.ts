@@ -102,4 +102,18 @@ export interface StorageBackend {
    *  `readFileWithVersionOrFallback` in fileIO.ts). Every production backend
    *  (GitHubAPIBackend, AzureBlobBackend, FilesystemBackend) implements it. */
   readFileWithVersion?(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null>;
+
+  /** t/4499: batched content read for many files on one ref, for callers
+   *  (today: `nodeSourceIndex.ts`'s cold build) doing hundreds of small reads
+   *  where per-file round trips dominate. Optional — only `GitHubAPIBackend`
+   *  implements it (one GraphQL query per ~80 files replaces that many
+   *  Contents-API calls); backends without a per-file round-trip cost
+   *  (FilesystemBackend, AzureBlobBackend) have nothing to batch and don't
+   *  implement it. `contents` holds only the paths that resolved to a real,
+   *  non-truncated blob — a path missing from it (chunk failure, null or
+   *  truncated blob) is the caller's job to read itself via `readFile`;
+   *  `fallbackCount` is that absence count, `graphqlCost` the summed GraphQL
+   *  point cost (a separate budget from REST's), for the caller to log
+   *  alongside its own phase timing. Never throws. */
+  readFilesBatch?(filePaths: string[], opts?: { ref?: string }): Promise<{ contents: Map<string, string>; fallbackCount: number; graphqlCost: number }>;
 }
