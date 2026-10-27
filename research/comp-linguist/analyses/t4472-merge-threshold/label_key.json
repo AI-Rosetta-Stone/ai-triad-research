@@ -1,0 +1,1542 @@
+{
+ "P001": {
+  "kind": "factual_claim",
+  "cos": 0.778,
+  "band": "0.75-0.80",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P002": {
+  "kind": "key_point",
+  "cos": 0.7992,
+  "band": "0.75-0.80",
+  "doc": "auditing-fairness-clinical-ai-systems-using-provenance-2026",
+  "group": [
+   "auditing-fairness-clinical-ai-systems-using-provenance-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P003": {
+  "kind": "key_point",
+  "cos": 0.7041,
+  "band": "0.70-0.75",
+  "doc": "china-based-artificial-intelligence-companies-conducting-2026-1",
+  "group": [
+   "china-based-artificial-intelligence-companies-conducting-2026-1",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": false
+ },
+ "P004": {
+  "kind": "key_point",
+  "cos": 0.7039,
+  "band": "0.70-0.75",
+  "doc": "school-phone-policies-their-association-mental-wellbeing-2026",
+  "group": [
+   "school-phone-policies-their-association-mental-wellbeing-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": false
+ },
+ "P005": {
+  "kind": "factual_claim",
+  "cos": 0.6408,
+  "band": "0.60-0.70",
+  "doc": "risky-incrementalism-defense-ai-united-states-2026",
+  "group": [
+   "risky-incrementalism-defense-ai-united-states-2026"
+  ],
+  "chunked": false
+ },
+ "P006": {
+  "kind": "factual_claim",
+  "cos": 0.7196,
+  "band": "0.70-0.75",
+  "doc": "china-based-artificial-intelligence-companies-conducting-2026",
+  "group": [
+   "china-based-artificial-intelligence-companies-conducting-2026"
+  ],
+  "chunked": false
+ },
+ "P007": {
+  "kind": "factual_claim",
+  "cos": 0.8133,
+  "band": "0.80-0.85",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P008": {
+  "kind": "factual_claim",
+  "cos": 0.8615,
+  "band": "0.85-0.90",
+  "doc": "silicon-bureaucracy-ai-test-oriented-education-2026",
+  "group": [
+   "silicon-bureaucracy-ai-test-oriented-education-2026"
+  ],
+  "chunked": false
+ },
+ "P009": {
+  "kind": "factual_claim",
+  "cos": 0.9122,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P010": {
+  "kind": "key_point",
+  "cos": 0.8624,
+  "band": "0.85-0.90",
+  "doc": "impact-data-center-construction-urban-energy-green-2026",
+  "group": [
+   "impact-data-center-construction-urban-energy-green-2026",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P011": {
+  "kind": "factual_claim",
+  "cos": 0.7711,
+  "band": "0.75-0.80",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P012": {
+  "kind": "key_point",
+  "cos": 0.6692,
+  "band": "0.60-0.70",
+  "doc": "mai-models-code-conduct-humanist-ai-safety-principles-2026",
+  "group": [
+   "mai-models-code-conduct-humanist-ai-safety-principles-2026",
+   "safetyist",
+   "desires"
+  ],
+  "chunked": true
+ },
+ "P013": {
+  "kind": "key_point",
+  "cos": 0.8728,
+  "band": "0.85-0.90",
+  "doc": "impact-data-center-construction-urban-energy-green-2026",
+  "group": [
+   "impact-data-center-construction-urban-energy-green-2026",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P014": {
+  "kind": "factual_claim",
+  "cos": 0.9176,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P015": {
+  "kind": "key_point",
+  "cos": 0.7,
+  "band": "0.60-0.70",
+  "doc": "international-ai-safety-report-2026-2026-2",
+  "group": [
+   "international-ai-safety-report-2026-2026-2",
+   "accelerationist",
+   "desires"
+  ],
+  "chunked": true
+ },
+ "P016": {
+  "kind": "factual_claim",
+  "cos": 0.7143,
+  "band": "0.70-0.75",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P017": {
+  "kind": "key_point",
+  "cos": 0.6267,
+  "band": "0.60-0.70",
+  "doc": "data-rights-workers-2026",
+  "group": [
+   "data-rights-workers-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P018": {
+  "kind": "key_point",
+  "cos": 0.8087,
+  "band": "0.80-0.85",
+  "doc": "ai-behind-closed-doors-primer-governance-internal-deployment-2026",
+  "group": [
+   "ai-behind-closed-doors-primer-governance-internal-deployment-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P019": {
+  "kind": "key_point",
+  "cos": 0.8624,
+  "band": "0.85-0.90",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "group": [
+   "zero-trust-ai-systems-reference-architecture-assurance-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P020": {
+  "kind": "factual_claim",
+  "cos": 0.7812,
+  "band": "0.75-0.80",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P021": {
+  "kind": "factual_claim",
+  "cos": 0.7073,
+  "band": "0.70-0.75",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P022": {
+  "kind": "key_point",
+  "cos": 0.9079,
+  "band": "0.90-0.95",
+  "doc": "beyond-privacy-utility-tradeoffs-empirical-evidence-privacy-2026",
+  "group": [
+   "beyond-privacy-utility-tradeoffs-empirical-evidence-privacy-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P023": {
+  "kind": "key_point",
+  "cos": 0.814,
+  "band": "0.80-0.85",
+  "doc": "microsoft-comments-request-information-regarding-security-2026",
+  "group": [
+   "microsoft-comments-request-information-regarding-security-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P024": {
+  "kind": "factual_claim",
+  "cos": 0.8119,
+  "band": "0.80-0.85",
+  "doc": "student-generative-artificial-intelligence-survey-2026-hepi-2026",
+  "group": [
+   "student-generative-artificial-intelligence-survey-2026-hepi-2026"
+  ],
+  "chunked": false
+ },
+ "P025": {
+  "kind": "key_point",
+  "cos": 0.9205,
+  "band": "0.90-0.95",
+  "doc": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+  "group": [
+   "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P026": {
+  "kind": "key_point",
+  "cos": 0.9932,
+  "band": "0.95-1.00",
+  "doc": "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+  "group": [
+   "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P027": {
+  "kind": "factual_claim",
+  "cos": 0.9401,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P028": {
+  "kind": "factual_claim",
+  "cos": 0.9788,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P029": {
+  "kind": "key_point",
+  "cos": 0.8316,
+  "band": "0.80-0.85",
+  "doc": "auditing-fairness-clinical-ai-systems-using-provenance-2026",
+  "group": [
+   "auditing-fairness-clinical-ai-systems-using-provenance-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P030": {
+  "kind": "key_point",
+  "cos": 0.8573,
+  "band": "0.85-0.90",
+  "doc": "standards-eu-ai-act-legitimacy-state-play-future-challenges-2026",
+  "group": [
+   "standards-eu-ai-act-legitimacy-state-play-future-challenges-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P031": {
+  "kind": "factual_claim",
+  "cos": 0.9584,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P032": {
+  "kind": "key_point",
+  "cos": 0.9729,
+  "band": "0.95-1.00",
+  "doc": "algorithmic-disgorgement-destruction-artificial-2026-2",
+  "group": [
+   "algorithmic-disgorgement-destruction-artificial-2026-2",
+   "safetyist",
+   "desires"
+  ],
+  "chunked": true
+ },
+ "P033": {
+  "kind": "factual_claim",
+  "cos": 0.8052,
+  "band": "0.80-0.85",
+  "doc": "recommendation-council-artificial-intelligence-2026",
+  "group": [
+   "recommendation-council-artificial-intelligence-2026"
+  ],
+  "chunked": false
+ },
+ "P034": {
+  "kind": "key_point",
+  "cos": 0.7678,
+  "band": "0.75-0.80",
+  "doc": "law-following-ai-designing-ai-agents-obey-human-laws-2026-1",
+  "group": [
+   "law-following-ai-designing-ai-agents-obey-human-laws-2026-1",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P035": {
+  "kind": "factual_claim",
+  "cos": 0.7153,
+  "band": "0.70-0.75",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P036": {
+  "kind": "factual_claim",
+  "cos": 0.9022,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P037": {
+  "kind": "key_point",
+  "cos": 0.7605,
+  "band": "0.75-0.80",
+  "doc": "ai-human-cognition-knowledge-collapse-2026",
+  "group": [
+   "ai-human-cognition-knowledge-collapse-2026",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P038": {
+  "kind": "factual_claim",
+  "cos": 0.7634,
+  "band": "0.75-0.80",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P039": {
+  "kind": "factual_claim",
+  "cos": 0.9529,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P040": {
+  "kind": "key_point",
+  "cos": 0.912,
+  "band": "0.90-0.95",
+  "doc": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026",
+  "group": [
+   "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P041": {
+  "kind": "key_point",
+  "cos": 0.8844,
+  "band": "0.85-0.90",
+  "doc": "250412170v1-2026",
+  "group": [
+   "250412170v1-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P042": {
+  "kind": "factual_claim",
+  "cos": 0.7072,
+  "band": "0.70-0.75",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P043": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "group": [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P044": {
+  "kind": "key_point",
+  "cos": 0.7467,
+  "band": "0.70-0.75",
+  "doc": "insuring-ai-role-insurance-artificial-intelligence-2026",
+  "group": [
+   "insuring-ai-role-insurance-artificial-intelligence-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P045": {
+  "kind": "key_point",
+  "cos": 0.7717,
+  "band": "0.75-0.80",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "group": [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P046": {
+  "kind": "key_point",
+  "cos": 0.8785,
+  "band": "0.85-0.90",
+  "doc": "foundation-models-fair-use-2026",
+  "group": [
+   "foundation-models-fair-use-2026",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P047": {
+  "kind": "key_point",
+  "cos": 0.7074,
+  "band": "0.70-0.75",
+  "doc": "law-following-ai-designing-ai-agents-obey-human-laws-2026-1",
+  "group": [
+   "law-following-ai-designing-ai-agents-obey-human-laws-2026-1",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P048": {
+  "kind": "key_point",
+  "cos": 0.9205,
+  "band": "0.90-0.95",
+  "doc": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+  "group": [
+   "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P049": {
+  "kind": "factual_claim",
+  "cos": 0.6298,
+  "band": "0.60-0.70",
+  "doc": "transparency-ai-is-decline-stanford-report-2026-1",
+  "group": [
+   "transparency-ai-is-decline-stanford-report-2026-1"
+  ],
+  "chunked": false
+ },
+ "P050": {
+  "kind": "factual_claim",
+  "cos": 0.8547,
+  "band": "0.85-0.90",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P051": {
+  "kind": "factual_claim",
+  "cos": 0.8258,
+  "band": "0.80-0.85",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P052": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "data-rights-workers-2026",
+  "group": [
+   "data-rights-workers-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P053": {
+  "kind": "factual_claim",
+  "cos": 0.7867,
+  "band": "0.75-0.80",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P054": {
+  "kind": "key_point",
+  "cos": 0.6758,
+  "band": "0.60-0.70",
+  "doc": "260111699v4-2026",
+  "group": [
+   "260111699v4-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P055": {
+  "kind": "key_point",
+  "cos": 0.8021,
+  "band": "0.80-0.85",
+  "doc": "insuring-ai-role-insurance-artificial-intelligence-2026",
+  "group": [
+   "insuring-ai-role-insurance-artificial-intelligence-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P056": {
+  "kind": "key_point",
+  "cos": 0.9337,
+  "band": "0.90-0.95",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "group": [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P057": {
+  "kind": "factual_claim",
+  "cos": 0.8608,
+  "band": "0.85-0.90",
+  "doc": "generative-ai-copyright-training-creation-regulation-2026",
+  "group": [
+   "generative-ai-copyright-training-creation-regulation-2026"
+  ],
+  "chunked": true
+ },
+ "P058": {
+  "kind": "factual_claim",
+  "cos": 0.6301,
+  "band": "0.60-0.70",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P059": {
+  "kind": "key_point",
+  "cos": 0.9492,
+  "band": "0.90-0.95",
+  "doc": "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+  "group": [
+   "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P060": {
+  "kind": "factual_claim",
+  "cos": 0.8343,
+  "band": "0.80-0.85",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P061": {
+  "kind": "factual_claim",
+  "cos": 0.7942,
+  "band": "0.75-0.80",
+  "doc": "artificial-intelligence-research-strategy-united-states-2026",
+  "group": [
+   "artificial-intelligence-research-strategy-united-states-2026"
+  ],
+  "chunked": false
+ },
+ "P062": {
+  "kind": "key_point",
+  "cos": 0.8753,
+  "band": "0.85-0.90",
+  "doc": "artificial-intelligence-limits-accumulation-capital-crisis-2026",
+  "group": [
+   "artificial-intelligence-limits-accumulation-capital-crisis-2026",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P063": {
+  "kind": "key_point",
+  "cos": 0.7914,
+  "band": "0.75-0.80",
+  "doc": "advancing-deliberative-discourse-measurement-intersection-2026",
+  "group": [
+   "advancing-deliberative-discourse-measurement-intersection-2026",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P064": {
+  "kind": "factual_claim",
+  "cos": 0.9516,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P065": {
+  "kind": "key_point",
+  "cos": 0.6192,
+  "band": "0.60-0.70",
+  "doc": "insuring-ai-role-insurance-artificial-intelligence-2026",
+  "group": [
+   "insuring-ai-role-insurance-artificial-intelligence-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P066": {
+  "kind": "key_point",
+  "cos": 0.7078,
+  "band": "0.70-0.75",
+  "doc": "insuring-ai-role-insurance-artificial-intelligence-2026",
+  "group": [
+   "insuring-ai-role-insurance-artificial-intelligence-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P067": {
+  "kind": "key_point",
+  "cos": 0.7947,
+  "band": "0.75-0.80",
+  "doc": "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026",
+  "group": [
+   "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P068": {
+  "kind": "key_point",
+  "cos": 0.825,
+  "band": "0.80-0.85",
+  "doc": "260111699v4-2026",
+  "group": [
+   "260111699v4-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P069": {
+  "kind": "key_point",
+  "cos": 0.9337,
+  "band": "0.90-0.95",
+  "doc": "data-rights-workers-2026",
+  "group": [
+   "data-rights-workers-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P070": {
+  "kind": "key_point",
+  "cos": 0.7437,
+  "band": "0.70-0.75",
+  "doc": "law-following-ai-designing-ai-agents-obey-human-laws-2026-1",
+  "group": [
+   "law-following-ai-designing-ai-agents-obey-human-laws-2026-1",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P071": {
+  "kind": "factual_claim",
+  "cos": 0.8657,
+  "band": "0.85-0.90",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P072": {
+  "kind": "factual_claim",
+  "cos": 0.6504,
+  "band": "0.60-0.70",
+  "doc": "student-generative-ai-survey-2026-2026",
+  "group": [
+   "student-generative-ai-survey-2026-2026"
+  ],
+  "chunked": false
+ },
+ "P073": {
+  "kind": "factual_claim",
+  "cos": 0.8966,
+  "band": "0.85-0.90",
+  "doc": "explaining-womens-skepticism-toward-artificial-intelligence-2026-2",
+  "group": [
+   "explaining-womens-skepticism-toward-artificial-intelligence-2026-2"
+  ],
+  "chunked": false
+ },
+ "P074": {
+  "kind": "factual_claim",
+  "cos": 0.7227,
+  "band": "0.70-0.75",
+  "doc": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-2",
+  "group": [
+   "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-2"
+  ],
+  "chunked": true
+ },
+ "P075": {
+  "kind": "key_point",
+  "cos": 0.7123,
+  "band": "0.70-0.75",
+  "doc": "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026",
+  "group": [
+   "frontier-ai-auditing-toward-rigorous-third-party-assessment-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P076": {
+  "kind": "factual_claim",
+  "cos": 0.9267,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P077": {
+  "kind": "factual_claim",
+  "cos": 0.8064,
+  "band": "0.80-0.85",
+  "doc": "student-generative-ai-survey-2026-2026",
+  "group": [
+   "student-generative-ai-survey-2026-2026"
+  ],
+  "chunked": false
+ },
+ "P078": {
+  "kind": "factual_claim",
+  "cos": 0.6375,
+  "band": "0.60-0.70",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P079": {
+  "kind": "factual_claim",
+  "cos": 0.9107,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P080": {
+  "kind": "factual_claim",
+  "cos": 0.8512,
+  "band": "0.85-0.90",
+  "doc": "extreme-power-concentration-80000-hours-2026-1",
+  "group": [
+   "extreme-power-concentration-80000-hours-2026-1"
+  ],
+  "chunked": false
+ },
+ "P081": {
+  "kind": "key_point",
+  "cos": 0.7466,
+  "band": "0.70-0.75",
+  "doc": "international-ai-safety-report-2026-2026-2",
+  "group": [
+   "international-ai-safety-report-2026-2026-2",
+   "accelerationist",
+   "desires"
+  ],
+  "chunked": true
+ },
+ "P082": {
+  "kind": "factual_claim",
+  "cos": 0.7153,
+  "band": "0.70-0.75",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P083": {
+  "kind": "factual_claim",
+  "cos": 0.7652,
+  "band": "0.75-0.80",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P084": {
+  "kind": "key_point",
+  "cos": 0.7392,
+  "band": "0.70-0.75",
+  "doc": "international-ai-safety-report-2026-2026-2",
+  "group": [
+   "international-ai-safety-report-2026-2026-2",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P085": {
+  "kind": "key_point",
+  "cos": 0.9327,
+  "band": "0.90-0.95",
+  "doc": "impact-data-center-construction-urban-energy-green-2026",
+  "group": [
+   "impact-data-center-construction-urban-energy-green-2026",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P086": {
+  "kind": "factual_claim",
+  "cos": 0.88,
+  "band": "0.85-0.90",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P087": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+  "group": [
+   "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026-1",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P088": {
+  "kind": "factual_claim",
+  "cos": 0.9845,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P089": {
+  "kind": "key_point",
+  "cos": 0.8827,
+  "band": "0.85-0.90",
+  "doc": "tracing-techno-supremacy-doctrine-critical-discourse-2026",
+  "group": [
+   "tracing-techno-supremacy-doctrine-critical-discourse-2026",
+   "accelerationist",
+   "desires"
+  ],
+  "chunked": true
+ },
+ "P090": {
+  "kind": "key_point",
+  "cos": 0.7621,
+  "band": "0.75-0.80",
+  "doc": "outsmarting-smart-device-2026",
+  "group": [
+   "outsmarting-smart-device-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P091": {
+  "kind": "key_point",
+  "cos": 0.8116,
+  "band": "0.80-0.85",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "group": [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "skeptic",
+   "desires"
+  ],
+  "chunked": true
+ },
+ "P092": {
+  "kind": "factual_claim",
+  "cos": 0.877,
+  "band": "0.85-0.90",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P093": {
+  "kind": "key_point",
+  "cos": 0.6016,
+  "band": "0.60-0.70",
+  "doc": "midas-touch-atuahenes-stategraft-unregulated-artificial-2026",
+  "group": [
+   "midas-touch-atuahenes-stategraft-unregulated-artificial-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": false
+ },
+ "P094": {
+  "kind": "key_point",
+  "cos": 0.6899,
+  "band": "0.60-0.70",
+  "doc": "international-ai-safety-report-2026-2026-2",
+  "group": [
+   "international-ai-safety-report-2026-2026-2",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P095": {
+  "kind": "factual_claim",
+  "cos": 0.8098,
+  "band": "0.80-0.85",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P096": {
+  "kind": "factual_claim",
+  "cos": 0.9209,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P097": {
+  "kind": "key_point",
+  "cos": 0.8039,
+  "band": "0.80-0.85",
+  "doc": "insuring-ai-role-insurance-artificial-intelligence-2026-1",
+  "group": [
+   "insuring-ai-role-insurance-artificial-intelligence-2026-1",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P098": {
+  "kind": "factual_claim",
+  "cos": 0.8243,
+  "band": "0.80-0.85",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P099": {
+  "kind": "key_point",
+  "cos": 0.6423,
+  "band": "0.60-0.70",
+  "doc": "ai-personhood-without-dignity-what-argentinas-non-human-2026",
+  "group": [
+   "ai-personhood-without-dignity-what-argentinas-non-human-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": false
+ },
+ "P100": {
+  "kind": "factual_claim",
+  "cos": 0.7184,
+  "band": "0.70-0.75",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P101": {
+  "kind": "factual_claim",
+  "cos": 0.6696,
+  "band": "0.60-0.70",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P102": {
+  "kind": "key_point",
+  "cos": 0.7971,
+  "band": "0.75-0.80",
+  "doc": "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026",
+  "group": [
+   "pain-axis-llms-represent-self-directed-harm-act-relieve-it-2026",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P103": {
+  "kind": "factual_claim",
+  "cos": 0.9869,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P104": {
+  "kind": "factual_claim",
+  "cos": 0.6621,
+  "band": "0.60-0.70",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P105": {
+  "kind": "key_point",
+  "cos": 0.6279,
+  "band": "0.60-0.70",
+  "doc": "cheating-behaviour-frontier-model-evaluations-2026-2",
+  "group": [
+   "cheating-behaviour-frontier-model-evaluations-2026-2",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": false
+ },
+ "P106": {
+  "kind": "factual_claim",
+  "cos": 0.681,
+  "band": "0.60-0.70",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P107": {
+  "kind": "factual_claim",
+  "cos": 0.611,
+  "band": "0.60-0.70",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P108": {
+  "kind": "factual_claim",
+  "cos": 0.8499,
+  "band": "0.80-0.85",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P109": {
+  "kind": "factual_claim",
+  "cos": 0.9851,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P110": {
+  "kind": "key_point",
+  "cos": 0.9337,
+  "band": "0.90-0.95",
+  "doc": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-2",
+  "group": [
+   "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-2",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P111": {
+  "kind": "factual_claim",
+  "cos": 0.7953,
+  "band": "0.75-0.80",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P112": {
+  "kind": "key_point",
+  "cos": 0.908,
+  "band": "0.90-0.95",
+  "doc": "ai-human-cognition-knowledge-collapse-2026",
+  "group": [
+   "ai-human-cognition-knowledge-collapse-2026",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P113": {
+  "kind": "key_point",
+  "cos": 0.7519,
+  "band": "0.75-0.80",
+  "doc": "international-ai-safety-report-2026-2026-2",
+  "group": [
+   "international-ai-safety-report-2026-2026-2",
+   "safetyist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P114": {
+  "kind": "key_point",
+  "cos": 0.7916,
+  "band": "0.75-0.80",
+  "doc": "insuring-ai-role-insurance-artificial-intelligence-2026",
+  "group": [
+   "insuring-ai-role-insurance-artificial-intelligence-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P115": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "group": [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P116": {
+  "kind": "factual_claim",
+  "cos": 0.9786,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P117": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+  "group": [
+   "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P118": {
+  "kind": "factual_claim",
+  "cos": 0.7087,
+  "band": "0.70-0.75",
+  "doc": "why-pentagon-wants-destroy-anthropic-2026",
+  "group": [
+   "why-pentagon-wants-destroy-anthropic-2026"
+  ],
+  "chunked": false
+ },
+ "P119": {
+  "kind": "factual_claim",
+  "cos": 0.8169,
+  "band": "0.80-0.85",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P120": {
+  "kind": "key_point",
+  "cos": 0.8194,
+  "band": "0.80-0.85",
+  "doc": "barriers-evidence-ai-related-cases-privatization-proof-2026",
+  "group": [
+   "barriers-evidence-ai-related-cases-privatization-proof-2026",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P121": {
+  "kind": "factual_claim",
+  "cos": 0.7043,
+  "band": "0.70-0.75",
+  "doc": "where-are-chinas-ai-doomers-2026",
+  "group": [
+   "where-are-chinas-ai-doomers-2026"
+  ],
+  "chunked": false
+ },
+ "P122": {
+  "kind": "factual_claim",
+  "cos": 0.6832,
+  "band": "0.60-0.70",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P123": {
+  "kind": "factual_claim",
+  "cos": 0.8514,
+  "band": "0.85-0.90",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P124": {
+  "kind": "factual_claim",
+  "cos": 0.9095,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P125": {
+  "kind": "key_point",
+  "cos": 0.8968,
+  "band": "0.85-0.90",
+  "doc": "ai-behind-closed-doors-primer-governance-internal-deployment-2026",
+  "group": [
+   "ai-behind-closed-doors-primer-governance-internal-deployment-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P126": {
+  "kind": "factual_claim",
+  "cos": 0.9668,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P127": {
+  "kind": "key_point",
+  "cos": 0.7252,
+  "band": "0.70-0.75",
+  "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+  "group": [
+   "uk-aisis-incident-shows-why-agent-authority-must-be-2026",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": false
+ },
+ "P128": {
+  "kind": "factual_claim",
+  "cos": 0.914,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P129": {
+  "kind": "key_point",
+  "cos": 0.6221,
+  "band": "0.60-0.70",
+  "doc": "stories-we-govern-by-ai-risk-power-imaginaries-2026",
+  "group": [
+   "stories-we-govern-by-ai-risk-power-imaginaries-2026",
+   "accelerationist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P130": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "group": [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P131": {
+  "kind": "factual_claim",
+  "cos": 0.8573,
+  "band": "0.85-0.90",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P132": {
+  "kind": "factual_claim",
+  "cos": 0.7649,
+  "band": "0.75-0.80",
+  "doc": "women-are-avoiding-very-technology-that-threatens-them-most-2026-1",
+  "group": [
+   "women-are-avoiding-very-technology-that-threatens-them-most-2026-1"
+  ],
+  "chunked": false
+ },
+ "P133": {
+  "kind": "key_point",
+  "cos": 0.8189,
+  "band": "0.80-0.85",
+  "doc": "scaling-laws-differentially-private-language-models-2026-2",
+  "group": [
+   "scaling-laws-differentially-private-language-models-2026-2",
+   "safetyist",
+   "intentions"
+  ],
+  "chunked": true
+ },
+ "P134": {
+  "kind": "factual_claim",
+  "cos": 0.9117,
+  "band": "0.90-0.95",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P135": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-1",
+  "group": [
+   "dream-rsi-recursive-self-improvement-through-evolving-worlds-2026-1",
+   "accelerationist",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P136": {
+  "kind": "key_point",
+  "cos": 0.8869,
+  "band": "0.85-0.90",
+  "doc": "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+  "group": [
+   "barriers-evidence-ai-related-cases-privatization-proof-2026-1",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P137": {
+  "kind": "factual_claim",
+  "cos": 0.9775,
+  "band": "0.95-1.00",
+  "doc": "pi-20250403-us-public-ai-experts-report-2026-2",
+  "group": [
+   "pi-20250403-us-public-ai-experts-report-2026-2"
+  ],
+  "chunked": true
+ },
+ "P138": {
+  "kind": "factual_claim",
+  "cos": 0.7575,
+  "band": "0.75-0.80",
+  "doc": "displacement-or-complementarity-labor-market-impact-2026",
+  "group": [
+   "displacement-or-complementarity-labor-market-impact-2026"
+  ],
+  "chunked": false
+ },
+ "P139": {
+  "kind": "key_point",
+  "cos": 1.0,
+  "band": "0.95-1.00",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "group": [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ },
+ "P140": {
+  "kind": "key_point",
+  "cos": 0.8385,
+  "band": "0.80-0.85",
+  "doc": "international-ai-safety-report-2026-2026-2",
+  "group": [
+   "international-ai-safety-report-2026-2026-2",
+   "skeptic",
+   "beliefs"
+  ],
+  "chunked": true
+ }
+}
