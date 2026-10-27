@@ -601,6 +601,10 @@ export interface AppAPI {
    *  rejectOpEdIpc precedent — same web-only posture as op-ed sharing). */
   shareInquiry: (jobId: string) => Promise<{ shareId: string; url: string }>;
   unshareInquiry: (jobId: string) => Promise<{ ok: boolean }>;
+  /** t/4562: loads a full community inquiry result for the library page's Open/Export actions —
+   *  mirrors loadCommunityOpEd exactly. Web-only; community browsing itself is already web-only
+   *  (useCommunityStore.fetchInquiries short-circuits on Electron), so desktop rejects. */
+  loadCommunityInquiry: (id: string) => Promise<InquiryResult>;
 
   // --- Brief Export (t/2805, T7 — client of the T6 REST API; web-only v1, Electron parity tracked) ---
   createBriefExport: (debateId: string, body: BriefExportRequest) => Promise<{ jobId: string }>;

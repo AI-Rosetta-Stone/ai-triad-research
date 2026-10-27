@@ -1008,7 +1008,6 @@ const rawApi: AppAPI = {
   deleteDebateSession: (id) => del(`/api/debates/${encodeURIComponent(id)}`).then(() => {}),
   loadDebateComments: (id) => get(`/api/debates/${encodeURIComponent(id)}/comments`),
   saveDebateComments: (id, data) => put(`/api/debates/${encodeURIComponent(id)}/comments`, data).then(() => {}),
-
   // Inquiry (t/3582) — client of routes/inquiry.ts (t/3581); idempotency key rides a header, never the body.
   startInquiry: (request: StartInquiryRequest, idempotencyKey?: string) => post<{ jobId: string }>('/api/inquiry', request, undefined, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined),
   getInquiry: (jobId: string) => get<InquiryStatusResponse>(`/api/inquiry/${encodeURIComponent(jobId)}`),
@@ -1016,6 +1015,7 @@ const rawApi: AppAPI = {
   exportInquiryToFile: (result: InquiryResult, title: string, format: 'json' | 'markdown' | 'pdf') => exportInquiryToFileWeb(result, title, format),
   shareInquiry: (jobId) => post<{ shareId: string; url: string }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`, {}),
   unshareInquiry: (jobId) => del<{ ok: boolean }>(`/api/inquiry/${encodeURIComponent(jobId)}/share`),
+  loadCommunityInquiry: (id) => get<InquiryResult>(`/api/community/inquiries/${encodeURIComponent(id)}`),
 
   // Brief Export (t/2805, T7) — client of the T6 REST API (server: routes/briefExports.ts).
   createBriefExport: (debateId, body) => post<{ jobId: string }>(`/api/debates/${encodeURIComponent(debateId)}/exports`, body),

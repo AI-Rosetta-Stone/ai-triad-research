@@ -8,15 +8,53 @@
   height: 100%;
 }
 
-/* ── top-level Ask/My/Community strip (t/3678) ── */
-.inquiry-top-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); }
-.inquiry-top-tab {
-  appearance: none; border: 0; background: transparent; color: var(--text-muted);
-  font-size: 13.5px; font-weight: 600; padding: 8px 14px; cursor: pointer;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
+/* t/4562 (Design review, t/4562#2): library-page Status column pill — tinted, uppercase, 11px,
+   with a dot, matching Debates' .debate-lib-status pattern (debateLibraryConfig.css) rather than
+   the old solid-fill .inquiry-hist-pill it replaced. Amber/"opening" hue — same tone family
+   Debates already uses for an in-progress-adjacent, non-terminal state. */
+.inquiry-lib-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
-.inquiry-top-tab.active { color: var(--text-primary); border-bottom-color: var(--focus-ring, #1a73e8); }
-.inquiry-top-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.inquiry-lib-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.inquiry-lib-status--partial {
+  color: oklch(0.52 0.11 70);
+  background: oklch(0.94 0.05 70);
+}
+.inquiry-lib-status--partial .inquiry-lib-status-dot {
+  background: oklch(0.52 0.11 70);
+}
+
+/* t/4562 (Design review): heading between the back button and the form — var(--sp-4) separates
+   it from the "← My Questions" row above (was 0px) and from the Research question label below. */
+.inquiry-ask-heading {
+  margin: var(--sp-4) 0 var(--sp-2);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* t/4562: flash()'d failure messages (export/share/copy) above the library page's own list —
+   mirrors OpEdTab's oped-status-inline. */
+.inquiry-status-inline {
+  padding: 8px 20px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
 
 .inquiry-eyebrow {
   display: block;

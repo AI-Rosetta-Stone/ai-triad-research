@@ -366,6 +366,8 @@ export const api: AppAPI = {
     location: 'electron-bridge.unshareInquiry',
     nextSteps: ['Use the web app to manage share links.'],
   })),
+  // t/4562: mirrors loadCommunityOpEd — Community browsing itself is already web-only.
+  loadCommunityInquiry: async () => { throw new Error('Community Library is only available in the web app'); },
 
   // Brief Export — desktop parity via main-process IPC (t/2840). Calls the shared runBriefPipeline
   // in-process; download returns raw bytes wrapped into a Blob (Blob-returning AppAPI in both builds).
