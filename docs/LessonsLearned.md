@@ -7719,3 +7719,63 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Design p/472#17).
 
 **Applies To:** All agents probing a Vite dev server to verify a fix is served; account for the configured `root` when constructing probe URLs, don't assume repo-relative paths.
+
+---
+
+## #380 [Build] Command Substitution Expanding Hundreds of Paths Into argv Hits the Windows/MSYS Argument Limit
+
+**Pattern:** An agent builds a `git archive` (or similar) command by expanding a path list via command substitution: `git archive origin/main $(git ls-tree ... | grep <pattern>)`. The substitution produces hundreds of individual path arguments (863 in the observed case). The combined command line exceeds the Windows/MSYS argv length limit. The failure is "Argument list too long," but if that error isn't surfaced clearly to the downstream consumer, the pipe just produces an empty stream — looking like "no matching files" rather than a command-construction failure.
+
+**Instances:**
+- 2026-10-27 — Computational Linguist (p/7#157, t/4495): `git archive origin/main $(git ls-tree … | grep metadata.json)` failed "Argument list too long" (863 paths); the downstream tar reader got an empty stream. Fixed by archiving the whole tree (`git archive origin/main --format=tar | python …`) and filtering members in the reader instead of on the command line.
+
+**Root Cause:** Command substitution with a dynamically-sized result (one path per matched file) has no built-in cap — as the matched-file count grows, the expanded argv grows unbounded. Windows/MSYS enforces a lower argv length limit than native Linux, so a command that might work fine on a Linux CI runner can fail locally on Windows purely from argument count/length.
+
+**Prevention:**
+1. **Never pass a large, dynamically-sized path list as command-line arguments.** If the list could be more than a few dozen entries, don't build it via command substitution into argv.
+2. **Archive or process the whole tree/set, then filter downstream** — e.g. `git archive <ref> --format=tar | python -c "...filter by name inside the reader..."` instead of restricting the archive command itself to a path list.
+3. **"Argument list too long" (or a suspicious empty result from a long command substitution)** on Windows is a reliable diagnostic that the expanded path count exceeded the argv limit — move the filtering downstream.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#157, t/4495).
+
+**Applies To:** All agents constructing shell commands that expand a file/path list via command substitution; filter downstream instead of building a long argv on Windows.
+
+---
+
+## #381 [Build] pnpm's `hoisted` Linker Still Installs Per-Package `node_modules`, It Does Not Flatten the Whole Workspace
+
+**Pattern:** An agent checks for a dependency's presence by looking in a workspace package's `node_modules` (e.g. `lib/debate/node_modules/vite`), assuming that `nodeLinker=hoisted` means all workspace packages share one flattened dependency tree. The file isn't there, even though the package is listed as a dependency elsewhere in the monorepo and `hoisted` mode is configured. `hoisted` hoists dependencies WITHIN each workspace package's own `node_modules`, not into one shared root tree across all workspace packages.
+
+**Instances:**
+- 2026-10-27 — DebateTool (p/70#85): `ls node_modules/vite/package.json` returned "No such file or directory" after confirming `nodeLinker=hoisted`. Root cause: `vite`/`vitest` only existed inside `taxonomy-editor/`, `poviewer/`, `summary-viewer/`, `workflow-app/`'s own `node_modules` — not in `lib/`, `lib/debate/`, or the repo root. Confirmed via `find . -iname vitest -path "*.bin*"`. Resolved by adding `vite` as `lib/debate`'s own explicit devDependency rather than relying on hoisting to provide it.
+
+**Root Cause:** pnpm's `hoisted` linker mode flattens a SINGLE package's dependency tree into its own `node_modules` (eliminating nested duplicate copies within that package), but each workspace member in a pnpm monorepo still gets its own separate `node_modules` directory. A dependency declared only in one workspace package's `package.json` is not automatically visible from a sibling workspace package, regardless of linker mode.
+
+**Prevention:**
+1. **Don't assume `hoisted` mode means workspace-wide dependency sharing.** Each `package.json` in `pnpm-workspace.yaml` still needs its own explicit dependency declaration for anything it imports.
+2. **Before assuming a tool/library is available via hoisting, check that specific workspace package's own `node_modules`** (`ls <package-dir>/node_modules/<pkg>`), not just "somewhere in the monorepo."
+3. **If a tool is needed in a package that doesn't declare it, add it as that package's own `devDependency`** rather than relying on cross-package hoisting — this is the correct, durable fix (companion to #366: `npx tsx` MODULE_NOT_FOUND despite being in the pnpm store).
+
+**Status:** Active — 1 instance (DebateTool p/70#85).
+
+**Applies To:** All agents checking for a dependency's availability in a pnpm workspace; `hoisted` mode does not share dependencies across workspace packages.
+
+---
+
+## #382 [Process] `Import-Module` With a Repo-Relative Path From the Wrong cwd Silently Resolves Nothing, Producing a Bogus Session That Masquerades as a Slow/Broken API
+
+**Pattern:** An agent runs a PowerShell harness that dot-sources or `Import-Module`s a repo-relative path (`scripts/AITriad/...`) from a cwd other than the repo root (e.g. `operations/devops`). PowerShell doesn't error — it silently resolves nothing, leaving whatever session/auth object the script was building in a bogus, half-initialized state. Downstream, a GET request made with that bogus session hits an unauthenticated response (Easy Auth's HTML interstitial) instead of the real API — slow (7150ms) and wrong-shaped (HTML, not JSON). The symptom looks like a slow or broken API endpoint; the actual cause is three layers upstream, in the cwd.
+
+**Instances:**
+- 2026-10-27 — DevOps Lead (p/26#286, t/4499#9): ran a warm-path harness with repo-relative paths from `operations/devops` instead of repo root. `Import-Module`/dot-source silently resolved nothing from the wrong cwd, producing a bogus session object; the GET hit Easy Auth's unauthenticated HTML interstitial (7150ms, non-JSON) instead of the real API. Resolved by rerunning with explicit `./scripts/...` paths from repo root — clean 91ms result.
+
+**Root Cause:** `Import-Module`/dot-sourcing with a relative path resolves against the CURRENT cwd, and PowerShell does not error loudly when the resolved path doesn't exist in all cases — depending on how the script handles the failure, it can silently no-op and leave downstream state (like a session/auth object) in a bogus default state rather than throwing. The bogus session then produces a technically-successful-looking (if slow, wrong-shaped) HTTP response rather than an immediate, obvious auth error — masking the real cause behind a misleading performance/shape symptom.
+
+**Prevention:**
+1. **Always run PowerShell harnesses with repo-relative paths from the repo root**, or use absolute paths constructed from a known root (`$PSScriptRoot`-derived or similar) rather than assuming a particular cwd.
+2. **A surprisingly slow (multi-second) response that returns HTML instead of JSON is a signature of hitting an unauthenticated interstitial, not a real API performance issue** — check whether the session/auth setup actually succeeded before investigating "slowness."
+3. **If a harness depends on `Import-Module`/dot-sourcing a relative path, add an explicit existence check (`Test-Path`) immediately after**, and fail loudly if the module didn't actually load — don't let a silent no-op propagate into a bogus downstream state.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#286, t/4499#9).
+
+**Applies To:** All agents running PowerShell harnesses that import modules via relative paths; verify cwd and module load success explicitly rather than trusting silent resolution.
