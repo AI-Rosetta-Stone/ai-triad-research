@@ -36,6 +36,10 @@ on:
     # Weekly scan — catches new CVE patterns even without code changes
     - cron: '0 6 * * 1'
   workflow_dispatch:
+  # t/4567: CodeQL must report on the merge-group commit too, same required-context
+  # name, matched by GitHub on check-run name regardless of triggering event.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
