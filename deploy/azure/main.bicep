@@ -590,6 +590,13 @@ var baseEnv = [
   { name: 'GITHUB_APP_ID', value: githubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID', value: githubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: githubAppPrivateKeySecretName }
+  // t/4596: the NLI opposition-detection gate's own ML deps (transformers/sentence-transformers
+  // + the nli-deberta-v3-small model) are NOT in this image -- the CL's call (t/4596#7, no
+  // DevOps/CL disagreement to escalate) is to keep it explicitly disabled on hosted until
+  // t/4593's precision/recall + fire-rate re-validation lands, not left as an implicit
+  // no-op from a missing dependency. Empty string is nliDirectionGate.ts's documented
+  // explicit-disable value (distinct logged reason from "script not found").
+  { name: 'NLI_CLASSIFY_SCRIPT', value: '' }
   // Application Insights — runtime error monitoring and request tracing.
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
   // Azure Blob Storage — user content (chats, debates) and community library.
