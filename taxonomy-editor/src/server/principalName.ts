@@ -254,7 +254,7 @@ function warnOnUnreviewedIdp(idp: string, claimTypes: string[]): void {
  *     value, not even the gate email itself;
  *   - once per process.
  * Remove this function, its call site, and CLAIM_SHAPE_DIAG_EMAIL once the claim shape is
- * captured and canonicalizeGoogle ships — tracked as its own removal ticket (t/4436).
+ * captured and canonicalizeGoogle ships — tracked as its own removal ticket (t/4569).
  */
 function logGoogleClaimShapeDiag(req: IncomingMessage, decoded: DecodedPrincipal): void {
   if (!isStagingIdentity()) return;
