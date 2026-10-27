@@ -80,21 +80,6 @@
 
   /* Chip text color (for monospace IDs) */
   --chip-bg: #e2e8f0;
-
-  /* Library page tokens (t/4579) */
-  --lib-bg: var(--bg-primary);
-  --lib-text: var(--text-primary);
-  --lib-text-secondary: var(--text-secondary);
-  --lib-text-faded: var(--text-muted);
-  --lib-dash: var(--text-muted);
-  --lib-accent: var(--danger);
-  --lib-accent-hover: var(--danger);
-  --lib-border-header: var(--border-color);
-  --lib-border-row: var(--border-color);
-  --lib-border-control: var(--border-color);
-  --lib-active-bg: var(--accent-bg);
-  --lib-inactive-badge-bg: var(--bg-tertiary);
-  --lib-row-hover: var(--bg-hover);
 }
 
 /* ─── Dark theme ────────────────────────────────────────── */
@@ -173,21 +158,6 @@
 
   /* Chip */
   --chip-bg: #293548;
-
-  /* Library page tokens (t/4579) */
-  --lib-bg: var(--bg-primary);
-  --lib-text: var(--text-primary);
-  --lib-text-secondary: var(--text-secondary);
-  --lib-text-faded: var(--text-muted);
-  --lib-dash: var(--text-muted);
-  --lib-accent: var(--danger);
-  --lib-accent-hover: var(--danger);
-  --lib-border-header: var(--border-color);
-  --lib-border-row: var(--border-color);
-  --lib-border-control: var(--border-color);
-  --lib-active-bg: var(--accent-bg);
-  --lib-inactive-badge-bg: var(--bg-tertiary);
-  --lib-row-hover: var(--bg-hover);
 }
 
 /* ─── BKC theme (Berkman Klein Center Transparency Hub) ─── */
@@ -266,21 +236,6 @@
 
   /* Chip */
   --chip-bg: #311632;
-
-  /* Library page tokens (t/4579) */
-  --lib-bg: var(--bg-primary);
-  --lib-text: var(--text-primary);
-  --lib-text-secondary: var(--text-secondary);
-  --lib-text-faded: var(--text-muted);
-  --lib-dash: var(--text-muted);
-  --lib-accent: var(--danger);
-  --lib-accent-hover: var(--danger);
-  --lib-border-header: var(--border-color);
-  --lib-border-row: var(--border-color);
-  --lib-border-control: var(--border-color);
-  --lib-active-bg: var(--accent-bg);
-  --lib-inactive-badge-bg: var(--bg-tertiary);
-  --lib-row-hover: var(--bg-hover);
 }
 
 [data-theme="harvard"] {
@@ -357,21 +312,6 @@
 
   /* Chip */
   --chip-bg: #E5DFD6;
-
-  /* Library page tokens (t/4579) - harvard preserves current values */
-  --lib-bg: #f4f0ea;
-  --lib-text: #2b2622;
-  --lib-text-secondary: #5d554f;
-  --lib-text-faded: #8a8079;
-  --lib-dash: #b3aaa2;
-  --lib-accent: #9e2236;
-  --lib-accent-hover: #861b2d;
-  --lib-border-header: #e0d8cd;
-  --lib-border-row: #e6dfd5;
-  --lib-border-control: #ddd5ca;
-  --lib-active-bg: #f3dde1;
-  --lib-inactive-badge-bg: #e8e1d7;
-  --lib-row-hover: #ece6dd;
 }
 
 /* ─── Design tokens (theme-independent) ────────────────── */
