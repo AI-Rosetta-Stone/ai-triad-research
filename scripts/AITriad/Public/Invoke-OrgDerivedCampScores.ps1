@@ -36,6 +36,19 @@ function Invoke-OrgDerivedCampScores {
         Only -Write actually calls Import-Organization to persist the
         derived block back into organizations.json.
 
+        RECENCY SUPERSESSION (t/4475 7a, org-pov-mapping-design.md amendment):
+        for one (org, node) pair with both an ADVOCATES_FOR and an OPPOSES edge
+        in a stratum, only the edge whose evidence is newer counts toward that
+        camp's advocates_C/opposes_C; the older is counted in Superseded, not
+        deleted. An edge's evidence date is the latest date_published among its
+        source_refs. When either edge is undated, or both share a date, both
+        count (their contributions cancel in the net ratio) and the cmdlet
+        WARNs that the pair is unresolved, for a reviewer. Scoped to opposite-
+        polarity pairs on the SAME node — same-polarity evidence already merges
+        into one edge per (org, node, type) at Stage 3, so this cmdlet never
+        sees duplicate same-type edges to collide. Applies to both strata
+        (approved and candidate) independently.
+
     .PARAMETER OrgEdgesPath
         Path to organization_edges.json. Defaults to <taxonomy-dir>/organization_edges.json.
     .PARAMETER OrgsPath
@@ -51,8 +64,9 @@ function Invoke-OrgDerivedCampScores {
         Optional; if omitted, provenance carries an empty string.
     .OUTPUTS
         [PSCustomObject] with:
-          - Approved          — per-org, per-camp counts (what would land)
-          - Candidate         — per-org, per-camp counts including proposed rows
+          - Approved          — per-org, per-camp counts (what would land), post-supersession
+          - Candidate         — per-org, per-camp counts including proposed rows, post-supersession
+          - Superseded        — per-org, per-camp count of approved-stratum edges superseded (t/4475 7a)
           - Distribution      — { acc, saf, skp } histogram of net_ratio buckets (approved-only)
           - Written           — number of orgs whose record was updated (0 if dry-run)
           - InputEdges        — total edges read
@@ -152,39 +166,34 @@ function Invoke-OrgDerivedCampScores {
     # ── Aggregate per (org, camp, provenance-stratum) ─────────────────────
     # Two strata: approved (authoritative) + all (approved + proposed = candidate).
     # Excludes rejected/disputed by design — rejected is telemetry, not signal.
-    $approvedByOrg  = @{}
-    $candidateByOrg = @{}
-    foreach ($e in $keep) {
-        $src    = [string]$e.source
-        $type   = [string]$e.type
-        $target = [string]$e.target
-        $status = if ($e.PSObject.Properties['status']) { [string]$e.status } else { 'approved' }
-        if ($status -eq 'rejected' -or $status -eq 'disputed') { continue }
-        $camp   = $target.Substring(0, 3)  # acc/saf/skp
+    #
+    # t/4475 7a (org-pov-mapping-design.md amendment, 2026-10-26): for one
+    # (org, node) pair with both an edge of each type, only the newer edge's
+    # evidence counts; the older is reported as superseded, not deleted. Undated
+    # or tied evidence counts both (their contributions cancel in the net ratio)
+    # and the rollup WARNs — a reviewer call, not the rollup's to make silently.
+    # Scoped to opposite-polarity pairs on the SAME node — same-polarity evidence
+    # already merged into one edge per (org, node, type) at Stage 3.
+    $approvedEdges  = @($keep | Where-Object {
+        $s = if ($_.PSObject.Properties['status']) { [string]$_.status } else { 'approved' }
+        $s -eq 'approved'
+    })
+    $candidateEdges = @($keep | Where-Object {
+        $s = if ($_.PSObject.Properties['status']) { [string]$_.status } else { 'approved' }
+        $s -ne 'rejected' -and $s -ne 'disputed'
+    })
 
-        if (-not $candidateByOrg.ContainsKey($src)) { $candidateByOrg[$src] = _newCampCounts }
-        if ($type -eq 'ADVOCATES_FOR') { $candidateByOrg[$src][$camp].Advocates++ }
-        else                            { $candidateByOrg[$src][$camp].Opposes++ }
+    $dateCache = @{}
+    $approvedResolution  = _resolveOrgEdgeSupersession -Edges $approvedEdges  -DateCache $dateCache
+    $candidateResolution = _resolveOrgEdgeSupersession -Edges $candidateEdges -DateCache $dateCache
+    $approvedByOrg  = $approvedResolution.ByOrg
+    $candidateByOrg = $candidateResolution.ByOrg
+    $supersededByOrg = $approvedResolution.Superseded
 
-        if ($status -eq 'approved') {
-            if (-not $approvedByOrg.ContainsKey($src)) { $approvedByOrg[$src] = _newCampCounts }
-            if ($type -eq 'ADVOCATES_FOR') { $approvedByOrg[$src][$camp].Advocates++ }
-            else                            { $approvedByOrg[$src][$camp].Opposes++ }
-        }
-    }
-
-    foreach ($map in @($approvedByOrg, $candidateByOrg)) {
-        foreach ($org in @($map.Keys)) {
-            foreach ($camp in 'acc','saf','skp') {
-                $rec = $map[$org][$camp]
-                $rec.N = $rec.Advocates + $rec.Opposes
-                if ($rec.N -gt 0) {
-                    $rec.NetRatio = ($rec.Advocates - $rec.Opposes) / [double]$rec.N
-                }
-                # else leave NetRatio as $null — three-state semantics.
-            }
-        }
-    }
+    $allWarnings = [System.Collections.Generic.List[string]]::new()
+    foreach ($w in @($approvedResolution.Warnings)) { $null = $allWarnings.Add($w) }
+    foreach ($w in @($candidateResolution.Warnings)) { if (-not $allWarnings.Contains($w)) { $null = $allWarnings.Add($w) } }
+    foreach ($w in @($allWarnings)) { Write-Warning $w }
 
     # ── Distribution histogram (approved only) ────────────────────────────
     $distribution = @{
@@ -279,6 +288,7 @@ function Invoke-OrgDerivedCampScores {
     [PSCustomObject]@{
         Approved         = $approvedByOrg
         Candidate        = $candidateByOrg
+        Superseded       = $supersededByOrg
         Distribution     = $distribution
         Written          = $written
         InputEdges       = $totalEdges
@@ -293,6 +303,125 @@ function _newCampCounts {
         saf = [PSCustomObject]@{ Advocates = 0; Opposes = 0; N = 0; NetRatio = $null }
         skp = [PSCustomObject]@{ Advocates = 0; Opposes = 0; N = 0; NetRatio = $null }
     }
+}
+
+function _newSupersededCounts {
+    @{ acc = 0; saf = 0; skp = 0 }
+}
+
+function _getOrgEdgeEvidenceDate {
+    <#
+    .SYNOPSIS
+        t/4475 7a: an edge's evidence date is the latest date_published among its
+        source_refs. $null when no source_ref has a parseable date_published.
+    #>
+    param([object]$Edge, [hashtable]$DateCache)
+
+    $refs = if ($Edge.PSObject.Properties['source_refs']) { @($Edge.source_refs) } else { @() }
+    $dates = [System.Collections.Generic.List[datetime]]::new()
+    foreach ($ref in $refs) {
+        $refId = [string]$ref
+        if ([string]::IsNullOrWhiteSpace($refId)) { continue }
+        if (-not $DateCache.ContainsKey($refId)) {
+            $DateCache[$refId] = _getSourceDatePublished -DocId $refId
+        }
+        $dp = $DateCache[$refId]
+        if ($null -ne $dp) { $dates.Add($dp) }
+    }
+    if ($dates.Count -eq 0) { return $null }
+    @($dates | Sort-Object -Descending)[0]
+}
+
+function _getSourceDatePublished {
+    param([string]$DocId)
+    try {
+        $metaPath = Join-Path (Join-Path (Get-SourcesDir) $DocId) 'metadata.json'
+        if (-not (Test-Path -LiteralPath $metaPath)) { return $null }
+        $meta = Get-Content -Raw -LiteralPath $metaPath | ConvertFrom-Json
+        if (-not $meta.PSObject.Properties['date_published'] -or -not $meta.date_published) { return $null }
+        $parsed = [datetime]::MinValue
+        if ([datetime]::TryParse([string]$meta.date_published, [ref]$parsed)) { return $parsed }
+        return $null
+    }
+    catch {
+        Write-Warning "Invoke-OrgDerivedCampScores: could not read date_published for source '$DocId': $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function _resolveOrgEdgeSupersession {
+    <#
+    .SYNOPSIS
+        t/4475 7a: groups edges by (org, node), applies the recency-supersession
+        rule to opposite-polarity pairs on the same node, and rolls the result up
+        into per-org, per-camp Advocates/Opposes/N/NetRatio counts.
+    .DESCRIPTION
+        One camp count increments per edge that counts toward the rollup: the
+        single winning edge of a resolved pair, or both edges of an unresolved
+        pair (undated or tied evidence — their contributions cancel in the net
+        ratio), or the lone edge when the node has only one type. Same-polarity
+        edges never collide here: Stage 3 already merges them into one edge per
+        (org, node, type) before this cmdlet ever sees them.
+    .OUTPUTS
+        @{ ByOrg = <org -> camp counts>; Superseded = <org -> camp -> int>; Warnings = string[] }
+    #>
+    param([object[]]$Edges, [hashtable]$DateCache)
+
+    $byOrgNode = @{}
+    foreach ($e in $Edges) {
+        $src = [string]$e.source
+        $target = [string]$e.target
+        $type = [string]$e.type
+        if (-not $byOrgNode.ContainsKey($src)) { $byOrgNode[$src] = @{} }
+        if (-not $byOrgNode[$src].ContainsKey($target)) { $byOrgNode[$src][$target] = @{} }
+        $byOrgNode[$src][$target][$type] = $e
+    }
+
+    $byOrg = @{}
+    $superseded = @{}
+    $warnings = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($src in @($byOrgNode.Keys)) {
+        $byOrg[$src] = _newCampCounts
+        $superseded[$src] = _newSupersededCounts
+
+        foreach ($target in @($byOrgNode[$src].Keys)) {
+            $camp = $target.Substring(0, 3)
+            $pair = $byOrgNode[$src][$target]
+            $adv = if ($pair.ContainsKey('ADVOCATES_FOR')) { $pair['ADVOCATES_FOR'] } else { $null }
+            $opp = if ($pair.ContainsKey('OPPOSES')) { $pair['OPPOSES'] } else { $null }
+
+            if ($adv -and $opp) {
+                $advDate = _getOrgEdgeEvidenceDate -Edge $adv -DateCache $DateCache
+                $oppDate = _getOrgEdgeEvidenceDate -Edge $opp -DateCache $DateCache
+                if ($advDate -and $oppDate -and $advDate -ne $oppDate) {
+                    if ($advDate -gt $oppDate) { $byOrg[$src][$camp].Advocates++ }
+                    else                       { $byOrg[$src][$camp].Opposes++ }
+                    $superseded[$src][$camp]++
+                }
+                else {
+                    $byOrg[$src][$camp].Advocates++
+                    $byOrg[$src][$camp].Opposes++
+                    $warnings.Add("WARN: $src ${target}: opposite-polarity edges unresolved (undated or same date); both counted")
+                }
+            }
+            elseif ($adv) { $byOrg[$src][$camp].Advocates++ }
+            elseif ($opp) { $byOrg[$src][$camp].Opposes++ }
+        }
+    }
+
+    foreach ($src in @($byOrg.Keys)) {
+        foreach ($camp in 'acc', 'saf', 'skp') {
+            $rec = $byOrg[$src][$camp]
+            $rec.N = $rec.Advocates + $rec.Opposes
+            if ($rec.N -gt 0) {
+                $rec.NetRatio = ($rec.Advocates - $rec.Opposes) / [double]$rec.N
+            }
+            # else leave NetRatio as $null — three-state semantics.
+        }
+    }
+
+    @{ ByOrg = $byOrg; Superseded = $superseded; Warnings = @($warnings) }
 }
 
 function _newBuckets {
