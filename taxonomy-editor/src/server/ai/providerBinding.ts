@@ -109,8 +109,18 @@ export interface BindingResult {
  * - Mismatched idp: returns { ok: false, boundTo } — the caller should
  *   reject the request (403).
  * - _local / empty: always ok (no binding for anonymous or Electron users).
+ * - Mismatched idp, but `identityMapKey` set: an admin-held IDENTITY_MAP entry for this
+ *   request's own (idp, stable id) — stronger proof than first-claim — overrides the
+ *   mismatch (t/4540). The binding file is NOT rewritten: an admin asserting "same person
+ *   across providers" shouldn't narrow future access to whichever provider signed in last.
+ *   `identityMapKey` must come from `principalName.ts`'s `getIdentityMapKey(req)` (a
+ *   WeakMap, never client input) — passing anything else here would move IDENTITY_MAP's
+ *   trust root onto an attacker-controlled value, same risk class as the name/admin
+ *   decisions IDENTITY_MAP already makes (#3744) deployed under this same trust: it's
+ *   admin-held and deploy-gated, so this adds no new privilege-escalation class, only
+ *   extends the existing one.
  */
-export function checkProviderBinding(storageUserId: string, idp: string): BindingResult {
+export function checkProviderBinding(storageUserId: string, idp: string, identityMapKey?: string): BindingResult {
   if (!storageUserId || storageUserId === '_local') return { ok: true };
   // Defensive: reject reserved keys outright. The Map store already keeps a
   // user-controlled key off the object-property path (js/remote-property-injection),
@@ -146,6 +156,11 @@ export function checkProviderBinding(storageUserId: string, idp: string): Bindin
   }
 
   if (bound === idp) return { ok: true };
+
+  if (identityMapKey) {
+    log.server.info({ storageUserId, idp, boundTo: bound, identityMapKey }, 'Accepted cross-provider sign-in via IDENTITY_MAP');
+    return { ok: true };
+  }
 
   log.server.warn({ storageUserId, idp, boundTo: bound }, 'Provider binding mismatch — access denied');
   getGlobalRecorder()?.record({
