@@ -1,0 +1,542 @@
+{
+ "C01": {
+  "arm": "new_on",
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "camp": "safetyist",
+  "idx": 20
+ },
+ "C02": {
+  "arm": "new_on",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "skeptic",
+  "idx": 10
+ },
+ "C03": {
+  "arm": "saved_off",
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "C04": {
+  "arm": "new_on",
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "C05": {
+  "arm": "new_on",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C06": {
+  "arm": "new_off",
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "camp": "skeptic",
+  "idx": 4
+ },
+ "C07": {
+  "arm": "new_on",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "skeptic",
+  "idx": 17
+ },
+ "C08": {
+  "arm": "new_on",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "safetyist",
+  "idx": 8
+ },
+ "C09": {
+  "arm": "new_on",
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "camp": "safetyist",
+  "idx": 4
+ },
+ "C10": {
+  "arm": "new_on",
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "camp": "skeptic",
+  "idx": 7
+ },
+ "C11": {
+  "arm": "new_on",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "safetyist",
+  "idx": 12
+ },
+ "C12": {
+  "arm": "saved_off",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "safetyist",
+  "idx": 2
+ },
+ "C13": {
+  "arm": "new_off",
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "C14": {
+  "arm": "saved_off",
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C15": {
+  "arm": "saved_off",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "accelerationist",
+  "idx": 3
+ },
+ "C16": {
+  "arm": "new_off",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "C17": {
+  "arm": "saved_off",
+  "doc": "pluralistic-what-kind-bubble-is-ai-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "C18": {
+  "arm": "new_off",
+  "doc": "future-online-expression-innovation-depends-robust-section-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "C19": {
+  "arm": "new_on",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "C20": {
+  "arm": "new_off",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "safetyist",
+  "idx": 2
+ },
+ "C21": {
+  "arm": "new_on",
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "C22": {
+  "arm": "new_off",
+  "doc": "future-online-expression-innovation-depends-robust-section-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C23": {
+  "arm": "saved_off",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "accelerationist",
+  "idx": 5
+ },
+ "C24": {
+  "arm": "new_off",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C25": {
+  "arm": "new_off",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "C26": {
+  "arm": "new_off",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "C27": {
+  "arm": "saved_off",
+  "doc": "future-online-expression-innovation-depends-robust-section-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "C28": {
+  "arm": "new_off",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "safetyist",
+  "idx": 2
+ },
+ "C29": {
+  "arm": "new_on",
+  "doc": "pluralistic-what-kind-bubble-is-ai-2026",
+  "camp": "skeptic",
+  "idx": 2
+ },
+ "C30": {
+  "arm": "saved_off",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "accelerationist",
+  "idx": 5
+ },
+ "C31": {
+  "arm": "new_off",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "skeptic",
+  "idx": 4
+ },
+ "C32": {
+  "arm": "new_off",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C33": {
+  "arm": "saved_off",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "accelerationist",
+  "idx": 6
+ },
+ "C34": {
+  "arm": "new_off",
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "C35": {
+  "arm": "new_off",
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "camp": "safetyist",
+  "idx": 2
+ },
+ "C36": {
+  "arm": "saved_off",
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "camp": "skeptic",
+  "idx": 6
+ },
+ "C37": {
+  "arm": "new_off",
+  "doc": "do-ai-risks-require-extraordinary-government-intervention-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C38": {
+  "arm": "saved_off",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "C39": {
+  "arm": "new_on",
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C40": {
+  "arm": "new_on",
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "camp": "accelerationist",
+  "idx": 7
+ },
+ "C41": {
+  "arm": "saved_off",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "accelerationist",
+  "idx": 5
+ },
+ "C42": {
+  "arm": "new_off",
+  "doc": "future-online-expression-innovation-depends-robust-section-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "C43": {
+  "arm": "new_on",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "skeptic",
+  "idx": 9
+ },
+ "C44": {
+  "arm": "new_on",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "skeptic",
+  "idx": 16
+ },
+ "C45": {
+  "arm": "new_on",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "skeptic",
+  "idx": 9
+ },
+ "C46": {
+  "arm": "new_off",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "C47": {
+  "arm": "new_off",
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C48": {
+  "arm": "new_on",
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "C49": {
+  "arm": "saved_off",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "C50": {
+  "arm": "saved_off",
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "C51": {
+  "arm": "new_on",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "skeptic",
+  "idx": 6
+ },
+ "C52": {
+  "arm": "new_off",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "C53": {
+  "arm": "saved_off",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "safetyist",
+  "idx": 5
+ },
+ "C54": {
+  "arm": "saved_off",
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C55": {
+  "arm": "new_off",
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "C56": {
+  "arm": "saved_off",
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "C57": {
+  "arm": "new_off",
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "camp": "skeptic",
+  "idx": 2
+ },
+ "C58": {
+  "arm": "saved_off",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "accelerationist",
+  "idx": 1
+ },
+ "C59": {
+  "arm": "saved_off",
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C60": {
+  "arm": "saved_off",
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "C61": {
+  "arm": "saved_off",
+  "doc": "pluralistic-what-kind-bubble-is-ai-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C62": {
+  "arm": "new_off",
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C63": {
+  "arm": "new_on",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "accelerationist",
+  "idx": 9
+ },
+ "C64": {
+  "arm": "new_on",
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "camp": "safetyist",
+  "idx": 19
+ },
+ "C65": {
+  "arm": "new_off",
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "camp": "safetyist",
+  "idx": 5
+ },
+ "C66": {
+  "arm": "saved_off",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "C67": {
+  "arm": "saved_off",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "C68": {
+  "arm": "new_on",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "skeptic",
+  "idx": 5
+ },
+ "C69": {
+  "arm": "new_off",
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "C70": {
+  "arm": "new_on",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "skeptic",
+  "idx": 7
+ },
+ "C71": {
+  "arm": "new_off",
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "C72": {
+  "arm": "new_off",
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "camp": "skeptic",
+  "idx": 3
+ },
+ "C73": {
+  "arm": "new_off",
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "camp": "safetyist",
+  "idx": 2
+ },
+ "C74": {
+  "arm": "new_off",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "skeptic",
+  "idx": 2
+ },
+ "C75": {
+  "arm": "new_on",
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "camp": "accelerationist",
+  "idx": 4
+ },
+ "C76": {
+  "arm": "new_off",
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C77": {
+  "arm": "new_off",
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "camp": "safetyist",
+  "idx": 3
+ },
+ "C78": {
+  "arm": "new_on",
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C79": {
+  "arm": "saved_off",
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "camp": "skeptic",
+  "idx": 0
+ },
+ "C80": {
+  "arm": "new_on",
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "camp": "accelerationist",
+  "idx": 3
+ },
+ "C81": {
+  "arm": "new_on",
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "camp": "safetyist",
+  "idx": 6
+ },
+ "C82": {
+  "arm": "saved_off",
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "camp": "skeptic",
+  "idx": 7
+ },
+ "C83": {
+  "arm": "saved_off",
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C84": {
+  "arm": "saved_off",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "safetyist",
+  "idx": 1
+ },
+ "C85": {
+  "arm": "new_on",
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "camp": "accelerationist",
+  "idx": 0
+ },
+ "C86": {
+  "arm": "new_on",
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "camp": "accelerationist",
+  "idx": 3
+ },
+ "C87": {
+  "arm": "saved_off",
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "camp": "safetyist",
+  "idx": 0
+ },
+ "C88": {
+  "arm": "saved_off",
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "camp": "accelerationist",
+  "idx": 3
+ },
+ "C89": {
+  "arm": "saved_off",
+  "doc": "future-online-expression-innovation-depends-robust-section-2026",
+  "camp": "skeptic",
+  "idx": 1
+ },
+ "C90": {
+  "arm": "new_on",
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "camp": "skeptic",
+  "idx": 0
+ }
+}
