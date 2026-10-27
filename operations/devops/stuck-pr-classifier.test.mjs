@@ -246,6 +246,21 @@ test('approved-not-armed: a T0 PR with NO review at all still fires -- T0 needs 
   const pr = basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...' });
   assert.equal(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
 });
+
+// t/4566 (TL, p/702#97): PR #3926 was nudged to arm and merged before the CL's required
+// re-review cleared. The T0-no-review path must caveat "check the ticket's ACs first", unlike
+// the has-a-real-approval path (that review already settled the question).
+test('approved-not-armed remedy: T0-no-review path caveats "check the linked ticket" before arming', () => {
+  const pr = basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...' });
+  const v = classifyBlocker(pr, NOW);
+  assert.match(v.detail.remedy, /ticket/i);
+  assert.match(v.detail.remedy, /unless/i);
+});
+test('approved-not-armed remedy: the has-a-real-approval path does NOT need the ticket caveat', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, body: 'Tier: T1\n...' });
+  const v = classifyBlocker(pr, NOW);
+  assert.doesNotMatch(v.detail.remedy, /ticket/i);
+});
 test('NOT approved-not-armed: approved and unarmed, but a required context is NOT green -> falls through (a real failure/in-flight class takes priority)', () => {
   const pr = basePr({
     hasApproval: true, autoMergeEnabled: false,
