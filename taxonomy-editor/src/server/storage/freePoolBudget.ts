@@ -276,6 +276,14 @@ export interface BlobFreePoolBudgetOptions {
   maxCasRetries?: number;
   /** Test seam: inject a pre-built client (e.g. an Azurite shared-key client). */
   serviceClient?: BlobServiceClient;
+  /** Test seam (t/4549): the clock used for every TTL/expiry decision
+   *  (reservation `expiresAt`, sweep comparisons, the day key). Default
+   *  `() => new Date()`. A real wall-clock `setTimeout` wait for TTL
+   *  expiry in a test is exactly the t/4502 class of flake (tight margins
+   *  under CI load) — tests inject a fake clock here and advance it
+   *  explicitly instead, making expiry deterministic rather than
+   *  timing-sensitive. */
+  now?: () => Date;
 }
 
 const DEFAULT_CONTAINER = 'user-content';
@@ -351,6 +359,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
   private readonly tokensCap: number | null;
   private readonly reservationTtlMs: number;
   private readonly maxCasRetries: number;
+  private readonly now: () => Date;
 
   constructor(opts: BlobFreePoolBudgetOptions) {
     const service = opts.serviceClient
@@ -361,6 +370,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
     this.tokensCap = opts.tokensCap ?? null;
     this.reservationTtlMs = opts.reservationTtlMs ?? DEFAULT_RESERVATION_TTL_MS;
     this.maxCasRetries = opts.maxCasRetries ?? DEFAULT_MAX_CAS_RETRIES;
+    this.now = opts.now ?? (() => new Date());
   }
 
   private blobClientFor(day: string): BlockBlobClient {
@@ -494,7 +504,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
     for (let attempt = 0; attempt < this.maxCasRetries; attempt++) {
       const current = await this.download(day);
       const doc = current?.doc ?? freshDoc(day, this.callsCap, this.tokensCap);
-      const now = new Date();
+      const now = this.now();
       const { deleted, autoCommitted } = this.sweepExpired(doc, now);
       this.warnSweptReservations(deleted, autoCommitted);
       const outcome = mutate(doc);
@@ -520,17 +530,17 @@ export class BlobFreePoolBudget implements FreePoolBudget {
   }
 
   async reserve(req: FreePoolBudgetRequest): Promise<FreePoolBudgetReserveResult> {
-    const day = todayUtc();
+    const day = todayUtc(this.now());
     try {
       return await this.rmw<FreePoolBudgetReserveResult>(day, (doc) => {
         const used = this.usage(doc);
         const overCalls = used.calls + req.calls > doc.callsCap;
         const overTokens = doc.tokensCap !== null && used.tokens + req.tokens > doc.tokensCap;
         if (overCalls || overTokens) {
-          return { result: { ok: false, reason: 'daily_cap', resetsAt: nextUtcMidnightIso() } };
+          return { result: { ok: false, reason: 'daily_cap', resetsAt: nextUtcMidnightIso(this.now()) } };
         }
         const reservationId = `${day}:${randomUUID()}`;
-        const now = new Date();
+        const now = this.now();
         doc.reservations[reservationId] = {
           calls: req.calls, tokens: req.tokens, key: req.key,
           createdAt: now.toISOString(),
@@ -557,7 +567,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
       return await this.rmw<boolean>(day, (doc) => {
         const r = doc.reservations[reservationId];
         if (!r || r.committed) return { result: false };
-        r.expiresAt = new Date(Date.now() + this.reservationTtlMs).toISOString();
+        r.expiresAt = new Date(this.now().getTime() + this.reservationTtlMs).toISOString();
         return { result: true };
       });
     } catch (err) {
@@ -610,11 +620,11 @@ export class BlobFreePoolBudget implements FreePoolBudget {
   }
 
   async headroom(): Promise<FreePoolBudgetHeadroom> {
-    const day = todayUtc();
+    const day = todayUtc(this.now());
     try {
       const current = await this.download(day);
       const doc = current?.doc ?? freshDoc(day, this.callsCap, this.tokensCap);
-      this.sweepExpired(doc, new Date());
+      this.sweepExpired(doc, this.now());
       const used = this.usage(doc);
       return { callsUsed: used.calls, callsCap: doc.callsCap, tokensUsed: used.tokens, tokensCap: doc.tokensCap, day };
     } catch (err) {
@@ -631,7 +641,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
 
   // t/4491 AC2-5: the implementation follow-up to the AC1 types-only stubs.
   async reserveForKey(req: FreePoolBudgetKeyRequest): Promise<FreePoolBudgetReserveForKeyResult> {
-    const day = todayUtc();
+    const day = todayUtc(this.now());
     try {
       return await this.rmw<FreePoolBudgetReserveForKeyResult>(day, (doc) => {
         // AC2: a live reservation for this exact key already exists — return
@@ -659,11 +669,11 @@ export class BlobFreePoolBudget implements FreePoolBudget {
         const overCalls = used.calls + req.calls > doc.callsCap;
         const overTokens = doc.tokensCap !== null && used.tokens + req.tokens > doc.tokensCap;
         if (overCalls || overTokens) {
-          return { result: { ok: false, reason: 'daily_cap', resetsAt: nextUtcMidnightIso() }, skipWrite: true };
+          return { result: { ok: false, reason: 'daily_cap', resetsAt: nextUtcMidnightIso(this.now()) }, skipWrite: true };
         }
 
         const reservationId = `${day}:${randomUUID()}`;
-        const now = new Date();
+        const now = this.now();
         doc.reservations[reservationId] = {
           calls: 0, tokens: 0, reservedCalls: req.calls, reservedTokens: req.tokens, key: req.key,
           createdAt: now.toISOString(),
@@ -694,7 +704,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
         // NEXT admission is what refuses, per the interface doc comment).
         r.calls += actual.calls;
         r.tokens += actual.tokens;
-        r.expiresAt = new Date(Date.now() + this.reservationTtlMs).toISOString(); // the heartbeat
+        r.expiresAt = new Date(this.now().getTime() + this.reservationTtlMs).toISOString(); // the heartbeat
         return {
           result: {
             drawnCalls: r.calls, drawnTokens: r.tokens,
@@ -720,11 +730,11 @@ export class BlobFreePoolBudget implements FreePoolBudget {
     // AC4: diagnostics/gauge only — download-only, no rmw, no write. A
     // thrown error here must not be mistaken for "zero open" (same contract
     // as headroom()).
-    const day = todayUtc();
+    const day = todayUtc(this.now());
     try {
       const current = await this.download(day);
       const doc = current?.doc ?? freshDoc(day, this.callsCap, this.tokensCap);
-      this.sweepExpired(doc, new Date());
+      this.sweepExpired(doc, this.now());
       return Object.values(doc.reservations).filter(r => !r.committed && r.key.startsWith(prefix)).length;
     } catch (err) {
       getGlobalRecorder()?.record({
