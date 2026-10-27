@@ -90,7 +90,7 @@ export interface SharedOverlayStoreOptions {
 }
 
 export type SharedOverlayStageResult =
-  | { ok: true }
+  | { ok: true; gen: string }
   | { ok: false; reason: 'storage_unavailable' };
 
 function isNotFound(err: unknown): boolean {
@@ -151,11 +151,12 @@ export class SharedOverlayStore {
    *  412 (there is no conditional to fail). A thrown error here is a
    *  genuine store failure; the caller decides what that means for the
    *  write that triggered it (see `stage()`'s D2 handling). */
-  private async bumpGeneration(userId: string): Promise<void> {
+  private async bumpGeneration(userId: string): Promise<string> {
     const client = this.genBlobClient(userId);
     const body = randomUUID();
     try {
       await client.upload(body, Buffer.byteLength(body));
+      return body;
     } catch (err) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'shared-overlay-store', level: 'error',
@@ -208,19 +209,22 @@ export class SharedOverlayStore {
         return { ok: false, reason: 'storage_unavailable' };
       }
       // Entry write landed — now the D1/D2/F2 generation bump + cleanup.
-      if (await this.bumpGenerationOrCleanup(userId, client, writtenEtag)) return { ok: true };
+      const bumpResult = await this.bumpGenerationOrCleanup(userId, client, writtenEtag);
+      if (bumpResult.ok) return { ok: true, gen: bumpResult.gen };
       return { ok: false, reason: 'storage_unavailable' };
     }
     return this.failStorageUnavailable(lastErr ?? new Error('CAS retries exhausted'), 'stage', client.name);
   }
 
   /** Extracted from stage() to keep its own complexity under budget. Returns
-   *  `true` on a successful bump (the write is now acknowledged), `false` on
-   *  a bump failure (cleanup already attempted internally per D2/E1/F2). */
-  private async bumpGenerationOrCleanup(userId: string, client: BlockBlobClient, writtenEtag: string | undefined): Promise<boolean> {
+   *  the new `_gen` token on a successful bump (the write is now
+   *  acknowledged — t/4311 follow-up: callers cache this to skip a
+   *  round-trip on their own immediate next read), or `{ ok: false }` on a
+   *  bump failure (cleanup already attempted internally per D2/E1/F2). */
+  private async bumpGenerationOrCleanup(userId: string, client: BlockBlobClient, writtenEtag: string | undefined): Promise<{ ok: true; gen: string } | { ok: false }> {
     try {
-      await this.bumpGeneration(userId);
-      return true;
+      const gen = await this.bumpGeneration(userId);
+      return { ok: true, gen };
     } catch (bumpErr) {
       getGlobalRecorder()?.record({
         type: 'system.error', component: 'shared-overlay-store', level: 'warn',
@@ -247,7 +251,7 @@ export class SharedOverlayStore {
           data: { blobName: client.name },
         });
       }
-      return false;
+      return { ok: false };
     }
   }
 

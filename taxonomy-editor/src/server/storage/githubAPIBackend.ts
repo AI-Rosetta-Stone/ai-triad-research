@@ -31,6 +31,7 @@ import { getDataRoot } from '../config.js';
 import { gitBlobSha } from './gitBlobSha.js';
 import { writeFramedNdjson, log } from '../logger.js';
 import { BlobLease } from './blobLease.js';
+import { SharedOverlayStore, type SharedOverlayEntry } from './sharedOverlayStore.js';
 import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestError } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 
@@ -88,6 +89,18 @@ export interface GitHubAPIBackendConfig {
     maxReplicas: number;
     serviceClient?: BlobServiceClient; // test seam (Azurite)
   };
+  /** t/4311 follow-up (read-path + write-through): a `SharedOverlayStore`
+   *  for cross-replica overlay read visibility. Omitted → today's
+   *  local-map-only behavior, unchanged. Even when supplied, the actual
+   *  effect is also gated by `OVERLAY_SHARED_STATE_ENABLED` (env) AND
+   *  `OVERLAY_SHARED_STATE_COMMIT_READY` (hardcoded `false` until the
+   *  commit-path follow-up PR ships, t/4311#30 R2) — `forceActiveForTesting`
+   *  bypasses that second gate for tests exercising this PR's wiring before
+   *  the real flag can ever flip; never set outside tests. */
+  sharedOverlayState?: {
+    store: SharedOverlayStore;
+    forceActiveForTesting?: boolean;
+  };
 }
 
 /** Published to the poll-coordination blob by the current holder. */
@@ -139,6 +152,17 @@ const SESSION_READ_CACHE_REVALIDATE_MS = 30_000;
 
 const MANIFEST_FILE = 'manifest.json';
 
+// t/4311 follow-up (read-path + write-through). Raw env flag — never
+// consulted directly; see OVERLAY_SHARED_STATE_COMMIT_READY below.
+const OVERLAY_SHARED_STATE_ENABLED = process.env.OVERLAY_SHARED_STATE_ENABLED === '1';
+
+// Hardcoded false until the commit-path follow-up PR (t/4311#30 R2) wires
+// unstage(ifMatch) into commit/discard/revert. Without that, nothing ever
+// clears a shared entry, so turning reads+writes on now would let
+// discarded or already-committed content keep serving as "staged" to
+// other replicas forever. Flips to true in that later PR, never by env var.
+const OVERLAY_SHARED_STATE_COMMIT_READY = false;
+
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
 
 export class GitHubAPIBackend implements StorageBackend {
@@ -170,6 +194,16 @@ export class GitHubAPIBackend implements StorageBackend {
   static readonly TOMBSTONE = '\0__DELETED__\0';
   private sessionOverlays: Map<string, Map<string, string>> = new Map();
   private maxOverlayBytesPerUser: number = DEFAULT_MAX_OVERLAY_BYTES_PER_USER;
+
+  // t/4311 follow-up (read-path + write-through). `sharedOverlayStateActive`
+  // is the single effective gate every new code path checks — never the raw
+  // env flag directly (see OVERLAY_SHARED_STATE_COMMIT_READY's doc comment).
+  // `sharedOverlayReadCache`: userId → the last-synced {gen, entries} this
+  // replica has observed from the shared store — the authoritative source
+  // for a read once synced (t/4311#30 R1), refreshed whenever `_gen` moves.
+  private readonly sharedOverlayStore: SharedOverlayStore | null = null;
+  private readonly sharedOverlayStateActive: boolean = false;
+  private sharedOverlayReadCache: Map<string, { gen: string | null; entries: Map<string, SharedOverlayEntry> }> = new Map();
 
   // t/4312: per-path base blob sha, recorded once when a path first enters a
   // clean overlay slot (never reset by a later same-path rewrite — see
@@ -295,7 +329,29 @@ export class GitHubAPIBackend implements StorageBackend {
       },
     });
 
+    const sharedOverlay = GitHubAPIBackend.resolveSharedOverlayState(config);
+    this.sharedOverlayStore = sharedOverlay.store;
+    this.sharedOverlayStateActive = sharedOverlay.active;
+    if (sharedOverlay.warnInert) {
+      log.storage.warn(
+        'OVERLAY_SHARED_STATE_ENABLED=1 is set, but OVERLAY_SHARED_STATE_COMMIT_READY is false — '
+        + 'shared overlay state is inert until the commit-path follow-up PR ships (t/4311). Local overlay only.',
+      );
+    }
+
     this.registerSigHandler();
+  }
+
+  /** Extracted from the constructor to keep its complexity under budget
+   *  (t/4311 follow-up). Pure function of `config` — no `this` access, so
+   *  it can run before `this.sharedOverlayStore`/`sharedOverlayStateActive`
+   *  (both `readonly`) are assigned in the constructor body itself. */
+  private static resolveSharedOverlayState(config: GitHubAPIBackendConfig): { store: SharedOverlayStore | null; active: boolean; warnInert: boolean } {
+    if (!config.sharedOverlayState) return { store: null, active: false, warnInert: false };
+    const active = config.sharedOverlayState.forceActiveForTesting
+      ?? (OVERLAY_SHARED_STATE_ENABLED && OVERLAY_SHARED_STATE_COMMIT_READY);
+    const warnInert = OVERLAY_SHARED_STATE_ENABLED && !OVERLAY_SHARED_STATE_COMMIT_READY && !config.sharedOverlayState.forceActiveForTesting;
+    return { store: config.sharedOverlayState.store, active, warnInert };
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -503,6 +559,198 @@ export class GitHubAPIBackend implements StorageBackend {
     return undefined;
   }
 
+  // ── Shared overlay state (t/4311 follow-up) ────────────────────────────
+  //
+  // `checkSessionOverlay` above stays untouched and local-only — besides
+  // serving plain reads when the shared store is inactive, it's also used
+  // by writeOverlayWithPrecondition's intra-request race-check (the
+  // "landedWhileAwaiting" re-check right before writeToOverlay() below),
+  // which exists specifically to detect another write landing in THIS
+  // process's local map between an await and the eventual local write.
+  // That's a same-replica, same-tick race-closing check, not a
+  // cross-replica visibility question — it must never become async or it
+  // reintroduces the exact race it was written to close (SO fault C1,
+  // e/302#4). The methods below are for genuine user-facing reads only.
+
+  /**
+   * The authoritative overlay entries for a user, refreshed from the
+   * shared store whenever `_gen` has moved since this replica's last sync
+   * (t/4311#30 R1 — the shared store is authoritative once synced, not
+   * "local wins on a hit"). Returns `null` on a store outage — callers
+   * fall back to the local map for that one read (degrades to today's
+   * pre-this-PR, single-replica-correct behavior) rather than failing it.
+   */
+  private async getSyncedSharedEntries(userId: string): Promise<Map<string, SharedOverlayEntry> | null> {
+    if (!this.sharedOverlayStore) return null;
+    const cached = this.sharedOverlayReadCache.get(userId);
+    try {
+      const currentGen = await this.sharedOverlayStore.getGeneration(userId);
+      if (cached && cached.gen === currentGen) return cached.entries;
+      const listed = await this.sharedOverlayStore.listEntries(userId);
+      const entries = new Map(listed.map(e => [e.repoPath, e.entry]));
+      this.sharedOverlayReadCache.set(userId, { gen: currentGen, entries });
+      return entries;
+    } catch (err) {
+      const message = `Shared overlay sync failed; falling back to the local overlay for this read: ${userId}`;
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message,
+        data: { userId },
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      log.storage.warn({ userId, error: String(err) }, message);
+      return null;
+    }
+  }
+
+  /**
+   * One path's effective overlay value for a user-facing read — the shared
+   * store's synced entry when active and synced, else the local map
+   * (inactive flag, or a store outage per `getSyncedSharedEntries`).
+   * Returns `GitHubAPIBackend.TOMBSTONE` for a staged delete either way, so
+   * every caller keeps comparing against one sentinel regardless of source.
+   *
+   * PER-PATH FALLBACK, not a blanket "shared always wins": if the synced
+   * shared entries have NO entry for this exact path, fall through to the
+   * local map rather than returning `undefined`. Caught during
+   * implementation (t/4311#29/#31's posted design didn't call this out):
+   * `writeThroughSharedOverlay` is fire-and-forget, so a replica's own
+   * write can be visible locally before its `_gen` bump has landed — a
+   * plain "shared wins" would make a replica briefly unable to read back
+   * its own just-written content. Safe in THIS PR's scope specifically
+   * because nothing yet clears a shared entry (commit/discard/revert
+   * wiring is the separate, not-yet-landed commit-path follow-up) — so a
+   * path present locally but absent from a freshly-synced shared view can
+   * only mean "this replica's own write hasn't round-tripped yet," never
+   * "someone else's write was already superseded." TL's R1 scenario (write
+   * X on A, write Y on B, read on A) is unaffected: the shared store DOES
+   * have an entry for that path (B's Y), so the shared value still wins.
+   */
+  private async readEffectiveOverlayEntry(userId: string, repoPath: string): Promise<string | undefined> {
+    if (this.sharedOverlayStateActive) {
+      const synced = await this.getSyncedSharedEntries(userId);
+      if (synced !== null) {
+        const entry = synced.get(repoPath);
+        if (entry !== undefined) return entry.content === null ? GitHubAPIBackend.TOMBSTONE : entry.content;
+        // No shared entry for this path — fall through to local (see above).
+      }
+    }
+    const overlay = this.sessionOverlays.get(userId);
+    return overlay?.get(repoPath);
+  }
+
+  /**
+   * Cross-replica-aware overlay read for readFile/readFileWithVersion —
+   * same ref/user guard and cache.hit event as the old `checkSessionOverlay`
+   * had, but backed by `readEffectiveOverlayEntry` so it's shared-store-aware
+   * when active.
+   */
+  private async readOverlayForUserRead(repoPath: string): Promise<string | undefined> {
+    const readBranch = this.getEffectiveRef();
+    const readUserId = this.getEffectiveUserId();
+    if (readBranch === this.baseBranch || !readUserId) return undefined;
+
+    const val = await this.readEffectiveOverlayEntry(readUserId, repoPath);
+    if (val !== undefined) {
+      this.recordEvent({
+        type: 'cache.hit',
+        component: 'cache',
+        level: 'debug',
+        message: `Session overlay hit: ${repoPath}`,
+        data: { path: repoPath, layer: 'session', userId: readUserId },
+      });
+    }
+    return val;
+  }
+
+  /**
+   * Every effective overlay path for a user, as `[repoPath, isTombstone]`
+   * pairs — normalizes the shared store's `content === null` convention and
+   * the local map's `TOMBSTONE` sentinel into one shape for
+   * `mergeOverlayIntoListing`. Returns `null` when there's nothing staged
+   * at all (no local entry, and either inactive or a synced-empty shared
+   * store).
+   *
+   * Same per-path fallback as `readEffectiveOverlayEntry` (see its doc
+   * comment): the synced shared entries win per path, and any local-only
+   * path (this replica's own write still in flight to the store) fills the
+   * gaps rather than being dropped.
+   */
+  private async listEffectiveOverlayPaths(userId: string): Promise<Array<[string, boolean]> | null> {
+    const local = this.sessionOverlays.get(userId);
+    if (this.sharedOverlayStateActive) {
+      const synced = await this.getSyncedSharedEntries(userId);
+      if (synced !== null) {
+        const pairs: Array<[string, boolean]> = [...synced].map(([p, e]) => [p, e.content === null] as [string, boolean]);
+        if (local) {
+          for (const [p, v] of local) {
+            if (!synced.has(p)) pairs.push([p, v === GitHubAPIBackend.TOMBSTONE]);
+          }
+        }
+        return pairs.length > 0 ? pairs : null;
+      }
+    }
+    if (!local) return null;
+    return [...local].map(([p, v]) => [p, v === GitHubAPIBackend.TOMBSTONE] as [string, boolean]);
+  }
+
+  /**
+   * Mirror a local overlay write into the shared store (t/4311#30 R1/R2) —
+   * additive and failure-tolerant: the local map write this follows has
+   * already succeeded and is never at risk here. A failure only means
+   * another replica may miss this write for now, no worse than today's
+   * (pre-this-PR) single-replica-only behavior. Fire-and-forget by design
+   * (never awaited by its callers) — every error path below is caught and
+   * WARN-logged, never thrown, so the returned promise never rejects.
+   * No-op when the flag is inactive.
+   *
+   * KNOWN GAP (flagged, not fixed, here — t/4311#29/#31): `SharedOverlayEntry.baseSha`
+   * is typed `string | 'unknown'`, with no slot for the local model's
+   * `null` ("file was absent when staged" — t/4312). The `?? 'unknown'`
+   * below collapses that distinction. It's inert today: this PR's read
+   * path only ever consults `content`, never `baseSha`, and the commit
+   * path (the only consumer t/4312's fencing matters to) is a separate,
+   * not-yet-wired follow-up. That follow-up must widen
+   * `SharedOverlayEntry.baseSha`'s type before relying on it, or it will
+   * silently treat every staged-absent path as "unknown" (fail-closed per
+   * t/4312, so not unsafe, just not what it meant to record).
+   */
+  private async writeThroughSharedOverlay(userId: string, repoPath: string, content: string | null, baseSha: string | null | 'unknown'): Promise<void> {
+    if (!this.sharedOverlayStateActive || !this.sharedOverlayStore) return;
+    try {
+      const result = await this.sharedOverlayStore.stage(userId, repoPath, {
+        content,
+        baseSha: baseSha ?? 'unknown',
+        stagedAt: new Date().toISOString(),
+      });
+      if (!result.ok) {
+        this.recordEvent({
+          type: 'system.error', component: 'github-api', level: 'warn',
+          message: `Shared overlay write-through failed (local write already succeeded): ${repoPath}`,
+          data: { userId, repoPath },
+        });
+        return;
+      }
+      // Update our own cache directly with this write, rather than waiting
+      // for a future getGeneration() round trip to notice our own `_gen`
+      // bump — avoids a self-inflicted sync on a replica's own
+      // write-then-immediate-read (t/4311#30 R1).
+      const cached = this.sharedOverlayReadCache.get(userId);
+      const entries = cached ? new Map(cached.entries) : new Map<string, SharedOverlayEntry>();
+      entries.set(repoPath, { content, baseSha: baseSha ?? 'unknown', stagedAt: new Date().toISOString() });
+      this.sharedOverlayReadCache.set(userId, { gen: result.gen, entries });
+    } catch (err) {
+      const message = `Shared overlay write-through threw (local write already succeeded): ${repoPath}`;
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'warn',
+        message,
+        data: { userId, repoPath },
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      log.storage.warn({ userId, repoPath, error: String(err) }, message);
+    }
+  }
+
   /**
    * Read a file as UTF-8, or null if absent.
    *
@@ -555,7 +803,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // session's own ref, unless the caller explicitly opts back in (see the
     // docstring above — calibrationStore.ts's append-within-request flows).
     if (ref === effectiveRef || opts?.consultOverlayOnPin) {
-      const overlayVal = this.checkSessionOverlay(repoPath);
+      const overlayVal = await this.readOverlayForUserRead(repoPath);
       if (overlayVal !== undefined) {
         return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : overlayVal;
       }
@@ -789,7 +1037,7 @@ export class GitHubAPIBackend implements StorageBackend {
   async readFileWithVersion(filePath: string, opts?: { ref?: string }): Promise<{ content: string; version: string } | null> {
     const repoPath = this.toRepoPath(filePath);
 
-    const overlayVal = this.checkSessionOverlay(repoPath);
+    const overlayVal = await this.readOverlayForUserRead(repoPath);
     if (overlayVal !== undefined) {
       return overlayVal === GitHubAPIBackend.TOMBSTONE ? null : { content: overlayVal, version: gitBlobSha(overlayVal) };
     }
@@ -1213,7 +1461,7 @@ export class GitHubAPIBackend implements StorageBackend {
     // tombstoned files are hidden — mirroring readFile()/fileExists() semantics.
     // Without this, submissions written to the overlay (e.g. community submits)
     // are invisible to listDirectory() until the overlay is flushed on commit.
-    this.mergeOverlayIntoListing(prefix, seen);
+    await this.mergeOverlayIntoListing(prefix, seen);
 
     return [...seen];
   }
@@ -1284,20 +1532,20 @@ export class GitHubAPIBackend implements StorageBackend {
    * Tombstones for files nested in subdirectories do not remove the subdirectory
    * segment, since other (non-deleted) files may still live under it.
    */
-  private mergeOverlayIntoListing(prefix: string, entries: Set<string>): void {
+  private async mergeOverlayIntoListing(prefix: string, entries: Set<string>): Promise<void> {
     if (this.getEffectiveRef() === this.baseBranch) return;
     const userId = this.getEffectiveUserId();
     if (!userId) return;
-    const overlay = this.sessionOverlays.get(userId);
-    if (!overlay) return;
+    const pairs = await this.listEffectiveOverlayPaths(userId);
+    if (!pairs) return;
 
-    for (const [p, content] of overlay) {
+    for (const [p, isTombstone] of pairs) {
       if (prefix && !p.startsWith(prefix)) continue;
       const rest = prefix ? p.slice(prefix.length) : p;
       if (!rest) continue;
       const seg = rest.split('/')[0];
       const isDirectFile = !rest.includes('/');
-      if (content === GitHubAPIBackend.TOMBSTONE) {
+      if (isTombstone) {
         if (isDirectFile) entries.delete(seg);
       } else {
         entries.add(seg);
@@ -1361,8 +1609,8 @@ export class GitHubAPIBackend implements StorageBackend {
     // and answering from this session's overlay would defeat the pin.
     const existsUserId = this.getEffectiveUserId();
     if (ref === effectiveRef && effectiveRef !== this.baseBranch && existsUserId) {
-      const overlay = this.sessionOverlays.get(existsUserId);
-      if (overlay?.has(repoPath)) return overlay.get(repoPath) !== GitHubAPIBackend.TOMBSTONE;
+      const overlayVal = await this.readEffectiveOverlayEntry(existsUserId, repoPath);
+      if (overlayVal !== undefined) return overlayVal !== GitHubAPIBackend.TOMBSTONE;
     }
 
     // t/4428: the disk-cache manifest and in-memory repoTree represent
@@ -3159,6 +3407,11 @@ export class GitHubAPIBackend implements StorageBackend {
     }
 
     overlay.set(repoPath, content);
+    // t/4311 follow-up: mirror into the shared store for cross-replica read
+    // visibility. Fire-and-forget (writeToOverlay stays synchronous — the
+    // local write above, which this follows, is the one that must never be
+    // delayed by a network call) — writeThroughSharedOverlay never rejects.
+    void this.writeThroughSharedOverlay(userId, repoPath, content, this.sessionOverlayBaseShas.get(userId)?.get(repoPath) ?? 'unknown');
   }
 
   /** Total bytes of non-tombstone overlay content for a user (t/727). */
@@ -3205,6 +3458,9 @@ export class GitHubAPIBackend implements StorageBackend {
       this.sessionOverlays.set(userId, overlay);
     }
     overlay.set(repoPath, GitHubAPIBackend.TOMBSTONE);
+    // t/4311 follow-up: mirror the tombstone into the shared store — same
+    // fire-and-forget shape as writeToOverlay's write-through.
+    void this.writeThroughSharedOverlay(userId, repoPath, null, this.sessionOverlayBaseShas.get(userId)?.get(repoPath) ?? 'unknown');
   }
 
   /**
