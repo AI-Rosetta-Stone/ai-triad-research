@@ -33,4 +33,5 @@ Active UX specs in `docs/ux/`. Design owns these; coding agents reference them d
 | `debate-setup-details.md` | Debate Setup drill-in — modal surfacing full topic, source URL/document pointer, background, and setup config; retires the situations-only `Details`/`CrossCuttingDialog` (t/2731) |
 | `vocabulary-panel-readability.md` | Vocabulary panel (shared) readability fix — the panel ships with NO CSS (unstyled run-on rows); columns/spacing/tokens/a11y spec for Dictionary/Colloquial/Lint (t/3287) |
 | `pov-tag-chip-tint.md` | Camp-tint the node-editor POV tag chips (`PovTagEditor`) so Skeptic tags read as camp-scoped, not neutral; 12% camp wash + camp border, primary text, `color-mix` off `--bg-secondary`; a11y checklist (p/351) |
+| `node-detail-redesign.md` | Node detail panel redesign from PI mockups. Covers the panel-local Simple/Advanced toggle (separate from the global view mode), the meta line, moving the description out of the tabs, Formal Encompasses/Excludes rendering, Content→Analysis, and count pills (p/351#36) |
 | `design-system.md` | Design system reference (living document) |
