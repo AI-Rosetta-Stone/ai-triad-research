@@ -53,8 +53,10 @@ REQUIRED EXTRACTION EFFORT (hard constraints):
   This document is approximately {{WORD_COUNT}} words.
 
   EFFORT REQUIREMENTS (non-negotiable):
-    • Examine ALL nine BDI cells (3 POV camps × 3 categories) for every document.
-    • For each cell, extract every distinct point the document actually contains.
+    • Examine every BDI category (beliefs, desires, intentions) of each tagged
+      camp. Examine untagged camps under the CAMP EXPECTATIONS rule below.
+    • For each tagged-camp cell, extract every distinct point the document
+      actually contains.
     • If a cell is genuinely empty (the document does not engage this frame),
       report it explicitly:
         "empty_cells": [

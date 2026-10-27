@@ -321,6 +321,7 @@ function Write-POVSummaryFile {
         # persisted as null and 1 item as a bare object (t/4070).
         factual_claims    = @(Get-POVSummaryOptionalArray -SummaryObject $SummaryObject -Name 'factual_claims')
         unmapped_concepts = @(Get-POVSummaryOptionalArray -SummaryObject $SummaryObject -Name 'unmapped_concepts')
+        empty_cells       = @(Get-POVSummaryOptionalArray -SummaryObject $SummaryObject -Name 'empty_cells')
         context_rot       = $ContextRotObj
     }
     $SummaryJson = $FinalSummary | ConvertTo-Json -Depth 20

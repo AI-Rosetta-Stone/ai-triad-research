@@ -60,6 +60,31 @@ Describe 'Remove-DuplicateClaims' -Tag 'ingestion' {
         }
     }
 
+    It 'Does not crash under StrictMode when an untagged camp is omitted entirely (t/4553)' {
+        InModuleScope AITriad {
+            Set-StrictMode -Version Latest
+            # #3867/t/4519 license the model to omit an untagged camp's key from pov_summaries
+            # outright, not just return it empty. accelerationist is absent here, not @().
+            $Summary = [PSCustomObject]@{
+                pov_summaries = [PSCustomObject]@{
+                    safetyist = [PSCustomObject]@{
+                        key_points = @(
+                            [PSCustomObject]@{ point = 'p1'; taxonomy_node_id = 'saf-beliefs-001'; extraction_confidence = 0.9 }
+                        )
+                    }
+                    skeptic = [PSCustomObject]@{ key_points = @() }
+                }
+                factual_claims = @()
+            }
+
+            Mock Get-TextEmbedding { return $null }
+
+            { Remove-DuplicateClaims -SummaryObject $Summary } | Should -Not -Throw
+            $Result = Remove-DuplicateClaims -SummaryObject $Summary
+            $Result.Metrics.points_before | Should -Be 1
+        }
+    }
+
     It 'Removes embedding-based duplicates and keeps higher-confidence version' {
         InModuleScope AITriad {
             $Summary = [PSCustomObject]@{

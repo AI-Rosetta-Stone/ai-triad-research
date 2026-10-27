@@ -114,7 +114,7 @@ function Get-Summary {
         $MatchedPoints = [System.Collections.Generic.List[PSObject]]::new()
 
         foreach ($PovName in $PovNames) {
-            $PovData = $Summary.pov_summaries.$PovName
+            $PovData = Get-SummaryField $Summary.pov_summaries $PovName
             if (-not $PovData) {
                 $PointCounts[$PovName] = 0
                 continue
