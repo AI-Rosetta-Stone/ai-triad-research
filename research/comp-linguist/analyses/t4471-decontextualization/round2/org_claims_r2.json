@@ -1,0 +1,571 @@
+{
+  "_schema_version": "1.0.0",
+  "_doc": "Organization stance claims extracted per t/1553 Stage 1. Feeds Stage 2/3 claim→node matching. Machine-proposed / human-disposes downstream.",
+  "last_modified": "2026-10-26",
+  "claim_count": 44,
+  "claims": [
+    {
+      "org_id": "org-023",
+      "source_id": "how-artificial-intelligence-could-reshape-four-essential-2026",
+      "text": "militaries must place deception and counter-reconnaissance at the center of how they operate to limit their losses.",
+      "canonical_proposition": "A state military ought to place deception and counter-reconnaissance at the center of its operational doctrine to limit losses.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:01.4849882-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "how-artificial-intelligence-could-reshape-four-essential-2026",
+      "text": "Relying on small force structures of exquisite capabilities is quickly becoming a liability rather than an asset.",
+      "canonical_proposition": "Relying on small force structures composed exclusively of exquisite capabilities constitutes a strategic liability.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:01.4843948-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "how-artificial-intelligence-could-reshape-four-essential-2026",
+      "text": "The United States needs a plan to manage the transition to an AI-enabled force.",
+      "canonical_proposition": "A state military ought to formulate a structured plan to manage the transition to an artificial intelligence-enabled force.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:01.4834826-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "how-artificial-intelligence-could-reshape-four-essential-2026",
+      "text": "The United States needs to allocate scarce resources under the assumption that it will face sophisticated and adaptive adversaries.",
+      "canonical_proposition": "A state military ought to allocate scarce resources under the assumption of facing sophisticated and adaptive adversaries.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:01.4826807-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "how-artificial-intelligence-could-reshape-four-essential-2026",
+      "text": "The United States should begin investing now in mass and new capabilities for deception.",
+      "canonical_proposition": "A state military ought to immediately invest in mass force structures and novel capabilities for military deception.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:01.4815684-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-017",
+      "source_id": "ensuring-national-policy-framework-artificial-intelligence-2026",
+      "text": "The legislative recommendation called for in subsection (a) of this section shall not propose preempting otherwise lawful State AI laws relating to: (i) child safety protections; (ii) AI compute and data center infrastructure, other than generally applicable permitting reforms; (iii) State government procurement and use of AI; and (iv) other topics as shall be determined.",
+      "canonical_proposition": "Federal artificial intelligence legislation ought not to preempt state laws relating to child safety protections, data center infrastructure, state government procurement, or state use of artificial intelligence.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:44.1135909-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-017",
+      "source_id": "ensuring-national-policy-framework-artificial-intelligence-2026",
+      "text": "That Policy Notice must provide that States with onerous AI laws identified pursuant to section 4 of this order are ineligible for non-deployment funds, to the maximum extent allowed by Federal law.",
+      "canonical_proposition": "States with onerous artificial intelligence laws ought to be rendered ineligible for non-deployment broadband infrastructure funds.",
+      "anchors": [
+        "Broadband Equity Access and Deployment Program"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:44.1126490-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-017",
+      "source_id": "ensuring-national-policy-framework-artificial-intelligence-2026",
+      "text": "Within 30 days of the date of this order, the Attorney General shall establish an AI Litigation Task Force (Task Force) whose sole responsibility shall be to challenge State AI laws inconsistent with the policy set forth in section 2 of this order...",
+      "canonical_proposition": "The Attorney General ought to establish a dedicated artificial intelligence litigation task force to challenge state-level artificial intelligence laws that conflict with federal policy.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:44.1102517-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-017",
+      "source_id": "ensuring-national-policy-framework-artificial-intelligence-2026",
+      "text": "Second, State laws are increasingly responsible for requiring entities to embed ideological bias within models. For example, a new Colorado law banning “algorithmic discrimination” may even force AI models to produce false results in order to avoid a “differential treatment or impact” on protected groups.",
+      "canonical_proposition": "State laws regarding algorithmic discrimination force artificial intelligence models to produce false results to avoid disparate impacts on protected groups.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:43:44.1086702-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-017",
+      "source_id": "ensuring-national-policy-framework-artificial-intelligence-2026",
+      "text": "First, State-by-State regulation by definition creates a patchwork of 50 different regulatory regimes that makes compliance more challenging, particularly for start-ups.",
+      "canonical_proposition": "State-by-state artificial intelligence regulation creates a burdensome patchwork of regulatory regimes that complicates compliance for start-ups.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:44.1068773-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-017",
+      "source_id": "ensuring-national-policy-framework-artificial-intelligence-2026",
+      "text": "It is the policy of the United States to sustain and enhance the United States’ global AI dominance through a minimally burdensome national policy framework for AI.",
+      "canonical_proposition": "The federal government ought to sustain and enhance global artificial intelligence dominance through a minimally burdensome national policy framework.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 1.0,
+      "extracted_at": "2026-10-26T12:43:44.1055445-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "detecting-reducing-scheming-ai-models-2026",
+      "text": "In a recent position paper co-authored with a broad group of AI researchers, we argued that chain-of-thought monitorability is promising but fragile and recommended that frontier developers avoid training practices that erode this key oversight signal.",
+      "canonical_proposition": "Frontier AI developers ought to avoid training practices that erode chain-of-thought monitorability.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:42.9586838-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "detecting-reducing-scheming-ai-models-2026",
+      "text": "To operationalize this work, we added scheming-related research categories—sandbagging and undermining safeguards—to our updated Preparedness Framework in April 2025.",
+      "canonical_proposition": "Frontier AI developers ought to incorporate scheming-related research categories, including sandbagging and undermining safeguards, into their preparedness frameworks.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:43:42.9572098-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "detecting-reducing-scheming-ai-models-2026",
+      "text": "Frontier AI developers ought to preserve reasoning transparency until better methods for studying and eliminating scheming have been developed.",
+      "canonical_proposition": "Frontier AI developers ought to preserve reasoning transparency until better methods for studying and eliminating scheming have been developed.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:42.9549409-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "center-ai-standards-innovation-caisi-nist-2026",
+      "text": "Represent U.S. interests internationally to guard against burdensome and unnecessary regulation of American technologies by foreign governments and collaborate with NIST staff to ensure U.S. dominance of international AI standards.",
+      "canonical_proposition": "A national AI standards center ought to represent national interests internationally to prevent burdensome foreign regulation of domestic technologies and ensure dominance in global AI standards.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:38.9311073-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "center-ai-standards-innovation-caisi-nist-2026",
+      "text": "Lead evaluations and assessments of potential security vulnerabilities and malign foreign influence arising from use of adversaries’ AI systems, including the possibility of backdoors and other covert, malicious behavior.",
+      "canonical_proposition": "A national AI standards center ought to assess security vulnerabilities, backdoors, and malign foreign influence arising from the use of adversary AI systems.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:38.9304279-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "center-ai-standards-innovation-caisi-nist-2026",
+      "text": "Lead evaluations and assessments of capabilities of U.S. and adversary AI systems, the adoption of foreign AI systems, and the state of international AI competition.",
+      "canonical_proposition": "A national AI standards center ought to evaluate domestic and adversary AI capabilities, foreign AI adoption, and the state of international AI competition.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:38.9296248-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "center-ai-standards-innovation-caisi-nist-2026",
+      "text": "Establish voluntary agreements with private sector AI developers and evaluators, and lead unclassified evaluations of AI capabilities that may pose risks to national security.",
+      "canonical_proposition": "A national AI standards center ought to establish voluntary agreements with private sector entities and lead unclassified evaluations of AI capabilities posing national security risks.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:38.9288784-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "center-ai-standards-innovation-caisi-nist-2026",
+      "text": "Work with NIST organizations to develop guidelines and best practices to measure and improve the security of AI systems, and work with NIST staff to assist industry to develop voluntary standards.",
+      "canonical_proposition": "A national AI standards center ought to collaborate with research organizations to develop guidelines measuring AI security and assist industry in creating voluntary standards.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:38.9277760-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "applying-history-inform-anticipatory-ai-governance-using-2026",
+      "text": "the possibility of pursuing multilateral international cooperation to avoid the fragmentation of regulation and markets thereby supporting a system in which technological advancements benefit a broader variety of stakeholders.",
+      "canonical_proposition": "Governments ought to pursue multilateral international cooperation to prevent regulatory fragmentation and ensure broad stakeholder benefits from technology.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:43:00.5230645-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "applying-history-inform-anticipatory-ai-governance-using-2026",
+      "text": "the need to enhance the government’s ability to implement a more flexible regulatory system with more-effective collaboration among government and industry",
+      "canonical_proposition": "Governments ought to implement flexible regulatory systems with effective government-industry collaboration.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:43:00.5215252-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "applying-history-inform-anticipatory-ai-governance-using-2026",
+      "text": "developing more-sophisticated and more-nuanced AI governance models that strike a balance between encouraging innovation and ensuring the public good.",
+      "canonical_proposition": "Policymakers ought to develop sophisticated AI governance models that balance innovation encouragement with the public good.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:43:00.5210981-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "applying-history-inform-anticipatory-ai-governance-using-2026",
+      "text": "engaged history during futures exercises can expand the imagination of those engaged in backcasting and ground their discussion in historical realism.",
+      "canonical_proposition": "Engaging history during futures exercises expands backcasting imagination and grounds discussions in historical realism.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:00.5206351-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "applying-history-inform-anticipatory-ai-governance-using-2026",
+      "text": "History can also help liberate the imagination. While we can only speculate about the future, history confronts us with the reality that, in many cases, the present is very different than the past, which makes more concrete any suggestion that the future may be similarly different than the present.",
+      "canonical_proposition": "Historical comparison liberates the imagination by demonstrating how significantly the present differs from the past.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:43:00.5202632-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "applying-history-inform-anticipatory-ai-governance-using-2026",
+      "text": "History can help inject realism into imagination by subjecting speculation about the future to lessons from the past.",
+      "canonical_proposition": "Historical analysis injects realism into futures speculation by applying past lessons.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:00.5197709-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-023",
+      "source_id": "applying-history-inform-anticipatory-ai-governance-using-2026",
+      "text": "Envisioning AI-enabled utopias can prove useful if for no other reason than that the process can help identify near-term policies that are compatible with these many envisioned futures.",
+      "canonical_proposition": "Envisioning AI-enabled futures helps identify near-term policies compatible with those outcomes.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:43:00.5159158-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "We’ve focused on producing Capabilities Reports... We’re now adding more detail about how we’ll design strong safeguards and verify their effectiveness in dedicated Safeguards Reports",
+      "canonical_proposition": "A frontier AI developer ought to publish both capability assessment reports and dedicated safeguards reports detailing safeguard design and effectiveness verification.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:21.2644816-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "If another frontier AI developer releases a high-risk system without comparable safeguards, we may adjust our requirements. However, we would first rigorously confirm that the risk landscape has actually changed, publicly acknowledge that we are making an adjustment, assess that the adjustment does not meaningfully increase the overall risk of severe harm, and still keep safeguards at a level more protective.",
+      "canonical_proposition": "A frontier AI developer may adjust safety requirements in response to competitor releases only after rigorously confirming a changed risk landscape, publicly acknowledging the adjustment, verifying no meaningful increase in severe harm risk, and maintaining a more protective safeguard level.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:21.2641437-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "We’ve built a growing suite of automated evaluations that can keep up with this faster cadence, while also continuing to do expert-led “deep dives” to ensure the scalable evaluations are measuring the right things.",
+      "canonical_proposition": "A frontier AI developer ought to combine automated scalable evaluations with expert-led deep dives to measure fast-advancing model capabilities.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:44:21.2636718-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "The Safety Advisory Group (SAG), a cross-functional team of internal safety leaders, reviews whether safeguards sufficiently minimize severe risk and makes targeted recommendations",
+      "canonical_proposition": "A cross-functional safety advisory group ought to review whether safeguards sufficiently minimize severe risks and issue deployment and protection recommendations to leadership.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:21.2633035-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "Systems that reach Critical capability also require safeguards that sufficiently minimize associated risks during development.",
+      "canonical_proposition": "AI systems reaching critical capability ought to have safeguards that sufficiently minimize associated risks throughout both development and deployment.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 1.0,
+      "extracted_at": "2026-10-26T12:44:21.2629525-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "Covered systems that reach High capability must have safeguards that sufficiently minimize the associated risk of severe harm before they are deployed.",
+      "canonical_proposition": "AI systems reaching high capability ought to have safeguards that sufficiently minimize associated risks of severe harm prior to deployment.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 1.0,
+      "extracted_at": "2026-10-26T12:44:21.2626031-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "Persuasion risks will be handled outside the Preparedness Framework, including via our Model Spec, restricting the use of our tools for political campaigning or lobbying, and our ongoing investigations into misuse of our products",
+      "canonical_proposition": "Persuasion risks ought to be managed through model specifications, usage restrictions on political campaigning and lobbying, and misuse investigations rather than through the core preparedness framework.",
+      "anchors": [
+        "Preparedness Framework",
+        "Model Spec"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:44:21.2622294-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "We’re introducing a set of Research Categories of capability, which are areas that could pose risks of severe harm, that do not yet meet our criteria to be Tracked Categories.",
+      "canonical_proposition": "Long-range autonomy, sandbagging, autonomous replication and adaptation, undermining safeguards, and nuclear and radiological capabilities ought to be treated as research categories for threat modeling and advanced capability evaluations.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.9,
+      "extracted_at": "2026-10-26T12:44:21.2617499-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "Tracked Categories: These are established areas where we have mature evaluations and ongoing safeguards. They are Biological and Chemical capabilities, Cybersecurity capabilities, and AI Self-improvement capabilities.",
+      "canonical_proposition": "Biological and chemical capabilities, cybersecurity capabilities, and artificial intelligence self-improvement capabilities constitute the core tracked categories requiring mature evaluations and ongoing safeguards.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:21.2612186-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-002",
+      "source_id": "our-updated-preparedness-framework-2026",
+      "text": "We track capabilities that meet five key criteria that make it a priority for us to prepare in advance: the risk should be plausible, measurable, severe, net new, and instantaneous or irremediable.",
+      "canonical_proposition": "A frontier AI developer ought to prioritize and prepare in advance for capabilities whose risks are plausible, measurable, severe, net new, and instantaneous or irremediable.",
+      "anchors": [
+        "Preparedness Framework"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:44:21.2603472-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-001",
+      "source_id": "anthropics-responsible-scaling-policy-2026",
+      "text": "Anthropic’s RSP has been formally approved by its board and changes must be approved by the board following consultations with the Long Term Benefit Trust.",
+      "canonical_proposition": "A frontier AI developer's safety scaling policy ought to be formally approved by its board of directors and require board approval for any changes following trust consultations.",
+      "anchors": [
+        "Responsible Scaling Policy"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.9714802-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-001",
+      "source_id": "anthropics-responsible-scaling-policy-2026",
+      "text": "the ASL system implicitly requires us to temporarily pause training of more powerful models if our AI scaling outstrips our ability to comply with the necessary safety procedures.",
+      "canonical_proposition": "A frontier AI developer ought to temporarily pause training more powerful AI models if scaling outstrips its ability to comply with necessary safety procedures.",
+      "anchors": [
+        "Responsible Scaling Policy"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.9710571-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-001",
+      "source_id": "anthropics-responsible-scaling-policy-2026",
+      "text": "ASL-3 measures include stricter standards that will require intense research and engineering effort to comply with in time, such as unusually strong security requirements and a commitment not to deploy ASL-3 models if they show any meaningful catastrophic misuse risk under adversarial testing by world-class red-teamers",
+      "canonical_proposition": "A frontier AI developer ought not to deploy models meeting higher safety thresholds if adversarial red-teaming reveals any meaningful catastrophic misuse risk.",
+      "anchors": [
+        "Responsible Scaling Policy"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.9704883-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-001",
+      "source_id": "anthropics-responsible-scaling-policy-2026",
+      "text": "Our RSP defines a framework called AI Safety Levels (ASL) for addressing catastrophic risks, modeled loosely after the US government’s biosafety level (BSL) standards for handling of dangerous biological materials.",
+      "canonical_proposition": "A frontier AI developer ought to structure its risk management framework into tiered safety levels modeled after government biosafety standards.",
+      "anchors": [
+        "Responsible Scaling Policy"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.9685937-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-001",
+      "source_id": "anthropics-responsible-scaling-policy-2026",
+      "text": "Today, we’re publishing our Responsible Scaling Policy (RSP) – a series of technical and organizational protocols that we’re adopting to help us manage the risks of developing increasingly capable AI systems.",
+      "canonical_proposition": "A frontier AI developer ought to adopt technical and organizational protocols to manage the catastrophic risks of increasingly capable AI systems.",
+      "anchors": [
+        "Responsible Scaling Policy"
+      ],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.9642290-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": false
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "ai-rmf-playbook-2026-2",
+      "text": "Maintain policies for training (and re-training) organizational staff about necessary legal or regulatory considerations that may impact AI-related design, development and deployment activities.",
+      "canonical_proposition": "Organizations ought to maintain staff training and retraining policies covering legal and regulatory considerations affecting AI design, development, and deployment.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.3821435-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "ai-rmf-playbook-2026-2",
+      "text": "Align risk management efforts with applicable legal standards.",
+      "canonical_proposition": "Organizations ought to align their AI risk management efforts with applicable legal standards.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.3812028-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    },
+    {
+      "org_id": "org-014",
+      "source_id": "ai-rmf-playbook-2026-2",
+      "text": "Maintain awareness of the applicable legal and regulatory considerations and requirements specific to industry, sector, and business purpose, as well as the application context of the deployed AI system.",
+      "canonical_proposition": "Organizations ought to maintain awareness of applicable legal and regulatory requirements specific to their industry, sector, business purpose, and AI application context.",
+      "anchors": [],
+      "polarity": "asserts",
+      "extraction_confidence": 0.95,
+      "extracted_at": "2026-10-26T12:42:59.3742232-04:00",
+      "extraction_model": "gemini-3.5-flash-lite",
+      "text_verbatim": true
+    }
+  ]
+}
