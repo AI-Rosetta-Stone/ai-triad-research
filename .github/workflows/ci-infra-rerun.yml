@@ -186,16 +186,15 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x operations/devops/get-merge-group-prs.sh
-          # workflow_run's `head_branch` IS the group's gh-readonly-queue ref (GitHub sets it
-          # identically to a live merge_group event's head_ref) -- rewritten after the live-fire
-          # finding that commit-based enumeration can't resolve a squash merge group's ephemeral
-          # test commit; this now queries mergeQueue.entries directly (no base/head sha needed).
-          HEAD_REF="${{ github.event.workflow_run.head_branch }}"
-          BRANCH=$(echo "$HEAD_REF" | grep -oP 'gh-readonly-queue/\K[^/]+')
+          # workflow_run's `head_branch` IS the group's gh-readonly-queue ref path, confirmed
+          # via the Actions API during live-fire (unlike github.event.merge_group.head_ref in a
+          # LIVE merge_group event, which a separate live-fire finding proved resolves to a bare
+          # SHA, not this path -- github.ref is the fix there; this handler runs under
+          # workflow_run, where github.ref is this HANDLER's own ref, not the group's, so
+          # head_branch remains the correct source here).
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "$BRANCH" \
-            "$HEAD_REF")
+            "${{ github.event.workflow_run.head_branch }}")
           echo "group PRs: $PRS_JSON"
           NUMBERS=$(echo "$PRS_JSON" | jq -r '[.[].number] | join(",")')
           echo "numbers=$NUMBERS" >> "$GITHUB_OUTPUT"

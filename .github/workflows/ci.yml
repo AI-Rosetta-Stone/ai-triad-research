@@ -2888,12 +2888,9 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x operations/devops/get-merge-group-prs.sh
-          BRANCH="${{ github.event.merge_group.base_ref }}"
-          BRANCH="${BRANCH#refs/heads/}"
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "$BRANCH" \
-            "${{ github.event.merge_group.head_ref }}")
+            "${{ github.ref }}")
           echo "group PRs and labels: $PRS_JSON"
           HELD=$(echo "$PRS_JSON" | jq -r '[.[] | select(.labels | index("consult-hold"))] | map(.number) | join(",")')
           if [ -n "$HELD" ]; then
@@ -2917,12 +2914,9 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x operations/devops/get-merge-group-prs.sh
-          BRANCH="${{ github.event.merge_group.base_ref }}"
-          BRANCH="${BRANCH#refs/heads/}"
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "$BRANCH" \
-            "${{ github.event.merge_group.head_ref }}")
+            "${{ github.ref }}")
           echo "group PRs and labels: $PRS_JSON"
           # t/4580: joint-gv PRs never enter the queue at all (merged manually after the joint
           # review) -- so ANY joint-gv label on ANY PR in a group is a fail, unconditionally,

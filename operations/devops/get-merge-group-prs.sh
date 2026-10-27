@@ -14,26 +14,29 @@
 # own mergeQueue object is the correct, documented source: it lists every
 # queued entry with its position and PR directly, no commit resolution needed.
 #
-# Usage: get-merge-group-prs.sh <repo> <branch> <head_ref>
+# Usage: get-merge-group-prs.sh <repo> <ref>
+# <ref> must be github.ref (NOT github.event.merge_group.head_ref -- a live-fire
+# finding proved that field resolves to a bare SHA, not the gh-readonly-queue ref
+# string the GitHub docs' shape implies; github.ref is the one field confirmed to
+# carry refs/heads/gh-readonly-queue/<branch>/pr-<N>-<sha> on a merge_group event).
 # Prints a JSON array of {number, labels: [string...]} to stdout on success --
 # every entry at or before THIS entry's own queue position.
 # Exits 1 (fail closed) on ANY problem, with a legible ::error:: line.
 set -euo pipefail
 
 REPO="$1"
-BRANCH="$2"
-HEAD_REF="$3"
+REF="$2"
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
 
 errfile="${RUNNER_TEMP:-/tmp}/get-merge-group-prs.err"
 
-# ---- 1. identify THIS entry's own PR number from head_ref ----
-# head_ref shape: refs/heads/gh-readonly-queue/<branch>/pr-<N>-<sha>, N is this
-# entry's own PR number.
-SELF_PR_NUM=$(echo "$HEAD_REF" | grep -oP 'gh-readonly-queue/[^/]+/pr-\K[0-9]+' || true)
-if [ -z "$SELF_PR_NUM" ]; then
-  echo "::error::get-merge-group-prs: could not parse a PR number out of head_ref '${HEAD_REF}' -- expected gh-readonly-queue/<branch>/pr-<N>-<sha>. FAILING CLOSED." >&2
+# ---- 1. identify THIS entry's own PR number AND the target branch from ref ----
+# ref shape: refs/heads/gh-readonly-queue/<branch>/pr-<N>-<sha>
+BRANCH=$(echo "$REF" | grep -oP 'gh-readonly-queue/\K[^/]+' || true)
+SELF_PR_NUM=$(echo "$REF" | grep -oP 'gh-readonly-queue/[^/]+/pr-\K[0-9]+' || true)
+if [ -z "$BRANCH" ] || [ -z "$SELF_PR_NUM" ]; then
+  echo "::error::get-merge-group-prs: could not parse a branch/PR number out of ref '${REF}' -- expected refs/heads/gh-readonly-queue/<branch>/pr-<N>-<sha>. FAILING CLOSED." >&2
   exit 1
 fi
 
