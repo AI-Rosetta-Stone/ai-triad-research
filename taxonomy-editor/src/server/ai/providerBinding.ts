@@ -115,10 +115,14 @@ export interface BindingResult {
  *   across providers" shouldn't narrow future access to whichever provider signed in last.
  *   `identityMapKey` must come from `principalName.ts`'s `getIdentityMapKey(req)` (a
  *   WeakMap, never client input) — passing anything else here would move IDENTITY_MAP's
- *   trust root onto an attacker-controlled value, same risk class as the name/admin
- *   decisions IDENTITY_MAP already makes (#3744) deployed under this same trust: it's
- *   admin-held and deploy-gated, so this adds no new privilege-escalation class, only
- *   extends the existing one.
+ *   trust root onto an attacker-controlled value.
+ *
+ * TRUST ROOT (SO review, e/366#2): this function's decision now rests entirely on
+ * IDENTITY_MAP, not just on who signed in first. A bad map entry bypasses THIS guard too,
+ * not only the name/admin choice it already controlled (#3744) — no new privilege-escalation
+ * class, since the map was already admin-held and deploy-gated, but the blast radius of a
+ * bad entry is now one guard wider. Keep that in mind before loosening IDENTITY_MAP's own
+ * write path.
  */
 export function checkProviderBinding(storageUserId: string, idp: string, identityMapKey?: string): BindingResult {
   if (!storageUserId || storageUserId === '_local') return { ok: true };

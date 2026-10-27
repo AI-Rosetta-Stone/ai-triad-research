@@ -7,6 +7,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import type { IncomingMessage } from 'http';
+import { normalizePrincipalNameHeader, getIdentityMapKey, _resetPrincipalNameForTest } from '../principalName.js';
+
+function encodePrincipal(claims: Array<[string, string]>): string {
+  return Buffer.from(JSON.stringify({ auth_typ: 'aad', claims: claims.map(([typ, val]) => ({ typ, val })) }), 'utf8').toString('base64');
+}
 
 describe('providerBinding', () => {
   let tmpDir: string;
@@ -186,6 +192,31 @@ describe('providerBinding', () => {
     _resetBindingsCache();
     const result = checkProviderBinding('jpsnover', 'aad', 'aad:some-other-tenant-obj');
     expect(result).toEqual({ ok: true });
+  });
+
+  it('AC "a client header shaped like the signal does nothing": a forged x-identity-map-key header on an unmapped AAD request still gets provider_mismatch', () => {
+    checkProviderBinding('aad-tenant-9-obj-9', 'github'); // pre-existing github binding, same storageUserId an AAD sign-in for tenant-9/obj-9 would derive
+    _resetBindingsCache();
+    _resetPrincipalNameForTest();
+    delete process.env.IDENTITY_MAP; // no real map entry for tenant-9/obj-9
+
+    const req = {
+      headers: {
+        'x-ms-client-principal': encodePrincipal([
+          ['http://schemas.microsoft.com/identity/claims/tenantid', 'tenant-9'],
+          ['http://schemas.microsoft.com/identity/claims/objectidentifier', 'obj-9'],
+        ]),
+        'x-ms-client-principal-idp': 'aad',
+        'x-ms-client-principal-name': 'anything',
+        'x-identity-map-key': 'aad:tenant-9-obj-9', // forged: no code path reads this
+      },
+    } as unknown as IncomingMessage;
+
+    normalizePrincipalNameHeader(req, true);
+    expect(getIdentityMapKey(req)).toBeUndefined(); // the forged header was never consulted
+
+    const result = checkProviderBinding('aad-tenant-9-obj-9', 'aad', getIdentityMapKey(req));
+    expect(result).toEqual({ ok: false, boundTo: 'github' });
   });
 
   it('C3: an accepted mapped cross-provider sign-in leaves provider_bindings.json byte-identical (no rebind)', () => {
