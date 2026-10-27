@@ -13,10 +13,11 @@
 import { ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { readTaxonomyFile, readPolicyRegistry, getDataRootPath, readEntities } from '../fileIO.js';
+import { readTaxonomyFile, readPolicyRegistry, getDataRootPath, readEntities, loadDuplicateOfLookup } from '../fileIO.js';
 import { getOrganizationById } from '../organizations.js';
 import { parseEntityRef } from '../../../../lib/entities/types.js';
 import { resolveMergedInto, normalizeEntity } from '../../../../lib/entities/entityResolve.js';
+import { resolveRefsThroughDuplicateOf } from '../../../../lib/sourceIndex/types.js';
 import type { EntityDetail, EntityRef, EntitySummary, EntityListQuery } from '../../../../lib/entities/types.js';
 import type { PovNode, SituationNode } from '../../../../lib/debate/taxonomyTypes.js';
 import type { PolicyAction } from '../../../../lib/policy/types.js';
@@ -137,6 +138,15 @@ function resolveEntityRef(ref: EntityRef): EntityDetail {
       // t/1964: normalize polymorphic aliases/source_refs before the detail/mention flow
       // renders them — ent-034 "Claude" (the mention target) has aliases: null.
       const record = normalizeEntity(resolved.record);
+      // t/4528 (mirrors server routes/entity.ts's resolveEntityRegistryRef, t/4527): fold
+      // source_refs through any valid duplicate_of mark before returning, so the renderer's
+      // "Appears in" chips never show a doc already superseded by its canonical.
+      // source_refs_basis (keyed by the PRE-fold ids) is deliberately left untouched — out of
+      // this ticket's scope, PS's Get-EntityReport is its only reader today.
+      if (record.source_refs && record.source_refs.length > 0) {
+        const lookup = loadDuplicateOfLookup();
+        record.source_refs = resolveRefsThroughDuplicateOf(record.source_refs, id => lookup[id]);
+      }
       return resolved.redirectedFrom === undefined
         ? { ref, kind: 'entity', record }
         : { ref, redirected_from: resolved.redirectedFrom, kind: 'entity', record };
