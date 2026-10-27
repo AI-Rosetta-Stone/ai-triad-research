@@ -274,7 +274,9 @@ describe('other idps and no-ops', () => {
     } } as unknown as IncomingMessage;
     normalizePrincipalNameHeader(r, true);
     expect(nameOf(r)).toBe('user@gmail.com');
-    expect(warnMock).not.toHaveBeenCalled();
+    // t/4436: the claim-shape diagnostic WARNs once per process on every Google sign-in
+    // (by design, to capture the sub-claim shape) — it does NOT change behavior.
+    expect(warnMock.mock.calls.every(([fields]) => (fields as Record<string, unknown>).idp === 'google')).toBe(true);
   });
 
   it('Google with the name header missing: filled from the email claim', () => {
@@ -330,5 +332,40 @@ describe('unreviewed idp WARN (t/4326 follow-up, p/822#3)', () => {
     const r = { headers: { 'x-ms-client-principal-idp': 'okta', 'x-ms-client-principal-name': 'x' } } as unknown as IncomingMessage;
     normalizePrincipalNameHeader(r, true);
     expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback' && (fields as Record<string, unknown>).idp === 'okta')).toBe(true);
+  });
+});
+
+describe('Google claim-shape diagnostic (TEMPORARY, t/4436)', () => {
+  it('captures claim types (never values) on a Google sign-in, behavior unchanged', () => {
+    const r = { headers: {
+      'x-ms-client-principal-name': 'user@gmail.com', 'x-ms-client-principal-idp': 'google',
+      'x-ms-client-principal': principal([[NAMEID, 'sub-value-123'], [EMAIL, 'user@gmail.com']], 'google'),
+    } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(nameOf(r)).toBe('user@gmail.com'); // still unchanged — diagnostic only
+    const call = warnMock.mock.calls.find(([fields]) => (fields as Record<string, unknown>).idp === 'google');
+    expect(call).toBeDefined();
+    const [fields, message] = call as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({ claimTypes: [EMAIL, NAMEID].sort(), decodedOk: true });
+    expect(JSON.stringify(fields) + message).not.toContain('sub-value-123');
+    expect(JSON.stringify(fields) + message).not.toContain('user@gmail.com');
+  });
+
+  it('fires once per process even across multiple Google requests', () => {
+    const a = { headers: { 'x-ms-client-principal-idp': 'google', 'x-ms-client-principal': principal([[EMAIL, 'a@gmail.com']], 'google') } } as unknown as IncomingMessage;
+    const b = { headers: { 'x-ms-client-principal-idp': 'google', 'x-ms-client-principal': principal([[EMAIL, 'b@gmail.com']], 'google') } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(a, true);
+    normalizePrincipalNameHeader(b, true);
+    // Filter to the diagnostic specifically (it's the only google-idp WARN carrying
+    // decodedOk) — fillMissingName's own, separate warnOnce also fires for idp=google.
+    expect(warnMock.mock.calls.filter(([fields]) => 'decodedOk' in (fields as Record<string, unknown>)).length).toBe(1);
+  });
+
+  it('still fires when there is no claims blob at all (decodedOk: false)', () => {
+    const r = { headers: { 'x-ms-client-principal-idp': 'google', 'x-ms-client-principal-name': 'x' } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    const call = warnMock.mock.calls.find(([fields]) => (fields as Record<string, unknown>).idp === 'google');
+    expect(call).toBeDefined();
+    expect((call as [Record<string, unknown>])[0]).toMatchObject({ decodedOk: false, claimTypes: [] });
   });
 });

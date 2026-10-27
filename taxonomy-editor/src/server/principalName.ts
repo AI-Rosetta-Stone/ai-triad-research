@@ -234,6 +234,20 @@ function warnOnUnreviewedIdp(idp: string, claimTypes: string[]): void {
 }
 
 /**
+ * TEMPORARY (t/4436): one-time claim-shape capture for Google sign-ins. Observability
+ * only — no behavior change. deriveStorageUserId's email-based derivation for Google is
+ * not injective (t/4436); the fix is a stable-id-keyed canonicalizeGoogle, same shape as
+ * GitHub/AAD, but the claim that carries Google's OIDC `sub` hasn't been confirmed against
+ * the live sidecar (Azure found no existing captured sample, p/813#10). Logs claim TYPES
+ * only, never values, once per process — remove once a real Google sign-in's claim shape
+ * is captured and canonicalizeGoogle ships (same lifecycle as t/4326's Phase 1 diagnostic).
+ */
+function logGoogleClaimShapeDiag(decoded: DecodedPrincipal): void {
+  warnOnce('google|claim-shape-diag', { idp: 'google', claimTypes: decoded.claimTypes, nameTyp: decoded.nameTyp, decodedOk: decoded.ok },
+    'TEMPORARY (t/4436): Google sign-in claim shape captured for the sub-claim investigation — types only, never values');
+}
+
+/**
  * Set the canonical `x-ms-client-principal-name` on the request. Call once per request,
  * at entry, before anything reads principal headers. No-op unless Easy Auth is on.
  */
@@ -251,6 +265,7 @@ export function normalizePrincipalNameHeader(req: IncomingMessage, azureAuthEnab
   }
   const decoded = decodePrincipal(encoded);
   warnOnUnreviewedIdp(idp, decoded.claimTypes);
+  if (idp === 'google') logGoogleClaimShapeDiag(decoded);
   if (!encoded) return;
   fillMissingName(req, idp, decoded);
 }
