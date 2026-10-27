@@ -1,0 +1,19 @@
+{
+  "pov_summaries": {
+    "acc": {
+      "key_points": [
+        {
+          "verbatim": "cites the retired node",
+          "extraction_confidence": 0.7,
+          "taxonomy_node_id": "acc-old"
+        },
+        {
+          "verbatim": "cites a live node",
+          "extraction_confidence": 0.6,
+          "taxonomy_node_id": "acc-other"
+        }
+      ]
+    }
+  },
+  "doc_id": "doc-one"
+}

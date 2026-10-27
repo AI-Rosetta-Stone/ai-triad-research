@@ -1,0 +1,14 @@
+{
+  "pov_summaries": {
+    "acc": {
+      "key_points": [
+        {
+          "verbatim": "canonical point",
+          "extraction_confidence": 0.8,
+          "taxonomy_node_id": "acc-1"
+        }
+      ]
+    }
+  },
+  "doc_id": "canon"
+}

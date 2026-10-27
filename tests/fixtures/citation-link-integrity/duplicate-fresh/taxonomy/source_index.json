@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "builder": "Build-NodeSourceIndex",
+  "builderVersion": "1.2.0",
+  "inputHash": "0ebb5255418cd2fe810a004f45f806d194156b6fd3c8193aa51f627e7e6585dd",
+  "marksHash": "020fe594ab257468f287abacdb94e3b533bb16a95fdaed89927f53cc39062917",
+  "totals": {
+    "nodes": 2,
+    "entries": 2,
+    "byLinkSource": {
+      "key_point": 2,
+      "factual_claim": 0
+    }
+  },
+  "index": {
+    "acc-1": [
+      {
+        "source_id": "canon",
+        "link_source": "key_point",
+        "quote": "canonical point",
+        "doc_position": null,
+        "evidence_level": null,
+        "extraction_confidence": 0.8
+      }
+    ],
+    "acc-2": [
+      {
+        "source_id": "canon",
+        "link_source": "key_point",
+        "quote": "copy-only point",
+        "doc_position": null,
+        "evidence_level": null,
+        "extraction_confidence": 0.5,
+        "via": "copy"
+      }
+    ]
+  }
+}

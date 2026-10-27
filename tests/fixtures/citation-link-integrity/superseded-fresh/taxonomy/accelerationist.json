@@ -1,0 +1,15 @@
+{
+  "pov": "acc",
+  "nodes": [
+    {
+      "superseded_by": "acc-new",
+      "id": "acc-old"
+    },
+    {
+      "id": "acc-new"
+    },
+    {
+      "id": "acc-other"
+    }
+  ]
+}
