@@ -513,7 +513,14 @@
   justify-content: space-between;
 }
 
-/* ── Simple/Advanced toggle (t/4574) ── */
+/* ── Simple/Advanced toggle + menu container (t/4574) ── */
+
+.nd-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 .nd-header-toggle {
   display: flex;

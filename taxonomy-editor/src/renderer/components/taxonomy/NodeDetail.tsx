@@ -158,12 +158,12 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const [lineageExpanded, setLineageExpanded] = useState(false);
 
   // Reset to Analysis when switching to Simple (which hides most tabs, but Analysis is always visible).
-  // t/4574: Simple mode can only access Content and Related tabs; all others are Advanced-only.
+  // t/4574: Simple mode can only access Analysis and Related tabs; all others are Advanced-only.
   // If switching to Simple while on an Advanced-only tab, drop to Analysis.
   // If switching back to Advanced, stay on the current tab.
   useEffect(() => {
     if (nodeDetailMode === 'simple' && activeTab !== 'content' && activeTab !== 'related') {
-      setActiveTab('analysis');
+      setActiveTab('content');
     }
   }, [nodeDetailMode, activeTab]);
   const [showDtDrilldown, setShowDtDrilldown] = useState(false);
@@ -429,21 +429,34 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           )}
           <EditConflictBadge conflict={conflict} resolveUrl={resolveUrl} />
           {/* Simple/Advanced toggle (t/4574) — top right */}
-          <div className="nd-header-toggle">
-            <button
-              className={`nd-toggle-btn ${nodeDetailMode === 'simple' ? 'active' : ''}`}
-              onClick={() => void setNodeDetailMode(node.id, 'simple')}
-              aria-pressed={nodeDetailMode === 'simple'}
-            >
-              Simple
-            </button>
-            <button
-              className={`nd-toggle-btn ${nodeDetailMode === 'advanced' ? 'active' : ''}`}
-              onClick={() => void setNodeDetailMode(node.id, 'advanced')}
-              aria-pressed={nodeDetailMode === 'advanced'}
-            >
-              Advanced
-            </button>
+          <div className="nd-header-controls">
+            <div className="nd-header-toggle">
+              <button
+                className={`nd-toggle-btn ${nodeDetailMode === 'simple' ? 'active' : ''}`}
+                onClick={() => void setNodeDetailMode(node.id, 'simple')}
+                aria-pressed={nodeDetailMode === 'simple'}
+              >
+                Simple
+              </button>
+              <button
+                className={`nd-toggle-btn ${nodeDetailMode === 'advanced' ? 'active' : ''}`}
+                onClick={() => void setNodeDetailMode(node.id, 'advanced')}
+                aria-pressed={nodeDetailMode === 'advanced'}
+              >
+                Advanced
+              </button>
+            </div>
+            {/* Admin-gated overflow menu (t/4574) */}
+            {authInfo?.isAdmin && (
+              <OverflowMenu
+                entries={[
+                  { type: 'item', key: 'search', label: 'Search Taxonomy', onClick: onSimilarSearch ?? (() => {}) },
+                  { type: 'item', key: 'bdi', label: 'BDI Grounding', onClick: onOpenSoulDoc ? () => onOpenSoulDoc(node.pov_tags) : () => {} },
+                  { type: 'item', key: 'copy', label: 'Copy Link', onClick: () => navigator.clipboard.writeText(node.id) },
+                  { type: 'item', key: 'similar', label: 'Find Similar', onClick: onSimilarSearch ?? (() => {}) },
+                ]}
+              />
+            )}
           </div>
         </div>
 
@@ -734,7 +747,7 @@ function NodeDetailTabBar({ activeTab, setActiveTab, conflictCount, cruxCount, f
   // Content + Related always show; the rest, including Attributes, are Advanced-only
   // (t/2120, t/3003 originally kept Attributes always-on; reversed at the PI's direction, t/4559).
   const tabs: { id: NodeDetailTabId; label: string; advanced?: boolean }[] = [
-    { id: 'content', label: 'Content' },
+    { id: 'content', label: 'Analysis' },
     { id: 'related', label: 'Related' },
     { id: 'attributes', label: 'Attributes', advanced: true },
     { id: 'conflicts', label: `Conflicts${conflictCount > 0 ? ` (${conflictCount})` : ''}`, advanced: true },
