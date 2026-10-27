@@ -1,0 +1,812 @@
+{
+ "fc": {
+  "F001": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F002": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "F003": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "F004": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F005": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "F006": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F007": {
+   "arm": "r2",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F008": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "F009": {
+   "arm": "r2",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "F010": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F011": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F012": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F013": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "F014": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F015": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F016": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F017": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F018": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F019": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "F020": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "F021": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F022": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F023": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F024": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F025": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F026": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F027": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F028": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F029": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F030": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F031": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F032": {
+   "arm": "r2",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "F033": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F034": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F035": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F036": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F037": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F038": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F039": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F040": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F041": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F042": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "F043": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F044": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F045": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F046": {
+   "arm": "r2",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F047": {
+   "arm": "r2",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F048": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F049": {
+   "arm": "r2",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "F050": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F051": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F052": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F053": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F054": {
+   "arm": "r2",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F055": {
+   "arm": "r2",
+   "doc": "why-ai-needs-genie-coefficient-2026"
+  },
+  "F056": {
+   "arm": "pro",
+   "doc": "why-ai-needs-genie-coefficient-2026"
+  },
+  "F057": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F058": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F059": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "F060": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F061": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "F062": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "F063": {
+   "arm": "r2",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "F064": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F065": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "F066": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F067": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "F068": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F069": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "F070": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F071": {
+   "arm": "r2",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "F072": {
+   "arm": "r2",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "F073": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F074": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F075": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "F076": {
+   "arm": "r2",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "F077": {
+   "arm": "r2",
+   "doc": "why-ai-needs-genie-coefficient-2026"
+  },
+  "F078": {
+   "arm": "r2",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F079": {
+   "arm": "r2",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F080": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "F081": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F082": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F083": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F084": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F085": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "F086": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "F087": {
+   "arm": "r2",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F088": {
+   "arm": "r2",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "F089": {
+   "arm": "pro",
+   "doc": "why-ai-needs-genie-coefficient-2026"
+  },
+  "F090": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  }
+ },
+ "anchors": {
+  "A001": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "A002": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "A003": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "A004": {
+   "arm": "r2",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "A005": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A006": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "A007": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "A008": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "A009": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "A010": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "A011": {
+   "arm": "r2",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "A012": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A013": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "A014": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "A015": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "A016": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "A017": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "A018": {
+   "arm": "r2",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "A019": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A020": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "A021": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "A022": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "A023": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "A024": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A025": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A026": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "A027": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "A028": {
+   "arm": "r2",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "A029": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "A030": {
+   "arm": "r2",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "A031": {
+   "arm": "r2",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "A032": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A033": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "A034": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "A035": {
+   "arm": "r2",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "A036": {
+   "arm": "r2",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "A037": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A038": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A039": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "A040": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "A041": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "A042": {
+   "arm": "r2",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "A043": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "A044": {
+   "arm": "r2",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "A045": {
+   "arm": "r2",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "A046": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "A047": {
+   "arm": "r2",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "A048": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "A049": {
+   "arm": "r2",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  }
+ },
+ "cp": {
+  "C001": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "C002": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "C003": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C004": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C005": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "C006": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "C007": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "C008": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "C009": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "C010": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "C011": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "C012": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C013": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "C014": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "C015": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "C016": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "C017": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "C018": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "C019": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "C020": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "C021": {
+   "arm": "pro",
+   "doc": "why-ai-needs-genie-coefficient-2026"
+  },
+  "C022": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "C023": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "C024": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "C025": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "C026": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C027": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "C028": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "C029": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "C030": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "C031": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "C032": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "C033": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "C034": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "C035": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "C036": {
+   "arm": "pro",
+   "doc": "why-ai-needs-genie-coefficient-2026"
+  },
+  "C037": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C038": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "C039": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "C040": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "C041": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C042": {
+   "arm": "pro",
+   "doc": "ai-companies-have-become-democratically-accountable-2026"
+  },
+  "C043": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  },
+  "C044": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "C045": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "C046": {
+   "arm": "pro",
+   "doc": "ftc-ai-disclosure-rules-2026-complete-marketer-guide-2026"
+  },
+  "C047": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C048": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "C049": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "C050": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "C051": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "C052": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "C053": {
+   "arm": "pro",
+   "doc": "california-lawyers-chatgpt-use-is-why-courts-want-ai-2026"
+  },
+  "C054": {
+   "arm": "pro",
+   "doc": "reverse-centaurs-guide-criticizing-ai-2026"
+  },
+  "C055": {
+   "arm": "pro",
+   "doc": "legal-personhood-ai-possible-key-unlocking-human-ai-2026"
+  },
+  "C056": {
+   "arm": "pro",
+   "doc": "uk-aisis-incident-shows-why-agent-authority-must-be-2026"
+  },
+  "C057": {
+   "arm": "pro",
+   "doc": "governor-newsom-issues-executive-order-accelerate-2026-2"
+  },
+  "C058": {
+   "arm": "pro",
+   "doc": "from-oversight-coercion-how-authoritarian-governments-are-2026"
+  },
+  "C059": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "C060": {
+   "arm": "pro",
+   "doc": "anthropic-pays-authors-15-billion-settle-copyright-2026"
+  },
+  "C061": {
+   "arm": "pro",
+   "doc": "why-ai-needs-genie-coefficient-2026"
+  },
+  "C062": {
+   "arm": "pro",
+   "doc": "atria-dawn-dawn-agentic-superintelligence-evolving-roles-2026-1"
+  }
+ }
+}
