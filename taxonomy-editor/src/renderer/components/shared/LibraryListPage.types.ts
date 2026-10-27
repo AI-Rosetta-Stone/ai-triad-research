@@ -183,4 +183,9 @@ export interface LibraryListPageProps<TMy extends { id: string }, TCommunity ext
    * for the settings-store wiring before either happens.
    */
   actionVisibility?: 'always' | 'hover'; // default 'hover'
+  /**
+   * t/4536: an optional block rendered between the header row and the My/Community tabs — e.g.
+   * Chat's getting-started card. Additive: Debates and Op-Eds pass nothing and are unchanged.
+   */
+  intro?: ReactNode;
 }
