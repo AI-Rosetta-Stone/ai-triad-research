@@ -9,6 +9,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
@@ -101,5 +103,26 @@ describe('LibraryGettingStarted (t/4561)', () => {
     localStorage.setItem(STORAGE_KEY, '1');
     renderCard({ hasNoItems: true });
     expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
+  });
+
+  // t/4565 round 2: Chat's phone layout (MyChatsList) mounts this card outside
+  // .library-list-page, where --lib-* is undefined and every var(--lib-*) resolves to its
+  // initial value (transparent fill, no border) — jsdom doesn't apply stylesheets or resolve
+  // custom properties, so a rendered-DOM assertion can't catch this; assert on the CSS source
+  // instead, per the originally-landed fix's own test approach (t/4565#1).
+  it('declares --lgs-* fallback tokens so the card renders outside .library-list-page (t/4565)', () => {
+    const css = readFileSync(join(__dirname, 'LibraryGettingStarted.css'), 'utf-8');
+    expect(css).toMatch(/--lgs-bg:\s*var\(--lib-row-hover,\s*#ece6dd\)/);
+    expect(css).toMatch(/--lgs-chip-bg:\s*var\(--lib-bg,\s*#f4f0ea\)/);
+    expect(css).toMatch(/--lgs-border:\s*var\(--lib-border-control,\s*#ddd5ca\)/);
+    expect(css).toMatch(/--lgs-text:\s*var\(--lib-text,\s*#2b2622\)/);
+    expect(css).toMatch(/--lgs-text-secondary:\s*var\(--lib-text-secondary,\s*#5d554f\)/);
+    expect(css).toMatch(/--lgs-accent:\s*var\(--lib-accent,\s*#9e2236\)/);
+    // The card's own rules must read --lgs-*, not --lib-* directly — otherwise the fallback
+    // chain above is declared but never consulted. Strip comments (prose referencing --lib-*)
+    // and the fallback declarations themselves before checking.
+    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const withoutFallbackDecls = withoutComments.replace(/--lgs-[a-z-]+:\s*var\([^)]*\);/g, '');
+    expect(withoutFallbackDecls).not.toMatch(/var\(--lib-/);
   });
 });

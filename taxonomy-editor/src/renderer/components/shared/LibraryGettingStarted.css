@@ -1,9 +1,22 @@
 /* Shared getting-started card for library-page tools (t/4561, generalized from Chat's
-   ChatGettingStarted.css, t/4536 round 3). Rendered inside LibraryListPage's intro slot, so it
-   uses the --lib-* tokens that page already defines for itself — those were not renamed by this
-   refactor, only the class names (chat-getting-started-* → lib-getting-started-*) were. */
+   ChatGettingStarted.css, t/4536 round 3). Rendered inside LibraryListPage's intro slot on
+   desktop, so it can read that page's --lib-* tokens there — but Chat's phone layout
+   (MyChatsList) mounts this card OUTSIDE .library-list-page (t/4565), where --lib-* is
+   undefined and every var(--lib-*) falls back to its CSS-wide-keyword initial value (transparent
+   fill, no border). Fixed in t/4565 (#3961) on the old chat-prefixed file, then silently
+   regressed by this file's own t/4561 generalization, which carried the --lib-* reads forward
+   without the fallback indirection (t/4565#3). --lgs-* is declared here with var(--lib-*, #hex)
+   fallbacks — desktop still resolves --lib-* (defined on .library-list-page, wins), phone gets
+   the hex fallback. Hex values match LibraryListPage.css's own --lib-* values exactly. */
 
 .lib-getting-started {
+  --lgs-bg: var(--lib-row-hover, #ece6dd);
+  --lgs-chip-bg: var(--lib-bg, #f4f0ea);
+  --lgs-border: var(--lib-border-control, #ddd5ca);
+  --lgs-text: var(--lib-text, #2b2622);
+  --lgs-text-secondary: var(--lib-text-secondary, #5d554f);
+  --lgs-accent: var(--lib-accent, #9e2236);
+
   position: relative;
   display: flex;
   flex-direction: column;
@@ -12,8 +25,8 @@
   gap: 8px;
   /* t/4536#8: --lib-bg IS the page background — use --lib-row-hover so the card has a
      visible fill, and give the chips --lib-bg so they still stand out against the card. */
-  background: var(--lib-row-hover);
-  border: 1px solid var(--lib-border-control);
+  background: var(--lgs-bg);
+  border: 1px solid var(--lgs-border);
   border-radius: 6px;
   padding: 16px;
   margin-top: 12px;
@@ -25,7 +38,7 @@
   right: 14px;
   background: none;
   border: none;
-  color: var(--lib-text-secondary);
+  color: var(--lgs-text-secondary);
   font-size: 13px;
   cursor: pointer;
   text-decoration: underline;
@@ -35,14 +48,14 @@
 .lib-getting-started-heading {
   font-size: 15px;
   font-weight: 600;
-  color: var(--lib-text);
+  color: var(--lgs-text);
   margin: 0;
   padding-right: 48px; /* room for Hide */
 }
 
 .lib-getting-started-why {
   font-size: 13px;
-  color: var(--lib-text-secondary);
+  color: var(--lgs-text-secondary);
   margin: 0;
 }
 
@@ -55,28 +68,28 @@
 .lib-getting-started-chip {
   min-height: 44px;
   padding: 8px 12px;
-  border: 1px solid var(--lib-border-control);
+  border: 1px solid var(--lgs-border);
   border-radius: 5px;
-  background: var(--lib-bg);
-  color: var(--lib-text);
+  background: var(--lgs-chip-bg);
+  color: var(--lgs-text);
   font-size: 13px;
   cursor: pointer;
   text-align: left;
 }
 
 .lib-getting-started-chip:hover {
-  background: var(--lib-bg);
-  border-color: var(--lib-accent);
+  background: var(--lgs-chip-bg);
+  border-color: var(--lgs-accent);
 }
 
 .lib-getting-started-chip:focus-visible {
-  outline: 2px solid var(--lib-accent);
+  outline: 2px solid var(--lgs-accent);
   outline-offset: 2px;
 }
 
 .lib-getting-started-hint {
   font-size: 13px;
-  color: var(--lib-text-secondary);
+  color: var(--lgs-text-secondary);
   margin: 0;
 }
 
@@ -85,7 +98,7 @@
   margin-top: 12px;
   background: none;
   border: none;
-  color: var(--lib-text-secondary);
+  color: var(--lgs-text-secondary);
   font-size: 13px;
   cursor: pointer;
   text-decoration: underline;
