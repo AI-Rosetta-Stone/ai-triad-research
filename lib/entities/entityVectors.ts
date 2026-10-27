@@ -42,3 +42,32 @@ export function nameVectorOf(stored: EntityVectorStored | undefined): number[] |
   if (stored === undefined) return undefined;
   return Array.isArray(stored) ? stored : stored.name_vector;
 }
+
+/**
+ * The envelope's PS-owned `_src_hashes[<id>]` fingerprint, computed the TS side (t/4458, CL
+ * design review t/4458#2) — byte-identical to PowerShell `Get-EntityVectorSource.ps1`'s
+ * `SrcHash`: `sha256(utf8("<name>[ <alias1> <alias2> ...]\n<description>"))`. Aliases join
+ * with a single space, in the given order (no sorting); an empty alias array, or a single
+ * empty-string alias, is the same as no aliases (`-join`/`.join` on either agree: falsy →
+ * the name alone). `digest` is injected, matching `computeSourceContentHash`'s convention in
+ * `lib/sourceIndex/types.ts` — no bare `crypto` import, so a non-Node caller can supply its own.
+ *
+ * Parity is pinned by a shared fixture, `tests/fixtures/entity-vector-source-cases.json`,
+ * run by both this module's test and PowerShell's own `Get-EntityVectorSource.Tests.ps1`.
+ *
+ * KNOWN OVER-SKIP (CL t/4458#2 note 3, accepted for this T1): `name_vector` embeds only the
+ * name+aliases text, but this hash covers name+aliases+description too, so a description-only
+ * edit marks the name vector stale even though it still matches what's embedded. That fails
+ * CLOSED (an unnecessary refusal, never a wrong link), so it's accepted here; a per-vector
+ * hash on the PowerShell side is the real fix, filed separately and optional (t/4568).
+ */
+export function computeEntityVectorSourceHash(
+  name: string,
+  aliases: readonly string[],
+  description: string,
+  digest: (utf8Bytes: Uint8Array) => string,
+): string {
+  const aliasText = aliases.join(' ');
+  const nameText = aliasText ? `${name} ${aliasText}` : name;
+  return digest(new TextEncoder().encode(`${nameText}\n${description}`));
+}
