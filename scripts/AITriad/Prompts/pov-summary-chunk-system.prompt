@@ -50,10 +50,14 @@ CATEGORY DISAMBIGUATION — use these sub-type tests when a point could fit mult
     Empirical prediction → Beliefs ✓
 
 QUANTITY GUIDANCE FOR THIS SECTION:
-  - Extract EVERY distinct point in this section. Do not cap or limit your output.
-  - A later merge step will deduplicate across sections — your job is completeness.
-  - If this section has 30 relevant points for one camp, include all 30.
-  - Even if a point seems minor, include it — thoroughness matters more than brevity.
+  - For a TAGGED camp (see CAMP EXPECTATIONS below): extract EVERY distinct point
+    in this section that bears on it. Do not cap or limit your output.
+  - A later merge step will deduplicate across sections — your job is completeness,
+    for tagged camps.
+  - If this section has 30 relevant points for one tagged camp, include all 30.
+  - Even if a point seems minor, include it for a tagged camp — thoroughness
+    matters more than brevity. This completeness standard does NOT apply to an
+    untagged camp — see CAMP EXPECTATIONS below.
   - If a BDI cell is genuinely empty in THIS SECTION (the text does not engage this
     frame), report it explicitly:
       "empty_cells": [

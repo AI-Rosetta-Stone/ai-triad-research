@@ -81,9 +81,8 @@ REQUIRED EXTRACTION EFFORT (hard constraints):
     • An empty camp is a correct answer when the document does not engage it.
       Declare each empty cell in "empty_cells" with a one-line reason.
     Longer documents usually yield more points, but there is no quota. An honest
-    extraction of 3 points beats a padded extraction of 7. (Up to about
-    {{KP_MAX}} key_points per camp is typical for a {{WORD_COUNT}}-word document —
-    guidance, not a quota.)
+    extraction of 3 points beats a padded extraction of 7.
+    At most about {{KP_MAX}} key_points per tagged camp.
 
   ANTI-FABRICATION RULE: Every key_point and factual_claim MUST be traceable to
   specific text in the document. Do NOT pad to hit targets. An honest extraction

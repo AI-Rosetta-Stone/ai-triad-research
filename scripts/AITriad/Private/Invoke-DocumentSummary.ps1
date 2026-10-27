@@ -35,7 +35,7 @@
     Serialized JSON of the full taxonomy, injected into the prompt for node
     mapping.
 .PARAMETER SystemPromptTemplate
-    The system prompt template with {{WORD_COUNT}}, {{KP_MIN}}, etc. placeholders
+    The system prompt template with {{WORD_COUNT}}, {{KP_MAX}}, etc. placeholders
     for density scaling.
 .PARAMETER ChunkSystemPromptTemplate
     Optional override prompt for chunk-level summarization.  If empty, the
