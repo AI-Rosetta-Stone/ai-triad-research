@@ -1,0 +1,149 @@
+{
+ "labels": {
+  "post_off": {
+   "n": 25,
+   "genuine": 11,
+   "stretched": 13,
+   "unsupported": 1
+  },
+  "pre_off": {
+   "n": 29,
+   "genuine": 7,
+   "stretched": 21,
+   "unsupported": 1
+  },
+  "post_on": {
+   "n": 30,
+   "genuine": 25,
+   "stretched": 4,
+   "unsupported": 1
+  }
+ },
+ "off_tag_share": {
+  "saved": [
+   149,
+   300,
+   0.497
+  ],
+  "post": [
+   27,
+   60,
+   0.45
+  ],
+  "pre_paired": [
+   35,
+   67,
+   0.522
+  ],
+  "post_paired": [
+   26,
+   55,
+   0.473
+  ]
+ },
+ "on_tag_change": {
+  "saved_to_post": {
+   "median": -0.806,
+   "n": 14
+  },
+  "pre_to_post_paired": {
+   "median": 0.0,
+   "n": 13
+  }
+ },
+ "kp_total_median": {
+  "saved": 21.5,
+  "pre_paired": 4,
+  "post_paired": 4
+ },
+ "post_docs_ok": [
+  14,
+  15
+ ],
+ "paired_docs": 13,
+ "failures": {
+  "pre": [
+   [
+    "pluralistic-what-kind-bubble-is-ai-2026",
+    "Pipeline failed for pluralistic-what-kind-bubble-is-ai-2026: InvalidJson"
+   ]
+  ],
+  "post": [
+   [
+    "zero-trust-ai-systems-reference-architecture-assurance-2026",
+    "The property 'accelerationist' cannot be found on this object. Verify that the property exists."
+   ]
+  ]
+ },
+ "post_modes": {
+  "fire": 12,
+  "single_shot": 2
+ },
+ "single_shot_calls": {
+  "pre": [
+   [
+    "do-ai-risks-require-extraordinary-government-intervention-2026",
+    2
+   ],
+   [
+    "pluralistic-what-kind-bubble-is-ai-2026",
+    1
+   ]
+  ],
+  "post": [
+   [
+    "do-ai-risks-require-extraordinary-government-intervention-2026",
+    1
+   ],
+   [
+    "pluralistic-what-kind-bubble-is-ai-2026",
+    1
+   ]
+  ]
+ },
+ "post_empty_cells_persisted": [
+  0,
+  14
+ ],
+ "post_empty_camps": [
+  [
+   "crisis-risk-communication-or-propaganda-disinformation-2026",
+   "skeptic",
+   [
+    "accelerationist",
+    "safetyist"
+   ],
+   false
+  ],
+  [
+   "gender-shades-intersectional-accuracy-disparities-2026",
+   "skeptic",
+   [
+    "accelerationist"
+   ],
+   false
+  ],
+  [
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "skeptic",
+   [
+    "accelerationist",
+    "safetyist"
+   ],
+   false
+  ],
+  [
+   "pluralistic-what-kind-bubble-is-ai-2026",
+   "skeptic",
+   [
+    "accelerationist"
+   ],
+   false
+  ]
+ ],
+ "post_tagged_camp_empty": [],
+ "est_input_tokens": {
+  "pre": 734754,
+  "post": 706238
+ }
+}

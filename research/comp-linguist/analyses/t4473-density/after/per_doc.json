@@ -1,0 +1,621 @@
+[
+ {
+  "doc": "future-online-expression-innovation-depends-robust-section-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_on": 6,
+  "saved_off": 8,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 42966,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 43111,
+   "on": 2,
+   "off": 3,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "labor-as-capital-ai-ownership-expertise-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_on": 12,
+  "saved_off": 13,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 51858,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 52003,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "do-ai-risks-require-extraordinary-government-intervention-2026",
+  "tag": "skeptic",
+  "chunked_saved": false,
+  "saved_on": 5,
+  "saved_off": 5,
+  "pre": {
+   "mode": "single_shot",
+   "calls": 2,
+   "retry": 1,
+   "tok": 61380,
+   "on": 5,
+   "off": 9,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "single_shot",
+   "calls": 1,
+   "retry": 0,
+   "tok": 30835,
+   "on": 3,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_on": 10,
+  "saved_off": 15,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 51219,
+   "on": 1,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 51364,
+   "on": 1,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_on": 6,
+  "saved_off": 10,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 46604,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 46749,
+   "on": 1,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_on": 14,
+  "saved_off": 19,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 47003,
+   "on": 2,
+   "off": 4,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 47148,
+   "on": 2,
+   "off": 4,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "generative-design-bacteriophages-genome-language-models-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_on": 11,
+  "saved_off": 8,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 43017,
+   "on": 3,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 43162,
+   "on": 3,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_on": 9,
+  "saved_off": 13,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 51132,
+   "on": 3,
+   "off": 1,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 51277,
+   "on": 2,
+   "off": 0,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [
+    "accelerationist",
+    "safetyist"
+   ],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [
+    "accelerationist",
+    "safetyist"
+   ],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_on": 13,
+  "saved_off": 8,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 39830,
+   "on": 2,
+   "off": 1,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 39975,
+   "on": 2,
+   "off": 1,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+  "tag": "skeptic",
+  "chunked_saved": true,
+  "saved_on": 19,
+  "saved_off": 13,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 60149,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 60294,
+   "on": 3,
+   "off": 0,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [
+    "accelerationist",
+    "safetyist"
+   ],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [
+    "accelerationist",
+    "safetyist"
+   ],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+  "tag": "safetyist",
+  "chunked_saved": true,
+  "saved_on": 8,
+  "saved_off": 7,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 41121,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 41266,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+  "tag": "safetyist",
+  "chunked_saved": true,
+  "saved_on": 14,
+  "saved_off": 12,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 52745,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "failure": "The property 'accelerationist' cannot be found on this object. Verify that the property exists.",
+   "calls": 1,
+   "tok": 52890
+  }
+ },
+ {
+  "doc": "pluralistic-what-kind-bubble-is-ai-2026",
+  "tag": "skeptic",
+  "chunked_saved": false,
+  "saved_on": 7,
+  "saved_off": 6,
+  "pre": {
+   "failure": "Pipeline failed for pluralistic-what-kind-bubble-is-ai-2026: InvalidJson",
+   "calls": 1,
+   "tok": 25556
+  },
+  "post": {
+   "mode": "single_shot",
+   "calls": 1,
+   "retry": 0,
+   "tok": 25701,
+   "on": 4,
+   "off": 1,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [
+    "accelerationist"
+   ],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [
+    "accelerationist"
+   ],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+  "tag": "safetyist",
+  "chunked_saved": true,
+  "saved_on": 21,
+  "saved_off": 12,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 73172,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 73316,
+   "on": 2,
+   "off": 2,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ },
+ {
+  "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026",
+  "tag": "accelerationist",
+  "chunked_saved": true,
+  "saved_on": 10,
+  "saved_off": 12,
+  "pre": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 47002,
+   "on": 4,
+   "off": 4,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  },
+  "post": {
+   "mode": "fire",
+   "calls": 1,
+   "retry": 0,
+   "tok": 47147,
+   "on": 4,
+   "off": 4,
+   "camps_present": [
+    "accelerationist",
+    "safetyist",
+    "skeptic"
+   ],
+   "empty_camps": [],
+   "empty_cells_persisted": false,
+   "empty_camps_undeclared": [],
+   "tagged_empty_warn": false
+  }
+ }
+]
