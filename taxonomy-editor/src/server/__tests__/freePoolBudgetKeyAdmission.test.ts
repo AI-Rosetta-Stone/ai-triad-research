@@ -38,7 +38,10 @@ async function waitForAzurite(svc: BlobServiceClient, timeoutMs = 20000): Promis
   throw new Error(`Azurite did not become ready: ${String(lastErr)}`);
 }
 
-function makeBudget(prefix: string, opts: Partial<{ callsCap: number; tokensCap: number | null; reservationTtlMs: number }> = {}): BlobFreePoolBudget {
+function makeBudget(
+  prefix: string,
+  opts: Partial<{ callsCap: number; tokensCap: number | null; reservationTtlMs: number; now: () => Date }> = {},
+): BlobFreePoolBudget {
   return new BlobFreePoolBudget({
     accountUrl: ACCOUNT_URL,
     container: CONTAINER,
@@ -47,7 +50,21 @@ function makeBudget(prefix: string, opts: Partial<{ callsCap: number; tokensCap:
     tokensCap: opts.tokensCap,
     reservationTtlMs: opts.reservationTtlMs,
     serviceClient: service,
+    now: opts.now,
   });
+}
+
+/** t/4549: a controllable clock for TTL tests — no wall-clock `setTimeout`
+ *  waits. `advance()` moves the clock forward by exactly the given amount;
+ *  every subsequent `now()` call (sweep comparisons, `expiresAt` renewal)
+ *  sees the new time deterministically, so expiry assertions don't depend
+ *  on real elapsed time or CI scheduling jitter (the t/4502 flake class). */
+function makeFakeClock(start: Date = new Date('2026-01-01T00:00:00.000Z')) {
+  let current = start;
+  return {
+    now: (): Date => current,
+    advance: (ms: number): void => { current = new Date(current.getTime() + ms); },
+  };
 }
 
 describe('BlobFreePoolBudget.reserveForKey/drawDown/openCountForPrefix (Azurite, t/4491 AC2-5)', () => {
@@ -56,7 +73,7 @@ describe('BlobFreePoolBudget.reserveForKey/drawDown/openCountForPrefix (Azurite,
     proc = spawn(
       process.execPath,
       [AZURITE_MAIN, '--silent', '--skipApiVersionCheck', '--location', azuriteDir, '--blobHost', '127.0.0.1', '--blobPort', String(PORT)],
-      { stdio: 'ignore' },
+      { stdio: 'ignore', windowsHide: true },
     );
     service = BlobServiceClient.fromConnectionString(CONN);
     await waitForAzurite(service);
@@ -131,11 +148,11 @@ describe('BlobFreePoolBudget.reserveForKey/drawDown/openCountForPrefix (Azurite,
     expect(other).toMatchObject({ ok: false, reason: 'daily_cap' });
   });
 
-  // Timing margins widened (t/4502 precedent: CI runners under load eat into
-  // tight slack) — 400ms TTL, 250ms/200ms sleeps either side of the renewal,
-  // not ~50ms windows.
+  // t/4549: fake clock, not wall-clock sleeps — deterministic by
+  // construction, not by generous margins.
   it('openCountForPrefix counts only live entries under the prefix; committed and swept-expired ones are excluded', async () => {
-    const budget = makeBudget(prefix, { reservationTtlMs: 400 });
+    const clock = makeFakeClock();
+    const budget = makeBudget(prefix, { reservationTtlMs: 400, now: clock.now });
     await budget.reserveForKey({ key: 'debate:u6:d1', calls: 1, tokens: 0 });
     const r2 = await budget.reserveForKey({ key: 'debate:u6:d2', calls: 1, tokens: 0 });
     expect(r2.ok).toBe(true);
@@ -149,10 +166,10 @@ describe('BlobFreePoolBudget.reserveForKey/drawDown/openCountForPrefix (Azurite,
     // d1/d3's original 400ms TTL is still running; renew d2 well after
     // d1/d3 were created, so d2's fresh 400ms window (from this later point)
     // outlives theirs.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    clock.advance(250);
     await budget.drawDown(r2.reservationId, { calls: 1, tokens: 0 }); // renews TTL from this later point in time
 
-    await new Promise((resolve) => setTimeout(resolve, 200)); // past d1/d3's original TTL (250+200=450 > 400), well before d2's renewed one (250+400=650)
+    clock.advance(200); // past d1/d3's original TTL (250+200=450 > 400), well before d2's renewed one (250+400=650)
 
     const count = await budget.openCountForPrefix('debate:u6:');
     expect(count).toBe(1); // only d2 (renewed via drawDown) is still live; d1 and d3 expired
@@ -175,25 +192,31 @@ describe('BlobFreePoolBudget.reserveForKey/drawDown/openCountForPrefix (Azurite,
     expect(refused[0]).toMatchObject({ ok: false, reason: 'debate_limit' });
   });
 
+  // t/4549 (origin of the flake: a real 50ms TTL against a 200ms wall-clock
+  // sleep, the t/4502 timing-margin class — root cause was the test, not
+  // the implementation). Fixed with a fake clock: deterministic by
+  // construction, no elapsed real time at all.
   it('TTL expiry with a partial draw: headroom reflects only the drawn amount (the unused remainder is released, the draw is kept)', async () => {
-    const budget = makeBudget(prefix, { callsCap: 50, reservationTtlMs: 50 });
+    const clock = makeFakeClock();
+    const budget = makeBudget(prefix, { callsCap: 50, reservationTtlMs: 50, now: clock.now });
     const r = await budget.reserveForKey({ key: 'debate:u8:d1', calls: 20, tokens: 0 }); // held estimate: 20
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     await budget.drawDown(r.reservationId, { calls: 4, tokens: 0 }); // only 4 actually drawn — renews TTL to +50ms from now
 
-    await new Promise((resolve) => setTimeout(resolve, 200)); // past the renewed TTL
+    clock.advance(51); // past the renewed TTL
 
     const h = await budget.headroom(); // triggers the sweep (via download+sweepExpired)
     expect(h.callsUsed).toBe(4); // only the drawn amount survives — the unused 16 is released
   });
 
   it('TTL expiry with zero draw: the reservation is deleted entirely (unchanged legacy behavior)', async () => {
-    const budget = makeBudget(prefix, { callsCap: 50, reservationTtlMs: 50 });
+    const clock = makeFakeClock();
+    const budget = makeBudget(prefix, { callsCap: 50, reservationTtlMs: 50, now: clock.now });
     const r = await budget.reserveForKey({ key: 'debate:u9:d1', calls: 20, tokens: 0 }); // held estimate: 20, never drawn
     expect(r.ok).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    clock.advance(51);
 
     const h = await budget.headroom();
     expect(h.callsUsed).toBe(0); // nothing drawn, nothing survives — full release, not a partial auto-commit
