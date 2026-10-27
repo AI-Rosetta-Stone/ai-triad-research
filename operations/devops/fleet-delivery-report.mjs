@@ -103,6 +103,7 @@ function fetchMergedPRs(repo, since, until) {
   const warnings = [];
   const prs = basics.map((pr) => {
     let firstCommitAt = null;
+    let lastCommitAt = null;
     let changedFilePaths = [];
     let ciGreenAt = null;
     try {
@@ -110,6 +111,10 @@ function fetchMergedPRs(repo, since, until) {
       const detail = JSON.parse(draw);
       const commits = detail.commits ?? [];
       if (commits.length > 0) firstCommitAt = commits[0].committedDate ?? commits[0].authoredDate ?? null;
+      // lastCommitAt (t/4537): the PR's latest push -- findSoClearedAt uses it to ignore any
+      // clearing comment that predates the final push (a stale earlier round), matching the
+      // real #3386 multi-rebase shape where only a clearance AFTER the final push counts.
+      if (commits.length > 0) lastCommitAt = commits[commits.length - 1].committedDate ?? commits[commits.length - 1].authoredDate ?? null;
       changedFilePaths = (detail.files ?? []).map((f) => f.path).filter(Boolean);
       // "CI green" = both required contexts pr-triage.yml's own nudge waits on (ci-gate AND
       // CodeQL) completed successfully -- the later of the two completedAt times. Either
@@ -133,7 +138,7 @@ function fetchMergedPRs(repo, since, until) {
       try {
         const craw = gh(['pr', 'view', String(pr.number), '-R', repo, '--json', 'comments']);
         const commentsDetail = JSON.parse(craw).comments ?? [];
-        soClearedAt = findSoClearedAt(commentsDetail.map((c) => ({ body: c.body, createdAt: c.createdAt })));
+        soClearedAt = findSoClearedAt(commentsDetail.map((c) => ({ body: c.body, createdAt: c.createdAt })), lastCommitAt);
       } catch (e) {
         warnings.push(`PR #${pr.number}: could not fetch comments for T2 wait-split (${e.message})`);
       }
