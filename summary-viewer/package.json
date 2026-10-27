@@ -13,7 +13,7 @@
     "test": "vitest run",
     "licenses": "node scripts/generate-notices.cjs --output THIRD-PARTY-NOTICES.txt",
     "build": "tsc -p tsconfig.main.json && vite build && npm run licenses",
-    "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src"
+    "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src --include-tests"
   },
   "dependencies": {
     "pdfjs-dist": "^6.4.299",

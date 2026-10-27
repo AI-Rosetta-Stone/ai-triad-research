@@ -14,7 +14,7 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",
-    "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src",
+    "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src --include-tests",
     "test": "vitest run"
   },
   "dependencies": {
