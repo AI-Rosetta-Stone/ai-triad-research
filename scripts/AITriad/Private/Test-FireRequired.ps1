@@ -118,8 +118,9 @@ function Test-FireRequired {
     # Collect all claims across POV camps
     $AllKeyPoints = [System.Collections.Generic.List[object]]::new()
     $Camps = @('accelerationist', 'safetyist', 'skeptic')
+    $PovSums = Get-SummaryField $SummaryObject 'pov_summaries'
     foreach ($Camp in $Camps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
+        $CampData = Get-SummaryField $PovSums $Camp
         if ($CampData -and $CampData.PSObject.Properties['key_points'] -and $CampData.key_points) {
             foreach ($KP in @($CampData.key_points)) { $AllKeyPoints.Add($KP) }
         }

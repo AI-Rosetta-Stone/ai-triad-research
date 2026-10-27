@@ -378,5 +378,20 @@ Describe 'item 8: empty_cells persists through finalize, and an empty camp does 
         $metaWritten = $r.Writes[$meta] | ConvertFrom-Json
         $metaWritten.node_references_by_pov | Should -Not -BeNullOrEmpty -Because 'an empty camp plus empty_cells must not break the metadata rollup'
     }
+
+    It 'does not throw under StrictMode when an untagged camp key is omitted entirely, not just empty (t/4553)' {
+        # #3867/t/4519 license the model to leave an untagged camp's key out of pov_summaries
+        # outright. accelerationist is absent below, not { "key_points": [] }.
+        $meta = script:New-MetaFile 'camp-key-omitted'
+        $json = @'
+{ "pov_summaries": { "safetyist": { "key_points": [ { "point": "p", "taxonomy_node_id": "saf-beliefs-003", "stance": "aligned" } ] }, "skeptic": { "key_points": [] } },
+  "factual_claims": [], "unmapped_concepts": [] }
+'@
+        { script:Invoke-Finalize -SummaryJson $json -MetaFile $meta } | Should -Not -Throw
+        $r = script:Invoke-Finalize -SummaryJson $json -MetaFile $meta
+        $r.Result.Success | Should -BeTrue
+        $s = $r.Writes[(Join-Path $TestDrive 'summaries' 'doc-1.json')] | ConvertFrom-Json
+        $s.pov_summaries.PSObject.Properties['accelerationist'] | Should -BeNullOrEmpty -Because 'the model omitting the camp is licensed, not normalized away'
+    }
 }
 

@@ -32,8 +32,9 @@ function Get-SummaryCampKeyPoints {
     # empty, contribute nothing. Pure. Returns an array (never unrolled).
     param([object]$SummaryObject, [switch]$WithPov)
     $Items = [System.Collections.Generic.List[object]]::new()
+    $PovSums = Get-SummaryField $SummaryObject 'pov_summaries'
     foreach ($Camp in $script:AITriadPovCamps) {
-        $CampData = $SummaryObject.pov_summaries.$Camp
+        $CampData = Get-SummaryField $PovSums $Camp
         if (-not $CampData -or -not (Test-SummaryField $CampData 'key_points')) { continue }
         $KpList = Get-SummaryField $CampData 'key_points'
         if (-not $KpList) { continue }
