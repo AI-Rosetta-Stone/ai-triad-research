@@ -458,23 +458,68 @@ function sortUrlConflicts(conflicts: SourceUrlConflict[]): SourceUrlConflict[] {
   });
 }
 
+/** A document's `duplicate_of` mark, as seen by `classifyMarks`/
+ *  `resolveRefsThroughDuplicateOf` — either a full `SourceIdentityDoc` or
+ *  anything else that can answer "what does this id's mark say" (t/4527). */
+export interface ScopedDocLookup { duplicate_of?: string | null }
+
 /** Spec 6.1, checks 1-3 only (`self`/`missing_target`/`chain`) — `conflict`
  *  (check 4) needs the group's canonical, which isn't known until after
- *  this pass (spec's "evaluate in two passes" note, #3589). */
-function classifyMarks(docs: SourceIdentityDoc[]): { mark: Map<string, string>; kind: Map<string, DuplicateOfErrorKind> } {
-  const known = new Set(docs.map(d => d.id));
-  const byId = new Map(docs.map(d => [d.id, d] as const));
+ *  this pass (spec's "evaluate in two passes" note, #3589).
+ *
+ *  `ids` is who gets *classified*; `lookup` is where every mark — a
+ *  classified id's own, and any target's, however far outside `ids` that
+ *  target sits — is read from. The two are deliberately separate: scoped
+ *  callers (t/4527, `resolveRefsThroughDuplicateOf`) classify only their own
+ *  ref list, but `lookup` must still answer for the full corpus, or a target
+ *  that's a real document just outside `ids` misclassifies as
+ *  `missing_target` (the pitfall `nodeSourceIndex.ts` documents at
+ *  `applyCanonicalDocIds` — every doc under `sourcesDir` must participate,
+ *  not just the ones a particular ref list cites). The corpus-wide caller
+ *  (`resolveDuplicateOfMarks` below) simply passes the same full id list as
+ *  both `ids` and the universe `lookup` covers. */
+function classifyMarks(
+  ids: readonly string[], lookup: (id: string) => ScopedDocLookup | undefined,
+): { mark: Map<string, string>; kind: Map<string, DuplicateOfErrorKind> } {
   const mark = new Map<string, string>();
   const kind = new Map<string, DuplicateOfErrorKind>();
-  for (const d of docs) {
-    const target = d.metadata.duplicate_of;
+  for (const id of ids) {
+    const target = lookup(id)?.duplicate_of;
     if (!target) continue; // spec: an empty string is the same as absent
-    mark.set(d.id, target);
-    if (target === d.id) kind.set(d.id, 'self');
-    else if (!known.has(target)) kind.set(d.id, 'missing_target');
-    else if (byId.get(target)!.metadata.duplicate_of) kind.set(d.id, 'chain'); // one hop only
+    mark.set(id, target);
+    if (target === id) kind.set(id, 'self');
+    else if (lookup(target) === undefined) kind.set(id, 'missing_target');
+    else if (lookup(target)!.duplicate_of) kind.set(id, 'chain'); // one hop only
   }
   return { mark, kind };
+}
+
+/**
+ * Spec 6.1 checks 1-3 (`self`/`missing_target`/`chain`), scoped to a
+ * caller-supplied ref list rather than the whole corpus grouping
+ * `groupSourceIdentities` does (t/4527 — ServerAPI's entity `source_refs`,
+ * ElectronMain's desktop equivalent). An invalid mark is left as-is, never
+ * thrown — same "visible, harmless" rule as `duplicateOfErrors` above.
+ * Dedupes the result, preserving first-seen order.
+ *
+ * `lookup(id)` must cover every id this ref list could point AT — the full
+ * corpus's known ids, not just `refs` itself. A target that's a real
+ * document outside `refs` otherwise misclassifies as `missing_target` (the
+ * same pitfall `classifyMarks` documents above). `lookup` returning
+ * `undefined` for an id means "not a known document", not "no mark".
+ */
+export function resolveRefsThroughDuplicateOf(
+  refs: readonly string[], lookup: (id: string) => ScopedDocLookup | undefined,
+): string[] {
+  const { mark, kind } = classifyMarks(refs, lookup);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const ref of refs) {
+    const valid = mark.has(ref) && !kind.has(ref);
+    const resolved = valid ? mark.get(ref)! : ref;
+    if (!seen.has(resolved)) { seen.add(resolved); out.push(resolved); }
+  }
+  return out;
 }
 
 /** Spec 6.1 check 4 (`conflict`) and 4.6 rule 1: the group's canonical
@@ -508,7 +553,8 @@ function resolveDuplicateOfMarks(
   docs: SourceIdentityDoc[], canonical: Record<string, string>,
 ): { canonicalOverrides: Record<string, string>; resolved: Record<string, string>; selectable: string[]; duplicateOfErrors: DuplicateOfError[] } {
   const known = docs.map(d => d.id);
-  const { mark, kind } = classifyMarks(docs);
+  const byId = new Map(docs.map(d => [d.id, d] as const));
+  const { mark, kind } = classifyMarks(known, (id) => byId.get(id)?.metadata);
   const groupTarget = resolveGroupTargets(mark, kind, canonical);
 
   const canonicalOverrides: Record<string, string> = {};
