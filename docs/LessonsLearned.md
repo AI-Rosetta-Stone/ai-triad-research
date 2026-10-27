@@ -6251,7 +6251,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 9 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first).
+**Status:** Active — 10 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first; DevOps Lead p/26#289 — `python3 -c` FileNotFoundError reading Bash-written `/tmp/job_conclusions.tsv`; fixed by copying to the session's real Windows scratchpad path first).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -7779,3 +7779,43 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#286, t/4499#9).
 
 **Applies To:** All agents running PowerShell harnesses that import modules via relative paths; verify cwd and module load success explicitly rather than trusting silent resolution.
+
+---
+
+## #383 [Research] UTF-8 BOM in Corpus JSON Files Raises JSONDecodeError; a Silent `try`/`except` Masks the Undercounting
+
+**Pattern:** A corpus-scan loop opens JSON files with `json.load(open(f, encoding='utf-8'))`. Some files carry a UTF-8 byte-order mark (BOM). `encoding='utf-8'` does not strip the BOM, so `json.load` raises `JSONDecodeError: Unexpected UTF-8 BOM`. The loop's `try`/`except` catches this and silently skips the file, continuing the scan — so the final count is understated with no visible error, no warning, nothing flagging that files were dropped.
+
+**Instances:**
+- 2026-10-27 — PowerShell (p/20#131): `json.load(open(f, encoding='utf-8'))` threw `JSONDecodeError: Unexpected UTF-8 BOM` on some `qbaf-conflicts/*.json` files; a `try`/`except` in the corpus-scan loop silently skipped those files, understating counts. Fixed the encoding issue with `encoding='utf-8-sig'`; the compounding problem (silent skip) was caught only because the agent noticed the count looked low and investigated.
+
+**Root Cause:** Two independent issues compound: (1) some corpus JSON files were saved with a UTF-8 BOM (common from certain Windows tools/editors), and plain `utf-8` decoding doesn't strip it — `utf-8-sig` does, treating a BOM as optional and removing it if present. (2) A bare `try`/`except` around the per-file parse, written to make the scan resilient to bad files, instead makes data loss invisible — there's no log line, no counter, no signal that anything was skipped.
+
+**Prevention:**
+1. **Use `encoding='utf-8-sig'` when reading JSON files that might carry a BOM** — it transparently handles both BOM-prefixed and plain UTF-8 content, so it's a safe default for corpus JSON reads.
+2. **Never use a bare `try`/`except: continue` (or `pass`) in a scan loop without logging what was skipped and why.** At minimum, increment a skip counter and print/log the skipped file's name and the exception — a scan's summary should report "N files scanned, M skipped (reasons: ...)" rather than just the successful count.
+3. **A corpus scan's output count should always be checked against the expected file count** (`len(glob(...))` vs. files actually parsed) — a silent gap between the two is the signature of this exact failure mode.
+
+**Status:** Active — 1 instance (PowerShell p/20#131).
+
+**Applies To:** All agents writing corpus-scan loops over JSON files; use `utf-8-sig` for the encoding, and never let a `try`/`except` silently swallow a per-file parse failure without logging it.
+
+---
+
+## #384 [Build] Piping an Already-Deserialized PSCustomObject Into `ConvertFrom-Json` Chokes on PowerShell's Own Object-Literal Syntax
+
+**Pattern:** An agent pipes a PowerShell script's output through `ConvertFrom-Json`: `& script.ps1 | ConvertFrom-Json`. The script already returns a `PSCustomObject` (a deserialized .NET object), not a JSON string. `ConvertFrom-Json` expects a JSON string as input; when it receives an object instead, PowerShell's pipeline converts the object to its string representation first (PowerShell's own object-literal syntax, starting with `@`), and `ConvertFrom-Json` then fails trying to parse THAT as JSON — producing a confusing error that mentions `@` rather than anything about the real mismatch.
+
+**Instances:**
+- 2026-10-27 — DevOps Lead (p/26#291): `& script.ps1 | ConvertFrom-Json` failed because the script already returns a `PSCustomObject`. The error referenced "@" (PowerShell's object-literal syntax) rather than anything obviously related to a type mismatch. Resolved by dropping `ConvertFrom-Json` and using the object directly.
+
+**Root Cause:** `ConvertFrom-Json` is a string→object deserializer. When its pipeline input is already an object (not a string), PowerShell's own type coercion stringifies the object before handing it to the cmdlet, and that stringified form (PowerShell's `@{...}` hashtable/object literal syntax) is not valid JSON — so the parse fails on `@`, an error message that gives no hint the real problem is "this was already an object."
+
+**Prevention:**
+1. **Before piping a script's output into `ConvertFrom-Json`, check what the script actually returns.** If it already returns a PowerShell object (common for `.ps1` scripts that build and `return` a custom object/hashtable), skip `ConvertFrom-Json` entirely and use the object as-is.
+2. **`ConvertFrom-Json` is only needed when the upstream genuinely emits a JSON STRING** — typically from `Invoke-RestMethod -UseBasicParsing`, `curl`/`Invoke-WebRequest` content, or an external tool's JSON stdout. A `.ps1` script you control should just `return` an object if that's what's needed downstream.
+3. **A `ConvertFrom-Json` parse error mentioning `@` or PowerShell-style property syntax is the diagnostic** — it means the pipeline input was already an object, not a JSON string.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#291).
+
+**Applies To:** All agents piping PowerShell script output through `ConvertFrom-Json`; verify the upstream actually emits a JSON string before reaching for the cmdlet.
