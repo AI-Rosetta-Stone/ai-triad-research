@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useChatStore } from '../../hooks/useChatStore';
 import { useTaxonomyStore, MODELS_BY_BACKEND, AI_BACKENDS } from '../../hooks/useTaxonomyStore';
 import type { AIBackend } from '../../hooks/useTaxonomyStore/slices/settingsSlice';
@@ -23,6 +23,10 @@ interface NewChatDialogProps {
   onClose: () => void;
   /** Called with the new chat ID instead of opening a popout window. */
   onCreated?: (id: string) => void;
+  /** Starter-chip prefill (t/4536): seeds mode + topic. When set, focus lands on the "Talk to"
+   *  POVer choice instead of the topic textarea, since the topic is already filled in. */
+  initialMode?: ChatMode;
+  initialTopic?: string;
 }
 const MODES: ChatMode[] = ['brainstorm', 'inform', 'decide'];
 
@@ -32,13 +36,18 @@ const MODE_ICONS: Record<ChatMode, string> = {
   decide: '\u2696\uFE0F',  // scales
 };
 
-export function NewChatDialog({ onClose, onCreated }: NewChatDialogProps) {
+export function NewChatDialog({ onClose, onCreated, initialMode, initialTopic }: NewChatDialogProps) {
   const { createChat } = useChatStore();
-  const [mode, setMode] = useState<ChatMode>('brainstorm');
+  const [mode, setMode] = useState<ChatMode>(initialMode ?? 'brainstorm');
   const [pover, setPover] = useState<Exclude<SpeakerId, 'user'>>('accelerationist');
   const [chatTag, setChatTag] = useState<SeatTag | undefined>(undefined);
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(initialTopic ?? '');
   const [creating, setCreating] = useState(false);
+  const firstPoverRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (initialTopic) firstPoverRef.current?.focus();
+  }, [initialTopic]);
   const { aiBackend, geminiModel } = useTaxonomyStore();
   const globalModel = geminiModel;
   const [useCustomModel, setUseCustomModel] = useState(false);
@@ -116,7 +125,7 @@ export function NewChatDialog({ onClose, onCreated }: NewChatDialogProps) {
 
         <label className="new-chat-label">Talk to</label>
         <div className="new-chat-povers">
-          {AI_POVERS.map((id) => {
+          {AI_POVERS.map((id, i) => {
             const info = POVER_INFO[id];
             return (
               <label
@@ -124,6 +133,7 @@ export function NewChatDialog({ onClose, onCreated }: NewChatDialogProps) {
                 className={`new-chat-pover-option${pover === id ? ' selected' : ''}`}
               >
                 <input
+                  ref={i === 0 ? firstPoverRef : undefined}
                   type="radio"
                   name="chatPover"
                   checked={pover === id}
@@ -150,7 +160,7 @@ export function NewChatDialog({ onClose, onCreated }: NewChatDialogProps) {
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           rows={3}
-          autoFocus
+          autoFocus={!initialTopic}
         />
 
         <label className="new-chat-label">AI Model</label>
