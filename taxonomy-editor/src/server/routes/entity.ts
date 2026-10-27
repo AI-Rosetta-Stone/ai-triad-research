@@ -182,6 +182,17 @@ export function registerEntityRoutes(r: Router, _ctx: ServerCtx): void {
       // params for forward-compat but return the full summary list. readEntityRegistry
       // (t/1807) returns null when entities.json is absent → [] (never crash, ADR-001).
       const reg = await fileIO.readEntityRegistry();
+      // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): a null
+      // registry from a DEGRADED read (not a genuine absence) must not render as an
+      // empty list — that's indistinguishable from "no entities exist" and was the
+      // incident's actual symptom. 503, not 200 [].
+      if (reg === null) {
+        const status = fileIO.getEntityRegistryStatus();
+        if (status.degraded) {
+          error(res, `Entity registry temporarily unavailable: ${status.reason}`, 503);
+          return;
+        }
+      }
       const rows: EntitySummary[] = reg
         ? [...reg.values()].map(e => ({
             // t/1964: aliases is polymorphic in the store (array | null | string) — coerce

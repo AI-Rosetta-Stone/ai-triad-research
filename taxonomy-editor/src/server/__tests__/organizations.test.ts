@@ -7,15 +7,25 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { readOrganizationsMock, readOrganizationEdgesMock, recordMock } = vi.hoisted(() => ({
+const { readOrganizationsMock, readOrganizationEdgesMock, getOrganizationsReadStatusMock, recordMock } = vi.hoisted(() => ({
   readOrganizationsMock: vi.fn(),
   readOrganizationEdgesMock: vi.fn(),
+  // t/4584/t/4586: defaults to "not degraded" — every pre-existing test (which
+  // never sets this up) keeps its original absent-vs-present behavior.
+  getOrganizationsReadStatusMock: vi.fn(() => ({ degraded: false, reason: null })),
   recordMock: vi.fn(),
 }));
-vi.mock('../storage/fileIO.js', () => ({ readOrganizations: readOrganizationsMock, readOrganizationEdges: readOrganizationEdgesMock }));
+vi.mock('../storage/fileIO.js', () => ({
+  readOrganizations: readOrganizationsMock, readOrganizationEdges: readOrganizationEdgesMock,
+  getOrganizationsReadStatus: getOrganizationsReadStatusMock,
+}));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
 
 import * as orgs from '../organizations.js';
+import type { IncomingMessage, ServerResponse } from 'http';
+import type { ServerCtx } from '../routes/context.js';
+import { createRouter, type Handler } from '../httpKit.js';
+import { registerOrganizationsRoutes } from '../routes/organizations.js';
 
 const FIXTURE = [
   {
@@ -57,6 +67,7 @@ describe('organizations query layer (t/1225)', () => {
     readOrganizationsMock.mockReset();
     readOrganizationEdgesMock.mockReset();
     recordMock.mockReset();
+    getOrganizationsReadStatusMock.mockReset().mockReturnValue({ degraded: false, reason: null });
     readOrganizationsMock.mockResolvedValue({ organizations: FIXTURE });
     readOrganizationEdgesMock.mockResolvedValue(EDGE_FIXTURE);
     orgs.resetOrganizationsCache();
@@ -150,5 +161,74 @@ describe('organizations query layer (t/1225)', () => {
     orgs.resetOrganizationsCache();
     expect(await orgs.listOrganizations()).toEqual([]);
     expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ component: 'organizations', level: 'error' }));
+  });
+
+  // t/4584#10/t/4586 (incident): load() used to cache ANY result, including an
+  // empty one from a failed/degraded read, for the life of the process — a
+  // transient GitHub outage during this exact window would then serve [] on
+  // prod forever, never self-healing even after the quota reset. These two
+  // tests prove a degraded or thrown read is never cached: the very next call,
+  // with no resetOrganizationsCache() in between, retries and recovers.
+  it('a degraded read (getOrganizationsReadStatus().degraded) is not cached — the next call retries without a manual reset', async () => {
+    getOrganizationsReadStatusMock.mockReturnValue({ degraded: true, reason: 'rate_limited' });
+    expect(await orgs.listOrganizations()).toEqual([]);
+
+    getOrganizationsReadStatusMock.mockReturnValue({ degraded: false, reason: null });
+    expect((await orgs.listOrganizations()).map(o => o.id)).toEqual(['org-001', 'org-002', 'org-003', 'org-004']);
+  });
+
+  it('a thrown read error is not cached either — the next call retries without a manual reset', async () => {
+    readOrganizationsMock.mockRejectedValueOnce(new Error('blob unreachable'));
+    expect(await orgs.listOrganizations()).toEqual([]);
+
+    readOrganizationsMock.mockResolvedValue({ organizations: FIXTURE });
+    expect((await orgs.listOrganizations()).map(o => o.id)).toEqual(['org-001', 'org-002', 'org-003', 'org-004']);
+  });
+});
+
+// t/4584/t/4586 (incident): GET /api/organizations itself must return 503, not
+// 200 [], when the empty list came from a degraded read.
+describe('GET /api/organizations route (t/4586)', () => {
+  async function invokeList(): Promise<{ status: number; body: unknown }> {
+    const routes: { method: string; path: string; handler: Handler }[] = [];
+    registerOrganizationsRoutes(createRouter(routes), {} as ServerCtx);
+    const route = routes.find(r => r.path === '/api/organizations');
+    if (!route) throw new Error('/api/organizations route not registered');
+
+    const req = { url: '/api/organizations', method: 'GET', headers: {} } as unknown as IncomingMessage;
+    let status = 200;
+    let body: unknown;
+    const res = {
+      writableEnded: false,
+      headersSent: false,
+      req,
+      writeHead(s: number) { status = s; this.headersSent = true; },
+      end(b?: string) { body = b ? JSON.parse(b) : undefined; this.writableEnded = true; },
+    } as unknown as ServerResponse;
+
+    await route.handler(req, res, undefined);
+    return { status, body };
+  }
+
+  beforeEach(() => {
+    readOrganizationsMock.mockReset();
+    readOrganizationEdgesMock.mockReset();
+    getOrganizationsReadStatusMock.mockReset().mockReturnValue({ degraded: false, reason: null });
+    readOrganizationsMock.mockResolvedValue({ organizations: [] });
+    readOrganizationEdgesMock.mockResolvedValue([]);
+    orgs.resetOrganizationsCache();
+  });
+
+  it('returns 200 [] for a genuinely empty, not-degraded registry', async () => {
+    const { status, body } = await invokeList();
+    expect(status).toBe(200);
+    expect(body).toEqual([]);
+  });
+
+  it('returns 503 when the empty list came from a degraded read', async () => {
+    getOrganizationsReadStatusMock.mockReturnValue({ degraded: true, reason: 'circuit_open' });
+    const { status, body } = await invokeList();
+    expect(status).toBe(503);
+    expect(body).toMatchObject({ error: expect.stringContaining('circuit_open') });
   });
 });

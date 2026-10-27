@@ -116,4 +116,22 @@ export interface StorageBackend {
    *  point cost (a separate budget from REST's), for the caller to log
    *  alongside its own phase timing. Never throws. */
   readFilesBatch?(filePaths: string[], opts?: { ref?: string }): Promise<{ contents: Map<string, string>; fallbackCount: number; graphqlCost: number }>;
+
+  /** t/4584: like `readFile(filePath, { ref: 'main' })`, for pipeline-curated
+   *  main-only data that is never legitimately absent on hosted
+   *  (entities.json, organizations.json, organization_edges.json). Plain
+   *  `readFile` collapses "genuinely absent" and "the backend currently
+   *  can't tell" into the same `null` — for `GitHubAPIBackend` specifically,
+   *  a cache miss that hits a tripped circuit breaker, missing credentials,
+   *  or any non-404 GitHub response all silently return `null` too
+   *  (`readFileFromMainCache`/`fetchFileFromGitHub`). This throws for those
+   *  transient cases (`Object.assign(new Error(...), { kind: 'transient' })`
+   *  — same taxonomy as `listDirectoryStrict`, t/3296 A arm) instead,
+   *  so a caller that cares (`readEntities`, `readOrganizations`) can
+   *  surface a 503 rather than silently serving `[]`. Only a genuine 404
+   *  still returns `null`. Optional — backends whose `readFile` already
+   *  throws on anything other than a real absence (FilesystemBackend,
+   *  AzureBlobBackend) have no such ambiguity and don't implement it;
+   *  callers fall back to plain `readFile` for them. */
+  readFileStrict?(filePath: string): Promise<string | null>;
 }

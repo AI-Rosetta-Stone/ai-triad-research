@@ -178,6 +178,12 @@ async function mapWithLimit<T>(items: T[], limit: number, fn: (item: T) => Promi
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
+/** t/4584/t/4586: the reason taxonomy for every `null` `fetchFileFromGitHub`/
+ *  `readFileFromMainCache` return — logged unconditionally (a WARN, not just
+ *  in `strict` mode) so a dashboard/alert can see every one of these, not
+ *  only the ones a `readFileStrict` caller happens to care about. */
+type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds' | `status=${number}`;
+
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
 
 export class GitHubAPIBackend implements StorageBackend {
@@ -835,8 +841,43 @@ export class GitHubAPIBackend implements StorageBackend {
     return this.readFileFromMainCache(repoPath, ref, opts?.optional);
   }
 
-  /** The pre-t/4215 main-cache path for readFile, unchanged. */
-  private async readFileFromMainCache(repoPath: string, ref: string, optional: boolean | undefined): Promise<string | null> {
+  /** t/4584 (TL design t/4584#2/#4): like `readFile(filePath, { ref: 'main' })`,
+   *  for pipeline-curated main-only data that's never legitimately absent on
+   *  hosted — a genuine 404 still returns `null`, but no credentials, a
+   *  tripped circuit breaker, or any other non-OK GitHub response throw
+   *  `{ kind: 'transient', reason }` instead of silently collapsing to the
+   *  same `null` the plain path serves. Always `ref: 'main'` — no
+   *  session-branch content is ambiguous this way, so this skips the
+   *  overlay/session-branch paths entirely (same precedent as
+   *  `listDirectoryStrict`, t/3296 A arm). */
+  async readFileStrict(filePath: string): Promise<string | null> {
+    const repoPath = this.toRepoPath(filePath);
+    return this.readFileFromMainCache(repoPath, this.baseBranch, true, true);
+  }
+
+  /** t/4584/t/4586: logs the reason behind a null/transient read exactly
+   *  once per call site (never per-retry — the retries already happened
+   *  inside `GitHubRestClient.request`), console-visible (not just the
+   *  FlightRecorder ring buffer, same t/4258/t/4281 precedent as the
+   *  rate-limit/circuit-breaker logs in githubRestClient.ts). */
+  private logNullReadReason(repoPath: string, reason: NullReadReason, optional: boolean | undefined): void {
+    // A real 404 on an `optional` read is the expected, quiet case — the
+    // existing convention (`is404Optional` in githubRestClient.ts) already
+    // downgrades it; mirror that here instead of WARNing on every optional miss.
+    if (reason === 'not_found' && optional) {
+      log.github.debug({ path: repoPath, reason }, `fetchFileFromGitHub: null read (${reason})`);
+      return;
+    }
+    log.github.warn({ path: repoPath, reason }, `fetchFileFromGitHub: null read (${reason})`);
+  }
+
+  /** The pre-t/4215 main-cache path for readFile, unchanged except for
+   *  `strict` (t/4584, TL t/4584#2): a tripped circuit breaker silently
+   *  served `null` ("file not available"), indistinguishable from a
+   *  genuine absence. The reason is now ALWAYS logged (t/4586); `strict`
+   *  additionally throws, for callers that need that distinction
+   *  (`readFileStrict`). */
+  private async readFileFromMainCache(repoPath: string, ref: string, optional: boolean | undefined, strict = false): Promise<string | null> {
     const cached = await this.readFromDiskCache(repoPath);
     if (cached !== null) {
       this.recordEvent({
@@ -873,10 +914,14 @@ export class GitHubAPIBackend implements StorageBackend {
     log.cache.info({ path: repoPath }, `cache.miss: ${repoPath}`);
 
     if (this.rest.isTripped()) {
+      this.logNullReadReason(repoPath, 'circuit_open', optional);
+      if (strict) {
+        throw Object.assign(new Error(`GitHub API circuit breaker open — transient: ${repoPath}`), { kind: 'transient' as const, reason: 'circuit_open' as const });
+      }
       return null; // Circuit open — serve null (file not available)
     }
 
-    const result = await this.fetchFileFromGitHub(repoPath, ref, optional);
+    const result = await this.fetchFileFromGitHub(repoPath, ref, optional, strict);
     if (result === null) return null;
 
     // Write-through to disk cache
@@ -2621,13 +2666,43 @@ export class GitHubAPIBackend implements StorageBackend {
 
   // ── GitHub file operations (low-level) ─────────────────────────────────
 
+  /** t/4584/t/4586: classifies a non-2xx Contents-API response — logs the
+   *  reason unconditionally, and additionally throws when `strict` and the
+   *  status isn't a genuine 404 — pulled out of `fetchFileFromGitHub` to
+   *  keep that method's own complexity in budget (local/complexity-budget).
+   *  403/429 (TL t/4584#4, confirmed root cause) is GitHub's shared
+   *  installation rate limit exhausted, not a generic refusal, so it gets
+   *  its own reason rather than falling into the generic `status=<n>`. */
+  private classifyNonOkContentsResponse(resp: ApiResult, repoPath: string, optional: boolean | undefined, strict: boolean): void {
+    if (resp.status === 404) {
+      this.logNullReadReason(repoPath, 'not_found', optional);
+      return;
+    }
+    const reason: NullReadReason = (resp.status === 403 || resp.status === 429) ? 'rate_limited' : `status=${resp.status}`;
+    this.logNullReadReason(repoPath, reason, optional);
+    if (strict) {
+      throw Object.assign(new Error(`GitHub API returned ${resp.status} for ${repoPath} — transient (${reason})`),
+        { kind: 'transient' as const, status: resp.status, reason });
+    }
+  }
+
+  /** t/4584/t/4586: pulled out of `fetchFileFromGitHub` for the same
+   *  complexity-budget reason as `classifyNonOkContentsResponse`. */
+  private handleMissingCreds(repoPath: string, optional: boolean | undefined, strict: boolean): void {
+    this.logNullReadReason(repoPath, 'no_creds', optional);
+    if (strict) {
+      throw Object.assign(new Error(`GitHub App credentials unavailable — transient: ${repoPath}`), { kind: 'transient' as const, reason: 'no_creds' as const });
+    }
+  }
+
   private async fetchFileFromGitHub(
     repoPath: string,
     ref: string,
     optional?: boolean,
+    strict = false,
   ): Promise<{ content: string; sha: string; etag: string } | null> {
     const creds = await this.getCredsCached();
-    if (!creds) return null;
+    if (!creds) { this.handleMissingCreds(repoPath, optional, strict); return null; }
 
     const qRef = ref === 'main' ? '' : `?ref=${encodeURIComponent(ref)}`;
     const resp = await this.rest.request(creds, 'GET',
@@ -2637,7 +2712,11 @@ export class GitHubAPIBackend implements StorageBackend {
     // t/4258/t/4295: a 304 (ok: true, data: null) means the body is unchanged
     // from a cached etag — getCachedEtag() no longer sends one for a non-main
     // ref, but treat it as a miss defensively rather than crash on null data.
-    if (!resp.ok || resp.status === 304) return null;
+    if (resp.status === 304) return null;
+    if (!resp.ok) {
+      this.classifyNonOkContentsResponse(resp, repoPath, optional, strict);
+      return null;
+    }
 
     const data = resp.data as {
       content?: string;
