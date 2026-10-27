@@ -536,11 +536,21 @@ jobs:
             for (const file of files) {
               let runs = [];
               try {
-                const r = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: file, event: 'push', per_page: 1 });
+                // t/4508: originally filtered to `event: 'push'` only. A workflow whose normal
+                // trigger is schedule/workflow_dispatch (deploy-azure.yml, required-contexts-drift.yml,
+                // environment-branch-policy-check.yml) can go MONTHS without a fresh push-event run --
+                // this kept citing the same single ancient push failure (one from 2026-08-09, t/4508's
+                // #3821/#3828/#3843/#3863/#3896, 6 occurrences) as "current" forever, because no new
+                // push-event run ever existed to supersede it, even though the file parses and runs
+                // fine on every schedule/dispatch trigger happening in the meantime. GitHub rejects a
+                // structurally-invalid file identically regardless of what triggered the run, so the
+                // most recent run of ANY event type is equally valid evidence of current file health --
+                // drop the event filter entirely and take the single newest run across all triggers.
+                const r = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: file, per_page: 1 });
                 if (r.data.workflow_runs.length) {
                   const run0 = r.data.workflow_runs[0];
                   const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run0.id, per_page: 1 });
-                  runs = [{ conclusion: run0.conclusion, jobCount: jobs.data.total_count, runId: run0.id }];
+                  runs = [{ conclusion: run0.conclusion, jobCount: jobs.data.total_count, runId: run0.id, event: run0.event }];
                 }
               } catch (e) {
                 console.log(`  ${file}: could not check (${e.message})`);

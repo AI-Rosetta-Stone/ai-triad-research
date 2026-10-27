@@ -77,22 +77,28 @@ export function scheduledWorkflowFiles(files) {
  * every workflow file's triggers on every push regardless of whether that file declares a
  * `push:` trigger itself (environment-branch-policy-check.yml had none, yet got exactly this
  * kind of run). Distinct from a JOB inside the workflow failing, which has jobCount > 0.
- * `runs` = push-event run summaries {conclusion, jobCount, runId}, NEWEST FIRST. PURE: no I/O.
+ * `runs` = run summaries {conclusion, jobCount, runId, event?}, NEWEST FIRST, ANY trigger type
+ * (t/4508: was push-event only -- a workflow whose normal trigger is schedule/workflow_dispatch
+ * can go months without a fresh push-event run, so filtering to push alone kept citing a single
+ * ancient failure as current forever; GitHub rejects a structurally-invalid file identically
+ * regardless of what triggered the run, so the newest run of any kind is equally valid evidence).
+ * PURE: no I/O.
  * @param {object} p
  * @param {string} p.file
- * @param {Array<{conclusion: string|null, jobCount: number, runId?: number}>} p.runs
+ * @param {Array<{conclusion: string|null, jobCount: number, runId?: number, event?: string}>} p.runs
  * @returns {{file: string, invalid: boolean, reason: string, runId?: number}}
  */
 export function invalidWorkflowFileVerdict({ file, runs = [] }) {
   if (!runs.length) {
-    return { file, invalid: false, reason: 'no push-event run on record' };
+    return { file, invalid: false, reason: 'no run on record' };
   }
   const newest = runs[0];
   if (newest.conclusion === 'failure' && newest.jobCount === 0) {
+    const trigger = newest.event ? `${newest.event}-event` : 'a';
     return {
       file,
       invalid: true,
-      reason: `push-event run has 0 jobs and conclusion failure -- GitHub rejected the file structurally, not a job failure`,
+      reason: `${trigger} run has 0 jobs and conclusion failure -- GitHub rejected the file structurally, not a job failure`,
       runId: newest.runId,
     };
   }
