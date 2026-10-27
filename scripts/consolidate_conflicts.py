@@ -348,7 +348,9 @@ def classify_attack_types(consolidated, nli_model):
 
     # NLI classification
     scores = nli_model.predict(pairs)
-    NLI_LABELS = ["entailment", "neutral", "contradiction"]
+    label_order = getattr(nli_model, "_nli_label_order", None)
+    if not label_order:
+        raise ValueError("NLI model missing cached _nli_label_order; was config not read at load time?")
 
     # Undercut heuristics
     UNDERCUT_TERMS = {
@@ -364,7 +366,7 @@ def classify_attack_types(consolidated, nli_model):
 
         row = scores[idx]
         sorted_idx = np.argsort(row)[::-1]
-        best_label = NLI_LABELS[int(sorted_idx[0])]
+        best_label = label_order[int(sorted_idx[0])]
         margin = float(row[sorted_idx[0]]) - float(row[sorted_idx[1]])
 
         # Check for undercut heuristics
@@ -550,6 +552,17 @@ def main():
         from sentence_transformers import CrossEncoder
         _log("  Loading NLI model...")
         nli_model = CrossEncoder(NLI_MODEL_NAME)
+        # Derive label order from model config (t/4572: do not assume column order)
+        id2label = getattr(getattr(nli_model, "config", None), "id2label", None)
+        if not id2label:
+            raise ValueError(f"NLI model {NLI_MODEL_NAME} missing config.id2label")
+        try:
+            label_order = [str(id2label[i]).lower() for i in range(len(id2label))]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"Could not extract label order from {NLI_MODEL_NAME} config.id2label") from exc
+        if len(label_order) != 3 or set(label_order) != {"entailment", "neutral", "contradiction"}:
+            raise ValueError(f"NLI model {NLI_MODEL_NAME} has unexpected labels: {label_order}")
+        nli_model._nli_label_order = label_order
         consolidated = classify_attack_types(consolidated, nli_model)
     else:
         _log("  Skipping NLI (--skip-nli)")

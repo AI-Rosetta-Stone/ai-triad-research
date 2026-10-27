@@ -1,0 +1,84 @@
+=== Per-rep verdicts (verbatim vs canonical, same node) ===
+O20 [org-001 -> saf-intentions-054] label=Y
+    [verbatim] dir=opposes margin=2.5691  text: the ASL system implicitly requires us to temporarily pause training of more powerful models if our AI scaling outstrips our ability to comply with the necessary safety procedures.
+    [canonical] dir=opposes margin=4.1828  text: The organization ought to pause training of more powerful AI models if safety compliance capabilities are insufficient.
+
+O18 [org-002 -> saf-beliefs-146] label=P
+    [verbatim] dir=unrelated margin=0.1631  text: the risk should be plausible, measurable, severe, net new, and instantaneous or irremediable.
+    [canonical] dir=opposes margin=1.805  text: An AI capability is a priority for preparedness if the risk is plausible, measurable, severe, net new, and instantaneous or irremediable.
+    >>> REPS DISAGREE <<<
+
+O09 [org-002 -> saf-intentions-095] label=Y
+    [verbatim] dir=unrelated margin=0.6943  text: We’re now adding more detail about how we’ll design strong safeguards and verify their effectiveness in dedicated Safeguards Reports
+    [canonical] dir=opposes margin=2.268  text: The organization produces Safeguards Reports to detail the design and verification of safety measures.
+    >>> REPS DISAGREE <<<
+
+O05 [org-002 -> acc-beliefs-015] label=N
+    [verbatim] dir=opposes margin=1.6624  text: If current training paradigms remain unchanged, we should expect more capable models to develop even higher levels of situational awareness.
+    [canonical] dir=unrelated margin=0.5687  text: Continued use of current training paradigms will lead to increased levels of situational awareness in more capable AI models.
+    >>> REPS DISAGREE <<<
+
+O04 [org-002 -> skp-beliefs-145] label=N
+    [verbatim] dir=opposes margin=3.6549  text: Addressing this likely requires tools that tell you about the model’s motivational structure, not just its inputs and outputs.
+    [canonical] dir=opposes margin=2.4993  text: Effective detection of AI scheming requires tools capable of assessing a model's internal motivational structure rather than relying solely on input-output analysis.
+
+O27 [org-014 -> skp-intentions-143] label=N
+    [verbatim] dir=opposes margin=3.2597  text: Align risk management efforts with applicable legal standards.
+    [canonical] dir=unrelated margin=0.7815  text: Organizations ought to align their AI risk management efforts with applicable legal standards.
+    >>> REPS DISAGREE <<<
+
+O25 [org-014 -> saf-desires-010] label=N
+    [verbatim] dir=opposes margin=3.7624  text: Legal and regulatory requirements involving AI are understood, managed, and documented.
+    [canonical] dir=opposes margin=2.7475  text: Organizations ought to understand, manage, and document legal and regulatory requirements applicable to their AI systems.
+
+O23 [org-014 -> saf-desires-012] label=N
+    [verbatim] dir=opposes margin=4.7284  text: Policies, processes, and procedures are central components of effective AI risk management and fundamental to individual and organizational accountability.
+    [canonical] dir=opposes margin=4.6085  text: Effective AI risk management and accountability require the integration of policies, processes, and procedures.
+
+O12 [org-014 -> saf-intentions-144] label=N
+    [verbatim] dir=unrelated margin=0.2981  text: CAISI will focus on demonstrable risks, such as cybersecurity, biosecurity, and chemical weapons.
+    [canonical] dir=unrelated margin=0.9596  text: CAISI ought to prioritize the evaluation of cybersecurity, biosecurity, and chemical weapons risks in AI systems.
+
+O10 [org-014 -> saf-intentions-016] label=P
+    [verbatim] dir=opposes margin=6.4327  text: CAISI will focus on demonstrable risks, such as cybersecurity, biosecurity, and chemical weapons.
+    [canonical] dir=opposes margin=6.4691  text: CAISI ought to prioritize the evaluation of AI risks related to cybersecurity, biosecurity, and chemical weapons.
+
+O11 [org-014 -> saf-intentions-201] label=N
+    [verbatim] dir=opposes margin=3.7275  text: collaborate with NIST staff to ensure U.S. dominance of international AI standards.
+    [canonical] dir=opposes margin=4.613  text: The United States ought to maintain dominance in the development of international AI standards.
+
+O02 [org-014 -> saf-beliefs-097] label=N
+    [verbatim] dir=opposes margin=4.7412  text: Lead evaluations and assessments of potential security vulnerabilities and malign foreign influence arising from use of adversaries' AI systems
+    [canonical] dir=opposes margin=5.1007  text: CAISI ought to conduct evaluations of security vulnerabilities and malign foreign influence in adversary AI systems.
+
+O28 [org-017 -> acc-intentions-074] label=Y
+    [verbatim] dir=opposes margin=4.8544  text: The administration is eliminating state-level obstruction of national artificial intelligence policy.
+    [canonical] dir=opposes margin=2.9664  text: The federal government ought to preempt state-level artificial intelligence regulations to ensure a unified national policy framework.
+
+O17 [org-017 -> acc-beliefs-043] label=Y
+    [verbatim] dir=opposes margin=6.5067  text: A fragmented regulatory landscape creates uncertainty and hinders innovation.
+    [canonical] dir=opposes margin=5.9338  text: Fragmented state-level regulation of artificial intelligence creates market uncertainty and hinders technological innovation.
+
+O07 [org-018 -> saf-beliefs-028] label=N
+    [verbatim] dir=unrelated margin=0.4402  text: The framework allows users to zoom in on specific risks that are typical of AI, such as bias, explainability and robustness
+    [canonical] dir=opposes margin=2.3609  text: AI classification frameworks should enable the identification and analysis of specific AI risks, including bias, explainability, and robustness.
+    >>> REPS DISAGREE <<<
+
+O26 [org-023 -> saf-desires-012] label=N
+    [verbatim] dir=unrelated margin=0.1123  text: the most promising legal and policy categories to shape incentives for AI developers to reduce the probability of catastrophic AI-caused harms were incentives to find and disclose risks and voluntary safety standards.
+    [canonical] dir=opposes margin=3.4715  text: Incentives to find and disclose risks and voluntary safety standards are the most promising policy categories for reducing the probability of catastrophic AI-caused harms.
+    >>> REPS DISAGREE <<<
+
+O24 [org-023 -> saf-intentions-016] label=P
+    [verbatim] dir=opposes margin=3.3464  text: It may be more feasible for state governments to enact, and for industry and nongovernmental actors to adopt, some of the more promising measures.
+    [canonical] dir=opposes margin=5.9084  text: State governments, industry, and nongovernmental actors ought to enact or adopt promising measures to reduce catastrophic AI risks.
+
+O22 [org-023 -> saf-intentions-149] label=N
+    [verbatim] dir=opposes margin=4.7234  text: Heavier-handed and stricter regulations, such as mandatory audits, government-imposed restrictions on actors, and mandatory safety standards, emerged as the least promising categories.
+    [canonical] dir=opposes margin=4.6245  text: Mandatory audits, government-imposed restrictions, and mandatory safety standards are the least promising policy categories for reducing the probability of catastrophic AI-caused harms.
+
+O08 [org-023 -> saf-intentions-201] label=Y
+    [verbatim] dir=opposes margin=4.405  text: the possibility of pursuing multilateral international cooperation to avoid the fragmentation of regulation and markets
+    [canonical] dir=opposes margin=4.521  text: Policymakers ought to pursue multilateral international cooperation to prevent the fragmentation of AI regulations and markets.
+
+Reps disagree (verbatim vs canonical gave different directions) on 6 of 19 flips.

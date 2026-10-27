@@ -242,6 +242,10 @@ Describe 'Invoke-QbafConflictAnalysis Stage A/B monotonicity (t/1403 AC#3)' -Tag
                 Mock Get-SummariesDir -MockWith ({ $SD }.GetNewClosure())
                 Mock Get-DataRoot     -MockWith ({ $FD }.GetNewClosure())
                 Mock Get-TextEmbedding -MockWith { $null }   # Stage B off
+                # t/4572 write-freeze: this Context shadows the python subprocess itself to
+                # control the engine's verdict deterministically -- bypass the freeze so the
+                # gate's OWN opposition-only logic still runs against that shadow.
+                Mock Test-NliDirectionalGateFrozen { $false }
             }
         }
         AfterEach {
