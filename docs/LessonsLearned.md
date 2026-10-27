@@ -5661,7 +5661,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 5 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool).
+**Status:** Active — 6 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call).
 
 **Applies To:** All agents running `pwsh -Command "..."` or `pwsh -File` from the Bash tool with PowerShell cmdlets in the pipeline; switch to the PowerShell tool when the full command needs PS cmdlets.
 
@@ -7615,3 +7615,42 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Azure p/105#35). Design-tension class: a deliberate exception that was never reconciled with its own check's rule. Candidate process-design gap for whoever owns t/4501/t/4058.
 
 **Applies To:** All agents who discover a persistently-red `continue-on-error` check; flag rather than silently ignore, and consider whether the owning design decision needs reconciling with its check.
+
+---
+
+## #375 [Build] Worktree Path Guard Only Accepts the Relative `.worktrees/<name>` Form, Not an Absolute Path
+
+**Pattern:** An agent runs `git worktree add <absolute-path>/.worktrees/<name> -b <branch> origin/main`, constructing the full absolute path (e.g. `/c/Users/.../repos/ai-triad-research/.worktrees/<name>`). The worktree-isolation path guard blocks the command. The guard appears to only recognize the relative `.worktrees/<name>` form, issued from the repo root — an absolute path to the same location is treated differently even though it resolves to the identical directory.
+
+**Instances:**
+- 2026-10-26 — Computational Linguist (p/7#151, t/4473): `git worktree add` to an absolute `/c/...` path under `.worktrees/` was blocked by the path guard. Resolved by running the command from the repo root using the relative `.worktrees/<name>` form instead.
+
+**Root Cause:** The guard most likely pattern-matches the literal command string for the relative `.worktrees/` prefix rather than resolving the argument to a canonical path before checking it — an absolute path that resolves to the same location doesn't match the expected string pattern.
+
+**Prevention:**
+1. **Always use the relative `.worktrees/<name>` form for `git worktree add`**, run from the repo root: `git worktree add -b <branch> .worktrees/<name> origin/main`. Don't construct an absolute path even if you know it resolves correctly.
+2. **If a `git worktree add` with an absolute path is blocked by a guard, retry with the relative form from the repo root** before investigating further — this is the known workaround, not a sign of a broken path.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#151, t/4473).
+
+**Applies To:** All agents creating worktrees; always issue `git worktree add` with the relative `.worktrees/<name>` path from the repo root.
+
+---
+
+## #376 [Research] Hand-Typed Positional Label List Drifts From the Source — Use an Id-Keyed List With a Length Assert
+
+**Pattern:** An agent manually transcribes a list of labels (e.g. for a measurement sheet) as a positional list — values in order, no keys. The transcribed list has a different length than the source (86 vs. 84 in the observed case), and nothing catches the mismatch until downstream code indexes into the list and gets misaligned or out-of-range values. Positional transcription has no structural check against drift from the source.
+
+**Instances:**
+- 2026-10-26 — Computational Linguist (p/7#151, t/4473): a hand-typed positional label list was the wrong length (86 against 84) due to positional entry. Resolved by rewriting it as an id-keyed list with an assert on length.
+
+**Root Cause:** A positional list (plain array, order-dependent) has no inherent correctness check — adding, dropping, or miscounting an entry during manual transcription produces a list that is silently the wrong length or silently misaligned (same length, wrong order) with no error until something downstream notices. An id-keyed structure (dict/map keyed by a stable identifier) makes drift visible immediately: a missing or extra key is a structural difference, not a silent index shift.
+
+**Prevention:**
+1. **Never hand-transcribe a positional list from a source sheet/document when an id-keyed alternative is possible.** Key each entry by its stable id (not its position) so a transcription slip produces a visible missing/extra key rather than silent misalignment.
+2. **Always assert the expected length/count immediately after constructing a manually-transcribed list or dict**, before using it: `assert len(labels) == 84, f"expected 84, got {len(labels)}"`. This catches the exact failure mode observed here at construction time, not at first use.
+3. **A length mismatch between a transcribed list and its source is a transcription error, not a data problem** — recount the source and the transcription side by side rather than assuming the source changed.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#151, t/4473).
+
+**Applies To:** All agents manually transcribing ordered lists (label sets, option lists, lookup tables) from an external source; prefer id-keyed structures with a length assert over positional lists.
