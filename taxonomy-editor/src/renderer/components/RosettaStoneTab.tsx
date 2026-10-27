@@ -163,11 +163,6 @@ export function RosettaStoneTab() {
             </div>
           ))}
         </div>
-
-        <p className="rosetta-tab-footer-note">
-          This page opens every time the app launches &mdash; for every user, every visit. It&rsquo;s also the
-          topmost icon in the left rail, so it&rsquo;s always one click away.
-        </p>
       </div>
     </div>
   );

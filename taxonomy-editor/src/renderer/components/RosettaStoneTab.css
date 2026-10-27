@@ -180,10 +180,3 @@
 .rosetta-tab-card-cta {
   align-self: flex-start;
 }
-
-.rosetta-tab-footer-note {
-  max-width: 640px;
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  color: var(--text-muted, #94a3b8);
-}
