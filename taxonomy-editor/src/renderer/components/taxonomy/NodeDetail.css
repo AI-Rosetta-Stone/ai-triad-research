@@ -510,6 +510,43 @@
   align-items: center;
   gap: var(--sp-2);
   flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+/* ── Simple/Advanced toggle (t/4574) ── */
+
+.nd-header-toggle {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.nd-toggle-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: calc(var(--radius-md) - 2px);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.nd-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.nd-toggle-btn.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* ── RelatedCruxes (hoisted from inline styles) ── */
