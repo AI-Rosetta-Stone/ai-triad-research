@@ -44,6 +44,33 @@ function Invoke-OrgClaimMatching {
         top-K matches for every claim whose proposition contains a
         negated deontic — embeddings are weak at negation, so these are the
         highest-risk slice for landing on directional-opposite nodes.
+
+        ENDORSEMENT-CONFIRMATION GATE (t/4475 7b / t/4523): the directional gate
+        above only detects opposition — it rates a genuine agreement 'unrelated',
+        so it cannot reject a topical-only match. By default, after directional
+        reconciliation, an LLM judges EACH available claim rep (same RepReps as
+        the directional gate) against the matched node's proposition via the
+        org-endorsement-gate prompt, returning endorses/partial/topic_only.
+        Each proposal is tagged .Endorsement = best verdict over its reps
+        (endorses > partial > unknown > none); 'none' means every rep resolved
+        to topic_only, 'unknown' means the gate backend failed (WARN, not throw
+        — never written as 'none'). TAGS AND REORDERS, NEVER DROPS: the tag
+        only changes which proposals the existing per-org cap keeps when it has
+        to cut (a 'none' proposal sorts after everything else); every proposal
+        is still written as 'proposed'. Off only under -SkipEndorsementGate.
+
+        FORENSIC/ADDITIVE, PROVENANCE STIPULATED (CL t/4523#5; dev-check 10/13 Y/P,
+        14/16 N — t/4523#4; register `metric-provenance-register.md` §22): a
+        consumer may SORT on .Endorsement, but must not filter, hide, or
+        auto-reject on it until the t/4545 held-out set validates it. The
+        exemption lapses the moment a consumer does either — see
+        lib/ai-client/types.ts for the model of this note.
+
+        .DirectionConflict (CL t/4523#5 condition 2) is set when .Endorsement is
+        'endorses' or 'partial' but the directional-reconciled .EdgeType is
+        'OPPOSES' — the two gates disagree about which way the org's position
+        points. NEVER AUTO-RESOLVED: surfaced in .Rationale for a human reviewer.
+        Feeds t/4546 (the directional gate's own type-flip-stability finding).
     .PARAMETER ClaimsPath
         Stage 1 claims JSON. Defaults to <taxonomy-dir>/organization_stance_claims.json.
     .PARAMETER EmbeddingsPath
@@ -82,6 +109,16 @@ function Invoke-OrgClaimMatching {
         `opposes`. Default 1.0 (FINAL, CL t/2751#3; provenance in the
         metric-provenance-register). Raising it makes the gate flip only on
         stronger contradictions; do not exceed ~1.4 (the real contradiction margin).
+    .PARAMETER SkipEndorsementGate
+        Disable the endorsement-confirmation gate (t/4475 7b). Use only to
+        isolate the aggregation/directional logic in tests, or where the AI
+        backend is unavailable — the gate already fails safe to `unknown` on a
+        backend error, so this switch is rarely needed for that case.
+    .PARAMETER EndorsementModel
+        AI model for the endorsement gate. Default: Get-AITierModel -Tier basic.
+    .PARAMETER ApiKey
+        API key forwarded to the endorsement gate's Invoke-AIApi calls. Empty
+        string lets Invoke-AIApi resolve the registry key itself (t/4087).
     .EXAMPLE
         Invoke-OrgClaimMatching -EmbeddingsPath ../ai-triad-data/taxonomy/Origin/embeddings-orgstance-6733.json
     .EXAMPLE
@@ -135,7 +172,16 @@ function Invoke-OrgClaimMatching {
 
         [Parameter()]
         [ValidateRange(0.0, 1000.0)]
-        [double]$DirectionalTauContra = 1.0
+        [double]$DirectionalTauContra = 1.0,
+
+        [Parameter()]
+        [switch]$SkipEndorsementGate,
+
+        [Parameter()]
+        [string]$EndorsementModel = (Get-AITierModel -Tier basic),
+
+        [Parameter()]
+        [string]$ApiKey = ''
     )
 
     Set-StrictMode -Version Latest
@@ -383,6 +429,9 @@ function Invoke-OrgClaimMatching {
             Direction   = 'skipped'
             DirConfidence = $null
             DirMethod   = 'skipped'
+            Endorsement = 'skipped'
+            EndorsementReason = ''
+            DirectionConflict = $false
             Reason      = $reason
             BestCosine  = $bestScore
             Independent = $independence
@@ -404,10 +453,13 @@ function Invoke-OrgClaimMatching {
     # the gate rates a genuine agreement 'unrelated', not 'agrees', so dropping on
     # anything but 'opposes' would nuke recall). Off only under -SkipDirectionalGate.
     $directionalFlipped = 0
-    if (-not $SkipDirectionalGate -and $proposals.Count -gt 0) {
-        $povByPrefix = @{ acc = 'accelerationist'; saf = 'safetyist'; skp = 'skeptic' }
-        # Node proposition text (label + Core description) from loaded taxonomy.
-        $nodeTextById = @{}
+
+    # Node proposition text (label + Core description) from loaded taxonomy — shared
+    # by the directional gate and the endorsement gate (t/4523: "reuse the shared
+    # node_prop construction"). Built whenever either gate needs it.
+    $povByPrefix = @{ acc = 'accelerationist'; saf = 'safetyist'; skp = 'skeptic' }
+    $nodeTextById = @{}
+    if (($proposals.Count -gt 0) -and (-not $SkipDirectionalGate -or -not $SkipEndorsementGate)) {
         foreach ($pov in $script:TaxonomyData.Values) {
             if (-not $pov.PSObject.Properties['nodes']) { continue }
             foreach ($n in @($pov.nodes)) {
@@ -421,7 +473,9 @@ function Invoke-OrgClaimMatching {
                 $nodeTextById[[string]$n.id] = if ($dsc) { "$lbl — $($dsc.Trim())" } else { $lbl }
             }
         }
+    }
 
+    if (-not $SkipDirectionalGate -and $proposals.Count -gt 0) {
         # One gate pair per claim REP (verbatim, canonical) — id "propIdx:repIdx".
         $gatePairs = [System.Collections.Generic.List[PSObject]]::new()
         for ($pi = 0; $pi -lt $proposals.Count; $pi++) {
@@ -480,6 +534,69 @@ function Invoke-OrgClaimMatching {
         }
     }
 
+    # ── Endorsement-confirmation gate (t/4475 7b / t/4523) ───────────────
+    # The directional gate only detects opposition; it cannot reject a
+    # topical-only match. An LLM judges, per claim rep, whether the org's
+    # position ENDORSES the node's proposition (entails/restates it) or only
+    # shares its topic. TAGS AND REORDERS, NEVER DROPS: every proposal is
+    # still written as 'proposed'. Endorsement = best verdict over the
+    # proposal's reps (endorses > partial > unknown > topic_only/none), so a
+    # single confirming rep is enough; 'unknown' means the gate didn't reach
+    # a verdict (backend failure), never "the gate said no" (AC: WARN, not
+    # throw, on backend failure — proposals are written with endorsement:
+    # unknown). Off only under -SkipEndorsementGate.
+    if (-not $SkipEndorsementGate -and $proposals.Count -gt 0) {
+        $endorsePairs = [System.Collections.Generic.List[PSObject]]::new()
+        for ($pi = 0; $pi -lt $proposals.Count; $pi++) {
+            $prop = $proposals[$pi]
+            $nid = [string]$prop.NodeId
+            $nodeText = if ($nodeTextById.ContainsKey($nid)) { $nodeTextById[$nid] } else { '' }
+            $prefix = if ($nid -match '^(acc|saf|skp)-') { $Matches[1] } else { '' }
+            $nodePov = if ($prefix -and $povByPrefix.ContainsKey($prefix)) { $povByPrefix[$prefix] } else { '' }
+            $reps = @($prop.RepReps)
+            for ($ri = 0; $ri -lt $reps.Count; $ri++) {
+                $endorsePairs.Add([PSCustomObject]@{ Id = "$($pi):$($ri)"; ClaimProp = [string]$reps[$ri].Text; NodeProp = $nodeText; NodePov = $nodePov })
+            }
+        }
+
+        $endorseVerdicts = Test-OrgEndorsement -Pair @($endorsePairs) -Model $EndorsementModel -ApiKey $ApiKey
+        $endorseByProp = @{}
+        foreach ($v in @($endorseVerdicts)) {
+            $pidx = [int]((([string]$v.Id) -split ':')[0])
+            if (-not $endorseByProp.ContainsKey($pidx)) { $endorseByProp[$pidx] = [System.Collections.Generic.List[PSObject]]::new() }
+            $endorseByProp[$pidx].Add($v)
+        }
+
+        for ($pi = 0; $pi -lt $proposals.Count; $pi++) {
+            $prop = $proposals[$pi]
+            $repVerdicts = if ($endorseByProp.ContainsKey($pi)) { @($endorseByProp[$pi]) } else { @() }
+
+            $endorses = @($repVerdicts | Where-Object { $_.Verdict -eq 'endorses' })
+            $partial = @($repVerdicts | Where-Object { $_.Verdict -eq 'partial' })
+            $unk = @($repVerdicts | Where-Object { $_.Verdict -eq 'unknown' })
+            if ($endorses.Count -gt 0) { $winningVerdict = $endorses[0] }
+            elseif ($partial.Count -gt 0) { $winningVerdict = $partial[0] }
+            elseif ($unk.Count -gt 0) { $winningVerdict = $unk[0] }
+            elseif ($repVerdicts.Count -gt 0) { $winningVerdict = $repVerdicts[0] }   # every rep topic_only
+            else { $winningVerdict = $null }   # no reps
+            $tag = if ($winningVerdict) { [string]$winningVerdict.Verdict } else { 'none' }
+            if ($tag -eq 'topic_only') { $tag = 'none' }
+
+            $prop.Endorsement = $tag
+            $prop.EndorsementReason = if ($winningVerdict) { [string]$winningVerdict.Reason } else { '' }
+
+            # direction_conflict (CL t/4523#5, condition 2): the endorsement gate's own
+            # direction step says this org favours the node, but the directional gate
+            # (t/2751) flipped the edge to OPPOSES. Never auto-resolved — a reviewer must
+            # see it. Fires on 7/29 in the dev check, feeding t/4546 (the directional
+            # gate's own type-flip-stability finding).
+            $prop.DirectionConflict = ($tag -in @('endorses', 'partial')) -and ($prop.EdgeType -eq 'OPPOSES')
+
+            $flagNote = if ($prop.DirectionConflict) { ' direction_conflict=true' } else { '' }
+            $prop.Rationale = "$($prop.Rationale) endorsement=$tag reps=$($repVerdicts.Count)$flagNote"
+        }
+    }
+
     # ── Existing-edge skip (keyed on the FINAL, reconciled edge type) ─────
     if (-not $Force) {
         $kept = [System.Collections.Generic.List[PSObject]]::new()
@@ -491,11 +608,19 @@ function Invoke-OrgClaimMatching {
         $proposals = $kept
     }
 
-    # ── Per-org cap (top by best cosine) ─────────────────────────────────
+    # ── Per-org cap (top by endorsement, then best cosine) ───────────────
+    # t/4523: the endorsement gate REORDERS the review queue — a 'none'-tagged
+    # proposal sorts after every other proposal, regardless of cosine. This is
+    # the per-org cap's existing drop mechanism, not the gate itself dropping
+    # anything: every proposal is still produced and still eligible, 'none' is
+    # simply first in line when the cap has to cut somewhere.
+    $endorsementRank = @{ endorses = 0; partial = 1; unknown = 2; skipped = 2; none = 3 }
     $capped = [System.Collections.Generic.List[PSObject]]::new()
     $dropped = [System.Collections.Generic.List[PSObject]]::new()
     foreach ($grp in ($proposals | Group-Object -Property OrgId)) {
-        $ordered = @($grp.Group | Sort-Object -Property BestCosine -Descending)
+        $ordered = @($grp.Group | Sort-Object -Property `
+            @{ Expression = { if ($endorsementRank.ContainsKey([string]$_.Endorsement)) { $endorsementRank[[string]$_.Endorsement] } else { 2 } } }, `
+            @{ Expression = 'BestCosine'; Descending = $true })
         $keep = $ordered | Select-Object -First $PerOrgCap
         $skip = $ordered | Select-Object -Skip $PerOrgCap
         foreach ($p in $keep) { $capped.Add($p) }
@@ -541,11 +666,25 @@ function Invoke-OrgClaimMatching {
     $countsNote = ($directionalCounts.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' '
     $gateNote = if ($SkipDirectionalGate) { 'gate=OFF' } else { "gate: flipped=$directionalFlipped [$countsNote]" }
 
+    # Per-run endorsement tag counts (t/4523) — same rationale as the directional
+    # counts above: a mandatory metric, and the detector for a silently-degraded
+    # gate (an all-'unknown' run over a non-empty tagged set means the backend is
+    # down, since 'unknown' only comes from a caught failure, never a verdict).
+    $endorsementCounts = [ordered]@{ endorses = 0; partial = 0; none = 0; unknown = 0 }
+    if (-not $SkipEndorsementGate) {
+        foreach ($p in $capped) {
+            $e = [string]$p.Endorsement
+            if ($endorsementCounts.Contains($e)) { $endorsementCounts[$e]++ }
+        }
+    }
+    $endorseCountsNote = ($endorsementCounts.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' '
+    $endorseNote = if ($SkipEndorsementGate) { 'endorsement=OFF' } else { "endorsement: [$endorseCountsNote]" }
+
     Write-Host ""
     if ($WriteProposals) {
-        Write-Host "Claims: $totalClaims | Proposals: $($capped.Count) (wrote $written) | Dropped by cap: $($dropped.Count) | Negation-slice: $($negationSlice.Count) | $gateNote"
+        Write-Host "Claims: $totalClaims | Proposals: $($capped.Count) (wrote $written) | Dropped by cap: $($dropped.Count) | Negation-slice: $($negationSlice.Count) | $gateNote | $endorseNote"
     } else {
-        Write-Host "Claims: $totalClaims | Proposals (dry-run): $($capped.Count) | Dropped by cap: $($dropped.Count) | Negation-slice: $($negationSlice.Count) | $gateNote"
+        Write-Host "Claims: $totalClaims | Proposals (dry-run): $($capped.Count) | Dropped by cap: $($dropped.Count) | Negation-slice: $($negationSlice.Count) | $gateNote | $endorseNote"
     }
 
     [PSCustomObject]@{
@@ -558,6 +697,9 @@ function Invoke-OrgClaimMatching {
         DirectionalFlipped  = $directionalFlipped
         DirectionalCounts   = $directionalCounts
         DirectionalGate     = (-not $SkipDirectionalGate)
+        EndorsementCounts   = $endorsementCounts
+        EndorsementGate     = (-not $SkipEndorsementGate)
+        DirectionConflicts  = @($capped | Where-Object { $_.DirectionConflict }).Count
         Failed              = @($failed)
         EmbeddingsPath      = $EmbeddingsPath
     }
