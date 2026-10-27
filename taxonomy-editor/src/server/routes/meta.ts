@@ -181,7 +181,26 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // admin-only below, since those are operational detail, not a liveness signal.
     const nodeSourceIndexStatus = getNodeSourceIndexStatus();
     const nodeSourceIndexComplete = nodeSourceIndexStatus === null ? null : nodeSourceIndexStatus.complete;
-    if (!community.isAdmin()) { json(res, { status: 'ok', buildSha: process.env.BUILD_SHA ?? null, ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize }, eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete }); return; }
+    // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): the
+    // installation's shared rate limit is the signal that would have caught
+    // this before it became a user-visible outage — public (not admin-gated,
+    // same precedent as eventLoopLagMs/nodeSourceIndexComplete above) so an
+    // unauthenticated monitor/alert can watch it without a session. null for
+    // backends with no GitHub rate limit (Electron/local filesystem mode).
+    const githubBackendForHealth = ctx.getGithubBackend();
+    const githubRateLimitRemaining = githubBackendForHealth?.getRateLimitRemaining() ?? null;
+    const githubRateLimitResetsAt = githubBackendForHealth?.getRateLimitResetsAt() ?? null;
+    const entityRegistryDegraded = fileIO.getEntityRegistryStatus().degraded;
+    const organizationsRegistryDegraded = fileIO.getOrganizationsReadStatus().degraded;
+    if (!community.isAdmin()) {
+      json(res, {
+        status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
+        ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize },
+        eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
+        githubRateLimitRemaining, githubRateLimitResetsAt, entityRegistryDegraded, organizationsRegistryDegraded,
+      });
+      return;
+    }
     const base: Record<string, unknown> = {
       status: 'ok',
       version: ctx.serverVersion,
@@ -217,7 +236,12 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     // public /health above only got the boolean. null (never built) passes through as-is.
     base.nodeSourceIndex = nodeSourceIndexStatus;
 
-    const githubBackend = ctx.getGithubBackend();
+    // t/4584: full reason admin-only, same split as nodeSourceIndex above —
+    // public /health only got the booleans.
+    base.entityRegistry = fileIO.getEntityRegistryStatus();
+    base.organizationsRegistry = fileIO.getOrganizationsReadStatus();
+
+    const githubBackend = githubBackendForHealth;
     if (githubBackend) {
       (base.storage as Record<string, unknown>).mainSha = githubBackend.getMainSha();
       (base.storage as Record<string, unknown>).cacheFileCount = githubBackend.getCachedFileCount();

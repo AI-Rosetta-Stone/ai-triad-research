@@ -13,6 +13,7 @@ import { json, error, param, query } from '../httpKit.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import * as organizations from '../organizations.js';
 import { isPov } from '../organizations.js';
+import { getOrganizationsReadStatus } from '../storage/fileIO.js';
 
 export function registerOrganizationsRoutes(r: Router, _ctx: ServerCtx): void {
   const { get } = r;
@@ -20,7 +21,18 @@ export function registerOrganizationsRoutes(r: Router, _ctx: ServerCtx): void {
   // GET /api/organizations?type=&pov=  — list all (optional type / pov-alignment filters)
   get('/api/organizations', async (req, res) => {
     try {
-      json(res, await organizations.listOrganizations({ type: query(req, 'type'), pov: query(req, 'pov') }));
+      const rows = await organizations.listOrganizations({ type: query(req, 'type'), pov: query(req, 'pov') });
+      // t/4584 (TL incident, root cause: GitHub App rate-limit exhaustion): an
+      // empty list from a DEGRADED read must not render as "no organizations" —
+      // that was the incident's actual symptom. 503, not 200 [].
+      if (rows.length === 0) {
+        const status = getOrganizationsReadStatus();
+        if (status.degraded) {
+          error(res, `Organizations registry temporarily unavailable: ${status.reason}`, 503);
+          return;
+        }
+      }
+      json(res, rows);
     } catch (err) { getGlobalRecorder()?.record({ type: 'system.error', component: 'server', level: 'error', message: 'Failed to list organizations', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } }); error(res, String(err), 500, err); }
   });
 

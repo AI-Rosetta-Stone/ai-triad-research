@@ -88,6 +88,22 @@ export function setUserContentBackend(b: StorageBackend): void { userContentBack
 export function getUserContentBackend(): StorageBackend { return userContentBackend ?? backend; }
 /** Set the backend for brief-export artifacts (t/2850 — dedicated container for lifecycle rule). */
 export function setBriefExportBackend(b: StorageBackend): void { briefExportBackend = b; }
+
+/** t/4584 (TL design t/4584#2/#4): `backend.readFile(p, {ref:'main'})` on
+ *  `GitHubAPIBackend` collapses "genuinely absent" and "GitHub currently
+ *  can't serve this" (no creds / tripped circuit / rate-limit exhausted /
+ *  any other non-404 status) into the same `null` — for pipeline-curated
+ *  files that are never legitimately absent on hosted (entities.json,
+ *  organizations.json, organization_edges.json), that's a silent
+ *  degradation, not a correct "no data yet" signal. Uses
+ *  `backend.readFileStrict` when the backend implements it (throws
+ *  `{ kind: 'transient', reason }` for the degraded cases instead); falls
+ *  back to plain `readFile` for backends where `null` is already
+ *  unambiguous (FilesystemBackend, AzureBlobBackend already throw on
+ *  anything but a real absence). */
+function readFileMainStrict(filePath: string): Promise<string | null> {
+  return backend.readFileStrict ? backend.readFileStrict(filePath) : backend.readFile(filePath, { ref: 'main' });
+}
 /** Brief-export backend; falls back to user-content backend when unset. */
 export function getBriefExportBackend(): StorageBackend { return briefExportBackend ?? getUserContentBackend(); }
 
@@ -508,23 +524,34 @@ export async function readLineageEnrichments(): Promise<Record<string, unknown>>
 
 // ── Policy registry ──
 
+// t/4584: same degraded-read signal as entitiesReadDegradedReason, shared by
+// readOrganizations/readOrganizationEdges since both feed one route cluster
+// (organizations.ts's load()) and a caller cares about either one failing.
+let organizationsReadDegradedReason: string | null = null;
+export function getOrganizationsReadStatus(): { degraded: boolean; reason: string | null } {
+  return { degraded: organizationsReadDegradedReason !== null, reason: organizationsReadDegradedReason };
+}
+
 export async function readOrganizations(): Promise<unknown | null> {
   try {
     const p = path.join(getTaxonomyDir(), 'organizations.json');
-    const raw = await backend.readFile(p, { ref: 'main' });
+    const raw = await readFileMainStrict(p);
+    organizationsReadDegradedReason = null;
     if (raw === null) {
       log.server.warn({ path: p, ref: 'main' }, 'readOrganizations: file absent');
       return null;
     }
     return JSON.parse(raw);
   } catch (err) {
-    log.server.warn({ err }, 'readOrganizations failed');
+    organizationsReadDegradedReason = (err as { reason?: string })?.reason ?? 'unknown';
+    log.server.warn({ err, reason: organizationsReadDegradedReason }, 'readOrganizations failed');
     getGlobalRecorder()?.record({
       type: 'system.error',
       component: 'file-io',
       level: 'error',
       message: 'readOrganizations failed',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      data: { reason: organizationsReadDegradedReason },
     });
     return null;
   }
@@ -533,7 +560,8 @@ export async function readOrganizations(): Promise<unknown | null> {
 export async function readOrganizationEdges(): Promise<OrganizationEdge[] | null> {
   try {
     const p = path.join(getTaxonomyDir(), 'organization_edges.json');
-    const raw = await backend.readFile(p, { ref: 'main' });
+    const raw = await readFileMainStrict(p);
+    organizationsReadDegradedReason = null;
     if (raw === null) {
       log.server.warn({ path: p, ref: 'main' }, 'readOrganizationEdges: file absent');
       return null;
@@ -541,13 +569,15 @@ export async function readOrganizationEdges(): Promise<OrganizationEdge[] | null
     const data = JSON.parse(raw);
     return (data as { edges?: OrganizationEdge[] })?.edges ?? [];
   } catch (err) {
-    log.server.warn({ err }, 'readOrganizationEdges failed');
+    organizationsReadDegradedReason = (err as { reason?: string })?.reason ?? 'unknown';
+    log.server.warn({ err, reason: organizationsReadDegradedReason }, 'readOrganizationEdges failed');
     getGlobalRecorder()?.record({
       type: 'system.error',
       component: 'file-io',
       level: 'error',
       message: 'readOrganizationEdges failed',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      data: { reason: organizationsReadDegradedReason },
     });
     return null;
   }
@@ -586,6 +616,17 @@ export async function readPolicyRegistry(): Promise<unknown | null> {
 
 // ── Entities (ent-*) ──
 
+/** t/4584: last-read degradation signal for `readEntities`, separate from
+ *  its `null` return (which stays "absent OR unknown" for existing
+ *  callers that don't check this). `null` = never read yet or last read
+ *  was clean (absence or success); a reason string = the last read threw
+ *  a transient failure. Routes that must distinguish "no entities" from
+ *  "couldn't read entities" (503 vs 200 `[]`) check this. */
+let entitiesReadDegradedReason: string | null = null;
+export function getEntityRegistryStatus(): { degraded: boolean; reason: string | null } {
+  return { degraded: entitiesReadDegradedReason !== null, reason: entitiesReadDegradedReason };
+}
+
 /**
  * Read the entity registry (`ent-*` records) from entities.json as typed `Entity[]`.
  * Returns `null` when the store is absent. The parsed list is memoized for
@@ -600,7 +641,8 @@ export async function readEntities(): Promise<Entity[] | null> {
   }
   try {
     const p = path.join(getTaxonomyDir(), 'entities.json');
-    const raw = await backend.readFile(p, { ref: 'main' });
+    const raw = await readFileMainStrict(p);
+    entitiesReadDegradedReason = null; // t/4584: reaching here means readFileMainStrict didn't throw.
     if (raw === null) {
       log.server.warn({ path: p, ref: 'main' }, 'readEntities: file absent');
       return null;
@@ -610,13 +652,19 @@ export async function readEntities(): Promise<Entity[] | null> {
     entitiesCache = { at: Date.now(), entities };
     return entities;
   } catch (err) {
-    log.server.warn({ err }, 'readEntities failed');
+    // t/4584: a thrown error here is always `readFileStrict`'s `{ kind:
+    // 'transient', reason }` (rate_limited / circuit_open / no_creds /
+    // status=<n>) on backends that implement it — a genuine absence never
+    // throws. Recorded so `/api/entities` can return 503, not `[]`.
+    entitiesReadDegradedReason = (err as { reason?: string })?.reason ?? 'unknown';
+    log.server.warn({ err, reason: entitiesReadDegradedReason }, 'readEntities failed');
     getGlobalRecorder()?.record({
       type: 'system.error',
       component: 'file-io',
       level: 'error',
       message: 'readEntities failed',
       error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      data: { reason: entitiesReadDegradedReason },
     });
     return null;
   }

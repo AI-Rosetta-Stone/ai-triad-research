@@ -7,12 +7,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'http';
 
-const { readPolicyRegistryMock, readTaxonomyFileMock, loadDictionaryMock, readEntityRegistryMock, getOrganizationByIdMock, recordMock, loadSourcesIndexMock } =
+const { readPolicyRegistryMock, readTaxonomyFileMock, loadDictionaryMock, readEntityRegistryMock, getEntityRegistryStatusMock, getOrganizationByIdMock, recordMock, loadSourcesIndexMock } =
   vi.hoisted(() => ({
     readPolicyRegistryMock: vi.fn(),
     readTaxonomyFileMock: vi.fn(),
     loadDictionaryMock: vi.fn(),
     readEntityRegistryMock: vi.fn(),
+    // t/4584/t/4586: defaults to "not degraded" so every pre-existing test
+    // (which never set up this mock) keeps its original 200 [] behavior.
+    getEntityRegistryStatusMock: vi.fn(() => ({ degraded: false, reason: null })),
     getOrganizationByIdMock: vi.fn(),
     recordMock: vi.fn(),
     loadSourcesIndexMock: vi.fn(),
@@ -23,6 +26,7 @@ vi.mock('../storage/fileIO.js', () => ({
   readTaxonomyFile: readTaxonomyFileMock,
   loadDictionary: loadDictionaryMock,
   readEntityRegistry: readEntityRegistryMock,
+  getEntityRegistryStatus: getEntityRegistryStatusMock,
 }));
 vi.mock('../organizations.js', () => ({ getOrganizationById: getOrganizationByIdMock }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: () => ({ record: recordMock }) }));
@@ -318,6 +322,7 @@ describe('GET /api/entities (t/1883)', () => {
   beforeEach(() => {
     readEntityRegistryMock.mockReset();
     recordMock.mockReset();
+    getEntityRegistryStatusMock.mockReset().mockReturnValue({ degraded: false, reason: null });
   });
 
   it('returns summary rows from a populated registry — exactly the 7 summary keys, no Entity leak', async () => {
@@ -360,11 +365,23 @@ describe('GET /api/entities (t/1883)', () => {
     expect(rows.find(r => r.id === 'ent-071')!.aliases).toEqual(['GDPR']);
   });
 
-  it('returns [] when the entity store is absent (readEntityRegistry → null)', async () => {
+  it('returns [] when the entity store is absent (readEntityRegistry → null, a clean/not-degraded absence)', async () => {
     readEntityRegistryMock.mockResolvedValue(null);
     const { status, body } = await invokeList();
     expect(status).toBe(200);
     expect(body).toEqual([]);
+  });
+
+  // t/4584/t/4586 (incident): a null registry from a DEGRADED read (GitHub
+  // rate-limit exhaustion, circuit-open, no creds) must return 503, never the
+  // same 200 [] a genuine absence gets — that silent collapse was the
+  // incident's actual symptom.
+  it('returns 503 when the entity registry read is degraded, not a genuine absence', async () => {
+    readEntityRegistryMock.mockResolvedValue(null);
+    getEntityRegistryStatusMock.mockReturnValue({ degraded: true, reason: 'rate_limited' });
+    const { status, body } = await invokeList();
+    expect(status).toBe(503);
+    expect(body).toMatchObject({ error: expect.stringContaining('rate_limited') });
   });
 
   it('returns [] for an empty registry', async () => {
