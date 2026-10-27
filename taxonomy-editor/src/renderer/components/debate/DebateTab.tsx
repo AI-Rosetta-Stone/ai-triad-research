@@ -576,11 +576,10 @@ export function DebateTab() {
         </div>
       )}
       {showNewDialog && (
-        <NewDebateDialog
+        <NewDebateDialogHost
+          prefill={debatePrefill}
           onClose={closeNewDebateDialog}
           onAtCap={() => setQuotaError('Close a debate window — max 5 open')}
-          initialTopic={debatePrefill?.topic}
-          initialPovers={debatePrefill?.povers}
         />
       )}
       {pendingExportFormat && (
@@ -670,6 +669,17 @@ function ToolbarLeftPanel({
 // shared component's EmptyStateRow has no per-variant custom-message hook, so Electron users see
 // the generic "No community debates yet." here instead. Flagging for whoever reviews this file
 // rather than working around it by suppressing the Community tab (a bigger behavior change).
+// Thin host so the debatePrefill?.topic / debatePrefill?.povers optional-chains live in their
+// own function scope, not DebateTab's own complexity count (local/complexity-budget) — mirrors
+// ChatTab's NewChatDialogHost.
+function NewDebateDialogHost({ prefill, onClose, onAtCap }: {
+  prefill: { topic: string; povers?: readonly SpeakerId[] } | null;
+  onClose: () => void;
+  onAtCap: () => void;
+}) {
+  return <NewDebateDialog onClose={onClose} onAtCap={onAtCap} initialTopic={prefill?.topic} initialPovers={prefill?.povers} />;
+}
+
 function DebateLibraryPanel(props: DebateLibraryPanelProps) {
   const {
     width, fullWidth, setListCollapsed, config, myRows, myLoading, communityRows, communityLoading,
