@@ -18,7 +18,7 @@ import { PovTab } from './components/taxonomy/PovTab';
 import { FirstRunDialog } from './components/settings/FirstRunDialog';
 import { WhatsNewToast } from './components/settings/WhatsNewToast';
 import { HelpDialog } from './components/settings/HelpDialog';
-import { OnboardingTour } from './components/OnboardingTour';
+import { RosettaStoneTab } from './components/RosettaStoneTab';
 import { DeploymentErrorScreen } from './components/shared/DeploymentErrorScreen';
 
 import { StartupProgressScreen } from './components/shared/StartupProgressScreen';
@@ -316,7 +316,6 @@ function MainApp() {
   const [showFirstRun, setShowFirstRun] = useState(false);
   const [dataRoot, setDataRoot] = useState('');
   const [copyStatus, setCopyStatus] = useState<{ state: string; dir?: string; copied?: number; total?: number } | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [showChangelogHelp, setShowChangelogHelp] = useState(false);
 
   useEffect(() => {
@@ -336,25 +335,6 @@ function MainApp() {
         void initAIModels().then(() => { void useTaxonomyStore.getState().loadAll(); initAnalyticsSession(); initDebateSessions(); });
       }
     });
-  }, []);
-
-  // Show onboarding tour after data loads for first-time users without an API key
-  useEffect(() => {
-    if (loading || showFirstRun) return;
-    const dismissed = localStorage.getItem('taxonomy-editor-onboarding-dismissed') === 'true';
-    if (dismissed) return;
-    void api.hasApiKey().then(has => {
-      if (!has) setShowOnboarding(true);
-    }).catch((err) => {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'app', level: 'warn', message: 'Tour API key check failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    });
-  }, [loading, showFirstRun]);
-
-  // Listen for "show tour" requests from HelpDialog
-  useEffect(() => {
-    const handler = () => setShowOnboarding(true);
-    window.addEventListener('show-onboarding-tour', handler);
-    return () => window.removeEventListener('show-onboarding-tour', handler);
   }, []);
 
   // Poll copy status while showFirstRun is true in web mode
@@ -618,9 +598,10 @@ function MainApp() {
   // column (t/2857) so the left nav rail spans full window height, matching Debate/Chat/Op-Eds.
   // showPovHeader mirrors the original TabBar visibility condition exactly. Layout-only.
   const showPovHeader = toolbarPanel === null &&
-    !['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'organizations', 'inquiry'].includes(activeTab);
+    !['rosetta-stone', 'situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'organizations', 'inquiry'].includes(activeTab);
   const tabContent = (
     <>
+      {activeTab === 'rosetta-stone' && <RosettaStoneTab />}
       {activeTab === 'accelerationist' && <PovTab pov="accelerationist" />}
       {activeTab === 'safetyist' && <PovTab pov="safetyist" />}
       {activeTab === 'skeptic' && <PovTab pov="skeptic" />}
@@ -776,7 +757,6 @@ function MainApp() {
       <WhatsNewToast onOpenChangelog={() => setShowChangelogHelp(true)} />
       {showChangelogHelp && <HelpDialog onClose={() => setShowChangelogHelp(false)} initialTab="changelog" />}
       {isMobile && <DiagnosticsDrawer />}
-      {showOnboarding && <OnboardingTour onDismiss={() => setShowOnboarding(false)} />}
     </div>
   );
 }

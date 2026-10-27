@@ -21,9 +21,11 @@ const mockTaxonomyStore = {
   relatedNodeId: null,
 };
 
-vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: () => mockTaxonomyStore,
-}));
+vi.mock('../../hooks/useTaxonomyStore', () => {
+  const hook = () => mockTaxonomyStore;
+  hook.setState = vi.fn();
+  return { useTaxonomyStore: hook };
+});
 
 const mockPrefsState = {
   viewMode: 'simple' as 'simple' | 'advanced',
@@ -176,9 +178,9 @@ describe('Toolbar — primary Ask a Question button (t/3583, t/3616)', () => {
 describe('Toolbar — primary nav order (t/4535, PI request p/351#29)', () => {
   beforeEach(() => { mockFlags.value = { 'env-electron-opeds': true }; mockPrefsState.viewMode = 'simple'; });
 
-  it('renders Chat, Op-Ed Studies, Ask a Question, Debate, Taxonomy in that DOM order (no Search button on this rail, t/2813)', () => {
+  it('renders Rosetta Stone, Chat, Op-Ed Studies, Ask a Question, Debate, Taxonomy in that DOM order (no Search button on this rail, t/2813)', () => {
     render(<Toolbar />);
-    const labels = ['Chat', 'Op-Ed Studies', 'Ask a Question', 'Debate', 'Taxonomy'];
+    const labels = ['Rosetta Stone', 'Chat', 'Op-Ed Studies', 'Ask a Question', 'Debate', 'Taxonomy'];
     const buttons = labels.map(name => screen.getByRole('button', { name }));
     // Document order === tab order for plain (no explicit tabIndex) buttons, so this also
     // proves the AC's "keyboard tab order follows the visual order".
@@ -187,14 +189,40 @@ describe('Toolbar — primary nav order (t/4535, PI request p/351#29)', () => {
     }
   });
 
-  it('keeps Chat-Op-Eds-Ask a Question-Taxonomy order when Op-Eds is gated off (Debate absent from the DOM entirely is not the point here — order among what IS shown)', () => {
+  it('keeps Rosetta Stone-Chat-Op-Eds-Ask a Question-Taxonomy order when Op-Eds is gated off (Debate absent from the DOM entirely is not the point here — order among what IS shown)', () => {
     mockFlags.value = {};
     render(<Toolbar />);
-    const labels = ['Chat', 'Ask a Question', 'Debate', 'Taxonomy'];
+    const labels = ['Rosetta Stone', 'Chat', 'Ask a Question', 'Debate', 'Taxonomy'];
     const buttons = labels.map(name => screen.getByRole('button', { name }));
     expect(screen.queryByRole('button', { name: 'Op-Ed Studies' })).toBeNull(); // still gated (AC)
     for (let i = 1; i < buttons.length; i++) {
       expect(buttons[i - 1].compareDocumentPosition(buttons[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+});
+
+describe('Toolbar — Rosetta Stone topmost rail button (t/4543, PI decision t/4541#1)', () => {
+  beforeEach(() => {
+    mockFlags.value = {};
+    mockPrefsState.viewMode = 'simple';
+    mockTaxonomyStore.activeTab = 'accelerationist';
+  });
+
+  it('shows the Rosetta Stone button unconditionally (no gate)', () => {
+    render(<Toolbar />);
+    expect(screen.getByRole('button', { name: 'Rosetta Stone' })).toBeInTheDocument();
+  });
+
+  it('marks it active when activeTab is rosetta-stone', () => {
+    mockTaxonomyStore.activeTab = 'rosetta-stone';
+    render(<Toolbar />);
+    expect(screen.getByRole('button', { name: 'Rosetta Stone' })).toHaveClass('toolbar-nav-active');
+  });
+
+  it('calls setActiveTab with rosetta-stone when clicked', async () => {
+    mockTaxonomyStore.activeTab = 'chat';
+    render(<Toolbar />);
+    await userEvent.click(screen.getByRole('button', { name: 'Rosetta Stone' }));
+    expect(mockTaxonomyStore.setActiveTab).toHaveBeenCalledWith('rosetta-stone');
   });
 });

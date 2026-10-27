@@ -155,4 +155,4 @@ export interface ConflictFile {
   verdict?: ConflictVerdict;
 }
 
-export type TabId = 'accelerationist' | 'safetyist' | 'skeptic' | 'situations' | 'conflicts' | 'cruxes' | 'debate' | 'chat' | 'opeds' | 'summaries' | 'validation' | 'organizations' | 'inquiry';
+export type TabId = 'rosetta-stone' | 'accelerationist' | 'safetyist' | 'skeptic' | 'situations' | 'conflicts' | 'cruxes' | 'debate' | 'chat' | 'opeds' | 'summaries' | 'validation' | 'organizations' | 'inquiry';

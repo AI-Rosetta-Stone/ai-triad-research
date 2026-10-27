@@ -18,7 +18,7 @@ import { useNavVisibilityContext } from '../../hooks/useNavVisibilityContext';
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
 import { useTierInfo } from '../../hooks/useTierInfo';
 import { FeedbackPopover } from './FeedbackPopover';
-import { NAV_ITEMS, getVisibleNavItems, getSecondaryByGroup, type NavItem, type NavAction } from '../../data/navConfig';
+import { NAV_ITEMS, RosetteIcon, getVisibleNavItems, getSecondaryByGroup, type NavItem, type NavAction } from '../../data/navConfig';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import './Toolbar.css';
 
@@ -247,7 +247,7 @@ export function Toolbar() {
     else if (toolbarPanel === 'attrInfo') clearAttributeInfo();
   };
 
-  const switchTab = (tab: 'situations' | 'conflicts' | 'cruxes' | 'debate' | 'chat' | 'opeds' | 'summaries' | 'validation' | 'inquiry') => {
+  const switchTab = (tab: 'rosetta-stone' | 'situations' | 'conflicts' | 'cruxes' | 'debate' | 'chat' | 'opeds' | 'summaries' | 'validation' | 'inquiry') => {
     clearCurrentPanel();
     useTaxonomyStore.setState({ relatedNodeId: null, selectedEdge: null });
     setToolbarPanel(null);
@@ -276,7 +276,7 @@ export function Toolbar() {
     else if (action.type === 'togglePanel') toggle(action.target as ToolbarPanel);
   };
 
-  const isTaxonomyActive = toolbarPanel === null && !['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'inquiry'].includes(activeTab);
+  const isTaxonomyActive = toolbarPanel === null && !['rosetta-stone', 'situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'inquiry'].includes(activeTab);
 
   return (
     <nav className="toolbar" aria-label="Primary">
@@ -285,6 +285,16 @@ export function Toolbar() {
             Ask a Question, Debate, Taxonomy (PI request, p/351#29; order only). */}
         {/* t/2813: Search removed from the nav rail; entry points now live in the
             Taxonomy panel header + POV detail header. toggle('search') still works. */}
+        {/* t/4543: Rosetta Stone added topmost, ungated — every launch opens into it
+            (PI decision, t/4541#1). Icon is option A from the approved t/4542 mockup. */}
+        <button
+          className={`toolbar-nav${activeTab === 'rosetta-stone' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
+          onClick={() => switchTab('rosetta-stone')}
+          aria-label="Rosetta Stone"
+        >
+          <RosetteIcon size="1.25em" />
+          <span className="toolbar-nav-label">Rosetta<br />Stone</span>
+        </button>
         <button
           className={`toolbar-nav${activeTab === 'chat' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
           onClick={() => switchTab('chat')}
@@ -326,7 +336,7 @@ export function Toolbar() {
           onClick={() => {
             clearCurrentPanel();
             setToolbarPanel(null);
-            if (['situations', 'conflicts', 'debate', 'chat', 'opeds', 'summaries', 'validation'].includes(activeTab)) {
+            if (['rosetta-stone', 'situations', 'conflicts', 'debate', 'chat', 'opeds', 'summaries', 'validation'].includes(activeTab)) {
               setActiveTab('accelerationist');
             }
           }}
