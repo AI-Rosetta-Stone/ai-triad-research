@@ -75,9 +75,17 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
       # reading as 0 and falsely tripping "no checks started" on every healthy group.
       # Query per required context name via ?check_name=, which the API answers
       # directly without needing to paginate through everything else on the commit.
+      # Live-fire finding (M2 real reproducer): `gh api` writes the HTTP error BODY to
+      # stdout, not just stderr, on a non-2xx response (a 404 here, since the ephemeral
+      # merge-group test commit may not exist as a real commit object yet). The old
+      # `2>/dev/null || echo 0` pattern didn't help -- `ctx_count` captured the error
+      # JSON with "0" appended after it (stdout from the failed call, then echo 0 on
+      # top), and `$((CHECK_COUNT + ctx_count))` died on that garbage. Check the exit
+      # code explicitly and discard ALL output (not just stderr) on failure.
       for ctx in "ci-gate" "CodeQL" "consult-hold-guard" "joint-gv-guard"; do
-        ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs" -f check_name="$ctx" --jq '.total_count // 0' 2>/dev/null || echo 0)
-        CHECK_COUNT=$((CHECK_COUNT + ctx_count))
+        if ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs" -f check_name="$ctx" --jq '.total_count // 0' 2>/dev/null); then
+          CHECK_COUNT=$((CHECK_COUNT + ctx_count))
+        fi
       done
     fi
 
