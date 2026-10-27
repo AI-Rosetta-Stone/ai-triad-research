@@ -2693,6 +2693,25 @@ jobs:
   # worker↔in-thread equivalence; path-filtered to embeddings changes + the ORT
   # manifest/lockfile, skip = OK. Promoted advisory→required per TL GV t/3240#5 +
   # Second Opinion e/143#2.
+  # ── merge-queue-f4-shim-test (t/4567 SO M3, e/378#2): the F4 count==position fail-closed
+  # check can't be forced through the real GraphQL API live-fire, so it was proven only via
+  # a shim test run manually on the scratch repo. M3 required wiring that same test into
+  # real CI so it runs on every push, not just when someone remembers to dispatch it by
+  # hand. Warn-only for now (continue-on-error) -- promoting it to block ci-gate is a
+  # separate decision, same reasoning as ci-filter-coverage above. No path filter: a
+  # self-check for a fail-closed safety script must never be skippable.
+  merge-queue-f4-shim-test:
+    needs: [changes]
+    if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Run F4 shim test
+        run: |
+          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh
+          operations/devops/test-get-merge-group-prs-f4.sh
+
   ci-gate:
     name: ci-gate
     needs: [changes, test-powershell, test-electron, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget]

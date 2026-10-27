@@ -46,7 +46,13 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
   enqueuedAt=$(echo "$entry" | jq -r '.enqueuedAt')
   headSha=$(echo "$entry" | jq -r '.headCommit.oid // empty')
 
-  ENQ_EPOCH=$(date -u -d "$enqueuedAt" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$enqueuedAt" +%s)
+  # SO minor finding (e/378#2): an unparseable enqueuedAt must not go silently red under
+  # set -u -- treat it as its own violation rather than letting the whole script die on
+  # one bad entry.
+  if ! ENQ_EPOCH=$(date -u -d "$enqueuedAt" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$enqueuedAt" +%s 2>/dev/null); then
+    VIOLATIONS=$(echo "$VIOLATIONS" | jq --argjson n "${num:-0}" '. + [{number: $n, kind: "liveness-check-failed", ageMinutes: 0}]')
+    continue
+  fi
   AGE_MIN=$(( (NOW_EPOCH - ENQ_EPOCH) / 60 ))
 
   # ---- (c) queued too long, any state -- the broadest backstop, checked first ----
@@ -63,9 +69,16 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
       # the merge-group test commit (confirmed t/4567#36), so counting all check runs
       # would always show >0 even in the exact GITHUB_TOKEN-failure shape this condition
       # exists to catch -- the condition could never fire.
-      CHECK_COUNT=$(gh api "repos/${REPO}/commits/${headSha}/check-runs" \
-        --jq '[.check_runs[].name | select(. == "ci-gate" or . == "CodeQL" or . == "consult-hold-guard" or . == "joint-gv-guard")] | length' \
-        2>/dev/null || echo 0)
+      #
+      # SO M1 (e/378#2): the check-runs API paginates at 30 per page, and ci.yml has
+      # ~42 jobs/matrix legs -- a single unfiltered call can put ci-gate on page 2,
+      # reading as 0 and falsely tripping "no checks started" on every healthy group.
+      # Query per required context name via ?check_name=, which the API answers
+      # directly without needing to paginate through everything else on the commit.
+      for ctx in "ci-gate" "CodeQL" "consult-hold-guard" "joint-gv-guard"; do
+        ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs" -f check_name="$ctx" --jq '.total_count // 0' 2>/dev/null || echo 0)
+        CHECK_COUNT=$((CHECK_COUNT + ctx_count))
+      done
     fi
 
     # ---- (a) no check run started within 15 minutes ----
