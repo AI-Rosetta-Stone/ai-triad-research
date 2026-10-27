@@ -408,23 +408,43 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
             <FieldHelp text={BDI_GUIDANCE[node.category]} />
           </span>
           <span className="nd-header-id">{node.id}</span>
-          <TheoryLink
-            docPath="docs/taxonomy-ontology-guide.md"
-            label="Help: taxonomy ontology guide"
-            size={16}
-          />
-          <TheoryLink
-            docPath="research/comp-linguist/docs/soul-documents-analysis.md"
-            label="Soul documents analysis"
-            tooltip="Open Soul Documents Analysis in GitHub"
-            size={15}
-          />
-          {/* Soul-doc bookmark relocated here (t/2827), right of the soul-doc icon; Advanced-view
-              only (same bookmark-control gate as t/2826 — not an always-visible control). */}
-          {viewMode === 'advanced' && onOpenSoulDoc && (
-            <button className="nd-header-btn" onClick={() => onOpenSoulDoc(node.pov_tags)} title="Soul document" aria-label="Soul document">&#x1f4dc;</button>
+          {/* Advanced-view header icons (t/4574): ontology, soul analysis, soul doc */}
+          {nodeDetailMode === 'advanced' && (
+            <>
+              <TheoryLink
+                docPath="docs/taxonomy-ontology-guide.md"
+                label="Help: taxonomy ontology guide"
+                size={16}
+              />
+              <TheoryLink
+                docPath="research/comp-linguist/docs/soul-documents-analysis.md"
+                label="Soul documents analysis"
+                tooltip="Open Soul Documents Analysis in GitHub"
+                size={15}
+              />
+              {onOpenSoulDoc && (
+                <button className="nd-header-btn" onClick={() => onOpenSoulDoc(node.pov_tags)} title="Soul document" aria-label="Soul document">&#x1f4dc;</button>
+              )}
+            </>
           )}
           <EditConflictBadge conflict={conflict} resolveUrl={resolveUrl} />
+          {/* Simple/Advanced toggle (t/4574) — top right */}
+          <div className="nd-header-toggle">
+            <button
+              className={`nd-toggle-btn ${nodeDetailMode === 'simple' ? 'active' : ''}`}
+              onClick={() => void setNodeDetailMode(node.id, 'simple')}
+              aria-pressed={nodeDetailMode === 'simple'}
+            >
+              Simple
+            </button>
+            <button
+              className={`nd-toggle-btn ${nodeDetailMode === 'advanced' ? 'active' : ''}`}
+              onClick={() => void setNodeDetailMode(node.id, 'advanced')}
+              aria-pressed={nodeDetailMode === 'advanced'}
+            >
+              Advanced
+            </button>
+          </div>
         </div>
 
         <NodeDetailAphorismSection
@@ -436,7 +456,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           aphorismDraft={aphorismDraft}
           setAphorismDraft={setAphorismDraft}
         />
-        <NodeLastEditedLine node={node} viewMode={viewMode} />
+        <NodeLastEditedLine node={node} nodeDetailMode={nodeDetailMode} />
       </div>
 
       {hasErrors && (
@@ -453,7 +473,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         cruxCount={cruxCount}
         factCount={factCount}
         editHistoryLength={getEditHistoryLength(node)}
-        viewMode={viewMode}
+        viewMode={nodeDetailMode}
       />
 
       {/* Tab content */}
