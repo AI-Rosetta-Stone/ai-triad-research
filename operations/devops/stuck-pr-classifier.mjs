@@ -15,6 +15,7 @@
  * visible everywhere else. That blind spot is exactly what stuck-required-run exists to catch.
  */
 import { SO_CLEARED_RE } from './fleet-delivery-metrics.mjs';
+import { extractTier } from './tier-check-predicate.mjs';
 
 export const REQUIRED_CONTEXTS = ['ci-gate', 'CodeQL', 'joint-gv-guard', 'consult-hold-guard'];
 
@@ -104,6 +105,11 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
  *   SO_CLEARED_RE (t/4533, reusing fleet-delivery-metrics.mjs's own detector) -- an SO has
  *   replied (cleared, or explicitly "did not review"), so the time-box question is already
  *   answered and this is ordinary `held` (waiting on PI/TL), never `consult-hold-aged`.
+ * @param {boolean} [pr.hasApproval] - true if any PR review is in APPROVED state (t/4557).
+ *   Combined with every required context green and NOT autoMergeEnabled, this is
+ *   `approved-not-armed`, not generic `idle` -- a ready-to-merge PR nobody armed yet.
+ * @param {string} [pr.body] - the PR body (t/4557); extractTier(pr.body) === 'T0' also counts
+ *   as "ready" for `approved-not-armed` even with no review at all, since T0 needs none.
  * @param {number} nowMs
  * @returns {{class:string, detail:object}|null}
  */
@@ -210,7 +216,43 @@ export function classifyBlocker(pr, nowMs) {
     }
   }
 
-  // 6. idle
+  // 6. approved-not-armed (t/4557, TL p/702#93/#95) -- checked BEFORE idle so a PR that is
+  //    genuinely ready to merge but simply never got armed is never mistaken for generic
+  //    staleness. Distinct from (and lower-severity than) a real blocker: escalates to the
+  //    owner immediately (see escalationLevel), since the PI decided NOT to make
+  //    t1-approval-guard a required context (t/4091), so this sweep is now the primary
+  //    mechanism that catches "ready but not armed" at all.
+  //    "Ready" means every required context green, AND EITHER a real APPROVED review exists
+  //    OR the PR's own declared tier is T0 -- a T0 PR needs no approval at all per Change
+  //    Tiers (root AGENTS.md), so requiring hasApproval alone would miss it (confirmed live on
+  //    PR #3926, a green T0 doc PR with zero reviews that the TL still flagged as this exact
+  //    shape). A T1/T2 PR that's green but genuinely still awaiting approval does NOT fire
+  //    here -- it correctly isn't "ready" yet.
+  if (!pr.autoMergeEnabled) {
+    const allGreen = REQUIRED_CONTEXTS.every((name) => {
+      const run = runFor(name);
+      return run && run.status === 'completed' && run.conclusion === 'success';
+    });
+    const tier = extractTier(pr.body);
+    if (allGreen && (pr.hasApproval || tier === 'T0')) {
+      return { class: 'approved-not-armed', detail: { remedy: 'Every required context is green and the PR is ready (approved, or T0 needing no approval), but auto-merge was never armed -- arm it (gh pr merge --auto --squash --match-head-commit <sha>), or merge directly if mergeStateStatus is already CLEAN.' } };
+    }
+  }
+
+  // 7. CI still in flight -- NOT stuck (t/4557, TL p/702#93: "CI running isn't stuck at all").
+  //    A required context that is queued/in_progress but has NOT yet crossed its own
+  //    stuck-required-run threshold (case 3 above) is legitimately still working. Without this
+  //    guard, a PR whose latest push predates IDLE_DETECT_HOURS but whose CI run simply hasn't
+  //    finished yet would fall through to `idle` below and alert on normal, unremarkable
+  //    in-progress CI -- exactly the #3934 false alarm the TL found. Checked before idle, after
+  //    every genuinely-stuck class above has already had its chance to fire.
+  const ciInFlight = REQUIRED_CONTEXTS.some((name) => {
+    const run = runFor(name);
+    return run && (run.status === 'queued' || run.status === 'in_progress');
+  });
+  if (ciInFlight) return null;
+
+  // 8. idle
   if (pr.lastActivityAt) {
     const idleHours = (nowMs - Date.parse(pr.lastActivityAt)) / 3600000;
     if (idleHours > IDLE_DETECT_HOURS) {
@@ -224,17 +266,20 @@ export function classifyBlocker(pr, nowMs) {
 /**
  * PURE. Given a named blocker and how long its episode has been open, decides who to ping.
  * 'held' never escalates, regardless of age — holds are deliberate (t/4115 design).
- * 'consult-hold-aged' (t/4533) escalates to the owner IMMEDIATELY on the episode's first scan
- * (episodeAgeHours can be ~0 here) -- the class only exists once the SO's own 2h time-box has
- * already passed with no reply, so waiting an additional OWNER_SLA_HOURS on top would double
- * the real delay. It still escalates to the TL at the normal TL_SLA_HOURS if the owner ping
- * itself goes unaddressed.
+ * 'consult-hold-aged' (t/4533) and 'approved-not-armed' (t/4557) escalate to the owner
+ * IMMEDIATELY on the episode's first scan (episodeAgeHours can be ~0 here) -- both only exist
+ * once their own condition is already true (the 2h SO time-box lapsed; every required context
+ * is already green and approved), so there is nothing left to wait on before notifying the
+ * owner. Both still escalate to the TL at the normal TL_SLA_HOURS if the owner ping itself goes
+ * unaddressed -- 'approved-not-armed' is now the PRIMARY mechanism for this class of miss since
+ * the PI decided not to make t1-approval-guard a required context (t/4091), so it must not go
+ * silent past its own owner ping.
  * @returns {'none'|'owner'|'tl'}
  */
 export function escalationLevel(blockerClass, episodeAgeHours) {
   if (blockerClass === 'held') return 'none';
   if (episodeAgeHours >= TL_SLA_HOURS) return 'tl';
-  if (blockerClass === 'consult-hold-aged') return 'owner';
+  if (blockerClass === 'consult-hold-aged' || blockerClass === 'approved-not-armed') return 'owner';
   if (episodeAgeHours >= OWNER_SLA_HOURS) return 'owner';
   return 'none';
 }

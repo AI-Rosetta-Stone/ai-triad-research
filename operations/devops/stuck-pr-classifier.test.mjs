@@ -226,6 +226,50 @@ test('t/4096 arm 1: a recheck the caller never performed (undefined) does NOT es
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
 });
 
+// ── approved-not-armed (t/4557) ──
+test('approved-not-armed: approved, every required context green, NOT armed -> fires, escalates to owner immediately', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, lastActivityAt: hoursAgo(5) /* would otherwise be idle */ });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'approved-not-armed');
+  assert.equal(escalationLevel(v.class, 0), 'owner');
+});
+test('NOT approved-not-armed: approved and green, but ALREADY armed -> falls through (not this class)', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: true, lastActivityAt: minsAgo(5) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+test('NOT approved-not-armed: a T1/T2 PR not yet approved, even though green and unarmed -> correctly NOT ready yet (falls through to idle/null)', () => {
+  const pr = basePr({ hasApproval: false, autoMergeEnabled: false, lastActivityAt: minsAgo(5), body: 'Tier: T1\n...' });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+
+test('approved-not-armed: a T0 PR with NO review at all still fires -- T0 needs no approval (real shape, PR #3926)', () => {
+  const pr = basePr({ hasApproval: false, autoMergeEnabled: false, body: 'Tier: T0\n...' });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+test('NOT approved-not-armed: approved and unarmed, but a required context is NOT green -> falls through (a real failure/in-flight class takes priority)', () => {
+  const pr = basePr({
+    hasApproval: true, autoMergeEnabled: false,
+    runs: allGreenRuns({ 'ci-gate': { status: 'completed', conclusion: 'failure' } }),
+  });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+
+// ── CI still in flight is NOT stuck (t/4557, the #3934 false-alarm shape) ──
+test('CI in flight: a required context queued or in_progress, under its own stuck threshold, with stale lastActivityAt -> null, NOT idle', () => {
+  const pr = basePr({
+    lastActivityAt: hoursAgo(2), // would otherwise trip idle
+    runs: allGreenRuns({ 'ci-gate': { status: 'in_progress', conclusion: null, startedAt: minsAgo(5) } }),
+  });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+test('CI in flight guard does NOT mask a run that IS past its stuck threshold (stuck-required-run still fires)', () => {
+  const pr = basePr({
+    lastActivityAt: hoursAgo(2),
+    runs: allGreenRuns({ 'ci-gate': { status: 'in_progress', conclusion: null, startedAt: hoursAgo(1) } }),
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'stuck-required-run');
+});
+
 // ── idle ──
 test('idle: no other blocker, no activity for over the idle-detect threshold', () => {
   const pr = basePr({ lastActivityAt: hoursAgo(2) });
