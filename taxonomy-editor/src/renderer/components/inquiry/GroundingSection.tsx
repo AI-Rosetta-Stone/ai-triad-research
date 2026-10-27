@@ -4,11 +4,12 @@
 import { useState } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { InquiryResult } from '../../bridge/types';
+import type { Camp } from '@lib/inquiry/schema';
 import { CAMP_LABELS } from './inquiryDisplay';
 import './GroundingSection.css';
 
-type GroundingCamp = 'accelerationist' | 'safetyist' | 'skeptic';
-const CAMPS: GroundingCamp[] = ['accelerationist', 'safetyist', 'skeptic'];
+type GroundingCamp = Camp;
+const CAMPS: GroundingCamp[] = ['acc', 'saf', 'skp'];
 
 interface GroundingSectionProps {
   result: InquiryResult;
@@ -18,7 +19,7 @@ export function GroundingSection({ result }: GroundingSectionProps) {
   // Hide section if no grounding data
   if (!result.grounding) {
     getGlobalRecorder()?.record({
-      type: 'system.warning',
+      type: 'system.error',
       component: 'GroundingSection',
       level: 'warn',
       message: 'Inquiry result missing grounding data (older result?)',
@@ -26,17 +27,23 @@ export function GroundingSection({ result }: GroundingSectionProps) {
     return null;
   }
 
-  const [activeTab, setActiveTab] = useState<GroundingCamp | 'situation'>('accelerationist');
+  const [activeTab, setActiveTab] = useState<GroundingCamp | 'situation'>('acc');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   // Get items for the active tab
-  const getTabItems = () => {
+  interface GroundingItem {
+    nodeId: string;
+    label: string;
+  }
+
+  const getTabItems = (): GroundingItem[] => {
     if (activeTab === 'situation') {
       return result.grounding.anchorSituationId
         ? [{ nodeId: result.grounding.anchorSituationId, label: result.grounding.anchorSummary || result.grounding.anchorSituationId }]
         : [];
     }
-    return result.grounding.nodesByCamp?.[activeTab] || [];
+    const items = result.grounding.nodesByCamp?.[activeTab as 'acc' | 'saf' | 'skp' | 'cc'] || [];
+    return items as GroundingItem[];
   };
 
   const items = getTabItems();
@@ -57,7 +64,7 @@ export function GroundingSection({ result }: GroundingSectionProps) {
               setSelectedRowId(null); // Reset selection on tab change
             }}
           >
-            {camp === 'situation' ? 'Situation' : CAMP_LABELS[camp]}
+            {camp === 'situation' ? 'Situation' : CAMP_LABELS[camp as 'acc' | 'saf' | 'skp' | 'cc']}
           </button>
         ))}
       </div>
@@ -114,3 +121,7 @@ export function GroundingSection({ result }: GroundingSectionProps) {
     </div>
   );
 }
+
+
+
+

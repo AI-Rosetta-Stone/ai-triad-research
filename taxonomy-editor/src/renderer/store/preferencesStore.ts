@@ -51,7 +51,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     set({ nodeDetailModes: updated });
     try {
       const { api } = await import('@bridge');
-      await api.setPreferences({ nodeDetailModes: updated });
+      const state = get(); await api.setPreferences({ viewMode: state.viewMode, nodeDetailModes: updated });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to persist node detail mode', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
@@ -65,7 +65,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
         set({ viewMode: prefs.viewMode });
       }
       if (prefs?.nodeDetailModes) {
-        set({ nodeDetailModes: prefs.nodeDetailModes });
+        set({ nodeDetailModes: prefs.nodeDetailModes as Record<string, 'simple' | 'advanced'> });
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to hydrate preferences from bridge', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
@@ -74,3 +74,4 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 }));
 
 ((window as unknown as { __ZUSTAND_STORES__?: Record<string, unknown> }).__ZUSTAND_STORES__ ??= {} as Record<string, unknown>).preferences = usePreferencesStore;
+

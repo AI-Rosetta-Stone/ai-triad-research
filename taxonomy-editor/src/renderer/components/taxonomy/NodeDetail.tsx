@@ -145,6 +145,7 @@ function NodeLastEditedLine({ node, nodeDetailMode }: { node: PovNode; nodeDetai
 export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRelated, onOpenSoulDoc, chipDepth = 0, conflict, resolveUrl }: NodeDetailProps) {
   const { updatePovNode, deletePovNode, movePovNodeCategory, movePovNode, validationErrors, getAllNodeIds, getAllConflictIds, runAttributeFilter, showAttributeInfo, navigateToLineage, setToolbarPanel, selectedEdge, relatedNodeId, loadEdges, edgesFile, setSelectedNodeId, getLabelForId, aggregatedCruxes, showCruxDetail, conflicts, accelerationist, safetyist, skeptic, situations } = useTaxonomyStore();
   const authInfo = useAuthStatus();
+  const isAdmin = useIsAdmin();
   const getNodeDetailMode = usePreferencesStore(state => state.getNodeDetailMode);
   const setNodeDetailMode = usePreferencesStore(state => state.setNodeDetailMode);
   const nodeDetailMode = getNodeDetailMode(node.id);
@@ -397,7 +398,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           readOnly={readOnly}
           err={err}
           update={update}
-          onPin={viewMode === 'advanced' ? onPin : undefined}
+          onPin={nodeDetailMode === 'advanced' ? onPin : undefined}
           moveTargets={moveTargets}
           setShowDelete={setShowDelete}
           labelContent={labelContent}
@@ -447,7 +448,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
               </button>
             </div>
             {/* Admin-gated overflow menu (t/4574) */}
-            {authInfo?.isAdmin && (
+            {isAdmin && (
               <OverflowMenu
                 entries={[
                   { type: 'item', key: 'search', label: 'Search Taxonomy', onClick: onSimilarSearch ?? (() => {}) },
@@ -1487,3 +1488,7 @@ function EvidenceGraphSection({ nodeId }: { nodeId: string }) {
     </div>
   );
 }
+
+
+
+
