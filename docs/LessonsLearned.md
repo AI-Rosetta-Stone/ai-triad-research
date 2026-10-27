@@ -5288,6 +5288,8 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Pattern:** An agent runs `gh pr merge <N> --squash --match-head-commit <short-sha>` using an abbreviated commit SHA (7–8 hex chars). The call is rejected with a GraphQL coercion error. `--match-head-commit` passes the value directly to GitHub's GraphQL API, which expects a full 40-character OID. An abbreviated SHA is not a valid OID and fails schema validation before the merge is attempted.
 
+**Facet — a full-length but WRONG SHA fails differently:** instead of an abbreviated SHA, the agent hand-copies or reconstructs a full 40-char-looking SHA that is actually mis-copied or truncated-and-refilled, sharing only a short prefix with the real head. Because the value passes GraphQL's format validation (it's syntactically a valid OID), the error is NOT a coercion error — it's "Head branch was modified. Review and try the merge again," GitHub's generic head-mismatch message. The underlying cause and fix are identical (never hand-type or reconstruct the OID; always read it fresh), but the diagnostic signature differs from the abbreviated-SHA case.
+
 **Instances:**
 - 2026-10-15 — ServerAPI (p/504#21): `gh pr merge 3301 --squash --match-head-commit aa938981` (8 chars) rejected with GraphQL coercion error. Resolved by re-running with `$(gh pr view 3301 --json headRefOid -q .headRefOid)`.
 
@@ -5298,7 +5300,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 12 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`; Azure p/105#37 — short SHA `c69a0754` passed to PR #3923's merge, same GraphQL coercion failure, same fix). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 13 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`; Azure p/105#37 — short SHA `c69a0754` passed to PR #3923's merge, same GraphQL coercion failure, same fix; DevOps Worker p/749#41 — **Facet instance**: full-length but mis-copied SHA on PR #3949 (shared only an 8-char prefix with the real head) → "Head branch was modified. Review and try the merge again," not a coercion error; fixed by re-fetching `headRefOid` fresh). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -7676,3 +7678,44 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#154, t/4556).
 
 **Applies To:** All agents writing scripts or lookups that reference file paths; never couple to a sibling agent's worktree lifetime.
+
+---
+
+## #378 [Build] Concurrent Review Sessions Collide on Electron's Hard-Coded `localhost:5173` — Never Kill an Unowned Dev Server
+
+**Pattern:** An agent's review/verification script launches (or expects) a Vite dev server, guarded by a check that aborts if port 5173 is already listening. Another session's Vite dev server has been running on that port since earlier — the Electron main process hard-codes `localhost:5173` as its dev-server URL, so any two concurrent sessions reviewing the Electron app collide on the same fixed port.
+
+**Instances:**
+- 2026-10-27 — Design: review script's guard aborted because port 5173 was already listening — another session's Vite dev server had been running there since 06:12. Resolved: left the other session's server alone, ran a second Vite instance on port 5191, and pointed the Electron window at it with electron-mcp `navigate` (p/472#17).
+
+**Root Cause:** The Electron main process reads a fixed `localhost:5173` dev-server URL rather than an env-var-configurable port. Two agents independently reviewing/testing the Electron app at the same time each try to bind the same port; whichever one runs second collides.
+
+**Prevention:**
+1. **Before launching a dev server for review, check if port 5173 is already in use.** If it is, don't assume it's stale — another session may own it.
+2. **Never kill a dev server you didn't start**, even if it's "in your way." Killing another agent's active server interrupts their session without warning.
+3. **Run your own Vite instance on a different port** (e.g. 5191) and point Electron's `navigate` (via electron-mcp or manual URL entry) at your port instead of the hard-coded default.
+4. **Consider whether Electron's dev-server URL should be configurable via env var** rather than hard-coded — a process-design candidate for whoever owns the Electron main process, to avoid this collision class entirely.
+
+**Status:** Active — 1 instance (Design p/472#17).
+
+**Applies To:** All agents running the Electron app's dev server for review or testing; check the port first, never kill an unowned server, use an alternate port + explicit navigate when 5173 is taken.
+
+---
+
+## #379 [Build] Vite's Served Root Is `src/renderer` — Served Paths Drop That Prefix, Causing False-Negative Fix-Verification Probes
+
+**Pattern:** An agent verifies a CSS/JS fix is actually being served by probing a URL path that mirrors the source file's repo-relative path (e.g. `/src/renderer/components/ExplainPanel.css`). Vite's configured root for this project is `src/renderer`, so served paths are relative to THAT root, not the repo root — the real served path drops the `src/renderer` prefix (e.g. just `/components/ExplainPanel.css` or similar). The mirrored-source-path probe 404s or doesn't match, producing a false negative: the agent concludes the fix isn't being served when it actually is.
+
+**Instances:**
+- 2026-10-27 — Design (p/472#17): a "does it serve the fix?" probe against a repo-relative-looking path gave a false negative for a correctly-serving dev server, because Vite's root (`src/renderer`) drops that prefix from served paths. Resolved after realizing the root-relative mismatch and probing the correct served path.
+
+**Root Cause:** Vite's `root` config option changes what "relative" means for served static assets — paths are served relative to the configured root, not the project/repo root. An agent that constructs a probe URL from the source file's repo-relative path (natural habit, since that's how you'd reference it in most other contexts) gets a path that doesn't exist in Vite's URL space.
+
+**Prevention:**
+1. **Check the Vite config's `root` option before constructing a probe URL** — the served path is relative to that root, not the repo root.
+2. **When a "does it serve the fix?" probe 404s or returns stale content, verify the URL path against Vite's actual root-relative convention before concluding the server isn't serving the fix.** A 404 here is as likely to be a path-construction error as a real serving problem.
+3. **Prefer probing via the browser/Electron window itself (render and visually or via DOM inspection confirm the fix) over raw URL path guessing**, when precision about Vite's root-relative path mapping isn't already known.
+
+**Status:** Active — 1 instance (Design p/472#17).
+
+**Applies To:** All agents probing a Vite dev server to verify a fix is served; account for the configured `root` when constructing probe URLs, don't assume repo-relative paths.
