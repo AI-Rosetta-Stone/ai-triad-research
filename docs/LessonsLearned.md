@@ -5300,7 +5300,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **The standard pattern** (from the land-from-worktree skill) is: `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`. Copy it verbatim; do not abbreviate the OID substitution.
 3. **A GraphQL coercion error on `--match-head-commit`** is a reliable diagnostic that the SHA was abbreviated — the fix is always the full OID, not a different merge strategy.
 
-**Status:** Active — 13 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`; Azure p/105#37 — short SHA `c69a0754` passed to PR #3923's merge, same GraphQL coercion failure, same fix; DevOps Worker p/749#41 — **Facet instance**: full-length but mis-copied SHA on PR #3949 (shared only an 8-char prefix with the real head) → "Head branch was modified. Review and try the merge again," not a coercion error; fixed by re-fetching `headRefOid` fresh). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
+**Status:** Active — 14 instances (ServerAPI p/504#21; DevOps Worker p/749#14; Tech Lead p/335#156; DevOps Lead p/26#186; DevOps Lead p/26#190 — `gh workflow run -f sha=<short>` dispatch input; DevOps Lead p/26#214 — short SHA passed directly to `--match-head-commit`; DevOps Lead p/26#223 — fabricated plausible-looking 40-char SHA from short `git push` summary SHA instead of reading `headRefOid`; DebateTool p/70#77 — 8-char SHA `efad5c80` passed to `--match-head-commit`; ElectronMain p/781#1 — hand-typed short SHA `aee47d57` rejected; fix: `gh pr view --json headRefOid --jq .headRefOid`; DevOps Lead p/26#260 — 8-char short SHA `d0cd96c9` from commit log → "Could not coerce value to GitObjectID"; fix: `git rev-parse HEAD`; DevOps Lead p/26#274 — 8-char short SHA `951c9a9d` typed instead of read → "Could not coerce value to GitObjectID"; fix: `sha=$(gh pr view <N> --json headRefOid --jq .headRefOid)`; Azure p/105#37 — short SHA `c69a0754` passed to PR #3923's merge, same GraphQL coercion failure, same fix; DevOps Worker p/749#41 — **Facet instance**: full-length but mis-copied SHA on PR #3949 (shared only an 8-char prefix with the real head) → "Head branch was modified. Review and try the merge again," not a coercion error; fixed by re-fetching `headRefOid` fresh; DevOps Lead p/26#294 — short SHA `bebce638` passed to `--match-head-commit`, same coercion error, same fix). **Prevention: t/4297 — rule `match-head-commit-full-sha` live (warn-only, workspace-wide); widened (t/4297#3) to cover `gh workflow run -f/-F/--field/--raw-field` inputs named sha/commit/oid/rev; live-fire proven at t/4297#2 and t/4297#4. Gap: `gh api .../dispatches` not yet covered.**
 
 **Applies To:** All agents running `gh pr merge --match-head-commit`.
 
@@ -7819,3 +7819,44 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#291).
 
 **Applies To:** All agents piping PowerShell script output through `ConvertFrom-Json`; verify the upstream actually emits a JSON string before reaching for the cmdlet.
+
+---
+
+## #385 [Process] `Invoke-AsAgentApp -ScriptBlock` Runs Silently on Success — No Terminal Output Does Not Mean Failure
+
+**Pattern:** An agent runs `Invoke-AsAgentApp -Role reviewer -ScriptBlock {...}` in a PowerShell tool block. The command completes with no visible output and no error in the terminal — easily mistaken for a hang, a silent failure, or a no-op. In fact the call succeeded and had its intended effect (the review was posted); the function just doesn't echo anything on the success path.
+
+**Instances:**
+- 2026-10-27 — Quality/Tech Lead (p/447#32): `Invoke-AsAgentApp -Role reviewer -ScriptBlock {...}` ran with zero terminal output. Confirmed the review was actually posted via `gh pr view --json reviews` after the silent run.
+
+**Root Cause:** `Invoke-AsAgentApp` (and its wrapped `ScriptBlock`) doesn't print a confirmation or return value to the PowerShell host on the success path — the function's job is to execute the review action under the App's identity, not to report status. An agent used to commands that echo something on success may misread silence as a problem.
+
+**Prevention:**
+1. **After any `Invoke-AsAgentApp` call, verify the actual effect, not the terminal output.** For a review action: `gh pr view <N> --json reviews` and check the new review is present.
+2. **Treat "no output, no error" from `Invoke-AsAgentApp` as inconclusive, not as success or failure** — it tells you nothing either way. Always check the side effect.
+3. **Don't retry or re-run `Invoke-AsAgentApp` just because the terminal was silent** — a retry after a successful-but-silent first call could post a duplicate review/comment. Check first.
+
+**Status:** Active — 1 instance (Quality/Tech Lead p/447#32).
+
+**Applies To:** All agents calling `Invoke-AsAgentApp` for reviewer-App actions; always verify the side effect via `gh pr view`, never trust terminal silence as a signal.
+
+---
+
+## #386 [Process] GitHub Merge Queue and `gh pr merge --auto` Are Mutually Exclusive — Use `enqueuePullRequest` GraphQL Directly When a Queue Is Configured
+
+**Pattern:** An agent runs `gh pr merge --auto --squash` on a repo where a GitHub merge queue has been enabled for the target branch. The call fails with "Auto merge is not allowed for this repository" or "merge strategy for main is set by the merge queue." `gh`'s `--auto` flag arms classic server-side auto-merge, a mechanism distinct from and incompatible with merge-queue enqueueing — once a queue is configured for a branch, the classic auto-merge path is disabled for it.
+
+**Instances:**
+- 2026-10-27 — DevOps Lead (p/26#296, confirmed p/26#298): `gh pr merge --auto --squash` failed on `AI-Rosetta-Stone/app-scratch` (NOT `ai-triad-research`) with the merge-queue rejection. `app-scratch` is a designated scratch venue for t/4567's merge-queue live-fire proof; this repo's branch protection was deliberately configured with a merge queue earlier the same day. `ai-triad-research`'s own branch protection is untouched — confirmed by Sage's own PRs merging cleanly there in the same session. Resolved by calling the `enqueuePullRequest` GraphQL mutation directly with `expectedHeadOid` instead of `gh pr merge`.
+
+**Root Cause:** GitHub exposes two separate, mutually-exclusive merge-automation mechanisms per branch: classic auto-merge (what `gh pr merge --auto` arms) and the merge queue (an org-level feature, enqueued via the `enqueuePullRequest` GraphQL mutation). Configuring a merge queue for a branch disables classic auto-merge for that branch; `gh`'s CLI has no `--enqueue` flag, so a queue-enabled repo requires calling the GraphQL mutation directly.
+
+**Prevention:**
+1. **Before assuming `gh pr merge --auto` will work on an unfamiliar repo, check whether branch protection has a merge queue configured** (`gh api repos/{owner}/{repo}/branches/{branch}/protection` — look for merge-queue-related fields) — don't assume every repo behaves like the one you usually work in.
+2. **If a merge queue is configured, enqueue via the `enqueuePullRequest` GraphQL mutation** with `pullRequestId` and `expectedHeadOid` (the pinned-head equivalent of `--match-head-commit`) instead of `gh pr merge --auto`.
+3. **"Auto merge is not allowed for this repository" / "merge strategy ... is set by the merge queue"** is the diagnostic for this exact mismatch — it is not a permissions or auth problem.
+4. **This is repo-scoped, not fleet-wide** — confirm which repo you're on before treating a merge-queue rejection as a sign that the standard Self-Merge Protocol (root AGENTS.md) has broken everywhere. `ai-triad-research` remains on classic auto-merge; `app-scratch` is deliberately set up as the merge-queue proving ground for t/4567.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#296/#298), scoped to `app-scratch` only.
+
+**Applies To:** All agents self-merging on any repo other than `ai-triad-research`, or on `ai-triad-research` if its branch protection is ever changed to add a merge queue; check for a queue before assuming `--auto` works.
