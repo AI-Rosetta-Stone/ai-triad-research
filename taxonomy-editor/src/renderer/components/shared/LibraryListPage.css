@@ -6,20 +6,6 @@
    CSS vars) — this is a fixed redesign look, not theme-reactive. */
 
 .library-list-page {
-  --lib-bg: #f4f0ea;
-  --lib-text: #2b2622;
-  --lib-text-secondary: #5d554f;
-  --lib-text-faded: #8a8079;
-  --lib-dash: #b3aaa2;
-  --lib-accent: #9e2236;
-  --lib-accent-hover: #861b2d;
-  --lib-border-header: #e0d8cd;
-  --lib-border-row: #e6dfd5;
-  --lib-border-control: #ddd5ca;
-  --lib-active-bg: #f3dde1;
-  --lib-inactive-badge-bg: #e8e1d7;
-  --lib-row-hover: #ece6dd;
-
   background: var(--lib-bg);
   color: var(--lib-text);
   padding: 28px 32px;
