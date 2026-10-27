@@ -312,6 +312,31 @@
   color: #27ae60;
 }
 
+/* t/4538 (reopened, t/4538#2): nowrap plus the POVer/mode/topic/Export/Share content (~414px)
+   overflowed the ~263px phone-width header, scrolling the whole chat pane sideways and pushing
+   Export/Share off-screen. Wrap instead: POVer + mode switcher + topic stay on row 1, Export and
+   Share drop to row 2 — both actions remain one tap away, no horizontal scroll.
+   .chat-header-left (POVer label + mode pills) is itself flex-shrink:0 and wider than the
+   phone-width header on its own, so it also needs to shrink/wrap — otherwise wrapping the
+   header alone still leaves that first row overflowing. Placed after the base rules above:
+   equal-specificity selectors resolve by source order, so a media-query block earlier in the
+   cascade than the unconditional rule it's meant to override loses even when it matches. */
+@media (max-width: 767px) {
+  .chat-header {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .chat-header-left {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+  }
+
+  .chat-mode-selector {
+    flex-wrap: wrap;
+  }
+}
+
 /* ─── Chat Error ─────────────────────────────────────── */
 
 .chat-error {
