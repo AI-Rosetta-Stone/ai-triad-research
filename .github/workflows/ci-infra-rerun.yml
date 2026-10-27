@@ -184,21 +184,16 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x operations/devops/get-merge-group-prs.sh
-          # workflow_run's event payload carries the merge_group's own base/head/ref under
-          # a DIFFERENT shape than a live merge_group event -- head_commit gives the group's
-          # test-merge commit; base_sha isn't directly exposed, so derive it as the parent of
-          # the oldest commit in head_commit's own first-parent chain is NOT reliable either.
-          # Simplest correct source: the workflow run's own `head_sha`/`head_branch` ARE the
-          # group's head_sha/head_ref (GitHub sets these identically for a merge_group-
-          # triggered run). base_sha is resolved by asking the compare API for head_sha against
-          # the target branch's current tip instead of a merge_group-specific base_sha --
-          # UNVERIFIED, flagged above; the live-fire arms will show if this needs adjustment.
-          BASE_SHA=$(gh api repos/${{ github.repository }}/git/ref/heads/${{ github.event.workflow_run.head_branch }} --jq '.object.sha' 2>/dev/null || echo "")
+          # workflow_run's `head_branch` IS the group's gh-readonly-queue ref (GitHub sets it
+          # identically to a live merge_group event's head_ref) -- rewritten after the live-fire
+          # finding that commit-based enumeration can't resolve a squash merge group's ephemeral
+          # test commit; this now queries mergeQueue.entries directly (no base/head sha needed).
+          HEAD_REF="${{ github.event.workflow_run.head_branch }}"
+          BRANCH=$(echo "$HEAD_REF" | grep -oP 'gh-readonly-queue/\K[^/]+')
           PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
             "${{ github.repository }}" \
-            "${BASE_SHA}" \
-            "${{ github.event.workflow_run.head_sha }}" \
-            "${{ github.event.workflow_run.head_branch }}")
+            "$BRANCH" \
+            "$HEAD_REF")
           echo "group PRs: $PRS_JSON"
           NUMBERS=$(echo "$PRS_JSON" | jq -r '[.[].number] | join(",")')
           echo "numbers=$NUMBERS" >> "$GITHUB_OUTPUT"
