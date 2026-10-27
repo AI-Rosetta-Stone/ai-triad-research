@@ -1,0 +1,282 @@
+[
+ {
+  "claim": "The designation strips the only existing friction — imperfect, privately held, democratically unaccountable friction — before any public standard exists to replace it.",
+  "gold": "saf-intentions-158",
+  "gold_best_statement": {
+   "cos": 0.387,
+   "statement": "While critics fear voluntary AI safety standards simply defer necessary regulation, ignoring them now means any eventual federal mandate would lack the crucial technical consensus and definitional clarity required for effective enforcement and demonstrated safety."
+  },
+  "argB_top1": {
+   "node": "saf-beliefs-131",
+   "cos": 0.421,
+   "statement": "What appears to be a 'slippery slope' fallacy is simply acknowledging that open-weight distribution permanently forfeits control over future applications, making post-release governance impossible regardless of initial capability thresholds."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "I would change this position if proponents could demonstrate, with independently verified evidence and legally enforceable mechanisms, a functional rollback plan for such irreversible harms, coupled with named institutional accountability for their failure to prevent societal breakdown.",
+  "gold": "saf-beliefs-111",
+  "gold_best_statement": {
+   "cos": 0.481,
+   "statement": "Comprehensive liability frameworks must mandate that AI developers conduct systematic stakeholder impact assessments before deployment and establish proactive remediation mechanisms for both documented harms and foregone benefits, creating enforceable accountability that transcends voluntary corporate social responsibility programs."
+  },
+  "argB_top1": {
+   "node": "saf-intentions-049",
+   "cos": 0.585,
+   "statement": "Critics contend that rollback mechanisms cannot address irreversible harms like manipulation or physical-world actions, but this objection misunderstands the compliance framework: mandating atomic transactions for AI agent operations creates an enforceable baseline that prevents the compounding failures which make recovery impossible, while regulatory authorities retain complementary enforcement mechanisms for non-digital harms through existing tort and administrative law."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Mechanistic interpretability must be transformed from a proprietary luxury into a state-subsidized public good.",
+  "gold": "acc-intentions-022",
+  "gold_best_statement": {
+   "cos": 0.446,
+   "statement": "The transformative power of open-weight AI hinges on enshrining the open-source ethos in international legal frameworks, explicitly shielding its distribution and modification from state-centric regulatory capture."
+  },
+  "argB_top1": {
+   "node": "acc-beliefs-109",
+   "cos": 0.622,
+   "statement": "Productionized mechanistic interpretability standards will create a dangerous asymmetry where systems satisfy regulatory audit criteria while remaining entirely incomprehensible to harmed individuals."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "The U.S. intelligence community has 18 agencies that are supposed to provide competitive analysis — in 2002-2003, they all converged on the same wrong answer about Iraqi weapons of mass destruction.",
+  "gold": "skp-beliefs-132",
+  "gold_best_statement": {
+   "cos": 0.474,
+   "statement": "We can empirically distinguish between community standards that filter demonstrably harmful proposals and purity tests that exclude nuanced critiques — the AI alignment field systematically conflates these categories to protect institutional authority."
+  },
+  "argB_top1": {
+   "node": "skp-beliefs-157",
+   "cos": 0.489,
+   "statement": "Independent benchmark datasets like the AI Incident Database provide objective baselines that expose how government press releases systematically omit failure modes documented in peer-reviewed literature — the measurement tools exist and the gap is empirically demonstrable."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "An excise tax, while potentially effective for easily quantifiable outputs, struggles to capture the diffuse, systemic harms of algorithmic bias that predict discrimination across populations, which are not simple 'verifiable outputs' but rather pervasive, often unintended, consequences of misaligned objective functions.",
+  "gold": "saf-beliefs-051",
+  "gold_best_statement": {
+   "cos": 0.585,
+   "statement": "Algorithmic fairness research establishes that bias metrics like demographic parity gaps and equalized odds violations function as leading indicators—systems exhibiting these patterns in controlled evaluations systematically produce discriminatory outcomes at deployment."
+  },
+  "argB_top1": {
+   "node": "saf-desires-003",
+   "cos": 0.69,
+   "statement": "Algorithmic discrimination in high-stakes domains—criminal sentencing, medical diagnosis, employment screening—produces irreversible individual harms that justify deployment prohibition until demonstrable fairness guarantees are verified through independent testing."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Research published in 'The Curse of Recursion' demonstrates that models trained on their own synthetic output experience a catastrophic degradation in performance within just a few generations.",
+  "gold": "saf-beliefs-063",
+  "gold_best_statement": {
+   "cos": 0.735,
+   "statement": "When generative models are iteratively retrained on their own synthetic outputs, they undergo irreversible degradation in their learned representations—a phenomenon that poses catastrophic operational risk to any enterprise relying on successive model generations for mission-critical applications."
+  },
+  "argB_top1": {
+   "node": "saf-beliefs-063",
+   "cos": 0.735,
+   "statement": "When generative models are iteratively retrained on their own synthetic outputs, they undergo irreversible degradation in their learned representations—a phenomenon that poses catastrophic operational risk to any enterprise relying on successive model generations for mission-critical applications."
+  },
+  "argB_top1_is_gold": true
+ },
+ {
+  "claim": "I disagree that applying \"prior, demonstrated safety and accountability\" to AI deployment constitutes a moral atrocity; rather, the true moral dereliction lies in deploying systems with known catastrophic potential without robust pre-deployment safeguards, gambling with the stability of human systems.",
+  "gold": "saf-intentions-161",
+  "gold_best_statement": {
+   "cos": 0.69,
+   "statement": "Accusing the demand for rigorous pre-deployment safety verification and runtime limitations of the nirvana fallacy overlooks that the alternative is an unacceptable risk of unmitigated AI harms from unproven systems, not a magically harm-free deployment."
+  },
+  "argB_top1": {
+   "node": "saf-intentions-077",
+   "cos": 0.765,
+   "statement": "The concern that optimizing AI deployment processes might inadvertently streamline systems past critical safety checks is valid, but ignoring the human element in pre-deployment planning, comprehensive training, and aligning incentives creates far greater risks of demonstrated AI harms, regardless of technical safeguards."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Governance without democratic participation is capture wearing a lab coat instead of a uniform.",
+  "gold": "skp-beliefs-117",
+  "gold_best_statement": {
+   "cos": 0.46,
+   "statement": "Absent genuine cooling-off periods and meaningful public deliberation, ostensibly democratic consultations merely serve to dismantle the institutional counterweights crucial for robust governance."
+  },
+  "argB_top1": {
+   "node": "skp-beliefs-117",
+   "cos": 0.46,
+   "statement": "Absent genuine cooling-off periods and meaningful public deliberation, ostensibly democratic consultations merely serve to dismantle the institutional counterweights crucial for robust governance."
+  },
+  "argB_top1_is_gold": true
+ },
+ {
+  "claim": "The governance frameworks both prior speakers propose share a structural flaw: they require institutional capacity that under-resourced institutions do not currently have.",
+  "gold": "acc-intentions-107",
+  "gold_best_statement": {
+   "cos": 0.437,
+   "statement": "The charge that agile regulatory frameworks are a questionable analogy overlooks the fundamental reality that *all* complex, dynamic AI systems demand adaptive safety protocols and iterative improvement, rendering static governance inherently obsolete."
+  },
+  "argB_top1": {
+   "node": "acc-desires-026",
+   "cos": 0.581,
+   "statement": "Legacy governance institutions consistently fail equity benchmarks that AI-driven resource allocation could satisfy through transparent, bias-audited distribution protocols operating at population scale."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "The core mechanism of granting limited liability immunity to AI developers, even in exchange for an excise tax, dismantles the essential principle of \"skin-in-the-game.\"",
+  "gold": "saf-beliefs-205",
+  "gold_best_statement": {
+   "cos": 0.762,
+   "statement": "Developers strategically route liability through AI intermediaries, exploiting the legal ambiguity of algorithmic decision-making to insulate themselves from tort claims when deployed systems cause measurable harm."
+  },
+  "argB_top1": {
+   "node": "saf-beliefs-205",
+   "cos": 0.762,
+   "statement": "Developers strategically route liability through AI intermediaries, exploiting the legal ambiguity of algorithmic decision-making to insulate themselves from tort claims when deployed systems cause measurable harm."
+  },
+  "argB_top1_is_gold": true
+ },
+ {
+  "claim": "According to \"The 2025 Foundation Model Transparency Index,\" the average transparency score for the AI industry is a dismal 40.69 out of 100, confirming that developers rarely provide the documentation needed for third parties to establish fault.",
+  "gold": "skp-beliefs-183",
+  "gold_best_statement": {
+   "cos": 0.663,
+   "statement": "The SEC must mandate audited algorithmic transparency registries for critical AI systems, given that current post-hoc explainability techniques have demonstrably failed to reverse public distrust or stem the decline in enterprise adoption attributable to opaque systemic harms."
+  },
+  "argB_top1": {
+   "node": "skp-beliefs-213",
+   "cos": 0.709,
+   "statement": "Corporate AI labs have successfully redefined 'transparency' to mean selective disclosure of politically convenient metrics while concealing the architectural decisions that drive distributional harms."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "For admissions, the structurally sound alternative is notification plus enhanced review — meaning a dedicated reviewer independent of the admissions office.",
+  "gold": "acc-intentions-110",
+  "gold_best_statement": {
+   "cos": 0.309,
+   "statement": "Quality dimensions like interpretability, robustness, and runtime efficiency are sufficiently orthogonal that we can measure each independently without missing critical interaction effects that emerge only in production."
+  },
+  "argB_top1": {
+   "node": "acc-intentions-118",
+   "cos": 0.4,
+   "statement": "The expansive gains from a ubiquitous interpretability dashboard, capable of overseeing diverse models, fundamentally eclipse the narrow, often static, insights derived from model-specific auditing."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Section 115 of the Copyright Act already establishes mechanical license rates set by the Copyright Royalty Board, not by negotiation between unequal parties — compulsory licensing at statutory rates avoids the consolidation the Accelerationist warns about.",
+  "gold": "skp-beliefs-189",
+  "gold_best_statement": {
+   "cos": 0.477,
+   "statement": "Critical Legal Studies illuminates how vendor licensing agreements serve as contractual mechanisms to entrench power asymmetries, effectively foreclosing independent AI system assessment and public accountability."
+  },
+  "argB_top1": {
+   "node": "skp-intentions-014",
+   "cos": 0.493,
+   "statement": "Compensation frameworks modeled on mechanical licensing in music publishing demonstrate that per-use payment systems can operate at scale without creating insurmountable compliance barriers for smaller developers."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "The burden falls on the Skeptic to explain why labor market data from sources outside the tech industry should be dismissed as manufactured panic.",
+  "gold": "acc-beliefs-066",
+  "gold_best_statement": {
+   "cos": 0.485,
+   "statement": "The left's tendency to conflate technological advancement with corporate malfeasance produces a zero-sum posture where innovation itself becomes suspect, blocking the iterative refinement essential for real-time safety telemetry."
+  },
+  "argB_top1": {
+   "node": "acc-beliefs-086",
+   "cos": 0.559,
+   "statement": "Accusing us of hasty generalization from past revolutions ignores the fundamental, structurally inevitable economic process of creative destruction; AI amplifies, not negates, this historical pattern of novel labor market creation."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "California's public universities are not tearing themselves apart because they adopted AI tools — they are tearing themselves apart because they adopted AI tools without investing in governance, training, or faculty support alongside them.",
+  "gold": "acc-beliefs-043",
+  "gold_best_statement": {
+   "cos": 0.512,
+   "statement": "The disparity between 'little tech' innovation potential and institutional barriers imposed by legacy compliance regimes constitutes our greatest obstacle to AI progress."
+  },
+  "argB_top1": {
+   "node": "acc-intentions-089",
+   "cos": 0.625,
+   "statement": "Applying creative destruction, the calcified institutional structures impeding AI's dynamic progress are overdue for obsolescence, demanding their total replacement with architectures designed for perpetual innovation."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Counting how many times a Getty image or a New York Times article appears in a training corpus before the model ever sees it is a database query — it scales linearly.",
+  "gold": "skp-beliefs-005",
+  "gold_best_statement": {
+   "cos": 0.329,
+   "statement": "Even granting that ε-bounded differential privacy mechanisms reduce point-wise extraction success rates in controlled adversarial settings, this overlooks the empirical reality that production frontier models are deployed with privacy budgets orders of magnitude weaker than theoretical guarantees require—leaked memorization surfaces in aggregate statistics, not individual extraction queries, and no deployed system has demonstrated mathematically verifiable unlearning at the scale required to address structural PII retention across multi-terabyte training corpora."
+  },
+  "argB_top1": {
+   "node": "skp-beliefs-004",
+   "cos": 0.376,
+   "statement": "Within five years, AI-generated text will constitute over 40% of web-scraped training data, fundamentally altering the composition of datasets that form the backbone of next-generation models."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Statutory discovery is the only mechanism that can bridge this accountability gap by providing the adversarial pressure needed to force disclosure.",
+  "gold": "skp-desires-080",
+  "gold_best_statement": {
+   "cos": 0.619,
+   "statement": "Congress must establish a statutory right enabling citizens to compel disclosure of algorithmic decision logic when systems materially affect civil rights, employment, or credit access — trade secret protection cannot shield democratic accountability from public scrutiny."
+  },
+  "argB_top1": {
+   "node": "skp-beliefs-243",
+   "cos": 0.655,
+   "statement": "While critics often frame procedural barriers as legitimate IP safeguards for proprietary algorithmic architectures or national security, this perspective overlooks the inherent Catch-22 discovery dynamics and information asymmetry created by corporate control of technical artifacts. When the evidence required to demonstrate systemic harms, like discriminatory algorithmic output, is locked behind non-disclosed data schemas and model weights, the claim of 'adequate avenues' becomes a performative barrier, not a functional one, effectively privatizing the very proof needed for accountability."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Who exactly files the lawsuit that makes the whole system work?",
+  "gold": "skp-beliefs-047",
+  "gold_best_statement": {
+   "cos": 0.452,
+   "statement": "The current legal scaffolding is demonstrably unprepared for the complexities of assigning strict liability to truly autonomous AI systems, revealing fundamental gaps in corporate accountability."
+  },
+  "argB_top1": {
+   "node": "skp-beliefs-141",
+   "cos": 0.522,
+   "statement": "This committee should recognize that any statutory framework conferring legal personhood on AI systems functions, in practice, as a capitalization-to-floor mechanism — developers pre-fund a reserve that becomes the de facto ceiling on victim recovery, insulating the engineers, executives, and shareholders who designed and profited from the system behind an asset-strippable entity purpose-built to absorb blame."
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "Replacing unaccountable corporate governance with unaccountable military procurement governance is not a democratic upgrade — it's a lateral move between two forms of capture.",
+  "gold": "skp-beliefs-195",
+  "gold_best_statement": {
+   "cos": 0.487,
+   "statement": "Defense procurement frameworks embed national security criteria that consistently exceed statutory authorization, allowing agencies to enforce undisclosed strategic priorities through vendor selection processes that contractors cannot challenge without forfeiting eligibility."
+  },
+  "argB_top1": {
+   "node": "skp-beliefs-282",
+   "cos": 0.565,
+   "statement": "Can any public agency preserve its democratic mission when government procurement reform actively forces civil systems to adopt high-velocity market innovation frameworks?"
+  },
+  "argB_top1_is_gold": false
+ },
+ {
+  "claim": "We must mandate adversarial, pre-deployment verification to uncover hidden failure modes that telemetry logs will never capture.",
+  "gold": "saf-intentions-005",
+  "gold_best_statement": {
+   "cos": 0.749,
+   "statement": "Continuous adversarial simulation frameworks can systematically enumerate failure modes across the threat model space before production release, achieving coverage that reactive telemetry cannot provide by definition."
+  },
+  "argB_top1": {
+   "node": "saf-intentions-005",
+   "cos": 0.749,
+   "statement": "Continuous adversarial simulation frameworks can systematically enumerate failure modes across the threat model space before production release, achieving coverage that reactive telemetry cannot provide by definition."
+  },
+  "argB_top1_is_gold": true
+ }
+]

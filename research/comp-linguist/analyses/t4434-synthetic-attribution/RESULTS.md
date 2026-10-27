@@ -31,6 +31,62 @@
 
 **Limitation, stated in advance.** SECONDARY attributions are system-generated and not human-verified (report §3.1). PRIMARY is small (n=25) and enriched for hard cases: 15 of the 25 were originally mis-attributed.
 
-## Results
+## Results (run 2026-10-27; data `ai-triad-data` 5d0d5363; `synthetic_mrr.py` → `results.json`, `qualitative.json`)
 
-_(appended after the run)_
+### Sanity check: failed against the August numbers; the cause is taxonomy drift, not the harness
+
+Arm A came out at 0.3042, 0.1988 and 0.5254, against stage0's 2026-08-10 figures of 0.4538, 0.2691 and 0.6284. That is outside the pre-registered ±0.02.
+
+To tell harness error from data change, I re-ran the **unmodified** `stage0_mrr.py` on today's data. Its description-only rows came out **identical: 0.3042, 0.1988 and 0.5254**. So arm A is a faithful reproduction of the stage0 method. The fall since August comes from the taxonomy: the same-POV pools are now 229 acc, 389 saf and 381 skp nodes, and descriptions have been rewritten. I report the arms below because every comparison is paired within one run on one dataset, so the drift moves A and B/C/D together.
+
+This is a deviation from the stop-on-failure clause. I'm stating it, not hiding it.
+
+### Data facts
+- **Synthetic corpus.** Entries are timestamped **2026-06-12 to 2026-07-22**; the files were assembled on **2026-07-22**, and the file-level `models` field lists gemini-3.6-flash and claude-sonnet-4-5, while the entries record gemini-2.5-flash. t/4434#1 gave the date as "2026-06-12". That is the first generation batch, not the corpus date.
+- **Size.** 37,514 statements over 831 nodes. Non-pruned rows: acc 8,255, saf 14,216, skp 15,043.
+- **Row alignment.** Rebuilt and verified against `index_<pov>.json`. The spot check re-encoded 20 rows per POV, minimum cosine 1.0.
+- **Coverage.** Every gold node has statements (25/25 PRIMARY, 664/664 SECONDARY). Same-POV pool coverage is 0.86 PRIMARY and 0.83 SECONDARY; uncovered *distractors* fall back to their A score.
+- **Leakage:** 0 statements at cos ≥ 0.98 to any golden claim, so there's no leak-removed re-run.
+
+### PRIMARY, human-labelled, n=25, same-POV pool (registered decision view)
+
+| Arm | MRR | ΔMRR vs A [95% CI] | Hit@1 | Hit@5 | Hit@10 |
+|---|---|---|---|---|---|
+| A description | 0.3042 | — | 0.20 | 0.40 | 0.68 |
+| B max statement | 0.2174 | −0.087 [−0.244, +0.072] | 0.08 | 0.28 | 0.56 |
+| C top-3 mean | 0.2948 | −0.009 [−0.175, +0.163] | 0.12 | 0.52 | 0.60 |
+| D max(A,B) | 0.2168 | −0.087 [−0.244, +0.071] | 0.08 | 0.28 | 0.52 |
+
+### PRIMARY, all-node pool (sensitivity)
+
+| Arm | MRR | ΔMRR [95% CI] | Hit@1 | Hit@5 | Hit@10 |
+|---|---|---|---|---|---|
+| A | 0.1988 | — | 0.16 | 0.20 | 0.36 |
+| B | 0.1528 | −0.046 [−0.190, +0.097] | 0.08 | 0.20 | 0.32 |
+| C | 0.2215 | +0.023 [−0.125, +0.178] | 0.12 | 0.32 | 0.48 |
+| D | 0.1497 | −0.049 [−0.193, +0.094] | 0.08 | 0.20 | 0.28 |
+
+### SECONDARY, pipeline-attributed, n=664, same-POV (confounded toward A; direction only)
+
+| Arm | MRR | ΔMRR [95% CI] | Hit@1 | Hit@5 | Hit@10 |
+|---|---|---|---|---|---|
+| A | 0.5254 | — | 0.377 | 0.721 | 0.813 |
+| B | 0.3105 | −0.215 [−0.250, −0.179] | 0.166 | 0.471 | 0.645 |
+| C | 0.3895 | −0.136 [−0.171, −0.100] | 0.226 | 0.598 | 0.761 |
+| D | 0.3202 | −0.205 [−0.240, −0.170] | 0.173 | 0.488 | 0.664 |
+
+## Verdict (registered rule applied; bar not moved)
+
+**Not promising.** No arm reaches ΔMRR ≥ +0.03 with a CI excluding 0 on PRIMARY same-POV.
+- **B and D (max-sim) are worse** on every view: −0.087 on PRIMARY, and clearly worse on SECONDARY. The SECONDARY confound inflates A, but a gap of −0.21 is larger than that confound plausibly explains.
+- **C ties A on PRIMARY** (−0.009) and is the only arm positive anywhere (+0.023 all-node), and that CI spans 0.
+- **Not shown is not "no effect":** at n=25 the CIs are ±0.16 wide.
+
+**Likely mechanism for the max-sim loss.** A node with about 45 statements gets its *best* match over 45 paraphrases, written at temperature 1.0 and spanning archetypes. That raises every covered distractor's score more than the gold node's, because a generic statement in some distractor's set usually lands close to any claim. Top-3 averaging damps this, which fits C beating B.
+
+**Qualitative** (20 SECONDARY claims, `qualitative.json`): the arm-B top-1 statement belongs to the gold node in 4/20 cases. In several misses the winning statement is topically *closer* to the claim than the gold node is. For example, the interpretability-as-public-good claim's gold is `acc-intentions-022`, about open-weight legal shielding. So part of SECONDARY's penalty to B is the confounded labels themselves. That fits the decision resting on PRIMARY.
+
+## What this does and doesn't decide
+- **It decides:** don't replace or max-combine the description vector with synthetic max-sim for **claim → node attribution** (`argumentNetwork/processClaims.ts`).
+- **It doesn't decide the PI's actual question,** which is about **prompt rendering** (step 2): for a node *already selected*, does showing its best-matching statement instead of the DOLCE description give better prompts? That's a readability and coherence question, not a ranking one, and these numbers don't bear on it. The qualitative sample shows best-match statements are often concrete and on-topic, which keeps step 2 worth testing.
+- **No hand-labelled confirmation subset is proposed,** because the result isn't promising. If C is revisited, it needs the larger human gold set that stage0 already called a prerequisite (t/4480 builds one for document key_points; debate claims would need the same).
