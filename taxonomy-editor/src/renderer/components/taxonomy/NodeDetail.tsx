@@ -408,6 +408,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
             <FieldHelp text={BDI_GUIDANCE[node.category]} />
           </span>
           <span className="nd-header-id">{node.id}</span>
+          <span className="nd-header-meta">POV: {pov.toUpperCase()} | {node.category}</span>
           {/* Advanced-view header icons (t/4574): ontology, soul analysis, soul doc */}
           {nodeDetailMode === 'advanced' && (
             <>
@@ -1487,6 +1488,7 @@ function EvidenceGraphSection({ nodeId }: { nodeId: string }) {
     </div>
   );
 }
+
 
 
 
