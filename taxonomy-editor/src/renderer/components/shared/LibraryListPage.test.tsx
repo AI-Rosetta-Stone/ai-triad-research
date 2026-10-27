@@ -363,3 +363,45 @@ describe('LibraryListPage — intro slot (t/4536)', () => {
     expect(intro.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe('LibraryListPage — defaultCommunityOnWeb (t/4561)', () => {
+  beforeEach(() => { mockAuth = { anonymous: false }; });
+
+  it('web + defaultCommunityOnWeb=true: initial view is Community', () => {
+    vi.stubEnv('VITE_TARGET', 'web');
+    renderPage({}, { defaultCommunityOnWeb: true });
+    expect(screen.getByRole('tab', { name: /Community/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /My/ })).toHaveAttribute('aria-selected', 'false');
+    vi.unstubAllEnvs();
+  });
+
+  it('desktop (Electron) + defaultCommunityOnWeb=true: initial view is still My — unchanged', () => {
+    vi.stubEnv('VITE_TARGET', 'electron');
+    renderPage({}, { defaultCommunityOnWeb: true });
+    expect(screen.getByRole('tab', { name: /My/ })).toHaveAttribute('aria-selected', 'true');
+    vi.unstubAllEnvs();
+  });
+
+  it('web + defaultCommunityOnWeb omitted: initial view is My — unchanged (Chat does not opt in)', () => {
+    vi.stubEnv('VITE_TARGET', 'web');
+    renderPage();
+    expect(screen.getByRole('tab', { name: /My/ })).toHaveAttribute('aria-selected', 'true');
+    vi.unstubAllEnvs();
+  });
+
+  it('web + defaultCommunityOnWeb=false: initial view is My — explicit opt-out behaves like omitted', () => {
+    vi.stubEnv('VITE_TARGET', 'web');
+    renderPage({}, { defaultCommunityOnWeb: false });
+    expect(screen.getByRole('tab', { name: /My/ })).toHaveAttribute('aria-selected', 'true');
+    vi.unstubAllEnvs();
+  });
+
+  it('hideMyTab still wins over defaultCommunityOnWeb — not that it would differ here, but the precedence must hold', () => {
+    vi.stubEnv('VITE_TARGET', 'web');
+    mockAuth = { anonymous: true };
+    renderPage({ anonymousHasMyContent: false }, { defaultCommunityOnWeb: false });
+    expect(screen.queryByRole('tab', { name: /^My/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Community/ })).toHaveAttribute('aria-selected', 'true');
+    vi.unstubAllEnvs();
+  });
+});

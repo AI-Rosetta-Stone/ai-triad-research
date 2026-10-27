@@ -33,6 +33,14 @@ function ariaSortFor(state: SortState, key: string): 'ascending' | 'descending' 
   return state.dir === 'asc' ? 'ascending' : 'descending';
 }
 
+/** t/4561: extracted so the branching lives in its own function, not LibraryListPage's — kept
+ *  the main component's complexity unchanged rather than bumping it over threshold. */
+function initialListView(hideMyTab: boolean, defaultCommunityOnWeb: boolean, isWeb: boolean): LibraryVariant {
+  if (hideMyTab) return 'community';
+  if (defaultCommunityOnWeb && isWeb) return 'community';
+  return 'my';
+}
+
 function warnMissingComparator(columnKey: string): void {
   getGlobalRecorder()?.record({
     type: 'system.error',
@@ -474,7 +482,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
 ) {
   const {
     config, myRows, myLoading, communityRows, communityLoading, onOpenMy, onOpenCommunity,
-    actionVisibility = 'hover', intro,
+    actionVisibility = 'hover', intro, defaultCommunityOnWeb = false,
   } = props;
 
   // t/3703#8: My-tab visibility is auth-driven, read here rather than taken as a prop — the
@@ -486,7 +494,13 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   const auth = useAuthStatus();
   const hideMyTab = !!auth?.anonymous && !config.anonymousHasMyContent;
 
-  const [listView, setListView] = useState<LibraryVariant>(hideMyTab ? 'community' : 'my');
+  // t/4561: web-only initial-view default, opt-in per page via defaultCommunityOnWeb.
+  // VITE_TARGET is a build-time constant (same convention as HelpDialog.tsx/App.tsx), so this
+  // never changes after mount — no re-render risk from reading it in useState's initializer.
+  const isWeb = import.meta.env.VITE_TARGET === 'web';
+  const [listView, setListView] = useState<LibraryVariant>(
+    () => initialListView(hideMyTab, defaultCommunityOnWeb, isWeb),
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'none' });
   const [toastMsg, setToastMsg] = useState<string | null>(null);
