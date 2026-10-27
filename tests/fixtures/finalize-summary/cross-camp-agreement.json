@@ -102,6 +102,7 @@
       "  },",
       "  \"factual_claims\": [],",
       "  \"unmapped_concepts\": [],",
+      "  \"empty_cells\": [],",
       "  \"warnings\": [",
       "    \"Cross-camp agreement: accelerationist + safetyist both 'opposed' on saf-beliefs-003\",",
       "    \"Cross-camp agreement: accelerationist + skeptic both 'opposed' on saf-beliefs-003\"",

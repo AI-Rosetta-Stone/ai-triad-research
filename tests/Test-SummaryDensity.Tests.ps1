@@ -1,4 +1,4 @@
-# Tag: ingestion (t/1646)
+# Tag: ingestion (t/1646, t/4473, t/4519)
 # Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 # Licensed under the MIT License. See LICENSE file in the project root.
 
@@ -6,20 +6,22 @@
 
 <#
 .SYNOPSIS
-    Regression tests for the t/1646 false-positive density warning.
+    Regression tests for Test-SummaryDensity: the t/1646 dictionary-blindness
+    false positive, and its t/4473/t/4519 redesign (WARN-only, no floors, no
+    retry — only a tagged camp with 0 key_points and no empty_cells rationale).
 .DESCRIPTION
     Merge-ChunkSummaries returns an [ordered] hashtable whose pov_summaries →
     camp → key_points entries are NOT visible via $x.PSObject.Properties[...].
-    The old Test-SummaryDensity read camp data through PSObject.Properties, which
-    is blind to dictionary keys, so it counted 0 key_points for every camp even
-    when the merged object held many — emitting spurious "N camp has 0
-    key_points" / "total key_points: 0" warnings on a summary that was actually
-    dense (ground truth for the trigger doc: acc=9, saf=6, skp=8 = 23 points).
+    Test-SummaryDensity reads camp data through the shared Get-SummaryProp
+    accessor + $script:AITriadPovCamps constant, so it and the merge writer can
+    never disagree about the structure (the t/1646 fix). These tests feed the
+    checker the exact dictionary shape the writer emits.
 
-    The fix routes BOTH the merge writer and the checker through the shared
-    Get-SummaryProp accessor + $script:AITriadPovCamps constant, so the two can
-    never disagree about the structure. These tests feed the checker the exact
-    dictionary shape the writer emits and assert the warning does not fire.
+    t/4473/t/4519 removed the total-key_points floor and the unmapped_concepts
+    floor entirely (the data showed the floor was unreachable: 281/288
+    single-shot documents still failed it after a retry). The one surviving
+    check is scoped to camps named in the document's pov_tags — untagged camps
+    are never flagged for being empty.
 #>
 
 BeforeAll {
@@ -55,15 +57,14 @@ Describe 'Test-SummaryDensity dictionary-shape density accounting' -Tag 'ingesti
                 )
             }
 
-            $Floors = @{ KpMin = 3; UcMin = 1; TotalFloor = 6 }
-            $Result = Test-SummaryDensity -SummaryObject $Merged -Floors $Floors
+            $Result = Test-SummaryDensity -SummaryObject $Merged -PovTags @('accelerationist', 'safetyist', 'skeptic')
 
-            $Result.Pass | Should -BeTrue -Because '23 key_points across camps is well above the total floor and every camp is non-empty'
-            @($Result.Shortfalls).Count | Should -Be 0 -Because 'a dense dictionary-shaped summary must not trip any density shortfall (the t/1646 false positive)'
+            $Result.Pass | Should -BeTrue -Because 'every tagged camp is non-empty'
+            @($Result.Shortfalls).Count | Should -Be 0 -Because 'a dense dictionary-shaped summary must not trip any shortfall (the t/1646 false positive)'
         }
     }
 
-    It 'Still flags a genuinely sparse camp (no empty_cells) so the fix does not silence real signal' {
+    It 'Flags a genuinely empty TAGGED camp with no empty_cells rationale' {
         InModuleScope AITriad {
             $Merged = [ordered]@{
                 pov_summaries = [ordered]@{
@@ -75,38 +76,70 @@ Describe 'Test-SummaryDensity dictionary-shape density accounting' -Tag 'ingesti
                 unmapped_concepts = @()
             }
 
-            $Floors = @{ KpMin = 3; UcMin = 1; TotalFloor = 6 }
-            $Result = Test-SummaryDensity -SummaryObject $Merged -Floors $Floors
+            $Result = Test-SummaryDensity -SummaryObject $Merged -PovTags @('accelerationist', 'safetyist', 'skeptic')
 
-            $Result.Pass | Should -BeFalse -Because 'two empty camps and a total of 1 key_point is genuinely below floor'
-            @($Result.Shortfalls | Where-Object { $_ -like 'safetyist has 0 key_points*' }).Count |
-                Should -Be 1 -Because 'a truly empty camp with no empty_cells declaration must still be reported'
+            $Result.Pass | Should -BeFalse -Because 'two tagged camps are empty with no empty_cells rationale'
+            @($Result.Shortfalls | Where-Object { $_ -like "tagged camp 'safetyist' has 0 key_points*" }).Count |
+                Should -Be 1 -Because 'a truly empty tagged camp with no empty_cells declaration must still be reported'
         }
     }
 
-    It 'Honors empty_cells declarations on a dictionary-shaped object (licensed emptiness)' {
+    It 'Never flags an UNTAGGED camp for being empty' {
         InModuleScope AITriad {
-            $Categories = @('Desires', 'Beliefs', 'Intentions')
-            $EmptyCells = foreach ($cat in $Categories) {
-                [ordered]@{ camp = 'skeptic'; category = $cat }
+            $Merged = [ordered]@{
+                pov_summaries = [ordered]@{
+                    accelerationist = [ordered]@{ key_points = @([ordered]@{ point = 'one point' }) }
+                    safetyist       = [ordered]@{ key_points = @() }
+                    skeptic         = [ordered]@{ key_points = @() }
+                }
+                factual_claims    = @()
+                unmapped_concepts = @()
             }
 
+            # Document is tagged accelerationist only — safetyist/skeptic are untagged.
+            $Result = Test-SummaryDensity -SummaryObject $Merged -PovTags @('accelerationist')
+
+            $Result.Pass | Should -BeTrue -Because 'untagged camps being empty is a correct answer, not a shortfall'
+            @($Result.Shortfalls).Count | Should -Be 0
+        }
+    }
+
+    It 'Treats every camp as tagged when the document carries no pov_tags' {
+        InModuleScope AITriad {
+            $Merged = [ordered]@{
+                pov_summaries = [ordered]@{
+                    accelerationist = [ordered]@{ key_points = @([ordered]@{ point = 'one point' }) }
+                    safetyist       = [ordered]@{ key_points = @() }
+                    skeptic         = [ordered]@{ key_points = @() }
+                }
+                factual_claims    = @()
+                unmapped_concepts = @()
+            }
+
+            $Result = Test-SummaryDensity -SummaryObject $Merged -PovTags @()
+
+            $Result.Pass | Should -BeFalse -Because 'with no pov_tags given, every camp counts as tagged'
+            @($Result.Shortfalls).Count | Should -Be 2 -Because 'safetyist and skeptic are both empty with no rationale'
+        }
+    }
+
+    It 'Honors an empty_cells rationale on a dictionary-shaped object (licensed emptiness)' {
+        InModuleScope AITriad {
             $Merged = [ordered]@{
                 pov_summaries = [ordered]@{
                     accelerationist = [ordered]@{ key_points = @(1..5 | ForEach-Object { [ordered]@{ point = "acc $_" } }) }
                     safetyist       = [ordered]@{ key_points = @(1..4 | ForEach-Object { [ordered]@{ point = "saf $_" } }) }
                     skeptic         = [ordered]@{ key_points = @() }
                 }
-                empty_cells       = @($EmptyCells)
+                empty_cells       = @([ordered]@{ camp = 'skeptic'; category = 'Intentions'; reason = 'no skeptic argument in this document' })
                 factual_claims    = @()
                 unmapped_concepts = @([ordered]@{ suggested_label = 'x' })
             }
 
-            $Floors = @{ KpMin = 3; UcMin = 1; TotalFloor = 6 }
-            $Result = Test-SummaryDensity -SummaryObject $Merged -Floors $Floors
+            $Result = Test-SummaryDensity -SummaryObject $Merged -PovTags @('accelerationist', 'safetyist', 'skeptic')
 
-            @($Result.Shortfalls | Where-Object { $_ -like 'skeptic has 0 key_points*' }).Count |
-                Should -Be 0 -Because 'the empty skeptic camp is fully declared in empty_cells, so its emptiness is licensed'
+            @($Result.Shortfalls | Where-Object { $_ -like "tagged camp 'skeptic' has 0 key_points*" }).Count |
+                Should -Be 0 -Because 'a single empty_cells entry naming the camp is a rationale for the whole camp'
         }
     }
 }

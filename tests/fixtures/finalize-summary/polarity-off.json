@@ -156,6 +156,7 @@
       "      \"reason\": \"novel\"",
       "    }",
       "  ],",
+      "  \"empty_cells\": [],",
       "  \"warnings\": [",
       "    \"Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001\"",
       "  ]",

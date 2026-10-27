@@ -216,6 +216,43 @@ function Merge-ChunkSummaries {
         Write-Warning "Merge-ChunkSummaries: dropped $NullConceptsDropped null unmapped_concepts entry/entries during merge (t/3907)"
     }
 
+    # ── Merge empty_cells (t/4473/t/4519) ────────────────────────────────────
+    # A cell is empty for the document only if every chunk declared it empty
+    # AND the merged key_points for that camp have no point in that category.
+    # Keep the first chunk's reason.
+    $MergedEmptyCells = [System.Collections.Generic.List[object]]::new()
+    $Categories = $script:AITriadPovCategories
+    foreach ($Camp in $Camps) {
+        $CampKeyPoints = @($MergedPovSummaries[$Camp].key_points)
+        foreach ($Cat in $Categories) {
+            $HasPointInCat = $false
+            foreach ($kp in $CampKeyPoints) {
+                if ((Get-SummaryProp $kp 'category') -eq $Cat) { $HasPointInCat = $true; break }
+            }
+            if ($HasPointInCat) { continue }
+
+            $AllChunksDeclaredEmpty = $true
+            $FirstReason = $null
+            foreach ($Chunk in $ChunkResults) {
+                $ChunkEmptyCells = Get-SummaryProp $Chunk 'empty_cells'
+                $Declared = $false
+                if ($ChunkEmptyCells) {
+                    foreach ($ec in @($ChunkEmptyCells)) {
+                        if ((Get-SummaryProp $ec 'camp') -eq $Camp -and (Get-SummaryProp $ec 'category') -eq $Cat) {
+                            $Declared = $true
+                            if ($null -eq $FirstReason) { $FirstReason = Get-SummaryProp $ec 'reason' }
+                            break
+                        }
+                    }
+                }
+                if (-not $Declared) { $AllChunksDeclaredEmpty = $false; break }
+            }
+            if ($AllChunksDeclaredEmpty) {
+                $MergedEmptyCells.Add([ordered]@{ camp = $Camp; category = $Cat; reason = $FirstReason })
+            }
+        }
+    }
+
     # ── Context-rot: merge/dedup metrics ─────────────────────────────────────
     $PostDedupPoints = 0
     foreach ($c in $Camps) {
@@ -241,6 +278,7 @@ function Merge-ChunkSummaries {
         pov_summaries    = $MergedPovSummaries
         factual_claims   = @($AllClaims)
         unmapped_concepts = @($AllUnmapped)
+        empty_cells      = @($MergedEmptyCells)
         _merge_metrics   = $MergeMetrics
     }
 }

@@ -35,7 +35,7 @@
     Serialized JSON of the full taxonomy, injected into the prompt for node
     mapping.
 .PARAMETER SystemPromptTemplate
-    The system prompt template with {{WORD_COUNT}}, {{KP_MIN}}, etc. placeholders
+    The system prompt template with {{WORD_COUNT}}, {{KP_MAX}}, etc. placeholders
     for density scaling.
 .PARAMETER ChunkSystemPromptTemplate
     Optional override prompt for chunk-level summarization.  If empty, the
@@ -433,18 +433,14 @@ $ChunkText
 
     Write-Host "  │  ✓ Merged ($([int]$Elapsed.TotalSeconds)s total, $ChunkCount chunks)" -ForegroundColor Green
 
-    # -- Density check on merged result (warn only, no retry for chunked) ----
-    # Scale floors by merge discount — chunked extraction produces less per-unit
-    # than single-pass because each chunk has limited cross-chunk context
-    $WordCount = ($SnapshotText -split '\s+').Count
-    $DensityFloors = Get-DensityFloors -WordCount $WordCount
-    $MergeDiscount = 1 / [Math]::Sqrt($ChunkCount)
-    $DensityFloors.KpMin = [Math]::Max(3, [int]($DensityFloors.KpMin * $MergeDiscount))
-    $DensityFloors.UcMin = [Math]::Max(1, [int]($DensityFloors.UcMin * $MergeDiscount))
-    $DensityFloors.TotalFloor = [Math]::Max(6, [int]($DensityFloors.TotalFloor * $MergeDiscount))
-    $DensityCheck = Test-SummaryDensity -SummaryObject $SummaryObject -Floors $DensityFloors
+    # -- Tagged-camp-empty check on merged result (warn only; no floors, no retry
+    # for chunked — t/4473/t/4519) --------------------------------------------
+    if ($Meta.PSObject.Properties['pov_tags']) { $MergedPovTags = @($Meta.pov_tags) } else { $MergedPovTags = @() }
+    $DensityCheck = Test-SummaryDensity -SummaryObject $SummaryObject -PovTags $MergedPovTags
     if (-not $DensityCheck.Pass) {
-        Write-Host "  │  ⚠ Merged density below floor: $($DensityCheck.Shortfalls -join '; ')" -ForegroundColor Yellow
+        foreach ($Shortfall in $DensityCheck.Shortfalls) {
+            Write-Warning "WARN: ${ThisDocId}: $Shortfall"
+        }
     }
 
     return Finalize-Summary -SummaryObject $SummaryObject -ThisDocId $ThisDocId `
@@ -457,21 +453,17 @@ $ChunkText
 # SHARED HELPERS
 # ============================================================================
 
-function Get-DensityFloors {
-    param([int]$WordCount)
-
-    $kpTarget = [Math]::Max(3,  [int]($WordCount / 500))
-    return @{
-        KpMin      = $kpTarget
-        UcMin      = [Math]::Max(2,  [int]($WordCount / 2000))
-        TotalFloor = [Math]::Max(6,  $kpTarget * 2)
-    }
-}
-
 function Test-SummaryDensity {
+    <#
+    .SYNOPSIS
+        WARN-only, no floors, no retry (t/4473/t/4519): a camp named in the
+        document's pov_tags with 0 key_points and no empty_cells rationale for
+        that camp. When no pov_tags are given, every camp counts as tagged
+        (mirrors the CAMP EXPECTATIONS prompt rule).
+    #>
     param(
         [object]$SummaryObject,
-        [hashtable]$Floors
+        [string[]]$PovTags = @()
     )
 
     # Shared path constants (Get-SummaryProp.ps1) — the same camp list and
@@ -480,56 +472,29 @@ function Test-SummaryDensity {
     $Camps = $script:AITriadPovCamps
     $Shortfalls = [System.Collections.Generic.List[string]]::new()
 
-    # Collect empty_cells declared by the model (licensed emptiness per REC-1)
-    $EmptyCellSet = [System.Collections.Generic.HashSet[string]]::new()
+    # Collect camps with an empty_cells rationale (licensed emptiness per REC-1)
+    $EmptyCellCamps = [System.Collections.Generic.HashSet[string]]::new()
     $EmptyCells = Get-SummaryProp $SummaryObject 'empty_cells'
     if ($EmptyCells) {
         foreach ($ec in @($EmptyCells)) {
             $ecCamp = Get-SummaryProp $ec 'camp'
-            $ecCat  = Get-SummaryProp $ec 'category'
-            if ($ecCamp -and $ecCat) {
-                [void]$EmptyCellSet.Add("$ecCamp|$ecCat")
-            }
+            if ($ecCamp) { [void]$EmptyCellCamps.Add($ecCamp) }
         }
     }
 
-    # Total key_points across all camps (replaces per-camp floors)
-    $PovSummaries = Get-SummaryProp $SummaryObject 'pov_summaries'
-    $TotalKp = 0
-    foreach ($Camp in $Camps) {
-        $CampData = Get-SummaryProp $PovSummaries $Camp
-        $KeyPoints = Get-SummaryProp $CampData 'key_points'
-        $Count = if ($KeyPoints) { @($KeyPoints).Count } else { 0 }
-        $TotalKp += $Count
-
-        # Flag camps with zero points and no empty_cell declaration
-        if ($Count -eq 0) {
-            $Categories = $script:AITriadPovCategories
-            $AllDeclared = $true
-            foreach ($cat in $Categories) {
-                if (-not $EmptyCellSet.Contains("$Camp|$cat")) {
-                    $AllDeclared = $false
-                    break
-                }
-            }
-            if (-not $AllDeclared) {
-                $null = $Shortfalls.Add("$Camp has 0 key_points without empty_cells declarations")
-            }
-        }
-    }
-
-    $TotalFloor = if ($Floors.ContainsKey('TotalFloor')) { $Floors.TotalFloor } else { 6 }
-    if ($TotalKp -lt $TotalFloor) {
-        $null = $Shortfalls.Add("total key_points: $TotalKp < $TotalFloor across all camps")
-    }
+    $TaggedCamps = if ($PovTags -and @($PovTags).Count -gt 0) { @($PovTags | Where-Object { $Camps -contains $_ }) } else { @($Camps) }
 
     # Read through Get-SummaryProp — the merged object is an [ordered] dictionary
     # whose keys are invisible to $x.PSObject.Properties[...], the same blindness
     # that produced the t/1646 key_points false-positive.
-    $UnmappedConcepts = Get-SummaryProp $SummaryObject 'unmapped_concepts'
-    $UcCount = if ($UnmappedConcepts) { @($UnmappedConcepts).Count } else { 0 }
-    if ($UcCount -lt $Floors.UcMin) {
-        $null = $Shortfalls.Add("unmapped_concepts: $UcCount < $($Floors.UcMin) min")
+    $PovSummaries = Get-SummaryProp $SummaryObject 'pov_summaries'
+    foreach ($Camp in $TaggedCamps) {
+        $CampData = Get-SummaryProp $PovSummaries $Camp
+        $KeyPoints = Get-SummaryProp $CampData 'key_points'
+        $Count = if ($KeyPoints) { @($KeyPoints).Count } else { 0 }
+        if ($Count -eq 0 -and -not $EmptyCellCamps.Contains($Camp)) {
+            $null = $Shortfalls.Add("tagged camp '$Camp' has 0 key_points and no empty_cells rationale")
+        }
     }
 
     return @{
@@ -538,50 +503,27 @@ function Test-SummaryDensity {
     }
 }
 
-function Build-DensityRetryNudge {
-    param([string[]]$Shortfalls)
-
-    $Lines = @(
-        "IMPORTANT: Your previous response did not meet extraction effort requirements."
-        "Specific shortfalls:"
-    )
-    foreach ($s in $Shortfalls) {
-        $Lines += "  - $s"
-    }
-    $Lines += @(
-        ""
-        "Go back through the document and extract MORE points. Examine ALL nine BDI"
-        "cells (3 POV camps x 3 categories). For each cell, extract every distinct"
-        "point the document actually contains. If a cell is genuinely empty, declare"
-        "it in the empty_cells array with a reason. Every distinct claim, argument,"
-        "or piece of evidence should be its own key_point or factual_claim."
-        "Include a canonical_proposition for every key_point."
-    )
-    return ($Lines -join "`n")
-}
-
 function Build-DensityScaledPrompt {
+    <#
+    .SYNOPSIS
+        Fills in the prompt's {{WORD_COUNT}}/{{KP_MAX}}/{{UC_MAX}} placeholders.
+        These are "up to" guidance, not floors (t/4473/t/4519) — nothing reads
+        them to gate a retry.
+    #>
     param(
         [int]$WordCount,
         [string]$Template
     )
 
-    $Floors = Get-DensityFloors -WordCount $WordCount
-    $kpMin = $Floors.KpMin
     $kpMax = [Math]::Max(8,  [int]($WordCount / 200))
-    $ucMin = $Floors.UcMin
     $ucMax = [Math]::Max(5,  [int]($WordCount / 800))
-    $totalFloor = $Floors.TotalFloor
 
-    Write-Host "  │  ~$WordCount words → key_points $kpMin-$kpMax/camp (target), total floor $totalFloor, unmapped $ucMin-$ucMax" -ForegroundColor Gray
+    Write-Host "  │  ~$WordCount words → key_points up to $kpMax/camp, unmapped up to $ucMax (guidance, not floors)" -ForegroundColor Gray
 
     return $Template `
         -replace '{{WORD_COUNT}}',   $WordCount `
-        -replace '{{KP_MIN}}',       $kpMin `
         -replace '{{KP_MAX}}',       $kpMax `
-        -replace '{{UC_MIN}}',       $ucMin `
-        -replace '{{UC_MAX}}',       $ucMax `
-        -replace '{{TOTAL_FLOOR}}',  $totalFloor
+        -replace '{{UC_MAX}}',       $ucMax
 }
 
 function Build-CompactTaxonomy {
@@ -770,6 +712,9 @@ function Finalize-Summary {
     if ($SoProps['unmapped_concepts'] -and $null -ne $SummaryObject.unmapped_concepts) { $UnmappedConcs = $SummaryObject.unmapped_concepts } else { $UnmappedConcs = @() }
     $FactualCount   = @($FactualClaims).Count
     $UnmappedCount  = @($UnmappedConcs).Count
+    # empty_cells (t/4473/t/4519): forensic/additive, default [] — point-of-use exemption, lib/ai-client/types.ts model.
+    $EmptyCellsVal = Get-SummaryProp $SummaryObject 'empty_cells'
+    if (-not $EmptyCellsVal) { $EmptyCellsVal = @() }
 
     if ($ChunkCount -gt 0) { $ChunkLabel = " ($ChunkCount chunks)" } else { $ChunkLabel = '' }
     Write-Host "  │  points: $TotalPoints ($NullNodes unmapped)  factual: $FactualCount  new_concepts: $UnmappedCount$ChunkLabel" -ForegroundColor Gray
@@ -791,7 +736,7 @@ function Finalize-Summary {
 
     $FinalSummary = New-SummaryDocument -DocId $ThisDocId -TaxonomyVersion $TaxonomyVersion -Now $Now `
         -ModelInfo $ModelInfo -ContextRot $ContextRotObj -SummaryObject $SummaryObject `
-        -FactualClaims $FactualClaims -UnmappedConcepts $UnmappedConcs `
+        -FactualClaims $FactualClaims -UnmappedConcepts $UnmappedConcs -EmptyCells $EmptyCellsVal `
         -SchemaErrors $SchemaErrors -InvalidNodeIds $InvalidNodeIds -CrossCampWarnings $CrossCampWarnings
     $WriteFailure = Write-SummaryDocument -SummariesDir $SummariesDir -DocId $ThisDocId -Document $FinalSummary
     if ($WriteFailure) { return $WriteFailure }

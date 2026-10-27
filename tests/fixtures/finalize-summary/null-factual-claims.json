@@ -57,6 +57,7 @@
       "  },",
       "  \"factual_claims\": [],",
       "  \"unmapped_concepts\": [],",
+      "  \"empty_cells\": [],",
       "  \"warnings\": [",
       "    \"Schema: Missing required field: factual_claims\"",
       "  ]",

@@ -66,15 +66,23 @@ REQUIRED EXTRACTION EFFORT (hard constraints):
       date-specific prediction, and quantitative comparison. Each is a separate
       factual_claim.
     • unmapped_concepts: search all four taxonomy files before declaring any
-      concept unmapped. Target: {{UC_MIN}}-{{UC_MAX}}.
+      concept unmapped. Up to about {{UC_MAX}}.
 
-  DENSITY GUIDANCE (targets, not floors):
-    • key_points: target {{KP_MIN}}-{{KP_MAX}} per camp for a {{WORD_COUNT}}-word
-      document. Longer documents should yield more points. But a document that
-      yields 2 accelerationist key points and 12 safetyist key points is CORRECT
-      if that reflects the document's actual content.
-    • If total extraction across all camps falls below {{TOTAL_FLOOR}}, re-examine
-      the document — you may have missed salient content.
+  CAMP EXPECTATIONS:
+    The document's POV tags (given with the document) name the camps it was
+    classified as engaging. Treat them as a strong hint, not a limit.
+    • Tagged camps: be thorough. Extract every distinct point the document makes
+      that bears on that camp's beliefs, desires or intentions.
+    • Untagged camps: extract a point only when the document itself argues for or
+      against a position that camp holds. A document's topic overlapping a camp's
+      interests is not enough. Never write "From an <camp> perspective, this …" to
+      connect a point to a camp the document does not engage.
+    • If no POV tags are given, treat every camp as tagged.
+    • An empty camp is a correct answer when the document does not engage it.
+      Declare each empty cell in "empty_cells" with a one-line reason.
+    Longer documents usually yield more points, but there is no quota. An honest
+    extraction of 3 points beats a padded extraction of 7.
+    At most about {{KP_MAX}} key_points per tagged camp.
 
   ANTI-FABRICATION RULE: Every key_point and factual_claim MUST be traceable to
   specific text in the document. Do NOT pad to hit targets. An honest extraction

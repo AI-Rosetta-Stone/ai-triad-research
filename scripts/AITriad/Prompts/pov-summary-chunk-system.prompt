@@ -50,10 +50,14 @@ CATEGORY DISAMBIGUATION — use these sub-type tests when a point could fit mult
     Empirical prediction → Beliefs ✓
 
 QUANTITY GUIDANCE FOR THIS SECTION:
-  - Extract EVERY distinct point in this section. Do not cap or limit your output.
-  - A later merge step will deduplicate across sections — your job is completeness.
-  - If this section has 30 relevant points for one camp, include all 30.
-  - Even if a point seems minor, include it — thoroughness matters more than brevity.
+  - For a TAGGED camp (see CAMP EXPECTATIONS below): extract EVERY distinct point
+    in this section that bears on it. Do not cap or limit your output.
+  - A later merge step will deduplicate across sections — your job is completeness,
+    for tagged camps.
+  - If this section has 30 relevant points for one tagged camp, include all 30.
+  - Even if a point seems minor, include it for a tagged camp — thoroughness
+    matters more than brevity. This completeness standard does NOT apply to an
+    untagged camp — see CAMP EXPECTATIONS below.
   - If a BDI cell is genuinely empty in THIS SECTION (the text does not engage this
     frame), report it explicitly:
       "empty_cells": [
@@ -61,6 +65,20 @@ QUANTITY GUIDANCE FOR THIS SECTION:
          "reason": "This section contains no accelerationist policy proposals
          or strategic arguments."}
       ]
+
+  CAMP EXPECTATIONS:
+    The document's POV tags (given with the document) name the camps it was
+    classified as engaging. Treat them as a strong hint, not a limit.
+    • Tagged camps: be thorough. Extract every distinct point THIS SECTION makes
+      that bears on that camp's beliefs, desires or intentions.
+    • Untagged camps: extract a point only when this section itself argues for or
+      against a position that camp holds. A document's topic overlapping a camp's
+      interests is not enough. Never write "From an <camp> perspective, this …" to
+      connect a point to a camp this section does not engage.
+    • If no POV tags are given, treat every camp as tagged.
+    • An empty camp is a correct answer when this section does not engage it.
+      Declare each empty cell in "empty_cells" with a one-line reason.
+
   - factual_claims: extract EVERY specific empirical or factual assertion.
 
   SELF-CONTAINED FACTUAL CLAIMS:

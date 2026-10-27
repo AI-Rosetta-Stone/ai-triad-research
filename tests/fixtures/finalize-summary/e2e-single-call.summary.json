@@ -161,6 +161,7 @@
       "reason": "Hallucinated node ID 'saf-beliefs-999' not found in taxonomy — moved from safetyist key_points"
     }
   ],
+  "empty_cells": [],
   "warnings": [
     "Hallucinated node ID: safetyist/saf-beliefs-999",
     "Cross-camp agreement: accelerationist + skeptic both 'aligned' on acc-beliefs-001"
