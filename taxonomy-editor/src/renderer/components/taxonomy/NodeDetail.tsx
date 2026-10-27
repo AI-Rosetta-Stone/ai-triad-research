@@ -146,9 +146,8 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const { updatePovNode, deletePovNode, movePovNodeCategory, movePovNode, validationErrors, getAllNodeIds, getAllConflictIds, runAttributeFilter, showAttributeInfo, navigateToLineage, setToolbarPanel, selectedEdge, relatedNodeId, loadEdges, edgesFile, setSelectedNodeId, getLabelForId, aggregatedCruxes, showCruxDetail, conflicts, accelerationist, safetyist, skeptic, situations } = useTaxonomyStore();
   const authInfo = useAuthStatus();
   const isAdmin = useIsAdmin();
-  const getNodeDetailMode = usePreferencesStore(state => state.getNodeDetailMode);
   const setNodeDetailMode = usePreferencesStore(state => state.setNodeDetailMode);
-  const nodeDetailMode = getNodeDetailMode(node.id);
+  const nodeDetailMode = usePreferencesStore(state => state.nodeDetailModes[node.id] ?? 'simple');
   const [descMode, setDescMode] = useDescriptionMode();
   const [showDelete, setShowDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<NodeDetailTabId>('content');
@@ -1488,6 +1487,7 @@ function EvidenceGraphSection({ nodeId }: { nodeId: string }) {
     </div>
   );
 }
+
 
 
 

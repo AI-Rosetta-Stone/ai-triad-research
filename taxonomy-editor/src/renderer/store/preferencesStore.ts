@@ -40,7 +40,9 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 
   setNodeDetailMode: async (nodeId: string, mode: 'simple' | 'advanced') => {
     const current = get().nodeDetailModes;
-    const updated = { ...current, [nodeId]: mode };
+    // Delete first to remove from position, then re-add at end (LRU bump)
+    const { [nodeId]: _, ...rest } = current;
+    const updated = { ...rest, [nodeId]: mode };
 
     // LRU eviction: if we exceed cap, remove oldest entry (by key order)
     if (Object.keys(updated).length > NODE_DETAIL_MODES_CAP) {
@@ -64,8 +66,15 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
       if (prefs?.viewMode) {
         set({ viewMode: prefs.viewMode });
       }
-      if (prefs?.nodeDetailModes) {
-        set({ nodeDetailModes: prefs.nodeDetailModes as Record<string, 'simple' | 'advanced'> });
+      if (prefs?.nodeDetailModes && typeof prefs.nodeDetailModes === 'object') {
+        // Validate and filter to only valid modes
+        const validated = Object.entries(prefs.nodeDetailModes).reduce((acc, [nodeId, mode]) => {
+          if (mode === 'simple' || mode === 'advanced') {
+            acc[nodeId] = mode;
+          }
+          return acc;
+        }, {} as Record<string, 'simple' | 'advanced'>);
+        set({ nodeDetailModes: validated });
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to hydrate preferences from bridge', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
@@ -74,4 +83,5 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 }));
 
 ((window as unknown as { __ZUSTAND_STORES__?: Record<string, unknown> }).__ZUSTAND_STORES__ ??= {} as Record<string, unknown>).preferences = usePreferencesStore;
+
 
