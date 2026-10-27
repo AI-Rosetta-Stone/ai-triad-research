@@ -121,6 +121,14 @@ export const NodeRefSchema = z.object({
 });
 export type NodeRef = z.infer<typeof NodeRefSchema>;
 
+// Situation nodes aren't camp-scoped (unlike POV nodes), so they get their own lighter ref — no
+// camp, no score (t/4592).
+export const SituationRefSchema = z.object({
+  nodeId: z.string(),
+  label: z.string(),
+});
+export type SituationRef = z.infer<typeof SituationRefSchema>;
+
 // ── Camp coverage (t/4374) ────────────────────────────────────────────────────
 // Per-camp coverage signal. `bestRawScore` is the highest cosine similarity before any tag boost.
 // `lowCoverage` is true when that score is below the LOW_COVERAGE_THRESHOLD (0.45) — the camp's
@@ -138,6 +146,9 @@ export const GroundingEnvelopeSchema = z
   .object({
     anchorSituationId: z.string().optional(),
     anchorSummary: z.string().optional(),
+    /** Top situation candidates by relevance, anchor first (t/4592). Omitted when the situation
+     *  corpus is empty or unembedded — same convention as the anchor fields. */
+    situationNodes: z.array(SituationRefSchema).optional(),
     // PARTIAL over camps: an envelope legitimately carries nodes for only some camps. z.record over an
     // enum key is EXHAUSTIVE in zod v4 (would require all four); partialRecord keeps the camp typing
     // while allowing a subset.

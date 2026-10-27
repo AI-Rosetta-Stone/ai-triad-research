@@ -214,6 +214,12 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
   },
   'grounding.nodesByCamp.label': { 'public-share': I('Public-safe node snapshot (label).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
   'grounding.nodesByCamp.camp': { 'public-share': I('Public-safe node snapshot (camp).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
+  // Top situation candidates (t/4592) — same disposition as nodesByCamp (TL p/438#61: precedent-following, not novel policy).
+  'grounding.situationNodes.nodeId': {
+    'public-share': X('Private taxonomy id — excluded consistently across every NodeRef-shaped ref (Server Auth t/3648#2), same stance as grounding.nodesByCamp.nodeId.'),
+    community: I('Authenticated-user taxonomy reference; consistent with the community nodeId stance.'), export: I(EXPORT_FULL),
+  },
+  'grounding.situationNodes.label': { 'public-share': I('Public-safe situation snapshot (label).'), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
   // Coverage signal (t/4374): internal diagnostic; excluded from public share (synthesis caveat is expressed in text, not raw scores)
   'grounding.campCoverage.bestRawScore': { 'public-share': X('Internal diagnostic score — not surfaced to anonymous readers; synthesis caveat carries the meaning.'), community: I('Coverage diagnostic for authenticated research use.'), export: I(EXPORT_FULL) },
   'grounding.campCoverage.lowCoverage': { 'public-share': X('Internal coverage flag — not surfaced to anonymous readers; synthesis caveat carries the meaning.'), community: I('Coverage flag for authenticated research use.'), export: I(EXPORT_FULL) },

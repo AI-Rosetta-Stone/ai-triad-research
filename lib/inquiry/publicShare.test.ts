@@ -19,7 +19,7 @@ function makeFullResult(sources: string[] = ['https://example.org/paper', '10.10
     unresolvedGaps: [{ description: 'a gap', confidence: 'low' }],
     calibration: [{ metric: 'claim_acceptance', value: 0.85, displayValue: '72 / 84', trust: { verdict: 'trust', reason: 'quorum', terminationReason: 'natural', metricFamily: 'convergence' } }],
     derivation: { fidelity: 'standard', models: { debate: 'gemini-3.1-pro-preview' }, rounds: 6, callBudget: 200, callsUsed: 180, costUsd: 4.2 },
-    grounding: { anchorSituationId: 'sit-42', anchorSummary: 'ctx', nodesByCamp: { skp: [node] } },
+    grounding: { anchorSituationId: 'sit-42', anchorSummary: 'ctx', nodesByCamp: { skp: [node] }, situationNodes: [{ nodeId: 'sit-top-1', label: 'Top Situation' }] },
     singleRunCaveat: 'One run is not a finding.',
     debateId: 'debate-abc',
   } as InquiryResult;
@@ -55,6 +55,7 @@ describe('toPublicInquiryShare (t/3648 part 2)', () => {
     expect(json).not.toContain('skp-beliefs-029'); // nodeId
     expect(json).not.toContain('debate-abc');       // debateId
     expect(json).not.toContain('sit-42');           // request.situationId + grounding.anchorSituationId
+    expect(json).not.toContain('sit-top-1');        // grounding.situationNodes.nodeId (t/4592)
     expect(json).not.toContain('nodeId');
     expect(json).not.toContain('debateId');
     expect(json).not.toContain('situationId');
@@ -77,6 +78,7 @@ describe('toPublicInquiryShare (t/3648 part 2)', () => {
     expect(s.derivation.models.debate).toBe('gemini-3.1-pro-preview'); // what ran = provenance
     expect(s.derivation.rounds).toBe(6);
     expect(s.grounding.anchorSummary).toBe('ctx');
+    expect(s.grounding.situationNodes).toEqual([{ label: 'Top Situation' }]); // nodeId stripped (t/4592)
     expect(s.singleRunCaveat).toContain('One run');
   });
 

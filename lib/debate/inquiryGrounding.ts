@@ -5,7 +5,7 @@
 // Anchors an inquiry to the most relevant situation node and attaches the top-N
 // POV nodes per camp by embedding similarity.
 
-import type { GroundingEnvelope, NodeRef, Camp, AppliedTag, TagSelection } from '../inquiry/index.js';
+import type { GroundingEnvelope, NodeRef, SituationRef, Camp, AppliedTag, TagSelection } from '../inquiry/index.js';
 import type { PovNode, SituationNode } from './taxonomyTypes.js';
 import type { NodeEmbeddingMap } from './relevanceSelection.js';
 import { applyTagSelection, checkTagScope } from './relevanceSelection.js';
@@ -34,6 +34,9 @@ export interface GroundingOptions {
 }
 
 const DEFAULT_TOP_PER_CAMP = 3;
+
+/** Top situation candidates returned on the envelope, anchor first (t/4592). */
+const MAX_SITUATION_NODES = 3;
 
 /** Raw cosine score below which a camp is flagged as low-coverage (t/4374, stipulated; see provenance register). */
 const LOW_COVERAGE_THRESHOLD = 0.45;
@@ -130,39 +133,51 @@ export async function buildGroundingEnvelope(
     return { envelope: { nodesByCamp: {} } };
   }
 
-  // ── Anchor situation ──────────────────────────────────────────────────────
+  // ── Anchor situation + top situation candidates (t/4592) ──────────────────
   let anchorSituationId: string | undefined;
   let anchorSummary: string | undefined;
+  let situationNodes: SituationRef[] | undefined;
 
-  if (opts.situationId !== undefined) {
-    const pinned = taxonomy.situationNodes.find(s => s.id === opts.situationId);
-    if (pinned) {
-      anchorSituationId = pinned.id;
-      anchorSummary = pinned.description;
-    } else {
-      warn(`buildGroundingEnvelope: pinned situationId '${opts.situationId}' not found — deriving anchor from embeddings`);
-    }
-  }
-
-  if (anchorSituationId === undefined && taxonomy.situationNodes.length > 0) {
+  if (taxonomy.situationNodes.length === 0) {
+    warn('buildGroundingEnvelope: no situationNodes in corpus — anchor omitted');
+  } else {
     // Reuse precomputed vectors from corpus assembly — assembleNodeEmbeddings embeds the
     // full situationNodes list by id at build time, so taxonomy.nodeEmbeddings[s.id].vector
     // is always populated before this function runs. Nodes missing a vector are skipped
-    // (same graceful behaviour as a failed embed call).
-    let bestScore = -Infinity;
-    for (let i = 0; i < taxonomy.situationNodes.length; i++) {
-      const s = taxonomy.situationNodes[i];
+    // (same graceful behaviour as a failed embed call). Array#sort is stable (ES2019+), so a
+    // tie keeps the corpus's original order — first occurrence wins.
+    const situationScored: { score: number; node: SituationNode }[] = [];
+    for (const s of taxonomy.situationNodes) {
       const vec = taxonomy.nodeEmbeddings[s.id]?.vector;
       if (!vec || vec.length === 0) continue;
-      const score = cosineSimilarity(questionVec, vec);
-      if (score > bestScore) {
-        bestScore = score;
-        anchorSituationId = s.id;
-        anchorSummary = s.description || s.label;
+      situationScored.push({ score: cosineSimilarity(questionVec, vec), node: s });
+    }
+    situationScored.sort((a, b) => b.score - a.score);
+
+    let pinned: SituationNode | undefined;
+    if (opts.situationId !== undefined) {
+      pinned = taxonomy.situationNodes.find(s => s.id === opts.situationId);
+      if (!pinned) {
+        warn(`buildGroundingEnvelope: pinned situationId '${opts.situationId}' not found — deriving anchor from embeddings`);
       }
     }
-  } else if (taxonomy.situationNodes.length === 0) {
-    warn('buildGroundingEnvelope: no situationNodes in corpus — anchor omitted');
+
+    if (pinned) {
+      anchorSituationId = pinned.id;
+      anchorSummary = pinned.description;
+      // Exclude the anchor by id (not object identity) — it may come from `taxonomy.situationNodes`
+      // while `situationScored` entries reference the same nodes by reference, but comparing by id
+      // is the correct invariant regardless of how the caller constructs its node list.
+      const rest = situationScored.filter(s => s.node.id !== pinned!.id);
+      situationNodes = [
+        { nodeId: pinned.id, label: pinned.label },
+        ...rest.slice(0, MAX_SITUATION_NODES - 1).map(s => ({ nodeId: s.node.id, label: s.node.label })),
+      ];
+    } else if (situationScored.length > 0) {
+      anchorSituationId = situationScored[0].node.id;
+      anchorSummary = situationScored[0].node.description || situationScored[0].node.label;
+      situationNodes = situationScored.slice(0, MAX_SITUATION_NODES).map(s => ({ nodeId: s.node.id, label: s.node.label }));
+    }
   }
 
   // ── Score POV nodes by camp ────────────────────────────────────────────────
@@ -278,6 +293,7 @@ export async function buildGroundingEnvelope(
   if (Object.keys(campCoverage).length > 0) envelope.campCoverage = campCoverage;
   if (anchorSituationId !== undefined) envelope.anchorSituationId = anchorSituationId;
   if (anchorSummary !== undefined) envelope.anchorSummary = anchorSummary;
+  if (situationNodes !== undefined && situationNodes.length > 0) envelope.situationNodes = situationNodes;
 
   return { envelope, appliedTag };
 }

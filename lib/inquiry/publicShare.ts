@@ -15,7 +15,7 @@
 // makes the shape ⟷ matrix cross-check exact, which is worth more than a flatter artifact.
 
 import { z } from 'zod';
-import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, type InquiryResult, type NodeRef, type TagMode } from './schema.js';
+import { CampSchema, FidelitySchema, TagModeSchema, TrustVerdictSchema, HEADLINE_MAX_CHARS, type InquiryResult, type NodeRef, type SituationRef, type TagMode } from './schema.js';
 import { PovNameSchema, type PovName } from '../schema/povTags.js';
 import { TRUNCATION_REASONS } from './jobStatus.js';
 import { getGlobalRecorder } from '../flight-recorder/index.js';
@@ -25,6 +25,8 @@ export const PUBLIC_INQUIRY_SHARE_VERSION = 1;
 
 // Public NodeRef snapshot: label + camp only. nodeId is EXCLUDED (private taxonomy id — matrix).
 const PublicNodeRefSchema = z.object({ label: z.string(), camp: CampSchema }).strict();
+// Public SituationRef snapshot: label only — no camp (situations aren't camp-scoped), nodeId EXCLUDED (t/4592).
+const PublicSituationRefSchema = z.object({ label: z.string() }).strict();
 const PublicTrustStateSchema = z.object({
   verdict: TrustVerdictSchema,
   reason: z.string(),
@@ -59,6 +61,7 @@ const PublicRequestSchema = z.object({
 const PublicGroundingSchema = z.object({
   anchorSummary: z.string().optional(), // NO anchorSituationId (internal anchor id)
   nodesByCamp: z.partialRecord(CampSchema, z.array(PublicNodeRefSchema)),
+  situationNodes: z.array(PublicSituationRefSchema).optional(),
 }).strict();
 
 /** The public share artifact. STRICT (not passthrough) — a public artifact must not carry unknown fields. */
@@ -85,6 +88,7 @@ export type PublicInquiryShare = z.infer<typeof PublicInquiryShareSchema>;
 // evolution across the ACA deploy-overlap window (t/3730). Strict on write, tolerant on read.
 // Zod strictness is shallow, so every nested object must be replaced — not just the top level.
 const PublicNodeRefReadSchema = z.object({ label: z.string(), camp: CampSchema }).passthrough();
+const PublicSituationRefReadSchema = z.object({ label: z.string() }).passthrough();
 const PublicTrustStateReadSchema = z.object({
   verdict: TrustVerdictSchema,
   reason: z.string(),
@@ -115,6 +119,7 @@ const PublicRequestReadSchema = z.object({
 const PublicGroundingReadSchema = z.object({
   anchorSummary: z.string().optional(),
   nodesByCamp: z.partialRecord(CampSchema, z.array(PublicNodeRefReadSchema)),
+  situationNodes: z.array(PublicSituationRefReadSchema).optional(),
 }).passthrough();
 
 /** Tolerant read-side counterpart to {@link PublicInquiryShareSchema} — passthrough at every nested
@@ -167,6 +172,7 @@ function sanitizeSources(sources: string[]): string[] {
 }
 
 const publicNode = (n: NodeRef): z.infer<typeof PublicNodeRefSchema> => ({ label: n.label, camp: n.camp }); // omits nodeId by not reading it
+const publicSituationRef = (s: SituationRef): z.infer<typeof PublicSituationRefSchema> => ({ label: s.label }); // omits nodeId by not reading it (t/4592)
 // Named reads, so a field a newer build adds to the (passthrough) stored tagSelection never reaches the share.
 const publicTagSelection = (t: { pov: PovName; tag: string; mode: TagMode }) => ({ pov: t.pov, tag: t.tag, mode: t.mode });
 
@@ -235,6 +241,7 @@ export function toPublicInquiryShare(result: InquiryResult): PublicInquiryShare 
       nodesByCamp: Object.fromEntries(
         Object.entries(result.grounding.nodesByCamp ?? {}).map(([camp, nodes]) => [camp, (nodes ?? []).map(publicNode)]),
       ),
+      ...(result.grounding.situationNodes ? { situationNodes: result.grounding.situationNodes.map(publicSituationRef) } : {}),
     },
     singleRunCaveat: result.singleRunCaveat,
     // Condition A: omit for degraded runs — enforced here at construction, NOT delegated to the generator.
