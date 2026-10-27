@@ -161,9 +161,9 @@ There are no minimum-density floors and no density retry; extraction makes a sin
 | Ceiling | Formula | 5,000-word doc | 15,000-word doc |
 |---------|---------|----------------|-----------------|
 | Key points per tagged camp (`KP_MAX`) | MAX(8, wordCount / 200) | 25 | 75 |
-| Unmapped concepts (`UC_MAX`) | MAX(5, wordCount / 800) | 6 | 19 |
+| Unmapped concepts, per document (`UC_MAX`) | MAX(5, wordCount / 800) | 6 | 19 |
 
-The system prompt (`pov-summary-system.prompt` / `pov-summary-chunk-system.prompt`) carries a **CAMP EXPECTATIONS** block: extract the camps the document is tagged for, and declare any genuinely empty BDI cell in `empty_cells` with a one-line reason ("licensed emptiness", REC-1 / t/529; `empty_cells` is persisted per summary). The former per-camp `wordCount/500` floor, the document-level total floor, the unmapped-concepts floor, and the single-shot "density nudge" retry (`Build-DensityRetryNudge`, `Get-DensityFloors`) were removed in t/4473/t/4519 — at the old formula ~98% of single-shot documents failed the floor, retried, and failed again. Spec: `research/comp-linguist/docs/density-floor-replacement-spec.md`.
+The system prompt (`pov-summary-system.prompt` / `pov-summary-chunk-system.prompt`) carries a **CAMP EXPECTATIONS** block: be thorough for the camps the document is tagged with; extract a point for an untagged camp only when the document itself argues for or against that camp's position (topic overlap is not enough); with no POV tags, treat every camp as tagged; an empty camp is a correct answer, declared in `empty_cells` with a one-line reason ("licensed emptiness", REC-1 / t/529; `empty_cells` is persisted per summary); there is no quota. The former per-camp `wordCount/500` floor, the document-level total floor, the unmapped-concepts floor, and the single-shot "density nudge" retry (`Build-DensityRetryNudge`, `Get-DensityFloors`) were removed in t/4473/t/4519 — at the old formula ~98% of single-shot documents failed the floor, retried, and failed again. Spec: `research/comp-linguist/docs/density-floor-replacement-spec.md`.
 
 **Density check — WARN-only, all paths (t/4473):**
 
@@ -205,7 +205,7 @@ Results from all chunks are merged with deduplication:
 
 The algorithm uses HashSets for O(1) lookup. First occurrence wins — later duplicates are discarded without aggregation.
 
-The WARN-only density check (tagged camp with 0 key_points and no `empty_cells`; see above) runs on the merged result, as in every path — it only warns and never retries. `empty_cells` is merged across chunks (a cell counts as empty for the document only if every chunk that declared it had no key_point in it; the first chunk's reason is kept).
+The WARN-only density check (tagged camp with 0 key_points and no `empty_cells`; see above) runs on the merged result, as in every path — it only warns and never retries. `empty_cells` is merged across chunks (a cell counts as empty for the document only if every chunk declared it empty and no merged key_point falls in it; the first chunk's reason is kept).
 
 ---
 
@@ -369,12 +369,12 @@ After a summary is written, the system examines its `factual_claims` for cross-P
 
 ### Extraction Ceilings
 
-No minimum floors remain (t/4473); only upper "up to" guidance, applied per tagged camp:
+No minimum floors remain (t/4473); only upper "up to" guidance (`KP_MAX` per tagged camp; `UC_MAX` per document):
 
 | Metric | Ceiling |
 |--------|---------|
 | Key points per tagged camp (`KP_MAX`) | MAX(8, words / 200) |
-| Unmapped concepts (`UC_MAX`) | MAX(5, words / 800) |
+| Unmapped concepts, per document (`UC_MAX`) | MAX(5, words / 800) |
 
 See **Extraction targets — ceilings only** and the WARN-only density check above for the full model.
 
