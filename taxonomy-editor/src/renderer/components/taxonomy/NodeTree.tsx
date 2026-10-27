@@ -159,8 +159,7 @@ function computeVisibleIds(
     return ids;
   }
 
-  const flatMode = sortMode === 'id' || sortMode === 'priority' || sortMode === 'debate_tested' || sortMode === 'debate_tested_desc';
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  // t/4578: Always use flat mode (remove L2 hierarchy)
   const grouped = new Map<Category, PovNode[]>();
   for (const cat of CATEGORY_ORDER) grouped.set(cat, []);
   for (const node of nodes) {
@@ -172,36 +171,7 @@ function computeVisibleIds(
   for (const cat of CATEGORY_ORDER) {
     if (collapsed.has(cat)) continue;
     const catNodes = sortNodes(grouped.get(cat) || [], sortMode, similarScores);
-
-    if (flatMode) {
-      for (const node of catNodes) ids.push(node.id);
-      continue;
-    }
-
-    const catIdSet = new Set(catNodes.map(n => n.id));
-    const parentNodes = catNodes.filter(n => n.children && n.children.length > 0);
-    const topLeaves = catNodes.filter(n =>
-      (!n.children || n.children.length === 0) &&
-      (!n.parent_id || !catIdSet.has(n.parent_id)),
-    );
-    const hasHierarchy = parentNodes.length > 0;
-
-    if (!hasHierarchy) {
-      for (const node of catNodes) ids.push(node.id);
-      continue;
-    }
-
-    for (const parent of parentNodes) {
-      ids.push(parent.id);
-      const parentKey = `parent-${parent.id}`;
-      if (!collapsed.has(parentKey)) {
-        const children = parent.children
-          .map(id => nodeMap.get(id))
-          .filter((n): n is PovNode => !!n && n.category === cat);
-        for (const child of children) ids.push(child.id);
-      }
-    }
-    for (const node of topLeaves) ids.push(node.id);
+    for (const node of catNodes) ids.push(node.id);
   }
 
   return ids;
@@ -227,21 +197,18 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
     if (justMountedFirstView.current) saveCollapsed(storageKey, collapsed);
   }, []);
 
-  // Collapse all parent/cluster groups when sort mode changes
+  // t/4578: No parent groups to collapse since tree is now flat
   const prevSortMode = useRef(sortMode);
   useEffect(() => {
     if (prevSortMode.current !== sortMode) {
       prevSortMode.current = sortMode;
       setCollapsed(() => {
         const next = new Set<string>(CATEGORY_ORDER);
-        for (const n of nodes) {
-          if (n.children && n.children.length > 0) next.add(`parent-${n.id}`);
-        }
         saveCollapsed(storageKey, next);
         return next;
       });
     }
-  }, [sortMode, nodes, storageKey]);
+  }, [sortMode, storageKey]);
 
   // Auto-expand category when keyboard nav selects a node in a collapsed group.
   // t/4532: PovTab's own "auto-select first node on load" effect sets selectedNodeId
@@ -535,3 +502,6 @@ function NodeItem({ node, isSelected, onSelect, score, indent, isMisfit, priorit
     </div>
   );
 }
+
+
+
