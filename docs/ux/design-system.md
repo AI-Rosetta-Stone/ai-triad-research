@@ -153,7 +153,7 @@ Additional queries: `(pointer: coarse)` for touch devices, `(prefers-reduced-mot
 
 ### Modal Dialog
 
-Full-screen `.dialog-overlay` backdrop + centered `.dialog` card. Click overlay to close (with `stopPropagation` on dialog). Used by: SettingsDialog, HelpDialog, FirstRunDialog, DeleteConfirmDialog, OnboardingTour.
+Full-screen `.dialog-overlay` backdrop + centered `.dialog` card. Click overlay to close (with `stopPropagation` on dialog). Used by: SettingsDialog, HelpDialog, FirstRunDialog, DeleteConfirmDialog.
 
 ### Toast Notification
 
@@ -231,14 +231,17 @@ Current tab set (from `SituationDetail.tsx`):
 
 | ID | Label |
 |---|---|
-| `tour` | Welcome Tour |
 | `about` | About |
+| `changelog` | What's New |
 | `overview` | Overview |
 | `documentation` | Documentation |
 | `methods` | Methods |
 | `shortcuts` | Shortcuts |
 | `sbom` | SBOM |
 | `licenses` | Licenses |
+| `my-cases` | My Cases (web build only) |
+
+The Welcome Tour tab is retired. Its content moved to the Rosetta Stone home page (see `onboarding.md`).
 
 ## LocalStorage Keys
 

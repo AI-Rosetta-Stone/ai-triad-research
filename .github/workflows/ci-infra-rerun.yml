@@ -22,14 +22,15 @@ on:
     workflows: [CI]
     types: [completed]
 
-permissions:
-  actions: write
-  issues: write
-
 jobs:
   rerun-infra-failures:
     if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
     runs-on: ubuntu-latest
+    # t/4576: scoped to this job, not the workflow, so a future job added to this
+    # workflow doesn't silently inherit actions:write.
+    permissions:
+      actions: write
+      issues: write
     steps:
       - name: Download abnormal-end classifications
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
@@ -43,6 +44,10 @@ jobs:
 
       - name: Rerun each abnormal-end shard job once, and log it
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        # t/4577: a deleted t4548-infra-rerun-log label would throw on issues.create
+        # AFTER the reruns above already succeeded -- don't let that read as a handler
+        # failure.
+        continue-on-error: true
         with:
           script: |
             const fs = require('fs'), path = require('path');

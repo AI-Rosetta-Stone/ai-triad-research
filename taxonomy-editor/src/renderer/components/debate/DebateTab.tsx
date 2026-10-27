@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -25,7 +25,8 @@ import { PROMPT_CATALOG } from '../../data/promptCatalog';
 import { ToolbarPaneRenderer, isFullWidthPanel, PhoneToolClose } from '../shared/ToolbarPaneRenderer';
 import { TheoryLink } from '../shared/TheoryLink';
 import { LineageDetailView } from '../shared/LineageDetailView';
-import type { DebateSession } from '../../types/debate';
+import type { DebateSession, SpeakerId } from '../../types/debate';
+import { DebateGettingStarted } from './DebateGettingStarted';
 import { POVER_INFO } from '@lib/debate/types';
 import { ParameterHistoryPanel } from '../analysis/ParameterHistoryPanel';
 import { usePreferencesStore } from '../../store/preferencesStore';
@@ -62,6 +63,7 @@ interface DebateLibraryPanelProps {
   communityLoading: boolean;
   onOpenMy: (id: string) => void;
   onOpenCommunity: (id: string) => void;
+  intro: ReactNode;
 }
 
 // Shared prop bag for the right (detail) pane subtree.
@@ -162,6 +164,8 @@ export function DebateTab() {
   const isTablet = breakpoint === 'tablet' || breakpoint === 'tablet-lg';
   const nav = useMobileNav();
   const [showNewDialog, setShowNewDialog] = useState(false);
+  // t/4563: starter-chip prefill for NewDebateDialog — null means today's unprefilled open.
+  const [debatePrefill, setDebatePrefill] = useState<{ topic: string; povers?: readonly SpeakerId[] } | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -178,18 +182,37 @@ export function DebateTab() {
   const [selectedCommunityDebate, setSelectedCommunityDebate] = useState<CommunityDebate | null>(null);
   const auth = useAuthStatus();
 
-  const handleNewDebate = useCallback(async () => {
+  // t/4563: shared by the unprefilled "+ New Debate" path and the getting-started chips, so the
+  // quota pre-check lives once. Returns whether the caller may proceed to open the dialog.
+  const checkDebateQuota = useCallback(async (): Promise<boolean> => {
     setQuotaError(null);
     try {
       const quota = await api.getDebateQuotaStatus();
       if (!quota.allowed) {
         setQuotaError(`Debate limit reached (${quota.current}/${quota.limit}). Delete existing debates to free up quota.`);
-        return;
+        return false;
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-tab', level: 'warn', message: 'Quota pre-check failed — opening dialog anyway', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
+    return true;
+  }, []);
+
+  const handleNewDebate = useCallback(async () => {
+    if (!(await checkDebateQuota())) return;
+    setDebatePrefill(null);
     setShowNewDialog(true);
+  }, [checkDebateQuota]);
+
+  const handlePickDebateStarter = useCallback(async (topic: string, povers?: readonly SpeakerId[]) => {
+    if (!(await checkDebateQuota())) return;
+    setDebatePrefill({ topic, povers });
+    setShowNewDialog(true);
+  }, [checkDebateQuota]);
+
+  const closeNewDebateDialog = useCallback(() => {
+    setShowNewDialog(false);
+    setDebatePrefill(null);
   }, []);
 
   // Custom sort order (persisted to localStorage)
@@ -539,6 +562,7 @@ export function DebateTab() {
           communityLoading={communityLoading}
           onOpenMy={handleOpenMy}
           onOpenCommunity={handleOpenCommunity}
+          intro={<DebateGettingStarted hasNoDebates={orderedSessions.length === 0} onPickStarter={handlePickDebateStarter} />}
         />
       )}
 
@@ -552,8 +576,9 @@ export function DebateTab() {
         </div>
       )}
       {showNewDialog && (
-        <NewDebateDialog
-          onClose={() => setShowNewDialog(false)}
+        <NewDebateDialogHost
+          prefill={debatePrefill}
+          onClose={closeNewDebateDialog}
           onAtCap={() => setQuotaError('Close a debate window — max 5 open')}
         />
       )}
@@ -644,10 +669,21 @@ function ToolbarLeftPanel({
 // shared component's EmptyStateRow has no per-variant custom-message hook, so Electron users see
 // the generic "No community debates yet." here instead. Flagging for whoever reviews this file
 // rather than working around it by suppressing the Community tab (a bigger behavior change).
+// Thin host so the debatePrefill?.topic / debatePrefill?.povers optional-chains live in their
+// own function scope, not DebateTab's own complexity count (local/complexity-budget) — mirrors
+// ChatTab's NewChatDialogHost.
+function NewDebateDialogHost({ prefill, onClose, onAtCap }: {
+  prefill: { topic: string; povers?: readonly SpeakerId[] } | null;
+  onClose: () => void;
+  onAtCap: () => void;
+}) {
+  return <NewDebateDialog onClose={onClose} onAtCap={onAtCap} initialTopic={prefill?.topic} initialPovers={prefill?.povers} />;
+}
+
 function DebateLibraryPanel(props: DebateLibraryPanelProps) {
   const {
     width, fullWidth, setListCollapsed, config, myRows, myLoading, communityRows, communityLoading,
-    onOpenMy, onOpenCommunity,
+    onOpenMy, onOpenCommunity, intro,
   } = props;
   return (
     // eslint-disable-next-line local/no-inline-style -- dynamic: resizable panel width, omitted in fullWidth/table mode
@@ -666,6 +702,8 @@ function DebateLibraryPanel(props: DebateLibraryPanelProps) {
         communityLoading={communityLoading}
         onOpenMy={onOpenMy}
         onOpenCommunity={onOpenCommunity}
+        intro={intro}
+        defaultCommunityOnWeb
       />
     </div>
   );

@@ -3,21 +3,25 @@
 
 <#
 .SYNOPSIS
-    CI assertion for Test-CitationLinkIntegrity leg (c), both arms (t/4443, t/4147 SO C5a).
+    CI assertion for Test-CitationLinkIntegrity leg (c), all arms (t/4443, t/4445, t/4147 SO C5a).
 .DESCRIPTION
     The data repo's citation-link-integrity.yml checks out this code repo's `main` with no
     `ref:`, so a code change to Test-CitationLinkIntegrity, Build-NodeSourceIndex,
     Get-SummariesInputHash or their Private helpers changes the verdict of a BLOCKING data
     gate without that gate ever running on the code PR itself (t/4147 C5). This script runs
-    leg (c) against a small COMMITTED fixture (tests/fixtures/citation-link-integrity/) and
-    asserts both arms: a fresh, correctly-built index passes; a committed index that predates
-    a later-added summary (the real "forgot to regenerate" shape, not a hand-edited hash)
-    fails. It is the job's own assertion, not just a tolerated red step — a regression in
-    either direction (fresh fails, or stale passes) exits non-zero.
-
-    Scope note: this first pass covers arms (a) fresh-passes and (b) stale-fails only, per
-    t/4443's own description. The superseded_by/duplicate_of fixture shapes (arms d/e) are
-    deferred to a follow-up once t/4441 (the shared live-node function) lands.
+    leg (c) against small COMMITTED fixtures (tests/fixtures/citation-link-integrity/) and
+    asserts each arm itself — a regression in either direction (fresh fails, or stale passes)
+    exits non-zero:
+      (a)/(b) a fresh, correctly-built index passes; a committed index that predates a
+      later-added summary (the real "forgot to regenerate" shape, not a hand-edited hash)
+      fails.
+      (d) a fresh index built over a superseded_by node (its link folded onto the survivor)
+      passes; a copy corrupted with a dead key for the superseded node fails.
+      (e) a fresh index built over a duplicate_of-marked summary (its link attributed to the
+      canonical via the evidence union) passes; a copy corrupted by removing a live node's
+      key fails.
+    Fixture shapes mirror the Pester patterns in tests/Get-LiveBeliefNodeIds.Tests.ps1
+    (Describe blocks "SO arm (d)"/"SO arm (e)", t/4441).
 #>
 
 #Requires -Version 7
@@ -50,10 +54,14 @@ function script:AssertLegC([string]$label, [string]$fixtureDir, [bool]$expectPas
 
 script:AssertLegC 'fresh fixture (index matches committed summaries)' (Join-Path $FixtureRoot 'fresh') $true
 script:AssertLegC 'stale fixture (index predates an added summary)'  (Join-Path $FixtureRoot 'stale') $false
+script:AssertLegC 'superseded_by fixture, fresh (survivor key carries the folded link)' (Join-Path $FixtureRoot 'superseded-fresh') $true
+script:AssertLegC 'superseded_by fixture, corrupted (dead key for the superseded node)' (Join-Path $FixtureRoot 'superseded-stale') $false
+script:AssertLegC 'duplicate_of fixture, fresh (copy''s link attributed to the canonical)' (Join-Path $FixtureRoot 'duplicate-fresh') $true
+script:AssertLegC 'duplicate_of fixture, corrupted (a live node''s key removed)' (Join-Path $FixtureRoot 'duplicate-stale') $false
 
 if ($failures.Count -gt 0) {
     Write-Host "::error::citation-link-integrity-ci-fixture: $($failures.Count) assertion(s) failed"
     exit 1
 }
 
-Write-Host "citation-link-integrity-ci-fixture: both arms confirmed (fresh passes, stale fails)."
+Write-Host "citation-link-integrity-ci-fixture: all arms confirmed (fresh passes, stale/corrupted fails)."

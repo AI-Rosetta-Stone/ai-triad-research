@@ -18,13 +18,15 @@ Mockups (the source of truth for look; this doc covers behavior and the detail t
 This is the core change. The node detail panel gets its **own** Simple/Advanced segmented control, top right.
 
 - **It controls only this panel.** It does **not** read or write the app-wide `usePreferencesStore.viewMode` ("Switch to Advanced view" in the rail). Changing the global control does not change this panel's mode, and the reverse is also true. (PI, p/351#36: "the simple/advanced view only controls this specific POV item it does not affect the global control.")
-- **Persistence:** the mode is remembered for the node detail panel across nodes and app restarts, so a researcher who prefers Advanced isn't flipping it on every node. Store it under its own preference key (e.g. `nodeDetailViewMode`), separate from `viewMode`. Wrap localStorage access in try/catch and fall back to the default.
-- **Default:** `simple`.
+- **Persistence is per node** (PI decision, 2026-10-27). Each node remembers its own mode across sessions. Open a node you set to Advanced and it opens in Advanced; open a node you've never toggled and it opens in Simple.
+  - Store a map of node id to mode under its own preference key (e.g. `nodeDetailViewModeByNode`), separate from `viewMode`. Write an entry only when the user toggles. Wrap localStorage reads and writes in try/catch and fall back to the default.
+  - Cap the map at 500 entries and evict the least recently toggled, so storage can't grow without bound.
+  - If a node is deleted or renamed and its id changes, the stale entry is harmless and ages out under the cap.
+- **Default** (for any node with no entry): `simple`.
+- When the selected node changes, the panel takes the new node's remembered mode. If that mode is Simple and the active tab is Advanced-only, drop to **Analysis**. This is the same rule as toggling to Simple (§2.5).
 - Every place `NodeDetail` currently branches on the global `viewMode` switches to this local mode: tab gating, the soul-document button, the pin action, and `NodeLastEditedLine`.
 
 **Control:** a two-segment pill (`role="radiogroup"`, `aria-label="Detail view"`, each segment `role="radio"` with `aria-checked`, arrow keys move between the two). The container is a subtle grey track. The selected segment is white with a light shadow and medium-weight text; the unselected segment is muted text on the track. It must be at least 32px tall, with a hit area of 44px or more on touch.
-
-> Open question for the PI (default applies until answered): should the panel remember the mode **per node**, or **once for the panel** (this spec)? The per-panel choice was picked because it's what a researcher switching between nodes expects.
 
 ## 2. Layout, top to bottom
 
@@ -110,9 +112,9 @@ Panel padding is `var(--sp-6)` on desktop and `var(--sp-4)` at the 767px phone b
 
 ## 7. Acceptance
 - [ ] Simple and Advanced match the mockups in the harvard theme, desktop width.
-- [ ] The local toggle switches only this panel. The global `viewMode` is unchanged, verified both ways. The choice persists across nodes and restarts.
+- [ ] The local toggle switches only this panel. The global `viewMode` is unchanged, verified both ways. Each node keeps its own mode across restarts, and untoggled nodes open in Simple.
 - [ ] Formal parses into ENCOMPASSES/EXCLUDES; an unparseable description renders in full as paragraphs.
 - [ ] The relocated `⋯` entries all work: Search taxonomy, BDI grounding, Copy link, Find similar.
 - [ ] Phone width: nothing clips and nothing scrolls sideways except the tab row.
-- [ ] vitest covers toggle isolation from the global mode, persistence, the Formal parse and its fallback, and Content→Analysis with the drop-to-Analysis rule.
+- [ ] vitest covers toggle isolation from the global mode, per-node persistence (including the 500-entry cap), the Formal parse and its fallback, and Content→Analysis with the drop-to-Analysis rule on both toggle and node change.
 - [ ] Design `/design-review-workflow` passes.
