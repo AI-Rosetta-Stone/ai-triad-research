@@ -16,7 +16,7 @@ function Invoke-SummaryPipeline {
         2. RAG node selection (filter taxonomy to relevant nodes)
         3. AutoFire Stage 1 sniff (pre-extraction)
         4. Prompt construction (system + taxonomy + schema + document)
-        5. AI extraction (FIRE iterative or single-shot with density retry)
+        5. AI extraction (FIRE iterative or single-shot; tagged-camp-empty WARN)
         6. AutoFire Stage 2 sniff + re-run (post-extraction)
         7. Unmapped concept resolution
 
