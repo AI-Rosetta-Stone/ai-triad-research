@@ -73,20 +73,34 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
       # SO M1 (e/378#2): the check-runs API paginates at 30 per page, and ci.yml has
       # ~42 jobs/matrix legs -- a single unfiltered call can put ci-gate on page 2,
       # reading as 0 and falsely tripping "no checks started" on every healthy group.
-      # Query per required context name via ?check_name=, which the API answers
-      # directly without needing to paginate through everything else on the commit.
+      # Query per required context name, which the API answers directly without
+      # needing to paginate through everything else on the commit.
+      #
+      # SO N1 (e/380#2, HIGH): `gh api ... -f check_name=X` is a POST (gh adds
+      # parameters to the request body by default, which GitHub's REST API rejects for
+      # a GET-only endpoint) -- every lookup 404s regardless of the real check state,
+      # which the exit-code-check below then turned into CHECK_COUNT=0 for EVERY
+      # entry, not just ones with no checks. Put the filter in the URL query string
+      # instead, which keeps this a real GET.
+      #
       # Live-fire finding (M2 real reproducer): `gh api` writes the HTTP error BODY to
-      # stdout, not just stderr, on a non-2xx response (a 404 here, since the ephemeral
-      # merge-group test commit may not exist as a real commit object yet). The old
-      # `2>/dev/null || echo 0` pattern didn't help -- `ctx_count` captured the error
-      # JSON with "0" appended after it (stdout from the failed call, then echo 0 on
-      # top), and `$((CHECK_COUNT + ctx_count))` died on that garbage. Check the exit
-      # code explicitly and discard ALL output (not just stderr) on failure.
+      # stdout, not just stderr, on a non-2xx response. A genuine lookup failure (the
+      # commit truly not found, an auth/rate-limit problem) must NOT read as count=0
+      # ("healthy") -- that's indistinguishable from the exact silent-drop shape this
+      # check exists to catch. Treat it as its own liveness-check-failed violation.
+      LOOKUP_FAILED=false
       for ctx in "ci-gate" "CodeQL" "consult-hold-guard" "joint-gv-guard"; do
-        if ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs" -f check_name="$ctx" --jq '.total_count // 0' 2>/dev/null); then
+        encoded_ctx=$(printf '%s' "$ctx" | sed 's/ /%20/g')
+        if ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs?check_name=${encoded_ctx}" --jq '.total_count // 0' 2>/dev/null); then
           CHECK_COUNT=$((CHECK_COUNT + ctx_count))
+        else
+          LOOKUP_FAILED=true
         fi
       done
+      if [ "$LOOKUP_FAILED" = true ]; then
+        VIOLATIONS=$(echo "$VIOLATIONS" | jq --argjson n "$num" '. + [{number: $n, kind: "liveness-check-failed", ageMinutes: 0}]')
+        continue
+      fi
     fi
 
     # ---- (a) no check run started within 15 minutes ----
