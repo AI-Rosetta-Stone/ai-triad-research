@@ -152,6 +152,10 @@ def test_label_order_derived_from_config(monkeypatch):
     """
     import sentence_transformers
 
+    # Restore real functions (earlier tests may have monkeypatched them)
+    embed_taxonomy._load_nli_model = _REAL_LOAD
+    embed_taxonomy._classify_pairs_nli = _REAL_CLASSIFY
+
     class _Cfg:
         def __init__(self, m):
             self.id2label = m
@@ -184,6 +188,10 @@ def test_bad_id2label_raises(monkeypatch):
         # Fallback for standalone runs
         print("SKIP test_bad_id2label_raises — pytest or sentence_transformers not available")
         return
+
+    # Restore real functions (earlier tests may have monkeypatched them)
+    embed_taxonomy._load_nli_model = _REAL_LOAD
+    embed_taxonomy._classify_pairs_nli = _REAL_CLASSIFY
 
     class _Cfg:
         def __init__(self, m):
