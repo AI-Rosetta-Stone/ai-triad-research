@@ -125,8 +125,8 @@ function getEditHistoryLength(node: PovNode): number | undefined {
 // _edit_meta last-edited fields, falling back to the most-recent _edit_history
 // entry. Formatting mirrors NodeEditHistory but is kept local here to avoid a new
 // cross-module export (trivial-change scope).
-function NodeLastEditedLine({ node, viewMode }: { node: PovNode; viewMode: 'simple' | 'advanced' }) {
-  if (viewMode !== 'simple') return null; // Advanced view has the full History tab.
+function NodeLastEditedLine({ node, nodeDetailMode }: { node: PovNode; nodeDetailMode: 'simple' | 'advanced' }) {
+  if (nodeDetailMode !== 'simple') return null; // Advanced view has the full History tab.
   const latest = node._edit_history?.[node._edit_history.length - 1];
   const user = node._edit_meta?.last_edited_by ?? latest?.user;
   const when = node._edit_meta?.last_edited_at ?? latest?.timestamp;
@@ -145,7 +145,9 @@ function NodeLastEditedLine({ node, viewMode }: { node: PovNode; viewMode: 'simp
 export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRelated, onOpenSoulDoc, chipDepth = 0, conflict, resolveUrl }: NodeDetailProps) {
   const { updatePovNode, deletePovNode, movePovNodeCategory, movePovNode, validationErrors, getAllNodeIds, getAllConflictIds, runAttributeFilter, showAttributeInfo, navigateToLineage, setToolbarPanel, selectedEdge, relatedNodeId, loadEdges, edgesFile, setSelectedNodeId, getLabelForId, aggregatedCruxes, showCruxDetail, conflicts, accelerationist, safetyist, skeptic, situations } = useTaxonomyStore();
   const authInfo = useAuthStatus();
-  const viewMode = usePreferencesStore(state => state.viewMode);
+  const getNodeDetailMode = usePreferencesStore(state => state.getNodeDetailMode);
+  const setNodeDetailMode = usePreferencesStore(state => state.setNodeDetailMode);
+  const nodeDetailMode = getNodeDetailMode(node.id);
   const [descMode, setDescMode] = useDescriptionMode();
   const [showDelete, setShowDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<NodeDetailTabId>('content');
@@ -155,15 +157,15 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const [steelmanExpanded, setSteelmanExpanded] = useState(false);
   const [lineageExpanded, setLineageExpanded] = useState(false);
 
-  // Reset to a visible tab when switching to Simple (which hides most tabs).
-  // t/4559: Attributes is now Advanced-only (reverses t/2120/t/3003's "always show"), so it
-  // no longer counts as a simple-view tab — a user on Attributes who switches to Simple drops
-  // to Content, same as any other Advanced-only tab.
+  // Reset to Analysis when switching to Simple (which hides most tabs, but Analysis is always visible).
+  // t/4574: Simple mode can only access Content and Related tabs; all others are Advanced-only.
+  // If switching to Simple while on an Advanced-only tab, drop to Analysis.
+  // If switching back to Advanced, stay on the current tab.
   useEffect(() => {
-    if (viewMode === 'simple' && activeTab !== 'content' && activeTab !== 'related') {
-      setActiveTab('content');
+    if (nodeDetailMode === 'simple' && activeTab !== 'content' && activeTab !== 'related') {
+      setActiveTab('analysis');
     }
-  }, [viewMode]);
+  }, [nodeDetailMode, activeTab]);
   const [showDtDrilldown, setShowDtDrilldown] = useState(false);
   const [relatedSplitPct, setRelatedSplitPct] = useState(40);
   const splitContainerRef = useRef<HTMLDivElement>(null);
