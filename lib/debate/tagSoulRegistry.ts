@@ -22,7 +22,7 @@ import type { PovInfo, SpeakerId } from './types.js';
 // Raw strings are used for hashing (parity with soulDocLoader — t/4007 condition #3).
 const ALL_SOUL_RAW = import.meta.glob<string>(
   './soul-docs/*.soul.json',
-  { eager: true, as: 'raw' },
+  { eager: true, query: '?raw', import: 'default' },
 );
 
 function getTagSoulFromRegistry(pov: string, tag: string): { soul: PovInfo; raw: string } {

@@ -30,6 +30,34 @@ describe('resolvePoverInfo (no tagSelection)', () => {
   });
 });
 
+describe('resolvePoverInfo (tagSelection — tag present in registry)', () => {
+  // t/4534: the glob option { eager: true, as: 'raw' } loads as a parsed JSON
+  // module (not raw text) under Rolldown's production bundler, so JSON.parse
+  // throws for every tag soul. Resolve real tag souls end-to-end so a future
+  // bundler/glob-option regression fails a test instead of shipping silently.
+  it('resolves skeptic:critical with personality text and provenance', () => {
+    const { soul, soulProvenance } = resolvePoverInfo('skeptic', { tag: 'critical', mode: 'scope' });
+    expect(typeof soul.personality).toBe('string');
+    expect(soul.personality.length).toBeGreaterThan(0);
+    expect(soulProvenance?.file).toBe('skeptic.critical.soul.json');
+    expect(soulProvenance?.hash).toMatch(/^fnv1a64:[0-9a-f]{16}$/);
+  });
+
+  it('resolves skeptic:institutional with personality text and provenance', () => {
+    const { soul, soulProvenance } = resolvePoverInfo('skeptic', { tag: 'institutional', mode: 'scope' });
+    expect(typeof soul.personality).toBe('string');
+    expect(soul.personality.length).toBeGreaterThan(0);
+    expect(soulProvenance?.file).toBe('skeptic.institutional.soul.json');
+    expect(soulProvenance?.hash).toMatch(/^fnv1a64:[0-9a-f]{16}$/);
+  });
+
+  it('base identity fields (label, pov) win over the tag soul, per t/3988', () => {
+    const { soul } = resolvePoverInfo('skeptic', { tag: 'critical', mode: 'scope' });
+    expect(soul.label).toBe(POVER_INFO.skeptic.label);
+    expect(soul.pov).toBe(POVER_INFO.skeptic.pov);
+  });
+});
+
 describe('resolvePoverInfo (tagSelection — tag absent from registry)', () => {
   it('throws ActionableError when tag soul is not in the bundle', () => {
     expect(() =>
