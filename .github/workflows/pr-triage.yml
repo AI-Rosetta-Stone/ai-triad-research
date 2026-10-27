@@ -13,7 +13,11 @@ name: PR triage
 on:
   schedule:
     - cron: '0 9 * * 1'    # Monday 09:00 UTC — full weekly triage
-    - cron: '0 */2 * * *'  # every 2 hours — idle-green nudge sweep (t/2523)
+    # t/4557: tightened from every 2h to hourly -- the PI decided not to make t1-approval-guard
+    # a required context (t/4091), so this sweep's own `approved-not-armed` class is now the
+    # primary mechanism catching an approved-but-unarmed PR, and the TL asked for detection
+    # within about an hour. Also benefits the idle-green nudge and every other class below.
+    - cron: '0 * * * *'  # hourly — idle-green nudge sweep (t/2523) + stuck-PR SLA alert (t/4115)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -480,6 +484,9 @@ jobs:
             // t/4533: also returns soClearanceDetected (any comment, bot or not -- the SO's own
             // reply is itself posted via an agent App account, so excluding bots here would hide
             // every real SO reply) -- reuses the SAME comments fetch rather than a second call.
+            // t/4557: also returns hasApproval -- ANY review in GitHub's native APPROVED state,
+            // bot or not (the reviewer App posts real APPROVED reviews, e.g. PR #3911's
+            // `ai-triad-reviewer-jpsnover` review) -- reuses the SAME reviews fetch.
             async function activityAndSoFacts(pr) {
               const times = [pr.head?.commit?.committer?.date ?? pr.created_at];
               const [{ data: comments }, { data: reviews }] = await Promise.all([
@@ -492,11 +499,13 @@ jobs:
                 if (c.user?.type === 'Bot') continue;
                 times.push(c.created_at);
               }
+              let hasApproval = false;
               for (const r of reviews) {
+                if (r.state === 'APPROVED') hasApproval = true;
                 if (r.user?.type === 'Bot') continue;
                 times.push(r.submitted_at);
               }
-              return { lastActivityAt: times.filter(Boolean).sort().at(-1), soClearanceDetected };
+              return { lastActivityAt: times.filter(Boolean).sort().at(-1), soClearanceDetected, hasApproval };
             }
 
             // t/4533: when did `consult-hold` first FIRST get applied to this PR? Fetched only
@@ -580,7 +589,7 @@ jobs:
               }
 
               const labels = (full.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
-              const { lastActivityAt, soClearanceDetected } = await activityAndSoFacts(full);
+              const { lastActivityAt, soClearanceDetected, hasApproval } = await activityAndSoFacts(full);
               // t/4533: the consult-hold timeline fetch is only worth paying for when the label
               // is actually present -- the large majority of open PRs carry neither label.
               const holdAppliedAt = labels.includes('consult-hold') ? await consultHoldAppliedAt(full) : null;
@@ -604,6 +613,8 @@ jobs:
                 lastActivityAt,
                 consultHoldAppliedAt: holdAppliedAt,
                 soClearanceDetected,
+                hasApproval,
+                body: full.body,
               };
 
               const blocker = classifyBlocker(prFacts, nowMs);
