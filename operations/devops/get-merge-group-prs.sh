@@ -19,8 +19,13 @@
 # finding proved that field resolves to a bare SHA, not the gh-readonly-queue ref
 # string the GitHub docs' shape implies; github.ref is the one field confirmed to
 # carry refs/heads/gh-readonly-queue/<branch>/pr-<N>-<sha> on a merge_group event).
-# Prints a JSON array of {number, labels: [string...]} to stdout on success --
-# every entry at or before THIS entry's own queue position.
+# Prints a JSON array of {number, labels: [string...], headSha} to stdout on success --
+# every entry at or before THIS entry's own queue position. headSha is the entry's
+# OWN tested commit (MergeQueueEntry.headCommit.oid), not the PR's current head --
+# callers that re-enqueue from this data (ci-infra-rerun.yml FM3) must pin to this
+# value, since the PR's current head may have moved since this entry was tested
+# (SO F1 finding, t/4567#33: pinning to a since-moved current head silently
+# re-enqueues an unreviewed commit).
 # Exits 1 (fail closed) on ANY problem, with a legible ::error:: line.
 set -euo pipefail
 
@@ -41,7 +46,7 @@ if [ -z "$BRANCH" ] || [ -z "$SELF_PR_NUM" ]; then
 fi
 
 # ---- 2. query the queue's own entry list (retry 3x, fail closed on exhaustion) ----
-QUERY='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){nodes{position pullRequest{number labels(first:50){nodes{name}}}}}}}}'
+QUERY='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){nodes{position headCommit{oid} pullRequest{number labels(first:50){nodes{name}}}}}}}}'
 ENTRIES_JSON=""
 last_err=""
 for attempt in 1 2 3; do
@@ -72,10 +77,19 @@ if [ "$SELF_POSITION" = "null" ] || [ -z "$SELF_POSITION" ]; then
 fi
 
 # ---- 4. every entry at or before our own position is in THIS batch ----
-RESULT=$(echo "$ENTRIES_JSON" | jq --argjson pos "$SELF_POSITION" '[.[] | select(.position <= $pos) | {number: .pullRequest.number, labels: [.pullRequest.labels.nodes[].name]}]')
+RESULT=$(echo "$ENTRIES_JSON" | jq --argjson pos "$SELF_POSITION" '[.[] | select(.position <= $pos) | {number: .pullRequest.number, labels: [.pullRequest.labels.nodes[].name], headSha: .headCommit.oid}]')
 RESULT_COUNT=$(echo "$RESULT" | jq 'length')
 if [ "$RESULT_COUNT" -eq 0 ]; then
   echo "::error::get-merge-group-prs: resolved ZERO PRs at or before position ${SELF_POSITION} -- cannot prove this batch is safe. FAILING CLOSED." >&2
+  exit 1
+fi
+
+# ---- 5. [SO F4] count must equal position -- positions are 1-based and contiguous,
+# so a complete, unpaginated result at or before position N has exactly N entries. A
+# mismatch (a dropped entry from paging or a partial API response) is otherwise
+# invisible: the batch would look "safe" with fewer entries than it actually has.
+if [ "$RESULT_COUNT" -ne "$SELF_POSITION" ]; then
+  echo "::error::get-merge-group-prs: resolved ${RESULT_COUNT} PR(s) but self position is ${SELF_POSITION} -- expected them equal (1-based, contiguous). An entry was likely dropped (paging/partial response). FAILING CLOSED." >&2
   exit 1
 fi
 
