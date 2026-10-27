@@ -39,6 +39,7 @@
 import type { IncomingMessage } from 'http';
 import { log } from './logger.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
+import { isStagingIdentity } from './config.js';
 
 const NAME_HEADER = 'x-ms-client-principal-name';
 const PRINCIPAL_HEADER = 'x-ms-client-principal';
@@ -234,6 +235,31 @@ function warnOnUnreviewedIdp(idp: string, claimTypes: string[]): void {
 }
 
 /**
+ * TEMPORARY (t/4436), STAGING-ONLY, default OFF. One-time claim-shape capture for Google
+ * sign-ins. deriveStorageUserId's email-based derivation for Google is not injective
+ * (t/4436); the fix is a stable-id-keyed canonicalizeGoogle, same shape as GitHub/AAD, but
+ * the claim carrying Google's OIDC `sub` hasn't been confirmed against the live sidecar.
+ * An earlier, always-on design of this diagnostic (closed PR #3928) logged on every
+ * environment including prod — TL review (p/602#31) correctly called that an auth-surface,
+ * personal-data change, not a T0 self-cert. Revised:
+ *   - gated on isStagingIdentity() — structurally cannot fire on prod, whatever the flag says;
+ *   - gated on GOOGLE_CLAIM_SHAPE_DIAG=1, default OFF even on staging — a deliberate,
+ *     time-boxed opt-in for the PI's test-account sign-in (t/4436, p/813#14/#15), not an
+ *     always-on probe;
+ *   - logs claim TYPES and a boolean hasStableIdClaim (whether a nameidentifier-shaped
+ *     claim is present), never values — no email, no name, no ids;
+ *   - once per process.
+ * Remove this function, its call site, and GOOGLE_CLAIM_SHAPE_DIAG once the claim shape is
+ * captured and canonicalizeGoogle ships — tracked as its own removal ticket (t/4436).
+ */
+function logGoogleClaimShapeDiag(decoded: DecodedPrincipal): void {
+  if (!isStagingIdentity() || process.env.GOOGLE_CLAIM_SHAPE_DIAG !== '1') return;
+  const hasStableIdClaim = decoded.claims.some(c => c?.typ === NAMEIDENTIFIER_CLAIM);
+  warnOnce('google|claim-shape-diag', { idp: 'google', claimTypes: decoded.claimTypes, nameTyp: decoded.nameTyp, decodedOk: decoded.ok, hasStableIdClaim },
+    'TEMPORARY (t/4436), staging-only, opt-in: Google sign-in claim shape captured for the sub-claim investigation — types only, never values');
+}
+
+/**
  * Set the canonical `x-ms-client-principal-name` on the request. Call once per request,
  * at entry, before anything reads principal headers. No-op unless Easy Auth is on.
  */
@@ -251,6 +277,7 @@ export function normalizePrincipalNameHeader(req: IncomingMessage, azureAuthEnab
   }
   const decoded = decodePrincipal(encoded);
   warnOnUnreviewedIdp(idp, decoded.claimTypes);
+  if (idp === 'google') logGoogleClaimShapeDiag(decoded);
   if (!encoded) return;
   fillMissingName(req, idp, decoded);
 }

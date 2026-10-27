@@ -65,18 +65,35 @@ function aadReq(opts: { tid?: string; oid?: string; name?: string; email?: strin
 
 let prevMap: string | undefined;
 let prevAdmins: string | undefined;
+let prevContainerAppName: string | undefined;
+let prevAiTriadEnv: string | undefined;
+let prevGoogleDiagFlag: string | undefined;
 beforeEach(() => {
   prevMap = process.env.IDENTITY_MAP;
   prevAdmins = process.env.ADMIN_USERS;
+  prevContainerAppName = process.env.CONTAINER_APP_NAME;
+  prevAiTriadEnv = process.env.AI_TRIAD_ENV;
+  prevGoogleDiagFlag = process.env.GOOGLE_CLAIM_SHAPE_DIAG;
   process.env.ADMIN_USERS = 'jpsnover,jsnover13-at-gmail-com';
   delete process.env.IDENTITY_MAP;
+  delete process.env.CONTAINER_APP_NAME;
+  delete process.env.AI_TRIAD_ENV;
+  delete process.env.GOOGLE_CLAIM_SHAPE_DIAG;
   warnMock.mockClear();
   _resetPrincipalNameForTest();
 });
 afterEach(() => {
   if (prevMap === undefined) delete process.env.IDENTITY_MAP; else process.env.IDENTITY_MAP = prevMap;
   if (prevAdmins === undefined) delete process.env.ADMIN_USERS; else process.env.ADMIN_USERS = prevAdmins;
+  if (prevContainerAppName === undefined) delete process.env.CONTAINER_APP_NAME; else process.env.CONTAINER_APP_NAME = prevContainerAppName;
+  if (prevAiTriadEnv === undefined) delete process.env.AI_TRIAD_ENV; else process.env.AI_TRIAD_ENV = prevAiTriadEnv;
+  if (prevGoogleDiagFlag === undefined) delete process.env.GOOGLE_CLAIM_SHAPE_DIAG; else process.env.GOOGLE_CLAIM_SHAPE_DIAG = prevGoogleDiagFlag;
 });
+
+/** Sets the two env vars that make isStagingIdentity() true, for the diagnostic's gate tests. */
+function enableStaging(): void {
+  process.env.CONTAINER_APP_NAME = 'taxonomy-editor-staging';
+}
 
 describe('GitHub identity keys on the stable provider id', () => {
   it.each([
@@ -330,5 +347,67 @@ describe('unreviewed idp WARN (t/4326 follow-up, p/822#3)', () => {
     const r = { headers: { 'x-ms-client-principal-idp': 'okta', 'x-ms-client-principal-name': 'x' } } as unknown as IncomingMessage;
     normalizePrincipalNameHeader(r, true);
     expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback' && (fields as Record<string, unknown>).idp === 'okta')).toBe(true);
+  });
+});
+
+function googleDiagReq(claims: Array<[string, string]>, name = 'user@gmail.com'): IncomingMessage {
+  return { headers: {
+    'x-ms-client-principal-name': name, 'x-ms-client-principal-idp': 'google',
+    'x-ms-client-principal': principal(claims, 'google'),
+  } } as unknown as IncomingMessage;
+}
+
+function diagCall(): [Record<string, unknown>, string] | undefined {
+  return warnMock.mock.calls.find(([fields]) => 'hasStableIdClaim' in (fields as Record<string, unknown>)) as [Record<string, unknown>, string] | undefined;
+}
+
+describe('Google claim-shape diagnostic (TEMPORARY, staging-only, default off — t/4436)', () => {
+  it('off by default, even on staging: no diagnostic WARN', () => {
+    enableStaging();
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123'], [EMAIL, 'user@gmail.com']]), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('off on prod even with the flag enabled — isStagingIdentity() is the hard gate', () => {
+    process.env.GOOGLE_CLAIM_SHAPE_DIAG = '1';
+    // deliberately NOT calling enableStaging() — this simulates prod with the flag mistakenly set
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123'], [EMAIL, 'user@gmail.com']]), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('on staging with the flag enabled: captures claim types + hasStableIdClaim, never values', () => {
+    enableStaging();
+    process.env.GOOGLE_CLAIM_SHAPE_DIAG = '1';
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123'], [EMAIL, 'user@gmail.com']]), true);
+    const call = diagCall();
+    expect(call).toBeDefined();
+    const [fields, message] = call!;
+    expect(fields).toMatchObject({ idp: 'google', claimTypes: [EMAIL, NAMEID].sort(), decodedOk: true, hasStableIdClaim: true });
+    // The core requirement (TL p/602#31 condition 2): no claim VALUE ever appears in the log line.
+    const serialized = JSON.stringify(fields) + message;
+    expect(serialized).not.toContain('sub-123');
+    expect(serialized).not.toContain('user@gmail.com');
+  });
+
+  it('hasStableIdClaim is false when no nameidentifier-shaped claim is present', () => {
+    enableStaging();
+    process.env.GOOGLE_CLAIM_SHAPE_DIAG = '1';
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, 'user@gmail.com']]), true);
+    expect(diagCall()?.[0]).toMatchObject({ hasStableIdClaim: false });
+  });
+
+  it('fires once per process even across multiple Google requests', () => {
+    enableStaging();
+    process.env.GOOGLE_CLAIM_SHAPE_DIAG = '1';
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, 'a@gmail.com']], 'a@gmail.com'), true);
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, 'b@gmail.com']], 'b@gmail.com'), true);
+    expect(warnMock.mock.calls.filter(([fields]) => 'hasStableIdClaim' in (fields as Record<string, unknown>)).length).toBe(1);
+  });
+
+  it('never fires for non-google idps', () => {
+    enableStaging();
+    process.env.GOOGLE_CLAIM_SHAPE_DIAG = '1';
+    normalizePrincipalNameHeader(githubReq({ id: '1', nameHeader: 'x' }), true);
+    expect(diagCall()).toBeUndefined();
   });
 });
