@@ -92,7 +92,7 @@ import type { ReviewAction } from './community/admin/types.js';
 import { calibrationReviewHandler } from './community/admin/calibrationHandler.js';
 import { communityReviewHandler } from './community/admin/communityReviewHandler.js';
 import { serveStatic } from './staticServe.js';
-import { normalizePrincipalNameHeader } from './principalName.js';
+import { normalizePrincipalNameHeader, getIdentityMapKey } from './principalName.js';
 
 // Register review domain handlers at startup so the unified admin endpoints
 // (queue/stats/action/detail) can delegate to them (t/646, t/647, t/650).
@@ -925,7 +925,8 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   // claimed this storageUserId. Prevents a different provider from accessing
   // another user's data by presenting the same normalized email.
   if (!isAnon) {
-    const binding = checkProviderBinding(storageUserId, effectiveIdp);
+    // t/4540: an admin-held IDENTITY_MAP entry for THIS request's own (idp, stable id) overrides a binding mismatch — read from the WeakMap (principalName.ts), never a header, so there's no forgery surface.
+    const binding = checkProviderBinding(storageUserId, effectiveIdp, getIdentityMapKey(req));
     if (!binding.ok) {
       json(res, {
         error: 'provider_mismatch',

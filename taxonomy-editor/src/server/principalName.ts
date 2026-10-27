@@ -163,6 +163,23 @@ function warnOnce(key: string, fields: Record<string, unknown>, message: string)
 /** Test-only: reset the once-per-process WARN dedupe and the cached IDENTITY_MAP. */
 export function _resetPrincipalNameForTest(): void { warned.clear(); identityMap = null; }
 
+/**
+ * t/4540: the literal IDENTITY_MAP key (e.g. `aad:tenant-1-obj-1`) this request's own
+ * (idp, stable id) resolved against, set only by canonicalizeGithub/canonicalizeAad at the
+ * exact point their own `getIdentityMap().get(...)` lookup hits. A WeakMap keyed on the live
+ * request object, NOT a header: a header is client-writable and its safety would depend on an
+ * unconditional clear running on every current and future code path (rejected design, t/4540
+ * TL review). This is never client-visible or client-settable — there's nothing to forge.
+ * Absence (never set) is the safe default for checkProviderBinding's caller: no override.
+ */
+const identityMapKeyByRequest = new WeakMap<IncomingMessage, string>();
+
+/** t/4540: read-only accessor for checkProviderBinding's caller. `undefined` unless THIS
+ *  request's own (idp, stable id) resolved via an IDENTITY_MAP entry. */
+export function getIdentityMapKey(req: IncomingMessage): string | undefined {
+  return identityMapKeyByRequest.get(req);
+}
+
 /** GitHub: replace the (user-editable) name with a stable-id-derived canonical name. */
 function canonicalizeGithub(req: IncomingMessage, decoded: DecodedPrincipal): void {
   const claimId = claimValue(decoded.claims, NAMEIDENTIFIER_CLAIM);
@@ -178,7 +195,9 @@ function canonicalizeGithub(req: IncomingMessage, decoded: DecodedPrincipal): vo
       'GitHub principal has no usable stable id; request treated as anonymous');
     return;
   }
-  const mapped = getIdentityMap().get(`github:${stableId.toLowerCase()}`);
+  const key = `github:${stableId.toLowerCase()}`;
+  const mapped = getIdentityMap().get(key);
+  if (mapped) identityMapKeyByRequest.set(req, key); // t/4540: this request's own map hit, for checkProviderBinding
   req.headers[NAME_HEADER] = mapped ?? `github-${stableId.toLowerCase()}`;
 }
 
@@ -204,7 +223,9 @@ function canonicalizeAad(req: IncomingMessage, decoded: DecodedPrincipal): void 
       'AAD tid/oid outside safe charset; request treated as anonymous');
     return;
   }
-  const mapped = getIdentityMap().get(`aad:${stableId}`);
+  const key = `aad:${stableId}`;
+  const mapped = getIdentityMap().get(key);
+  if (mapped) identityMapKeyByRequest.set(req, key); // t/4540: this request's own map hit, for checkProviderBinding
   req.headers[NAME_HEADER] = mapped ?? `aad-${stableId}`;
 }
 

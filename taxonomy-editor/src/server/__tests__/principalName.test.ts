@@ -12,7 +12,7 @@ vi.mock('../logger.js', async (importOriginal) => {
   return { ...orig, log: { ...orig.log, security: { ...orig.log.security, warn: warnMock } } };
 });
 
-import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, _resetPrincipalNameForTest } from '../principalName.js';
+import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, getIdentityMapKey, _resetPrincipalNameForTest } from '../principalName.js';
 import { deriveStorageUserId } from '../security/userContext.js';
 import { isAdmin } from '../community/community.js';
 
@@ -263,6 +263,43 @@ describe('canProducePrincipal (t/4505): round-trips with what normalizePrincipal
     process.env.IDENTITY_MAP = 'github:1=a, github:2=b';
     _resetPrincipalNameForTest();
     expect(identityMapSize()).toBe(2);
+  });
+});
+
+describe('getIdentityMapKey (t/4540): the per-request IDENTITY_MAP hit, for checkProviderBinding', () => {
+  it('AC1: set to the exact map key when this request\'s own (idp, stable id) resolved via IDENTITY_MAP', () => {
+    process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jpsnover';
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getIdentityMapKey(r)).toBe('aad:tenant-1-obj-1');
+  });
+
+  it('unset for a self-produced name (no map entry) — AC2 regression path', () => {
+    const r = aadReq({ tid: 'tenant-2', oid: 'obj-2', nameHeader: 'x' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getIdentityMapKey(r)).toBeUndefined();
+  });
+
+  it('AC3: a DIFFERENT stable id\'s map entry never leaks into this request\'s key, even with both present in IDENTITY_MAP', () => {
+    process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jpsnover, github:999=someone-else';
+    const mapped = aadReq({ tid: 'tenant-1', oid: 'obj-1', nameHeader: 'x' });
+    const unmapped = aadReq({ tid: 'tenant-9', oid: 'obj-9', nameHeader: 'x' }); // no entry for this id
+    normalizePrincipalNameHeader(mapped, true);
+    normalizePrincipalNameHeader(unmapped, true);
+    expect(getIdentityMapKey(mapped)).toBe('aad:tenant-1-obj-1');
+    expect(getIdentityMapKey(unmapped)).toBeUndefined(); // the OTHER entries don't unlock this request
+  });
+
+  it('C1: azureAuthEnabled=false — a forged x-ms-client-principal*/-idp pair that WOULD map produces no key', () => {
+    process.env.IDENTITY_MAP = 'aad:tenant-1-obj-1=jpsnover';
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1', nameHeader: 'forged' });
+    normalizePrincipalNameHeader(r, false); // Easy Auth disabled — the whole function no-ops
+    expect(getIdentityMapKey(r)).toBeUndefined();
+  });
+
+  it('no key for a request that never went through canonicalization at all (fresh object)', () => {
+    const r = { headers: {} } as unknown as IncomingMessage;
+    expect(getIdentityMapKey(r)).toBeUndefined();
   });
 });
 
