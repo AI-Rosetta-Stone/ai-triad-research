@@ -85,3 +85,4 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 ((window as unknown as { __ZUSTAND_STORES__?: Record<string, unknown> }).__ZUSTAND_STORES__ ??= {} as Record<string, unknown>).preferences = usePreferencesStore;
 
 
+
