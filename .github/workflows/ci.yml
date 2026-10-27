@@ -83,7 +83,10 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # t/4548: pinned so both Install Pester sites (and their cache keys) agree on exactly
   # which version is installed/restored. Bump deliberately, not opportunistically.
-  PESTER_VERSION: '5.7.1'
+  # t/4548 arm-3 live-fire proof (scratch only, never land): a nonexistent version forces
+  # a cold-cache + PowerShell-Gallery install failure on every shard, the exact abnormal-end
+  # class this PR's classifier/rerun-handler exists to catch. Do not merge this value.
+  PESTER_VERSION: '99.99.99-t4548-scratch-coldcache'
 
 jobs:
   # ── record-base-ref (t/3687): retarget stale-green guard sink ──────────────
