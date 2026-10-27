@@ -81,6 +81,9 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # t/4548: pinned so both Install Pester sites (and their cache keys) agree on exactly
+  # which version is installed/restored. Bump deliberately, not opportunistically.
+  PESTER_VERSION: '5.7.1'
 
 jobs:
   # ── record-base-ref (t/3687): retarget stale-green guard sink ──────────────
@@ -448,9 +451,46 @@ jobs:
             fi
           done
 
-      - name: Install Pester
+      # t/4548: at least 6 open PRs plus main (71ee6b7e) went red for one reason on
+      # 2026-10-26/27 -- Install-Module Pester hit a PowerShell Gallery flake
+      # ("Package 'Pester' failed to download" / "No match was found ... module name
+      # 'Pester'"), and each of the 6 test-powershell shards installed independently
+      # from the Gallery, unpinned and uncached, so one Gallery hiccup reds the whole
+      # matrix. Pin + cache closes that: a warm cache never calls the Gallery at all.
+      - name: Cache Pester module
+        id: pester-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/powershell/Modules/Pester
+          key: pester-${{ env.PESTER_VERSION }}-${{ runner.os }}
+
+      # Retry shape mirrors the pnpm install retry above (t/2975) -- same bounded
+      # 3-attempt, linear-backoff pattern, so a transient Gallery flake on a COLD cache
+      # (first run after a version bump, or a cache eviction) doesn't immediately red
+      # the job. A persistently-unreachable Gallery still fails closed after 3 tries --
+      # retries buy resilience against a flake, never mask a real outage as green.
+      - name: Install Pester (pinned, retried on a cache miss)
+        if: steps.pester-cache.outputs.cache-hit != 'true'
         shell: pwsh
-        run: Install-Module Pester -Force -Scope CurrentUser
+        run: |
+          $attempt = 0
+          $installed = $false
+          while ($attempt -lt 3 -and -not $installed) {
+            $attempt++
+            try {
+              Install-Module Pester -RequiredVersion $env:PESTER_VERSION -Force -Scope CurrentUser -ErrorAction Stop
+              $installed = $true
+            } catch {
+              if ($attempt -lt 3) {
+                $backoff = $attempt * 15
+                Write-Host "::warning::Install-Module Pester attempt $attempt failed ($($_.Exception.Message)); retrying in ${backoff}s"
+                Start-Sleep -Seconds $backoff
+              } else {
+                Write-Host "::error::Install-Module Pester failed after $attempt attempts: $($_.Exception.Message)"
+                exit 1
+              }
+            }
+          }
 
       - name: Run Pester tests with coverage
         id: pester
@@ -1181,9 +1221,46 @@ jobs:
             fi
           done
 
-      - name: Install Pester
+      # t/4548: at least 6 open PRs plus main (71ee6b7e) went red for one reason on
+      # 2026-10-26/27 -- Install-Module Pester hit a PowerShell Gallery flake
+      # ("Package 'Pester' failed to download" / "No match was found ... module name
+      # 'Pester'"), and each of the 6 test-powershell shards installed independently
+      # from the Gallery, unpinned and uncached, so one Gallery hiccup reds the whole
+      # matrix. Pin + cache closes that: a warm cache never calls the Gallery at all.
+      - name: Cache Pester module
+        id: pester-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/powershell/Modules/Pester
+          key: pester-${{ env.PESTER_VERSION }}-${{ runner.os }}
+
+      # Retry shape mirrors the pnpm install retry above (t/2975) -- same bounded
+      # 3-attempt, linear-backoff pattern, so a transient Gallery flake on a COLD cache
+      # (first run after a version bump, or a cache eviction) doesn't immediately red
+      # the job. A persistently-unreachable Gallery still fails closed after 3 tries --
+      # retries buy resilience against a flake, never mask a real outage as green.
+      - name: Install Pester (pinned, retried on a cache miss)
+        if: steps.pester-cache.outputs.cache-hit != 'true'
         shell: pwsh
-        run: Install-Module Pester -Force -Scope CurrentUser
+        run: |
+          $attempt = 0
+          $installed = $false
+          while ($attempt -lt 3 -and -not $installed) {
+            $attempt++
+            try {
+              Install-Module Pester -RequiredVersion $env:PESTER_VERSION -Force -Scope CurrentUser -ErrorAction Stop
+              $installed = $true
+            } catch {
+              if ($attempt -lt 3) {
+                $backoff = $attempt * 15
+                Write-Host "::warning::Install-Module Pester attempt $attempt failed ($($_.Exception.Message)); retrying in ${backoff}s"
+                Start-Sleep -Seconds $backoff
+              } else {
+                Write-Host "::error::Install-Module Pester failed after $attempt attempts: $($_.Exception.Message)"
+                exit 1
+              }
+            }
+          }
 
       # WARN-FIRST (t/4150): continue-on-error sits on the STEP, as on every other warn gate in
       # this file. A red run shows as a failure-level annotation and step outcome=failure while
