@@ -75,6 +75,10 @@ on:
   schedule:
     - cron: '23 7 * * *'
   workflow_dispatch:
+  # t/4567: the merge queue runs the full suite once per batch on the merge-group
+  # commit, rather than once per PR plus again on push to main (step 5 of the design).
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -383,7 +387,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.powershell == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.powershell == 'true')
     # Outer hang-bound for the whole job (replaces GitHub's 360-min default — a hung suite
     # otherwise burns 6h of CI). Set 5 min above the step-level Pester timeout below so the STEP
     # timeout fires first on the common case (the Pester run), yielding the clear "has timed out"
@@ -816,7 +820,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -1069,7 +1073,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1170,7 +1174,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1212,7 +1216,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.verify-config == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.verify-config == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1319,7 +1323,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1391,7 +1395,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.electron == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -1464,7 +1468,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1506,7 +1510,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.lib == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1598,7 +1602,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.debate == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.debate == 'true')
     runs-on: ubuntu-latest
     env:
       GEMINI_API_KEY: ${{ secrets.FREE_TIER_GEMINI_KEY }}
@@ -1641,7 +1645,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1689,7 +1693,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.schema-drift == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.schema-drift == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1761,7 +1765,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.container == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -1886,7 +1890,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.python == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
     runs-on: ubuntu-latest
     env:
       PYTHONUTF8: '1'
@@ -1958,7 +1962,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.python == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.python == 'true')
     runs-on: ubuntu-latest
     # PYTHONUTF8=1: PEP 540 UTF-8 Mode — forces UTF-8 for stdio AND open() on win32.
     # Recurring 7× on the win32 fleet for non-ASCII (em-dashes, arrows, etc.) — t/2046.
@@ -2021,7 +2025,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.lockfile-sync == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.lockfile-sync == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2045,7 +2049,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' ||
        needs.changes.outputs.container == 'true' ||
        needs.changes.outputs.lib == 'true')
     runs-on: ubuntu-latest
@@ -2070,7 +2074,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.container == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.container == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2154,7 +2158,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.embeddings == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.embeddings == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2362,7 +2366,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.bicep-env == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-env == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2381,7 +2385,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.bicep-resources == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.bicep-resources == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2402,7 +2406,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.citation-link-ci == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.citation-link-ci == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
@@ -2450,7 +2454,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && !cancelled() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.powershell == 'true')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.powershell == 'true')
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -2853,3 +2857,73 @@ jobs:
               // tier-check.yml's own clean path.
               await postComment('_ci-shared-input-coverage: clean — no advisory findings._', { createIfAbsent: false });
             } // end run()
+
+  # ── t/4567 C1/C2: merge_group-scoped label guards ──────────────────────────
+  # These jobs report under the SAME required-context names (consult-hold-guard,
+  # joint-gv-guard) that consult-hold-guard.yml/joint-gv-guard.yml report under on
+  # pull_request events. Branch protection matches required contexts by check-run
+  # NAME, not by originating workflow file, so no new required-context entry is
+  # needed -- a merge_group event only triggers THIS workflow's jobs (the standalone
+  # files are pull_request-only), and a pull_request event only triggers the
+  # standalone files. No double-reporting, no collision.
+  #
+  # needs: [ci-gate] is what satisfies the SO's C1 condition (e/374#2 risk 1): on
+  # merge_group, evaluating the label state up front (like the PR-tier guards do)
+  # leaves a ~25min window where a consult-hold applied mid-wait would merge anyway,
+  # because the guard already reported success before the hold existed. Gating on
+  # ci-gate shrinks that window to the few seconds between ci-gate finishing and the
+  # queue's own merge decision.
+  consult-hold-guard:
+    name: consult-hold-guard
+    if: github.event_name == 'merge_group'
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      - name: Enumerate the group and refuse if any PR carries consult-hold
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x operations/devops/get-merge-group-prs.sh
+          PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
+            "${{ github.repository }}" \
+            "${{ github.ref }}")
+          echo "group PRs and labels: $PRS_JSON"
+          HELD=$(echo "$PRS_JSON" | jq -r '[.[] | select(.labels | index("consult-hold"))] | map(.number) | join(",")')
+          if [ -n "$HELD" ]; then
+            echo "::error::consult-hold-guard (merge_group): PR(s) #${HELD} in this batch carry 'consult-hold' — the batch cannot merge while any member is held. FAILING CLOSED."
+            exit 1
+          fi
+          echo "guard OK — no consult-hold label on any PR in this group."
+
+  joint-gv-guard:
+    name: joint-gv-guard
+    if: github.event_name == 'merge_group'
+    needs: [ci-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+      - name: Enumerate the group and refuse if any PR carries joint-gv
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x operations/devops/get-merge-group-prs.sh
+          PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
+            "${{ github.repository }}" \
+            "${{ github.ref }}")
+          echo "group PRs and labels: $PRS_JSON"
+          # t/4580: joint-gv PRs never enter the queue at all (merged manually after the joint
+          # review) -- so ANY joint-gv label on ANY PR in a group is a fail, unconditionally,
+          # unlike the PR-tier guard which only fails when auto-merge is ALSO armed.
+          JOINT_GV=$(echo "$PRS_JSON" | jq -r '[.[] | select(.labels | index("joint-gv"))] | map(.number) | join(",")')
+          if [ -n "$JOINT_GV" ]; then
+            echo "::error::joint-gv-guard (merge_group): PR(s) #${JOINT_GV} in this batch carry 'joint-gv' — joint-gv PRs are merged manually after their joint review, never through the queue. FAILING CLOSED."
+            exit 1
+          fi
+          echo "guard OK — no joint-gv label on any PR in this group."

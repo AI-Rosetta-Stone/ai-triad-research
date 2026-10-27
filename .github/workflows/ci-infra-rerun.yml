@@ -23,8 +23,12 @@ on:
     types: [completed]
 
 jobs:
+  # t/4567 FM3: a merge_group run never gets a plain job rerun here -- by the time this
+  # handler fires, GitHub has already dequeued every PR in a failed group, so rerunning a
+  # job in a dequeued run doesn't put anyone back. The re-enqueue-infra-failures job below
+  # handles that event instead.
   rerun-infra-failures:
-    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    if: github.event.workflow_run.event != 'merge_group' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
     runs-on: ubuntu-latest
     # t/4576: scoped to this job, not the workflow, so a future job added to this
     # workflow doesn't silently inherit actions:write.
@@ -112,6 +116,130 @@ jobs:
               // lint:alert-label-exempt: t/4548 2026-10-27 -- passive append-only log for a weekly
               // headcount, not an incident needing r/23 triage; the rerun itself already recovered
               // the failure, so there is nothing here for the escalation bridge to act on.
+              const created = await github.rest.issues.create({
+                owner, repo,
+                title: 'CI infra auto-rerun log (t/4548)',
+                body: `Running log of automatic reruns for infra-classified test-powershell failures (t/4548 arm 3). Never closes itself -- append-only record for the weekly report.\n\n${body}`,
+                labels: [LABEL],
+              });
+              console.log(`Created tracking issue #${created.data.number}`);
+            }
+
+  # t/4567 FM3 (SO e/374#2, TL-ruled): on an infra-classified merge_group failure, GitHub
+  # has already dequeued every PR in the batch by the time this workflow_run fires. A plain
+  # job rerun (rerun-infra-failures above) doesn't put them back -- re-enqueue instead, once,
+  # via GraphQL enqueuePullRequest. NEVER re-enqueue after a real failure: GitHub's own
+  # bisection has already correctly identified and dequeued the culprit PR(s) in that case,
+  # and the rest of the group is re-queued by GitHub itself, not by us.
+  #
+  # UNVERIFIED UNTIL LIVE-FIRE (flagged per TL/SO, not assumed): that `workflow_run` on
+  # `workflows: [CI]` actually fires for a merge_group-triggered CI run at all. If it
+  # doesn't, this job never runs and FM3 needs a different trigger shape -- arm 5/6 of the
+  # live-fire AC exist specifically to catch that.
+  re-enqueue-infra-failures:
+    if: github.event.workflow_run.event == 'merge_group' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    # Live-fire finding (app-scratch): enqueuePullRequest returned "Resource not
+    # accessible by integration" with pull-requests: read -- the mutation needs write.
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Download abnormal-end classifications
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        continue-on-error: true
+        with:
+          pattern: pester-classify-shard-*
+          path: classify
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+
+      - name: Decide whether this failure is infra-classified
+        id: classify
+        run: |
+          set -euo pipefail
+          dir="classify"
+          files_count=$(find "$dir" -name '*.json' 2>/dev/null | wc -l || echo 0)
+          if [ "$files_count" -eq 0 ]; then
+            echo "No abnormal-end classification artifacts found -- nothing to do (not infra-classified)."
+            echo "any_abnormal=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ANY_ABNORMAL=false
+          for f in "$dir"/*.json; do
+            if jq -e '.abnormalEnd == true' "$f" >/dev/null 2>&1; then
+              ANY_ABNORMAL=true
+              break
+            fi
+          done
+          echo "any_abnormal=$ANY_ABNORMAL" >> "$GITHUB_OUTPUT"
+
+      - name: Enumerate the group's PRs
+        id: enumerate
+        if: steps.classify.outputs.any_abnormal == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x operations/devops/get-merge-group-prs.sh
+          # workflow_run's `head_branch` IS the group's gh-readonly-queue ref path, confirmed
+          # via the Actions API during live-fire (unlike github.event.merge_group.head_ref in a
+          # LIVE merge_group event, which a separate live-fire finding proved resolves to a bare
+          # SHA, not this path -- github.ref is the fix there; this handler runs under
+          # workflow_run, where github.ref is this HANDLER's own ref, not the group's, so
+          # head_branch remains the correct source here).
+          PRS_JSON=$(operations/devops/get-merge-group-prs.sh \
+            "${{ github.repository }}" \
+            "${{ github.event.workflow_run.head_branch }}")
+          echo "group PRs: $PRS_JSON"
+          NUMBERS=$(echo "$PRS_JSON" | jq -r '[.[].number] | join(",")')
+          echo "numbers=$NUMBERS" >> "$GITHUB_OUTPUT"
+
+      - name: Re-enqueue each PR once, and log it
+        if: steps.classify.outputs.any_abnormal == 'true' && steps.enumerate.outputs.numbers != ''
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          PR_NUMBERS: ${{ steps.enumerate.outputs.numbers }}
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const runUrl = context.payload.workflow_run.html_url;
+            const numbers = process.env.PR_NUMBERS.split(',').map(Number).filter(Boolean);
+
+            const reenqueued = [];
+            for (const num of numbers) {
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: num });
+              try {
+                // t/4567 C3: pin the enqueue to the PR's CURRENT head, same principle as
+                // --match-head-commit on a direct merge -- a push after the group failed
+                // must not silently re-enqueue a stale, unreviewed head.
+                await github.graphql(
+                  `mutation($prId: ID!, $headSha: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $prId, expectedHeadOid: $headSha }) { mergeQueueEntry { position } } }`,
+                  { prId: pr.node_id, headSha: pr.head.sha }
+                );
+                reenqueued.push(num);
+                console.log(`Re-enqueued PR #${num} pinned to ${pr.head.sha}`);
+              } catch (e) {
+                console.log(`::warning::re-enqueue of PR #${num} failed (if a push landed after the group failed, this is correct -- re-arm manually): ${e.message}`);
+              }
+            }
+
+            if (!reenqueued.length) {
+              console.log('Nothing successfully re-enqueued.');
+              return;
+            }
+
+            const LABEL = 't4548-infra-rerun-log';
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: LABEL, per_page: 1 });
+            const body = `**Group re-enqueue (t/4567 FM3):** PR(s) ${reenqueued.map(n => `#${n}`).join(', ')} re-enqueued once after an infra-classified merge_group failure.\n\n- **Triggering run:** ${runUrl}`;
+            if (open.data.length) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
               const created = await github.rest.issues.create({
                 owner, repo,
                 title: 'CI infra auto-rerun log (t/4548)',
