@@ -1,0 +1,40 @@
+{
+ "_doc": "t/4471 round 2: blind factual-claim labels (CL, single rater, 2026-10-27). Labelled from fc_sheet.json before key.json was read. Classes as baseline labels.json: ok | pronoun | internal | date_no_year | elided | artifact. Outward reference = pronoun | internal | date_no_year.",
+ "labels": {
+  "F001": "ok", "F002": "ok", "F003": "artifact", "F004": "ok", "F005": "ok",
+  "F006": "ok", "F007": "ok", "F008": "ok",
+  "F009": "internal",
+  "F010": "ok",
+  "F011": "internal",
+  "F012": "ok", "F013": "ok", "F014": "ok", "F015": "ok", "F016": "ok",
+  "F017": "internal",
+  "F018": "ok", "F019": "ok",
+  "F020": "internal",
+  "F021": "ok", "F022": "artifact", "F023": "ok", "F024": "ok", "F025": "ok", "F026": "ok", "F027": "ok",
+  "F028": "ok", "F029": "ok", "F030": "ok", "F031": "ok", "F032": "ok", "F033": "ok",
+  "F034": "internal",
+  "F035": "ok", "F036": "ok", "F037": "ok", "F038": "ok", "F039": "ok", "F040": "ok", "F041": "ok",
+  "F042": "ok", "F043": "ok", "F044": "ok", "F045": "ok", "F046": "ok", "F047": "ok", "F048": "artifact",
+  "F049": "ok", "F050": "ok", "F051": "ok", "F052": "ok",
+  "F053": "internal",
+  "F054": "ok", "F055": "ok", "F056": "ok", "F057": "ok", "F058": "ok",
+  "F059": "internal",
+  "F060": "ok", "F061": "ok", "F062": "ok", "F063": "ok", "F064": "ok", "F065": "ok", "F066": "ok",
+  "F067": "ok",
+  "F068": "internal",
+  "F069": "ok", "F070": "ok", "F071": "ok", "F072": "ok", "F073": "ok", "F074": "ok", "F075": "ok",
+  "F076": "ok", "F077": "ok", "F078": "ok", "F079": "ok", "F080": "ok", "F081": "ok", "F082": "ok",
+  "F083": "ok", "F084": "ok", "F085": "ok", "F086": "artifact", "F087": "ok", "F088": "ok", "F089": "ok"
+ },
+ "notes": {
+  "F009": "'related evaluations ... within approximately one hour of discovery': the incident is never named",
+  "F011": "'the cyber evaluation incident'",
+  "F017": "'across 21 to 22 participants': the project (Atria Dawn) is not named",
+  "F020": "'In an analysis of 588 tasks': the project is not named",
+  "F034": "'the incident'",
+  "F039": "borderline ok: 'the technology' resolves in-sentence to OpenAI's",
+  "F053": "'The settlement'",
+  "F059": "'Participants'",
+  "F068": "'during the development process': of what is not named"
+ }
+}
