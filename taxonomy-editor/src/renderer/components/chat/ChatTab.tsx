@@ -11,6 +11,7 @@ import type { CommunityChat } from '../../hooks/useCommunityStore';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { NewChatDialog } from './NewChatDialog';
+import { ChatGettingStarted } from './ChatGettingStarted';
 import { buildChatLibraryListConfig } from './chatLibraryListConfig';
 import { ChatWorkspace } from './ChatWorkspace';
 import { SearchPreview } from '../edge-browser/SearchPreview';
@@ -276,15 +277,20 @@ interface SessionListPanelProps extends MyChatsListProps, CommunityChatsListProp
   width: number;
   listView: 'my' | 'community' | null;
   setListView: Dispatch<SetStateAction<'my' | 'community' | null>>;
-  setShowNewDialog: Dispatch<SetStateAction<boolean>>;
   setListCollapsed: Dispatch<SetStateAction<boolean>>;
   chatError: string | null;
   isPhone: boolean;
+  /** t/4536 round 3, point 8 — the same getting-started card as the desktop table-mode
+   *  LibraryListPage `intro` slot, at the top of the phone list. */
+  onPickStarter: (mode: ChatMode, topic: string) => void;
+  /** Opens NewChatDialog unprefilled — distinct from onPickStarter so a stale chip-prefill
+   *  from a previous click never leaks into a plain "+ New". */
+  onNewChat: () => void;
 }
 
 function SessionListPanel({
-  width, listView, setListView, setShowNewDialog, setListCollapsed,
-  sessions, sessionsLoading, activeChatId, chatError, isPhone,
+  width, listView, setListView, setListCollapsed,
+  sessions, sessionsLoading, activeChatId, chatError, isPhone, onPickStarter, onNewChat,
   chatGenerating, chatActivity, renamingId, renameValue, setRenameValue,
   renameChat, setRenamingId, confirmDeleteId, handleDelete, setConfirmDeleteId, handleSelect,
   communityChats, communityLoading, selectedCommunityChat, setSelectedCommunityChat,
@@ -299,12 +305,13 @@ function SessionListPanel({
       <div className="list-panel-header">
         <h2>Chats</h2>
         <div className="list-panel-header-actions">
-          <button className="btn btn-sm" onClick={() => { setShowNewDialog(true); setListView('my'); }}>
+          <button className="btn btn-sm" onClick={() => { onNewChat(); setListView('my'); }}>
             + New
           </button>
           <button className="pane-collapse-btn" onClick={() => setListCollapsed(true)} title="Collapse" aria-label="Collapse panel">&lsaquo;</button>
         </div>
       </div>
+      <ChatGettingStarted hasNoChats={sessions.length === 0} onPickStarter={onPickStarter} />
       <div className="list-view-tabs">
         <button className={`list-view-tab${listView === 'my' ? ' active' : ''}`} onClick={() => setListView('my')}>My ({sessions.length})</button>
         <button className={`list-view-tab${listView === 'community' ? ' active' : ''}`} onClick={() => setListView('community')}>Community ({communityChats.length})</button>
@@ -419,6 +426,28 @@ function RightPane({
   );
 }
 
+// t/4536 round 3 — NewChatDialog's open/prefill state + handlers, extracted to its own hook so
+// ChatTab's own complexity doesn't absorb the chip-prefill branching (complexity-budget).
+// Starter chips prefill the dialog's mode + topic rather than a composer, since none exists
+// before a chat is created.
+function useNewChatDialog() {
+  const [show, setShow] = useState(false);
+  const [prefill, setPrefill] = useState<{ mode: ChatMode; topic: string } | null>(null);
+  const pickStarter = useCallback((mode: ChatMode, topic: string) => {
+    setPrefill({ mode, topic });
+    setShow(true);
+  }, []);
+  const openUnprefilled = useCallback(() => {
+    setPrefill(null);
+    setShow(true);
+  }, []);
+  const close = useCallback(() => {
+    setShow(false);
+    setPrefill(null);
+  }, []);
+  return { show, prefill, pickStarter, openUnprefilled, close };
+}
+
 export function ChatTab() {
   const {
     sessions, sessionsLoading, loadSessions,
@@ -429,7 +458,10 @@ export function ChatTab() {
   const { width, onMouseDown } = useResizablePanel();
   const breakpoint = useBreakpoint();
   const isPhone = breakpoint === 'phone' || breakpoint === 'phone-lg';
-  const [showNewDialog, setShowNewDialog] = useState(false);
+  const {
+    show: showNewDialog, prefill: chatPrefill,
+    pickStarter: handlePickStarter, openUnprefilled: handleNewChat, close: closeNewChatDialog,
+  } = useNewChatDialog();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [selectedPromptEntry, setSelectedPromptEntry] = useState<PromptCatalogEntry | null>(PROMPT_CATALOG[0]);
   const [promptInspectorActive, setPromptInspectorActive] = useState(false);
@@ -490,7 +522,7 @@ export function ChatTab() {
     onRename: (id, newTitle) => { void renameChat(id, newTitle); },
     renamingId,
     setRenamingId,
-    onNew: () => setShowNewDialog(true),
+    onNew: handleNewChat,
     onExportMy: handleExportChat,
     onExportCommunity: handleExportChat,
     onShare: handleShareChat,
@@ -564,6 +596,7 @@ export function ChatTab() {
             communityLoading={communityLoading}
             onOpenMy={id => openChatPopout(id, 'my')}
             onOpenCommunity={id => openChatPopout(id, 'community')}
+            intro={<ChatGettingStarted hasNoChats={sessions.length === 0} onPickStarter={handlePickStarter} />}
           />
         </div>
       ) : listCollapsed ? (
@@ -575,13 +608,14 @@ export function ChatTab() {
           width={width}
           listView={listView}
           setListView={setListView}
-          setShowNewDialog={setShowNewDialog}
           setListCollapsed={setListCollapsed}
           sessions={sessions}
           sessionsLoading={sessionsLoading}
           activeChatId={activeChatId}
           chatError={chatError}
           isPhone={isPhone}
+          onPickStarter={handlePickStarter}
+          onNewChat={handleNewChat}
           chatGenerating={chatGenerating}
           chatActivity={chatActivity}
           renamingId={renamingId}
@@ -620,9 +654,20 @@ export function ChatTab() {
         selectedCommunityChat={selectedCommunityChat}
       />}
 
-      {showNewDialog && <NewChatDialog onClose={() => setShowNewDialog(false)} />}
+      {showNewDialog && (
+        <NewChatDialogHost prefill={chatPrefill} onClose={closeNewChatDialog} />
+      )}
     </div>
   );
+}
+
+// Thin host so the chatPrefill?.mode / chatPrefill?.topic optional-chains live in their own
+// function scope, not ChatTab's own complexity count (local/complexity-budget).
+function NewChatDialogHost({ prefill, onClose }: {
+  prefill: { mode: ChatMode; topic: string } | null;
+  onClose: () => void;
+}) {
+  return <NewChatDialog initialMode={prefill?.mode} initialTopic={prefill?.topic} onClose={onClose} />;
 }
 
 // ── Community Chat Detail ──
