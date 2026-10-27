@@ -1,0 +1,79 @@
+name: github-rate-limit-alert
+# t/4586 (DevOps follow-up AC): alert when prod's GitHub App installation quota drops
+# under 10% remaining. t/4584 showed this quota can be silently exhausted by concurrent
+# cold boots across environments, taking /api/entities and /api/organizations down with
+# it; t/4586 made the quota visible via /health (githubRateLimitRemaining/ResetsAt).
+# This closes the loop: alert before the next exhaustion, not after.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      limit_ceiling:
+        description: 'Assumed hourly quota ceiling (live-fire use only; default 5000)'
+        required: false
+
+permissions:
+  issues: write
+
+jobs:
+  check-rate-limit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check prod GitHub rate-limit remaining
+        id: check
+        run: |
+          chmod +x operations/devops/check-github-rate-limit.sh
+          RESULT=$(operations/devops/check-github-rate-limit.sh \
+            "https://taxonomy-editor.yellowbush-aeda037d.eastus.azurecontainerapps.io/health" \
+            "${{ github.event.inputs.limit_ceiling }}")
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+      - name: File or update alert issue
+        if: fromJson(steps.check.outputs.result).shouldAlert
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = ${{ steps.check.outputs.result }};
+            const kind = result.kind;
+            const titles = {
+              'quota-low': 'GitHub rate-limit quota low on prod',
+              'health-check-failed': 'GitHub rate-limit alert: /health unreachable',
+              'field-missing': 'GitHub rate-limit alert: githubRateLimitRemaining missing from /health',
+            };
+            const title = titles[kind] || `GitHub rate-limit alert: ${kind}`;
+
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'alert-escalated',
+            });
+            const already = existing.find(i => i.title === title);
+
+            let body;
+            if (kind === 'quota-low') {
+              body = `Prod's GitHub App installation quota is at **${result.remaining}** remaining (${result.percent}%), under the 10% threshold (t/4586). Resets at ${result.resetsAt}.\n\nSee t/4584 for the original quota-exhaustion incident and t/4587 for the staging-isolation fix in progress.`;
+            } else if (kind === 'health-check-failed') {
+              body = `The scheduled rate-limit check could not reach prod's \`/health\` endpoint. This is its own alert -- never read a failed check as "quota healthy".`;
+            } else {
+              body = `Prod's \`/health\` response no longer includes \`githubRateLimitRemaining\`. Possible regression in t/4586's change, or a bad deploy. Never read a missing field as "quota healthy".`;
+            }
+            body += `\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            if (already) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: already.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['alert-escalated'],
+              });
+            }
