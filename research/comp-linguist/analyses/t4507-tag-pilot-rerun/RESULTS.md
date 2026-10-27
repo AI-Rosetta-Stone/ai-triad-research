@@ -59,7 +59,12 @@ The base rates come from `skeptic.json` (n = 381 nodes). The file was unchanged 
    - The run doesn't tune the boost (PREREG: Secondary). The register entry for `TAG_BOOST_INCREMENT` stays **stipulated**, with this measured lift noted.
    - If the product wants the modes to differ, that is a parameter decision, and it needs a design with at least two boost values.
 3. **The exploratory secondary measures are consistent with the selection.** The tagged share of cited Skeptic `taxonomy_refs` is 1.000 in the Scope arms and 0.966 (A2) and 0.975 (A4) in the Prioritize arms (cited n = 79–96 per arm).
-   - **Crux overlap (A1 vs A3), declared in PREREG, was not computed in this pass.** It is tracked as a follow-up.
+4. **Crux overlap, A1 vs A3 (exploratory; `crux_overlap.ts`, `result-crux-overlap.json`): the wings do not change what the debate disagrees about.**
+   - **Measure.** The symmetric mean best-match cosine between two debates' `crux_tracker` descriptions. It is compared per motion with the same A1-vs-A1r replicate floor. The operationalisation was fixed after RESULTS.md and before any crux was read.
+   - **Result.** The wings' crux overlap fell below the floor on only **4 of 10** motions (n = 3–11 cruxes per debate).
+     - Wing overlap ranged 0.31–0.50 and the floor 0.32–0.48, so the two ranges coincide.
+     - The debate's crux set varies as much between replicates as between wings.
+   - **Why this fits Q1.** Q1 measures the Skeptic's own content, while cruxes are debate-level: the Skeptic is involved in 174 of the 373 cruxes (47%). The wing changes what the Skeptic says, but not, detectably, which disagreements the debate is about.
 
 ## Out of scope, as pre-registered
 
