@@ -258,6 +258,16 @@ export async function readFileWithVersionOrFallback(
   return content === null ? null : { content, version: '' };
 }
 
+/** t/4499: `backend.readFilesBatch` is optional (only GitHubAPIBackend
+ *  implements it); a backend without it has nothing to batch, so every path
+ *  is reported as a fallback for the caller to read itself via `readFile`. */
+export async function readFilesBatchOrEmpty(
+  filePaths: string[], opts?: { ref?: string },
+): Promise<{ contents: Map<string, string>; fallbackCount: number; graphqlCost: number }> {
+  if (backend.readFilesBatch) return backend.readFilesBatch(filePaths, opts);
+  return { contents: new Map(), fallbackCount: filePaths.length, graphqlCost: 0 };
+}
+
 /** t/4241: version available before JSON.parse, so a content-hash-keyed cache can skip parsing on a hit (t/4241#4). */
 export async function readTaxonomyFileRawWithVersion(pov: string, opts?: { ref?: string }): Promise<{ content: string; version: string }> {
   const filePath = await resolveTaxonomyFilePath(pov);
