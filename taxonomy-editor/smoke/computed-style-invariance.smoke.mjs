@@ -41,11 +41,11 @@ async function probeCluster(page, theme, selectors) {
 }
 
 test.beforeEach(async ({ page }) => {
-  // Suppress the aria-modal OnboardingTour (intercepts every click) — same as attributes spec (t/3026).
-  await page.addInitScript(() => {
-    try { localStorage.setItem('taxonomy-editor-onboarding-dismissed', 'true'); } catch { /* private mode */ }
-  });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  // t/4543: every launch now opens the Rosetta Stone landing view (the old OnboardingTour
+  // overlay this beforeEach used to suppress is retired — same navigation fix as the
+  // attributes spec). Navigate into Taxonomy to reach the [data-tab] POV surface.
+  await page.locator('button[aria-label="Taxonomy"]').first().click();
   await page.waitForSelector('[data-tab]', { timeout: 30_000 });
 });
 
