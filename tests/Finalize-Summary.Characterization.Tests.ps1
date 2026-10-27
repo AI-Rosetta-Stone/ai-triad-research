@@ -753,6 +753,8 @@ Describe 'Finalize-Summary end to end via Invoke-DocumentSummary, Invoke-AIApi m
             if ($env:FINALIZESUMMARY_E2E_REAL_EMBEDDINGS -ne '1') {
                 Mock Get-TextEmbedding -ModuleName AITriad { $null }
             }
+            # t/4572 write-freeze: e2e test uses mocked engine so freeze is irrelevant; bypass it.
+            Mock Test-NliDirectionalGateFrozen -ModuleName AITriad { $false }
             # Fresh module state for the parts Invoke-DocumentSummary does not reset itself.
             & $script:Mod { $script:CachedEmbeddings = $null; $script:TaxonomyNodeIdSet = $null }
 
