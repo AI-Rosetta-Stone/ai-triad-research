@@ -32,8 +32,8 @@ export function OpEdGettingStarted({ hasNoOpEds, onPickStarter }: OpEdGettingSta
   return (
     <LibraryGettingStarted
       storageKey={DISMISSED_KEY}
-      heading="See how the three camps argue a topic"
-      why="Pick a topic and Op-Ed Studies drafts an op-ed in each camp's voice — Accelerationist, Safetyist, Skeptic — grounded in this project's taxonomy, not the open web."
+      heading="See how each perspective argues a topic"
+      why="Pick a topic and Op-Ed Studies drafts an op-ed in each perspective's voice (Accelerationist, Safetyist, Skeptic), grounded in this project's taxonomy, not the open web."
       chips={OPED_STARTERS.map((starter) => ({ label: starter.text, value: starter }))}
       onSelectChip={(starter) => onPickStarter(starter.topic)}
       hasNoItems={hasNoOpEds}

@@ -33,7 +33,7 @@ export function InquiryGettingStarted({ hasNoQuestions, onPickStarter }: Inquiry
     <LibraryGettingStarted
       storageKey={DISMISSED_KEY}
       heading="Get a reasoned answer, not a search result"
-      why="Ask a question and three camps debate it — Accelerationist, Safetyist, Skeptic — grounded in this project's taxonomy, with their points of convergence and disagreement called out."
+      why="Ask a question and the three perspectives (Accelerationist, Safetyist, Skeptic) debate it, grounded in this project's taxonomy, with their points of agreement and disagreement called out."
       chips={QUESTION_STARTERS.map((question) => ({ label: question, value: question }))}
       onSelectChip={onPickStarter}
       hasNoItems={hasNoQuestions}

@@ -136,7 +136,12 @@ export function InquiryTab() {
       {
         key: 'status', header: 'Status', width: '110px',
         render: (row, variant) => variant === 'my' && (row as InquiryMyLibRow).truncated
-          ? <span className="inquiry-status-pill">Truncated</span>
+          ? (
+            <span className="inquiry-lib-status inquiry-lib-status--partial">
+              <span className="inquiry-lib-status-dot" aria-hidden="true" />
+              Partial
+            </span>
+          )
           : <span className="lib-empty-value">—</span>,
       },
       {

@@ -32,12 +32,30 @@ describe('InquiryAskPanel POV tag (t/4246)', () => {
 
   it('Run is enabled when the tag is fine', () => {
     render(<InquiryAskPanel />);
-    expect(screen.getByRole('button', { name: 'Run inquiry' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled();
   });
 
   it('Run is disabled when the tag scope is below the floor', () => {
     gate.blocked = '3 in scope — below the minimum (5)';
     render(<InquiryAskPanel />);
-    expect(screen.getByRole('button', { name: 'Run inquiry' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
+  });
+});
+
+// t/4562 (Design review, t/4562#2): focus dropped to BODY on this screen — chip-prefilled and
+// manual entry alike need the cursor visibly in the field, matching Op-Ed/Debates' own dialogs.
+describe('InquiryAskPanel focus (t/4562)', () => {
+  it('focuses the question textarea on mount, with the cursor at the end of any prefilled text', () => {
+    render(<InquiryAskPanel />);
+    const field = screen.getByLabelText('Research question') as HTMLTextAreaElement;
+    expect(field).toHaveFocus();
+    expect(field.selectionStart).toBe(store.question.length);
+    expect(field.selectionEnd).toBe(store.question.length);
+  });
+
+  it('renders the "New question" heading and a "← My Questions" back link', () => {
+    render(<InquiryAskPanel />);
+    expect(screen.getByRole('heading', { name: 'New question' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '← My Questions' })).toBeInTheDocument();
   });
 });
