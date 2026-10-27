@@ -65,18 +65,35 @@ function aadReq(opts: { tid?: string; oid?: string; name?: string; email?: strin
 
 let prevMap: string | undefined;
 let prevAdmins: string | undefined;
+let prevContainerAppName: string | undefined;
+let prevAiTriadEnv: string | undefined;
+let prevClaimShapeDiagEmail: string | undefined;
 beforeEach(() => {
   prevMap = process.env.IDENTITY_MAP;
   prevAdmins = process.env.ADMIN_USERS;
+  prevContainerAppName = process.env.CONTAINER_APP_NAME;
+  prevAiTriadEnv = process.env.AI_TRIAD_ENV;
+  prevClaimShapeDiagEmail = process.env.CLAIM_SHAPE_DIAG_EMAIL;
   process.env.ADMIN_USERS = 'jpsnover,jsnover13-at-gmail-com';
   delete process.env.IDENTITY_MAP;
+  delete process.env.CONTAINER_APP_NAME;
+  delete process.env.AI_TRIAD_ENV;
+  delete process.env.CLAIM_SHAPE_DIAG_EMAIL;
   warnMock.mockClear();
   _resetPrincipalNameForTest();
 });
 afterEach(() => {
   if (prevMap === undefined) delete process.env.IDENTITY_MAP; else process.env.IDENTITY_MAP = prevMap;
   if (prevAdmins === undefined) delete process.env.ADMIN_USERS; else process.env.ADMIN_USERS = prevAdmins;
+  if (prevContainerAppName === undefined) delete process.env.CONTAINER_APP_NAME; else process.env.CONTAINER_APP_NAME = prevContainerAppName;
+  if (prevAiTriadEnv === undefined) delete process.env.AI_TRIAD_ENV; else process.env.AI_TRIAD_ENV = prevAiTriadEnv;
+  if (prevClaimShapeDiagEmail === undefined) delete process.env.CLAIM_SHAPE_DIAG_EMAIL; else process.env.CLAIM_SHAPE_DIAG_EMAIL = prevClaimShapeDiagEmail;
 });
+
+/** Sets the two env vars that make isStagingIdentity() true, for the diagnostic's gate tests. */
+function enableStaging(): void {
+  process.env.CONTAINER_APP_NAME = 'taxonomy-editor-staging';
+}
 
 describe('GitHub identity keys on the stable provider id', () => {
   it.each([
@@ -367,5 +384,94 @@ describe('unreviewed idp WARN (t/4326 follow-up, p/822#3)', () => {
     const r = { headers: { 'x-ms-client-principal-idp': 'okta', 'x-ms-client-principal-name': 'x' } } as unknown as IncomingMessage;
     normalizePrincipalNameHeader(r, true);
     expect(warnMock.mock.calls.some(([fields]) => (fields as Record<string, unknown>).reason === 'unreviewed_idp_trusted_name_fallback' && (fields as Record<string, unknown>).idp === 'okta')).toBe(true);
+  });
+});
+
+function googleDiagReq(claims: Array<[string, string]>, name = 'user@gmail.com'): IncomingMessage {
+  return { headers: {
+    'x-ms-client-principal-name': name, 'x-ms-client-principal-idp': 'google',
+    'x-ms-client-principal': principal(claims, 'google'),
+  } } as unknown as IncomingMessage;
+}
+
+function diagCall(): [Record<string, unknown>, string] | undefined {
+  return warnMock.mock.calls.find(([fields]) => 'hasStableIdClaim' in (fields as Record<string, unknown>)) as [Record<string, unknown>, string] | undefined;
+}
+
+describe('Google claim-shape diagnostic (TEMPORARY, staging-only, single-account-gated — t/4436)', () => {
+  const TEST_EMAIL = 'jsnover2025@gmail.com';
+
+  it('off by default, even on staging: no diagnostic WARN for any sign-in', () => {
+    enableStaging();
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123'], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('off on prod even with the gate email set — isStagingIdentity() is the hard gate', () => {
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    // deliberately NOT calling enableStaging() — this simulates prod with the var mistakenly set
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123'], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('on staging, gated email set: a DIFFERENT user\'s sign-in is completely untouched', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-999'], [EMAIL, 'someone-else@gmail.com']], 'someone-else@gmail.com'), true);
+    expect(diagCall()).toBeUndefined();
+  });
+
+  it('on staging, the gated account signs in: captures claim types, presence, hasStableIdClaim, stableIdDistinctFromEmail — never values', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, 'sub-123-distinct'], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    const call = diagCall();
+    expect(call).toBeDefined();
+    const [fields, message] = call!;
+    expect(fields).toMatchObject({
+      idp: 'google', claimTypes: [EMAIL, NAMEID].sort(), decodedOk: true,
+      hasStableIdClaim: true, stableIdDistinctFromEmail: true,
+    });
+    // The core requirement (TL p/602#31 cond. 2, p/832#3): no claim value — including the
+    // gate email itself — ever appears in the log line.
+    const serialized = JSON.stringify(fields) + message;
+    expect(serialized).not.toContain('sub-123-distinct');
+    expect(serialized).not.toContain(TEST_EMAIL);
+  });
+
+  it('stableIdDistinctFromEmail is false when the nameidentifier claim IS the email (not a real stable id)', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[NAMEID, TEST_EMAIL], [EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()?.[0]).toMatchObject({ hasStableIdClaim: true, stableIdDistinctFromEmail: false });
+  });
+
+  it('hasStableIdClaim (and stableIdDistinctFromEmail) are false with no nameidentifier claim at all', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()?.[0]).toMatchObject({ hasStableIdClaim: false, stableIdDistinctFromEmail: false });
+  });
+
+  it('matches case-insensitively (email headers are not guaranteed to preserve case)', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL.toUpperCase();
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(diagCall()).toBeDefined();
+  });
+
+  it('fires once per process even across multiple sign-ins by the gated account', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    normalizePrincipalNameHeader(googleDiagReq([[EMAIL, TEST_EMAIL]], TEST_EMAIL), true);
+    expect(warnMock.mock.calls.filter(([fields]) => 'hasStableIdClaim' in (fields as Record<string, unknown>)).length).toBe(1);
+  });
+
+  it('never fires for non-google idps', () => {
+    enableStaging();
+    process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
+    normalizePrincipalNameHeader(githubReq({ id: '1', nameHeader: 'x' }), true);
+    expect(diagCall()).toBeUndefined();
   });
 });
