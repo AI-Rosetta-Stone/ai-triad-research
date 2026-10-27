@@ -31,6 +31,7 @@ import { ConflictsPanel, conflictsForNode } from '../conflict';
 import { NodeEditHistory } from './NodeEditHistory';
 import { PovTagEditor } from './PovTagEditor';
 import { useCanEditPovTags } from '../../hooks/useCanEditPovTags';
+import { useIsAdmin } from '../../hooks/useIsAdmin';
 import { PovMoveTagNotice } from './PovMoveTagNotice';
 import { nodeTypeFromId, nodePovFromId } from '@lib/debate/nodeIdUtils';
 import { POV_KEYS } from '@lib/debate/types';
@@ -42,9 +43,7 @@ import { useDescriptionMode, resolveDescription } from '../shared/DescriptionTog
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { EmptyState } from '../shared/EmptyState';
 import { OverflowMenu, type OverflowMenuEntry } from '../shared/OverflowMenu';
-import { CopyLinkButton } from '../shared/CopyLinkButton';
 import { InlineEditTitle } from '../shared/InlineEditTitle';
-import { publicPovSharePath } from '../../utils/shareLinks';
 import { DebateTestedChip } from './DebateTestedChip';
 import { DebateTestedDrilldown } from './DebateTestedDrilldown';
 import { CollapsibleSection } from './CollapsibleSection';
@@ -157,8 +156,11 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const [lineageExpanded, setLineageExpanded] = useState(false);
 
   // Reset to a visible tab when switching to Simple (which hides most tabs).
+  // t/4559: Attributes is now Advanced-only (reverses t/2120/t/3003's "always show"), so it
+  // no longer counts as a simple-view tab — a user on Attributes who switches to Simple drops
+  // to Content, same as any other Advanced-only tab.
   useEffect(() => {
-    if (viewMode === 'simple' && activeTab !== 'content' && activeTab !== 'related' && activeTab !== 'attributes') {
+    if (viewMode === 'simple' && activeTab !== 'content' && activeTab !== 'related') {
       setActiveTab('content');
     }
   }, [viewMode]);
@@ -393,7 +395,6 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           readOnly={readOnly}
           err={err}
           update={update}
-          onSimilarSearch={onSimilarSearch}
           onPin={viewMode === 'advanced' ? onPin : undefined}
           moveTargets={moveTargets}
           setShowDelete={setShowDelete}
@@ -588,7 +589,6 @@ interface NodeDetailHeaderTopProps {
   readOnly?: boolean;
   err: (field: string) => string | undefined;
   update: (updates: Partial<PovNode>) => void;
-  onSimilarSearch?: () => void;
   onPin?: () => void;
   moveTargets: MoveTarget[];
   setShowDelete: (v: boolean) => void;
@@ -596,7 +596,10 @@ interface NodeDetailHeaderTopProps {
   labelContent?: ReactNode;
 }
 
-function NodeDetailHeaderTop({ pov, node, readOnly, err, update, onSimilarSearch, onPin, moveTargets, setShowDelete, labelContent }: NodeDetailHeaderTopProps) {
+function NodeDetailHeaderTop({ pov, node, readOnly, err, update, onPin, moveTargets, setShowDelete, labelContent }: NodeDetailHeaderTopProps) {
+  // t/4559 (PI direction): the "..." menu (and the read-only Pin fallback) is admin-only —
+  // desktop counts as admin, web requires profile.isAdmin, hidden while loading/on error.
+  const isAdmin = useIsAdmin();
   return (
     <div className="nd-header-top">
       <div className="nd-header-title">
@@ -613,25 +616,12 @@ function NodeDetailHeaderTop({ pov, node, readOnly, err, update, onSimilarSearch
         )}
       </div>
       <div className="nd-header-actions">
-        {/* doc-link book relocated to the detail panel top-right (collapse-row / phone header) in PovTab — t/2412 */}
-        {/* t/2813: Search entry point in the POV detail header — opens the search panel (previousView captured for Back). */}
-        <button className="nd-header-btn" onClick={() => useTaxonomyStore.getState().setToolbarPanel('search')} title="Search taxonomy" aria-label="Search taxonomy">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </button>
-        {/* t/3470: BDI grounding panel had no mount point anywhere in the app — surfaces
-            debate_grounding (t/3466) + concept/entity/logical-form links for this node. */}
-        <button className="nd-header-btn" onClick={() => useTaxonomyStore.getState().setToolbarPanel('bdiGrounding')} title="BDI grounding, concepts & entities" aria-label="BDI grounding, concepts & entities">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </button>
-        {nodeTypeFromId(node.id) === 'pov' && (
-          <CopyLinkButton hash={publicPovSharePath(node.id)} title="Copy public link" />
-        )}
-        {onSimilarSearch && (
-          <button className="nd-header-btn" onClick={onSimilarSearch} title="Find similar taxonomy elements">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </button>
-        )}
-        {!readOnly && (
+        {/* t/4559 (PI direction): the search, BDI grounding, copy-link and find-similar icons
+            that used to live here are removed. The BDI Grounding panel (t/3470) had no other
+            mount point and is now unreachable from the UI — flagged to the PI, no replacement
+            entry point added per the ticket. Search is still reachable via the toolbar/bottom
+            nav; copy-link and find-similar have no other entry point either. */}
+        {isAdmin && !readOnly && (
           <OverflowMenu entries={buildOverflowEntries(
             moveTargets,
             () => setShowDelete(true),
@@ -639,7 +629,7 @@ function NodeDetailHeaderTop({ pov, node, readOnly, err, update, onSimilarSearch
             onPin,
           )} />
         )}
-        {readOnly && onPin && (
+        {isAdmin && readOnly && onPin && (
           <button className="nd-header-btn" onClick={onPin} title="Pin for comparison">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
           </button>
@@ -719,11 +709,12 @@ interface NodeDetailTabBarProps {
 }
 
 function NodeDetailTabBar({ activeTab, setActiveTab, conflictCount, cruxCount, factCount, editHistoryLength, viewMode }: NodeDetailTabBarProps) {
-  // Content + Related + Attributes always show; the rest are Advanced-only (t/2120, t/3003).
+  // Content + Related always show; the rest, including Attributes, are Advanced-only
+  // (t/2120, t/3003 originally kept Attributes always-on; reversed at the PI's direction, t/4559).
   const tabs: { id: NodeDetailTabId; label: string; advanced?: boolean }[] = [
     { id: 'content', label: 'Content' },
     { id: 'related', label: 'Related' },
-    { id: 'attributes', label: 'Attributes' },
+    { id: 'attributes', label: 'Attributes', advanced: true },
     { id: 'conflicts', label: `Conflicts${conflictCount > 0 ? ` (${conflictCount})` : ''}`, advanced: true },
     { id: 'cruxes', label: `Cruxes${cruxCount > 0 ? ` (${cruxCount})` : ''}`, advanced: true },
     { id: 'phrases', label: 'Phrases', advanced: true },
