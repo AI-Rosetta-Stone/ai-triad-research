@@ -38,6 +38,9 @@ Describe 'Invoke-PolarityGatePass two-stage judge (t/2900)' -Tag 'summary' {
                 foreach ($p in @($Pair)) { $r.Add([PSCustomObject]@{ Id = $p.Id; Direction = 'opposes'; Confidence = 1.61; Method = 'nli' }) }
                 $r
             }
+            # t/4572 write-freeze: this suite exercises the two-stage judge logic against
+            # a mocked engine, independent of calibration -- bypass the freeze here.
+            Mock Test-NliDirectionalGateFrozen { $false }
         }
     }
 

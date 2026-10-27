@@ -128,15 +128,51 @@ def test_no_framing_passes_raw_text():
     assert out[0]["direction"] == "agrees"
 
 
+def test_known_label_order_real_model():
+    """t/4572 SO C4: a known-label regression test run through the REAL model, not
+    fixtures — this is the test that would have caught the t/4572 column-swap bug
+    (NLI_LABELS assumed [entailment, neutral, contradiction]; the real checkpoint's
+    order is [contradiction, entailment, neutral]). Three unambiguous pairs, one
+    each of entailment/contradiction/neutral, each asserting its real label.
+    Skips when the model can't load (offline CI).
+    """
+    embed_taxonomy._load_nli_model = _REAL_LOAD
+    embed_taxonomy._classify_pairs_nli = _REAL_CLASSIFY
+    try:
+        model = _REAL_LOAD()
+    except Exception as exc:  # noqa: BLE001 — model unavailable => skip, not fail
+        print("SKIP test_known_label_order_real_model — model unavailable:", exc)
+        return
+
+    cases = [
+        ("A man is eating pizza.", "A man eats something.", "entailment"),
+        ("A man is eating pizza.", "A man is eating nothing.", "contradiction"),
+        ("A man is eating pizza.", "The stock market fell sharply today.", "neutral"),
+    ]
+    out = embed_taxonomy._classify_pairs_nli(model, [(a, b) for (a, b, _label) in cases])
+    for (a, b, expected), result in zip(cases, out):
+        assert result["label"] == expected, (
+            "({!r}, {!r}) -> {!r}, expected {!r}. If this fails, the model's "
+            "config.id2label order changed or the checkpoint changed — "
+            "re-verify before touching the mapping.".format(a, b, result, expected)
+        )
+
+
 def test_richness_guard_real_model():
     """The GV richness arm (TL bless t/2744#8, replaces the moot framing arm).
 
-    node-proposition RICHNESS — not framing — is what catches an inversion
-    (CL 2x2, t/2744#7). Same origin claim, vary the node_prop:
-      bare  (label only)     -> agrees   (MISSES the inversion)
-      rich  (label + Core)   -> opposes  (CATCHES it)
-    Real deberta; skips when the model can't load (offline CI). The margins are
-    the tau_contra calibration anchor (rich ~1.3, matching CL's ~1.42).
+    t/4572: REVERSED under the corrected label mapping. The original ruling (CL
+    2x2, t/2744#7) — "node-proposition RICHNESS, not framing, catches an
+    inversion" — was established against a label-swapped engine (NLI_LABELS
+    assumed [entailment, neutral, contradiction]; the real order is
+    [contradiction, entailment, neutral]). Under the corrected mapping, for this
+    same pair:
+      bare  (label only)     -> opposes    (CATCHES the inversion, confidently)
+      rich  (label + Core)   -> unrelated  (MISSES it)
+    This is the opposite of the original assertions. See t/4572, t/4572#1 (CL
+    confirmation pending) and e/371 for the full reversal writeup and what
+    re-examination of tau_contra/tau_entail and the published finding is needed.
+    Real deberta; skips when the model can't load (offline CI).
     """
     # Restore the real driver (earlier tests monkeypatched it).
     embed_taxonomy._load_nli_model = _REAL_LOAD
@@ -160,9 +196,9 @@ def test_richness_guard_real_model():
          "node_prop": "{} — {}".format(label, core), "node_pov": "accelerationist"},
     ])
     by = {r["id"]: r for r in out}
-    assert by["bare"]["direction"] == "agrees", by["bare"]     # bare node MISSES
-    assert by["rich"]["direction"] == "opposes", by["rich"]    # rich node CATCHES
-    assert by["rich"]["confidence"] >= 1.0                     # >= tau_contra
+    assert by["bare"]["direction"] == "opposes", by["bare"]      # bare now CATCHES
+    assert by["bare"]["confidence"] >= 1.0                       # >= tau_contra
+    assert by["rich"]["direction"] == "unrelated", by["rich"]    # rich now MISSES
 
 
 def test_ids_and_order_preserved():

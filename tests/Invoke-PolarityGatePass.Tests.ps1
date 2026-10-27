@@ -31,6 +31,10 @@ Describe 'Invoke-PolarityGatePass (t/2739)' -Tag 'summary' {
                     [PSCustomObject]@{ id = 'acc-intentions-047'; label = 'Argue AI Requires Entirely New Laws'; description = 'An Intention that new legal frameworks are required rather than adapted existing laws. Encompasses: bespoke AI legislation, regulatory sandboxes.' }
                 ) }
             }
+            # t/4572 write-freeze: these tests exercise the gate's OWN flip/judge/self-heal
+            # logic against a mocked engine, independent of calibration -- not affected by
+            # the freeze, so bypass it here (production call sites are NOT mocked).
+            Mock Test-NliDirectionalGateFrozen { $false }
         }
     }
 
@@ -234,6 +238,7 @@ Describe 'Polarity-gate disable switch (t/2896)' -Tag 'summary' {
 
     It 'ARM ON: gate active flips a genuine contradiction to strongly_opposed' {
         InModuleScope AITriad {
+            Mock Test-NliDirectionalGateFrozen { $false }  # t/4572: mocked engine, bypass the freeze
             Mock Test-DirectionalAgreement {
                 @($Pair) | ForEach-Object {
                     [PSCustomObject]@{ Id = $_.Id; Direction = 'opposes'; Confidence = 5.0 }
