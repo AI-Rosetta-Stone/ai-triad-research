@@ -1,5 +1,8 @@
 {
   "type": "module",
   "sideEffects": false,
-  "packageManager": "pnpm@11.20.0"
+  "packageManager": "pnpm@11.20.0",
+  "devDependencies": {
+    "vite": "^8.3.5"
+  }
 }
