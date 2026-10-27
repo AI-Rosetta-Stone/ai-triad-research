@@ -234,7 +234,7 @@ function Import-AITriadDocument {
                     $Meta    = Get-HtmlMeta -Html $HtmlContent
                     if ($Meta.Title) { $Title = $Meta.Title } else { $Title = $SourceUrl }
                     $Authors = $Meta.Author
-                    $MarkdownText = ConvertFrom-Html -Html $HtmlContent -SourceUrl $SourceUrl
+                    $MarkdownText = Remove-BlogChromeTail -Markdown (ConvertFrom-Html -Html $HtmlContent -SourceUrl $SourceUrl)
                     $RawContent   = $HtmlContent
                     $RawExtension = '.html'
                     $SourceType   = 'web_article'
@@ -274,6 +274,9 @@ function Import-AITriadDocument {
                     # Prefer markitdown for HTML (better semantic extraction)
                     $MidMd = ConvertFrom-MarkItDown -FilePath $ResolvedFile
                     if ($MidMd) { $MarkdownText = $MidMd } else { $MarkdownText = ConvertFrom-Html -Html $HtmlContent }
+                    # markitdown renders blog-chrome widgets as plain markdown instead of dropping
+                    # them (ConvertFrom-Html's own tag-level strip only fires on real HTML), t/4564.
+                    $MarkdownText = Remove-BlogChromeTail -Markdown $MarkdownText
                 }
                 { $_ -in '.pptx', '.ppt' } {
                     $SourceType   = 'presentation'
