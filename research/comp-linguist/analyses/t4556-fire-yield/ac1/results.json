@@ -1,0 +1,370 @@
+{
+ "summary": {
+  "docs": 6,
+  "under_extracted_docs": 3,
+  "rule": "under-extraction iff (FIRE coverage incl. factual_claims) <= 50% of chunked coverage on >= 4 docs",
+  "verdict": "not confirmed",
+  "pooled": {
+   "fire": {
+    "points": 41,
+    "genuine": 36,
+    "stretched": 4,
+    "unsupported": 1
+   },
+   "chunk": {
+    "points": 123,
+    "genuine": 113,
+    "stretched": 6,
+    "unsupported": 4
+   }
+  },
+  "union_total": 81,
+  "fire_clusters_total": 26,
+  "chunk_clusters_total": 75
+ },
+ "per_doc": {
+  "bold-dataset-metrics-measuring-biases-open-ended-language-2026": {
+   "fire": {
+    "points": 5,
+    "genuine": 5,
+    "stretched": 0,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "C",
+     "D",
+     "E"
+    ]
+   },
+   "chunk": {
+    "points": 7,
+    "genuine": 6,
+    "stretched": 1,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "C",
+     "D"
+    ]
+   },
+   "union": 4,
+   "fire_coverage": 1.0,
+   "chunk_coverage": 0.75,
+   "fire_only": [
+    "E"
+   ],
+   "fire_missed": [],
+   "missed_in_fire_factual_claims": [],
+   "fire_coverage_incl_fc": 1.0,
+   "ratio": 1.333,
+   "under_extracted": false
+  },
+  "constructing-ai-speech-2026": {
+   "fire": {
+    "points": 6,
+    "genuine": 6,
+    "stretched": 0,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "B",
+     "D",
+     "J"
+    ]
+   },
+   "chunk": {
+    "points": 15,
+    "genuine": 13,
+    "stretched": 2,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "B",
+     "C",
+     "D",
+     "E",
+     "F",
+     "G",
+     "H",
+     "I",
+     "K",
+     "L"
+    ]
+   },
+   "union": 12,
+   "fire_coverage": 0.333,
+   "chunk_coverage": 0.917,
+   "fire_only": [
+    "J"
+   ],
+   "fire_missed": [
+    "C",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "K",
+    "L"
+   ],
+   "missed_in_fire_factual_claims": [
+    "K"
+   ],
+   "fire_coverage_incl_fc": 0.417,
+   "ratio": 0.364,
+   "under_extracted": true
+  },
+  "new-economy-skills-unlocking-human-advantage-2026": {
+   "fire": {
+    "points": 11,
+    "genuine": 9,
+    "stretched": 2,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "E",
+     "F",
+     "I",
+     "L",
+     "M",
+     "O"
+    ]
+   },
+   "chunk": {
+    "points": 12,
+    "genuine": 12,
+    "stretched": 0,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "B",
+     "C",
+     "D",
+     "E",
+     "F",
+     "G",
+     "H",
+     "J",
+     "M",
+     "N",
+     "P"
+    ]
+   },
+   "union": 15,
+   "fire_coverage": 0.467,
+   "chunk_coverage": 0.8,
+   "fire_only": [
+    "I",
+    "L",
+    "O"
+   ],
+   "fire_missed": [
+    "B",
+    "C",
+    "D",
+    "G",
+    "H",
+    "J",
+    "N",
+    "P"
+   ],
+   "missed_in_fire_factual_claims": [
+    "C"
+   ],
+   "fire_coverage_incl_fc": 0.533,
+   "ratio": 0.583,
+   "under_extracted": false
+  },
+  "prioritizing-risks-from-artificial-intelligence-2026": {
+   "fire": {
+    "points": 6,
+    "genuine": 5,
+    "stretched": 1,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "B",
+     "D"
+    ]
+   },
+   "chunk": {
+    "points": 50,
+    "genuine": 49,
+    "stretched": 1,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "AA",
+     "B",
+     "C",
+     "D",
+     "E",
+     "G",
+     "H",
+     "I",
+     "J",
+     "K",
+     "L",
+     "M",
+     "N",
+     "O",
+     "P",
+     "Q",
+     "R",
+     "S",
+     "T",
+     "U",
+     "V",
+     "X",
+     "Y",
+     "Z"
+    ]
+   },
+   "union": 25,
+   "fire_coverage": 0.12,
+   "chunk_coverage": 1.0,
+   "fire_only": [],
+   "fire_missed": [
+    "AA",
+    "C",
+    "E",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "X",
+    "Y",
+    "Z"
+   ],
+   "missed_in_fire_factual_claims": [
+    "Y"
+   ],
+   "fire_coverage_incl_fc": 0.16,
+   "ratio": 0.12,
+   "under_extracted": true
+  },
+  "risks-not-assumed-against-application-assumption-risk-harms-2026": {
+   "fire": {
+    "points": 5,
+    "genuine": 4,
+    "stretched": 1,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "D",
+     "F"
+    ]
+   },
+   "chunk": {
+    "points": 21,
+    "genuine": 19,
+    "stretched": 2,
+    "unsupported": 0,
+    "clusters": [
+     "A",
+     "B",
+     "C",
+     "D",
+     "E",
+     "G",
+     "H",
+     "I",
+     "J",
+     "K",
+     "L",
+     "M",
+     "N"
+    ]
+   },
+   "union": 14,
+   "fire_coverage": 0.214,
+   "chunk_coverage": 0.929,
+   "fire_only": [
+    "F"
+   ],
+   "fire_missed": [
+    "B",
+    "C",
+    "E",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N"
+   ],
+   "missed_in_fire_factual_claims": [
+    "C"
+   ],
+   "fire_coverage_incl_fc": 0.286,
+   "ratio": 0.231,
+   "under_extracted": true
+  },
+  "something-big-is-happening-but-not-what-you-think-2026": {
+   "fire": {
+    "points": 8,
+    "genuine": 7,
+    "stretched": 0,
+    "unsupported": 1,
+    "clusters": [
+     "A",
+     "D",
+     "G",
+     "I",
+     "M"
+    ]
+   },
+   "chunk": {
+    "points": 18,
+    "genuine": 14,
+    "stretched": 0,
+    "unsupported": 4,
+    "clusters": [
+     "A",
+     "D",
+     "G",
+     "H",
+     "I",
+     "J",
+     "L",
+     "M",
+     "N",
+     "P",
+     "Q"
+    ]
+   },
+   "union": 11,
+   "fire_coverage": 0.455,
+   "chunk_coverage": 1.0,
+   "fire_only": [],
+   "fire_missed": [
+    "H",
+    "J",
+    "L",
+    "N",
+    "P",
+    "Q"
+   ],
+   "missed_in_fire_factual_claims": [
+    "N"
+   ],
+   "fire_coverage_incl_fc": 0.545,
+   "ratio": 0.455,
+   "under_extracted": false
+  }
+ }
+}

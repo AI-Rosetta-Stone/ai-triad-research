@@ -1,0 +1,55 @@
+{
+ "population": 218,
+ "excluded": 26,
+ "seed": 4556,
+ "sample": [
+  {
+   "doc": "something-big-is-happening-but-not-what-you-think-2026",
+   "chars": 87438,
+   "chunk_count": 4,
+   "saved_model": "gemini-3.1-flash-lite-preview",
+   "saved_kp": 13,
+   "tertile": 0
+  },
+  {
+   "doc": "bold-dataset-metrics-measuring-biases-open-ended-language-2026",
+   "chars": 88409,
+   "chunk_count": 3,
+   "saved_model": "gemini-flash-lite-latest",
+   "saved_kp": 12,
+   "tertile": 0
+  },
+  {
+   "doc": "new-economy-skills-unlocking-human-advantage-2026",
+   "chars": 112884,
+   "chunk_count": 4,
+   "saved_model": "gemini-3.1-flash-lite-preview",
+   "saved_kp": 17,
+   "tertile": 1
+  },
+  {
+   "doc": "risks-not-assumed-against-application-assumption-risk-harms-2026",
+   "chars": 121333,
+   "chunk_count": 6,
+   "saved_model": "gemini-3.1-flash-lite",
+   "saved_kp": 24,
+   "tertile": 1
+  },
+  {
+   "doc": "prioritizing-risks-from-artificial-intelligence-2026",
+   "chars": 220232,
+   "chunk_count": 7,
+   "saved_model": "gemini-3.1-flash-lite",
+   "saved_kp": 32,
+   "tertile": 2
+  },
+  {
+   "doc": "constructing-ai-speech-2026",
+   "chars": 177488,
+   "chunk_count": 6,
+   "saved_model": "gemini-flash-lite-latest",
+   "saved_kp": 21,
+   "tertile": 2
+  }
+ ]
+}
