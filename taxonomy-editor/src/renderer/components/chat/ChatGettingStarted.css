@@ -1,18 +1,29 @@
-/* Chat Getting Started (t/4536 round 3). Rendered inside LibraryListPage's intro slot, so it
-   uses the --lib-* tokens that page defines for itself, not the app's generic text/background
-   tokens, to stay visually consistent with its container. */
+/* Chat Getting Started (t/4536 round 3). Rendered inside LibraryListPage's intro slot on
+   desktop/table mode, so it uses the --lib-* tokens that page defines for itself, not the app's
+   generic text/background tokens, to stay visually consistent with its container. */
 
 .chat-getting-started {
+  /* t/4565: on phone this card mounts through MyChatsList, outside .library-list-page, so the
+     --lib-* custom properties (declared on .library-list-page, LibraryListPage.css:8) are
+     undefined there and every var(--lib-*) below fell back to its CSS-initial value (no fill,
+     no border). Resolve through local --cgs-* indirection with the library palette as fallback,
+     so the card is self-sufficient in either container; the fallback keeps desktop pixel-identical
+     since --lib-* is defined and wins whenever this card IS inside .library-list-page. */
+  --cgs-bg: var(--lib-row-hover, #ece6dd);
+  --cgs-chip-bg: var(--lib-bg, #f4f0ea);
+  --cgs-border: var(--lib-border-control, #ddd5ca);
+  --cgs-text: var(--lib-text, #2b2622);
+  --cgs-text-secondary: var(--lib-text-secondary, #5d554f);
+  --cgs-accent: var(--lib-accent, #9e2236);
+
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
   gap: 8px;
-  /* t/4536#8: --lib-bg IS the page background — use --lib-row-hover so the card has a
-     visible fill, and give the chips --lib-bg so they still stand out against the card. */
-  background: var(--lib-row-hover);
-  border: 1px solid var(--lib-border-control);
+  background: var(--cgs-bg);
+  border: 1px solid var(--cgs-border);
   border-radius: 6px;
   padding: 16px;
   margin-top: 12px;
@@ -24,7 +35,7 @@
   right: 14px;
   background: none;
   border: none;
-  color: var(--lib-text-secondary);
+  color: var(--cgs-text-secondary);
   font-size: 13px;
   cursor: pointer;
   text-decoration: underline;
@@ -34,14 +45,14 @@
 .chat-getting-started-heading {
   font-size: 15px;
   font-weight: 600;
-  color: var(--lib-text);
+  color: var(--cgs-text);
   margin: 0;
   padding-right: 48px; /* room for Hide */
 }
 
 .chat-getting-started-why {
   font-size: 13px;
-  color: var(--lib-text-secondary);
+  color: var(--cgs-text-secondary);
   margin: 0;
 }
 
@@ -54,28 +65,28 @@
 .chat-getting-started-chip {
   min-height: 44px;
   padding: 8px 12px;
-  border: 1px solid var(--lib-border-control);
+  border: 1px solid var(--cgs-border);
   border-radius: 5px;
-  background: var(--lib-bg);
-  color: var(--lib-text);
+  background: var(--cgs-chip-bg);
+  color: var(--cgs-text);
   font-size: 13px;
   cursor: pointer;
   text-align: left;
 }
 
 .chat-getting-started-chip:hover {
-  background: var(--lib-bg);
-  border-color: var(--lib-accent);
+  background: var(--cgs-chip-bg);
+  border-color: var(--cgs-accent);
 }
 
 .chat-getting-started-chip:focus-visible {
-  outline: 2px solid var(--lib-accent);
+  outline: 2px solid var(--cgs-accent);
   outline-offset: 2px;
 }
 
 .chat-getting-started-mode-hint {
   font-size: 13px;
-  color: var(--lib-text-secondary);
+  color: var(--cgs-text-secondary);
   margin: 0;
 }
 
@@ -84,7 +95,7 @@
   margin-top: 12px;
   background: none;
   border: none;
-  color: var(--lib-text-secondary);
+  color: var(--cgs-text-secondary);
   font-size: 13px;
   cursor: pointer;
   text-decoration: underline;
