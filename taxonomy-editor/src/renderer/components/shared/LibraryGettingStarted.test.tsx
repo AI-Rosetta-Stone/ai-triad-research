@@ -106,11 +106,12 @@ describe('LibraryGettingStarted (t/4561)', () => {
   });
 
   // t/4565 round 2: Chat's phone layout (MyChatsList) mounts this card outside
-  // .library-list-page, where --lib-* is undefined and every var(--lib-*) resolves to its
-  // initial value (transparent fill, no border) — jsdom doesn't apply stylesheets or resolve
-  // custom properties, so a rendered-DOM assertion can't catch this; assert on the CSS source
-  // instead, per the originally-landed fix's own test approach (t/4565#1).
-  it('declares --lgs-* fallback tokens so the card renders outside .library-list-page (t/4565)', () => {
+  // .library-list-page, where the lib-prefixed custom properties are undefined and each one
+  // resolves to its initial value (transparent fill, no border) — jsdom doesn't apply
+  // stylesheets or resolve custom properties, so a rendered-DOM assertion can't catch this;
+  // assert on the CSS source instead, per the originally-landed fix's own test approach
+  // (t/4565#1).
+  it('declares lgs-prefixed fallback tokens so the card renders outside .library-list-page (t/4565)', () => {
     const css = readFileSync(join(__dirname, 'LibraryGettingStarted.css'), 'utf-8');
     expect(css).toMatch(/--lgs-bg:\s*var\(--lib-row-hover,\s*#ece6dd\)/);
     expect(css).toMatch(/--lgs-chip-bg:\s*var\(--lib-bg,\s*#f4f0ea\)/);

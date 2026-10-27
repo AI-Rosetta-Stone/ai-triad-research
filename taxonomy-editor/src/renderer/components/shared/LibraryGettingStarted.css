@@ -1,13 +1,14 @@
 /* Shared getting-started card for library-page tools (t/4561, generalized from Chat's
    ChatGettingStarted.css, t/4536 round 3). Rendered inside LibraryListPage's intro slot on
-   desktop, so it can read that page's --lib-* tokens there — but Chat's phone layout
-   (MyChatsList) mounts this card OUTSIDE .library-list-page (t/4565), where --lib-* is
-   undefined and every var(--lib-*) falls back to its CSS-wide-keyword initial value (transparent
-   fill, no border). Fixed in t/4565 (#3961) on the old chat-prefixed file, then silently
-   regressed by this file's own t/4561 generalization, which carried the --lib-* reads forward
-   without the fallback indirection (t/4565#3). --lgs-* is declared here with var(--lib-*, #hex)
-   fallbacks — desktop still resolves --lib-* (defined on .library-list-page, wins), phone gets
-   the hex fallback. Hex values match LibraryListPage.css's own --lib-* values exactly. */
+   desktop, so it can read that page's lib-prefixed custom properties there — but Chat's phone
+   layout (MyChatsList) mounts this card OUTSIDE .library-list-page (t/4565), where those
+   properties are undefined and each one falls back to its CSS-wide-keyword initial value
+   (transparent fill, no border). Fixed in t/4565 (#3961) on the old chat-prefixed file, then
+   silently regressed by this file's own t/4561 generalization, which carried those reads forward
+   without the fallback indirection (t/4565#3). The lgs-prefixed custom properties below are each
+   declared from their lib-prefixed counterpart with a literal hex fallback — desktop still
+   resolves the lib-prefixed one (defined on .library-list-page, wins), phone gets the hex
+   fallback. Hex values match LibraryListPage.css's own values exactly. */
 
 .lib-getting-started {
   --lgs-bg: var(--lib-row-hover, #ece6dd);
