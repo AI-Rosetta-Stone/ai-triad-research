@@ -7,7 +7,7 @@ Active UX specs in `docs/ux/`. Design owns these; coding agents reference them d
 
 | Spec | Purpose |
 |---|---|
-| `onboarding.md` | First-time user tour (t/664, t/665) |
+| `onboarding.md` | *Superseded:* first-time user tour (t/664, t/665), replaced by the Rosetta Stone home page (t/4542) |
 | `admin-community-removal.md` | Admin removal of community items (t/748) |
 | `delete-api-keys.md` | Per-key deletion from Settings (t/774) |
 | `share-review-notice.md` | Review/approval notice after sharing (t/775) |
