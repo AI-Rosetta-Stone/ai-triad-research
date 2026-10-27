@@ -56,9 +56,18 @@ describe('navConfig — Op-Eds OR-of-flags per-build reveal (t/2633)', () => {
 });
 
 describe('navConfig — primary tier order (t/4535, PI request p/351#29)', () => {
-  it('is search, chat, opeds, inquiry, debate, taxonomy', () => {
+  it('is rosetta-stone, search, chat, opeds, inquiry, debate, taxonomy', () => {
     expect(getItemsByTier(NAV_ITEMS, 'primary').map(i => i.id)).toEqual([
-      'search', 'chat', 'opeds', 'inquiry', 'debate', 'taxonomy',
+      'rosetta-stone', 'search', 'chat', 'opeds', 'inquiry', 'debate', 'taxonomy',
     ]);
+  });
+});
+
+describe('navConfig — Rosetta Stone entry (t/4543)', () => {
+  it('is gate-free and ungrouped, so it always shows and routes to the rosetta-stone tab', () => {
+    const item = NAV_ITEMS.find(i => i.id === 'rosetta-stone');
+    expect(item).toBeDefined();
+    expect(item?.gate).toBeUndefined();
+    expect(item?.action).toEqual({ type: 'switchTab', target: 'rosetta-stone' });
   });
 });

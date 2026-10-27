@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment, type ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   LayoutGrid, MessageSquare, MessageCircle,
   Ellipsis, CircleHelp, MessageSquareText, Layers,
@@ -18,7 +19,7 @@ import { useNavVisibilityContext } from '../../hooks/useNavVisibilityContext';
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
 import { useTierInfo } from '../../hooks/useTierInfo';
 import { FeedbackPopover } from './FeedbackPopover';
-import { NAV_ITEMS, getVisibleNavItems, getSecondaryByGroup, type NavItem, type NavAction } from '../../data/navConfig';
+import { NAV_ITEMS, RosetteIcon, getVisibleNavItems, getSecondaryByGroup, type NavItem, type NavAction } from '../../data/navConfig';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import './Toolbar.css';
 
@@ -183,6 +184,35 @@ function ToolbarAuthButton() {
   );
 }
 
+// t/4543: extracted from Toolbar's primary nav to pull the per-item active/className
+// branching out of Toolbar's own function body — each inline ternary+&& pair it replaces
+// counted against Toolbar's complexity budget (local/complexity-budget), and a 6th primary
+// item (Rosetta Stone) pushed the file over its baseline. Pure presentational; no behavior
+// change — same className, same aria-label, same click handling as before.
+interface PrimaryNavButtonProps {
+  id: string;
+  ariaLabel: string;
+  label: ReactNode;
+  icon: LucideIcon;
+  activeTab: string;
+  toolbarPanel: string | null;
+  onClick: () => void;
+}
+
+function PrimaryNavButton({ id, ariaLabel, label, icon: Icon, activeTab, toolbarPanel, onClick }: PrimaryNavButtonProps) {
+  const active = activeTab === id && toolbarPanel === null;
+  return (
+    <button
+      className={`toolbar-nav${active ? ' toolbar-nav-active' : ''}`}
+      onClick={onClick}
+      aria-label={ariaLabel}
+    >
+      <Icon size="1.25em" />
+      <span className="toolbar-nav-label">{label}</span>
+    </button>
+  );
+}
+
 export function Toolbar() {
   const {
     toolbarPanel, setToolbarPanel,
@@ -247,7 +277,7 @@ export function Toolbar() {
     else if (toolbarPanel === 'attrInfo') clearAttributeInfo();
   };
 
-  const switchTab = (tab: 'situations' | 'conflicts' | 'cruxes' | 'debate' | 'chat' | 'opeds' | 'summaries' | 'validation' | 'inquiry') => {
+  const switchTab = (tab: 'rosetta-stone' | 'situations' | 'conflicts' | 'cruxes' | 'debate' | 'chat' | 'opeds' | 'summaries' | 'validation' | 'inquiry') => {
     clearCurrentPanel();
     useTaxonomyStore.setState({ relatedNodeId: null, selectedEdge: null });
     setToolbarPanel(null);
@@ -276,7 +306,7 @@ export function Toolbar() {
     else if (action.type === 'togglePanel') toggle(action.target as ToolbarPanel);
   };
 
-  const isTaxonomyActive = toolbarPanel === null && !['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'inquiry'].includes(activeTab);
+  const isTaxonomyActive = toolbarPanel === null && !['rosetta-stone', 'situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'inquiry'].includes(activeTab);
 
   return (
     <nav className="toolbar" aria-label="Primary">
@@ -285,48 +315,43 @@ export function Toolbar() {
             Ask a Question, Debate, Taxonomy (PI request, p/351#29; order only). */}
         {/* t/2813: Search removed from the nav rail; entry points now live in the
             Taxonomy panel header + POV detail header. toggle('search') still works. */}
-        <button
-          className={`toolbar-nav${activeTab === 'chat' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
+        {/* t/4543: Rosetta Stone added topmost, ungated — every launch opens into it
+            (PI decision, t/4541#1). Icon is option A from the approved t/4542 mockup. */}
+        <PrimaryNavButton
+          id="rosetta-stone" ariaLabel="Rosetta Stone" label={<>Rosetta<br />Stone</>}
+          icon={RosetteIcon} activeTab={activeTab} toolbarPanel={toolbarPanel}
+          onClick={() => switchTab('rosetta-stone')}
+        />
+        <PrimaryNavButton
+          id="chat" ariaLabel="Chat" label="Chat"
+          icon={MessageCircle} activeTab={activeTab} toolbarPanel={toolbarPanel}
           onClick={() => switchTab('chat')}
-          aria-label="Chat"
-        >
-          <MessageCircle size="1.25em" />
-          <span className="toolbar-nav-label">Chat</span>
-        </button>
+        />
         {opedsVisible && (
-          <button
-            className={`toolbar-nav${activeTab === 'opeds' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
+          <PrimaryNavButton
+            id="opeds" ariaLabel="Op-Ed Studies" label={<>Op-Ed<br />Studies</>}
+            icon={Newspaper} activeTab={activeTab} toolbarPanel={toolbarPanel}
             onClick={() => switchTab('opeds')}
-            aria-label="Op-Ed Studies"
-          >
-            <Newspaper size="1.25em" />
-            <span className="toolbar-nav-label">Op-Ed<br />Studies</span>
-          </button>
+          />
         )}
         {inquiryVisible && (
-          <button
-            className={`toolbar-nav${activeTab === 'inquiry' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
+          <PrimaryNavButton
+            id="inquiry" ariaLabel="Ask a Question" label={<>Ask a<br />Question</>}
+            icon={Sparkles} activeTab={activeTab} toolbarPanel={toolbarPanel}
             onClick={() => switchTab('inquiry')}
-            aria-label="Ask a Question"
-          >
-            <Sparkles size="1.25em" />
-            <span className="toolbar-nav-label">Ask a<br />Question</span>
-          </button>
+          />
         )}
-        <button
-          className={`toolbar-nav${activeTab === 'debate' && toolbarPanel === null ? ' toolbar-nav-active' : ''}`}
+        <PrimaryNavButton
+          id="debate" ariaLabel="Debate" label="Debate"
+          icon={MessageSquare} activeTab={activeTab} toolbarPanel={toolbarPanel}
           onClick={() => switchTab('debate')}
-          aria-label="Debate"
-        >
-          <MessageSquare size="1.25em" />
-          <span className="toolbar-nav-label">Debate</span>
-        </button>
+        />
         <button
           className={`toolbar-nav${isTaxonomyActive ? ' toolbar-nav-active' : ''}`}
           onClick={() => {
             clearCurrentPanel();
             setToolbarPanel(null);
-            if (['situations', 'conflicts', 'debate', 'chat', 'opeds', 'summaries', 'validation'].includes(activeTab)) {
+            if (['rosetta-stone', 'situations', 'conflicts', 'debate', 'chat', 'opeds', 'summaries', 'validation'].includes(activeTab)) {
               setActiveTab('accelerationist');
             }
           }}

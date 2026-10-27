@@ -43,7 +43,7 @@ export function BottomNav({ onOpenMore }: BottomNavProps) {
   const handleTaxonomy = () => {
     if (toolbarPanel !== null) setToolbarPanel(null);
     useTaxonomyStore.setState({ relatedNodeId: null, selectedEdge: null });
-    if (['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'summaries', 'validation'].includes(activeTab)) {
+    if (['rosetta-stone', 'situations', 'conflicts', 'cruxes', 'debate', 'chat', 'summaries', 'validation'].includes(activeTab)) {
       setActiveTab('accelerationist');
     }
   };

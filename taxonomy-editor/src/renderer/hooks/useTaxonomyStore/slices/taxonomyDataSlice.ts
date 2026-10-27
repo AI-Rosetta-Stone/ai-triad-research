@@ -349,7 +349,10 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   conflicts: [],
   aggregatedCruxes: null,
 
-  activeTab: 'accelerationist',
+  // t/4543: every launch opens on the Rosetta Stone tool — every user, including returning
+  // users (PI decision, t/4541#1). No "last used tab" persistence exists for this field, so
+  // this literal default IS the launch behavior; don't add restore-last-tab logic here.
+  activeTab: 'rosetta-stone',
   selectedNodeId: null,
   lastPovMoveReport: null,
   dirty: new Set(),

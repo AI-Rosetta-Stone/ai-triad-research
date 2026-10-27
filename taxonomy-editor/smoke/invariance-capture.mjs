@@ -88,11 +88,10 @@ async function captureAll() {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await (await browser.newContext()).newPage();
-    // Suppress the aria-modal OnboardingTour (intercepts clicks) — same as the spec's beforeEach.
-    await page.addInitScript(() => {
-      try { localStorage.setItem('taxonomy-editor-onboarding-dismissed', 'true'); } catch { /* private mode */ }
-    });
     await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    // t/4543: every launch now opens the Rosetta Stone landing view (the old OnboardingTour
+    // overlay this used to suppress is retired) — same navigation fix as the spec's beforeEach.
+    await page.locator('button[aria-label="Taxonomy"]').first().click();
     await page.waitForSelector('[data-tab]', { timeout: 30_000 });
 
     const captured = {};
