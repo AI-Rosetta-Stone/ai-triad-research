@@ -1,0 +1,65 @@
+name: merge-queue-liveness
+
+# t/4567 C5 (TL ruling t/4567#37-39): the scheduled time-based backstop for a stuck or
+# silently-dropped merge-queue entry, complementing merge-queue-dequeue-alert.yml's
+# immediate, event-driven signal. Runs every 15 minutes -- cheap (one GraphQL call plus
+# one check-runs call per queued entry, and the queue is rarely more than a few entries
+# deep given the max-group-size-4 cap).
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check-liveness:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Check merge-queue liveness
+        id: check
+        run: |
+          set -euo pipefail
+          chmod +x operations/devops/check-merge-queue-liveness.sh
+          VIOLATIONS=$(operations/devops/check-merge-queue-liveness.sh "${{ github.repository }}" "main")
+          echo "violations: $VIOLATIONS"
+          echo "violations=$(echo "$VIOLATIONS" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: File or update alert-escalated issues
+        if: steps.check.outputs.violations != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          VIOLATIONS_B64: ${{ steps.check.outputs.violations }}
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const violations = JSON.parse(Buffer.from(process.env.VIOLATIONS_B64, 'base64').toString('utf8'));
+            if (!violations.length) {
+              console.log('No liveness violations.');
+              return;
+            }
+            const KIND_LABEL = {
+              'no-checks-started': 'no merge_group check run has started',
+              'awaiting-checks-stale': 'AWAITING_CHECKS beyond the real worst-case suite time',
+              'queued-too-long': 'queued for over 2 hours',
+            };
+            for (const v of violations) {
+              // Dedupe per (PR, kind): find an OPEN issue with this exact title before creating
+              // a new one, so a stuck entry doesn't spam a fresh issue every 15-minute tick.
+              const title = `Merge-queue liveness: PR #${v.number} (${v.kind})`;
+              const existing = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${owner}/${repo} is:issue is:open in:title "${title}"`,
+              });
+              if (existing.data.items.length) {
+                console.log(`Already alerted for PR #${v.number} (${v.kind}) -- issue #${existing.data.items[0].number} still open, not re-creating.`);
+                continue;
+              }
+              const body = `**Merge-queue liveness violation (t/4567 C5):** PR #${v.number} -- ${KIND_LABEL[v.kind] || v.kind}, ${v.ageMinutes} minutes.\n\nThis entry needs investigation: it may be stuck for the same reason t/4567#36/#37 found (an automatic action that never actually triggers new checks), or a genuinely broken required context.`;
+              const created = await github.rest.issues.create({ owner, repo, title, body, labels: ['alert-escalated'] });
+              console.log(`::warning::Created liveness alert issue #${created.data.number} for PR #${v.number} (${v.kind})`);
+            }

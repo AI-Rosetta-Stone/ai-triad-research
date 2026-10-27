@@ -1,0 +1,46 @@
+name: merge-queue-dequeue-alert
+
+# t/4567 D1 (SO p/836#2, TL-adopted t/4567#38): the immediate, event-driven signal for a
+# merge-queue entry dropping silently -- a dequeue GitHub itself initiates (timed-out
+# checks, failed checks) starts a `pull_request` event with `action: dequeued` and a
+# `reason`. A merge or a manual removal are expected, routine outcomes; anything else
+# (CHECKS_TIMED_OUT, FAILED_CHECKS, or any future reason) means the entry left the queue
+# without ever merging and without a human choosing to pull it -- exactly the silent-drop
+# class t/4567#36 found. This fires immediately, not on a poll cadence; the companion
+# merge-queue-liveness.yml is the time-based backstop for whatever this event itself
+# fails to catch.
+on:
+  pull_request:
+    types: [dequeued]
+
+permissions:
+  issues: write
+
+jobs:
+  alert-on-unexpected-dequeue:
+    # merge_queue_dequeue_reason is only present on a dequeued action; guard defensively
+    # in case a future GitHub payload shape omits it unexpectedly (fail toward alerting,
+    # not silence -- an unrecognized reason is NOT the same as a known-safe one).
+    if: >-
+      github.event.pull_request.merge_queue_dequeue_reason != 'MERGE' &&
+      github.event.pull_request.merge_queue_dequeue_reason != null
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            const reason = pr.merge_queue_dequeue_reason;
+            // "Manual" dequeue isn't a distinct GitHub reason value today, so the one
+            // known-safe non-merge reason is treated as the gate's job, not ours: a
+            // human/agent choosing to pull a PR already shows up as an ordinary PR event
+            // with no further signal needed. Alert on everything else, unconditionally.
+            const body = `**Unexpected merge-queue dequeue (t/4567 D1):** PR #${pr.number} @ \`${pr.head.sha.slice(0, 7)}\` left the merge queue with reason \`${reason}\` -- not a merge. This is the silent-drop class (t/4567#36): a re-enqueued or stuck entry can leave the queue with no further signal unless this alert catches it.\n\n- **PR:** ${pr.html_url}`;
+            const created = await github.rest.issues.create({
+              owner, repo,
+              title: `Merge-queue dequeue, not a merge: PR #${pr.number} (${reason})`,
+              body,
+              labels: ['alert-escalated'],
+            });
+            console.log(`::warning::Created alert issue #${created.data.number} for unexpected dequeue of PR #${pr.number} (reason: ${reason})`);

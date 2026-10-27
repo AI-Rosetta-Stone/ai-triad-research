@@ -125,26 +125,22 @@ jobs:
               console.log(`Created tracking issue #${created.data.number}`);
             }
 
-  # t/4567 FM3 (SO e/374#2, TL-ruled): on an infra-classified merge_group failure, GitHub
-  # has already dequeued every PR in the batch by the time this workflow_run fires. A plain
-  # job rerun (rerun-infra-failures above) doesn't put them back -- re-enqueue instead, once,
-  # via GraphQL enqueuePullRequest. NEVER re-enqueue after a real failure: GitHub's own
-  # bisection has already correctly identified and dequeued the culprit PR(s) in that case,
-  # and the rest of the group is re-queued by GitHub itself, not by us.
-  #
-  # UNVERIFIED UNTIL LIVE-FIRE (flagged per TL/SO, not assumed): that `workflow_run` on
-  # `workflows: [CI]` actually fires for a merge_group-triggered CI run at all. If it
-  # doesn't, this job never runs and FM3 needs a different trigger shape -- arm 5/6 of the
-  # live-fire AC exist specifically to catch that.
-  re-enqueue-infra-failures:
+  # t/4567 FM3, REVISED (TL ruling, t/4567#37-39 / e/376): automatic re-enqueue is REMOVED.
+  # Root cause: enqueuePullRequest called with github.token never triggers a new merge_group
+  # check run -- GitHub does not start workflows for events caused by GITHUB_TOKEN. A
+  # re-enqueued entry therefore sits in AWAITING_CHECKS until check_response_timeout_minutes
+  # and silently drops out, with no signal. Making this work would need an App or PAT token,
+  # which app-scratch (secrets-free by design) can't live-fire-prove, for a rare case --
+  # not worth the complexity (TL ruling). On an infra-classified merge_group failure, this
+  # job now ONLY alerts -- naming the dequeued PRs and the heads that were in the failed
+  # group -- so a person or agent can re-enqueue pinned, with their own credentials. The
+  # weekly report counts these same as it counted re-enqueues before.
+  alert-infra-failures:
     if: github.event.workflow_run.event == 'merge_group' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
     runs-on: ubuntu-latest
-    # Live-fire finding (app-scratch): enqueuePullRequest returned "Resource not
-    # accessible by integration" with pull-requests: read -- the mutation needs write.
     permissions:
       actions: read
       issues: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
@@ -196,12 +192,9 @@ jobs:
             "${{ github.repository }}" \
             "${{ github.event.workflow_run.head_branch }}")
           echo "group PRs: $PRS_JSON"
-          # base64 (not a bare JSON output) -- a PR's own headSha varies in length/shape
-          # and GITHUB_OUTPUT is line-oriented; keeps this one GitHub Actions output safe
-          # for github-script to decode and re-parse below.
           echo "prs_json=$(echo "$PRS_JSON" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
-      - name: Re-enqueue each PR once per head, and log it
+      - name: File or update the alert-escalated issue, and log it
         if: steps.classify.outputs.any_abnormal == 'true' && steps.enumerate.outputs.prs_json != ''
         continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
@@ -212,74 +205,27 @@ jobs:
             const owner = context.repo.owner, repo = context.repo.repo;
             const runUrl = context.payload.workflow_run.html_url;
             const entries = JSON.parse(Buffer.from(process.env.PRS_JSON_B64, 'base64').toString('utf8'));
+            const list = entries.map(e => `#${e.number}@${(e.headSha || 'unknown').slice(0, 7)}`).join(', ');
 
-            // t/4567 SO F2 (e/375#2): the once-only guard elsewhere (run_attempt == 1) resets
-            // on every re-enqueue, since a re-enqueued group produces a brand-new CI run -- a
-            // persistent infra failure would otherwise re-enqueue forever. Persist a marker
-            // keyed by (PR, head) as a PR comment; a second failure on the SAME head skips the
-            // re-enqueue and escalates instead.
-            const MARKER = (sha) => `<!-- t4567-fm3-reenqueue:${sha} -->`;
-
-            const reenqueued = [];
-            const alreadyTried = [];
-            for (const entry of entries) {
-              const num = entry.number;
-              const headSha = entry.headSha;
-              if (!headSha) {
-                console.log(`::warning::PR #${num}: no headSha from enumeration -- skipping (cannot pin safely).`);
-                continue;
-              }
-
-              const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: num, per_page: 100 });
-              if (comments.some(c => c.body && c.body.includes(MARKER(headSha)))) {
-                console.log(`PR #${num} @ ${headSha}: already attempted once for this exact head -- NOT re-enqueuing again (F2).`);
-                alreadyTried.push({ num, headSha });
-                continue;
-              }
-
-              try {
-                // t/4567 C3 + SO F1 fix (e/375#2): pin to the ENTRY's own tested head
-                // (from mergeQueue data, via the enumeration script), not the PR's current
-                // head -- a push landing after the group failed would otherwise match a
-                // "current head" pin and silently re-enqueue an unreviewed commit.
-                await github.graphql(
-                  `mutation($prId: ID!, $headSha: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $prId, expectedHeadOid: $headSha }) { mergeQueueEntry { position } } }`,
-                  { prId: (await github.rest.pulls.get({ owner, repo, pull_number: num })).data.node_id, headSha }
-                );
-                await github.rest.issues.createComment({ owner, repo, issue_number: num, body: `${MARKER(headSha)}\nAuto re-enqueued once after an infra-classified merge_group failure (t/4567 FM3). Triggering run: ${runUrl}` });
-                reenqueued.push({ num, headSha });
-                console.log(`Re-enqueued PR #${num} pinned to ${headSha}`);
-              } catch (e) {
-                console.log(`::warning::re-enqueue of PR #${num} @ ${headSha} failed (the PR has likely moved since this head was tested -- re-arm manually): ${e.message}`);
-              }
-            }
+            const created = await github.rest.issues.create({
+              owner, repo,
+              title: `Infra-classified merge_group failure: ${entries.map(e => `#${e.number}`).join(', ')}`,
+              body: `**Infra-classified merge_group failure (t/4567 FM3, alert-only).** PR(s) dequeued by GitHub: ${list}. Re-enqueue pinned to the head shown above, with your own credentials, once you've confirmed it's still current -- this workflow no longer does it automatically (GITHUB_TOKEN-caused enqueues never trigger a merge_group check, so an automatic retry would silently never get checked).\n\n- **Triggering run:** ${runUrl}`,
+              labels: ['alert-escalated'],
+            });
+            console.log(`::warning::Created alert issue #${created.data.number} for infra-classified failure: ${list}`);
 
             const LABEL = 't4548-infra-rerun-log';
-            if (reenqueued.length) {
-              const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: LABEL, per_page: 1 });
-              const body = `**Group re-enqueue (t/4567 FM3):** PR(s) ${reenqueued.map(r => `#${r.num}@${r.headSha.slice(0, 7)}`).join(', ')} re-enqueued once after an infra-classified merge_group failure.\n\n- **Triggering run:** ${runUrl}`;
-              if (open.data.length) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
-              } else {
-                const created = await github.rest.issues.create({
-                  owner, repo,
-                  title: 'CI infra auto-rerun log (t/4548)',
-                  body: `Running log of automatic reruns for infra-classified test-powershell failures (t/4548 arm 3). Never closes itself -- append-only record for the weekly report.\n\n${body}`,
-                  labels: [LABEL],
-                });
-                console.log(`Created tracking issue #${created.data.number}`);
-              }
-            }
-
-            // t/4567 SO F2: a repeat infra failure on an ALREADY-tried head means the one-time
-            // retry didn't recover it -- this needs a human, not another silent loop.
-            if (alreadyTried.length) {
-              const body = `**Repeat infra-classified merge_group failure on an already-retried head (t/4567 FM3 F2):** PR(s) ${alreadyTried.map(r => `#${r.num}@${r.headSha.slice(0, 7)}`).join(', ')} failed infra-classified again on the SAME head that was already re-enqueued once. NOT re-enqueuing again -- this needs investigation, not another automatic retry.\n\n- **Triggering run:** ${runUrl}`;
-              const created = await github.rest.issues.create({
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: LABEL, per_page: 1 });
+            const body = `**Infra-classified merge_group failure, alerted (t/4567 FM3):** ${list} -- see #${created.data.number}.\n\n- **Triggering run:** ${runUrl}`;
+            if (open.data.length) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
+              const logIssue = await github.rest.issues.create({
                 owner, repo,
-                title: `CI infra re-enqueue exhausted: ${alreadyTried.map(r => `#${r.num}`).join(', ')}`,
-                body,
-                labels: ['alert-escalated'],
+                title: 'CI infra auto-rerun log (t/4548)',
+                body: `Running log of infra-classified failures (t/4548 arm 3 / t/4567 FM3). Never closes itself -- append-only record for the weekly report.\n\n${body}`,
+                labels: [LABEL],
               });
-              console.log(`::warning::Created escalation issue #${created.data.number} -- infra retry exhausted for ${alreadyTried.map(r => `#${r.num}`).join(', ')}`);
+              console.log(`Created tracking issue #${logIssue.data.number}`);
             }
