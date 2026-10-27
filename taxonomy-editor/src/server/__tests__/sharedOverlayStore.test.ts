@@ -81,7 +81,8 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
     const store = makeStore(container, prefix);
     const entry = { content: 'hello world', baseSha: 'abc123', stagedAt: new Date().toISOString() };
     const result = await store.stage('alice', 'taxonomy/foo.json', entry);
-    expect(result).toEqual({ ok: true });
+    expect(result.ok).toBe(true);
+    expect((result as { gen: string }).gen).toEqual(expect.any(String));
 
     const got = await store.getEntry('alice', 'taxonomy/foo.json');
     expect(got).toEqual(entry);
@@ -197,7 +198,7 @@ describe('SharedOverlayStore (Azurite, t/4311 store-module PR)', () => {
       if (this.name.endsWith('/_gen') && !triggered) {
         triggered = true; // set BEFORE the nested call so B's own bump isn't re-intercepted
         const b = await storeB.stage('alice', 'taxonomy/foo.json', { content: 'B content (acknowledged)', baseSha: 'unknown', stagedAt: new Date().toISOString() });
-        expect(b).toEqual({ ok: true });
+        expect(b.ok).toBe(true);
         throw new Error('simulated A bump failure, after B already landed and acknowledged');
       }
       return realUpload.apply(this, args);
