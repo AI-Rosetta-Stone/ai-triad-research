@@ -329,6 +329,10 @@
   flex: 1;
   min-height: 0; /* t/4138 — without this a flex child can't shrink below its content height, so overflow-y:auto never triggers */
   overflow-y: auto;
+  /* t/4538: the UA computes overflow-x as auto once overflow-y is non-visible (CSS Overflow
+     §3), so this was silently auto too — the observed horizontal scrollbar under the
+     transcript at narrow widths. Nothing here should ever need to scroll sideways. */
+  overflow-x: hidden;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -564,6 +568,24 @@
 
 .chat-message-user .chat-taxonomy-refs {
   text-align: left;
+}
+
+/* t/4538: at phone width, .chat-message's row layout put the speaker avatar+label beside
+   the message body, splitting an already-capped 85%-wide bubble in two — the body was left
+   with so little room that text wrapped one or two words per line. Stack the avatar above
+   the body instead (full bubble width goes to text) and widen the cap, since there's no
+   adjacent content competing for space on a phone screen the way there is on desktop. */
+@media (max-width: 767px) {
+  .chat-message {
+    max-width: 94%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .chat-message-user {
+    align-items: flex-end;
+  }
 }
 
 /* ── Message prose ───────────────────────────────────── */
