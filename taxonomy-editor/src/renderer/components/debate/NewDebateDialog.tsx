@@ -38,7 +38,7 @@ const STYLE_PRESETS: { id: DialecticalStyle; label: string; desc: string }[] = [
 
 interface NewDebateDialogProps {
   onClose: () => void;
-  onAtCap?: () => void;
+  onAtCap?: () => void; initialTopic?: string; initialPovers?: readonly SpeakerId[]; // t/4563 starter-chip prefill (mirrors NewChatDialog); omitted ⇒ unprefilled
 }
 
 const AUDIENCE_DESCRIPTIONS: Record<string, string> = {
@@ -908,13 +908,13 @@ function DebateSettingsDialog({
 
 // ── Main dialog ───────────────────────────────────────────────────────────────
 
-export function NewDebateDialog({ onClose, onAtCap }: NewDebateDialogProps) {
+export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers }: NewDebateDialogProps) {
   const { createDebate, loadDebate } = useDebateStore(
     useShallow(s => ({ createDebate: s.createDebate, loadDebate: s.loadDebate }))
   );
 
   // Topic / source
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(initialTopic ?? '');
   const [background, setBackground] = useState('');
   const [sourceType, setSourceType] = useState<DebateSourceType>('topic');
   const [sourceRef, setSourceRef] = useState('');
@@ -923,7 +923,7 @@ export function NewDebateDialog({ onClose, onAtCap }: NewDebateDialogProps) {
   const [activeAdder, setActiveAdder] = useState<'none' | 'background' | 'source'>('none');
 
   // Debaters
-  const [selected, setSelected] = useState<Set<SpeakerId>>(new Set(AI_POVERS));
+  const [selected, setSelected] = useState<Set<SpeakerId>>(new Set(initialPovers ?? AI_POVERS));
   const [userIsPover, setUserIsPover] = useState(false);
   const [seatTags, setSeatTags] = useState<Partial<Record<SpeakerId, SeatTag>>>({}); const povTagRegistry = registryOrNull();
 
