@@ -20,12 +20,16 @@
 # string the GitHub docs' shape implies; github.ref is the one field confirmed to
 # carry refs/heads/gh-readonly-queue/<branch>/pr-<N>-<sha> on a merge_group event).
 # Prints a JSON array of {number, labels: [string...], headSha} to stdout on success --
-# every entry at or before THIS entry's own queue position. headSha is the entry's
-# OWN tested commit (MergeQueueEntry.headCommit.oid), not the PR's current head --
-# callers that re-enqueue from this data (ci-infra-rerun.yml FM3) must pin to this
-# value, since the PR's current head may have moved since this entry was tested
-# (SO F1 finding, t/4567#33: pinning to a since-moved current head silently
-# re-enqueues an unreviewed commit).
+# every entry at or before THIS entry's own queue position. headSha is read from
+# PullRequest.headRefOid AS PART OF THIS SAME QUERY -- i.e. contemporaneous with
+# detecting the group's failure, not a separately-fetched "current head" moments
+# later (SO F1 finding, t/4567#33/e/375#2: a stale separate fetch could silently
+# re-enqueue an unreviewed commit if a push raced in). NOTE: MergeQueueEntry.headCommit.oid
+# is NOT the right field here -- it is the ephemeral merge-group TEST (squash) commit,
+# not the PR's own branch head, and fails enqueuePullRequest's expectedHeadOid check
+# with "expected head oid does not match the current head oid" (caught live-fire,
+# F2 double-failure arm, now historical since F1/F2 were removed -- this script's
+# headSha field is still used, purely for naming in the alert-only path's issue body).
 # Exits 1 (fail closed) on ANY problem, with a legible ::error:: line.
 set -euo pipefail
 
@@ -46,7 +50,7 @@ if [ -z "$BRANCH" ] || [ -z "$SELF_PR_NUM" ]; then
 fi
 
 # ---- 2. query the queue's own entry list (retry 3x, fail closed on exhaustion) ----
-QUERY='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){nodes{position headCommit{oid} pullRequest{number labels(first:50){nodes{name}}}}}}}}'
+QUERY='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){nodes{position pullRequest{number headRefOid labels(first:50){nodes{name}}}}}}}}'
 ENTRIES_JSON=""
 last_err=""
 for attempt in 1 2 3; do
@@ -77,7 +81,7 @@ if [ "$SELF_POSITION" = "null" ] || [ -z "$SELF_POSITION" ]; then
 fi
 
 # ---- 4. every entry at or before our own position is in THIS batch ----
-RESULT=$(echo "$ENTRIES_JSON" | jq --argjson pos "$SELF_POSITION" '[.[] | select(.position <= $pos) | {number: .pullRequest.number, labels: [.pullRequest.labels.nodes[].name], headSha: .headCommit.oid}]')
+RESULT=$(echo "$ENTRIES_JSON" | jq --argjson pos "$SELF_POSITION" '[.[] | select(.position <= $pos) | {number: .pullRequest.number, labels: [.pullRequest.labels.nodes[].name], headSha: .pullRequest.headRefOid}]')
 RESULT_COUNT=$(echo "$RESULT" | jq 'length')
 if [ "$RESULT_COUNT" -eq 0 ]; then
   echo "::error::get-merge-group-prs: resolved ZERO PRs at or before position ${SELF_POSITION} -- cannot prove this batch is safe. FAILING CLOSED." >&2

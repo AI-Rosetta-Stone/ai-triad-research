@@ -49,6 +49,27 @@ jobs:
               'queued-too-long': 'queued for over 2 hours',
             };
             for (const v of violations) {
+              // t/4567 SO L3 (e/377#2): the enumeration call itself failing is reported as
+              // its own distinct alert -- a liveness check that goes silently red under its
+              // own API failure is exactly the silent-drop class it exists to catch.
+              if (v.kind === 'liveness-check-failed') {
+                const title = 'Merge-queue liveness check itself is failing';
+                const existing = await github.rest.search.issuesAndPullRequests({
+                  q: `repo:${owner}/${repo} is:issue is:open in:title "${title}"`,
+                });
+                if (existing.data.items.length) {
+                  console.log(`Liveness check failure already alerted -- issue #${existing.data.items[0].number} still open.`);
+                  continue;
+                }
+                const created = await github.rest.issues.create({
+                  owner, repo, title,
+                  body: `**The merge-queue liveness check's own GraphQL query failed (t/4567 C5).** It cannot currently tell you whether any entry is stuck. Check this workflow's own run logs for the underlying error (auth, rate limit, or a schema change).`,
+                  labels: ['alert-escalated'],
+                });
+                console.log(`::warning::Created liveness-check-failed alert issue #${created.data.number}`);
+                continue;
+              }
+
               // Dedupe per (PR, kind): find an OPEN issue with this exact title before creating
               // a new one, so a stuck entry doesn't spam a fresh issue every 15-minute tick.
               const title = `Merge-queue liveness: PR #${v.number} (${v.kind})`;

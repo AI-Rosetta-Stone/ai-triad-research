@@ -19,15 +19,21 @@
 # Usage: check-merge-queue-liveness.sh <repo> <branch>
 # Prints a JSON array of violations: [{number, kind: "no-checks-started"|"awaiting-checks-stale"|"queued-too-long", ageMinutes}]
 # Exits 0 always (this check alerts, it never fails closed/open like the C2 enumeration script).
-set -euo pipefail
+set -uo pipefail
 
 REPO="$1"
 BRANCH="$2"
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
 
+# t/4567 SO L3 (e/377#2): a GraphQL failure must never go silently red under `set -e` --
+# a liveness check that can fail invisibly is the exact silent-drop class this whole
+# mechanism exists to catch. Emit a distinct violation instead of dying.
 QUERY='query($owner:String!,$repo:String!,$branch:String!){repository(owner:$owner,name:$repo){mergeQueue(branch:$branch){entries(first:100){nodes{position state enqueuedAt headCommit{oid} pullRequest{number}}}}}}'
-ENTRIES_JSON=$(gh api graphql -f query="$QUERY" -f owner="$OWNER" -f repo="$NAME" -f branch="$BRANCH" --jq '.data.repository.mergeQueue.entries.nodes // []')
+if ! ENTRIES_JSON=$(gh api graphql -f query="$QUERY" -f owner="$OWNER" -f repo="$NAME" -f branch="$BRANCH" --jq '.data.repository.mergeQueue.entries.nodes // []' 2>&1); then
+  echo '[{"kind": "liveness-check-failed", "number": 0, "ageMinutes": 0}]'
+  exit 0
+fi
 
 NOW_EPOCH=$(date -u +%s)
 VIOLATIONS="[]"
@@ -52,7 +58,14 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
   if [ "$state" = "AWAITING_CHECKS" ]; then
     CHECK_COUNT=0
     if [ -n "$headSha" ]; then
-      CHECK_COUNT=$(gh api "repos/${REPO}/commits/${headSha}/check-runs" --jq '.total_count // 0' 2>/dev/null || echo 0)
+      # t/4567 SO L2 (e/377#2): count only the REQUIRED contexts, not every check run on
+      # the commit. `noop` has no branch/event filter and fires on every push including
+      # the merge-group test commit (confirmed t/4567#36), so counting all check runs
+      # would always show >0 even in the exact GITHUB_TOKEN-failure shape this condition
+      # exists to catch -- the condition could never fire.
+      CHECK_COUNT=$(gh api "repos/${REPO}/commits/${headSha}/check-runs" \
+        --jq '[.check_runs[].name | select(. == "ci-gate" or . == "CodeQL" or . == "consult-hold-guard" or . == "joint-gv-guard")] | length' \
+        2>/dev/null || echo 0)
     fi
 
     # ---- (a) no check run started within 15 minutes ----
