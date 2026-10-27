@@ -48,12 +48,29 @@ describe('ChatGettingStarted (t/4536 round 3)', () => {
     expect(screen.getByRole('button', { name: 'Show chat tips' })).toBeInTheDocument();
   });
 
-  it('"Show chat tips" brings the card back', async () => {
+  it('moves focus to "Show chat tips" after Hide (t/4536#8)', async () => {
+    const user = userEvent.setup();
+    render(<ChatGettingStarted hasNoChats={false} onPickStarter={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Hide chat introduction' }));
+    expect(screen.getByRole('button', { name: 'Show chat tips' })).toHaveFocus();
+  });
+
+  it('"Show chat tips" brings the card back and moves focus to the heading (t/4536#8)', async () => {
     localStorage.setItem(DISMISSED_KEY, '1');
     const user = userEvent.setup();
     render(<ChatGettingStarted hasNoChats={false} onPickStarter={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: 'Show chat tips' }));
     expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Ask anything about AI policy/ })).toHaveFocus();
+  });
+
+  it('places the heading before the Hide button in DOM order (t/4536#8)', () => {
+    render(<ChatGettingStarted hasNoChats={false} onPickStarter={vi.fn()} />);
+    const region = screen.getByRole('region', { name: 'Getting started' });
+    const heading = screen.getByRole('heading', { name: /Ask anything about AI policy/ });
+    const hide = screen.getByRole('button', { name: 'Hide chat introduction' });
+    const children = Array.from(region.children);
+    expect(children.indexOf(heading)).toBeLessThan(children.indexOf(hide));
   });
 
   it('shows the card even when dismissed, if the user has no chats yet', () => {

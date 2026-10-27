@@ -80,6 +80,7 @@
 }
 
 .new-chat-pover-option {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -99,8 +100,20 @@
   border-color: var(--focus-ring);
 }
 
+/* t/4536 round-3 review (t/4536#8): display:none made this unreachable by keyboard and by
+   .focus() alike (a display:none element can never receive focus). Visually-hidden instead —
+   still focusable, still toggled by the wrapping <label>, just not painted. */
 .new-chat-pover-option input[type="radio"] {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.new-chat-pover-option:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .new-chat-pover-name {

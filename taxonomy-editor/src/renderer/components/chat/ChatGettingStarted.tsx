@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { ChatMode } from '../../types/chat';
 import './ChatGettingStarted.css';
@@ -67,10 +67,21 @@ interface ChatGettingStartedProps {
  *  My/Community tabs. No entrance animation — nothing here to gate behind reduced-motion. */
 export function ChatGettingStarted({ hasNoChats, onPickStarter }: ChatGettingStartedProps) {
   const [dismissed, setDismissed] = useChatIntroDismissed();
+  const showLinkRef = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // t/4536#8 (non-blocking fold): focus follows the state change instead of dropping to BODY.
+  const prevDismissed = useRef(dismissed);
+  useEffect(() => {
+    if (prevDismissed.current === dismissed) return;
+    prevDismissed.current = dismissed;
+    if (dismissed) showLinkRef.current?.focus();
+    else headingRef.current?.focus();
+  }, [dismissed]);
 
   if (dismissed && !hasNoChats) {
     return (
       <button
+        ref={showLinkRef}
         type="button"
         className="chat-getting-started-show-link"
         onClick={() => setDismissed(false)}
@@ -82,6 +93,11 @@ export function ChatGettingStarted({ hasNoChats, onPickStarter }: ChatGettingSta
 
   return (
     <div className="chat-getting-started" role="region" aria-label="Getting started">
+      {/* t/4536#8 (non-blocking fold): heading before Hide in DOM order, so a screen reader
+          announces the card's subject before its dismiss control. CSS keeps Hide top-right. */}
+      <h2 ref={headingRef} tabIndex={-1} className="chat-getting-started-heading">
+        Ask anything about AI policy &amp; safety
+      </h2>
       <button
         type="button"
         className="chat-getting-started-hide"
@@ -90,7 +106,6 @@ export function ChatGettingStarted({ hasNoChats, onPickStarter }: ChatGettingSta
       >
         Hide
       </button>
-      <h2 className="chat-getting-started-heading">Ask anything about AI policy &amp; safety</h2>
       <p className="chat-getting-started-why">
         Pick a perspective (Accelerationist, Safetyist or Skeptic) and talk it through. Answers
         draw on this project&rsquo;s research, its claims, debates and sources, not the open web.

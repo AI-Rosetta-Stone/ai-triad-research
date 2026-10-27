@@ -1,7 +1,6 @@
-/* ─── Chat Getting Started (t/4536 round 3) ──────────────
-   Rendered inside LibraryListPage's `intro` slot, so it uses the --lib-* tokens that page
-   defines for itself (not the app's generic --text-*/--bg-* tokens) to stay visually
-   consistent with its container. */
+/* Chat Getting Started (t/4536 round 3). Rendered inside LibraryListPage's intro slot, so it
+   uses the --lib-* tokens that page defines for itself, not the app's generic text/background
+   tokens, to stay visually consistent with its container. */
 
 .chat-getting-started {
   position: relative;
@@ -10,7 +9,9 @@
   align-items: flex-start;
   text-align: left;
   gap: 8px;
-  background: var(--lib-bg);
+  /* t/4536#8: --lib-bg IS the page background — use --lib-row-hover so the card has a
+     visible fill, and give the chips --lib-bg so they still stand out against the card. */
+  background: var(--lib-row-hover);
   border: 1px solid var(--lib-border-control);
   border-radius: 6px;
   padding: 16px;
@@ -55,7 +56,7 @@
   padding: 8px 12px;
   border: 1px solid var(--lib-border-control);
   border-radius: 5px;
-  background: var(--lib-row-hover);
+  background: var(--lib-bg);
   color: var(--lib-text);
   font-size: 13px;
   cursor: pointer;
@@ -63,6 +64,7 @@
 }
 
 .chat-getting-started-chip:hover {
+  background: var(--lib-bg);
   border-color: var(--lib-accent);
 }
 
