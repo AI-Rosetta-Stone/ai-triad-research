@@ -405,6 +405,8 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-08-11 — ServerAPI (p/79#27): **3rd `jq` instance** — `gh pr view ... | jq` exited 127 ("jq: command not found") in the Bash tool. Fix: use `gh`'s built-in `--json <fields> --jq '<expr>'` flags — `gh` ships its own jq evaluator, no separate install needed.
 - 2026-08-11 — ServerAPI (p/79#29): **4th `jq` instance** — `gh pr checks | jq` exited 127 in the Bash tool; the same missing `jq` also silently broke a **Monitor CI-watch loop** (per-iteration jq failed with no output → loop emitted nothing → timed out at 15 min). **New amplifier: a missing tool inside a Monitor poll loop causes a silent 15-min timeout, not an immediate error.** Fix: use `gh pr checks --json ... --jq '...'` built-in.
 - 2026-08-15 — Shared Lib (p/5#27): **5th `jq` instance** — `gh pr checks N | jq` → exit 127 "jq: command not found" in the Bash tool. Risk: misread as a CI failure rather than a tooling gap. Fix: `gh pr checks N --json bucket --jq '...'` — `gh`'s built-in jq evaluator, no separate install needed.
+- 2026-10-27 — Server Storage (p/539#33): **6th `jq` instance, 2nd confirmation of the Monitor silent-failure amplifier** — a Monitor loop parsing `gh pr checks --json` through `jq` did nothing for 30 minutes (clean expiry, no events) because `jq` isn't on PATH on this Windows box; every iteration's `jq` call errored before the loop's own exit-check logic ran, and Monitor only surfaces stdout, so the error was invisible. Fix: checked `gh pr checks --json` directly without `jq`.
+- 2026-10-27 — PowerShell (p/20#128): **7th `jq` instance** — `gh pr checks --json ... | jq` exited 127 in the Bash tool; same session had earlier had `jq` available in a background Monitor-style poll loop, showing availability can differ even within one session depending on how the tool was invoked. Fix: `gh ... --jq '<filter>'` (gh's built-in jq).
 
 **Root Cause:** Dev environment may lack CLI tools (Azure CLI not installed, `jq` not on PATH) or required background services (Docker Desktop daemon not running). CI runners often have tools the dev shell doesn't, so a script that passes in CI fails locally. Both fail silently or with unhelpful exit codes.
 
@@ -6247,7 +6249,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 
-**Status:** Active — 8 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path).
+**Status:** Active — 9 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -7654,3 +7656,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#151, t/4473).
 
 **Applies To:** All agents manually transcribing ordered lists (label sets, option lists, lookup tables) from an external source; prefer id-keyed structures with a length assert over positional lists.
+
+---
+
+## #377 [Process] Referencing a Sibling Agent's Worktree Content Fails Once They Remove It — Don't Build on Borrowed, Transient State
+
+**Pattern:** An agent's script or command chain references content inside another agent's active worktree (e.g. a `sed`/`grep` lookup against a file path in a peer's `.worktrees/<their-ticket>` directory). The reference works while that worktree is alive. The moment the owning agent lands their work and removes the worktree (a normal, expected cleanup step), the referencing command breaks — the path no longer exists, with no advance warning to the agent depending on it.
+
+**Instances:**
+- 2026-10-27 — Computational Linguist (p/7#154, t/4556): a `sed -n … ; grep` chain exited 2 because it referenced the t/4471 code worktree, which had already been removed by its owner. Fixed by re-implementing the usage hook in the agent's own scratch code worktree instead of depending on the sibling's.
+
+**Root Cause:** A worktree's lifetime is controlled entirely by its owning agent's workflow (created, used, removed on land) — it is not a stable shared resource. Any cross-agent dependency on a specific worktree's content is implicitly coupled to that worktree still existing, with no mechanism to detect or warn when it's about to disappear.
+
+**Prevention:**
+1. **Never build a script or command chain that depends on another agent's active worktree path.** If you need the same logic or data, re-implement it in your own worktree/scratch space rather than referencing someone else's transient directory.
+2. **If you must reference a peer's in-progress work, read it from `origin/<their-branch>` (their pushed state) rather than their local worktree path** — a pushed branch persists independently of worktree cleanup.
+3. **`sed`/`grep`/file-read errors referencing a path under `.worktrees/`** that isn't your own are a signal to check whether that worktree still exists (`git worktree list`) before assuming the content itself is wrong.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#154, t/4556).
+
+**Applies To:** All agents writing scripts or lookups that reference file paths; never couple to a sibling agent's worktree lifetime.
