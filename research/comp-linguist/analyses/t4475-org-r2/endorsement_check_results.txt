@@ -1,0 +1,66 @@
+Claims:     C:\Users\jsnov\repos\ai-triad-data\taxonomy\Origin\organization_stance_claims.json
+Embeddings: C:\Users\jsnov\repos\ai-triad-data\taxonomy\Origin\embeddings-orgstance-6733.json
+
+Live run produced 29 proposals; matched 29 of the 29 frozen snapshot entries by (org, node); 0 live proposals are new since the snapshot.
+
+=== Confusion table (full 29, modulo corpus drift) ===
+Y/P (n=13): 
+ N EndorsesOrPartial None Unknown
+ - ----------------- ---- -------
+13                 6    7       0
+
+
+N   (n=16): 
+ N EndorsesOrPartial None Unknown
+ - ----------------- ---- -------
+16                 3   13       0
+
+
+=== Confusion table, excluding O25 (the in-sample worked example) ===
+Y/P (n=13): 
+ N EndorsesOrPartial None Unknown
+ - ----------------- ---- -------
+13                 6    7       0
+
+
+N   (n=15): 
+ N EndorsesOrPartial None Unknown
+ - ----------------- ---- -------
+15                 3   12       0
+
+
+=== Per-item detail ===
+
+Id  Label Endorsement
+--  ----- -----------
+O01 Y     none
+O02 N     partial
+O03 N     none
+O04 N     none
+O05 N     none
+O06 P     none
+O07 N     none
+O08 Y     endorses
+O09 Y     none
+O10 P     none
+O11 N     partial
+O12 N     none
+O13 N     none
+O14 Y     endorses
+O15 N     none
+O16 N     none
+O17 Y     endorses
+O18 P     none
+O19 N     none
+O20 Y     endorses
+O21 Y     endorses
+O22 N     none
+O23 N     none
+O24 P     none
+O25 N     none
+O26 N     partial
+O27 N     none
+O28 Y     endorses
+O29 Y     none
+
+

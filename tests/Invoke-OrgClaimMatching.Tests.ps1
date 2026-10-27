@@ -109,7 +109,7 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
 
                 $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
-                    -MatchThreshold 0.75 -MinAgreement 2 -SkipDirectionalGate -Verbose:$false 6>$null
+                    -MatchThreshold 0.75 -MinAgreement 2 -SkipDirectionalGate -SkipEndorsementGate -Verbose:$false 6>$null
 
                 $r.ClaimsProcessed    | Should -Be 2
                 $r.ProposalsWouldEmit | Should -Be 0 -Because 'both claims collapse to family "rmf-1.0" — only 1 independent family, so multi-agreement fails; and cosine 0.7071 < threshold 0.75'
@@ -148,7 +148,7 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
 
                 $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
-                    -MatchThreshold 0.75 -MinAgreement 2 -SkipDirectionalGate -Verbose:$false 6>$null
+                    -MatchThreshold 0.75 -MinAgreement 2 -SkipDirectionalGate -SkipEndorsementGate -Verbose:$false 6>$null
 
                 $r.ProposalsWouldEmit           | Should -Be 1
                 $r.Proposals[0].Reason          | Should -Be 'multi-claim-agreement'
@@ -188,7 +188,7 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
 
                 $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
-                    -MatchThreshold 0.60 -SkipDirectionalGate -Verbose:$false 6>$null
+                    -MatchThreshold 0.60 -SkipDirectionalGate -SkipEndorsementGate -Verbose:$false 6>$null
 
                 $r.ProposalsWouldEmit    | Should -Be 1
                 $r.Proposals[0].Reason   | Should -Match 'high-cosine'
@@ -234,12 +234,12 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
 
                 # Default: skipped
                 $r1 = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
-                    -MatchThreshold 0.60 -SkipDirectionalGate -Verbose:$false 6>$null
+                    -MatchThreshold 0.60 -SkipDirectionalGate -SkipEndorsementGate -Verbose:$false 6>$null
                 $r1.ProposalsWouldEmit | Should -Be 0 -Because 'tuple already exists — default skip'
 
                 # -Force: emitted
                 $r2 = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
-                    -MatchThreshold 0.60 -Force -SkipDirectionalGate -Verbose:$false 6>$null
+                    -MatchThreshold 0.60 -Force -SkipDirectionalGate -SkipEndorsementGate -Verbose:$false 6>$null
                 $r2.ProposalsWouldEmit | Should -Be 1 -Because '-Force overrides the skip'
             }
         }
@@ -289,7 +289,7 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
 
                 $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
-                    -MatchThreshold 0.60 -SkipDirectionalGate -Verbose:$false 6>$null
+                    -MatchThreshold 0.60 -SkipDirectionalGate -SkipEndorsementGate -Verbose:$false 6>$null
 
                 @($r.NegationSlice).Count | Should -Be 2 -Because 'the two negation/oppose-lexicon claims land in the slice; the clean "should be required" one does not'
                 ($r.NegationSlice.Proposition -join '|') | Should -Match 'ought not to impose'
@@ -349,7 +349,7 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
 
                 $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
-                    -MatchThreshold 0.60 -PerOrgCap 2 -SkipDirectionalGate -Verbose:$false 6>$null
+                    -MatchThreshold 0.60 -PerOrgCap 2 -SkipDirectionalGate -SkipEndorsementGate -Verbose:$false 6>$null
 
                 $r.ProposalsWouldEmit | Should -Be 2 -Because '3 candidates → PerOrgCap 2 keeps top 2 by cosine'
                 @($r.DroppedByCap).Count | Should -Be 1
@@ -672,6 +672,150 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
                 $r.DirectionalCounts.opposes | Should -Be 0 -Because 'zero false-opposes across both reps (TL binding condition)'
 
                 $script:TaxonomyData.Remove('invtest-pov')
+            }
+        }
+    }
+
+    Context 'Endorsement-confirmation gate (t/4475 7b / t/4523) — tags, reorders, never drops' {
+
+        BeforeEach {
+            $script:endEmbPath = Join-Path $script:workDir 'embeddings-endorse.json'
+            @{
+                metadata = @{ dim = $script:dim }
+                nodes = [ordered]@{
+                    'acc-intentions-991' = @{ pov = 'acc'; vector = $script:vecA }   # high-cosine claim lands here
+                    'saf-beliefs-992'    = @{ pov = 'saf'; vector = $script:vecB }   # lower-cosine claim lands here
+                }
+            } | ConvertTo-Json -Depth 6 | Set-Content -Path $script:endEmbPath -Encoding utf8NoBOM
+        }
+
+        It 'tags each proposal with the best verdict over its reps, and never drops a "none" proposal' {
+            InModuleScope AITriad -Parameters @{
+                ClaimsPath = $script:claimsPath
+                EmbPath    = $script:endEmbPath
+                VecA       = [double[]]$script:vecA
+                VecB       = [double[]]$script:vecB
+            } {
+                param($ClaimsPath, $EmbPath, $VecA, $VecB)
+
+                @{ claims = @(
+                    [PSCustomObject]@{ org_id='org-700'; source_id='src-topiconly'; polarity='asserts'
+                        text='TOPIC-ONLY verbatim'; canonical_proposition='TOPIC-ONLY canonical'; extraction_confidence=0.9 }
+                    [PSCustomObject]@{ org_id='org-700'; source_id='src-endorsed'; polarity='asserts'
+                        text='ENDORSED verbatim'; canonical_proposition='ENDORSED canonical'; extraction_confidence=0.9 }
+                ) } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+
+                $vecAref = $VecA; $vecBref = $VecB
+                function python {
+                    process {
+                        $payload = @($input | Out-String | ConvertFrom-Json)
+                        $o = [ordered]@{}
+                        foreach ($it in $payload) {
+                            $o[$it.id] = if ([string]$it.text -like 'TOPIC-ONLY*') { $vecAref } else { $vecBref }
+                        }
+                        $o | ConvertTo-Json -Depth 5 -Compress
+                    }
+                }
+                Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
+                Mock Test-OrgEndorsement {
+                    foreach ($p in @($Pair)) {
+                        $verdict = if ([string]$p.ClaimProp -like 'TOPIC-ONLY*') { 'topic_only' } else { 'endorses' }
+                        [PSCustomObject]@{ Id = $p.Id; Verdict = $verdict; Reason = 'test' }
+                    }
+                }
+
+                $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
+                    -MatchThreshold 0.60 -SkipDirectionalGate -PerOrgCap 10 -Verbose:$false 6>$null
+
+                $r.ProposalsWouldEmit | Should -Be 2 -Because 'the gate tags and reorders, it never drops'
+                $topicOnly = $r.Proposals | Where-Object { $_.RepProp -like 'TOPIC-ONLY*' }
+                $endorsed  = $r.Proposals | Where-Object { $_.RepProp -like 'ENDORSED*' }
+                $topicOnly.Endorsement | Should -Be 'none'
+                $endorsed.Endorsement  | Should -Be 'endorses'
+                $r.EndorsementCounts.none     | Should -Be 1
+                $r.EndorsementCounts.endorses | Should -Be 1
+            }
+        }
+
+        It 'reorders the per-org cap so a "none" proposal is dropped before an "endorses" proposal of lower cosine' {
+            InModuleScope AITriad -Parameters @{
+                ClaimsPath = $script:claimsPath
+                EmbPath    = $script:endEmbPath
+                VecA       = [double[]]$script:vecA
+                VecB       = [double[]]$script:vecB
+            } {
+                param($ClaimsPath, $EmbPath, $VecA, $VecB)
+
+                @{ claims = @(
+                    # Lands on acc-intentions-991 (vecA — identical vector, cosine 1.0, the HIGHER cosine).
+                    [PSCustomObject]@{ org_id='org-701'; source_id='src-high-cosine-none'; polarity='asserts'
+                        text='TOPIC-ONLY verbatim'; canonical_proposition='TOPIC-ONLY canonical'; extraction_confidence=0.9 }
+                    # Lands on saf-beliefs-992 (vecB — identical vector, also cosine 1.0, but endorsed).
+                    [PSCustomObject]@{ org_id='org-701'; source_id='src-endorsed-lower'; polarity='asserts'
+                        text='ENDORSED verbatim'; canonical_proposition='ENDORSED canonical'; extraction_confidence=0.9 }
+                ) } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+
+                $vecAref = $VecA; $vecBref = $VecB
+                function python {
+                    process {
+                        $payload = @($input | Out-String | ConvertFrom-Json)
+                        $o = [ordered]@{}
+                        foreach ($it in $payload) {
+                            $o[$it.id] = if ([string]$it.text -like 'TOPIC-ONLY*') { $vecAref } else { $vecBref }
+                        }
+                        $o | ConvertTo-Json -Depth 5 -Compress
+                    }
+                }
+                Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
+                Mock Test-OrgEndorsement {
+                    foreach ($p in @($Pair)) {
+                        $verdict = if ([string]$p.ClaimProp -like 'TOPIC-ONLY*') { 'topic_only' } else { 'endorses' }
+                        [PSCustomObject]@{ Id = $p.Id; Verdict = $verdict; Reason = 'test' }
+                    }
+                }
+
+                $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
+                    -MatchThreshold 0.60 -SkipDirectionalGate -PerOrgCap 1 -Verbose:$false 6>$null
+
+                $r.ProposalsWouldEmit    | Should -Be 1 -Because 'the per-org cap still caps at 1 — only the GATE never drops'
+                $r.Proposals[0].Endorsement | Should -Be 'endorses' -Because 'endorsement outranks cosine in the cap ordering'
+                $r.DroppedByCap[0].Endorsement | Should -Be 'none'
+            }
+        }
+
+        It 'tags "unknown" (not "none") on a gate backend failure — WARN, never a silent demotion' {
+            InModuleScope AITriad -Parameters @{
+                ClaimsPath = $script:claimsPath
+                EmbPath    = $script:endEmbPath
+                VecA       = [double[]]$script:vecA
+            } {
+                param($ClaimsPath, $EmbPath, $VecA)
+
+                @{ claims = @(
+                    [PSCustomObject]@{ org_id='org-702'; source_id='src-backend-down'; polarity='asserts'
+                        text='SOME verbatim'; canonical_proposition='SOME canonical'; extraction_confidence=0.9 }
+                ) } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+
+                $vecAref = $VecA
+                function python {
+                    process {
+                        $payload = @($input | Out-String | ConvertFrom-Json)
+                        $o = [ordered]@{}
+                        foreach ($it in $payload) { $o[$it.id] = $vecAref }
+                        $o | ConvertTo-Json -Depth 5 -Compress
+                    }
+                }
+                Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
+                Mock Test-OrgEndorsement {
+                    foreach ($p in @($Pair)) { [PSCustomObject]@{ Id = $p.Id; Verdict = 'unknown'; Reason = '' } }
+                }
+
+                $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
+                    -MatchThreshold 0.60 -SkipDirectionalGate -Verbose:$false 6>$null
+
+                $r.ProposalsWouldEmit        | Should -Be 1 -Because 'never dropped on gate failure either'
+                $r.Proposals[0].Endorsement  | Should -Be 'unknown'
+                $r.EndorsementCounts.unknown | Should -Be 1
             }
         }
     }
