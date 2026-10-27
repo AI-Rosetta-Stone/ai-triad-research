@@ -763,6 +763,7 @@ jobs:
         shell: pwsh
         env:
           PESTER_OUTCOME: ${{ steps.pester.outcome }}
+          SHARD: ${{ matrix.shard }}
         run: |
           . ./operations/devops/Get-TestPowerShellAbnormalEndVerdict.ps1
           $markerPresent = Test-Path "$env:RUNNER_TEMP/pester-suite-ran.marker"
