@@ -20,7 +20,7 @@ ticket comment `t/KEY#N` or a ping `p/N#M`. A plan-level `hard_stop_usd` overrid
 Usage:
   python paid_batch_runner.py --plan <plan.json> --ledger <ledger.json> --code-root <frozen worktree>
   python paid_batch_runner.py --ledger <ledger.json> --report
-Exit codes: 0 ran one debate; 10 nothing left in this plan; 11 a hard stop refused the next debate;
+Exit codes: 0 ran one debate; 10 nothing left in this plan; 11 a hard stop refused the next debate; 6 another runner holds the ledger lock;
 3 a pin mismatch (abort); 4 the debate run failed; 5 the plan has no recorded approval (refused).
 """
 import argparse, glob, json, os, re, subprocess, sys, time
@@ -55,6 +55,60 @@ def save(path, obj):
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, indent=2)
     os.replace(tmp, path)
+
+
+def pid_alive(pid):
+    """True if a process with this id is running (Windows via OpenProcess, POSIX via signal 0)."""
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not h:
+            return False
+        try:
+            return k32.WaitForSingleObject(h, 0) == 0x102  # WAIT_TIMEOUT: still running
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def acquire_lock(ledger_path):
+    """One runner per ledger (t/4507: a stop-and-resume must never run the same debate twice). Returns the
+    lock path, or None if a live runner holds it. A lock left by a dead runner is taken over."""
+    lock = ledger_path + ".lock"
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            holder = (load(lock) or {}).get("pid")
+            if pid_alive(holder):
+                return None
+            sys.stderr.write(f"WARN paid_batch_runner: taking over a stale lock from dead runner pid {holder}\n")
+            os.remove(lock)
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"pid": os.getpid(), "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, fh)
+        return lock
+    return None
+
+
+def mark_interrupted(ledger):
+    """An `in-flight` row seen while holding the lock belongs to a runner that died mid-debate (Ctrl+C, a closed
+    window, a reaper). Keep its reserve (spend unproven) but label it, so a resume reads cleanly."""
+    n = 0
+    for r in ledger["debates"]:
+        if r.get("status") == "in-flight":
+            r["status"] = "interrupted"
+            r["note"] = (r.get("note", "") + "; " if r.get("note") else "") + \
+                "runner died mid-debate; reserve kept (spend unproven); the slug is re-run on resume"
+            n += 1
+    return n
 
 
 def price_table(code_root):
@@ -222,6 +276,29 @@ def main():
             "  Next Steps: get the spend approved by the PI and recorded on a ticket comment or ping, then set "
             "approval_ref to that reference (t/3963#9).\n")
         return 5
+    lock = acquire_lock(a.ledger)
+    if lock is None:
+        print(f"REFUSED: another runner holds {a.ledger}.lock and is still running; nothing was started. "
+              "Wait for it, or stop it, then resume.")
+        return 6
+    try:
+        return run_next(a, plan)
+    finally:
+        try:
+            os.remove(lock)
+        except FileNotFoundError:
+            pass
+
+
+def run_next(a, plan):
+    """Run the plan's next debate. Called only while holding the ledger lock."""
+    # Re-read the ledger under the lock: state read before locking may be another runner's.
+    ledger = load(a.ledger, {"budget": a.budget, "max_debates": a.max_debates, "debates": []})
+    n_interrupted = mark_interrupted(ledger)
+    if n_interrupted:
+        save(a.ledger, ledger)
+        print(f"marked {n_interrupted} in-flight row(s) from a runner that died mid-debate as interrupted "
+              "(reserve kept)")
     out_dir = plan["output_dir"]
     os.makedirs(out_dir, exist_ok=True)
     done = {os.path.basename(p)[:-len("-debate.json")] for p in glob.glob(os.path.join(out_dir, "*-debate.json"))}

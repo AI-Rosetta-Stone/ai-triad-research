@@ -16,7 +16,9 @@ USAGE = ('[usage] {"ts":"2026-10-26T13:54:29.023Z","backend":"gemini","model":"g
 RESERVE = 0.6
 
 
-class FailedRunBooking(unittest.TestCase):
+class RunnerCase(unittest.TestCase):
+    """Shared fixture: a one-debate plan, a ledger, and run_one() with a faked CLI. No tests of its own."""
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.out = os.path.join(self.tmp, "out")
@@ -49,6 +51,8 @@ class FailedRunBooking(unittest.TestCase):
         with open(self.ledger, encoding="utf-8") as fh:
             return json.load(fh)["debates"][-1]
 
+
+class FailedRunBooking(RunnerCase):
     def test_usage_lines_without_recorder_book_at_least_reserve(self):
         # The attempt-3 shape: killed mid-opening, paid calls visible only in the output.
         row = self.run_one(1, "noise\n" + USAGE + "\n" + USAGE + "\n")
@@ -84,11 +88,45 @@ class FailedRunBooking(unittest.TestCase):
         self.assertGreaterEqual(row["usd"], RESERVE)
 
 
+class ResumeSafety(RunnerCase):
+    """Stop and resume (t/4507): one runner per ledger, and a dead runner's in-flight row is labelled."""
+
+    def argv(self):
+        return ["pbr", "--plan", self.plan, "--ledger", self.ledger, "--code-root", REPO,
+                "--budget", "25", "--max-debates", "50", "--reserve", str(RESERVE)]
+
+    def test_live_lock_refuses_a_second_runner(self):
+        self.write(self.ledger + ".lock", {"pid": os.getpid()})  # this test process is alive
+        ran = []
+        with mock.patch.object(pbr, "run_cli", lambda *x: ran.append(x) or (0, "")), \
+                mock.patch.object(sys, "argv", self.argv()):
+            self.assertEqual(pbr.main(), 6)
+        self.assertEqual(ran, [], "no debate may start while another runner holds the lock")
+        self.assertTrue(os.path.exists(self.ledger + ".lock"), "the live holder's lock must be left alone")
+
+    def test_dead_runner_lock_is_taken_over_and_inflight_marked_interrupted(self):
+        dead = subprocess.Popen([sys.executable, "-c", "pass"]); dead.wait()  # a pid that has exited
+        self.write(self.ledger + ".lock", {"pid": dead.pid})
+        self.write(self.ledger, {"budget": 25.0, "max_debates": 50, "debates": [
+            {"plan": "t", "slug": "s1", "usd": RESERVE, "status": "in-flight"}]})
+        row = self.run_one(1, "")  # resumes, re-runs s1, fails (no spend proven? no usage, no partial -> 0)
+        with open(self.ledger, encoding="utf-8") as fh:
+            rows = json.load(fh)["debates"]
+        self.assertEqual(rows[0]["status"], "interrupted")
+        self.assertEqual(rows[0]["usd"], RESERVE, "an interrupted debate keeps its reserve")
+        self.assertEqual(row["status"], "failed")
+        self.assertFalse(os.path.exists(self.ledger + ".lock"), "the lock is released on exit")
+
+    def test_lock_released_after_a_normal_run(self):
+        self.run_one(1, USAGE)
+        self.assertFalse(os.path.exists(self.ledger + ".lock"))
+
+
 class SlugGuard(unittest.TestCase):
     def test_unsafe_slug_is_refused_before_any_run(self):
         tmp = tempfile.mkdtemp()
         plan, ledger = os.path.join(tmp, "plan.json"), os.path.join(tmp, "ledger.json")
-        FailedRunBooking.write(plan, {"name": "t", "output_dir": tmp, "approval_ref": "t/4507#2",
+        RunnerCase.write(plan, {"name": "t", "output_dir": tmp, "approval_ref": "t/4507#2",
                                       "base_config": {}, "expected_pins": {}, "debates": [{"slug": "a&calc"}]})
         argv = ["pbr", "--plan", plan, "--ledger", ledger, "--code-root", REPO, "--budget", "25"]
         ran = []
