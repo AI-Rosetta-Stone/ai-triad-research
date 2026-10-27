@@ -46,9 +46,12 @@ try {{
     Write-Output "COMMAND_NOT_FOUND:$($_.Exception.Message)"
     exit 1
 }} catch {{
-    # Any OTHER exception (timeout, connection refused, DNS failure) is the expected
-    # outcome against an unroutable address -- this proves the COMMAND resolved and ran,
-    # which is the only thing this test asserts. It is not testing network behavior.
+    # In practice this arm is NOT the expected outcome against an unroutable address: the
+    # cmdlet's HTTP layer (Invoke-RemoteCheck / New-AnonymousWebSession) catches timeouts,
+    # connection-refused and DNS failures internally and returns Ready=$false -- the RESULT:
+    # branch above is what actually fires. This catch exists only as a safety net for an
+    # exception type neither arm anticipated; reaching it still proves the COMMAND resolved
+    # and ran (the one thing this test asserts), so it's treated as a pass either way.
     Write-Output "OTHER_EXCEPTION:$($_.Exception.GetType().Name)"
     exit 0
 }}
