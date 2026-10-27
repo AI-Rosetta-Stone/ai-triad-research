@@ -50,7 +50,12 @@ export function EntityDetail({ entity, redirectedFrom }: { entity: Entity; redir
   // aliases + source_refs are both polymorphic in real data (array|string|null) despite
   // their string[] types — coerce before render (t/1882#7 / t/1884#4).
   const aliasesArr = coerceStringArray(aliases);
-  const sourceRefsArr = coerceStringArray(source_refs);
+  // t/4451 (t/4404 SO condition C2): both API paths (ServerAPI t/4527, ElectronMain t/4528)
+  // already fold a marked duplicate_of copy to its canonical and dedupe before this component
+  // ever sees the record — this is a value-dedupe safety net, not the fold itself. It's
+  // necessary because the fold resolves to canonical IDs; a canonical plus its own copy in the
+  // same list collapse to the same string once folded, which is exactly what this line catches.
+  const sourceRefsArr = Array.from(new Set(coerceStringArray(source_refs)));
 
   return (
     <div className="entity-detail">

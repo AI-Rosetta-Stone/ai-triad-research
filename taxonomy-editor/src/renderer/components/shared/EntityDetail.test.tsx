@@ -116,4 +116,24 @@ describe('EntityDetail', () => {
     render(<EntityDetail entity={fullEntity} />);
     expect(screen.queryByText(/^Redirected from/)).not.toBeInTheDocument();
   });
+
+  // t/4451 (t/4404 SO condition C2): both API paths already fold a duplicate_of copy to its
+  // canonical before this component sees the record (t/4527 server, t/4528 desktop) — this is
+  // a value-dedupe safety net at the render layer, not the fold itself.
+  it('collapses a source_refs list holding the canonical plus its own value twice to one chip (t/4451)', () => {
+    render(<EntityDetail entity={{
+      ...fullEntity,
+      source_refs: ['doc-canonical', 'doc-canonical'],
+    }} />);
+    expect(screen.getAllByText('doc: doc-canonical')).toHaveLength(1);
+  });
+
+  it('keeps distinct source doc ids as separate chips', () => {
+    render(<EntityDetail entity={{
+      ...fullEntity,
+      source_refs: ['doc-canonical', 'doc-other'],
+    }} />);
+    expect(screen.getByText('doc: doc-canonical')).toBeInTheDocument();
+    expect(screen.getByText('doc: doc-other')).toBeInTheDocument();
+  });
 });
