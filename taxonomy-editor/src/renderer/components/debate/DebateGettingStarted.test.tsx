@@ -24,7 +24,7 @@ describe('DebateGettingStarted (t/4563)', () => {
     expect(screen.getByRole('button', { name: /Accelerationist vs Safetyist/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Safetyist vs Skeptic/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Accelerationist vs Skeptic/ })).toBeInTheDocument();
-    expect(screen.getByText(/Debates use all three camps by default/)).toBeInTheDocument();
+    expect(screen.getByText(/Debates use all three perspectives by default/)).toBeInTheDocument();
   });
 
   it('a motion chip calls onPickStarter with the topic and no povers', async () => {

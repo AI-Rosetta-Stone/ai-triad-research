@@ -34,10 +34,10 @@ export function DebateGettingStarted({ hasNoDebates, onPickStarter }: DebateGett
     <LibraryGettingStarted
       storageKey={DISMISSED_KEY}
       heading="Argue it out across three perspectives"
-      why="Three AI personas — Accelerationist, Safetyist, Skeptic — argue a motion drawn from this project's taxonomy, through structured rounds toward a verdict."
+      why="Accelerationist, Safetyist and Skeptic AI voices argue a motion you choose, grounded in this project's taxonomy, over structured rounds. Then an independent evaluation weighs the exchange."
       chips={DEBATE_STARTERS.map((starter) => ({ label: starter.label, value: starter }))}
       onSelectChip={(starter) => onPickStarter(starter.topic, starter.povers)}
-      hint="Debates use all three camps by default — pick a two-camp starter above, or write your own motion and choose debaters directly."
+      hint={<>Debates use all three perspectives by default. Pick a two-sided starter above, or write your own motion and use <em>Change voices</em>.</>}
       hasNoItems={hasNoDebates}
       hideAriaLabel="Hide debate introduction"
       showLinkLabel="Show debate tips"
