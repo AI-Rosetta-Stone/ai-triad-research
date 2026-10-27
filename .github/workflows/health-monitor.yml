@@ -308,6 +308,93 @@ jobs:
               }
             }
 
+      - name: Consecutive-failure heartbeat — a run that keeps firing but keeps failing
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            // t/4340 follow-up: the staleness check above catches SILENCE (a cron that stopped
+            // firing). It does NOT catch a workflow that fires on schedule every time and fails
+            // every time — exactly what health-monitor's own health-check job did for 3+ days
+            // (AADSTS700213 on every run). That failure never became a "health-alert" GitHub
+            // issue, because the in-job "Create issue on sustained failure" step's condition
+            // (`steps.health.outputs.healthy == 'false'`) only fires on the one code path that
+            // sets that output — a login failure never reached it. Checked at the JOB level
+            // (not workflow-run level) so an unrelated job in the same run (e.g.
+            // known-good-liveness) failing can't false-positive this check, and vice versa.
+            const WATCH = [
+              { file: 'health-monitor.yml', job: 'health-check', n: 3 },
+            ];
+            const failAlarms = [];
+            for (const w of WATCH) {
+              try {
+                const runsRes = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  workflow_id: w.file, event: 'schedule', status: 'completed', per_page: w.n,
+                });
+                const runs = (runsRes.data && runsRes.data.workflow_runs) || [];
+                if (runs.length < w.n) continue; // not enough history yet — don't false-alarm a new/young workflow
+                const conclusions = [];
+                for (const run of runs) {
+                  const jobsRes = await github.rest.actions.listJobsForWorkflowRun({
+                    owner: context.repo.owner, repo: context.repo.repo, run_id: run.id,
+                  });
+                  const job = (jobsRes.data.jobs || []).find(j => j.name === w.job);
+                  conclusions.push(job ? job.conclusion : 'job-not-found');
+                }
+                if (conclusions.every(c => c && c !== 'success')) {
+                  failAlarms.push(`${w.file} / ${w.job}: last ${w.n} scheduled runs all failed (${conclusions.join(', ')})`);
+                }
+              } catch (e) {
+                // fail-loud, same as the staleness check: a query failure must ALARM, never read as healthy
+                failAlarms.push(`${w.file} / ${w.job}: QUERY FAILED (${e.status || '?'} ${e.message}) — cannot confirm, treating as UNHEALTHY`);
+              }
+            }
+            const FAIL_LABEL = 'consecutive-run-failure';
+            const openFail = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: FAIL_LABEL, per_page: 5,
+            });
+            if (failAlarms.length > 0) {
+              const list = failAlarms.map(a => `- ${a}`).join('\n');
+              if (openFail.data.length > 0) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: openFail.data[0].number,
+                  body: `Still alarming at ${new Date().toISOString()}:\n\n${list}`,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  title: 'A scheduled job is running but failing on every run',
+                  body: [
+                    '## Consecutive-run-failure heartbeat alarm (t/4340 follow-up)',
+                    '',
+                    'A tracked scheduled job fired on its normal schedule, but failed, N times in a row:',
+                    '',
+                    list,
+                    '',
+                    `- **Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                    '',
+                    "This is distinct from schedule-staleness (a cron that stopped firing): the cron is firing fine, the job itself is broken on every attempt. Check the job's own alerting didn't also fire — if it didn't, that alerting path has a gap.",
+                  ].join('\n'),
+                  labels: [FAIL_LABEL, 'bug', 'alert-escalated'],
+                });
+              }
+              core.setFailed(failAlarms.join('; '));
+            } else {
+              for (const issue of openFail.data) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `Resolved at ${new Date().toISOString()} — tracked jobs are succeeding again.`,
+                });
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, state: 'closed',
+                });
+              }
+            }
+
   known-good-liveness:
     # t/4170 ask 3: the known-good GHCR tag (Restore-TaxEditorKnownGood's rollback target) is
     # manual-only to SET (Set-TaxEditorKnownGood is never called from CI — t/4170#1) and had
