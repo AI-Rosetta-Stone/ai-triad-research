@@ -16,6 +16,16 @@
 # group sits there for the ~25-30min suite runtime. Only (a) and (b) layer time
 # thresholds onto it.
 #
+# t/4567 HEADGREEN arm (e) (SO's point, TL-assigned p/331#2495): under HEADGREEN +
+# merge_group concurrency-cancel, only the HEAD entry's (max position's) group runs the
+# full suite -- every earlier, non-head entry's run gets cancelled by the newer group and
+# legitimately shows CHECK_COUNT=0 and AWAITING_CHECKS forever (it is never going to
+# finish; it was superseded on purpose). Applying (a)/(b) per-entry would false-alarm on
+# every non-head entry in a multi-entry batch. Restrict (a) and (b) to the HEAD entry
+# only -- (c), the broadest backstop, still applies to every entry regardless of
+# position, since a genuinely stuck non-head entry (never superseded, e.g. the ONLY entry)
+# must still eventually alert.
+#
 # Usage: check-merge-queue-liveness.sh <repo> <branch> [no_checks_threshold_min]
 # The third arg overrides the "(a) no checks started" minute threshold (default 15) --
 # SO P1 (e/381#2): a live-fire arm run seconds after enqueue needs threshold=0 to prove
@@ -59,12 +69,21 @@ NOW_EPOCH=$(date -u +%s)
 VIOLATIONS="[]"
 
 ENTRY_COUNT=$(echo "$ENTRIES_JSON" | jq 'length')
+# HEADGREEN arm (e): the head entry is the one at the MAX position -- its group always
+# contains every other entry, so it alone gates the whole batch's merge. `// 0` guards
+# the (impossible, since ENTRY_COUNT=0 means the loop below never runs) empty-array case.
+MAX_POSITION=$(echo "$ENTRIES_JSON" | jq '[.[].position] | max // 0')
 for i in $(seq 0 $((ENTRY_COUNT - 1))); do
   entry=$(echo "$ENTRIES_JSON" | jq ".[$i]")
   num=$(echo "$entry" | jq -r '.pullRequest.number')
   state=$(echo "$entry" | jq -r '.state')
   enqueuedAt=$(echo "$entry" | jq -r '.enqueuedAt')
   headSha=$(echo "$entry" | jq -r '.headCommit.oid // empty')
+  position=$(echo "$entry" | jq -r '.position')
+  IS_HEAD_ENTRY=false
+  if [ "$position" = "$MAX_POSITION" ]; then
+    IS_HEAD_ENTRY=true
+  fi
 
   # SO minor finding (e/378#2): an unparseable enqueuedAt must not go silently red under
   # set -u -- treat it as its own violation rather than letting the whole script die on
@@ -81,7 +100,10 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
     continue
   fi
 
-  if [ "$state" = "AWAITING_CHECKS" ]; then
+  # (a)/(b) are HEAD-ENTRY-ONLY under HEADGREEN (arm e) -- a non-head entry's run is
+  # EXPECTED to be cancelled/never-started once a newer group supersedes it, so checking
+  # it here would false-alarm on every healthy multi-entry batch.
+  if [ "$state" = "AWAITING_CHECKS" ] && [ "$IS_HEAD_ENTRY" = "true" ]; then
     CHECK_COUNT=0
     if [ -n "$headSha" ]; then
       # t/4567 SO L2 (e/377#2): count only the REQUIRED contexts, not every check run on

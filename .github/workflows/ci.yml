@@ -2718,6 +2718,10 @@ jobs:
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
           operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
+      - name: Run C5 liveness HEADGREEN head-entry-only shim test (t/4567 arm e, SO/TL)
+        run: |
+          chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-headgreen.sh
+          operations/devops/test-check-merge-queue-liveness-headgreen.sh
 
   ci-gate:
     name: ci-gate
