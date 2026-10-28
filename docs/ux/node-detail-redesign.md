@@ -35,7 +35,8 @@ This is the core change. The node detail panel gets its **own** Simple/Advanced 
 - **Category:** a 6px dot plus the label in UPPERCASE, `--text-xs`, semibold, letter-spacing 0.06em, in the theme accent (crimson in harvard, as in the mockup). Keep the existing `FieldHelp` on the category; it's reachable by keyboard and doesn't need to be a visible "?" glyph.
 - **Separators:** a muted `/` with `var(--sp-2)` either side.
 - **Node id:** monospace, `--text-xs`, muted.
-- **Status ("Well tested"):** moves here from the Content tab badge. Green check plus text, `--text-xs`, success color. Other states keep their existing labels and colors. Omit the segment when there's no status.
+- **Status ("Well tested"):** moves here from the Content tab badge. Green check plus text, `--text-xs`. Other states keep their existing labels. Omit the segment when there's no status.
+  - **Colors are theme tokens, per tier:** untested `--text-secondary`, cited `--info`, contested `--warning`, well tested `--success-text`. Don't reuse the debate-tested **chip** palette (`TIER_COLORS`). Those foregrounds were chosen for pastel chip backgrounds and fail contrast as bare text in dark/bkc (t/4574#24).
 - The meta line replaces today's `nd-header-meta` row.
 
 ### 2.2 Header actions (right side, same row as the meta line)
@@ -95,14 +96,16 @@ The description moves **out of the Content tab** and up into the body, above the
 Panel padding is `var(--sp-6)` on desktop and `var(--sp-4)` at the 767px phone breakpoint, where the title steps down to about 30px.
 
 ## 4. Phone (≤767px)
-- The header actions wrap below the meta line, right-aligned. The toggle and `⋯` must never clip. In Advanced, the three icons move into `⋯` on phone.
+- The header actions wrap below the meta line, right-aligned. The row itself wraps (`flex-wrap: wrap`, `max-width: 100%`) and never overflows the panel. The toggle and `⋯` must never clip.
+- In Advanced, the doc icons stay in the row and wrap with it. They do **not** move into `⋯`: on the web, `⋯` is admin-only, so non-admins would lose the doc links (t/4574#24).
 - The description toolbar (Formal|Plain, Edit, Regenerate) wraps under the accent rule, left-aligned.
 - The ENCOMPASSES/EXCLUDES list stacks, with each label above its value and no 140px column.
 - The tab row keeps horizontal scroll with the fade.
 
 ## 5. Themes and accessibility
 - Use theme tokens throughout. The mockups are harvard; light, dark and bkc must map the same roles (accent, success, muted, track grey). Check contrast for the muted aphorism and footer (≥4.5:1) and the uppercase labels (≥4.5:1 at `--text-xs`).
-- Every icon button has an `aria-label` and a tooltip. The toggle and Formal|Plain are radiogroups.
+- Every icon button has an `aria-label` and a tooltip. That includes the glyph-only `⋯` (`aria-label="More actions"`): a `title` alone doesn't name it, because the `…` text becomes its accessible name. The toggle and Formal|Plain are radiogroups.
+- Use no hard-coded hex colours, including inline `style` colours. Contrast is verified in all 4 themes, per `/design-review-workflow`.
 - The local toggle must not move focus. After toggling, focus stays on the selected segment.
 
 ## 6. Out of scope
