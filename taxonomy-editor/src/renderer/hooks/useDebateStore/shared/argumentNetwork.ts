@@ -47,11 +47,43 @@ import { phaseGuardedSet } from './generation';
 /** Maximum number of turn embeddings to retain (enough for recycling detection). */
 const TURN_EMBEDDING_WINDOW = 30;
 
+// ── updateExtractionSummary helpers ──────────────────────────────────────────
+
+function detectPlateau(traces: ClaimExtractionTrace[]): {
+  plateauDetected: boolean;
+  plateauStartedAt: number | undefined;
+  plateauLastAnId: string | undefined;
+} {
+  if (traces.length < 2) return { plateauDetected: false, plateauStartedAt: undefined, plateauLastAnId: undefined };
+  let tailZero = 0;
+  for (let i = traces.length - 1; i >= 0; i--) {
+    if (traces[i].an_node_count_after === traces[i].an_node_count_before) tailZero++;
+    else break;
+  }
+  if (tailZero < 2) return { plateauDetected: false, plateauStartedAt: undefined, plateauLastAnId: undefined };
+  const firstZeroIdx = traces.length - tailZero;
+  return {
+    plateauDetected: true,
+    plateauStartedAt: traces[firstZeroIdx]?.round,
+    plateauLastAnId: traces[firstZeroIdx - 1]?.an_nodes_added_ids.slice(-1)[0],
+  };
+}
+
+function sumAttributionCounts(traces: ClaimExtractionTrace[]): { attrTotal: number; attrUnattributed: number } {
+  let attrTotal = 0;
+  let attrUnattributed = 0;
+  for (const t of traces) {
+    if (t.attribution_attributed != null || t.attribution_unattributed != null) {
+      attrTotal += (t.attribution_attributed ?? 0) + (t.attribution_unattributed ?? 0);
+      attrUnattributed += t.attribution_unattributed ?? 0;
+    }
+  }
+  return { attrTotal, attrUnattributed };
+}
+
 /** Incrementally refresh debate.extraction_summary given a new trace. */
 function updateExtractionSummary(
-
   get: () => any,
-
   set: (partial: any) => void,
 ): void {
   const debate = get().activeDebate as DebateSession | null;
@@ -79,34 +111,8 @@ function updateExtractionSummary(
     growth.push({ round: t.round, cumulative_count: t.an_node_count_after });
   }
 
-  let plateauDetected = false;
-  let plateauStartedAt: number | undefined;
-  let plateauLastAnId: string | undefined;
-  if (traces.length >= 2) {
-    let tailZero = 0;
-    for (let i = traces.length - 1; i >= 0; i--) {
-      const t = traces[i];
-      if (t.an_node_count_after === t.an_node_count_before) tailZero++;
-      else break;
-    }
-    if (tailZero >= 2) {
-      plateauDetected = true;
-      const firstZeroIdx = traces.length - tailZero;
-      plateauStartedAt = traces[firstZeroIdx]?.round;
-      const lastGood = traces[firstZeroIdx - 1];
-      plateauLastAnId = lastGood?.an_nodes_added_ids.slice(-1)[0];
-    }
-  }
-
-  // Compute attribution ratio from traces
-  let attrTotal = 0;
-  let attrUnattributed = 0;
-  for (const t of traces) {
-    if (t.attribution_attributed != null || t.attribution_unattributed != null) {
-      attrTotal += (t.attribution_attributed ?? 0) + (t.attribution_unattributed ?? 0);
-      attrUnattributed += t.attribution_unattributed ?? 0;
-    }
-  }
+  const { plateauDetected, plateauStartedAt, plateauLastAnId } = detectPlateau(traces);
+  const { attrTotal, attrUnattributed } = sumAttributionCounts(traces);
 
   const summary: ExtractionSummary = {
     total_turns: traces.length,
@@ -188,14 +194,11 @@ function checkAnInvariants(label: string, get: () => any, expectedMinCount: numb
  * references a tentative node id are remapped via the returned idMap.
  */
 export function commitAnNodes<N extends { id: string }, E extends { id: string; source: string }>(
-
   get: () => any,
-
   set: (partial: any) => void,
   label: string,
   newNodes: N[],
   newEdges: E[],
-
   mergeExtras?: (fresh: any) => any,
 ): AnCommitResult {
   const before = snapshotAnLengths(get);
@@ -346,194 +349,224 @@ async function computeTaxonomyAttribution(newNodes: NewAnNode[], speaker: Speake
     }
 }
 
-async function runLookaheadGate(speaker: SpeakerId, an: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] }, newNodes: NewAnNode[], newEdges: NewAnEdge[], debate: DebateSession, regenCallback: LookaheadRegenCallback | undefined, entryId: string, speakerLabel: string, priorClaims: PriorClaimList, taxonomyRefs: string[], turnNumber: number, model: string, get: () => any, set: (partial: any) => void, extractionTrace: ClaimExtractionTrace, parsed: ClaimExtractionResult): Promise<{ lookaheadDiag: LookaheadDiagnostics | undefined; bestPerClaim: PerClaimResult[] | undefined }> {
-    // ── Pre-commit lookahead gate (t/34) — evaluate before committing ──
-    let lookaheadDiag: LookaheadDiagnostics | undefined;
-    let bestPerClaim: PerClaimResult[] | undefined;
-    try {
-      const lookaheadStart = Date.now();
-      const lookaheadInput = {
-        speaker,
-        existingNodes: an.nodes,
-        existingEdges: an.edges,
-        tentativeClaims: newNodes.map(n => ({ text: n.text, base_strength: n.base_strength ?? 0.5 })),
-        tentativeEdges: newEdges,
-        cruxes: debate.crux_tracker,
-      };
-      const { batchResult: firstResult, perClaim: firstPerClaim } = evaluateLookaheadPerClaim(lookaheadInput);
-      bestPerClaim = firstPerClaim;
+// ── Lookahead gate helpers ────────────────────────────────────────────────────
 
-      const MAX_REGEN_ATTEMPTS = 3;
-      let bestResult = firstResult;
-      let bestNodes = [...newNodes];
-      let bestEdges = [...newEdges];
-      let bestStatement: string | null = null;
-      const regenAttempts: LookaheadGateResult[] = [];
-      const perClaimAnalysisLog: { perClaim: PerClaimResult[]; analysis: ClaimAnalysis }[] = [];
+interface SingleRegenAttemptResult {
+  regenClaims: _ProcessedClaims;
+  retryResult: LookaheadGateResult;
+  retryPerClaim: PerClaimResult[];
+  retryAnalysis: ClaimAnalysis;
+}
 
-      if (!firstResult.pass && regenCallback) {
-        // Seed cumulative guidance from the first attempt's per-claim analysis
-        const firstAnalysis = buildClaimAnalysis(firstPerClaim);
-        perClaimAnalysisLog.push({ perClaim: firstPerClaim, analysis: firstAnalysis });
-        const cumulativeStrong = [...firstAnalysis.strongFoundations];
-        const cumulativeAvoid = [...firstAnalysis.avoidClaims];
-
-        for (let attempt = 0; attempt < MAX_REGEN_ATTEMPTS; attempt++) {
-          console.log(`[Lookahead] Gate failed (Δu=${bestResult.utility_delta.toFixed(3)}), requesting regen ${attempt + 1}/${MAX_REGEN_ATTEMPTS} (${cumulativeStrong.length} strong, ${cumulativeAvoid.length} avoid)`);
-          getGlobalRecorder()?.record({ type: 'lookahead.regen', component: 'argument-network-extraction', level: 'info', debate_id: debate.id, turn_id: entryId, speaker, message: `Lookahead gate failed, triggering regen attempt ${attempt + 1}`, data: { attempt: attempt + 1, utility_delta: bestResult.utility_delta, threshold: bestResult.threshold, strong_count: cumulativeStrong.length, avoid_count: cumulativeAvoid.length } });
-
-          const regenResult = await regenCallback({
-            strongFoundations: cumulativeStrong.length > 0 ? cumulativeStrong : undefined,
-            avoidClaims: cumulativeAvoid.length > 0 ? cumulativeAvoid : undefined,
-          });
-          if (!regenResult) break; // callback returned null — stop retrying
-
-          // Re-extract claims from regenerated response
-          const regenPrompt = regenResult.debaterClaims && regenResult.debaterClaims.length > 0
-            ? classifyClaimsPrompt(regenResult.statement, speakerLabel, regenResult.debaterClaims, priorClaims)
-            : extractClaimsPrompt(regenResult.statement, speakerLabel, priorClaims);
-          try {
-            const { text: regenText } = await api.generateText(regenPrompt, model);
-            const regenParsed = parseAIJson<{ claims?: typeof parsed.claims }>(regenText);
-
-            if (!regenParsed?.claims || !Array.isArray(regenParsed.claims) || regenParsed.claims.length === 0) {
-              regenAttempts.push({ ...bestResult, pass: false, tentative_claims: [], tentative_network_size: { nodes: 0, edges: 0 } });
-              continue;
-            }
-
-            const taxEdgesRetry = useTaxonomyStore.getState().edgesFile?.edges;
-            const regenClaims = await processExtractedClaims(
-              {
-                claims: regenParsed.claims,
-                statement: regenResult.statement,
-                speaker,
-                entryId,
-                taxonomyRefIds: taxonomyRefs,
-                turnNumber,
-                existingNodes: an.nodes,
-                existingEdgeCount: an.edges.length,
-                startNodeId: an.nodes.length + 1,
-                taxonomyEdges: taxEdgesRetry,
-              },
-              { groundingOverlapThreshold: 0.3, isClassifyPath: !!(regenResult.debaterClaims && regenResult.debaterClaims.length > 0) },
-            );
-
-            if (regenClaims.newNodes.length === 0) {
-              regenAttempts.push({ ...bestResult, pass: false, tentative_claims: [], tentative_network_size: { nodes: 0, edges: 0 } });
-              continue;
-            }
-
-            // Embed retry claims
-            for (const node of regenClaims.newNodes) {
-              try {
-                const { vector } = await api.computeQueryEmbedding(node.text.slice(0, 300));
-                if (vector && vector.length > 0) node.embedding = vector;
-              } catch (e) { getGlobalRecorder()?.record({ type: 'system.error', debate_id: debate.id, component: 'debate-store', level: 'warn', message: 'Regen claim embedding failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } }); }
-            }
-
-            // Per-claim evaluation on retry claims
-            const { batchResult: retryResult, perClaim: retryPerClaim } = evaluateLookaheadPerClaim({
-              speaker,
-              existingNodes: an.nodes,
-              existingEdges: an.edges,
-              tentativeClaims: regenClaims.newNodes.map(n => ({ text: n.text, base_strength: n.base_strength ?? 0.5 })),
-              tentativeEdges: regenClaims.newEdges,
-              cruxes: debate.crux_tracker,
-            });
-            regenAttempts.push(retryResult);
-
-            // Accumulate analysis from this attempt for subsequent retries
-            const retryAnalysis = buildClaimAnalysis(retryPerClaim);
-            perClaimAnalysisLog.push({ perClaim: retryPerClaim, analysis: retryAnalysis });
-            // Merge: add new strong/avoid items, dedup by text
-            const seenStrong = new Set(cumulativeStrong.map(s => s.text));
-            for (const s of retryAnalysis.strongFoundations) {
-              if (!seenStrong.has(s.text)) { cumulativeStrong.push(s); seenStrong.add(s.text); }
-            }
-            const seenAvoid = new Set(cumulativeAvoid.map(a => a.text));
-            for (const a of retryAnalysis.avoidClaims) {
-              if (!seenAvoid.has(a.text)) { cumulativeAvoid.push(a); seenAvoid.add(a.text); }
-            }
-
-            // Track the best attempt — use if it passes or beats previous best
-            if (retryResult.pass || retryResult.utility_delta > bestResult.utility_delta) {
-              bestResult = retryResult;
-              bestPerClaim = retryPerClaim;
-              bestNodes = regenClaims.newNodes;
-              bestEdges = regenClaims.newEdges;
-              bestStatement = regenResult.statement;
-              console.log(`[Lookahead] Attempt ${attempt + 1} improved: Δu=${retryResult.utility_delta.toFixed(3)} (was ${firstResult.utility_delta.toFixed(3)})`);
-            }
-
-            // Stop early if we pass
-            if (retryResult.pass) break;
-          } catch (regenErr) {
-            getGlobalRecorder()?.record({
-              type: 'system.error',
-              debate_id: debate.id,
-              component: 'debate-store',
-              level: 'warn',
-              message: `Lookahead regen attempt ${attempt + 1} extraction failed`,
-              error: { name: (regenErr as Error).name ?? 'Error', message: String(regenErr), stack: (regenErr as Error).stack },
-            });
-            console.warn(`[Lookahead] Regen attempt ${attempt + 1} extraction failed:`, regenErr);
-            break;
-          }
-        }
-
-        // Apply best result: update claims and transcript only if an attempt improved on the original
-        if (bestResult !== firstResult) {
-          newNodes.length = 0;
-          newNodes.push(...bestNodes);
-          newEdges.length = 0;
-          newEdges.push(...bestEdges);
-          extractionTrace.candidates_accepted = newNodes.length;
-
-          // Update transcript entry with the best regenerated statement
-          if (bestStatement) {
-            const currDebate = get().activeDebate as DebateSession | null;
-            if (currDebate) {
-              const updatedTranscript = currDebate.transcript.map(e =>
-                e.id === entryId ? { ...e, content: bestStatement!, metadata: { ...(e.metadata as Record<string, unknown>), lookahead_regenerated: true, lookahead_regen_attempts: regenAttempts.length } } : e,
-              );
-              phaseGuardedSet(get, set, { transcript: updatedTranscript });
-            }
-          }
-        }
-
-        lookaheadDiag = {
-          stage: 'lookahead',
-          first_attempt: firstResult,
-          regen_triggered: true,
-          regen_attempt: regenAttempts[regenAttempts.length - 1], // backwards compat
-          regen_attempts: regenAttempts,
-          per_claim_analysis: perClaimAnalysisLog,
-          final_pass: bestResult !== firstResult && (bestResult.pass || bestResult.utility_delta > firstResult.utility_delta),
-          elapsed_ms: Date.now() - lookaheadStart,
-        };
-      } else {
-        // Gate passed or no regen callback — still record per-claim analysis for diagnostics
-        const firstAnalysis = buildClaimAnalysis(firstPerClaim);
-        lookaheadDiag = {
-          stage: 'lookahead',
-          first_attempt: firstResult,
-          regen_triggered: false,
-          per_claim_analysis: [{ perClaim: firstPerClaim, analysis: firstAnalysis }],
-          final_pass: firstResult.pass,
-          elapsed_ms: Date.now() - lookaheadStart,
-        };
-      }
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        debate_id: debate.id,
-        component: 'debate-store',
-        level: 'warn',
-        message: 'Lookahead pre-commit gate evaluation failed',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-      console.warn('[Lookahead] Pre-commit gate evaluation failed (non-blocking):', err);
+async function processOneRegenAttempt(
+  regenResult: { statement: string; debaterClaims?: { claim: string; targets: string[] }[] },
+  speakerLabel: string,
+  priorClaims: PriorClaimList,
+  an: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] },
+  speaker: SpeakerId,
+  debate: DebateSession,
+  entryId: string,
+  taxonomyRefs: string[],
+  turnNumber: number,
+  model: string,
+  parsed: ClaimExtractionResult,
+): Promise<SingleRegenAttemptResult | null> {
+  const regenPrompt = regenResult.debaterClaims && regenResult.debaterClaims.length > 0
+    ? classifyClaimsPrompt(regenResult.statement, speakerLabel, regenResult.debaterClaims, priorClaims)
+    : extractClaimsPrompt(regenResult.statement, speakerLabel, priorClaims);
+  try {
+    const { text: regenText } = await api.generateText(regenPrompt, model);
+    const regenParsed = parseAIJson<{ claims?: typeof parsed.claims }>(regenText);
+    if (!regenParsed?.claims || !Array.isArray(regenParsed.claims) || regenParsed.claims.length === 0) {
+      return null;
     }
+    const taxEdgesRetry = useTaxonomyStore.getState().edgesFile?.edges;
+    const regenClaims = await processExtractedClaims(
+      {
+        claims: regenParsed.claims,
+        statement: regenResult.statement,
+        speaker,
+        entryId,
+        taxonomyRefIds: taxonomyRefs,
+        turnNumber,
+        existingNodes: an.nodes,
+        existingEdgeCount: an.edges.length,
+        startNodeId: an.nodes.length + 1,
+        taxonomyEdges: taxEdgesRetry,
+      },
+      { groundingOverlapThreshold: 0.3, isClassifyPath: !!(regenResult.debaterClaims && regenResult.debaterClaims.length > 0) },
+    );
+    if (regenClaims.newNodes.length === 0) return null;
+    await embedNewAnNodes(regenClaims.newNodes, debate);
+    const { batchResult: retryResult, perClaim: retryPerClaim } = evaluateLookaheadPerClaim({
+      speaker,
+      existingNodes: an.nodes,
+      existingEdges: an.edges,
+      tentativeClaims: regenClaims.newNodes.map(n => ({ text: n.text, base_strength: n.base_strength ?? 0.5 })),
+      tentativeEdges: regenClaims.newEdges,
+      cruxes: debate.crux_tracker,
+    });
+    const retryAnalysis = buildClaimAnalysis(retryPerClaim);
+    return { regenClaims, retryResult, retryPerClaim, retryAnalysis };
+  } catch (regenErr) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', debate_id: debate.id, component: 'debate-store', level: 'warn',
+      message: 'Lookahead regen attempt extraction failed',
+      error: { name: (regenErr as Error).name ?? 'Error', message: String(regenErr), stack: (regenErr as Error).stack },
+    });
+    console.warn('[Lookahead] Regen attempt extraction failed:', regenErr);
+    return null;
+  }
+}
+
+interface RegenLoopResult {
+  bestResult: LookaheadGateResult;
+  bestPerClaim: PerClaimResult[];
+  bestNodes: NewAnNode[];
+  bestEdges: NewAnEdge[];
+  bestStatement: string | null;
+  regenAttempts: LookaheadGateResult[];
+  perClaimAnalysisLog: { perClaim: PerClaimResult[]; analysis: ClaimAnalysis }[];
+}
+
+function mergePerClaimGuidance(
+  analysis: ClaimAnalysis,
+  cumulativeStrong: ClaimAnalysis['strongFoundations'],
+  cumulativeAvoid: ClaimAnalysis['avoidClaims'],
+): void {
+  const seenStrong = new Set(cumulativeStrong.map(s => s.text));
+  for (const s of analysis.strongFoundations) {
+    if (!seenStrong.has(s.text)) { cumulativeStrong.push(s); seenStrong.add(s.text); }
+  }
+  const seenAvoid = new Set(cumulativeAvoid.map(a => a.text));
+  for (const a of analysis.avoidClaims) {
+    if (!seenAvoid.has(a.text)) { cumulativeAvoid.push(a); seenAvoid.add(a.text); }
+  }
+}
+
+async function executeRegenAttempts(
+  firstResult: LookaheadGateResult,
+  firstPerClaim: PerClaimResult[],
+  newNodes: NewAnNode[],
+  newEdges: NewAnEdge[],
+  regenCallback: LookaheadRegenCallback,
+  an: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] },
+  speaker: SpeakerId,
+  debate: DebateSession,
+  entryId: string,
+  speakerLabel: string,
+  priorClaims: PriorClaimList,
+  taxonomyRefs: string[],
+  turnNumber: number,
+  model: string,
+  parsed: ClaimExtractionResult,
+): Promise<RegenLoopResult> {
+  const firstAnalysis = buildClaimAnalysis(firstPerClaim);
+  const cumulativeStrong = [...firstAnalysis.strongFoundations];
+  const cumulativeAvoid = [...firstAnalysis.avoidClaims];
+  const perClaimAnalysisLog: { perClaim: PerClaimResult[]; analysis: ClaimAnalysis }[] = [{ perClaim: firstPerClaim, analysis: firstAnalysis }];
+  const regenAttempts: LookaheadGateResult[] = [];
+  let bestResult = firstResult;
+  let bestPerClaim = firstPerClaim;
+  let bestNodes = [...newNodes];
+  let bestEdges = [...newEdges];
+  let bestStatement: string | null = null;
+  const MAX_REGEN_ATTEMPTS = 3;
+
+  for (let attempt = 0; attempt < MAX_REGEN_ATTEMPTS; attempt++) {
+    console.log(`[Lookahead] Gate failed (Δu=${bestResult.utility_delta.toFixed(3)}), requesting regen ${attempt + 1}/${MAX_REGEN_ATTEMPTS} (${cumulativeStrong.length} strong, ${cumulativeAvoid.length} avoid)`);
+    getGlobalRecorder()?.record({ type: 'lookahead.regen', component: 'argument-network-extraction', level: 'info', debate_id: debate.id, turn_id: entryId, speaker, message: `Lookahead gate failed, triggering regen attempt ${attempt + 1}`, data: { attempt: attempt + 1, utility_delta: bestResult.utility_delta, threshold: bestResult.threshold, strong_count: cumulativeStrong.length, avoid_count: cumulativeAvoid.length } });
+    const regenResult = await regenCallback({
+      strongFoundations: cumulativeStrong.length > 0 ? cumulativeStrong : undefined,
+      avoidClaims: cumulativeAvoid.length > 0 ? cumulativeAvoid : undefined,
+    });
+    if (!regenResult) break;
+    const attempted = await processOneRegenAttempt(regenResult, speakerLabel, priorClaims, an, speaker, debate, entryId, taxonomyRefs, turnNumber, model, parsed);
+    if (!attempted) {
+      regenAttempts.push({ ...bestResult, pass: false, tentative_claims: [], tentative_network_size: { nodes: 0, edges: 0 } });
+      continue;
+    }
+    regenAttempts.push(attempted.retryResult);
+    mergePerClaimGuidance(attempted.retryAnalysis, cumulativeStrong, cumulativeAvoid);
+    perClaimAnalysisLog.push({ perClaim: attempted.retryPerClaim, analysis: attempted.retryAnalysis });
+    if (attempted.retryResult.pass || attempted.retryResult.utility_delta > bestResult.utility_delta) {
+      bestResult = attempted.retryResult;
+      bestPerClaim = attempted.retryPerClaim;
+      bestNodes = attempted.regenClaims.newNodes;
+      bestEdges = attempted.regenClaims.newEdges;
+      bestStatement = regenResult.statement;
+      console.log(`[Lookahead] Attempt ${attempt + 1} improved: Δu=${attempted.retryResult.utility_delta.toFixed(3)} (was ${firstResult.utility_delta.toFixed(3)})`);
+    }
+    if (attempted.retryResult.pass) break;
+  }
+  return { bestResult, bestPerClaim, bestNodes, bestEdges, bestStatement, regenAttempts, perClaimAnalysisLog };
+}
+
+async function runLookaheadGate(speaker: SpeakerId, an: { nodes: ArgumentNetworkNode[]; edges: ArgumentNetworkEdge[] }, newNodes: NewAnNode[], newEdges: NewAnEdge[], debate: DebateSession, regenCallback: LookaheadRegenCallback | undefined, entryId: string, speakerLabel: string, priorClaims: PriorClaimList, taxonomyRefs: string[], turnNumber: number, model: string, get: () => any, set: (partial: any) => void, extractionTrace: ClaimExtractionTrace, parsed: ClaimExtractionResult): Promise<{ lookaheadDiag: LookaheadDiagnostics | undefined; bestPerClaim: PerClaimResult[] | undefined }> {
+  let lookaheadDiag: LookaheadDiagnostics | undefined;
+  let bestPerClaim: PerClaimResult[] | undefined;
+  try {
+    const lookaheadStart = Date.now();
+    const lookaheadInput = {
+      speaker,
+      existingNodes: an.nodes,
+      existingEdges: an.edges,
+      tentativeClaims: newNodes.map(n => ({ text: n.text, base_strength: n.base_strength ?? 0.5 })),
+      tentativeEdges: newEdges,
+      cruxes: debate.crux_tracker,
+    };
+    const { batchResult: firstResult, perClaim: firstPerClaim } = evaluateLookaheadPerClaim(lookaheadInput);
+    bestPerClaim = firstPerClaim;
+
+    if (!firstResult.pass && regenCallback) {
+      const regenLoopResult = await executeRegenAttempts(firstResult, firstPerClaim, newNodes, newEdges, regenCallback, an, speaker, debate, entryId, speakerLabel, priorClaims, taxonomyRefs, turnNumber, model, parsed);
+      if (regenLoopResult.bestResult !== firstResult) {
+        newNodes.length = 0; newNodes.push(...regenLoopResult.bestNodes);
+        newEdges.length = 0; newEdges.push(...regenLoopResult.bestEdges);
+        extractionTrace.candidates_accepted = newNodes.length;
+        if (regenLoopResult.bestStatement) {
+          const currDebate = get().activeDebate as DebateSession | null;
+          if (currDebate) {
+            const updatedTranscript = currDebate.transcript.map(e =>
+              e.id === entryId ? { ...e, content: regenLoopResult.bestStatement!, metadata: { ...(e.metadata as Record<string, unknown>), lookahead_regenerated: true, lookahead_regen_attempts: regenLoopResult.regenAttempts.length } } : e,
+            );
+            phaseGuardedSet(get, set, { transcript: updatedTranscript });
+          }
+        }
+      }
+      bestPerClaim = regenLoopResult.bestPerClaim;
+      lookaheadDiag = {
+        stage: 'lookahead',
+        first_attempt: firstResult,
+        regen_triggered: true,
+        regen_attempt: regenLoopResult.regenAttempts[regenLoopResult.regenAttempts.length - 1],
+        regen_attempts: regenLoopResult.regenAttempts,
+        per_claim_analysis: regenLoopResult.perClaimAnalysisLog,
+        final_pass: regenLoopResult.bestResult !== firstResult && (regenLoopResult.bestResult.pass || regenLoopResult.bestResult.utility_delta > firstResult.utility_delta),
+        elapsed_ms: Date.now() - lookaheadStart,
+      };
+    } else {
+      const firstAnalysis = buildClaimAnalysis(firstPerClaim);
+      lookaheadDiag = {
+        stage: 'lookahead',
+        first_attempt: firstResult,
+        regen_triggered: false,
+        per_claim_analysis: [{ perClaim: firstPerClaim, analysis: firstAnalysis }],
+        final_pass: firstResult.pass,
+        elapsed_ms: Date.now() - lookaheadStart,
+      };
+    }
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      debate_id: debate.id,
+      component: 'debate-store',
+      level: 'warn',
+      message: 'Lookahead pre-commit gate evaluation failed',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    console.warn('[Lookahead] Pre-commit gate evaluation failed (non-blocking):', err);
+  }
   return { lookaheadDiag, bestPerClaim };
 }
 
@@ -560,6 +593,109 @@ function filterWeakClaims(lookaheadDiag: LookaheadDiagnostics | undefined, bestP
         });
       }
     }
+}
+
+// ── Post-extraction analytics helpers ────────────────────────────────────────
+
+async function computeConvergenceAndReward(
+  baseDebate: any,
+  entryId: string,
+  speaker: SpeakerId,
+  patches: Record<string, any>,
+  currentNodes: ArgumentNetworkNode[],
+  currentEdges: ArgumentNetworkEdge[],
+  qbafResult: ReturnType<typeof computeQbafStrengths>,
+  get: () => any,
+  set: (partial: any) => void,
+): Promise<void> {
+  try {
+    let turnEmbeddings: Map<string, number[]> | undefined;
+    const cachedEmbeddings = { ...(baseDebate.turn_embeddings ?? {}) };
+    try {
+      const currentEntry = baseDebate.transcript.find((e: { id: string }) => e.id === entryId);
+      if (currentEntry) {
+        const { vector } = await api.computeQueryEmbedding(currentEntry.content.slice(0, 1000));
+        cachedEmbeddings[entryId] = vector;
+      }
+      turnEmbeddings = new Map(Object.entries(cachedEmbeddings));
+    } catch (e) {
+      getGlobalRecorder()?.record({ type: 'system.error', debate_id: baseDebate.id, component: 'debate-store', level: 'warn', message: 'Convergence turn embedding failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } });
+      if (Object.keys(cachedEmbeddings).length > 0) {
+        turnEmbeddings = new Map(Object.entries(cachedEmbeddings));
+      }
+    }
+    // Prune stale turn embeddings — keep only the most recent N entries
+    const recentEntryIds = new Set(
+      baseDebate.transcript.slice(-TURN_EMBEDDING_WINDOW).map((e: { id: string }) => e.id),
+    );
+    for (const key of Object.keys(cachedEmbeddings)) {
+      if (!recentEntryIds.has(key)) delete cachedEmbeddings[key];
+    }
+    patches.turn_embeddings = cachedEmbeddings;
+
+    const sig = computeConvergenceSignals(
+      entryId,
+      speaker,
+      baseDebate.transcript,
+      currentNodes,
+      currentEdges,
+      baseDebate.convergence_signals ?? [],
+      turnEmbeddings,
+      qbafResult.strengths,
+      baseDebate.topic?.embedding,
+      baseDebate.topic?.clause_embeddings,
+    );
+    patches.convergence_signals = [...(get().activeDebate?.convergence_signals ?? []), sig];
+    getGlobalRecorder()?.record({ type: 'debate.signal', component: 'convergence-signals', level: 'info', debate_id: baseDebate.id, turn_id: entryId, speaker, message: 'Convergence signals computed', data: { round: sig.round, move_polarity: sig.move_polarity?.ratio, dialectical_engagement: sig.dialectical_engagement?.ratio, argument_redundancy: sig.argument_redundancy?.avg_self_overlap, crux_engagement_rate: sig.crux_engagement_rate?.cumulative_count } });
+
+    // 4b. Process reward — continuous turn quality score (PRM-adjacent signal)
+    const turnTrail = get().activeDebate?.turn_validations?.[entryId];
+    const turnValidation = turnTrail?.final;
+    if (turnValidation) {
+      const currentEntry = baseDebate.transcript.find((e: { id: string }) => e.id === entryId);
+      const entryMeta = currentEntry?.metadata as Record<string, unknown> | undefined;
+      const moveTypes = (entryMeta?.move_types as (string | MoveAnnotation)[]) ?? [];
+      const phase = ((entryMeta?.debate_phase as string) ?? 'argumentation') as DebatePhase;
+
+      // Count prior turn's distinct moves for diversity comparison
+      const priorSpeakerEntry = baseDebate.transcript
+        .filter((e: { speaker: string; type: string }) => e.speaker === speaker && e.type === 'statement')
+        .slice(-2)[0]; // second-to-last statement by this speaker
+      const priorMeta = priorSpeakerEntry?.metadata as Record<string, unknown> | undefined;
+      const priorMoves = (priorMeta?.move_types as (string | MoveAnnotation)[]) ?? [];
+
+      const pr = computeProcessReward({
+        convergenceSignals: sig,
+        turnValidation,
+        phase,
+        moveCount: moveTypes.length,
+        priorMoveCount: priorMoves.length > 0 ? priorMoves.length : undefined,
+        taxonomyRefCount: currentEntry?.taxonomy_refs?.length ?? 0,
+      });
+
+      const prEntry: ProcessRewardEntry = {
+        entry_id: entryId,
+        round: sig.round,
+        speaker,
+        phase,
+        score: pr.score,
+        components: pr.components,
+      };
+      patches.process_rewards = [...(get().activeDebate?.process_rewards ?? []), prEntry];
+      getGlobalRecorder()?.record({ type: 'debate.signal', component: 'process-reward', level: 'info', debate_id: baseDebate.id, turn_id: entryId, speaker, message: `Process reward: ${pr.score.toFixed(3)}`, data: { score: pr.score, ...pr.components } });
+    }
+  } catch (convErr) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      debate_id: baseDebate.id,
+      component: 'debate-store',
+      level: 'warn',
+      message: 'Convergence signal computation failed',
+      error: { name: (convErr as Error).name ?? 'Error', message: String(convErr), stack: (convErr as Error).stack },
+    });
+    console.warn('[Convergence] Signal computation failed (non-blocking):', convErr);
+    pushWarning(get, set, 'Convergence analysis skipped this turn');
+  }
 }
 
 async function runPostExtractionAnalytics(get: () => any, set: (partial: any) => void, entryId: string, speaker: SpeakerId): Promise<void> {
@@ -604,96 +740,9 @@ async function runPostExtractionAnalytics(get: () => any, set: (partial: any) =>
         baseDebate.transcript.length,
       );
 
-      // 4. Convergence signals (reuses QBAF strengths via precomputedStrengths param)
+      // 4. Convergence signals + process reward
       if (entryId) {
-        try {
-          let turnEmbeddings: Map<string, number[]> | undefined;
-          const cachedEmbeddings = { ...(baseDebate.turn_embeddings ?? {}) };
-          try {
-            const currentEntry = baseDebate.transcript.find((e: { id: string }) => e.id === entryId);
-            if (currentEntry) {
-              const { vector } = await api.computeQueryEmbedding(currentEntry.content.slice(0, 1000));
-              cachedEmbeddings[entryId] = vector;
-            }
-            turnEmbeddings = new Map(Object.entries(cachedEmbeddings));
-          } catch (e) {
-            getGlobalRecorder()?.record({ type: 'system.error', debate_id: baseDebate.id, component: 'debate-store', level: 'warn', message: 'Convergence turn embedding failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } });
-            if (Object.keys(cachedEmbeddings).length > 0) {
-              turnEmbeddings = new Map(Object.entries(cachedEmbeddings));
-            }
-          }
-          // Prune stale turn embeddings — keep only the most recent N entries
-          const recentEntryIds = new Set(
-            baseDebate.transcript.slice(-TURN_EMBEDDING_WINDOW).map((e: { id: string }) => e.id),
-          );
-          for (const key of Object.keys(cachedEmbeddings)) {
-            if (!recentEntryIds.has(key)) delete cachedEmbeddings[key];
-          }
-          patches.turn_embeddings = cachedEmbeddings;
-
-          const sig = computeConvergenceSignals(
-            entryId,
-            speaker,
-            baseDebate.transcript,
-            currentNodes,
-            currentEdges,
-            baseDebate.convergence_signals ?? [],
-            turnEmbeddings,
-            qbafResult.strengths,
-            baseDebate.topic?.embedding,
-            baseDebate.topic?.clause_embeddings,
-          );
-          patches.convergence_signals = [...(get().activeDebate?.convergence_signals ?? []), sig];
-          getGlobalRecorder()?.record({ type: 'debate.signal', component: 'convergence-signals', level: 'info', debate_id: baseDebate.id, turn_id: entryId, speaker, message: 'Convergence signals computed', data: { round: sig.round, move_polarity: sig.move_polarity?.ratio, dialectical_engagement: sig.dialectical_engagement?.ratio, argument_redundancy: sig.argument_redundancy?.avg_self_overlap, crux_engagement_rate: sig.crux_engagement_rate?.cumulative_count } });
-
-          // 4b. Process reward — continuous turn quality score (PRM-adjacent signal)
-          const turnTrail = get().activeDebate?.turn_validations?.[entryId];
-          const turnValidation = turnTrail?.final;
-          if (turnValidation) {
-            const currentEntry = baseDebate.transcript.find((e: { id: string }) => e.id === entryId);
-            const entryMeta = currentEntry?.metadata as Record<string, unknown> | undefined;
-            const moveTypes = (entryMeta?.move_types as (string | MoveAnnotation)[]) ?? [];
-            const phase = ((entryMeta?.debate_phase as string) ?? 'argumentation') as DebatePhase;
-
-            // Count prior turn's distinct moves for diversity comparison
-            const priorSpeakerEntry = baseDebate.transcript
-              .filter((e: { speaker: string; type: string }) => e.speaker === speaker && e.type === 'statement')
-              .slice(-2)[0]; // second-to-last statement by this speaker
-            const priorMeta = priorSpeakerEntry?.metadata as Record<string, unknown> | undefined;
-            const priorMoves = (priorMeta?.move_types as (string | MoveAnnotation)[]) ?? [];
-
-            const pr = computeProcessReward({
-              convergenceSignals: sig,
-              turnValidation,
-              phase,
-              moveCount: moveTypes.length,
-              priorMoveCount: priorMoves.length > 0 ? priorMoves.length : undefined,
-              taxonomyRefCount: currentEntry?.taxonomy_refs?.length ?? 0,
-            });
-
-            const prEntry: ProcessRewardEntry = {
-              entry_id: entryId,
-              round: sig.round,
-              speaker,
-              phase,
-              score: pr.score,
-              components: pr.components,
-            };
-            patches.process_rewards = [...(get().activeDebate?.process_rewards ?? []), prEntry];
-            getGlobalRecorder()?.record({ type: 'debate.signal', component: 'process-reward', level: 'info', debate_id: baseDebate.id, turn_id: entryId, speaker, message: `Process reward: ${pr.score.toFixed(3)}`, data: { score: pr.score, ...pr.components } });
-          }
-        } catch (convErr) {
-          getGlobalRecorder()?.record({
-            type: 'system.error',
-            debate_id: baseDebate.id,
-            component: 'debate-store',
-            level: 'warn',
-            message: 'Convergence signal computation failed',
-            error: { name: (convErr as Error).name ?? 'Error', message: String(convErr), stack: (convErr as Error).stack },
-          });
-          console.warn('[Convergence] Signal computation failed (non-blocking):', convErr);
-          pushWarning(get, set, 'Convergence analysis skipped this turn');
-        }
+        await computeConvergenceAndReward(baseDebate, entryId, speaker, patches, currentNodes, currentEdges, qbafResult, get, set);
       }
 
       // 5. Network GC (uses QBAF-updated computed_strength already on nodes)
@@ -745,6 +794,35 @@ async function runPostExtractionAnalytics(get: () => any, set: (partial: any) =>
     }
 }
 
+// ── Steelman validation helpers ───────────────────────────────────────────────
+
+function handleSteelmanDivergence(
+  sNode: NewAnNode,
+  speaker: SpeakerId,
+  targetPover: string,
+  asserted: string[],
+  maxEntailment: number,
+  get: () => any,
+  set: (partial: any) => void,
+): void {
+  const targetLabel = POVER_INFO[targetPover as Exclude<SpeakerId, 'user'>]?.label ?? targetPover;
+  const speakerLbl = POVER_INFO[speaker as Exclude<SpeakerId, 'user'>]?.label ?? speaker;
+  const topAssertions = asserted.slice(-3).map(a => `"${a}"`).join('; ');
+  const addEntry = get().addTranscriptEntry;
+  if (addEntry) {
+    const steelEntryId = addEntry({
+      type: 'system',
+      speaker: 'system',
+      content: `[Steelman check] ${speakerLbl}'s steelman of ${targetLabel}'s position (max entailment: ${maxEntailment.toFixed(2)}) diverges from their actual assertions. ${targetLabel} actually asserted: ${topAssertions}`,
+      taxonomy_refs: [],
+    });
+    recordDiagnostic(get, set, steelEntryId, {
+      raw_response: JSON.stringify({ steelman_text: sNode.text, target_pover: targetPover, max_entailment: maxEntailment, nli_results: [] }),
+      model: 'nli',
+    });
+  }
+}
+
 async function runSteelmanValidation(newNodes: NewAnNode[], get: () => any, set: (partial: any) => void, speaker: SpeakerId, debate: DebateSession): Promise<void> {
     // Steelman validation (non-blocking). t/3514: the target is normalized first — label values
     // ("Safetyist") used to miss the id-keyed commitments lookup and skip every steelman silently.
@@ -766,26 +844,9 @@ async function runSteelmanValidation(newNodes: NewAnNode[], get: () => any, set:
           const nliResult = await api.nliClassify(pairs);
           sNode.steelman_check = steelmanVerdict(asserted, nliResult.results.map(r => r.nli_entailment));
           const maxEntailment = sNode.steelman_check.max_entailment ?? 0;
-          const targetCommits = { asserted };
 
           if (sNode.steelman_check.verdict === 'diverges') {
-            const targetLabel = POVER_INFO[targetPover as Exclude<SpeakerId, 'user'>]?.label ?? targetPover;
-            const speakerLbl = POVER_INFO[speaker as Exclude<SpeakerId, 'user'>]?.label ?? speaker;
-            const topAssertions = targetCommits.asserted.slice(-3).map(a => `"${a}"`).join('; ');
-
-            const addEntry = get().addTranscriptEntry;
-            if (addEntry) {
-              const steelEntryId = addEntry({
-                type: 'system',
-                speaker: 'system',
-                content: `[Steelman check] ${speakerLbl}'s steelman of ${targetLabel}'s position (max entailment: ${maxEntailment.toFixed(2)}) diverges from their actual assertions. ${targetLabel} actually asserted: ${topAssertions}`,
-                taxonomy_refs: [],
-              });
-              recordDiagnostic(get, set, steelEntryId, {
-                raw_response: JSON.stringify({ steelman_text: sNode.text, target_pover: targetPover, max_entailment: maxEntailment, nli_results: nliResult.results }),
-                model: 'nli',
-              });
-            }
+            handleSteelmanDivergence(sNode, speaker, targetPover, asserted, maxEntailment, get, set);
           }
         }
       } catch (nliErr) {
@@ -805,6 +866,121 @@ async function runSteelmanValidation(newNodes: NewAnNode[], get: () => any, set:
       }
       phaseGuardedSet(get, set, {}); // re-render: verdicts were written onto committed nodes
     }
+}
+
+// ── Inline fact-check helpers ─────────────────────────────────────────────────
+
+function buildFactCheckAnPair(
+  verdict: string,
+  explanation: string,
+  pNode: NewAnNode,
+  entryId: string,
+  cur: DebateSession,
+  get: () => any,
+  set: (partial: any) => void,
+): void {
+  const attackType = verdict === 'disputed' ? 'attacks' : 'supports';
+  const factCheckEntryId = cur.transcript[cur.transcript.length - 1]?.id || entryId;
+  const fcNode: ArgumentNetworkNode = {
+    id: 'pending-fc-node',
+    text: `Fact-check (${verdict}): ${explanation}`,
+    speaker: 'system',
+    source_entry_id: factCheckEntryId,
+    taxonomy_refs: [],
+    turn_number: cur.transcript.length,
+    base_strength: attackType === 'attacks' ? 0.7 : 0.6,
+    scoring_method: 'bdi_criteria',
+    bdi_category: 'belief',
+    specificity: 'precise',
+  };
+  const fcEdge: ArgumentNetworkEdge = {
+    id: 'pending-fc-edge',
+    source: 'pending-fc-node',
+    target: pNode.id,
+    type: attackType,
+    attack_type: attackType === 'attacks' ? 'rebut' : undefined,
+    scheme: attackType === 'attacks' ? 'EMPIRICAL CHALLENGE' : 'EXTEND',
+    warrant: `Inline fact-check evidence (web search): ${String(explanation).slice(0, 100)}`,
+    argumentation_scheme: 'ARGUMENT_FROM_EVIDENCE',
+  };
+  commitAnNodes(get, set, `factcheck(inline,pNode=${pNode.id})`, [fcNode], [fcEdge]);
+}
+
+function recordFactCheckTranscriptEntry(
+  verdict: string,
+  explanation: string,
+  pNode: NewAnNode,
+  webContext: string,
+  webQueries: string[],
+  webCitations: GroundingCitation[],
+  get: () => any,
+  set: (partial: any) => void,
+  entryId: string,
+): void {
+  const addEntry = get().addTranscriptEntry;
+  const hasWeb = !!webContext && webContext !== '(Web search unavailable)';
+  const webNote = webQueries.length > 0
+    ? `\n\n*Web sources consulted: ${webQueries.slice(0, 3).join(', ')}*`
+    : hasWeb
+      ? '\n\n*Verified against web search results*'
+      : '';
+  const verdictLabel = verdict === 'disputed' ? 'Disputed' : 'Supported';
+  if (addEntry) {
+    addEntry({
+      type: 'fact-check',
+      speaker: 'system',
+      content: `**Fact Check: ${verdictLabel}**\n\n"${pNode.text}"\n\n${explanation}${webNote}`,
+      taxonomy_refs: [],
+      metadata: {
+        fact_check: {
+          verdict,
+          explanation,
+          checked_text: pNode.text,
+          web_search_used: hasWeb,
+          web_search_queries: webQueries.length ? webQueries : undefined,
+          web_search_evidence: hasWeb ? webContext : undefined,
+          web_search_citations: webCitations.length ? webCitations : undefined,
+          target_an_id: pNode.id,
+        },
+      },
+    });
+  }
+  const cur = get().activeDebate as DebateSession | null;
+  if (cur) {
+    buildFactCheckAnPair(verdict, explanation, pNode, entryId, cur, get, set);
+  }
+}
+
+function performFactCheckVerdict(
+  pNode: NewAnNode,
+  vParsed: { verdict?: string; explanation?: string; evidence?: string; confidence?: string; discrepancy?: unknown },
+  webContext: string,
+  webQueries: string[],
+  webCitations: GroundingCitation[],
+  get: () => any,
+  set: (partial: any) => void,
+  entryId: string,
+  debateId: string,
+): boolean {
+  if (!vParsed.verdict) return false;
+  const explanation = vParsed.explanation || vParsed.evidence || '';
+  // Gate + normalize the auto-verification verdict (t/1828): unsourced
+  // `partially_accurate` → `unverifiable`, legacy `verified` → `supported`, so the
+  // verdict that reaches factCheckToBaseStrength (and verification_status) is correct.
+  const validated = validateFactCheckResult({ ...vParsed, explanation }, debateId);
+  const verdict = validated.verdict;
+  const fcConfidence = vParsed.confidence as string | undefined;
+
+  pNode.verification_status = verdict;
+  pNode.verification_evidence = explanation;
+  pNode.base_strength = factCheckToBaseStrength(verdict, fcConfidence);
+  pNode.scoring_method = 'fact_check';
+  phaseGuardedSet(get, set, {});  // trigger re-render without clobbering phase
+
+  if (verdict === 'disputed' || verdict === 'supported') {
+    recordFactCheckTranscriptEntry(verdict, explanation, pNode, webContext, webQueries, webCitations, get, set, entryId);
+  }
+  return true;
 }
 
 async function runInlineFactCheck(newNodes: NewAnNode[], get: () => any, set: (partial: any) => void, entryId: string, debate: DebateSession): Promise<void> {
@@ -857,89 +1033,8 @@ async function runInlineFactCheck(newNodes: NewAnNode[], get: () => any, set: (p
         if (!vParsed) {
           vParsed = { verdict: 'unverifiable', evidence: vText.trim() };
         }
-        const explanation = vParsed.explanation || vParsed.evidence || '';
-        // Gate + normalize the auto-verification verdict (t/1828): unsourced
-        // `partially_accurate` → `unverifiable`, legacy `verified` → `supported`, so the
-        // verdict that reaches factCheckToBaseStrength (and verification_status) is correct.
-        const validated = validateFactCheckResult({ ...vParsed, explanation }, get().activeDebate?.id);
-        const verdict = validated.verdict;
-
-        if (vParsed.verdict) {
-          pNode.verification_status = verdict;
-          pNode.verification_evidence = explanation;
-
-          // Update base_strength from fact-check verdict (theory-of-success §4.4)
-          const fcConfidence = vParsed.confidence as string | undefined;
-          pNode.base_strength = factCheckToBaseStrength(verdict, fcConfidence);
-          pNode.scoring_method = 'fact_check';
-
-          factCheckMutated = true;
-          phaseGuardedSet(get, set, {});  // trigger re-render without clobbering phase
-
-          if (verdict === 'disputed' || verdict === 'supported') {
-            const addEntry = get().addTranscriptEntry;
-            const hasWeb = !!webContext && webContext !== '(Web search unavailable)';
-            const webNote = webQueries.length > 0
-              ? `\n\n*Web sources consulted: ${webQueries.slice(0, 3).join(', ')}*`
-              : hasWeb
-                ? '\n\n*Verified against web search results*'
-                : '';
-            if (addEntry) {
-              const verdictLabel = verdict === 'disputed' ? 'Disputed' : 'Supported';
-              addEntry({
-                type: 'fact-check',
-                speaker: 'system',
-                content: `**Fact Check: ${verdictLabel}**\n\n"${pNode.text}"\n\n${explanation}${webNote}`,
-                taxonomy_refs: [],
-                metadata: {
-                  fact_check: {
-                    verdict,
-                    explanation,
-                    ...(validated.discrepancy ? { discrepancy: validated.discrepancy } : {}),
-                    checked_text: pNode.text,
-                    web_search_used: hasWeb,
-                    web_search_queries: webQueries.length ? webQueries : undefined,
-                    web_search_evidence: hasWeb ? webContext : undefined,
-                    web_search_citations: webCitations.length ? webCitations : undefined,
-                    target_an_id: pNode.id,
-                  },
-                },
-              });
-            }
-
-            // Create an AN node + edge capturing the fact-check finding so the
-            // argument network reflects the evidence (mirrors manual fact-check path).
-            const cur = get().activeDebate as DebateSession | null;
-            if (cur) {
-              const attackType = verdict === 'disputed' ? 'attacks' : 'supports';
-              const factCheckEntryId = cur.transcript[cur.transcript.length - 1]?.id || entryId;
-              const fcNode: ArgumentNetworkNode = {
-                id: 'pending-fc-node',
-                text: `Fact-check (${verdict}): ${explanation}`,
-                speaker: 'system',
-                source_entry_id: factCheckEntryId,
-                taxonomy_refs: [],
-                turn_number: cur.transcript.length,
-                base_strength: attackType === 'attacks' ? 0.7 : 0.6,
-                scoring_method: 'bdi_criteria',
-                bdi_category: 'belief',
-                specificity: 'precise',
-              };
-              const fcEdge: ArgumentNetworkEdge = {
-                id: 'pending-fc-edge',
-                source: 'pending-fc-node',
-                target: pNode.id,
-                type: attackType,
-                attack_type: attackType === 'attacks' ? 'rebut' : undefined,
-                scheme: attackType === 'attacks' ? 'EMPIRICAL CHALLENGE' : 'EXTEND',
-                warrant: `Inline fact-check evidence (web search): ${String(explanation).slice(0, 100)}`,
-                argumentation_scheme: 'ARGUMENT_FROM_EVIDENCE',
-              };
-              commitAnNodes(get, set, `factcheck(inline,pNode=${pNode.id})`, [fcNode], [fcEdge]);
-              factCheckMutated = true;
-            }
-          }
-        }
+        const mutated = performFactCheckVerdict(pNode, vParsed, webContext, webQueries, webCitations, get, set, entryId, debate.id);
+        if (mutated) factCheckMutated = true;
       } catch (verifyErr) {
         getGlobalRecorder()?.record({
           type: 'system.error',
@@ -954,6 +1049,178 @@ async function runInlineFactCheck(newNodes: NewAnNode[], get: () => any, set: (p
         pNode.verification_status = 'pending';
       }
     }
+    void factCheckMutated; // preserved for future use
+}
+
+// ── extractClaimsAndUpdateAN helpers ─────────────────────────────────────────
+
+function mergeCommitmentsFromExtraction(
+  speakerCommits: CommitmentStore,
+  commits: { asserted: string[]; conceded: string[]; challenged: string[] },
+): void {
+  for (const t of commits.asserted) { if (!speakerCommits.asserted.includes(t)) speakerCommits.asserted.push(t); }
+  for (const t of commits.conceded) { if (!speakerCommits.conceded.includes(t)) speakerCommits.conceded.push(t); }
+  for (const t of commits.challenged) { if (!speakerCommits.challenged.includes(t)) speakerCommits.challenged.push(t); }
+}
+
+function remapDiagnosticIds(diagAccepted: { id: string }[], idMap: Record<string, string>): void {
+  for (const a of diagAccepted) {
+    if (idMap[a.id]) a.id = idMap[a.id];
+  }
+}
+
+function broadcastDiagnosticsState(get: () => any): void {
+  try {
+    api.sendDiagnosticsState({ debate: get().activeDebate, selectedEntry: get().selectedDiagEntry });
+  } catch (e) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', message: 'Diagnostics state broadcast failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } });
+  }
+}
+
+async function performExtractionCall(
+  prompt: string,
+  model: string,
+  callId: string,
+  entryId: string,
+  speaker: SpeakerId,
+  debate: DebateSession,
+  extractionTrace: ClaimExtractionTrace,
+): Promise<string> {
+  const callStartedAt = Date.now();
+  trace(TraceEventName.AI_CALL_START, {
+    debate_id: debate.id,
+    turn_id: entryId,
+    call_id: callId,
+    speaker,
+    model,
+    purpose: 'claim_extraction',
+    prompt_chars: prompt.length,
+  });
+  try {
+    const { text } = await api.generateText(prompt, model);
+    extractionTrace.response_time_ms = Date.now() - callStartedAt;
+    extractionTrace.response_chars = text.length;
+    extractionTrace.response_truncated = looksTruncated(text);
+    trace(TraceEventName.AI_CALL_COMPLETE, {
+      debate_id: debate.id,
+      turn_id: entryId,
+      call_id: callId,
+      speaker,
+      model,
+      purpose: 'claim_extraction',
+      duration_ms: Date.now() - callStartedAt,
+      response_chars: text.length,
+    });
+    return text;
+  } catch (callErr) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      debate_id: debate.id,
+      component: 'debate-store',
+      level: 'error',
+      message: 'Claim extraction AI call failed',
+      error: { name: (callErr as Error).name ?? 'Error', message: String(callErr), stack: (callErr as Error).stack },
+    });
+    extractionTrace.response_time_ms = Date.now() - callStartedAt;
+    extractionTrace.status = 'adapter_error';
+    extractionTrace.error_message = String(callErr);
+    trace(TraceEventName.AI_CALL_FAILED, {
+      debate_id: debate.id,
+      turn_id: entryId,
+      call_id: callId,
+      speaker,
+      model,
+      purpose: 'claim_extraction',
+      duration_ms: Date.now() - callStartedAt,
+      error: String(callErr),
+    });
+    throw callErr;
+  }
+}
+
+function handleExtractionParseFailure(
+  text: string,
+  extractionTrace: ClaimExtractionTrace,
+  debate: DebateSession,
+  debaterClaims: { claim: string; targets: string[] }[] | undefined,
+  sketchCount: number,
+  commitTrace: () => void,
+): ClaimExtractionResult {
+  const terminalStatus = extractionTrace.response_truncated ? 'truncated_response' : 'parse_error';
+  const HEAD_TAIL_CHARS = 500;
+  const failureData: Record<string, unknown> = {
+    response_chars: text.length,
+    response_truncated: extractionTrace.response_truncated,
+    terminal_status: terminalStatus,
+    has_debater_claims: sketchCount > 0,
+    sketch_count: sketchCount,
+    response_head: text.slice(0, HEAD_TAIL_CHARS),
+    response_tail: text.length > HEAD_TAIL_CHARS ? text.slice(-HEAD_TAIL_CHARS) : '',
+  };
+  if (debaterClaims && debaterClaims.length > 0) {
+    // AC1 (t/1626): JSON recovery failed, but the debater already supplied claim sketches
+    // upstream. Fall back to those sketches instead of dropping every claim to zero.
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      debate_id: debate.id,
+      component: 'debate-store',
+      level: 'warn',
+      message: `Claim extraction JSON parse failed — recovering ${sketchCount} debater sketch(es)`,
+      data: failureData,
+      error: { name: 'SyntaxError', message: `Claim extraction JSON recovery failed (raw length: ${text.length}); recovered from debater sketches` },
+    });
+    extractionTrace.error_message = `JSON recovery failed (${terminalStatus}); recovered ${sketchCount} claim(s) from debater sketches`;
+    return { claims: debaterClaims.map((s) => ({ text: s.claim })) };
+  }
+  const parseErr = new SyntaxError('Claim extraction JSON recovery failed');
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    debate_id: debate.id,
+    component: 'debate-store',
+    level: 'error',
+    message: 'Claim extraction JSON parse failed',
+    data: failureData,
+    error: { name: parseErr.name, message: `${parseErr.message} (raw length: ${text.length})`, stack: parseErr.stack },
+  });
+  extractionTrace.status = terminalStatus;
+  extractionTrace.error_message = String(parseErr);
+  commitTrace();
+  throw parseErr;
+}
+
+function handleExtractionFailure(
+  err: unknown,
+  extractionTrace: ClaimExtractionTrace,
+  commitTrace: () => void,
+  debate: DebateSession,
+  entryId: string,
+  speaker: SpeakerId,
+  sketchCount: number,
+  extractStartedAt: number,
+  get: () => any,
+  set: (partial: any) => void,
+): void {
+  getGlobalRecorder()?.record({
+    type: 'system.error',
+    component: 'debate-store',
+    level: 'error',
+    message: 'Claim extraction failed',
+    error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+  });
+  console.warn('[AN] Claim extraction failed (non-blocking):', err);
+  pushWarning(get, set, 'Argument extraction skipped this turn');
+  if (!extractionTrace.error_message) extractionTrace.error_message = String(err);
+  if (extractionTrace.status === 'ok') extractionTrace.status = 'adapter_error';
+  try { commitTrace(); } catch (e) { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', message: 'commitTrace failed during error recovery', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } }); }
+  recordDiagnostic(get, set, entryId, { extraction_status: 'failed' as const });
+  detectZeroClaims(get, set, debate.id, entryId, speaker, sketchCount, 0, 'extraction_failed');
+  trace(TraceEventName.AN_EXTRACT_FAILED, {
+    debate_id: debate.id,
+    turn_id: entryId,
+    speaker,
+    duration_ms: Date.now() - extractStartedAt,
+    error: String(err),
+  });
 }
 
 export async function extractClaimsAndUpdateAN(
@@ -961,9 +1228,7 @@ export async function extractClaimsAndUpdateAN(
   speaker: SpeakerId,
   entryId: string,
   taxonomyRefs: string[],
-
   get: () => any,
-
   set: (partial: any) => void,
   debaterClaims?: { claim: string; targets: string[] }[],
   regenCallback?: LookaheadRegenCallback,
@@ -1033,111 +1298,13 @@ export async function extractClaimsAndUpdateAN(
     extractionTrace.prompt_hash = hashString(prompt);
 
     const callId = newCallId();
-    const callStartedAt = Date.now();
-    trace(TraceEventName.AI_CALL_START, {
-      debate_id: debate.id,
-      turn_id: entryId,
-      call_id: callId,
-      speaker,
-      model,
-      purpose: 'claim_extraction',
-      prompt_chars: prompt.length,
-    });
+    const text = await performExtractionCall(prompt, model, callId, entryId, speaker, debate, extractionTrace);
 
-    let text: string;
-    try {
-      ({ text } = await api.generateText(prompt, model));
-      extractionTrace.response_time_ms = Date.now() - callStartedAt;
-      extractionTrace.response_chars = text.length;
-      extractionTrace.response_truncated = looksTruncated(text);
-      trace(TraceEventName.AI_CALL_COMPLETE, {
-        debate_id: debate.id,
-        turn_id: entryId,
-        call_id: callId,
-        speaker,
-        model,
-        purpose: 'claim_extraction',
-        duration_ms: Date.now() - callStartedAt,
-        response_chars: text.length,
-      });
-    } catch (callErr) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        debate_id: debate.id,
-        component: 'debate-store',
-        level: 'error',
-        message: 'Claim extraction AI call failed',
-        error: { name: (callErr as Error).name ?? 'Error', message: String(callErr), stack: (callErr as Error).stack },
-      });
-      extractionTrace.response_time_ms = Date.now() - callStartedAt;
-      extractionTrace.status = 'adapter_error';
-      extractionTrace.error_message = String(callErr);
-      trace(TraceEventName.AI_CALL_FAILED, {
-        debate_id: debate.id,
-        turn_id: entryId,
-        call_id: callId,
-        speaker,
-        model,
-        purpose: 'claim_extraction',
-        duration_ms: Date.now() - callStartedAt,
-        error: String(callErr),
-      });
-      throw callErr;
-    }
-    type ClaimExtractionResult = { claims?: { text: string; bdi_category?: string; base_strength?: number; bdi_sub_scores?: Record<string, number>; specificity?: string; steelman_of?: string | null; responds_to?: { prior_claim_id: string; relationship: string; attack_type?: string; weight?: number; scheme?: string; argumentation_scheme?: string; warrant?: string }[] }[] };
     let parsed = parseAIJson<ClaimExtractionResult>(text);
     if (!parsed) {
-      const terminalStatus = extractionTrace.response_truncated ? 'truncated_response' : 'parse_error';
-      // AC2 (t/1626): capture enough to distinguish a truncated body from a malformed one.
-      // The trace type (DebateTool-owned) has no head/tail fields, so the bounded response
-      // window rides on the flight-recorder event's structured `data` payload instead.
-      const HEAD_TAIL_CHARS = 500;
-      const failureData: Record<string, unknown> = {
-        response_chars: text.length,
-        response_truncated: extractionTrace.response_truncated,
-        terminal_status: terminalStatus,
-        has_debater_claims: sketchCount > 0,
-        sketch_count: sketchCount,
-        response_head: text.slice(0, HEAD_TAIL_CHARS),
-        response_tail: text.length > HEAD_TAIL_CHARS ? text.slice(-HEAD_TAIL_CHARS) : '',
-      };
-
-      if (debaterClaims && debaterClaims.length > 0) {
-        // AC1 (t/1626): JSON recovery failed, but the debater already supplied claim sketches
-        // upstream. Fall back to those sketches instead of dropping every claim to zero.
-        // We preserve claim TEXT only — the debater's `targets` are un-classified references,
-        // and the failed call was precisely the step that would have typed them into
-        // responds_to edges; fabricating relationships here would inject mislabeled edges.
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          debate_id: debate.id,
-          component: 'debate-store',
-          level: 'warn',
-          message: `Claim extraction JSON parse failed — recovering ${sketchCount} debater sketch(es)`,
-          data: failureData,
-          error: { name: 'SyntaxError', message: `Claim extraction JSON recovery failed (raw length: ${text.length}); recovered from debater sketches` },
-        });
-        parsed = { claims: debaterClaims.map((s) => ({ text: s.claim })) };
-        extractionTrace.error_message = `JSON recovery failed (${terminalStatus}); recovered ${sketchCount} claim(s) from debater sketches`;
-        // fall through to normal processing below with the synthesized claims
-      } else {
-        const parseErr = new SyntaxError('Claim extraction JSON recovery failed');
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          debate_id: debate.id,
-          component: 'debate-store',
-          level: 'error',
-          message: 'Claim extraction JSON parse failed',
-          data: failureData,
-          error: { name: parseErr.name, message: `${parseErr.message} (raw length: ${text.length})`, stack: parseErr.stack },
-        });
-        extractionTrace.status = terminalStatus;
-        extractionTrace.error_message = String(parseErr);
-        commitTrace();
-        throw parseErr;
-      }
+      parsed = handleExtractionParseFailure(text, extractionTrace, debate, debaterClaims, sketchCount, commitTrace);
     }
-    if (!parsed.claims || !Array.isArray(parsed.claims)) {
+    if (!Array.isArray(parsed.claims)) {
       extractionTrace.status = 'empty_response';
       commitTrace();
       recordDiagnostic(get, set, entryId, { extraction_status: 'complete' as const });
@@ -1184,16 +1351,7 @@ export async function extractClaimsAndUpdateAN(
     const diagAccepted = claimsResult.accepted;
     const diagRejected = claimsResult.rejected;
 
-
-    for (const t of claimsResult.commitments.asserted) {
-      if (!speakerCommits.asserted.includes(t)) speakerCommits.asserted.push(t);
-    }
-    for (const t of claimsResult.commitments.conceded) {
-      if (!speakerCommits.conceded.includes(t)) speakerCommits.conceded.push(t);
-    }
-    for (const t of claimsResult.commitments.challenged) {
-      if (!speakerCommits.challenged.includes(t)) speakerCommits.challenged.push(t);
-    }
+    mergeCommitmentsFromExtraction(speakerCommits, claimsResult.commitments);
 
     extractionTrace.candidates_accepted = newNodes.length;
     extractionTrace.candidates_rejected = diagRejected.length;
@@ -1244,9 +1402,7 @@ export async function extractClaimsAndUpdateAN(
       }),
     );
 
-    for (const a of diagAccepted) {
-      if (commitResult.idMap[a.id]) a.id = commitResult.idMap[a.id];
-    }
+    remapDiagnosticIds(diagAccepted, commitResult.idMap);
     extractionTrace.an_node_count_after = commitResult.idBase + newNodes.length;
     extractionTrace.an_nodes_added_ids = commitResult.assignedNodeIds;
     const expectedMinAnCount = commitResult.idBase + newNodes.length;
@@ -1302,28 +1458,8 @@ export async function extractClaimsAndUpdateAN(
     commitTrace();
 
     // Broadcast updated state to popout
-    try { api.sendDiagnosticsState({ debate: get().activeDebate, selectedEntry: get().selectedDiagEntry }); } catch (e) { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', message: 'Diagnostics state broadcast failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } }); }
+    broadcastDiagnosticsState(get);
   } catch (err) {
-    getGlobalRecorder()?.record({
-      type: 'system.error',
-      component: 'debate-store',
-      level: 'error',
-      message: 'Claim extraction failed',
-      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-    });
-    console.warn('[AN] Claim extraction failed (non-blocking):', err);
-    pushWarning(get, set, 'Argument extraction skipped this turn');
-    if (!extractionTrace.error_message) extractionTrace.error_message = String(err);
-    if (extractionTrace.status === 'ok') extractionTrace.status = 'adapter_error';
-    try { commitTrace(); } catch (e) { getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'warn', message: 'commitTrace failed during error recovery', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } }); }
-    recordDiagnostic(get, set, entryId, { extraction_status: 'failed' as const });
-    detectZeroClaims(get, set, debate.id, entryId, speaker, sketchCount, 0, 'extraction_failed');
-    trace(TraceEventName.AN_EXTRACT_FAILED, {
-      debate_id: debate.id,
-      turn_id: entryId,
-      speaker,
-      duration_ms: Date.now() - extractStartedAt,
-      error: String(err),
-    });
+    handleExtractionFailure(err, extractionTrace, commitTrace, debate, entryId, speaker, sketchCount, extractStartedAt, get, set);
   }
 }
