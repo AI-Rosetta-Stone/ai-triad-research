@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import type { DebateTestedTier, DebateTestedRecord } from '../../bridge/types';
+import type { PovNode } from '../../types/taxonomy';
 import './DebateTestedChip.css';
 
 const TIER_COLORS: Record<DebateTestedTier, { bg: string; fg: string }> = {
@@ -64,5 +65,28 @@ export function DebateTestedChip({ record, description, onClick, compact }: Deba
   );
 }
 
-export { TIER_LABELS as DEBATE_TESTED_TIER_LABELS };
+export { TIER_LABELS as DEBATE_TESTED_TIER_LABELS, TIER_COLORS as DEBATE_TESTED_TIER_COLORS };
 export type { DebateTestedChipProps };
+
+/** NodeDetail meta-line status segment (t/4574 spec §2.1) — moved out of the Content/Analysis
+ *  tab. Omitted entirely when the node has no debate_tested record. */
+export function NodeStatusBadge({ node, onToggleDrilldown }: { node: PovNode; onToggleDrilldown: () => void }) {
+  const record = node.graph_attributes?.debate_tested;
+  if (!record) return null;
+  const tier: DebateTestedTier = record.tier ?? 'untested';
+  const colors = TIER_COLORS[tier];
+  return (
+    <>
+      <span className="nd-meta-sep">/</span>
+      <button
+        type="button"
+        className="nd-header-status"
+        /* eslint-disable-next-line local/no-inline-style -- tier color computed from record.tier */
+        style={{ color: colors.fg }}
+        onClick={onToggleDrilldown}
+      >
+        {tier === 'well_tested' ? '✓ ' : ''}{TIER_LABELS[tier]}
+      </button>
+    </>
+  );
+}

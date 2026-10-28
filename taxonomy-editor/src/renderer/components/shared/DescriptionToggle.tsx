@@ -8,12 +8,12 @@ export type DescriptionMode = 'formal' | 'plain';
 
 const STORAGE_KEY = 'taxonomy-editor-description-mode';
 
-function getStoredMode(): DescriptionMode {
+function getStoredMode(defaultMode: DescriptionMode): DescriptionMode {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === 'formal' || v === 'plain') return v;
   } catch { /* telemetry — silent by design */ }
-  return 'plain';
+  return defaultMode;
 }
 
 function persistMode(mode: DescriptionMode): void {
@@ -28,8 +28,10 @@ function persistMode(mode: DescriptionMode): void {
   }
 }
 
-export function useDescriptionMode(): [DescriptionMode, (mode: DescriptionMode) => void] {
-  const [mode, setModeState] = useState<DescriptionMode>(getStoredMode);
+/** @param defaultMode Used only when nothing is stored yet (t/4574 spec §2.4: Advanced
+ *  defaults to Formal there; other consumers, e.g. ReflectionsPanel, keep the original Plain default). */
+export function useDescriptionMode(defaultMode: DescriptionMode = 'plain'): [DescriptionMode, (mode: DescriptionMode) => void] {
+  const [mode, setModeState] = useState<DescriptionMode>(() => getStoredMode(defaultMode));
 
   const setMode = useCallback((m: DescriptionMode) => {
     setModeState(m);

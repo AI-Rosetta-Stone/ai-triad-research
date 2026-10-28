@@ -74,7 +74,11 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
           }
           return acc;
         }, {} as Record<string, 'simple' | 'advanced'>);
-        set({ nodeDetailModes: validated });
+        // t/4574 (Design, t/4574#11): hydrate() can resolve after the user's first toggle
+        // write, racing with setNodeDetailMode. Persisted data is the base; any entries
+        // already in the live store (written since app start) win over it, so a toggle
+        // made before hydrate resolves is never clobbered.
+        set(state => ({ nodeDetailModes: { ...validated, ...state.nodeDetailModes } }));
       }
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to hydrate preferences from bridge', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
