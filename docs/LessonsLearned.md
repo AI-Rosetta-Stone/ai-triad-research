@@ -55,6 +55,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-23 — PowerShell (p/20#114): 7th recurrence — markdown backticks inside `gh pr comment --body "…"` double quotes. Entire Bash line failed to parse before `gh` ran. Wrote comment to file, used `--body-file`. Confirmed no-op step was needed after fixing the command.
 - 2026-10-24 — PowerShell (p/20#126): 8th recurrence — inline `pwsh -NoProfile -Command '...'` from Bash with mixed `\'` single-quote escaping and embedded double-quoted JSON string literal → `syntax error near unexpected token ')'`. Shell's own quote parser broke before PowerShell ran. Resolved by writing to a scratchpad `.ps1` file and running `pwsh -File`.
 - 2026-10-28 — Computational Linguist (p/7#160): `git commit -m "..."` with embedded double-quotes (`"deberta can't discriminate poles"`) inside the outer double-quoted message closed the string early, breaking Bash parsing. Violated the Shell Quoting Rule by inline-authoring a long, quote-containing commit message instead of writing it to a file first. Fixed with `git commit -F <scratch-file>`.
+- 2026-10-28 — Refactorer (p/840#1): `gh pr create --body "$(cat <<'EOF'…)"` triggered a backtick command-substitution warning inside the heredoc. Switched to `--body-file` with a temp file, same ADR-004 class as the p/20#59/#114 `--body-file` instances.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -377,6 +378,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-07 — Computational Linguist (p/7#102, **zero-result heuristic inst2 — embeddings field name**): embeddings comparison script crashed IndexError after reporting 0 vectors. Field assumed as `embedding`; actual field in `embeddings.json` is `vector`. The 0-vector count was the tell before the crash. Fixed by inspecting one entry and rerunning. Confirms zero result = schema-mismatch signal; crash is downstream of the 0 that preceded it.
 - 2026-10-06 — Computational Linguist (p/7#94, **new variant: own-artifact shape assumption**): a read-only inspection one-liner raised `KeyError 'node_id'` on t/3939's `frozen-ops.json`. t/3939's file keys ops by `id`; agent assumed `node_id` from their own t/3952 frozen list, which uses a different shape. Nothing was written. Fix: re-read the file shape before querying. The rule applies to **your own artifacts** as much as shared data — different tickets produce different schemas even when the content is related.
 - 2026-10-07 — Computational Linguist (p/7#110, t/4072): inline Python summary of `ai-models.json` crashed `AttributeError: 'str' has no .get` — assumed `debateTiers[tier]` values were dicts; they're strings. Facts already printed; no rerun needed. Same family as the `embedding`/`vector` slip.
+- 2026-10-28 — Second Opinion (p/691#22, reviewing t/4495): ad-hoc Python reader raised `AttributeError: 'list' object has no attribute 'items'` — assumed a frozen list's per-target `changes` was a dict; it's actually a `fields` list. Guessed the schema instead of inspecting it. Fixed by printing the keys first, then iterating `targets[].fields[]`. Self-identified as an instance of this exact rule, not a new lesson.
 
 **Root Cause:** Code written based on assumed structure without inspecting first. Covers both JSON field layout (nested vs flat within a document) and filesystem directory layout (subdirectory vs flat). Applies across all project data: taxonomy JSON, debate sessions, and tool/API returns. Field types and file paths both vary — never assume flat without checking.
 
@@ -445,20 +447,22 @@ Institutional memory for failure patterns across the AI Triad Research project.
 
 ---
 
-## [Build] Unix Paths in Node.js Fail on Windows
+## [Build] Unix Paths in Node.js (and Other Windows-Native Binaries) Fail on Windows
 
-**Pattern:** Node.js commands using Unix-specific paths like `/dev/stdin` fail on Windows because Node resolves them as Windows paths (e.g., `C:\dev\stdin` → ENOENT).
+**Pattern:** Commands using Unix-specific paths like `/dev/stdin` fail on Windows because the Windows-native binary resolves them as literal Windows paths (e.g., `C:\dev\stdin` → ENOENT), not as the Unix device they're meant to represent. Originally observed with Node.js; also hits other Windows-native binaries like `gh.exe`.
 
 **Instances:**
 - 2026-05-24 — Taxonomy Editor: `node -e` with `/dev/stdin` pipe failed on Windows. Node resolved `/dev/stdin` as `C:\dev\stdin` which doesn't exist. Fixed by writing a temp `.mjs` script file instead of piping (p/6#5).
+- 2026-10-28 — Server Storage (p/539#36): `gh pr comment --body-file /dev/stdin` with a heredoc failed: "open /proc/self/fd/0: The system cannot find the path specified." Windows Git Bash's `gh.exe` can't read `/dev/stdin` as a real file path the way it would on Linux/macOS. Fixed by writing the body to a real temp file via the Write tool and passing that path to `--body-file` instead.
 
-**Root Cause:** `/dev/stdin`, `/dev/stdout`, `/dev/null` and other Unix device paths don't exist on Windows. Node.js on Windows doesn't translate these — it treats them as literal file paths under the current drive root.
+**Root Cause:** `/dev/stdin`, `/dev/stdout`, `/dev/null`, `/proc/self/fd/*` and other Unix device/proc paths don't exist on Windows. Windows-native binaries (Node.js, `gh.exe`, and any other compiled-for-Windows executable) don't translate these — they treat them as literal file paths under the current drive root, regardless of whether they were launched from Git Bash.
 
 **Prevention:**
-1. Avoid `/dev/stdin` piping patterns — write temp script files (`.mjs` or `.js`) and execute them directly.
-2. Use platform-agnostic alternatives: `process.stdin` in Node.js code instead of `/dev/stdin` file paths.
+1. Avoid `/dev/stdin` piping patterns for ANY Windows-native binary, not just Node — write a temp file and pass its real path instead.
+2. Use platform-agnostic alternatives where available: `process.stdin` in Node.js code instead of `/dev/stdin` file paths.
 3. For stderr suppression: use `2>/dev/null` in the Bash tool (Git Bash/POSIX sh) — `2>nul` creates a literal file named `nul`. Use `2>$null` in PowerShell. `NUL` (the Windows null device) is cmd.exe-only.
-4. When writing Bash commands that run Node.js, remember the dev environment is Windows — test Unix-isms mentally before using them.
+4. When writing Bash commands that invoke a Windows-native binary (Node.js, `gh.exe`, etc.), remember the dev environment is Windows — test Unix-isms mentally before using them.
+5. **For `gh <command> --body-file`/similar flags that accept a path, always pass a real temp file written via the Write tool — never `/dev/stdin`, `/proc/self/fd/0`, or a heredoc redirect into the flag.**
 
 **Applies To:** All agents running Node.js commands on this Windows dev environment.
 
@@ -3688,6 +3692,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-09-28 — DebateUI (p/689#1, **HEAD-switched variant**): branch already pushed, but another concurrent agent had switched shared HEAD to `main` between the push and `gh pr create`. CLI defaulted to `main`, errored "you must first push the current branch." Fix: `--head <my-branch>` explicitly.
 - 2026-10-02 — ServerAPI (p/504#16, **v1 repeat**): `gh pr create` without `--head` aborted — "94 uncommitted changes / must first push." The 94 files were other agents' untracked WIP on the shared tree, not the ServerAPI branch. Fix: pass `--head feat/branch --base main` explicitly.
 - 2026-10-24 — SummaryViewer (p/385#5): `gh pr create` run from repo root (not the worktree) — gh picked up the shared checkout's untracked files and aborted "you must first push the current branch." Fix: ran `gh pr create` from inside the worktree directory.
+- 2026-10-28 — Refactorer (p/840#1): `gh pr create` for `refactor/new-debate-dialog-cleanup` aborted exit 1 — main worktree had 8 uncommitted changes. Fix: added `--head refactor/new-debate-dialog-cleanup` explicitly; PR #4070 created successfully.
 
 **Root Cause:** `gh pr create` without `--head` infers the head branch from the current local state. In the shared checkout, two failure variants exist: **(v1)** other agents' uncommitted changes trigger the "uncommitted changes" abort; **(v2)** another agent's checkout switches HEAD mid-flight, so the CLI targets the wrong (now-current) branch entirely. Both are instantaneous local-state races invisible to the PR author.
 
@@ -3695,7 +3700,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 1. **Always pass `--head <branch> --base main` explicitly with `gh pr create` when running from the shared checkout** — never let the CLI infer from local state; it races shared-tree drift in both variants.
 2. Alternatively, run `gh pr create` from inside the worktree where the branch is checked out and clean.
 
-**Status:** Active — 3 instances / 3 agents; 2 variants. All fixed by `--head <branch> --base main`.
+**Status:** Active — 5 instances / 5 agents; 2 variants. All fixed by `--head <branch> --base main`.
 
 **Applies To:** All agents opening PRs from the shared checkout or any context where the working tree may be dirty.
 
