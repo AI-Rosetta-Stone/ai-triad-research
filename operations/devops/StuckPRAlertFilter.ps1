@@ -33,3 +33,28 @@ function Test-IsAwaitingPi {
     # under strict mode -- filter nulls out explicitly before the name check.
     return @($Labels | Where-Object { $null -ne $_ } | Where-Object { $_.name -eq 'awaiting-pi' }).Count -gt 0
 }
+
+function Test-IsDraft {
+    <#
+    .SYNOPSIS
+        True if the given PR object (as returned by `gh pr list --json ...,isDraft`) is a draft.
+    .DESCRIPTION
+        t/4599: a draft PR may still carry a `stuck-pr-alert-owner`/`-tl` label applied
+        BEFORE it was converted to draft -- GitHub never removes a label on its own, and
+        the classifier (stuck-pr-classifier.mjs) only guards against labelling a NEW
+        finding for a draft going forward, not an already-labelled PR that later became
+        one. This is the second-layer defense: skip a draft at read time regardless of
+        what labels it still carries, same role as Test-IsAwaitingPi above.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object]$Pr
+    )
+    Set-StrictMode -Version Latest
+    # Guard $null the same way Test-IsAwaitingPi guards a $null labels element, before the
+    # property access -- strict mode throws on a member access against $null.
+    if ($null -eq $Pr) { return $false }
+    return [bool]$Pr.isDraft
+}
