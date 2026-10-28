@@ -114,6 +114,15 @@ const POV_LABELS: Record<Pov, string> = {
 
 type NodeDetailTabId = 'content' | 'related' | 'attributes' | 'conflicts' | 'phrases' | 'sources' | 'facts' | 'cruxes' | 'research' | 'history';
 
+/** Reset tab to Simple-view available tabs when mode changes. */
+function useSimpleViewTabReset(nodeDetailMode: string, activeTab: NodeDetailTabId, setActiveTab: (tab: NodeDetailTabId) => void) {
+  useEffect(() => {
+    if (nodeDetailMode === 'simple' && activeTab !== 'content' && activeTab !== 'related') {
+      setActiveTab('content');
+    }
+  }, [nodeDetailMode, activeTab, setActiveTab]);
+}
+
 /** Edit-history entry count for the History tab badge (extracted so the optional-chain access doesn't add to NodeDetail's own complexity count). */
 function getEditHistoryLength(node: PovNode): number | undefined {
   return node._edit_history?.length;
@@ -157,15 +166,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const [steelmanExpanded, setSteelmanExpanded] = useState(false);
   const [lineageExpanded, setLineageExpanded] = useState(false);
 
-  // Reset to Analysis when switching to Simple (which hides most tabs, but Analysis is always visible).
-  // t/4574: Simple mode can only access Analysis and Related tabs; all others are Advanced-only.
-  // If switching to Simple while on an Advanced-only tab, drop to Analysis.
-  // If switching back to Advanced, stay on the current tab.
-  useEffect(() => {
-    if (nodeDetailMode === 'simple' && activeTab !== 'content' && activeTab !== 'related') {
-      setActiveTab('content');
-    }
-  }, [nodeDetailMode, activeTab]);
+  useSimpleViewTabReset(nodeDetailMode, activeTab, setActiveTab);
   const [showDtDrilldown, setShowDtDrilldown] = useState(false);
   const [relatedSplitPct, setRelatedSplitPct] = useState(40);
   const splitContainerRef = useRef<HTMLDivElement>(null);
