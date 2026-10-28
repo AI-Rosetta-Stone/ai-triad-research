@@ -1,0 +1,104 @@
+{
+  "targets": [
+    {
+      "doc_id": "text-2026",
+      "path": "text-2026/metadata.json",
+      "pre_sha256": "fe2b9ae4bd2cb9464d6b4cad472a54e9297b1476b6e36e684ad00fbec8687d10",
+      "post_sha256": "0f4379359bed0a2c33f3190cebbab69449c0cc439710fdd6841e0a744d4093c8",
+      "fields": [
+        {
+          "field": "date_published",
+          "old": null,
+          "new": "2026-01-19",
+          "evidence": "Reusing t/4495's evidence: the IMF publisher page fetched 2026-10-27 states the report was released January 19, 2026. date_published was null (key present, never set)."
+        },
+        {
+          "field": "source_time",
+          "old": null,
+          "new": "2026-01-19",
+          "evidence": "Per SO e/394#2 (G2): source_time equals date_published everywhere in this group, and taxonomy-editor reads source_time (fileIO.ts:841). Same evidence as date_published."
+        }
+      ]
+    },
+    {
+      "doc_id": "text-2026-1",
+      "path": "text-2026-1/metadata.json",
+      "pre_sha256": "765b0d485c75ca0f4a40493373206c4b3a1592ad681e007bdc6769098761102c",
+      "post_sha256": "98b21d8ab50f7e33cb2f986787595b7555a8ee23be893e9b6cc328f9c56f2d0d",
+      "fields": [
+        {
+          "field": "date_published",
+          "old": null,
+          "new": "2026-01-19",
+          "evidence": "Same as text-2026 -- same report, same IMF evidence, date_published was null."
+        },
+        {
+          "field": "source_time",
+          "old": null,
+          "new": "2026-01-19",
+          "evidence": "Same as text-2026's source_time fix."
+        }
+      ]
+    },
+    {
+      "doc_id": "world-economic-outlook-update-global-economy-steady-amid-2026",
+      "path": "world-economic-outlook-update-global-economy-steady-amid-2026/metadata.json",
+      "pre_sha256": "2142c42783a13db3eba1471f70a018b1ab6cd8fe702592380090a2bdd20aac2b",
+      "post_sha256": "8103066786cd025244b1e05a95406d2c595d4a372d35c70412f67606bed46f93",
+      "fields": [
+        {
+          "field": "date_published",
+          "old": "2026-01-01",
+          "new": "2026-01-19",
+          "evidence": "Per SO e/394#2 (G1): this duplicate_of member carries the same placeholder as the canonical and was missed in the first frozen list. Same IMF evidence."
+        },
+        {
+          "field": "source_time",
+          "old": "2026-01-01",
+          "new": "2026-01-19",
+          "evidence": "Same as date_published; source_time equals date_published throughout this group (SO e/394#2, G2)."
+        }
+      ]
+    },
+    {
+      "doc_id": "world-economic-outlook-update-global-economy-steady-amid-2026-1",
+      "path": "world-economic-outlook-update-global-economy-steady-amid-2026-1/metadata.json",
+      "pre_sha256": "2e2b0d2a3823e43e0292f92621e069866d0138230fab7167d224de66b4f39eb0",
+      "post_sha256": "79824a3011bedbe75ddd65a0f2ca3bca046b5b898c0c8ecca49de7f3181d96ed",
+      "fields": [
+        {
+          "field": "date_published",
+          "old": "2026-01-01",
+          "new": "2026-01-19",
+          "evidence": "Per SO e/394#2 (G1): this duplicate_of member carries the same placeholder as the canonical and was missed in the first frozen list. Same IMF evidence."
+        },
+        {
+          "field": "source_time",
+          "old": "2026-01-01",
+          "new": "2026-01-19",
+          "evidence": "Same as date_published; source_time equals date_published throughout this group (SO e/394#2, G2)."
+        }
+      ]
+    },
+    {
+      "doc_id": "world-economic-outlook-update-global-economy-steady-amid-2026-2",
+      "path": "world-economic-outlook-update-global-economy-steady-amid-2026-2/metadata.json",
+      "pre_sha256": "3d5b780325bade8d67e24cf87fe7ea20db1af8606416465d3689c6a0f8f9c7fe",
+      "post_sha256": "a2406bedfda0791763a1544c4485d99c9536027685f6c6ec52140a88902c6786",
+      "fields": [
+        {
+          "field": "date_published",
+          "old": "2026-01-01",
+          "new": "2026-01-19",
+          "evidence": "Flagged as a likely placeholder in t/4604's review (e/393#2). Same IMF publisher-page evidence as text-2026."
+        },
+        {
+          "field": "source_time",
+          "old": "2026-01-01",
+          "new": "2026-01-19",
+          "evidence": "Per SO e/394#2 (G2): source_time equals date_published everywhere in this group, and taxonomy-editor reads source_time (fileIO.ts:841). Fixing date_published alone would leave the canonical internally inconsistent."
+        }
+      ]
+    }
+  ]
+}
