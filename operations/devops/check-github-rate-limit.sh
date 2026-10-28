@@ -34,9 +34,9 @@ fi
 PERCENT=$(( REMAINING * 100 / LIMIT_CEILING ))
 
 if [ "$PERCENT" -lt 10 ]; then
-  jq -n --argjson remaining "$REMAINING" --arg resetsAt "$RESETS_AT" --argjson percent "$PERCENT" \
+  jq -nc --argjson remaining "$REMAINING" --arg resetsAt "$RESETS_AT" --argjson percent "$PERCENT" \
     '{shouldAlert: true, kind: "quota-low", remaining: $remaining, resetsAt: $resetsAt, percent: $percent}'
 else
-  jq -n --argjson remaining "$REMAINING" --arg resetsAt "$RESETS_AT" --argjson percent "$PERCENT" \
+  jq -nc --argjson remaining "$REMAINING" --arg resetsAt "$RESETS_AT" --argjson percent "$PERCENT" \
     '{shouldAlert: false, kind: "healthy", remaining: $remaining, resetsAt: $resetsAt, percent: $percent}'
 fi
