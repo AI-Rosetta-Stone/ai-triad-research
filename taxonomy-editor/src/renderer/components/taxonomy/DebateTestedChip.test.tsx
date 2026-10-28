@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
-import { DebateTestedChip, computeSha256 } from './DebateTestedChip';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
+import { DebateTestedChip, NodeStatusBadge, computeSha256 } from './DebateTestedChip';
 import type { DebateTestedRecord } from '../../bridge/types';
+import type { PovNode } from '../../types/taxonomy';
 
 vi.mock('@lib/flight-recorder/index', () => ({
   getGlobalRecorder: () => ({ record: vi.fn() }),
@@ -118,6 +119,44 @@ describe('DebateTestedChip', () => {
 
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
     expect(container.querySelector('.debate-tested-stale')).toBeTruthy();
+  });
+});
+
+describe('NodeStatusBadge (t/4574#24 item 2)', () => {
+  function makeNode(tier: DebateTestedRecord['tier']): PovNode {
+    return {
+      id: 'acc-desires-010',
+      category: 'Desires',
+      label: 'Test',
+      description: 'A test description.',
+      parent_id: null,
+      children: [],
+      situation_refs: [],
+      graph_attributes: { debate_tested: makeRecord({ tier }) } as never,
+    };
+  }
+
+  it.each(['untested', 'cited', 'contested', 'well_tested'] as const)(
+    'sets data-tier="%s" and no inline color style — colors come from CSS, not TIER_COLORS.fg',
+    (tier) => {
+      render(<NodeStatusBadge node={makeNode(tier)} onToggleDrilldown={() => {}} />);
+      const badge = screen.getByRole('button', { name: new RegExp(tier === 'well_tested' ? 'well tested' : tier, 'i') });
+      expect(badge).toHaveAttribute('data-tier', tier);
+      expect(badge.getAttribute('style')).toBeFalsy();
+    },
+  );
+
+  it('renders nothing when the node has no debate_tested record', () => {
+    const node: PovNode = { id: 'acc-desires-011', category: 'Desires', label: 'Test', description: '', parent_id: null, children: [], situation_refs: [] };
+    const { container } = render(<NodeStatusBadge node={node} onToggleDrilldown={() => {}} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('calls onToggleDrilldown when clicked', () => {
+    const onToggleDrilldown = vi.fn();
+    render(<NodeStatusBadge node={makeNode('cited')} onToggleDrilldown={onToggleDrilldown} />);
+    fireEvent.click(screen.getByRole('button', { name: /cited/i }));
+    expect(onToggleDrilldown).toHaveBeenCalledTimes(1);
   });
 });
 

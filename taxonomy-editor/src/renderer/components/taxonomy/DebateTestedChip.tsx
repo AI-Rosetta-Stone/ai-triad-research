@@ -74,15 +74,17 @@ export function NodeStatusBadge({ node, onToggleDrilldown }: { node: PovNode; on
   const record = node.graph_attributes?.debate_tested;
   if (!record) return null;
   const tier: DebateTestedTier = record.tier ?? 'untested';
-  const colors = TIER_COLORS[tier];
   return (
     <>
       <span className="nd-meta-sep">/</span>
+      {/* Design, t/4574#24 item 2: TIER_COLORS.fg was chosen for the pastel chip backgrounds
+          (DebateTestedChip) and fails AA on the bare panel in dark/bkc. The meta line uses
+          data-tier + theme tokens instead — see NodeDetail.css. TIER_COLORS stays as-is for
+          the chip. */}
       <button
         type="button"
         className="nd-header-status"
-        /* eslint-disable-next-line local/no-inline-style -- tier color computed from record.tier */
-        style={{ color: colors.fg }}
+        data-tier={tier}
         onClick={onToggleDrilldown}
       >
         {/* Design, t/4574#15 nit: sentence case in the meta line, as in the mockup —

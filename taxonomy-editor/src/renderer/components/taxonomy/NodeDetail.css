@@ -1009,6 +1009,14 @@
   white-space: nowrap;
 }
 
+/* Design, t/4574#24 item 2: DEBATE_TESTED_TIER_COLORS.fg is tuned for the pastel chip
+   backgrounds (DebateTestedChip) and fails AA on the bare panel in dark/bkc. The meta-line
+   badge colors by data-tier instead, with theme tokens. */
+.nd-header-status[data-tier="untested"] { color: var(--text-secondary); }
+.nd-header-status[data-tier="cited"] { color: var(--info); }
+.nd-header-status[data-tier="contested"] { color: var(--warning); }
+.nd-header-status[data-tier="well_tested"] { color: var(--success-text); }
+
 /* ── Advanced header icons + divider (t/4574 spec §2.2) ── */
 
 .nd-header-icons {
@@ -1229,6 +1237,15 @@
 
   .nd-formal-label {
     width: auto;
+  }
+
+  /* Design, t/4574#24 item 1: the actions row (doc icons | toggle | "⋯") overflowed the
+     panel on phone and was left-aligned instead of right-aligned (spec §4). */
+  .nd-header-controls {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 100%;
+    row-gap: var(--sp-2);
   }
 }
 
