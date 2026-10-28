@@ -573,6 +573,108 @@ Describe 'Invoke-OrgClaimMatching (t/1553 Stages 2+3)' -Tag 'taxonomy' {
             }
         }
 
+        It 'TEXT_VERBATIM=true: an explicitly-verbatim claim still reaches the gate as text (t/4395)' {
+            InModuleScope AITriad -Parameters @{
+                ClaimsPath = $script:claimsPath
+                EmbPath    = $script:invEmbPath
+                VecA       = [double[]]$script:vecA
+            } {
+                param($ClaimsPath, $EmbPath, $VecA)
+
+                @{ claims = @(
+                    [PSCustomObject]@{ org_id='org-014'; source_id='src-tv'; polarity='asserts'
+                        text='VERBATIM org sentence, confirmed by t/4382'
+                        canonical_proposition='over-abstracted canonical'
+                        text_verbatim=$true
+                        extraction_confidence=0.9 }
+                ) } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+
+                $script:TaxonomyData['invtest-pov'] = [PSCustomObject]@{ nodes = @(
+                    [PSCustomObject]@{ id='acc-intentions-999'; label='N'; description='node text' }
+                )}
+
+                $script:capturedClaimProp = $null
+                $vecAref = $VecA
+                function python {
+                    process {
+                        $payload = @($input | Out-String | ConvertFrom-Json)
+                        if ($payload.Count -gt 0 -and $payload[0].PSObject.Properties['claim_prop']) {
+                            $script:capturedClaimProp = [string]$payload[0].claim_prop
+                            $out = foreach ($it in $payload) {
+                                [pscustomobject]@{ id=$it.id; direction='unrelated'; confidence=0.1; method='nli' }
+                            }
+                            ConvertTo-Json -InputObject @($out) -Depth 5
+                        } else {
+                            $o = [ordered]@{}
+                            foreach ($it in $payload) { $o[$it.id] = $vecAref }
+                            $o | ConvertTo-Json -Depth 5 -Compress
+                        }
+                    }
+                }
+                Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
+
+                $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
+                    -MatchThreshold 0.60 -Verbose:$false -WarningVariable warnings -WarningAction SilentlyContinue 6>$null
+
+                $script:capturedClaimProp | Should -Be 'VERBATIM org sentence, confirmed by t/4382' -Because 'text_verbatim=true keeps the existing text-fed behavior'
+                @($warnings | Where-Object { "$_" -match 't/4395' }).Count | Should -Be 0 -Because 'no substitution happened'
+
+                $script:TaxonomyData.Remove('invtest-pov')
+            }
+        }
+
+        It 'TEXT_VERBATIM=false: a flagged paraphrase reaches the gate as canonical_proposition, not text (t/4395)' {
+            InModuleScope AITriad -Parameters @{
+                ClaimsPath = $script:claimsPath
+                EmbPath    = $script:invEmbPath
+                VecA       = [double[]]$script:vecA
+            } {
+                param($ClaimsPath, $EmbPath, $VecA)
+
+                @{ claims = @(
+                    [PSCustomObject]@{ org_id='org-014'; source_id='src-nv'; polarity='asserts'
+                        text='a paraphrase the model wrote, mislabeled as a quote'
+                        canonical_proposition='the real canonical proposition'
+                        text_verbatim=$false
+                        extraction_confidence=0.9 }
+                ) } | ConvertTo-Json -Depth 5 | Set-Content -Path $ClaimsPath -Encoding utf8NoBOM
+
+                $script:TaxonomyData['invtest-pov'] = [PSCustomObject]@{ nodes = @(
+                    [PSCustomObject]@{ id='acc-intentions-999'; label='N'; description='node text' }
+                )}
+
+                $script:capturedClaimProp = $null
+                $vecAref = $VecA
+                function python {
+                    process {
+                        $payload = @($input | Out-String | ConvertFrom-Json)
+                        if ($payload.Count -gt 0 -and $payload[0].PSObject.Properties['claim_prop']) {
+                            $script:capturedClaimProp = [string]$payload[0].claim_prop
+                            $out = foreach ($it in $payload) {
+                                [pscustomobject]@{ id=$it.id; direction='unrelated'; confidence=0.1; method='nli' }
+                            }
+                            ConvertTo-Json -InputObject @($out) -Depth 5
+                        } else {
+                            $o = [ordered]@{}
+                            foreach ($it in $payload) { $o[$it.id] = $vecAref }
+                            $o | ConvertTo-Json -Depth 5 -Compress
+                        }
+                    }
+                }
+                Mock Get-OrganizationEdgesStore { [PSCustomObject]@{ edges = @() } }
+
+                $r = Invoke-OrgClaimMatching -ClaimsPath $ClaimsPath -EmbeddingsPath $EmbPath `
+                    -MatchThreshold 0.60 -Verbose:$false -WarningVariable warnings -WarningAction SilentlyContinue 6>$null
+
+                $script:capturedClaimProp | Should -Be 'the real canonical proposition' -Because 'text_verbatim=false must not feed the paraphrase to the gate as if it were a quote'
+                $substitutionWarn = @($warnings | Where-Object { "$_" -match 't/4395' })
+                $substitutionWarn.Count | Should -Be 1
+                "$($substitutionWarn[0])" | Should -Match '1 claim'
+
+                $script:TaxonomyData.Remove('invtest-pov')
+            }
+        }
+
         It 'MULTI-REP OR: an inversion caught by ONLY the canonical rep still flips the edge (opposes-if-any, t/2744#10)' {
             InModuleScope AITriad -Parameters @{
                 ClaimsPath = $script:claimsPath
