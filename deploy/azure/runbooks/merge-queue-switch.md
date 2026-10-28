@@ -38,6 +38,66 @@ The command prints the new ruleset's `id` on success. Note it for the rollback b
 through the queue too, same as everyone else's -- confirmed live on `app-scratch`
 (`current_user_can_bypass: "never"` in the ruleset creation response).
 
+## Fix existing ruleset (C1) -- t/4567, SO-cleared at PR #4040's head (e/388#3, e/388#4)
+
+The ruleset created above (`main-merge-queue`, id `26043005`) already exists on `main` but
+still requires the native `CodeQL` check, which never reports on a `merge_group` ref
+(`gh-readonly-queue/*`) -- that stalled the first real batch indefinitely (t/4567). **Do not
+re-run the `POST` above** -- that would create a SECOND ruleset that still stalls. Fix the
+existing one in place, with `PUT`, instead.
+
+PI runs PowerShell 7 (`pwsh`), so these are PowerShell-first. If running from Git Bash instead,
+prefix every `git show` with `MSYS_NO_PATHCONV=1` (root AGENTS.md, Windows Bash path-mangling)
+-- `pwsh` has no equivalent mangling and needs no prefix.
+
+Every input file is read from **PR #4040's head**, not from `main` -- the files aren't on `main`
+until #4040 merges, and this applies exactly what the SO cleared (e/388#3), not whatever happens
+to be locally checked out:
+
+```powershell
+git fetch origin pull/4040/head
+$ClearedSha = 'db5037b6'   # the exact head the SO cleared (e/388#3/e/388#4) -- confirm this still
+                           # matches before using a newer one; the SO re-checks on every push
+
+# 1. Fix the existing ruleset in place (PUT, not POST). Atomic: the CodeQL Analysis swap and the
+#    code_scanning alert-gating rule land together. `enforcement: active` in the file also
+#    re-enables the ruleset if the PI disabled it as an interim unblock.
+git show "${ClearedSha}:operations/devops/merge-queue-ruleset.json" |
+  gh api -X PUT repos/AI-Rosetta-Stone/ai-triad-research/rulesets/26043005 --input -
+
+# 2. Swap classic branch protection the same way, via the required_status_checks sub-resource
+#    (never a full PUT /protection -- see context-swap.md's warning). All four `checks` pinned to
+#    app_id 15368 (GitHub Actions) so a stray same-named status can't satisfy the requirement.
+#    NOTE the field name differs from step 1: the ruleset uses `integration_id`, classic
+#    protection's `checks[]` uses `app_id` (e/388#4) -- both files already use the right one.
+git show "${ClearedSha}:operations/devops/classic-required-status-checks.json" |
+  gh api -X PATCH repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protection/required_status_checks --input -
+
+# 3. Re-trigger every open PR so none is stranded on the old context name.
+./operations/devops/Invoke-ContextSwapRetrigger.ps1
+
+# 4. Re-arm the batch that was stuck under the old context, pinned to its current head. Step 3's
+#    close/reopen already dequeued the stale entries -- this just re-enqueues them under the
+#    fixed ruleset.
+foreach ($pr in 4036, 4037, 4038, 4039) {
+    $headSha = gh pr view $pr --json headRefOid -q .headRefOid
+    gh pr merge $pr --auto --squash --match-head-commit $headSha
+}
+
+# 5. Confirm the drift guard is clean against the newly fixed live state -- not a parallel check,
+#    the final confirmation. If this doesn't exit 0, STOP and diagnose before anything else enqueues.
+./operations/devops/Test-RequiredContextsListDrift.ps1
+$LASTEXITCODE   # must be 0
+```
+
+**Order matters** (SO e/388#2, TL-accepted e/388#3): the ruleset `PUT` (1) lands before classic
+protection (2); the retrigger (3) runs before the stuck batch is re-enqueued (4); the drift guard
+(5) is the final confirmation, not a parallel check. **Then, in the same window, merge PR #4040**
+-- not before. Before C1 lands, #4040's SSOT/AGENTS.md/runbook/liveness-list would describe a
+`CodeQL Analysis` state that doesn't exist yet on the live ruleset/classic protection, and the
+daily drift job (`Test-RequiredContextsListDrift.ps1` on its own schedule) would flag that gap as
+drift that isn't real (Q1, e/388#2).
+
 ## Mandatory follow-up: context-swap retrigger
 
 Any required-status-check change on `main` can leave already-open PRs missing a context
