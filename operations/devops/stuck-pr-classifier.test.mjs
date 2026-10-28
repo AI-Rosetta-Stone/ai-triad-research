@@ -38,6 +38,20 @@ function basePr(overrides = {}) {
   };
 }
 
+// ── draft (t/4599) ──
+test('draft: isDraft true short-circuits before any other classification, even one that would otherwise fire', () => {
+  const pr = basePr({ isDraft: true, isConflicting: true, labels: ['consult-hold'] });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+test('draft: a real required-check failure is NOT classified while isDraft is true', () => {
+  const pr = basePr({ isDraft: true, runs: allGreenRuns({ 'ci-gate': { status: 'completed', conclusion: 'failure' } }) });
+  assert.equal(classifyBlocker(pr, NOW), null);
+});
+test('draft: false (or absent) does not change any existing classification', () => {
+  const pr = basePr({ isDraft: false, isConflicting: true });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'merge-conflict');
+});
+
 // ── held ──
 test('held: consult-hold label never escalates, reports age only', () => {
   const pr = basePr({ labels: ['consult-hold'], isConflicting: true /* would otherwise be merge-conflict */ });
