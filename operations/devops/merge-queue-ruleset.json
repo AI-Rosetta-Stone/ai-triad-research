@@ -28,10 +28,10 @@
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
-          { "context": "ci-gate" },
+          { "context": "ci-gate", "integration_id": 15368 },
           { "context": "CodeQL Analysis", "integration_id": 15368 },
-          { "context": "joint-gv-guard" },
-          { "context": "consult-hold-guard" }
+          { "context": "joint-gv-guard", "integration_id": 15368 },
+          { "context": "consult-hold-guard", "integration_id": 15368 }
         ]
       }
     },

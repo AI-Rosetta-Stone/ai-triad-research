@@ -56,12 +56,29 @@ to be locally checked out:
 
 ```powershell
 git fetch origin pull/4040/head
-$ClearedSha = 'db5037b6'   # the exact head the SO cleared (e/388#3/e/388#4) -- confirm this still
-                           # matches before using a newer one; the SO re-checks on every push
+$ClearedSha = '<full 40-char SHA from the SO''s clearing comment on PR #4040>'
+# NEVER hardcode a specific short SHA here -- the SO clears a specific head and the PR keeps
+# moving. A stale SHA silently PUTs an OLD version of the ruleset (e.g. db5037b6 still required
+# plain `CodeQL` with no `code_scanning` rule at all -- SO e/388#7, G2). Paste the full SHA from
+# the SO's own clearing comment, not whatever's locally checked out.
+
+# 0. Pre-flight: stop before touching anything live if $ClearedSha doesn't actually carry the
+#    C1 fix (SO e/388#7, G2) -- a file can't name the commit it's in, so this is the next best
+#    thing: fail loud instead of silently re-stalling the queue.
+$rs = git show "${ClearedSha}:operations/devops/merge-queue-ruleset.json" | Out-String
+if ($LASTEXITCODE -ne 0 -or $rs -notmatch '"CodeQL Analysis"' -or $rs -notmatch '"code_scanning"') {
+    throw "ClearedSha $ClearedSha does not carry the C1 ruleset -- stop."
+}
+git show "${ClearedSha}:operations/devops/classic-required-status-checks.json" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "ClearedSha $ClearedSha has no classic-checks file -- stop."
+}
 
 # 1. Fix the existing ruleset in place (PUT, not POST). Atomic: the CodeQL Analysis swap and the
 #    code_scanning alert-gating rule land together. `enforcement: active` in the file also
-#    re-enables the ruleset if the PI disabled it as an interim unblock.
+#    re-enables the ruleset if the PI disabled it as an interim unblock. All four
+#    required_status_checks entries are pinned to integration_id 15368 (TL e/388#6, SO-agreed
+#    e/388#7) -- a stray same-named status can't satisfy any of them, not just CodeQL Analysis.
 git show "${ClearedSha}:operations/devops/merge-queue-ruleset.json" |
   gh api -X PUT repos/AI-Rosetta-Stone/ai-triad-research/rulesets/26043005 --input -
 
