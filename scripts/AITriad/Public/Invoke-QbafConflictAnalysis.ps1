@@ -159,6 +159,10 @@ function Invoke-QbafConflictAnalysis {
             if ($Claim.PSObject.Properties['claim_label']) { $Label = $Claim.claim_label } else { $Label = "claim-$ClaimIdx" }
             if ($Claim.PSObject.Properties['linked_taxonomy_nodes']) { $Nodes = @($Claim.linked_taxonomy_nodes) } else { $Nodes = @() }
             if ($Claim.PSObject.Properties['doc_position']) { $Position = $Claim.doc_position } else { $Position = 'neutral' }
+            # t/4474: captured but not yet dense-populated upstream for every claim --
+            # $null means "no temporal information", which Test-TemporalBoundsOverlap
+            # treats as compatible with everything (no gate, conservative default).
+            if ($Claim.PSObject.Properties['temporal_bound']) { $TemporalBound = $Claim.temporal_bound } else { $TemporalBound = $null }
 
             # Determine BDI category from linked nodes
             $Category = 'Beliefs'  # Default for factual claims
@@ -188,6 +192,7 @@ function Invoke-QbafConflictAnalysis {
                 Nodes         = $Nodes
                 BaseStrength  = $BaseStrength
                 Criteria      = $EvidenceCriteria
+                TemporalBound = $TemporalBound
             })
         }
     }
@@ -260,6 +265,10 @@ function Invoke-QbafConflictAnalysis {
     # is not commensurable across claims. Collect these and reconcile them below
     # with an actual claim↔claim direction judgment.
     $SupportCandidates = [System.Collections.Generic.List[PSObject]]::new()
+    # t/4474: pairs skipped because their temporal_bound windows don't overlap -- a shared
+    # node + opposing signal alone isn't confirmed as a conflict across incompatible windows.
+    $TemporalGateHardCount = 0  # the doc_position-only hard-conflict loop, below
+    $TemporalGateDirCount  = 0  # the Stage A directional (NLI) reconciliation loop
 
     # t/4572 write-freeze (SO C3): this cmdlet WRITES conflicts.json by default
     # (ShouldProcess, not an opt-in dry-run). Treated identically to the existing
@@ -286,6 +295,14 @@ function Invoke-QbafConflictAnalysis {
             $IsSupport = ($A.Position -eq $B.Position) -and ($A.Position -in @('supports', 'disputes'))
 
             if ($IsConflict) {
+                # t/4474: "X by 2027" vs "not X by 2050" share a node and oppose on
+                # doc_position, but if the two claims' temporal windows don't overlap they
+                # aren't necessarily in tension -- qualifies, not confirmed as a rebut.
+                # Missing/unparseable bounds on either side are always compatible (no gate).
+                if (-not (Test-TemporalBoundsOverlap -BoundA $A.TemporalBound -BoundB $B.TemporalBound)) {
+                    $TemporalGateHardCount++
+                    continue
+                }
                 # Opposing doc_positions on a shared node — a genuine directional
                 # signal (rebuttal), kept as-is.
                 $Edges.Add([PSCustomObject]@{
@@ -342,6 +359,14 @@ function Invoke-QbafConflictAnalysis {
             $A = $cand.A; $B = $cand.B
             $dir = if ($dirByIdx.ContainsKey($ci)) { [string]$dirByIdx[$ci].Direction } else { 'unresolved' }
             if ($StageADirCounts.Contains($dir)) { $StageADirCounts[$dir]++ }
+            if ($dir -eq 'opposes' -and -not (Test-TemporalBoundsOverlap -BoundA $A.TemporalBound -BoundB $B.TemporalBound)) {
+                # t/4474: the NLI judge found opposition, but the two claims' temporal
+                # windows don't overlap -- qualifies, not confirmed as either an attack or
+                # the provisional support (we don't know the two claims are comparable at all).
+                $TemporalGateDirCount++
+                [void]$StageAPairs.Add("$($A.Id)|$($B.Id)")
+                continue
+            }
             if ($dir -eq 'opposes') {
                 $Edges.Add([PSCustomObject]@{
                     Source = $A.Id; Target = $B.Id; Type = 'attacks'
@@ -360,11 +385,12 @@ function Invoke-QbafConflictAnalysis {
         # Per-run verdict counts (TL GV condition t/2751#4 #1) — mandatory metric
         # and the detector for a silently-degraded engine (all-unresolved = down).
         $cnt = ($StageADirCounts.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' '
-        Write-OK "Stage A directional gate: $($SupportCandidates.Count) support candidates → [$cnt] ($($StageADirCounts.opposes) flipped to attacks)"
+        Write-OK "Stage A directional gate: $($SupportCandidates.Count) support candidates → [$cnt] ($($StageADirCounts.opposes - $TemporalGateDirCount) flipped to attacks, $TemporalGateDirCount opposes held by the t/4474 temporal-bound gate)"
     }
 
     $StageAEdgeCount = $Edges.Count
-    Write-OK "Stage A: $StageAEdgeCount node-overlap edges"
+    $TemporalGateTotalCount = $TemporalGateHardCount + $TemporalGateDirCount
+    Write-OK "Stage A: $StageAEdgeCount node-overlap edges ($TemporalGateTotalCount held by the t/4474 temporal-bound gate)"
 
     # ── Stage B: embedding-similar cross-doc pairs, LLM-confirmed ─────────────
     $ConfidenceFloor = 0.6
@@ -476,6 +502,9 @@ function Invoke-QbafConflictAnalysis {
                 # Directional gate (t/2745 V2) — per-run verdict counts (t/2751#4 #1)
                 DirectionalGate   = (-not $EffectiveSkipDirectionalGate)
                 DirectionalCounts = $StageADirCounts
+                # t/4474: pairs held (neither attack nor support confirmed) because their
+                # temporal_bound windows don't overlap.
+                TemporalGateHeld  = $TemporalGateHardCount + $TemporalGateDirCount
             }
         }
         return
