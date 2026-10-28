@@ -199,13 +199,15 @@ Unicode symbols used for lightweight indicators: `▸`/`▾` (collapse arrows), 
 
 ## Node Detail Tabs
 
-Current tab set (from `NodeDetail.tsx`):
+Current tab set (from `NodeDetail.tsx`). Simple view shows only Content and Related; the rest are Advanced-only. Content is renamed **Analysis** by the node detail redesign (t/4574, pending; see `node-detail-redesign.md`).
 
 | ID | Label | Notes |
 |---|---|---|
 | `content` | Content | Default. Label + description editing |
 | `related` | Related | Edge browser |
 | `attributes` | Attributes | Graph attributes panel |
+| `conflicts` | Conflicts | Conflicts involving the node; count in the label |
+| `cruxes` | Cruxes | Cruxes involving the node; count in the label |
 | `phrases` | Phrases | Synthetic phrases |
 | `sources` | Sources | Source documents |
 | `facts` | Facts | Extracted facts with viewer |
