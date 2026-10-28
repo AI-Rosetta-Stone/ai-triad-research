@@ -1477,7 +1477,7 @@
     },
     {
       "name": "undici",
-      "version": "6.29.1",
+      "version": "8.12.3",
       "license": "MIT"
     },
     {
@@ -1587,7 +1587,7 @@
     },
     {
       "name": "zustand",
-      "version": "5.0.15",
+      "version": "5.0.16",
       "license": "MIT"
     },
     {
@@ -3517,7 +3517,7 @@
         },
         {
           "name": "undici",
-          "version": "6.29.1"
+          "version": "8.12.3"
         }
       ],
       "licenseType": "MIT",
@@ -3611,7 +3611,7 @@
       "packages": [
         {
           "name": "zustand",
-          "version": "5.0.15"
+          "version": "5.0.16"
         }
       ],
       "licenseType": "MIT",

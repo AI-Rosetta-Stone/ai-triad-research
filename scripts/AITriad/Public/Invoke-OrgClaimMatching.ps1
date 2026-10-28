@@ -630,7 +630,16 @@ function Invoke-OrgClaimMatching {
     # ── Emit or dry-run report ──────────────────────────────────────────
     $written = 0
     $failed  = [System.Collections.Generic.List[string]]::new()
-    if ($WriteProposals) {
+    # t/4572 write-freeze (SO C3, e/370#4): -WriteProposals is opt-in, but a
+    # 'proposed' edge is visible to Get-Edge/Find-GraphPath with no status filter by
+    # default (not hard-gated behind Approve-Edge) -- so it still reaches corpus-
+    # visible data from uncalibrated thresholds. Frozen identically to the other two
+    # writing consumers until this consumer's own recalibration lands.
+    $EffectiveWriteProposals = $WriteProposals -and -not (Test-NliDirectionalGateFrozen -Consumer 'OrgClaimMatching')
+    if ($WriteProposals -and -not $EffectiveWriteProposals) {
+        Write-Warning "Invoke-OrgClaimMatching: write frozen pending recalibration (t/4572) -- reporting proposals without writing them."
+    }
+    if ($EffectiveWriteProposals) {
         foreach ($p in $capped) {
             $target = "$($p.OrgId)->$($p.NodeId) [$($p.EdgeType)]"
             if ($PSCmdlet.ShouldProcess($target, 'Propose org→node edge')) {
@@ -681,7 +690,7 @@ function Invoke-OrgClaimMatching {
     $endorseNote = if ($SkipEndorsementGate) { 'endorsement=OFF' } else { "endorsement: [$endorseCountsNote]" }
 
     Write-Host ""
-    if ($WriteProposals) {
+    if ($EffectiveWriteProposals) {
         Write-Host "Claims: $totalClaims | Proposals: $($capped.Count) (wrote $written) | Dropped by cap: $($dropped.Count) | Negation-slice: $($negationSlice.Count) | $gateNote | $endorseNote"
     } else {
         Write-Host "Claims: $totalClaims | Proposals (dry-run): $($capped.Count) | Dropped by cap: $($dropped.Count) | Negation-slice: $($negationSlice.Count) | $gateNote | $endorseNote"

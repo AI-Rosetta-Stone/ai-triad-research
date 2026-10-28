@@ -157,6 +157,22 @@ param githubAppInstallationId string = ''
 @description('Name of the Key Vault secret holding the GitHub App private key (PEM). Upload separately via az keyvault secret set.')
 param githubAppPrivateKeySecretName string = ''
 
+// t/4587: staging gets its OWN GitHub App installation, with its own 5000/hr GitHub API
+// rate-limit quota, independent of prod's (ai-triad-taxonomy-sync, id 3646042). t/4584 showed
+// staging cold-boots draining the SHARED quota can take prod's /api/entities and
+// /api/organizations down with it. Empty = staging falls back to prod's App (the pre-t/4587
+// shared-quota behavior) -- only pass these once the PI has created the staging App and
+// uploaded its key, per docs/sync-github-app-setup-staging.md.
+
+@description('t/4587: staging-only GitHub App numeric ID (ai-triad-taxonomy-sync-staging). Empty = staging falls back to the prod App ID (githubAppId), the pre-t/4587 shared-quota behavior.')
+param githubAppIdStaging string = ''
+
+@description('t/4587: staging-only GitHub App installation ID. Empty = staging falls back to githubAppInstallationId.')
+param githubAppInstallationIdStaging string = ''
+
+@description('t/4587: Key Vault secret name holding the staging GitHub App private key (PEM). Empty = staging falls back to githubAppPrivateKeySecretName. Upload separately via az keyvault secret set -- DevOps never handles the key value.')
+param githubAppPrivateKeySecretNameStaging string = ''
+
 @secure()
 @description('Optional GITHUB_TOKEN (PAT) fallback when no App is registered. Prefer the App for production.')
 param githubToken string = ''
@@ -590,6 +606,13 @@ var baseEnv = [
   { name: 'GITHUB_APP_ID', value: githubAppId }
   { name: 'GITHUB_APP_INSTALLATION_ID', value: githubAppInstallationId }
   { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: githubAppPrivateKeySecretName }
+  // t/4596: the NLI opposition-detection gate's own ML deps (transformers/sentence-transformers
+  // + the nli-deberta-v3-small model) are NOT in this image -- the CL's call (t/4596#7, no
+  // DevOps/CL disagreement to escalate) is to keep it explicitly disabled on hosted until
+  // t/4593's precision/recall + fire-rate re-validation lands, not left as an implicit
+  // no-op from a missing dependency. Empty string is nliDirectionGate.ts's documented
+  // explicit-disable value (distinct logged reason from "script not found").
+  { name: 'NLI_CLASSIFY_SCRIPT', value: '' }
   // Application Insights — runtime error monitoring and request tracing.
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
   // Azure Blob Storage — user content (chats, debates) and community library.
@@ -659,9 +682,21 @@ var containerEnv = paidTierEnabled
 // independent — staging inherits AI_TRIAD_DATA_ROOT=/mnt/shared from baseEnv and
 // overrides only TAXONOMY_CACHE_DIR to the isolated mount. The old must-match
 // invariant (t/2061) is lifted by PR #1078's code fix.
+// t/4587: staging's own GitHub App, falling back to prod's App when not yet provisioned
+// (empty param -- the pre-t/4587 shared-quota behavior, e.g. before the PI uploads the key).
+var stagingGithubAppId = empty(githubAppIdStaging) ? githubAppId : githubAppIdStaging
+var stagingGithubAppInstallationId = empty(githubAppInstallationIdStaging) ? githubAppInstallationId : githubAppInstallationIdStaging
+var stagingGithubAppPrivateKeySecretName = empty(githubAppPrivateKeySecretNameStaging) ? githubAppPrivateKeySecretName : githubAppPrivateKeySecretNameStaging
+
 var stagingEnvOverrides = [
   // Force off: staging must not sync to prod's git backend (t/2643 git-worktree hazard)
   { name: 'GIT_SYNC_ENABLED',    value: '0' }
+  // t/4587: staging's own GitHub App installation -- separate rate-limit quota from prod,
+  // so a staging cold-boot storm can no longer drain prod's /api/entities, /api/organizations
+  // quota (t/4584). Falls back to prod's App values if the staging App isn't provisioned yet.
+  { name: 'GITHUB_APP_ID',                      value: stagingGithubAppId }
+  { name: 'GITHUB_APP_INSTALLATION_ID',         value: stagingGithubAppInstallationId }
+  { name: 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME', value: stagingGithubAppPrivateKeySecretName }
   // Isolated cache dir only — AI_TRIAD_DATA_ROOT=/mnt/shared inherited from baseEnv
   { name: 'TAXONOMY_CACHE_DIR',  value: '/mnt/staging-state/cache' }
   // Routes all class-A writes (flags, config, calibration, keys) to isolated mount
@@ -691,8 +726,13 @@ var stagingEnvOverrides = [
 ]
 // stagingBaseEnv = baseEnv with the isolation overrides applied.
 // filter() removes the baseEnv entries that stagingEnvOverrides supersedes.
+// SO C1 (t/4587 e/384): DERIVED from stagingEnvOverrides's own names, not hand-duplicated --
+// a hand-copied list drifts the moment a new override is added to one place but not the
+// other, producing a duplicate env name in staging's container template (a template that
+// deploys in the SAME apply as prod, so a rejected template blocks prod too).
+var stagingOverriddenKeys = map(stagingEnvOverrides, e => e.name)
 var stagingBaseEnv = concat(
-  filter(baseEnv, e => e.name != 'TAXONOMY_CACHE_DIR' && e.name != 'GIT_SYNC_ENABLED' && e.name != 'ALLOWED_ORIGINS'),
+  filter(baseEnv, e => !contains(stagingOverriddenKeys, e.name)),
   stagingEnvOverrides
 )
 // Rebuild the secret chain for staging — mirrors the prod chain so staging

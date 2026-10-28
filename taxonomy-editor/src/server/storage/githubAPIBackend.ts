@@ -1782,7 +1782,13 @@ export class GitHubAPIBackend implements StorageBackend {
   // ── Batched blob reads (t/4499, TL design t/4499#18) ────────────────────
 
   private static readonly BATCH_CHUNK_SIZE = 80;
-  private static readonly BATCH_CHUNK_CONCURRENCY = 8;
+  /** t/4499#24/#25: at ~925 summary files this is ~12 chunks. 8 ran them in
+   *  2 serial waves, leaving `batchFetchMs` ~2x a single wave's latency and
+   *  missing the <3s scale-to-zero target in 2/3 measured samples. 16 covers
+   *  a cold-start's ~12 chunks in one wave; `graphqlCost` stayed a cheap 12
+   *  points total across every measured build, so this doesn't meaningfully
+   *  change GitHub's rate-limit exposure — same call count, less serialized. */
+  private static readonly BATCH_CHUNK_CONCURRENCY = 16;
 
   /**
    * t/4499: batched content read for many files on one ref via GitHub's

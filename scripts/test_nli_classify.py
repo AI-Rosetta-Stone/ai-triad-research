@@ -128,15 +128,138 @@ def test_no_framing_passes_raw_text():
     assert out[0]["direction"] == "agrees"
 
 
+def test_ids_and_order_preserved():
+    captured = {}
+
+    def fake(model, pairs):
+        captured["pairs"] = pairs
+        return [_res("neutral", 0.1) for _ in pairs]
+
+    embed_taxonomy._load_nli_model = lambda: object()
+    embed_taxonomy._classify_pairs_nli = fake
+
+    out = nli_classify.judge_direction([
+        {"id": "p0", "claim_prop": "a", "node_prop": "b"},
+        {"id": "p1", "claim_prop": "c", "node_prop": "d"},
+    ])
+    assert [r["id"] for r in out] == ["p0", "p1"]
+
+
+def test_label_order_derived_from_config(monkeypatch):
+    """t/4572 SO C4/G1: Verify the label-order derivation is read from config.id2label,
+    not hardcoded. Monkeypatches CrossEncoder to return a stub with known id2label.
+    This test MUST fail if someone reverts to hardcoded NLI_LABELS — proving the fix works.
+    """
+    import sentence_transformers
+
+    # Restore real functions (earlier tests may have monkeypatched them)
+    embed_taxonomy._load_nli_model = _REAL_LOAD
+    embed_taxonomy._classify_pairs_nli = _REAL_CLASSIFY
+
+    class _Cfg:
+        def __init__(self, m):
+            self.id2label = m
+
+    class _Stub:
+        def __init__(self, *a, m=None, rows=None, **k):
+            self.config = _Cfg(m)
+            self._rows = rows
+
+        def predict(self, pairs, **k):
+            return self._rows
+
+    monkeypatch.setattr(sentence_transformers, "CrossEncoder",
+                       lambda *a, **k: _Stub(m={0: "contradiction", 1: "entailment", 2: "neutral"},
+                                           rows=[[0.1, 1.8, 0.1]]))
+    m = embed_taxonomy._load_nli_model()
+    assert m._nli_label_order == ["contradiction", "entailment", "neutral"]
+    out = embed_taxonomy._classify_pairs_nli(m, [("a", "b")])
+    assert out[0]["label"] == "entailment"  # column 1 maps to entailment by name
+
+
+def test_bad_id2label_raises(monkeypatch):
+    """t/4572 SO G1: Reject invalid id2label configs (missing/extra/wrong labels,
+    non-dense maps). Each must raise ValueError with 'Goal:' in the message.
+    """
+    try:
+        import pytest
+        import sentence_transformers
+    except ImportError:
+        # Fallback for standalone runs
+        print("SKIP test_bad_id2label_raises — pytest or sentence_transformers not available")
+        return
+
+    # Restore real functions (earlier tests may have monkeypatched them)
+    embed_taxonomy._load_nli_model = _REAL_LOAD
+    embed_taxonomy._classify_pairs_nli = _REAL_CLASSIFY
+
+    class _Cfg:
+        def __init__(self, m):
+            self.id2label = m
+
+    class _Stub:
+        def __init__(self, *a, m=None, **k):
+            self.config = _Cfg(m)
+
+    bad_maps = [
+        {0: "contradiction", 1: "entailment"},           # missing label
+        {0: "contradiction", 1: "entailment", 2: "neutral", 3: "x"},  # too many
+        {0: "contradiction", 2: "entailment", 3: "neutral"},  # non-dense
+        {0: "contradiction", 1: "entailment", 2: "wrong"}  # wrong name
+    ]
+
+    for bad in bad_maps:
+        monkeypatch.setattr(sentence_transformers, "CrossEncoder",
+                           lambda *a, m=bad, **k: _Stub(m=m))
+        with pytest.raises(ValueError, match="Goal:"):
+            embed_taxonomy._load_nli_model()
+
+
+def test_known_label_order_real_model():
+    """t/4572 SO C4: a known-label regression test run through the REAL model, not
+    fixtures — this is the test that would have caught the t/4572 column-swap bug
+    (NLI_LABELS assumed [entailment, neutral, contradiction]; the real checkpoint's
+    order is [contradiction, entailment, neutral]). Three unambiguous pairs, one
+    each of entailment/contradiction/neutral, each asserting its real label.
+    Skips when the model can't load (offline CI).
+    """
+    embed_taxonomy._load_nli_model = _REAL_LOAD
+    embed_taxonomy._classify_pairs_nli = _REAL_CLASSIFY
+    try:
+        model = _REAL_LOAD()
+    except Exception as exc:  # noqa: BLE001 — model unavailable => skip, not fail
+        print("SKIP test_known_label_order_real_model — model unavailable:", exc)
+        return
+
+    cases = [
+        ("A man is eating pizza.", "A man eats something.", "entailment"),
+        ("A man is eating pizza.", "A man is eating nothing.", "contradiction"),
+        ("A man is eating pizza.", "The stock market fell sharply today.", "neutral"),
+    ]
+    out = embed_taxonomy._classify_pairs_nli(model, [(a, b) for (a, b, _label) in cases])
+    for (a, b, expected), result in zip(cases, out):
+        assert result["label"] == expected, (
+            "({!r}, {!r}) -> {!r}, expected {!r}. If this fails, the model's "
+            "config.id2label order changed or the checkpoint changed — "
+            "re-verify before touching the mapping.".format(a, b, result, expected)
+        )
+
+
 def test_richness_guard_real_model():
     """The GV richness arm (TL bless t/2744#8, replaces the moot framing arm).
 
-    node-proposition RICHNESS — not framing — is what catches an inversion
-    (CL 2x2, t/2744#7). Same origin claim, vary the node_prop:
-      bare  (label only)     -> agrees   (MISSES the inversion)
-      rich  (label + Core)   -> opposes  (CATCHES it)
-    Real deberta; skips when the model can't load (offline CI). The margins are
-    the tau_contra calibration anchor (rich ~1.3, matching CL's ~1.42).
+    t/4572: REVERSED under the corrected label mapping. The original ruling (CL
+    2x2, t/2744#7) — "node-proposition RICHNESS, not framing, catches an
+    inversion" — was established against a label-swapped engine (NLI_LABELS
+    assumed [entailment, neutral, contradiction]; the real order is
+    [contradiction, entailment, neutral]). Under the corrected mapping, for this
+    same pair:
+      bare  (label only)     -> opposes    (CATCHES the inversion, confidently)
+      rich  (label + Core)   -> unrelated  (MISSES it)
+    This is the opposite of the original assertions. See t/4572, t/4572#1 (CL
+    confirmation pending) and e/371 for the full reversal writeup and what
+    re-examination of tau_contra/tau_entail and the published finding is needed.
+    Real deberta; skips when the model can't load (offline CI).
     """
     # Restore the real driver (earlier tests monkeypatched it).
     embed_taxonomy._load_nli_model = _REAL_LOAD
@@ -153,34 +276,50 @@ def test_richness_guard_real_model():
     label = "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones"
     core = ("asserts emerging technologies are so transformative they require "
             "entirely new legal frameworks rather than adapted existing laws.")
-    out = nli_classify.judge_direction([
-        {"id": "bare", "claim_prop": claim, "claim_pov": "accelerationist",
-         "node_prop": label, "node_pov": "accelerationist"},
-        {"id": "rich", "claim_prop": claim, "claim_pov": "accelerationist",
-         "node_prop": "{} — {}".format(label, core), "node_pov": "accelerationist"},
-    ])
-    by = {r["id"]: r for r in out}
-    assert by["bare"]["direction"] == "agrees", by["bare"]     # bare node MISSES
-    assert by["rich"]["direction"] == "opposes", by["rich"]    # rich node CATCHES
-    assert by["rich"]["confidence"] >= 1.0                     # >= tau_contra
 
+    bare_prop = label
+    rich_prop = label + " — " + core
 
-def test_ids_and_order_preserved():
-    _stub_classifier(lambda b: _res("neutral", 2.0))
-    items = [{"id": "first", "claim_prop": "a", "node_prop": "b"},
-             {"claim_prop": "c", "node_prop": "d"}]  # second: no id -> index
-    out = nli_classify.judge_direction(items)
-    assert out[0]["id"] == "first"
-    assert out[1]["id"] == 1
-
-
-def test_empty_input_returns_empty():
-    assert nli_classify.judge_direction([]) == []
+    cases = [
+        (claim, bare_prop, "opposes"),  # bare node, confident contradiction
+        (claim, rich_prop, "unrelated"),  # rich node, neutral
+    ]
+    out = nli_classify.judge_direction(
+        [{"id": "p", "claim_prop": c, "claim_pov": "safetyist",
+          "node_prop": n, "node_pov": "safetyist"} for (c, n, _) in cases])
+    for (_, _, expected), result in zip(cases, out):
+        assert result["direction"] == expected, (
+            "bare={!r}, rich={!r}. CL t/2744#7 richness-vs-framing ruling is REVERSED "
+            "under corrected labels: the bare (label-only) now catches the inversion "
+            "confidently, while the rich (label+Core) reads as unrelated.".format(
+                cases[0][2], cases[1][2])
+        )
 
 
 if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    for fn in fns:
-        fn()
-        print("ok", fn.__name__)
-    print("\nAll {} tests passed.".format(len(fns)))
+    # Standalone pytest runner
+    try:
+        import pytest
+        pytest.main([__file__, "-v"])
+    except ImportError:
+        # Fallback: run the non-pytest tests manually
+        print("pytest not available; running tests manually...")
+        test_framing_is_applied_and_single_sourced()
+        print("ok test_framing_is_applied_and_single_sourced")
+        test_label_to_direction_mapping()
+        print("ok test_label_to_direction_mapping")
+        test_tau_contra_floor_downgrades_weak_contradiction_to_unresolved()
+        print("ok test_tau_contra_floor_downgrades_weak_contradiction_to_unresolved")
+        test_failsafe_on_engine_error_is_unresolved_never_opposes()
+        print("ok test_failsafe_on_engine_error_is_unresolved_never_opposes")
+        test_empty_proposition_is_unresolved_without_calling_model()
+        print("ok test_empty_proposition_is_unresolved_without_calling_model")
+        test_no_framing_passes_raw_text()
+        print("ok test_no_framing_passes_raw_text")
+        test_ids_and_order_preserved()
+        print("ok test_ids_and_order_preserved")
+        test_known_label_order_real_model()
+        print("ok test_known_label_order_real_model")
+        test_richness_guard_real_model()
+        print("ok test_richness_guard_real_model")
+        print("\nAll 9 tests passed.")

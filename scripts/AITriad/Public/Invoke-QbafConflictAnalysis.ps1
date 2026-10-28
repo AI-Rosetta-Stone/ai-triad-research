@@ -261,6 +261,15 @@ function Invoke-QbafConflictAnalysis {
     # with an actual claim↔claim direction judgment.
     $SupportCandidates = [System.Collections.Generic.List[PSObject]]::new()
 
+    # t/4572 write-freeze (SO C3): this cmdlet WRITES conflicts.json by default
+    # (ShouldProcess, not an opt-in dry-run). Treated identically to the existing
+    # -SkipDirectionalGate (legacy polarity-blind behavior) until recalibrated
+    # against the corrected label mapping -- see Test-NliDirectionalGateFrozen.
+    $EffectiveSkipDirectionalGate = $SkipDirectionalGate -or (Test-NliDirectionalGateFrozen -Consumer 'QbafConflictAnalysis')
+    if ($EffectiveSkipDirectionalGate -and -not $SkipDirectionalGate) {
+        Write-Warning "Invoke-QbafConflictAnalysis: directional gate frozen pending recalibration (t/4572) -- falling back to legacy polarity-blind behavior this run."
+    }
+
     # Claims that share taxonomy nodes but take opposing positions are attacks
     for ($i = 0; $i -lt $AllClaims.Count; $i++) {
         for ($j = $i + 1; $j -lt $AllClaims.Count; $j++) {
@@ -290,7 +299,7 @@ function Invoke-QbafConflictAnalysis {
                 [void]$StageAPairs.Add("$($A.Id)|$($B.Id)")
             }
             elseif ($IsSupport) {
-                if ($SkipDirectionalGate) {
+                if ($EffectiveSkipDirectionalGate) {
                     # Legacy polarity-blind behavior (gate disabled).
                     $Edges.Add([PSCustomObject]@{
                         Source     = $A.Id
@@ -318,7 +327,7 @@ function Invoke-QbafConflictAnalysis {
     # the gate rates a true agreement 'unrelated', not 'agrees', and its job is to
     # catch the inversion, not to confirm support.
     $StageADirCounts = [ordered]@{ opposes = 0; agrees = 0; unrelated = 0; unresolved = 0 }
-    if (-not $SkipDirectionalGate -and $SupportCandidates.Count -gt 0) {
+    if (-not $EffectiveSkipDirectionalGate -and $SupportCandidates.Count -gt 0) {
         $dirPairs = [System.Collections.Generic.List[PSObject]]::new()
         for ($ci = 0; $ci -lt $SupportCandidates.Count; $ci++) {
             $cand = $SupportCandidates[$ci]
@@ -465,7 +474,7 @@ function Invoke-QbafConflictAnalysis {
                 StageBRejected    = $StageBRejected
                 StageBLlmErrors   = $StageBLlmErrors
                 # Directional gate (t/2745 V2) — per-run verdict counts (t/2751#4 #1)
-                DirectionalGate   = (-not $SkipDirectionalGate)
+                DirectionalGate   = (-not $EffectiveSkipDirectionalGate)
                 DirectionalCounts = $StageADirCounts
             }
         }

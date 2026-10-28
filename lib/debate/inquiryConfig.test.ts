@@ -3,6 +3,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { deriveDebateConfig } from './inquiryConfig.js';
+import { DebateEngine } from './debateEngine.js';
+import { createMockAdapter, createMinimalTaxonomy } from './debateEngine.testHelpers.js';
+import { loadProvisionalWeights } from './phaseTransitions.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import type { InquiryRequest } from '../inquiry/index.js';
 import { ActionableError } from './errors.js';
@@ -68,6 +71,39 @@ describe('deriveDebateConfig — fidelity profiles', () => {
     expect(config.useAdaptiveStaging).toBe(true);
     expect(derivation.callBudget).toBe(300);  // 20 × 15
     expect(derivation.fidelity).toBe('deep');
+  });
+});
+
+// ── Displayed budget vs. enforced ceiling (t/4598) ───────────────────────────
+// The PI reported a run truncated at 150 calls while the Ask form showed a 240 budget for
+// Standard. Design traced it to the hypothesis that maxTotalRounds derived here might not be
+// reaching the engine that actually enforces the ceiling (phaseTransitions.ts). The tests above
+// only check deriveDebateConfig's own output in isolation — they'd stay green even if the
+// multiplier or the wiring drifted, because 120/240/300 are hardcoded expectations computed the
+// same way the production constant was. These tests instead build a REAL DebateEngine from
+// deriveDebateConfig's output and read the actual ceiling phaseTransitions.ts would enforce
+// (config.maxTotalRounds * the SAME calibration-config.json multiplier it reads), for every
+// fidelity — closing the loop end to end rather than comparing two copies of the same arithmetic.
+describe('deriveDebateConfig — displayed budget equals the enforced ceiling, end to end (t/4598)', () => {
+  it.each([
+    ['quick', 8] as const,
+    ['standard', 16] as const,
+    ['deep', 20] as const,
+  ])('%s: derivation.callBudget equals the ceiling the real engine enforces (maxTotalRounds=%d)', (fidelity, expectedMaxTotalRounds) => {
+    const { config, derivation } = deriveDebateConfig(makeRequest({ fidelity }), makeRegistry());
+    expect(config.maxTotalRounds).toBe(expectedMaxTotalRounds);
+
+    // Build the real engine the inquiry pipeline would run against (lib/debate/headlessRunner.ts),
+    // and read the maxTotalRounds phaseTransitions.ts actually reads at runtime
+    // (engine._adaptiveConfig, not engine.config — see debateEngine.ts's useAdaptiveStaging init).
+    const engine = new DebateEngine(config, createMockAdapter(), createMinimalTaxonomy());
+    (engine as unknown as { initSession: () => void }).initSession();
+    const enforcedMaxTotalRounds = config.useAdaptiveStaging
+      ? (engine as unknown as { _adaptiveConfig: { maxTotalRounds: number } })._adaptiveConfig.maxTotalRounds
+      : (engine as unknown as { config: { maxTotalRounds: number } }).config.maxTotalRounds;
+    const enforcedCeiling = enforcedMaxTotalRounds * loadProvisionalWeights().budget.hard_multiplier;
+
+    expect(enforcedCeiling).toBe(derivation.callBudget);
   });
 });
 

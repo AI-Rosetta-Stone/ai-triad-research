@@ -190,6 +190,10 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     const githubBackendForHealth = ctx.getGithubBackend();
     const githubRateLimitRemaining = githubBackendForHealth?.getRateLimitRemaining() ?? null;
     const githubRateLimitResetsAt = githubBackendForHealth?.getRateLimitResetsAt() ?? null;
+    // t/4586 AC (flagged missing post-deploy, t/4586#4): same precedent as the rate-limit
+    // fields above — a tripped circuit breaker is the other half of "GitHub reachability"
+    // an unauthenticated alert should see, null for backends with no circuit (Electron/local).
+    const githubCircuitOpen = githubBackendForHealth ? githubBackendForHealth.getCircuitState() === 'open' : null;
     const entityRegistryDegraded = fileIO.getEntityRegistryStatus().degraded;
     const organizationsRegistryDegraded = fileIO.getOrganizationsReadStatus().degraded;
     if (!community.isAdmin()) {
@@ -197,7 +201,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
         ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize },
         eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
-        githubRateLimitRemaining, githubRateLimitResetsAt, entityRegistryDegraded, organizationsRegistryDegraded,
+        githubRateLimitRemaining, githubRateLimitResetsAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
       });
       return;
     }

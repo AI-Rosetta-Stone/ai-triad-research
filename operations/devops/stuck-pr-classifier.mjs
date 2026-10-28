@@ -77,6 +77,11 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
  * PURE. Classifies one open, non-draft PR's blocker, or null if it has none.
  *
  * @param {object} pr
+ * @param {boolean} [pr.isDraft] - t/4599: a draft PR is never a blocker, regardless of any
+ *   other field -- checked FIRST, before even `held`. Defense in depth: the impure caller
+ *   (pr-triage.yml) already excludes drafts from its PR list, but this guard makes the pure
+ *   function itself safe against a caller that forgets to, same reasoning as every other
+ *   Gate Co-Location check in this file.
  * @param {string} pr.mergeableState - GitHub's mergeable_state, e.g. 'behind'|'clean'|'dirty'|'blocked'|'unknown'.
  * @param {string|undefined} pr.mergeableStateRecheck - a SECOND, later re-fetch of mergeableState,
  *   done by the caller only for a PR that already looks armed-but-blocked (allGreen + 'blocked'),
@@ -114,6 +119,9 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
  * @returns {{class:string, detail:object}|null}
  */
 export function classifyBlocker(pr, nowMs) {
+  // 0. draft (t/4599) -- never a blocker, checked before even `held`.
+  if (pr.isDraft) return null;
+
   const labels = pr.labels ?? [];
   const runs = pr.runs ?? [];
   const byPath = new Map(runs.map((r) => [r.path, r]));

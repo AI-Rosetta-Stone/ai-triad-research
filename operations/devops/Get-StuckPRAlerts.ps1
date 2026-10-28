@@ -40,12 +40,15 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'StuckPRAlertFilter.ps1')
 
 function script:Get-PrsByLabel([string]$Label) {
-    $json = gh pr list -R $Repo --state open --label $Label --limit 50 --json number,title,url,headRefName,labels,body
+    $json = gh pr list -R $Repo --state open --label $Label --limit 50 --json number,title,url,headRefName,labels,body,isDraft
     if ($LASTEXITCODE -ne 0) { throw "gh pr list (label=$Label) exited $LASTEXITCODE" }
     # t/4115 noise reduction (TL p/702#59): a T2 PR can clear its SO consult-hold and still
     # sit in the PI's approval queue -- a known wait, not a stuck PR. Skip anything the TL
     # has explicitly marked `awaiting-pi`, at every alert tier.
-    @($json | ConvertFrom-Json) | Where-Object { -not (Test-IsAwaitingPi $_.labels) }
+    # t/4599: `--state open` includes drafts (draft is a separate bool, not a PR state), and
+    # GitHub never removes a label when a PR is converted to draft after being labelled --
+    # skip it here too, defense in depth alongside the classifier's own isDraft guard.
+    @($json | ConvertFrom-Json) | Where-Object { -not (Test-IsAwaitingPi $_.labels) -and -not (Test-IsDraft $_) }
 }
 
 function script:Get-TicketHintFromBranch([string]$Ref) {

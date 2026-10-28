@@ -1,0 +1,47 @@
+Claims:     C:\Users\jsnov\repos\ai-triad-data\taxonomy\Origin\organization_stance_claims.json
+Embeddings: C:\Users\jsnov\repos\ai-triad-data\taxonomy\Origin\embeddings-orgstance-6733.json
+tau_contra (default, CL FINAL t/2751#3): 1.0
+
+Live run produced 29 proposals; 19 of the 29 frozen entries flip type (matched by org+node, old type ignored by design).
+
+=== Flips (old type -> new type), with the deciding rep and NLI margin ===
+O02 [org-014 -> saf-beliefs-097] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=5.5299 (tau_contra=1.0) method=nli
+    rep: Lead evaluations and assessments of potential security vulnerabilities and malign foreign influence arising from use of adversaries' AI systems
+O04 [org-002 -> skp-beliefs-145] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=3.6567 (tau_contra=1.0) method=nli
+    rep: Addressing this likely requires tools that tell you about the model’s motivational structure, not just its inputs and outputs.
+O05 [org-002 -> acc-beliefs-015] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=1.6932 (tau_contra=1.0) method=nli
+    rep: If current training paradigms remain unchanged, we should expect more capable models to develop even higher levels of situational awareness.
+O07 [org-018 -> saf-beliefs-028] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=1.7386 (tau_contra=1.0) method=nli
+    rep: The framework allows users to zoom in on specific risks that are typical of AI, such as bias, explainability and robustness
+O08 [org-023 -> saf-intentions-201] label=Y  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=4.6157 (tau_contra=1.0) method=nli
+    rep: the possibility of pursuing multilateral international cooperation to avoid the fragmentation of regulation and markets
+O09 [org-002 -> saf-intentions-095] label=Y  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=2.5043 (tau_contra=1.0) method=nli
+    rep: We’re now adding more detail about how we’ll design strong safeguards and verify their effectiveness in dedicated Safeguards Reports
+O10 [org-014 -> saf-intentions-016] label=P  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=6.3763 (tau_contra=1.0) method=nli
+    rep: CAISI will focus on demonstrable risks, such as cybersecurity, biosecurity, and chemical weapons.
+O11 [org-014 -> saf-intentions-201] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=4.7019 (tau_contra=1.0) method=nli
+    rep: collaborate with NIST staff to ensure U.S. dominance of international AI standards.
+O12 [org-014 -> saf-intentions-144] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=1.7367 (tau_contra=1.0) method=nli
+    rep: CAISI will focus on demonstrable risks, such as cybersecurity, biosecurity, and chemical weapons.
+O17 [org-017 -> acc-beliefs-043] label=Y  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=6.399 (tau_contra=1.0) method=nli
+    rep: A fragmented regulatory landscape creates uncertainty and hinders innovation.
+O18 [org-002 -> saf-beliefs-146] label=P  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=1.1201 (tau_contra=1.0) method=nli
+    rep: the risk should be plausible, measurable, severe, net new, and instantaneous or irremediable.
+O20 [org-001 -> saf-intentions-054] label=Y  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=4.0347 (tau_contra=1.0) method=nli
+    rep: the ASL system implicitly requires us to temporarily pause training of more powerful models if our AI scaling outstrips our ability to comply with the necessary safety procedures.
+O22 [org-023 -> saf-intentions-149] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=4.524 (tau_contra=1.0) method=nli
+    rep: Heavier-handed and stricter regulations, such as mandatory audits, government-imposed restrictions on actors, and mandatory safety standards, emerged as the least promising categories.
+O23 [org-014 -> saf-desires-012] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=4.567 (tau_contra=1.0) method=nli
+    rep: Policies, processes, and procedures are central components of effective AI risk management and fundamental to individual and organizational accountability.
+O24 [org-023 -> saf-intentions-016] label=P  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=5.8773 (tau_contra=1.0) method=nli
+    rep: It may be more feasible for state governments to enact, and for industry and nongovernmental actors to adopt, some of the more promising measures.
+O25 [org-014 -> saf-desires-010] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=3.7091 (tau_contra=1.0) method=nli
+    rep: Legal and regulatory requirements involving AI are understood, managed, and documented.
+O26 [org-023 -> saf-desires-012] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=3.3037 (tau_contra=1.0) method=nli
+    rep: the most promising legal and policy categories to shape incentives for AI developers to reduce the probability of catastrophic AI-caused harms were incentives to find and disclose risks and voluntary safety standards.
+O27 [org-014 -> skp-intentions-143] label=N  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=3.2412 (tau_contra=1.0) method=nli
+    rep: Align risk management efforts with applicable legal standards.
+O28 [org-017 -> acc-intentions-074] label=Y  ADVOCATES_FOR -> OPPOSES  nli_direction=opposes margin=5.1558 (tau_contra=1.0) method=nli
+    rep: The administration is eliminating state-level obstruction of national artificial intelligence policy.
+
+Wrote 19 rows to flips.json

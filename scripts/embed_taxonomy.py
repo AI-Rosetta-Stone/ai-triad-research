@@ -40,7 +40,14 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _FALLBACK_TAXONOMY_DIR = _SCRIPT_DIR.parent / "taxonomy" / "Origin"
 MODEL_NAME = "all-MiniLM-L6-v2"
 NLI_MODEL_NAME = "cross-encoder/nli-deberta-v3-small"
-NLI_LABELS = ["entailment", "neutral", "contradiction"]
+# t/4572 (SO C1, t/4572#1): a hardcoded column order here is exactly the class of bug that
+# shipped -- NLI_LABELS used to assume [entailment, neutral, contradiction], but the real
+# checkpoint's config.id2label is {0: contradiction, 1: entailment, 2: neutral}. Different
+# cross-encoder/nli-* checkpoints use different orders, so the mapping is now READ from the
+# loaded model's own config at load time (_nli_label_order below), never assumed. A future
+# model swap that doesn't carry the three expected label names fails loudly instead of
+# silently mislabeling every verdict.
+_NLI_EXPECTED_LABELS = frozenset({"entailment", "neutral", "contradiction"})
 # Maximum stdin buffer size (50 MB) — prevents resource exhaustion from piped input
 _MAX_STDIN_BYTES = 50 * 1024 * 1024
 # Minimum logit margin between the winning label and runner-up.
@@ -186,12 +193,51 @@ def _load_model():
     return SentenceTransformer(MODEL_NAME, trust_remote_code=False)
 
 
+def _nli_label_order_error(problem):
+    return ValueError(
+        "Goal: Classify an NLI pair with the correct contradiction/entailment/neutral label\n"
+        f"Problem: {problem}\n"
+        "Location: embed_taxonomy.py _load_nli_model\n"
+        f"Next Steps: Check NLI_MODEL_NAME ({NLI_MODEL_NAME}) and the checkpoint's own "
+        "config.json id2label. This engine refuses to guess a column order (t/4572)."
+    )
+
+
 def _load_nli_model():
-    """Load the NLI cross-encoder model (downloads on first run)."""
+    """Load the NLI cross-encoder model (downloads on first run).
+
+    t/4572 (SO C1): the model's own config.id2label is the ONLY source of the
+    column-index -> label mapping. A hardcoded order is exactly the bug class
+    that shipped (NLI_LABELS used to assume [entailment, neutral, contradiction]
+    when the real checkpoint's order is [contradiction, entailment, neutral]).
+    Read once at load time, validated, and cached on the model object so a future
+    model swap that changes the order -- or ships without one of the three
+    expected labels -- fails loudly here instead of silently mislabeling every
+    verdict downstream.
+    """
     from sentence_transformers import CrossEncoder
 
     print(f"Loading NLI model '{NLI_MODEL_NAME}'...", file=sys.stderr)
-    return CrossEncoder(NLI_MODEL_NAME, trust_remote_code=False)
+    model = CrossEncoder(NLI_MODEL_NAME, trust_remote_code=False)
+
+    id2label = getattr(getattr(model, "config", None), "id2label", None)
+    if not id2label:
+        raise _nli_label_order_error(
+            f"the loaded model has no config.id2label to read a column order from."
+        )
+    try:
+        order = [str(id2label[i]).lower() for i in range(len(id2label))]
+    except (KeyError, TypeError) as exc:
+        raise _nli_label_order_error(
+            f"config.id2label is not a dense 0..N-1 mapping: {id2label!r} ({exc})."
+        ) from exc
+    if len(order) != 3 or set(order) != _NLI_EXPECTED_LABELS:
+        raise _nli_label_order_error(
+            f"config.id2label gave {order!r}; expected exactly "
+            f"{sorted(_NLI_EXPECTED_LABELS)!r} (3 labels, one each)."
+        )
+    model._nli_label_order = order  # noqa: SLF001 -- intentional: our own cache, our own model instance
+    return model
 
 
 def _classify_pairs_nli(nli_model, pairs):
@@ -205,9 +251,16 @@ def _classify_pairs_nli(nli_model, pairs):
     if not pairs:
         return []
 
+    label_order = getattr(nli_model, "_nli_label_order", None)
+    if not label_order:
+        raise _nli_label_order_error(
+            "nli_model was not produced by _load_nli_model (no _nli_label_order cached)."
+        )
+
     scores = nli_model.predict(pairs)
 
-    # scores shape: (N, 3) — columns are entailment, neutral, contradiction
+    # Column order is WHATEVER _load_nli_model derived from the model's own config.id2label
+    # (t/4572) -- never assumed positionally here.
     results = []
     for row in scores:
         sorted_idx = np.argsort(row)[::-1]  # descending
@@ -216,17 +269,14 @@ def _classify_pairs_nli(nli_model, pairs):
         margin = best - second
 
         if margin >= NLI_CONFIDENCE_MARGIN:
-            label = NLI_LABELS[int(sorted_idx[0])]
+            label = label_order[int(sorted_idx[0])]
         else:
             label = "neutral"
 
-        results.append({
-            "label": label,
-            "entailment": round(float(row[0]), 4),
-            "neutral": round(float(row[1]), 4),
-            "contradiction": round(float(row[2]), 4),
-            "margin": round(margin, 4),
-        })
+        entry = {"label": label, "margin": round(margin, 4)}
+        for idx, name in enumerate(label_order):
+            entry[name] = round(float(row[idx]), 4)
+        results.append(entry)
     return results
 
 

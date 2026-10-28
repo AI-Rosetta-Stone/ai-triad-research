@@ -10,10 +10,12 @@
  * to validate: session lifecycle, batch commits, PR creation, cache behavior,
  * circuit breaker, rate limit handling, and concurrent mutation safety.
  *
- * LOCAL-ONLY FAILURE MODE (t/2281): if these tests fail with "undici major-version skew",
- * your local Node is outside the required range (package.json engines: ">=22 <23").
- * CI uses node:22.23.2 (Dockerfile) which bundles undici 6.x matching the userland pin.
- * Fix: switch to Node 22.x via nvm/fnm. This is not a test or code defect.
+ * LOCAL-ONLY FAILURE MODE (t/2281, t/1990): if these tests fail with "undici major-version skew",
+ * your local Node is outside the required range (package.json engines: ">=26 <27").
+ * CI's `actions/setup-node` pins the test runner to Node 26, which bundles undici 8.x
+ * matching the userland pin (this is the test RUNNER's Node, not the Dockerfile's — the two
+ * happen to match post-t/1990, but are set independently; see githubRestClient.ts).
+ * Fix: switch to Node 26.x via nvm/fnm. This is not a test or code defect.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -25,9 +27,10 @@ import type { FlightRecorder, RecordInput } from '../../../../lib/flight-recorde
 // t/3444: every describe below that constructs a GitHubAPIBackend/SessionBranchManager
 // is gated on this — on a local Node whose bundled undici major skews from the userland
 // pin, GitHubRestClient's constructor throws deterministically (assertUndiciMajorInvariant),
-// masking real local failures behind 75 always-red tests. CI's Dockerfile pins node:22.23.2
-// so these always run there. `sanitizeBranchName` and `assertUndiciMajorInvariant` below
-// test pure functions with no backend construction — they stay ungated.
+// masking real local failures behind 75 always-red tests. CI's test runner is pinned to
+// Node 26 (t/1990) so these always run there. `sanitizeBranchName` and
+// `assertUndiciMajorInvariant` below test pure functions with no backend construction —
+// they stay ungated.
 const UNDICI_ALIGNED = isUndiciMajorAlignedWithRuntime();
 
 // ── Mock setup ──────────────────────────────────────────────────────────

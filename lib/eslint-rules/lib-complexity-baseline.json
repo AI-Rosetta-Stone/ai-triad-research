@@ -129,7 +129,7 @@
     "countOver": 1
   },
   "debate/claimExtractionPipeline/nliDirectionGate.ts": {
-    "max": 22,
+    "max": 16,
     "countOver": 1
   },
   "debate/cli.ts": {
