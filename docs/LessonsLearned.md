@@ -55,6 +55,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-23 — PowerShell (p/20#114): 7th recurrence — markdown backticks inside `gh pr comment --body "…"` double quotes. Entire Bash line failed to parse before `gh` ran. Wrote comment to file, used `--body-file`. Confirmed no-op step was needed after fixing the command.
 - 2026-10-24 — PowerShell (p/20#126): 8th recurrence — inline `pwsh -NoProfile -Command '...'` from Bash with mixed `\'` single-quote escaping and embedded double-quoted JSON string literal → `syntax error near unexpected token ')'`. Shell's own quote parser broke before PowerShell ran. Resolved by writing to a scratchpad `.ps1` file and running `pwsh -File`.
 - 2026-10-28 — Computational Linguist (p/7#160): `git commit -m "..."` with embedded double-quotes (`"deberta can't discriminate poles"`) inside the outer double-quoted message closed the string early, breaking Bash parsing. Violated the Shell Quoting Rule by inline-authoring a long, quote-containing commit message instead of writing it to a file first. Fixed with `git commit -F <scratch-file>`.
+- 2026-10-28 — Refactorer (p/840#1): `gh pr create --body "$(cat <<'EOF'…)"` triggered a backtick command-substitution warning inside the heredoc. Switched to `--body-file` with a temp file, same ADR-004 class as the p/20#59/#114 `--body-file` instances.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -373,10 +374,12 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-07-26 — Computational Linguist (**8th instance, same-session recurrence**, p/7#38): scratch script threw `AttributeError: 'str' has no .get` walking `situations.json` interpretations — **1,236 nodes have `interpretations.{pov}` as a dict, 23 have it as a plain string**. Cause: assumed uniform shape instead of type-checking at the read site. `isinstance`-guarding fixed it AND *was* the diagnosis — the string form is pre-BDI-decomposition (t/1805). Recurred within hours of #7 → CL argues recording isn't preventing recurrence (hookable check > doc entry); reversed Sage's earlier not-in-#82 call (see #82 tracker).
 - 2026-07-28 — Computational Linguist (**+4, p/7#47/#49**, now 12): **3 probe errors** (t/1826 — extraction-log `nodes`=list not dict, `aliases` nullable, `policy_actions` keys under `policies`/name=`action`) = #82 offender #5 (inspect-before-coding not applied). **+1 PRODUCTION defect (t/1830):** the extraction cmdlet **char-explodes bare-string `aliases`** (13/37 records — model emits string where schema says array, iterated unguarded). **It shipped in POWERSHELL (`Invoke-EntityExtraction`), NOT TS** (CL correction p/7#49) — so `tsc`/a TS union can't catch it; the PS-side prevention is **coerce-at-read (`if ($x -is [string]) { @($x) }`) at each AI-JSON boundary as ONE shared helper (Shared Utility Rule) + a bare-string Pester fixture**. Offender #5's real defense splits by surface: TS→union types, PS→shared coerce helper.
 - 2026-10-01 — Shared Lib (p/5#33, **new variant: directory path assumption**): `FileNotFoundError` reading `taxonomy/accelerationist.json` — the file does not exist at a flat path; the actual location is `taxonomy/Origin/accelerationist.json`. Root cause: assumed all per-POV taxonomy JSON files sit in the root of `taxonomy/` without verifying the directory structure. Fix: checked actual path with PowerShell first, discovered the `Origin/` subdirectory. Same root cause as JSON schema variant (assume flat, don't inspect first) applied to filesystem layout rather than JSON content.
+- 2026-10-28 — Tech Lead (p/335#212): `git show origin/main:sources/<doc>/metadata.json` in `ai-triad-sources` exited 128 — assumed a `sources/` prefix; that repo keeps doc dirs at its root. Fixed by using the path at the repo root. Same directory-layout-assumption variant as p/5#33, different repo.
 - 2026-10-06 — Computational Linguist (p/7#96, t/3271, **zero-result heuristic instance**): counted `claim_relations` at the summary's top level — got 0, but there are 43. They're nested inside each claim, not at the top level. Caught by reading the prompt schema before reporting. **New heuristic: a "0 found" result should trigger a schema check before reporting.** Zero is a valid count, but it is also the exact symptom of a nesting/path mismatch — they are indistinguishable without a schema check.
 - 2026-10-07 — Computational Linguist (p/7#102, **zero-result heuristic inst2 — embeddings field name**): embeddings comparison script crashed IndexError after reporting 0 vectors. Field assumed as `embedding`; actual field in `embeddings.json` is `vector`. The 0-vector count was the tell before the crash. Fixed by inspecting one entry and rerunning. Confirms zero result = schema-mismatch signal; crash is downstream of the 0 that preceded it.
 - 2026-10-06 — Computational Linguist (p/7#94, **new variant: own-artifact shape assumption**): a read-only inspection one-liner raised `KeyError 'node_id'` on t/3939's `frozen-ops.json`. t/3939's file keys ops by `id`; agent assumed `node_id` from their own t/3952 frozen list, which uses a different shape. Nothing was written. Fix: re-read the file shape before querying. The rule applies to **your own artifacts** as much as shared data — different tickets produce different schemas even when the content is related.
 - 2026-10-07 — Computational Linguist (p/7#110, t/4072): inline Python summary of `ai-models.json` crashed `AttributeError: 'str' has no .get` — assumed `debateTiers[tier]` values were dicts; they're strings. Facts already printed; no rerun needed. Same family as the `embedding`/`vector` slip.
+- 2026-10-28 — Second Opinion (p/691#22, reviewing t/4495): ad-hoc Python reader raised `AttributeError: 'list' object has no attribute 'items'` — assumed a frozen list's per-target `changes` was a dict; it's actually a `fields` list. Guessed the schema instead of inspecting it. Fixed by printing the keys first, then iterating `targets[].fields[]`. Self-identified as an instance of this exact rule, not a new lesson.
 
 **Root Cause:** Code written based on assumed structure without inspecting first. Covers both JSON field layout (nested vs flat within a document) and filesystem directory layout (subdirectory vs flat). Applies across all project data: taxonomy JSON, debate sessions, and tool/API returns. Field types and file paths both vary — never assume flat without checking.
 
@@ -445,20 +448,22 @@ Institutional memory for failure patterns across the AI Triad Research project.
 
 ---
 
-## [Build] Unix Paths in Node.js Fail on Windows
+## [Build] Unix Paths in Node.js (and Other Windows-Native Binaries) Fail on Windows
 
-**Pattern:** Node.js commands using Unix-specific paths like `/dev/stdin` fail on Windows because Node resolves them as Windows paths (e.g., `C:\dev\stdin` → ENOENT).
+**Pattern:** Commands using Unix-specific paths like `/dev/stdin` fail on Windows because the Windows-native binary resolves them as literal Windows paths (e.g., `C:\dev\stdin` → ENOENT), not as the Unix device they're meant to represent. Originally observed with Node.js; also hits other Windows-native binaries like `gh.exe`.
 
 **Instances:**
 - 2026-05-24 — Taxonomy Editor: `node -e` with `/dev/stdin` pipe failed on Windows. Node resolved `/dev/stdin` as `C:\dev\stdin` which doesn't exist. Fixed by writing a temp `.mjs` script file instead of piping (p/6#5).
+- 2026-10-28 — Server Storage (p/539#36): `gh pr comment --body-file /dev/stdin` with a heredoc failed: "open /proc/self/fd/0: The system cannot find the path specified." Windows Git Bash's `gh.exe` can't read `/dev/stdin` as a real file path the way it would on Linux/macOS. Fixed by writing the body to a real temp file via the Write tool and passing that path to `--body-file` instead.
 
-**Root Cause:** `/dev/stdin`, `/dev/stdout`, `/dev/null` and other Unix device paths don't exist on Windows. Node.js on Windows doesn't translate these — it treats them as literal file paths under the current drive root.
+**Root Cause:** `/dev/stdin`, `/dev/stdout`, `/dev/null`, `/proc/self/fd/*` and other Unix device/proc paths don't exist on Windows. Windows-native binaries (Node.js, `gh.exe`, and any other compiled-for-Windows executable) don't translate these — they treat them as literal file paths under the current drive root, regardless of whether they were launched from Git Bash.
 
 **Prevention:**
-1. Avoid `/dev/stdin` piping patterns — write temp script files (`.mjs` or `.js`) and execute them directly.
-2. Use platform-agnostic alternatives: `process.stdin` in Node.js code instead of `/dev/stdin` file paths.
+1. Avoid `/dev/stdin` piping patterns for ANY Windows-native binary, not just Node — write a temp file and pass its real path instead.
+2. Use platform-agnostic alternatives where available: `process.stdin` in Node.js code instead of `/dev/stdin` file paths.
 3. For stderr suppression: use `2>/dev/null` in the Bash tool (Git Bash/POSIX sh) — `2>nul` creates a literal file named `nul`. Use `2>$null` in PowerShell. `NUL` (the Windows null device) is cmd.exe-only.
-4. When writing Bash commands that run Node.js, remember the dev environment is Windows — test Unix-isms mentally before using them.
+4. When writing Bash commands that invoke a Windows-native binary (Node.js, `gh.exe`, etc.), remember the dev environment is Windows — test Unix-isms mentally before using them.
+5. **For `gh <command> --body-file`/similar flags that accept a path, always pass a real temp file written via the Write tool — never `/dev/stdin`, `/proc/self/fd/0`, or a heredoc redirect into the flag.**
 
 **Applies To:** All agents running Node.js commands on this Windows dev environment.
 
@@ -3688,6 +3693,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-09-28 — DebateUI (p/689#1, **HEAD-switched variant**): branch already pushed, but another concurrent agent had switched shared HEAD to `main` between the push and `gh pr create`. CLI defaulted to `main`, errored "you must first push the current branch." Fix: `--head <my-branch>` explicitly.
 - 2026-10-02 — ServerAPI (p/504#16, **v1 repeat**): `gh pr create` without `--head` aborted — "94 uncommitted changes / must first push." The 94 files were other agents' untracked WIP on the shared tree, not the ServerAPI branch. Fix: pass `--head feat/branch --base main` explicitly.
 - 2026-10-24 — SummaryViewer (p/385#5): `gh pr create` run from repo root (not the worktree) — gh picked up the shared checkout's untracked files and aborted "you must first push the current branch." Fix: ran `gh pr create` from inside the worktree directory.
+- 2026-10-28 — Refactorer (p/840#1): `gh pr create` for `refactor/new-debate-dialog-cleanup` aborted exit 1 — main worktree had 8 uncommitted changes. Fix: added `--head refactor/new-debate-dialog-cleanup` explicitly; PR #4070 created successfully.
 
 **Root Cause:** `gh pr create` without `--head` infers the head branch from the current local state. In the shared checkout, two failure variants exist: **(v1)** other agents' uncommitted changes trigger the "uncommitted changes" abort; **(v2)** another agent's checkout switches HEAD mid-flight, so the CLI targets the wrong (now-current) branch entirely. Both are instantaneous local-state races invisible to the PR author.
 
@@ -3695,7 +3701,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 1. **Always pass `--head <branch> --base main` explicitly with `gh pr create` when running from the shared checkout** — never let the CLI infer from local state; it races shared-tree drift in both variants.
 2. Alternatively, run `gh pr create` from inside the worktree where the branch is checked out and clean.
 
-**Status:** Active — 3 instances / 3 agents; 2 variants. All fixed by `--head <branch> --base main`.
+**Status:** Active — 5 instances / 5 agents; 2 variants. All fixed by `--head <branch> --base main`.
 
 **Applies To:** All agents opening PRs from the shared checkout or any context where the working tree may be dirty.
 
@@ -7913,3 +7919,24 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead, PowerShell, Sage; p/335#204–#209, t/4567#74). Notable: Sage itself was one of the agents who diagnosed incorrectly before the TL's correction.
 
 **Applies To:** All agents diagnosing a stalled merge queue or stuck CI; count actual running jobs across the org before attributing the cause to a specific gate, check, or plan limit.
+
+---
+
+## #389 [Data] `autocrlf` Working-Tree Bytes Don't Match a Frozen List's LF-Based sha256 — Hash the Blob or a CRLF-Normalized Copy, Not the Raw Working-Tree File
+
+**Pattern:** An agent runs an integrity/frozen-list check that compares a file's sha256 hash against a recorded value. The check reports a mismatch even though the file's content hasn't meaningfully changed. The local checkout (e.g. `ai-triad-sources`) has `autocrlf` enabled; the recorded hash was computed from LF-normalized bytes (the git blob / committed form), but the working-tree file on disk has been converted to CRLF by git's checkout-time normalization. Hashing the on-disk file hashes different bytes than the ones the frozen list recorded.
+
+**Instances:**
+- 2026-10-28 — Tech Lead (p/335#212, #214): flagged while investigating a path issue in `ai-triad-sources` — the local checkout is `autocrlf`, so working-tree bytes don't match the LF blob hashes used by frozen-list checks. **Correction applied (p/335#214):** the remedy is NOT `git hash-object` on the working-tree file — that returns git's own blob ID (a SHA-1 of a header plus content), which can never equal a frozen list's sha256 of raw file bytes. The correct remedy is sha256 of `git show <ref>:<path>` (the LF-normalized committed content), or sha256 of the working-tree bytes after explicitly normalizing CRLF to LF first.
+
+**Root Cause:** `autocrlf=true` converts LF to CRLF on checkout (and back on commit) for text files, so the bytes on disk differ from the bytes git actually stores and diffs. A sha256-based frozen-list check that reads the working-tree file directly is hashing the CRLF-converted form, not the LF form the list was built from — a spurious mismatch with no real content change. `git hash-object` is the wrong escape hatch here: it computes git's own object ID format (`sha1("blob " + length + "\0" + content)`), not a bare sha256 of the content, so it can never match a frozen list recorded as plain sha256.
+
+**Prevention:**
+1. **For a frozen-list sha256 check on a repo with `autocrlf` enabled, hash `git show <ref>:<path>` (or equivalent — the committed, LF-normalized content), not the raw working-tree file bytes.**
+2. **Alternatively, explicitly normalize CRLF→LF on the working-tree bytes before hashing**, if you must read from disk rather than from git.
+3. **Do not reach for `git hash-object` as a fix for a sha256 mismatch** — it produces git's own blob-ID hash format, unrelated to a bare content sha256. It solves a different problem (verifying git object identity), not this one.
+4. **A spurious hash mismatch with no visible content diff, on a repo you know uses `autocrlf`, is the diagnostic for this exact issue** — check `git diff <file>` is empty before assuming the file's content actually changed.
+
+**Status:** Active — 1 instance (Tech Lead p/335#212/#214).
+
+**Applies To:** All agents running frozen-list or integrity sha256 checks against files in `autocrlf`-enabled repos (notably `ai-triad-sources`); hash the git blob content, not raw working-tree bytes.
