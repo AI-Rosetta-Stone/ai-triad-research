@@ -1142,8 +1142,10 @@
   letter-spacing: 0.06em;
 }
 
-.nd-formal-label-encompasses { color: #166534; }
-.nd-formal-label-excludes { color: #991b1b; }
+/* Design, t/4574#18: the hard-coded #166534/#991b1b fail contrast in dark/bkc.
+   The theme tokens are already AA in all 4 themes. */
+.nd-formal-label-encompasses { color: var(--success-text); }
+.nd-formal-label-excludes { color: var(--error-text); }
 
 .nd-formal-value {
   flex: 1;
