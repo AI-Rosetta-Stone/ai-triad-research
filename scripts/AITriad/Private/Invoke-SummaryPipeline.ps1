@@ -234,6 +234,12 @@ $SnapshotText
     $ExtractionMaxTokens = 32768
     $AiBackend = ''
     $DensityCheck = $null
+    # t/4479: forensic/additive, nothing branches on them -- the exemption lapses the moment a
+    # consumer branches on json_repaired/truncated/output_tokens. $null means "unknown to this
+    # caller" (e.g. FIRE's internal retries aren't tracked here), never a guessed value.
+    $JsonRepaired = $false
+    $Truncated = $null
+    $OutputTokens = $null
 
     if ($IterativeExtraction) {
         Write-Verbose "Pipeline: using FIRE iterative extraction"
@@ -278,6 +284,12 @@ $SnapshotText
 
         $AiBackend = $AiResult.Backend
         Write-Verbose "Pipeline: response from $AiBackend"
+        # t/4479: recorded as-is, whatever the backend reports; $AiResult.Usage is $null when the
+        # backend's response carried no usage block (never guessed as 0). PSObject.Properties guard
+        # (not just truthiness) because a mocked AiResult in tests may lack these properties entirely,
+        # which StrictMode treats as an error, not a missing/falsy value.
+        if ($AiResult.PSObject.Properties['Truncated']) { $Truncated = [bool]$AiResult.Truncated }
+        if ($AiResult.PSObject.Properties['Usage'] -and $AiResult.Usage) { $OutputTokens = $AiResult.Usage.OutputTokens }
 
         $CleanedText = $AiResult.Text -replace '(?s)^```json\s*', '' -replace '(?s)\s*```$', ''
         try {
@@ -286,7 +298,7 @@ $SnapshotText
         catch {
             # Try repair
             $Repaired = Repair-TruncatedJson -Text $CleanedText
-            try { $SummaryObject = $Repaired | ConvertFrom-Json } catch { $SummaryObject = $null }
+            try { $SummaryObject = $Repaired | ConvertFrom-Json; $JsonRepaired = $true } catch { $SummaryObject = $null }
         }
 
         if ($null -eq $SummaryObject) {
@@ -416,6 +428,9 @@ $SnapshotText
         MaxTokens      = $ExtractionMaxTokens
         TaxonomyJson   = $TaxonomyJson
         UsedFire       = [bool]$IterativeExtraction
+        JsonRepaired   = $JsonRepaired
+        Truncated      = $Truncated
+        OutputTokens   = $OutputTokens
     }
 }
 

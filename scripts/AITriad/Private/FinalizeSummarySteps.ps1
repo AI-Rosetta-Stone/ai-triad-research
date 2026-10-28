@@ -417,9 +417,17 @@ function New-SummaryModelInfo {
         fire_confidence_threshold is the threshold Invoke-IterativeExtraction reports in its FireStats
         (confidence_threshold). Both used to be hard-coded (32768 and 0.7, t/4079). Either one is
         recorded as null when the caller does not know it, rather than as a made-up number.
+
+        json_repaired/finish_reason/output_tokens/density_retries (t/4479) are forensic/additive --
+        nothing branches on them. THE EXEMPTION LAPSES the moment a consumer branches on one of
+        them. Recorded as the caller reports (aggregated across chunks for chunked runs), or null/0
+        when the caller does not know -- never guessed. density_retries is always 0: the single-shot
+        density retry was removed (t/4473/t/4519) and chunked never had one; the field exists so a
+        retry mechanism reintroduced later has somewhere to report to.
     #>
     param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats,
-          [object]$MaxTokens = $null)
+          [object]$MaxTokens = $null, [object]$JsonRepaired = $false, [object]$Truncated = $null,
+          [object]$OutputTokens = $null)
     $Multiline = [System.Text.RegularExpressions.RegexOptions]::Multiline
     $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
     $IsCompact = $TaxonomyJson -match '^\s*=== COMPACT TAXONOMY'
@@ -441,6 +449,7 @@ function New-SummaryModelInfo {
 
     $UsedFire = $null -ne $FireStats
     if ($UsedFire) { $ExtractionMode = 'fire' } else { $ExtractionMode = 'single_shot' }
+    $FinishReason = if ($null -eq $Truncated) { $null } elseif ($Truncated) { 'truncated' } else { 'stop' }
     $ModelInfo = [ordered]@{
         model             = $Model
         temperature       = $Temperature
@@ -448,6 +457,10 @@ function New-SummaryModelInfo {
         extraction_mode   = $ExtractionMode
         taxonomy_filter   = $TaxFilter
         taxonomy_nodes    = $EstNodeCount
+        json_repaired     = $JsonRepaired
+        finish_reason     = $FinishReason
+        output_tokens     = $OutputTokens
+        density_retries   = 0
     }
 
     if ($UsedFire) {

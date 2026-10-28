@@ -257,6 +257,60 @@ Describe 'item 2: model_info records the MaxTokens and FIRE threshold actually u
     }
 }
 
+Describe 'item 9: json_repaired/finish_reason/output_tokens are recorded, additive (t/4479)' -Tag 'summarization' {
+
+    It 'New-SummaryModelInfo records json_repaired=true and finish_reason=truncated when passed' {
+        $mi = & $script:Mod {
+            New-SummaryModelInfo -Model 'gemini-3.5-flash-lite' -Temperature 0.2 -TaxonomyJson '' -ChunkCount 0 `
+                -JsonRepaired $true -Truncated $true -OutputTokens 512
+        }
+        $mi['json_repaired'] | Should -BeTrue
+        $mi['finish_reason'] | Should -Be 'truncated'
+        $mi['output_tokens'] | Should -Be 512
+        $mi['density_retries'] | Should -Be 0
+    }
+
+    It 'New-SummaryModelInfo records json_repaired=false, finish_reason=null, output_tokens=null by default (unknown to the caller)' {
+        $mi = & $script:Mod { New-SummaryModelInfo -Model 'gemini-3.5-flash-lite' -Temperature 0.2 -TaxonomyJson '' -ChunkCount 0 }
+        $mi['json_repaired'] | Should -BeFalse
+        $mi.Contains('finish_reason') | Should -BeTrue
+        $mi['finish_reason'] | Should -BeNullOrEmpty
+        $mi.Contains('output_tokens') | Should -BeTrue
+        $mi['output_tokens'] | Should -BeNullOrEmpty
+    }
+
+    It 'Finalize-Summary writes json_repaired/finish_reason/output_tokens into the summary' {
+        $meta = script:New-MetaFile 'repair-fields'
+        $r = script:Invoke-Finalize -SummaryJson "{ $($script:EmptyCamps), `"factual_claims`": [], `"unmapped_concepts`": [] }" -MetaFile $meta `
+            -Extra @{ JsonRepaired = $true; Truncated = $false; OutputTokens = 9001 }
+        $summaryPath = Join-Path $TestDrive 'summaries' 'doc-1.json'
+        $s = $r.Writes[$summaryPath] | ConvertFrom-Json
+        $s.model_info.json_repaired | Should -BeTrue
+        $s.model_info.finish_reason | Should -Be 'stop'
+        $s.model_info.output_tokens | Should -Be 9001
+    }
+
+    It 'Invoke-SummaryPipeline single-shot sets JsonRepaired=true when Repair-TruncatedJson fires' {
+        Mock Invoke-AIApi -ModuleName AITriad {
+            [pscustomobject]@{ Text = '{ "pov_summaries": { "accelerationist": { "key_points": [] } '; Backend = 'mock'; Truncated = $true;
+                                Usage = [pscustomobject]@{ OutputTokens = 777 } }
+        }
+        Mock Repair-TruncatedJson -ModuleName AITriad {
+            '{ "pov_summaries": { "accelerationist": { "key_points": [] } } }'
+        }
+        Mock Test-SummaryDensity -ModuleName AITriad { @{ Pass = $true; Shortfalls = @() } }
+        $r = & $script:Mod {
+            Invoke-SummaryPipeline -SnapshotText 'text' -DocId 'repair-doc' -Metadata ([pscustomobject]@{ pov_tags = @('accelerationist'); title = 'T' }) `
+                -ApiKey 'k' -Model 'gemini-3.5-flash-lite' -Temperature 0.2 -TaxonomyVersion 'v' `
+                -SystemPromptTemplate 's' -OutputSchema '{}' -FullTaxonomy 6>$null
+        }
+        $r.Success | Should -BeTrue
+        $r.JsonRepaired | Should -BeTrue
+        $r.Truncated | Should -BeTrue
+        $r.OutputTokens | Should -Be 777
+    }
+}
+
 Describe 'item 3: failures are WARNs naming the triggering condition (t/4079)' -Tag 'summarization' {
 
     It 'a failed metadata write is a WARN that names the stale metadata.json, and the call still succeeds' {
