@@ -22,9 +22,15 @@ This creates a new ruleset (`main-merge-queue`) enforcing the merge queue on `ma
   60 minutes before the merge queue itself gives up on the group, well past the merge-queue
   liveness check's own 60-minute `awaiting-checks-stale` backstop);
 - the same four required contexts already enforced on `main` today (`ci-gate`, `CodeQL`,
-  `joint-gv-guard`, `consult-hold-guard`) -- unchanged.
+  `joint-gv-guard`, `consult-hold-guard`) -- unchanged, with `strict_required_status_checks_policy: false`
+  to match main's current `strict:false` (strict only forces PR-tier rebases; the queue
+  already tests the group against the latest `main`).
 
 The command prints the new ruleset's `id` on success. Note it for the rollback below.
+
+**No bypass actors are configured** (`bypass_actors: []`), so the PI's own merges go
+through the queue too, same as everyone else's -- confirmed live on `app-scratch`
+(`current_user_can_bypass: "never"` in the ruleset creation response).
 
 ## Mandatory follow-up: context-swap retrigger
 

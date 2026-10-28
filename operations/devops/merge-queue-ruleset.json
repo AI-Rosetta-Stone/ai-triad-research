@@ -1,5 +1,4 @@
 {
-  "_comment": "t/4567#58 -- the PI's switch package. Values proven on app-scratch across the full t/4567 live-fire cycle (F1-F4, D1/C5, L1-L3, M1-M3, N1-N2, P1-P2). DevOps commits this file but does NOT apply it -- applying the merge queue to main is the PI's step.",
   "name": "main-merge-queue",
   "target": "branch",
   "enforcement": "active",
@@ -26,7 +25,7 @@
     {
       "type": "required_status_checks",
       "parameters": {
-        "strict_required_status_checks_policy": true,
+        "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
           { "context": "ci-gate" },
