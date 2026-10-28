@@ -41,14 +41,16 @@ Describe 'ALLOWED_ORIGINS per app (t/4406)' {
     }
 
     It 'stagingBaseEnv filters baseEnv ALLOWED_ORIGINS out, so staging carries one value, not prod''s plus its own' {
-        # t/4587: the filter moved from a chained e.name != '...' && ... predicate to
-        # !contains(stagingOverriddenKeys, e.name) once the list grew past the ALLOWED_ORIGINS/
-        # TAXONOMY_CACHE_DIR/GIT_SYNC_ENABLED trio (GitHub App staging overrides added). Assert
-        # the filter uses the contains()-against-list shape, and that ALLOWED_ORIGINS is in that list.
+        # t/4587 (SO C1, e/384): the filter moved from a chained e.name != '...' && ...
+        # predicate to !contains(stagingOverriddenKeys, e.name), and stagingOverriddenKeys is
+        # now DERIVED (map(stagingEnvOverrides, e => e.name)), not hand-duplicated -- a
+        # hand-copied list drifts the moment a new override lands in one place but not the
+        # other. So "ALLOWED_ORIGINS is filtered" now means it's present in stagingEnvOverrides
+        # itself (already asserted by the 'names the staging app host exactly once' test above).
         $script:Bicep -match "(?s)var stagingBaseEnv\s*=\s*concat\(\s*filter\(baseEnv,\s*e\s*=>\s*([^\)]*)\)" | Should -Be $true
         $Matches[1] | Should -Match "!contains\(stagingOverriddenKeys,\s*e\.name"
-        $script:Bicep -match "(?s)var stagingOverriddenKeys\s*=\s*\[([^\]]*)\]" | Should -Be $true
-        $Matches[1] | Should -Match "'ALLOWED_ORIGINS'"
+        $script:Bicep -match "var stagingOverriddenKeys\s*=\s*map\(stagingEnvOverrides,\s*e\s*=>\s*e\.name\)" | Should -Be $true
+        (Get-Block 'stagingEnvOverrides') | Should -Match "'ALLOWED_ORIGINS'"
     }
 
     It 'the prod and staging origins differ' {

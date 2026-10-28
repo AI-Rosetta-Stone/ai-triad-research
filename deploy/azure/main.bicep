@@ -726,7 +726,11 @@ var stagingEnvOverrides = [
 ]
 // stagingBaseEnv = baseEnv with the isolation overrides applied.
 // filter() removes the baseEnv entries that stagingEnvOverrides supersedes.
-var stagingOverriddenKeys = ['TAXONOMY_CACHE_DIR', 'GIT_SYNC_ENABLED', 'ALLOWED_ORIGINS', 'GITHUB_APP_ID', 'GITHUB_APP_INSTALLATION_ID', 'GITHUB_APP_PRIVATE_KEY_SECRET_NAME']
+// SO C1 (t/4587 e/384): DERIVED from stagingEnvOverrides's own names, not hand-duplicated --
+// a hand-copied list drifts the moment a new override is added to one place but not the
+// other, producing a duplicate env name in staging's container template (a template that
+// deploys in the SAME apply as prod, so a rejected template blocks prod too).
+var stagingOverriddenKeys = map(stagingEnvOverrides, e => e.name)
 var stagingBaseEnv = concat(
   filter(baseEnv, e => !contains(stagingOverriddenKeys, e.name)),
   stagingEnvOverrides
