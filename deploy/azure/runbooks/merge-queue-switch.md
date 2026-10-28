@@ -208,12 +208,16 @@ both dequeued `CI_FAILURE` despite never failing on their own.
 ever merges) and the saving applies to every batch, not just failing ones. Three
 conditions:
 1. **D1 (`merge-queue-dequeue-alert.yml`) groups every dequeue from the same
-   batch-failure episode into one issue** instead of one issue per PR, and retroactively
-   marks every earlier entry `[COLLATERAL]` once a later one dequeues in the same episode
-   (mechanically justified: a later dequeue proves the smaller remaining group still
-   failed, so removing the earlier entries alone didn't explain it). The alert tells every
-   owner to **re-arm pinned to their current head** -- this workflow never
-   auto-re-enqueues.
+   batch-failure episode into one issue** instead of one issue per PR, keyed on the
+   issue's `created_at` (not `updated_at` -- a later comment must not revive an old,
+   resolved episode). It lists every dequeued PR **plainly, with no "collateral" marking**
+   (SO L1, e/392#2/#3: an earlier "mark every entry before the last as collateral"
+   heuristic assumed exactly one episode with collateral-first ordering -- a consult-hold
+   or a second unrelated failure inside the window breaks that assumption and could
+   mislabel the real cause as collateral). The alert tells every owner **some of these
+   may be collateral; re-arm pinned to your own current head** -- this workflow never
+   auto-re-enqueues. A `concurrency` group serializes near-simultaneous dequeue events so
+   two can't race on the same issue (duplicate creates or a lost update).
 2. This section.
 3. **Count collateral dequeues in the one-week review** (t/4567, due 2026-11-04) -- how
    many clean entries got bounced per real failure, to judge whether the trade-off still

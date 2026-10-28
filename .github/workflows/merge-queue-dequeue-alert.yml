@@ -16,6 +16,16 @@ on:
 permissions:
   issues: write
 
+# t/4567 SO L3 (e/392#2/#3): two dequeues in the same episode can fire close together,
+# and the read-modify-write on the shared batch issue below isn't atomic -- without
+# this, two concurrent runs could both see "no open batch issue" and create duplicates,
+# or both read the same body and one's update could clobber the other's (lost update).
+# `cancel-in-progress: false` -- each dequeue MUST be processed, never dropped; this
+# only serializes (queues), it never cancels a run.
+concurrency:
+  group: merge-queue-dequeue-alert
+  cancel-in-progress: false
+
 jobs:
   alert-on-unexpected-dequeue:
     # SO live-fire finding (e/377#2, L1): the reason lives at github.event.reason (top
@@ -36,32 +46,30 @@ jobs:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
-            // t/4567 arm (b) live-fire finding (TL p/331#2497, acceptance condition 1):
-            // under HEADGREEN, a CI_FAILURE on a batch's test group can collaterally
-            // dequeue a CLEAN entry too, not just the actual culprit -- confirmed on
-            // app-scratch (issues #87/#88: a never-individually-tested clean PR #84 was
-            // dequeued CI_FAILURE alongside the real culprit #85). Per-entry alerting
-            // made each dequeue look like an independent, unexplained failure. This
-            // groups every dequeue from the same batch-failure episode into ONE issue so
-            // owners see the whole picture, not a confusing solo alert.
+            // t/4567 arm (b)/(c) live-fire finding (TL p/331#2497, acceptance condition
+            // 1): under HEADGREEN, a CI_FAILURE OR a consult-hold on a batch's test
+            // group can collaterally dequeue a CLEAN entry too, not just the actual
+            // culprit -- confirmed on app-scratch (#87/#88 real-failure arm; #89/#90/#93
+            // hold arm). Per-entry alerting made each dequeue look like an independent,
+            // unexplained failure. This groups every dequeue from the same
+            // batch-failure episode into ONE issue so owners see the whole picture.
             //
-            // Collateral-marking heuristic (mechanically justified by the bisection
-            // behavior observed live-fire, NOT a guess): each dequeue fires when an entry
-            // falls OUT of the group GitHub is currently retesting. If ANOTHER dequeue
-            // follows in the same episode, that proves the smaller group (with the
-            // earlier entries already removed) STILL failed -- so every entry dequeued
-            // so far was insufficient to explain the failure alone, i.e. collateral.
-            // Only the LAST entry dequeued in an episode (the one whose removal finally
-            // let a smaller group pass) is left unmarked as the probable actual cause.
-            // GitHub never confirms this explicitly, so it stays "probable," but the
-            // logic is sound: this alert never asserts something it didn't observe.
+            // SO L1 (e/392#2, HIGH; TL-adopted e/392#3, taking the SO's first option):
+            // do NOT mark any entry [COLLATERAL]/"the cause". The original heuristic
+            // ("every earlier entry is collateral, the last one is the cause") assumed
+            // exactly one episode where collateral entries dequeue before the real
+            // culprit -- both assumptions break with a consult-hold (arm c) or an
+            // unrelated second failure inside the window, which could mislabel the REAL
+            // culprit as collateral. List every dequeued PR plainly instead; GitHub
+            // never tells us which one actually caused the failure, so this alert
+            // never asserts a guess as fact.
             const owner = context.repo.owner, repo = context.repo.repo;
             const pr = context.payload.pull_request;
             // Fail toward alerting, not silence -- an unrecognized/missing reason is NOT
             // the same as a known-safe one.
             const reason = context.payload.reason || 'unknown';
             const shortSha = pr.head.sha.slice(0, 7);
-            const entryLine = `- [ ] PR #${pr.number} @ \`${shortSha}\` (reason: \`${reason}\`) -- ${pr.html_url}`;
+            const entryLine = `- PR #${pr.number} @ \`${shortSha}\` (reason: \`${reason}\`) -- ${pr.html_url}`;
             const BATCH_LABEL = 'merge-queue-dequeue-batch';
             // A real suite is ~25-30min/round and a batch can take several bisection
             // rounds (max_entries_to_build: 4) -- generous window so a slow multi-round
@@ -69,15 +77,18 @@ jobs:
             const WINDOW_MS = 3 * 60 * 60 * 1000;
             const now = Date.now();
 
+            // SO L2 (e/392#2): key the episode window on the issue's CREATED_AT, not
+            // updated_at. updated_at changes on ANY comment/edit, so a human replying to
+            // an old, resolved episode would silently "revive" it and attach unrelated
+            // future dequeues to the wrong issue. created_at is fixed at episode start.
             const { data: candidates } = await github.rest.issues.listForRepo({
-              owner, repo, state: 'open', labels: BATCH_LABEL, sort: 'updated', direction: 'desc', per_page: 5,
+              owner, repo, state: 'open', labels: BATCH_LABEL, sort: 'created', direction: 'desc', per_page: 5,
             });
-            const batchIssue = candidates.find(i => (now - new Date(i.updated_at).getTime()) < WINDOW_MS);
+            const batchIssue = candidates.find(i => (now - new Date(i.created_at).getTime()) < WINDOW_MS);
 
             if (!batchIssue) {
               const body = `**Merge-queue dequeue batch (t/4567 D1):** one or more PRs have left the merge queue without merging in this episode.\n\n`
-                + `Under HEADGREEN, a batch-failure bisection can collaterally dequeue a CLEAN entry along with the actual culprit (t/4567 arm b, app-scratch #87/#88) -- any entry below marked \`[ ]\` is unresolved; once a LATER entry is added to this issue, every earlier entry is retroactively marked \`[COLLATERAL]\` (proven insufficient alone to explain the failure, since removing it didn't let a smaller group pass). The last entry added before this issue goes quiet is the probable actual cause, though GitHub never confirms that explicitly.\n\n`
-                + `**Every PR below: re-arm pinned to your current head** (\`gh pr merge <N> --auto --squash --match-head-commit <sha>\`) to re-test individually. Do not blindly auto-re-enqueue without checking your own head is still intended -- this workflow never re-enqueues for you.\n\n${entryLine}`;
+                + `Under HEADGREEN, a batch-failure bisection (or a mid-queue consult-hold) can collaterally dequeue a CLEAN entry along with the actual cause (t/4567 arms b/c, app-scratch #87/#88, #89/#90/#93). GitHub does not tell us which entry below actually caused the dequeue -- **some of these may be collateral; re-arm each one pinned to its own head** (\`gh pr merge <N> --auto --squash --match-head-commit <sha>\`) to re-test individually. Do not blindly auto-re-enqueue without checking your own head is still intended -- this workflow never re-enqueues for you.\n\n${entryLine}`;
               const created = await github.rest.issues.create({
                 owner, repo,
                 title: `Merge-queue dequeue batch (t/4567 D1), starting PR #${pr.number}`,
@@ -87,18 +98,11 @@ jobs:
               console.log(`::warning::Created batch dequeue issue #${created.data.number} for PR #${pr.number} (reason: ${reason})`);
             } else {
               const { data: full } = await github.rest.issues.get({ owner, repo, issue_number: batchIssue.number });
-              // Retroactively mark every still-open checklist line as collateral -- a
-              // later dequeue in the SAME episode proves each earlier one, alone, did
-              // not explain the failure.
-              const updatedBody = full.body
-                .split('\n')
-                .map(line => line.startsWith('- [ ] ') ? line.replace('- [ ] ', '- [x] [COLLATERAL] ') : line)
-                .concat([entryLine])
-                .join('\n');
+              const updatedBody = `${full.body}\n${entryLine}`;
               await github.rest.issues.update({ owner, repo, issue_number: batchIssue.number, body: updatedBody });
               await github.rest.issues.createComment({
                 owner, repo, issue_number: batchIssue.number,
-                body: `PR #${pr.number} @ \`${shortSha}\` (reason: \`${reason}\`) also dequeued -- every entry listed before this one is now marked \`[COLLATERAL]\`. Re-arm pinned to re-test.`,
+                body: `PR #${pr.number} @ \`${shortSha}\` (reason: \`${reason}\`) also dequeued in this episode. Re-arm pinned to re-test -- any entry in this issue may be the actual cause or collateral; this alert does not guess which.`,
               });
               console.log(`::warning::Appended PR #${pr.number} to existing batch dequeue issue #${batchIssue.number} (reason: ${reason})`);
             }
