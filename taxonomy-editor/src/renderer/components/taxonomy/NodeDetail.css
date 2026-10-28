@@ -158,7 +158,7 @@
 
 .nd-header-label {
   font-family: var(--font-prose);
-  font-size: var(--text-xl);
+  font-size: 40px;
   font-weight: 600;
   line-height: 1.3;
   color: var(--text-primary);
@@ -325,6 +325,7 @@
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
   transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
 
 .node-detail-tab:hover {
@@ -786,7 +787,7 @@
 
 .nd-aphorism {
   font-style: italic;
-  font-size: var(--text-sm);
+  font-size: 20px;
   color: var(--text-secondary);
   margin: 2px 0 var(--sp-2);
   line-height: 1.4;
@@ -1177,13 +1178,20 @@
 
 .node-detail-tab-pill-danger {
   background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  /* Design, t/4574#15 item 2: #ef4444 on this tint measures 2.86:1; #b91c1c is ~5:1 (AA). */
+  color: #b91c1c;
 }
 
 /* No visible scrollbar on the Advanced tab row overflow (t/4574 spec §2.5). */
 .node-detail-tabs {
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.node-detail-tab {
+  /* Design, t/4574#15 item 3: keep the pill beside the label on one line — the tab row
+     already scrolls horizontally, so nothing is lost by not wrapping. */
+  white-space: nowrap;
 }
 
 .node-detail-tabs::-webkit-scrollbar {
@@ -1196,5 +1204,22 @@
   padding: 0 14px;
   font-size: var(--text-xs);
   color: var(--text-muted);
+}
+
+/* ── Phone (≤767px) — t/4574 spec §4, Design t/4574#15 items 4-5 ── */
+@media (max-width: 767px) {
+  .nd-header-label {
+    font-size: 30px;
+  }
+
+  .nd-formal-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .nd-formal-label {
+    width: auto;
+  }
 }
 
