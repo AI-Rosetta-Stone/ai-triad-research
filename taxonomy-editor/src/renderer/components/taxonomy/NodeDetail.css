@@ -1239,12 +1239,34 @@
     width: auto;
   }
 
-  /* Design, t/4574#24 item 1: the actions row (doc icons | toggle | "⋯") overflowed the
-     panel on phone and was left-aligned instead of right-aligned (spec §4). */
+  /* Design, t/4574#24 item 1 + t/4574#27: the actions row (doc icons | toggle | "⋯")
+     overflowed the panel on phone and was left-aligned instead of right-aligned (spec §4).
+     width: 100% is required for justify-content: flex-end to take effect — a shrink-to-fit
+     row has no free space to push into. */
   .nd-header-controls {
     flex-wrap: wrap;
     justify-content: flex-end;
     max-width: 100%;
+    width: 100%;
+    row-gap: var(--sp-2);
+  }
+
+  /* Design, t/4574#27: the 1px divider is stranded at the end of the icons' own wrapped
+     row once they wrap to full width — drop it (it's a desktop-only separator). */
+  .nd-header-icons {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+
+  .nd-header-divider {
+    display: none;
+  }
+
+  /* Design, t/4574#27 (a #4000 miss): nowrap + flex-end clips "Formal" on the left because
+     the toolbar (~270px) is wider than the phone column. Spec §4: wraps, left-aligned. */
+  .nd-description-toolbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
     row-gap: var(--sp-2);
   }
 }
