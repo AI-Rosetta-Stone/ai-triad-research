@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
 # AI Triad Base Image — heavy system dependencies, rebuilt monthly.
-# Last rebuild forced: 2026-09-29 (t/3746 — remove poppler-utils; eliminates libX11/libXrender CVE class permanently)
+# Last rebuild forced: 2026-10-28 (t/1990 — Node 22 -> Node 26, now Active LTS)
 #
-# Contains: Node 22, system packages, a build-time-baked flat ONNX embedding
+# Contains: Node 26, system packages, a build-time-baked flat ONNX embedding
 # model (all-MiniLM-L6-v2, read in-process via onnxruntime-node), and the
 # aitriad non-root user. No application code. The torch / sentence-transformers
 # Python ML venv (~700MB) was removed to shave the long-idle cold start (t/1642);
@@ -15,16 +15,21 @@
 #
 # The app Dockerfile (taxonomy-editor/Dockerfile) uses this as its runtime base.
 
-# Node PINNED to an exact patch (not the floating `22-trixie-slim`). A floating
+# Node PINNED to an exact patch (not the floating `26-trixie-slim`). A floating
 # minor let a routine base rebuild silently ship node 22.23.1 -> 22.23.2, whose
 # undici 6.28.0 / TLS session-reuse change broke the github-api fetch -> /healthz
 # 503 -> P1 prod crash-loop (t/2047). Pinning makes every node bump a deliberate,
-# reviewable PR. RE-BUMP to 22.23.2+ only after the github-api fetch is hardened
-# under undici 6.28.0 (Server Storage, t/2053) — see that ticket before bumping.
-FROM node:22.23.3-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4
+# reviewable PR.
+# t/1990 (2026-10-28): bumped 22.23.3 -> 26.12.1 (Node 26's Active LTS debut patch).
+# This base publish is INERT on its own — taxonomy-editor/Dockerfile still pins the
+# prior base tag by digest, so nothing consumes this build until the co-landing PR
+# (ci.yml node-version + userland undici@8 + the app Dockerfile, landed atomically
+# per t/1990#6 — Node 26 bundles undici 8.x, which trips the undici major-version
+# invariant if the app runtime moves alone).
+FROM node:26.12.1-trixie-slim@sha256:94816674c62774da0d099a947bf4613b9e1972a2733abd0d0cd80e795f8411d0
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
-LABEL org.opencontainers.image.description="AI Triad Research — base image with Node 22 and baked ONNX embedding model"
+LABEL org.opencontainers.image.description="AI Triad Research — base image with Node 26 and baked ONNX embedding model"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # ── Cache-bust for security rebuilds (t/3137) ──
