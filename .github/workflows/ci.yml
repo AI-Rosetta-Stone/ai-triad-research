@@ -86,20 +86,20 @@ on:
 permissions:
   contents: read
 
-# t/4567 K1 (SO/TL e/392#5): test each merge-queue batch once. The SO rejected the
-# job-body "superseded, exit success early" fallback (that's a false `success` on an
-# untested intermediate group, and HEADGREEN bisection could then merge on it -- a
-# cancelled run having NO result is the safe option). Instead, this qualifies for
-# workflow-lint's narrow R4 exemption (see workflow-lint.py): `group:` references
-# `github.event_name` so merge_group structurally never shares a group with any other
-# event; `cancel-in-progress` is EXACTLY the literal comparison below, textually
-# verified by R4, not trusted on good faith; and the marker makes the exemption
-# auditable. Every non-merge_group event gets `github.run_id` as its group, unique per
-# run by definition, so cancellation can never fire for a PR-tier/push run regardless.
-concurrency:
-  group: ci-${{ github.event_name == 'merge_group' && 'merge-group-batch' || github.run_id }}
-  # lint:r4-merge-group-cancel t/4567
-  cancel-in-progress: ${{ github.event_name == 'merge_group' }}
+# t/4567 K1/N1 (SO/TL e/392#5, #10, #11): a merge_group concurrency-cancel block with a
+# CONSTANT group key was tried and reverted. It passed workflow-lint's narrow R4
+# exemption and arms (a)/(d), but the SO's N1 finding (e/392#10) proved out live-fire
+# (app-scratch, 2026-10-28 ~20:16-20:27 UTC): the group key is the same for every
+# merge_group run, so a HEADGREEN bisection round's probe run gets cancelled by the NEXT
+# bisection round sharing that same key -- and that cancellation can leave the queue with
+# no further run queued at all. Arm (c) (consult-hold mid-queue) reproduced a genuine
+# stall: zero new merge_group runs for 10+ minutes after the cancellation, not resolved
+# even after the hold was removed; manual dequeue was required to clear it. Per the TL's
+# ruling (e/392#11): drop the cancel entirely rather than key the group by
+# `merge_group.head_sha` (a no-op cancel, since every merge_group commit already has a
+# distinct head_sha). HEADGREEN alone (ruleset grouping_strategy, already live) already
+# tests each batch once on the head group's result; runner capacity under the Team plan
+# covers the extra concurrent runs this leaves on non-head entries.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
