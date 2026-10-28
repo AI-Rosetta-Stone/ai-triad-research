@@ -45,7 +45,7 @@ gh api -X PATCH repos/AI-Rosetta-Stone/ai-triad-research/branches/main/protectio
   --input - <<'EOF'
 {
   "strict": false,
-  "contexts": ["ci-gate", "CodeQL", "joint-gv-guard", "<new-context>"]
+  "contexts": ["ci-gate", "CodeQL Analysis", "joint-gv-guard", "<new-context>"]
 }
 EOF
 ```
