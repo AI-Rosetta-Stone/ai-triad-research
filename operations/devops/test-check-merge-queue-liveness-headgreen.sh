@@ -81,3 +81,67 @@ if [ "$FAIL" -ne 0 ]; then
 fi
 
 echo "PASS: a non-head entry is silently skipped under HEADGREEN; a genuinely stale HEAD entry still alerts."
+
+# ---- Scenario 2: SO K2 (e/392#2, HIGH) -- head = max position among AWAITING_CHECKS ----
+# entries specifically, NOT max position over every entry. A top entry (position 5) sits
+# QUEUED (beyond max_entries_to_build:4, or just-enqueued, not yet tested) while position 4
+# is the one actually AWAITING_CHECKS and genuinely stale. Taking the raw max over all
+# entries (the original arm-e fix) would silently disable (a) here: position 5 isn't
+# AWAITING_CHECKS at all, so nothing would ever be flagged as head, and the real stall at
+# position 4 would never alert -- exactly today's production stall shape.
+TMPDIR2=$(mktemp -d)
+trap 'rm -rf "$TMPDIR" "$TMPDIR2"' EXIT
+
+cat > "$TMPDIR2/gh" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "api" ] && [ "\$2" = "graphql" ]; then
+  echo '[
+    {"position":4,"state":"AWAITING_CHECKS","enqueuedAt":"${OLD_ENOUGH}","headCommit":{"oid":"stale4000000000000000000000000000000000"},"pullRequest":{"number":904}},
+    {"position":5,"state":"QUEUED","enqueuedAt":"${OLD_ENOUGH}","headCommit":{"oid":null},"pullRequest":{"number":905}}
+  ]'
+  exit 0
+fi
+if [ "\$1" = "api" ]; then
+  case "\$2" in
+    *stale4000000000000000000000000000000000*)
+      echo '{"total_count": 0}'
+      ;;
+    *)
+      echo "unexpected check-runs lookup: \$2" >&2
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+echo "unexpected gh invocation: \$*" >&2
+exit 1
+SHIM
+chmod +x "$TMPDIR2/gh"
+
+OUTPUT2=$(PATH="$TMPDIR2:$PATH" "$SCRIPT_DIR/check-merge-queue-liveness.sh" "owner/repo" "main" 2>&1)
+
+FAIL2=0
+
+if ! echo "$OUTPUT2" | grep -q '"number": 904'; then
+  echo "FAIL: position 4 (stale AWAITING_CHECKS, the real head among awaiting entries) was NOT flagged -- a higher QUEUED position at 5 must not suppress it. Output:"
+  echo "$OUTPUT2"
+  FAIL2=1
+fi
+
+if ! echo "$OUTPUT2" | grep -q '"kind": "no-checks-started"'; then
+  echo "FAIL: expected a no-checks-started violation for position 4. Output:"
+  echo "$OUTPUT2"
+  FAIL2=1
+fi
+
+if echo "$OUTPUT2" | grep -q '"number": 905'; then
+  echo "FAIL: position 5 (QUEUED, not AWAITING_CHECKS) was flagged -- it should never be evaluated by (a)/(b) regardless of position. Output:"
+  echo "$OUTPUT2"
+  FAIL2=1
+fi
+
+if [ "$FAIL2" -ne 0 ]; then
+  exit 1
+fi
+
+echo "PASS: a stale AWAITING_CHECKS entry below a higher QUEUED position still alerts (head = max position among AWAITING_CHECKS, not max position overall)."

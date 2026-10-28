@@ -69,10 +69,16 @@ NOW_EPOCH=$(date -u +%s)
 VIOLATIONS="[]"
 
 ENTRY_COUNT=$(echo "$ENTRIES_JSON" | jq 'length')
-# HEADGREEN arm (e): the head entry is the one at the MAX position -- its group always
-# contains every other entry, so it alone gates the whole batch's merge. `// 0` guards
-# the (impossible, since ENTRY_COUNT=0 means the loop below never runs) empty-array case.
-MAX_POSITION=$(echo "$ENTRIES_JSON" | jq '[.[].position] | max // 0')
+# HEADGREEN arm (e), SO K2 (e/392#2, HIGH): the head entry is the max position among
+# AWAITING_CHECKS entries specifically -- NOT max position over every entry. A top entry
+# can sit QUEUED/MERGEABLE (beyond max_entries_to_build:4, or just-enqueued, not yet
+# tested) while a LOWER position is the one actually AWAITING_CHECKS and possibly stuck.
+# Taking the raw max over all entries would silently disable (a)/(b) on exactly the stall
+# shape this check exists to catch: the truly-stuck entry never matches IS_HEAD_ENTRY
+# because a higher, not-yet-tested position outranks it. `// empty` (not `// 0`): position
+# 0 doesn't exist (1-based), so a real position-0 entry would falsely never match "no
+# AWAITING_CHECKS entries" -- empty/unset is the correct "nothing to flag" signal instead.
+MAX_AWAITING_POSITION=$(echo "$ENTRIES_JSON" | jq '[.[] | select(.state == "AWAITING_CHECKS") | .position] | max // empty')
 for i in $(seq 0 $((ENTRY_COUNT - 1))); do
   entry=$(echo "$ENTRIES_JSON" | jq ".[$i]")
   num=$(echo "$entry" | jq -r '.pullRequest.number')
@@ -81,7 +87,7 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
   headSha=$(echo "$entry" | jq -r '.headCommit.oid // empty')
   position=$(echo "$entry" | jq -r '.position')
   IS_HEAD_ENTRY=false
-  if [ "$position" = "$MAX_POSITION" ]; then
+  if [ -n "$MAX_AWAITING_POSITION" ] && [ "$position" = "$MAX_AWAITING_POSITION" ]; then
     IS_HEAD_ENTRY=true
   fi
 

@@ -86,6 +86,18 @@ on:
 permissions:
   contents: read
 
+# t/4567 (SO K1, e/392#2/#3): test each merge-queue batch once. Every merge_group run
+# shares ONE group ("merge-group-batch"), so a newer, larger group's run cancels the
+# older, smaller group's -- "test each batch once" (t/4567#71). Every OTHER event
+# (push/pull_request/schedule/workflow_dispatch) gets `github.run_id` as its group,
+# which is unique per run by definition -- it can never collide with any other run,
+# including another PR-tier run on the same ref. This is merge_group-only BY
+# CONSTRUCTION: even if the ternary direction were somehow wrong, the failure mode is
+# merge_group losing the cancel optimization, never PR-tier runs cancelling each other.
+concurrency:
+  group: ci-${{ github.event_name == 'merge_group' && 'merge-group-batch' || github.run_id }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # t/4548: pinned so both Install Pester sites (and their cache keys) agree on exactly
