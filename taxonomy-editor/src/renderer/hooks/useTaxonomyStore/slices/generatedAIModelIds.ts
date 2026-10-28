@@ -14,7 +14,7 @@ export type AIModel =
   | 'zai-glm-5-3'
   | 'zai-glm-5-3-flash'
   | 'zai-glm-5-2'
-  | 'moonshot-kimi-k3'
+  | 'moonshot-kimi-k3.1-pro'
   | 'xai-grok-4-6'
   | 'xai-grok-4-7'
   | 'gemini-3.7-flash'
@@ -135,4 +135,5 @@ export type AIModel =
   | 'claude-opus-5-5'
   | 'claude-fable-5-1'
   | 'groq-qwen-qwen3.8-27b'
-  | 'deepseek-deepseek-flash';
+  | 'deepseek-deepseek-v4.1-flash'
+  | 'moonshot-kimi-k3.1-pro-highspeed';

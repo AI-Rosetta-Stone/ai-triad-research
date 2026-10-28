@@ -77,10 +77,10 @@ Describe 'Moonshot wiring — pure-PS shape checks (t/1936)' -Tag 'enrichment' {
         }
     }
 
-    It 'moonshot-kimi-k3 resolves to the moonshot backend in the model registry' {
+    It 'moonshot-kimi-k3.1-pro resolves to the moonshot backend in the model registry (t/4613)' {
         InModuleScope AIEnrich {
-            $script:ModelRegistry.ContainsKey('moonshot-kimi-k3') | Should -Be $true
-            $script:ModelRegistry['moonshot-kimi-k3'].Backend     | Should -Be 'moonshot'
+            $script:ModelRegistry.ContainsKey('moonshot-kimi-k3.1-pro') | Should -Be $true
+            $script:ModelRegistry['moonshot-kimi-k3.1-pro'].Backend    | Should -Be 'moonshot'
         }
     }
 }
@@ -99,12 +99,28 @@ Describe 'Moonshot live round-trip — requires MOONSHOT_API_KEY (t/1936 AC)' -T
         $r.KeySource  | Should -Match 'MOONSHOT_API_KEY|AI_API_KEY'
     }
 
-    It 'Invoke-AIApi -Model moonshot-kimi-k3 -Prompt returns non-empty Text + usage counters' {
+    It 'Invoke-AIApi -Model moonshot-kimi-k3.1-pro -Prompt returns non-empty Text + usage counters' {
         if (-not $script:HasMoonshotKey) {
             Set-ItResult -Skipped -Because $script:SkipReason
             return
         }
-        $r = Invoke-AIApi -Model 'moonshot-kimi-k3' -Prompt 'Say hi in one short word.' -MaxTokens 200 -Temperature 0.1
+        $r = Invoke-AIApi -Model 'moonshot-kimi-k3.1-pro' -Prompt 'Say hi in one short word.' -MaxTokens 200 -Temperature 0.1
+        $r                    | Should -Not -BeNullOrEmpty
+        $r.Backend            | Should -Be 'moonshot'
+        $r.Text               | Should -Not -BeNullOrEmpty
+        $r.Text.Trim().Length | Should -BeGreaterThan 0
+        $r.Usage              | Should -Not -BeNullOrEmpty
+        $r.Usage.InputTokens  | Should -BeGreaterThan 0
+        $r.Usage.OutputTokens | Should -BeGreaterThan 0
+        $r.Usage.TotalTokens  | Should -Be ($r.Usage.InputTokens + $r.Usage.OutputTokens)
+    }
+
+    It 'Invoke-AIApi -Model moonshot-kimi-k3.1-pro-highspeed -Prompt returns non-empty Text + usage counters (t/4613)' {
+        if (-not $script:HasMoonshotKey) {
+            Set-ItResult -Skipped -Because $script:SkipReason
+            return
+        }
+        $r = Invoke-AIApi -Model 'moonshot-kimi-k3.1-pro-highspeed' -Prompt 'Say hi in one short word.' -MaxTokens 200 -Temperature 0.1
         $r                    | Should -Not -BeNullOrEmpty
         $r.Backend            | Should -Be 'moonshot'
         $r.Text               | Should -Not -BeNullOrEmpty
