@@ -441,7 +441,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -850,7 +850,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1064,11 +1064,14 @@ jobs:
   # PASS. If this ever flakes it now blocks electron PRs — DEMOTE first (pull from ci-gate needs),
   # then fix, per gate-signal integrity (a flaky blocking gate is the next incident).
   #
-  # NODE 22 PIN IS LOAD-BEARING (t/3026#10 cond3 / t/3059 Part3): the @playwright/test
-  # runner hangs on Node ≥24.16.0 (yauzl stream-destruction regression; 24.15.0 is the only
-  # non-hanging 24). Pinned @playwright/test 1.60.0 vendors the fix (microsoft/playwright#40747),
-  # and Node 22 is belt-and-suspenders. Do NOT bump this job to Node 24 unless 1.60.0+ is
-  # re-verified green on the runner — a silent hang would wedge a by-then-blocking gate.
+  # NODE PIN HISTORY (t/3026#10 cond3 / t/3059 Part3): the @playwright/test runner hung on
+  # Node ≥24.16.0 (yauzl stream-destruction regression; 24.15.0 was the only non-hanging 24).
+  # Pinned @playwright/test 1.60.0 vendors the fix (microsoft/playwright#40747). t/1990
+  # (2026-10-28) bumps this job to Node 26 alongside the rest of ci.yml, matching the prod
+  # runtime -- this job's own green CI run on this bump IS the re-verification the prior
+  # note called for; if render-smoke hangs/times out here, that is this exact regression
+  # resurfacing on a new major and the bump should be reverted on THIS job specifically
+  # (ci-gate needs it, so a silent hang would wedge a blocking gate).
   #
   # Playwright browser caching (~/.cache/ms-playwright) is now wired (below) via the repo's first
   # SHA-pinned actions/cache — trims the ~1min chromium download now that the gate blocks. (t/3059.)
@@ -1099,7 +1102,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'   # PIN — load-bearing; see header (Playwright runner hangs on Node 24)
+          node-version: '26'   # PIN — load-bearing; see header (Playwright runner hangs on Node 24)
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1188,7 +1191,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1246,7 +1249,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1336,7 +1339,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Static token-contrast check
         run: bash taxonomy-editor/scripts/check-contrast.sh
@@ -1421,7 +1424,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1482,7 +1485,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1524,7 +1527,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Schema version-bump check — block mode (t/2808)
         run: node lib/brief/schemas/check-version-bump.mjs --mode=block
@@ -1575,7 +1578,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -1621,7 +1624,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         continue-on-error: true
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Run structural evals (Tier 1)
         continue-on-error: true
@@ -1674,7 +1677,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         continue-on-error: true
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Install dependencies (ajv)
         # Never-flip job — every step must carry continue-on-error (t/1329 lesson).
@@ -1719,7 +1722,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -2034,7 +2037,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
       - name: Check lockfile overrides in sync
         run: node .github/scripts/check-lockfile-overrides.mjs
 
@@ -2060,7 +2063,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
       - name: Build-path dependency coverage check
         run: node scripts/ci-audit-build-paths.mjs
 
@@ -2088,7 +2091,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -2172,7 +2175,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -2297,7 +2300,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -2538,7 +2541,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: Merge-guard predicate tests (WARN-FIRST — t/3871)
         # t/3871: operations/devops/merge-guard-predicate.test.mjs ran in NO workflow, so its tests
@@ -2636,7 +2639,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
-          node-version: '22'
+          node-version: '26'
 
       - name: File or update refactor issues
         continue-on-error: true
