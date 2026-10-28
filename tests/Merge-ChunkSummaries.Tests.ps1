@@ -65,9 +65,9 @@ Describe 'Merge-ChunkSummaries malformed-chunk resilience' -Tag 'ingestion' {
     }
 }
 
-Describe 'Merge-ChunkSummaries empty_cells merge (t/4473/t/4519)' -Tag 'ingestion' {
+Describe 'Merge-ChunkSummaries empty_cells merge (t/4473/t/4519/t/4601)' -Tag 'ingestion' {
 
-    It 'carries a cell into merged empty_cells only when EVERY chunk declared it empty' {
+    It 'carries a cell into merged empty_cells when every chunk declared it empty' {
         InModuleScope AITriad {
             $ChunkA = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[],"empty_cells":[{"camp":"skeptic","category":"Intentions","reason":"chunk A reason"}]}' | ConvertFrom-Json
             $ChunkB = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[],"empty_cells":[{"camp":"skeptic","category":"Intentions","reason":"chunk B reason"}]}' | ConvertFrom-Json
@@ -80,16 +80,20 @@ Describe 'Merge-ChunkSummaries empty_cells merge (t/4473/t/4519)' -Tag 'ingestio
         }
     }
 
-    It 'does NOT carry a cell into merged empty_cells when only SOME chunks declared it empty' {
+    It 'STILL carries a cell into merged empty_cells when only SOME chunks declared it empty, the rest silent (t/4601)' {
         InModuleScope AITriad {
             $ChunkA = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[],"empty_cells":[{"camp":"skeptic","category":"Intentions","reason":"chunk A reason"}]}' | ConvertFrom-Json
-            # Chunk B says nothing about the cell (neither a key_point nor an empty_cells entry).
+            # Chunk B says nothing about the cell (neither a key_point nor an empty_cells entry) --
+            # silent, not an explicit claim the camp is non-empty.
             $ChunkB = '{"pov_summaries":{"accelerationist":{"key_points":[]},"safetyist":{"key_points":[]},"skeptic":{"key_points":[]}},"factual_claims":[],"unmapped_concepts":[]}' | ConvertFrom-Json
 
-            $Merged = Merge-ChunkSummaries -ChunkResults @($ChunkA, $ChunkB)
+            $Merged = Merge-ChunkSummaries -ChunkResults @($ChunkA, $ChunkB) -WarningVariable warnings -WarningAction SilentlyContinue
 
-            @($Merged['empty_cells'] | Where-Object { $_.camp -eq 'skeptic' -and $_.category -eq 'Intentions' }).Count |
-                Should -Be 0 -Because 'chunk B never declared the cell empty, so the merged cell has no rationale'
+            $Cell = @($Merged['empty_cells']) | Where-Object { $_.camp -eq 'skeptic' -and $_.category -eq 'Intentions' }
+            @($Cell).Count | Should -Be 1 -Because 'chunk A declared it empty; a silent chunk B is not evidence the camp is non-empty (t/4601)'
+            $Cell.reason | Should -Be 'chunk A reason'
+            $disagreeWarn = @($warnings | Where-Object { "$_" -match 't/4601' })
+            $disagreeWarn.Count | Should -Be 1 -Because 'chunks disagreeing on emptiness still fires a visibility WARN'
         }
     }
 
