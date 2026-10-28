@@ -240,9 +240,11 @@ function Invoke-SummaryRetrievalConfidencePass {
     #>
     param([object]$SummaryObject)
     if (-not ($script:CachedEmbeddings -and $script:CachedEmbeddings.Count -gt 0)) { return }
-    $AllKpsForConf = Get-SummaryCampKeyPoints -SummaryObject $SummaryObject
+    # -WithPov (t/4478): Invoke-RetrievalConfidencePass needs each key_point's camp to scope
+    # candidate retrieval to that POV.
+    $AllKpsForConf = Get-SummaryCampKeyPoints -SummaryObject $SummaryObject -WithPov
     if ($AllKpsForConf.Count -gt 0) {
-        Invoke-RetrievalConfidencePass -KeyPoints $AllKpsForConf `
+        Invoke-RetrievalConfidencePass -KeyPointItems $AllKpsForConf `
             -Threshold $script:RetrievalConfidenceThreshold
     }
 }

@@ -175,7 +175,7 @@ Describe 'Pillar-node exclusion (t/2369)' -Tag 'pillar','retrieval' {
                     taxonomy_node_id = 'saf-beliefs-001'
                     attribution_text = 'some attribution text'
                 }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'safetyist' }) -Threshold 0.45
 
                 $Candidates = @($kp.taxonomy_node_candidates)
                 $HasPillar = @($Candidates | Where-Object { $_.id -eq 'saf-beliefs-210' }).Count -gt 0
@@ -199,7 +199,7 @@ Describe 'Pillar-node exclusion (t/2369)' -Tag 'pillar','retrieval' {
                     taxonomy_node_id = 'saf-beliefs-001'
                     attribution_text = 'some attribution text'
                 }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'safetyist' }) -Threshold 0.45
 
                 $Candidates = @($kp.taxonomy_node_candidates)
                 $HasNormal = @($Candidates | Where-Object { $_.id -eq 'saf-beliefs-001' }).Count -gt 0

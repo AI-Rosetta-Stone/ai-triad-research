@@ -446,8 +446,12 @@ saturation makes progress claims hard to verify independently.
             , $set
         }
         Mock Invoke-RetrievalConfidencePass -ModuleName AITriad {
-            $script:Calls.Add([ordered]@{ call = 'Invoke-RetrievalConfidencePass'; threshold = $Threshold; points = @($KeyPoints | ForEach-Object { [string]$_.point }) })
-            foreach ($kp in @($KeyPoints)) { $kp | Add-Member -NotePropertyName 'retrieval_low_confidence' -NotePropertyValue ([string]$kp.point -match '^Weak') -Force }
+            # t/4478: -KeyPoints (bare key_point array) -> -KeyPointItems (@{KeyPoint;POV}).
+            $script:Calls.Add([ordered]@{ call = 'Invoke-RetrievalConfidencePass'; threshold = $Threshold; points = @($KeyPointItems | ForEach-Object { [string]$_.KeyPoint.point }) })
+            foreach ($item in @($KeyPointItems)) {
+                $kp = $item.KeyPoint
+                $kp | Add-Member -NotePropertyName 'retrieval_low_confidence' -NotePropertyValue ([string]$kp.point -match '^Weak') -Force
+            }
         }
         Mock Invoke-PolarityGatePass -ModuleName AITriad {
             $script:Calls.Add([ordered]@{ call = 'Invoke-PolarityGatePass'; skipDirectionalGate = [bool]$SkipDirectionalGate
