@@ -1222,7 +1222,7 @@ function NodeDetailResearchTab({ node, researchText, setResearchText, researchCo
         <span className="node-detail-research-desc">Research prompt for this position. Edit as needed, then copy to clipboard.</span>
         <button
           className={`btn btn-sm${researchCopied ? '' : ' btn-ghost'}`}
-          onClick={handleResearchCopy}
+          onClick={() => void handleResearchCopy()}
         >
           {researchCopied ? '✓ Copied' : 'Copy'}
         </button>
