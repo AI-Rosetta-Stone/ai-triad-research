@@ -270,6 +270,11 @@ function Invoke-OrgClaimMatching {
     $matchPerClaim = [System.Collections.Generic.List[PSObject]]::new()
     $doubleMarkPattern = '(?i)(\b(oppose|reject|resist|against|least promising)\b|\b(ought|should|must|need|shall|may)\s+not\b)'
     $negationSlice = [System.Collections.Generic.List[PSObject]]::new()
+    # t/4395: claims flagged text_verbatim=false by Invoke-OrgStanceExtraction (t/4382) whose
+    # 'text' was NOT fed to the directional gate as a verbatim rep this run (canonical_proposition
+    # is the only rep sent for them instead) -- a paraphrase passed off as a quote would otherwise
+    # pollute the opposes-if-any gate with an unreliable "verbatim" signal.
+    $nonVerbatimSubstitutions = 0
 
     $familyKeyPattern = '-(?<year>\d{4})(-\d+)?$'
 
@@ -302,7 +307,18 @@ function Invoke-OrgClaimMatching {
         # exists to detect (origin inversion reads unrelated on canonical vs opposes
         # on the verbatim phrasing). Org claims carry no attribution_text, so `text`
         # is the verbatim fallback. Embedding/node-selection still use canonical.
-        $verbatim = if ($claim.PSObject.Properties['text']) { [string]$claim.text } else { '' }
+        #
+        # t/4395: EXCEPT when text_verbatim is explicitly false (t/4382) -- the model
+        # paraphrased instead of quoting, so 'text' is not a real quote and must not be
+        # fed to the gate as one. Missing text_verbatim (older claims, pre-t/4382) is
+        # trusted as before -- this only changes behavior for claims the field flags.
+        $isTextVerbatim = if ($claim.PSObject.Properties['text_verbatim']) { [bool]$claim.text_verbatim } else { $true }
+        if ($isTextVerbatim) {
+            $verbatim = if ($claim.PSObject.Properties['text']) { [string]$claim.text } else { '' }
+        } else {
+            $verbatim = ''
+            $nonVerbatimSubstitutions++
+        }
         $matchPerClaim.Add([PSCustomObject]@{
             OrgId       = [string]$claim.org_id
             SourceId    = $sourceId
@@ -326,6 +342,10 @@ function Invoke-OrgClaimMatching {
                 Top         = @($top)
             })
         }
+    }
+
+    if ($nonVerbatimSubstitutions -gt 0) {
+        Write-Warning "Invoke-OrgClaimMatching: fed canonical_proposition instead of text to the directional gate for $nonVerbatimSubstitutions claim(s) flagged text_verbatim=false (t/4395)"
     }
 
     # ── Existing edges to skip ───────────────────────────────────────────
