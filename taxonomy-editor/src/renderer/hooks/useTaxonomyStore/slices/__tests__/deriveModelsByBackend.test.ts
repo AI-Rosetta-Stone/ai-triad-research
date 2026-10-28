@@ -135,10 +135,10 @@ describe('deriveModelsByBackend (t/3280 SSOT derive)', () => {
     expect(b.some(x => x.value === 'gemini')).toBe(true);
   });
 
-  it('deepseek is now an offered backend with its restored v4 picker (t/3286)', () => {
+  it('deepseek is now an offered backend with its restored v4 picker (t/3286; t/4613: flash model renamed to v4.1-flash)', () => {
     // Positive assertion that the restore actually took effect (guards against a silent re-emptying).
     expect(derived.deepseek).toEqual([
-      { value: 'deepseek-deepseek-flash', label: 'Flash (default)' },
+      { value: 'deepseek-deepseek-v4.1-flash', label: 'V4.1 Flash (default)' },
       { value: 'deepseek-deepseek-v4-pro', label: 'V4 Pro (reasoning)' },
     ]);
     expect(deriveBackends(aiModels).some(b => b.value === 'deepseek')).toBe(true);

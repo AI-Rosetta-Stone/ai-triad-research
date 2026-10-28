@@ -118,14 +118,14 @@
       "minTimeoutMs": 400000
     },
     {
-      "id": "moonshot-kimi-k3",
-      "apiModelId": "kimi-k3",
-      "label": "Kimi K3",
+      "id": "moonshot-kimi-k3.1-pro",
+      "apiModelId": "kimi-k3.1-pro",
+      "label": "Kimi K3.1 Pro",
       "backend": "moonshot",
       "fixedTemperature": 1,
       "minTimeoutMs": 400000,
       "picker": {
-        "label": "Kimi K3",
+        "label": "K3.1 Pro (default)",
         "order": 10
       }
     },
@@ -1004,14 +1004,26 @@
       "backend": "groq"
     },
     {
-      "id": "deepseek-deepseek-flash",
+      "id": "deepseek-deepseek-v4.1-flash",
       "minTimeoutMs": 0,
       "apiModelId": "deepseek-flash",
-      "label": "Deepseek Flash",
+      "label": "DeepSeek V4.1 Flash",
       "backend": "deepseek",
       "picker": {
-        "label": "Flash (default)",
+        "label": "V4.1 Flash (default)",
         "order": 10
+      }
+    },
+    {
+      "id": "moonshot-kimi-k3.1-pro-highspeed",
+      "apiModelId": "kimi-k3.1-pro-highspeed",
+      "label": "Kimi K3.1 Pro Highspeed",
+      "backend": "moonshot",
+      "fixedTemperature": 1,
+      "minTimeoutMs": 400000,
+      "picker": {
+        "label": "K3.1 Pro Highspeed",
+        "order": 20
       }
     }
   ],
@@ -1019,11 +1031,11 @@
     "gemini": "gemini-3.1-pro-preview",
     "claude": "claude-sonnet-4-6",
     "groq": "groq-openai-gpt-oss-120b",
-    "deepseek": "deepseek-deepseek-flash",
+    "deepseek": "deepseek-deepseek-v4.1-flash",
     "azure": "azure-gpt-4o",
     "ollama": "ollama-gemma4-e4b-it-q4-k-m",
     "zai": "zai-glm-5-3",
-    "moonshot": "moonshot-kimi-k3",
+    "moonshot": "moonshot-kimi-k3.1-pro",
     "xai": "xai-grok-4-7"
   },
   "fallbackChains": {
@@ -1079,9 +1091,6 @@
       "gemini-3.5-flash-lite",
       "groq-openai-gpt-oss-20b"
     ],
-    "deepseek-deepseek-flash": [
-      "deepseek-deepseek-v4-pro"
-    ],
     "zai-glm-5-2": [
       "groq-openai-gpt-oss-120b"
     ],
@@ -1091,13 +1100,19 @@
     "zai-glm-5-3-flash": [
       "groq-openai-gpt-oss-120b"
     ],
-    "moonshot-kimi-k3": [
-      "groq-openai-gpt-oss-120b"
-    ],
     "xai-grok-4-6": [
       "groq-openai-gpt-oss-120b"
     ],
     "xai-grok-4-7": [
+      "groq-openai-gpt-oss-120b"
+    ],
+    "deepseek-deepseek-v4.1-flash": [
+      "deepseek-deepseek-v4-pro"
+    ],
+    "moonshot-kimi-k3.1-pro": [
+      "groq-openai-gpt-oss-120b"
+    ],
+    "moonshot-kimi-k3.1-pro-highspeed": [
       "groq-openai-gpt-oss-120b"
     ]
   },
@@ -1280,7 +1295,7 @@
       "groq": "groq-openai-gpt-oss-20b",
       "openai": "openai-gpt-4.1-mini",
       "azure": "azure-gpt-4o-mini",
-      "deepseek": "deepseek-deepseek-flash",
+      "deepseek": "deepseek-deepseek-v4.1-flash",
       "ollama": "ollama-gemma4-e4b-it-q4-k-m",
       "zai": "zai-glm-5-3-flash"
     },
@@ -1295,7 +1310,7 @@
       "zai": "zai-glm-5-3"
     }
   },
-  "_pricing_provenance": "Anthropic pricing page (platform.claude.com/docs/en/about-claude/pricing), read 2026-10-05; standard global Claude API $/MTok (t/3941#4). Cache reads are 0.1x input EXCEPT claude-fable-5-1 (0.025x = 0.25) and claude-opus-5-5 (0.05x = 0.20); claude-fable-5 cache read is 1.00. Sonnet 5 is 2/10 standard — the scheduled 2026-09-01 rise to 3/15 was CANCELLED (pricing-page footnote); the prior stored 3/15 was Sonnet 4.6's price. Schema has no cache-write field; 5m/1h cache-write prices are intentionally not stored (adding one is a schema change). t/3946 BACKFILL (2026-10-05, PR #2840): priced all reachable models, re-keyed orphans, and filled cache rates from live provider pages. PROMO (ends 2026-12-31): gemini-3.8-flash and gemini-3.6-flash are at promotional 0.75/3.75/0.075 (in/out/cache) that DOUBLES on 2027-01-01 to 1.50/7.50/0.15 per ai.google.dev/gemini-api/docs/pricing; refresh tracked in t/3974 (due 2026-12-31). CONTEXT TIER: openai-gpt-5.5 (5/30/0.50) and openai-gpt-5.5-pro (30/180; cachedInputPer1M=input, as no cache price is published) are stored at the <272K-token SHORT-context rate — long context (>272K) is roughly 2x and is NOT modelled (schema has no per-context-tier field). TIER DETAIL (Shared Lib p/726#29): gemini-3.1-pro-preview (2/12/0.20) is stored at the <=200k-token tier, so long context is under-costed; deepseek-flash (t/4174: replaces the delisted legacy alias deepseek-v4-flash, same Flash price, DeepSeek pricing page read 2026-10-14) and deepseek-v4-pro are stored at the standard/PEAK rate — the off-peak 50% discount (UTC window, weekends/holidays) is not modelled. HAIKU 5.5 (t/4086, Anthropic pricing page read 2026-10-07): claude-haiku-5-5 is priced BY PROMPT LENGTH; the stored value is the base <=100K-token tier (input 0.10, output 0.50, cache-read 0.01). The >100K-token tier is 5x (input 0.50, output 2.50, cache-read 0.05) and is NOT modelled (schema has no per-context-tier field). Cache read is the standard 0.1x of base input. Haiku 5.5 has a 1M context window (Models API max_input_tokens=1000000) but, like every other Claude model here, inherits the claude backend capabilityDefault (200000) with no per-model override — a pre-existing Claude context-modeling gap, not changed in this ticket.",
+  "_pricing_provenance": "Anthropic pricing page (platform.claude.com/docs/en/about-claude/pricing), read 2026-10-05; standard global Claude API $/MTok (t/3941#4). Cache reads are 0.1x input EXCEPT claude-fable-5-1 (0.025x = 0.25) and claude-opus-5-5 (0.05x = 0.20); claude-fable-5 cache read is 1.00. Sonnet 5 is 2/10 standard — the scheduled 2026-09-01 rise to 3/15 was CANCELLED (pricing-page footnote); the prior stored 3/15 was Sonnet 4.6's price. Schema has no cache-write field; 5m/1h cache-write prices are intentionally not stored (adding one is a schema change). t/3946 BACKFILL (2026-10-05, PR #2840): priced all reachable models, re-keyed orphans, and filled cache rates from live provider pages. PROMO (ends 2026-12-31): gemini-3.8-flash and gemini-3.6-flash are at promotional 0.75/3.75/0.075 (in/out/cache) that DOUBLES on 2027-01-01 to 1.50/7.50/0.15 per ai.google.dev/gemini-api/docs/pricing; refresh tracked in t/3974 (due 2026-12-31). CONTEXT TIER: openai-gpt-5.5 (5/30/0.50) and openai-gpt-5.5-pro (30/180; cachedInputPer1M=input, as no cache price is published) are stored at the <272K-token SHORT-context rate — long context (>272K) is roughly 2x and is NOT modelled (schema has no per-context-tier field). TIER DETAIL (Shared Lib p/726#29): gemini-3.1-pro-preview (2/12/0.20) is stored at the <=200k-token tier, so long context is under-costed; deepseek-flash (t/4174: replaces the delisted legacy alias deepseek-v4-flash, same Flash price, DeepSeek pricing page read 2026-10-14) and deepseek-v4-pro are stored at the standard/PEAK rate — the off-peak 50% discount (UTC window, weekends/holidays) is not modelled. HAIKU 5.5 (t/4086, Anthropic pricing page read 2026-10-07): claude-haiku-5-5 is priced BY PROMPT LENGTH; the stored value is the base <=100K-token tier (input 0.10, output 0.50, cache-read 0.01). The >100K-token tier is 5x (input 0.50, output 2.50, cache-read 0.05) and is NOT modelled (schema has no per-context-tier field). Cache read is the standard 0.1x of base input. Haiku 5.5 has a 1M context window (Models API max_input_tokens=1000000) but, like every other Claude model here, inherits the claude backend capabilityDefault (200000) with no per-model override — a pre-existing Claude context-modeling gap, not changed in this ticket. T4613 (2026-10-28, PI request): deepseek-deepseek-v4.1-flash replaces deepseek-deepseek-flash with the SAME apiModelId (deepseek-flash) and the SAME price -- api-docs.deepseek.com/quick_start/pricing, read 2026-10-28, confirms deepseek-flash already serves DeepSeek-V4.1-Flash-1017 today (the retired alias deepseek-v4-flash now just routes to it); nothing about the underlying model or price changed, only the registry's label. moonshot-kimi-k3.1-pro / -highspeed (replacing moonshot-kimi-k3) are priced from third-party sources (EdenAI's published Kimi K3.1 Pro Highspeed page; cross-checked against an independent forum-reported CNY figure that converts to a similar range), NOT Moonshot's own pricing page -- that page renders client-side and could not be read directly. cachedInputPer1M=input for both, as no cache price is published (same convention as openai-gpt-5.5-pro). Re-verify against platform.kimi.ai/docs/pricing/chat once it can be read, and correct if these third-party figures are off.",
   "pricing": {
     "_comment": "USD per 1M tokens. cachedInputPer1M is the reduced rate for cache-hit input tokens. Updated 2026-10-05.",
     "gemini-3.1-pro-preview": {
@@ -1421,11 +1436,6 @@
       "outputPer1M": 180,
       "cachedInputPer1M": 30
     },
-    "deepseek-deepseek-flash": {
-      "inputPer1M": 0.3,
-      "outputPer1M": 1.2,
-      "cachedInputPer1M": 0.006
-    },
     "deepseek-deepseek-v4-pro": {
       "inputPer1M": 1.32,
       "outputPer1M": 3.96,
@@ -1445,11 +1455,6 @@
       "inputPer1M": 0.15,
       "outputPer1M": 0.5,
       "cachedInputPer1M": 0.03
-    },
-    "moonshot-kimi-k3": {
-      "inputPer1M": 3,
-      "outputPer1M": 15,
-      "cachedInputPer1M": 0.3
     },
     "xai-grok-4-6": {
       "inputPer1M": 2,
@@ -1515,6 +1520,21 @@
       "inputPer1M": 0.4,
       "outputPer1M": 1.6,
       "cachedInputPer1M": 0.1
+    },
+    "deepseek-deepseek-v4.1-flash": {
+      "inputPer1M": 0.3,
+      "outputPer1M": 1.2,
+      "cachedInputPer1M": 0.006
+    },
+    "moonshot-kimi-k3.1-pro": {
+      "inputPer1M": 2,
+      "outputPer1M": 10,
+      "cachedInputPer1M": 2
+    },
+    "moonshot-kimi-k3.1-pro-highspeed": {
+      "inputPer1M": 4,
+      "outputPer1M": 20,
+      "cachedInputPer1M": 4
     }
   },
   "lastRefreshed": "2026-09-22T21:08:31.752Z"

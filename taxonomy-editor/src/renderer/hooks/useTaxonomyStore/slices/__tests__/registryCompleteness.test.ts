@@ -84,7 +84,7 @@ describe('backendForModel / getStoredModel regressions (t/2486)', () => {
   beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom teardown */ } });
 
   it('maps moonshot models to the moonshot backend (was the bug: fell through to gemini)', () => {
-    expect(backendForModel('moonshot-kimi-k3')).toBe('moonshot');
+    expect(backendForModel('moonshot-kimi-k3.1-pro')).toBe('moonshot');
   });
 
   it('returns undefined for a truly unknown model id — never a silent gemini', () => {
@@ -100,7 +100,7 @@ describe('backendForModel / getStoredModel regressions (t/2486)', () => {
   });
 
   it('getStoredModel returns a stored id that IS in the registry unchanged', () => {
-    localStorage.setItem('taxonomy-editor-gemini-model', 'moonshot-kimi-k3');
-    expect(getStoredModel()).toBe('moonshot-kimi-k3');
+    localStorage.setItem('taxonomy-editor-gemini-model', 'moonshot-kimi-k3.1-pro');
+    expect(getStoredModel()).toBe('moonshot-kimi-k3.1-pro');
   });
 });
