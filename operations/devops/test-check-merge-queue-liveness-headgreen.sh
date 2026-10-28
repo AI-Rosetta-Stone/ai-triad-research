@@ -157,7 +157,14 @@ echo "PASS: a stale AWAITING_CHECKS entry below a higher QUEUED position still a
 TMPDIR3=$(mktemp -d)
 trap 'rm -rf "$TMPDIR" "$TMPDIR2" "$TMPDIR3"' EXIT
 
-OUTPUT3=$(PATH="$TMPDIR3" "$SCRIPT_DIR/check-merge-queue-liveness.sh" "owner/repo" "main" 2>&1)
+# Invoke via explicit `bash <script>`, NOT the script's own shebang -- `bash` is
+# resolved via THIS (outer, unmodified) shell's PATH before the PATH=$TMPDIR3 prefix
+# takes effect for the child process. Invoking the script file directly instead
+# would rely on the kernel re-execing `/usr/bin/env bash`, and env itself would then
+# try to resolve `bash` using the CHILD's (emptied) PATH and fail with exit 127 --
+# a real failure hit live-fire, not a hypothetical (this comment exists because it
+# broke CI once already).
+OUTPUT3=$(PATH="$TMPDIR3" bash "$SCRIPT_DIR/check-merge-queue-liveness.sh" "owner/repo" "main" 2>&1)
 
 if ! echo "$OUTPUT3" | grep -q '"kind": "liveness-check-failed"'; then
   echo "FAIL: a missing jq binary did not report liveness-check-failed. Output:"
