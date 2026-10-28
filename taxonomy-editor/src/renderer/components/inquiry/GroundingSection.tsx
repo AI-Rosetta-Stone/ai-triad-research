@@ -2,35 +2,32 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useState, useMemo } from 'react';
-import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { Camp, GroundingEnvelope } from '@lib/inquiry';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
-import type { PovNode } from '../../types/taxonomy';
 import { LinkedNodePreview } from '../shared/LinkedNodePreview';
 import './GroundingSection.css';
 
-type TabId = Camp | 'situation';
+const CAMP_TABS = ['acc', 'saf', 'skp'] as const satisfies readonly Camp[];
+type CampTab = typeof CAMP_TABS[number];
+type TabId = CampTab | 'situation';
 
-const CAMP_LABELS: Record<Camp, string> = {
+const CAMP_LABELS: Record<CampTab, string> = {
   acc: 'Accelerationist',
   saf: 'Safetyist',
   skp: 'Skeptic',
-  cc: 'Cross-Cutting',
 };
 
 interface GroundingSectionProps {
   grounding: GroundingEnvelope;
-  nodesByPov?: Record<string, PovNode>;
 }
 
-export function GroundingSection({ grounding, nodesByPov = {} }: GroundingSectionProps) {
-  const allNodes = useTaxonomyStore(s => ({ accelerationist: s.accelerationist, safetyist: s.safetyist, skeptic: s.skeptic }));
+export function GroundingSection({ grounding }: GroundingSectionProps) {
+  const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
 
   const [activeTab, setActiveTab] = useState<TabId>('acc');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-  const campTabs: TabId[] = ['acc', 'saf', 'skp'];
-  const hasAnyCampNodes = campTabs.some(camp => (grounding.nodesByCamp[camp]?.length ?? 0) > 0);
+  const hasAnyCampNodes = CAMP_TABS.some(camp => (grounding.nodesByCamp[camp]?.length ?? 0) > 0);
   const hasSituationNodes = (grounding.situationNodes?.length ?? 0) > 0;
   const shouldShowSituationTab = hasSituationNodes;
 
@@ -39,54 +36,21 @@ export function GroundingSection({ grounding, nodesByPov = {} }: GroundingSectio
     setSelectedRowId(null);
   };
 
-  const getNodeLabel = (nodeId: string): string => {
-    try {
-      const parts = nodeId.split('-');
-      if (parts.length < 3) return nodeId;
+  // Rows render the ADR §5 inline display snapshot (node.label) rather than a live taxonomy
+  // lookup — the taxonomy is mutable, so a result opened later degrades to stale labels rather
+  // than broken references. Live resolution happens only for the selected row's detail pane.
+  const getCampRows = (camp: CampTab) =>
+    (grounding.nodesByCamp[camp] ?? []).map(node => ({ id: node.nodeId, label: node.label }));
 
-      const pov = parts[0];
-      const category = parts[1];
-      const index = parts[2];
-
-      let povKey: keyof typeof allNodes | null = null;
-      if (pov === 'acc') povKey = 'accelerationist';
-      else if (pov === 'saf') povKey = 'safetyist';
-      else if (pov === 'skp') povKey = 'skeptic';
-
-      if (povKey && allNodes[povKey]?.[nodeId]) {
-        return allNodes[povKey][nodeId].label || nodeId;
-      }
-    } catch (err) {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'GroundingSection',
-        level: 'warn',
-        message: 'Failed to resolve node label',
-        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-      });
-    }
-    return nodeId;
-  };
-
-  const getCampRows = (camp: Camp) => {
-    const nodes = grounding.nodesByCamp[camp] ?? [];
-    return nodes.map(node => ({
-      id: node.nodeId,
-      label: getNodeLabel(node.nodeId),
-    }));
-  };
-
-  const getSituationRows = () => {
-    return (grounding.situationNodes ?? []).slice(0, 3).map(node => ({
-      id: node.nodeId,
-      label: node.label,
-    }));
-  };
+  const getSituationRows = () =>
+    (grounding.situationNodes ?? []).slice(0, 3).map(node => ({ id: node.nodeId, label: node.label }));
 
   const currentRows = useMemo(() => {
     if (activeTab === 'situation') return getSituationRows();
-    return getCampRows(activeTab as Camp);
-  }, [activeTab, grounding, allNodes]);
+    return getCampRows(activeTab);
+  }, [activeTab, grounding]);
+
+  const selectedNodeMissing = selectedRowId !== null && lookupPinnedData(selectedRowId) === null;
 
   if (!hasAnyCampNodes && !shouldShowSituationTab) return null;
 
@@ -95,7 +59,7 @@ export function GroundingSection({ grounding, nodesByPov = {} }: GroundingSectio
       <span className="grounding-eyebrow">Grounding</span>
 
       <div className="grounding-tabs" role="tablist">
-        {campTabs.map(camp => (
+        {CAMP_TABS.map(camp => (
           <button
             key={camp}
             role="tab"
@@ -129,11 +93,11 @@ export function GroundingSection({ grounding, nodesByPov = {} }: GroundingSectio
           <div className="grounding-empty">
             {activeTab === 'situation'
               ? 'No situation nodes available'
-              : `No grounding nodes for ${CAMP_LABELS[activeTab as Camp]}`}
+              : `No grounding nodes for ${CAMP_LABELS[activeTab]}`}
           </div>
         ) : (
           <div className="grounding-content">
-            <table className="grounding-table" role="grid" aria-label={`${CAMP_LABELS[activeTab as Camp]} grounding nodes`}>
+            <table className="grounding-table" role="grid" aria-label={`${activeTab === 'situation' ? 'Situation' : CAMP_LABELS[activeTab]} grounding nodes`}>
               <thead>
                 <tr>
                   <th scope="col">Node ID</th>
@@ -141,7 +105,7 @@ export function GroundingSection({ grounding, nodesByPov = {} }: GroundingSectio
                 </tr>
               </thead>
               <tbody>
-                {currentRows.map((row, idx) => (
+                {currentRows.map((row) => (
                   <tr
                     key={row.id}
                     className={`grounding-row ${selectedRowId === row.id ? 'selected' : ''}`}
@@ -166,7 +130,7 @@ export function GroundingSection({ grounding, nodesByPov = {} }: GroundingSectio
             {selectedRowId && (
               <div className="grounding-detail">
                 <LinkedNodePreview nodeId={selectedRowId} />
-                {!currentRows.find(r => r.id === selectedRowId) && (
+                {selectedNodeMissing && (
                   <div className="grounding-detail-missing">
                     Node no longer in taxonomy
                   </div>

@@ -7,13 +7,13 @@ import userEvent from '@testing-library/user-event';
 import { GroundingSection } from './GroundingSection';
 import type { GroundingEnvelope } from '@lib/inquiry';
 
-vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
+const KNOWN_NODE_IDS = new Set(['acc-beliefs-001', 'saf-beliefs-001', 'skp-beliefs-001']);
+
 vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: vi.fn(() => ({
-    accelerationist: { 'acc-beliefs-001': { id: 'acc-beliefs-001', label: 'AI acceleration belief node' } },
-    safetyist: { 'saf-beliefs-001': { id: 'saf-beliefs-001', label: 'AI safety belief node' } },
-    skeptic: { 'skp-beliefs-001': { id: 'skp-beliefs-001', label: 'AI skeptic belief node' } },
-  })),
+  useTaxonomyStore: (selector: (s: { lookupPinnedData: (id: string) => unknown }) => unknown) =>
+    selector({
+      lookupPinnedData: (id: string) => (KNOWN_NODE_IDS.has(id) ? { type: 'pov', pov: 'accelerationist', node: { id, label: 'resolved' } } : null),
+    }),
 }));
 vi.mock('../shared/LinkedNodePreview', () => ({
   LinkedNodePreview: ({ nodeId }: { nodeId: string }) => <div data-testid="node-preview">{nodeId}</div>,
@@ -22,9 +22,9 @@ vi.mock('../shared/LinkedNodePreview', () => ({
 describe('GroundingSection (t/4591)', () => {
   const mockGrounding: GroundingEnvelope = {
     nodesByCamp: {
-      acc: [{ id: 'acc-beliefs-001' }],
-      saf: [{ id: 'saf-beliefs-001' }],
-      skp: [{ id: 'skp-beliefs-001' }],
+      acc: [{ nodeId: 'acc-beliefs-001', label: 'AI acceleration belief node', camp: 'acc' }],
+      saf: [{ nodeId: 'saf-beliefs-001', label: 'AI safety belief node', camp: 'saf' }],
+      skp: [{ nodeId: 'skp-beliefs-001', label: 'AI skeptic belief node', camp: 'skp' }],
     },
   };
 
@@ -41,7 +41,7 @@ describe('GroundingSection (t/4591)', () => {
 
   it('displays nodes for the active tab', () => {
     render(<GroundingSection grounding={mockGrounding} />);
-    expect(screen.getByText('acc-beliefs-001')).toBeInTheDocument();
+    expect(screen.getByText('AI acceleration belief node')).toBeInTheDocument();
   });
 
   it('switches tabs when clicked', async () => {
@@ -51,7 +51,7 @@ describe('GroundingSection (t/4591)', () => {
     const safetyistTab = screen.getByRole('button', { name: 'Safetyist' });
     await user.click(safetyistTab);
 
-    expect(screen.getByText('saf-beliefs-001')).toBeInTheDocument();
+    expect(screen.getByText('AI safety belief node')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Safetyist' })).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -63,11 +63,11 @@ describe('GroundingSection (t/4591)', () => {
 
   it('renders Situation tab when situationNodes exist', () => {
     const groundingWithSituations: GroundingEnvelope = {
-      nodesByCamp: { acc: [{ id: 'acc-beliefs-001' }] },
+      nodesByCamp: { acc: [{ nodeId: 'acc-beliefs-001', label: 'AI acceleration belief node', camp: 'acc' }] },
       situationNodes: [
-        { id: 'cc-situations-001' },
-        { id: 'cc-situations-002' },
-        { id: 'cc-situations-003' },
+        { nodeId: 'cc-situations-001', label: 'Situation One' },
+        { nodeId: 'cc-situations-002', label: 'Situation Two' },
+        { nodeId: 'cc-situations-003', label: 'Situation Three' },
       ],
     };
 
@@ -77,60 +77,58 @@ describe('GroundingSection (t/4591)', () => {
 
   it('limits situation tab to top 3 nodes', async () => {
     const user = userEvent.setup();
-    const groundingWithManyNods: GroundingEnvelope = {
-      nodesByCamp: { acc: [{ id: 'acc-beliefs-001' }] },
+    const groundingWithManyNodes: GroundingEnvelope = {
+      nodesByCamp: { acc: [{ nodeId: 'acc-beliefs-001', label: 'AI acceleration belief node', camp: 'acc' }] },
       situationNodes: [
-        { id: 'cc-situations-001' },
-        { id: 'cc-situations-002' },
-        { id: 'cc-situations-003' },
-        { id: 'cc-situations-004' },
+        { nodeId: 'cc-situations-001', label: 'Situation One' },
+        { nodeId: 'cc-situations-002', label: 'Situation Two' },
+        { nodeId: 'cc-situations-003', label: 'Situation Three' },
+        { nodeId: 'cc-situations-004', label: 'Situation Four' },
       ],
     };
 
-    render(<GroundingSection grounding={groundingWithManyNods} />);
+    render(<GroundingSection grounding={groundingWithManyNodes} />);
     await user.click(screen.getByRole('button', { name: 'Situation' }));
 
-    expect(screen.getByText('cc-situations-001')).toBeInTheDocument();
-    expect(screen.getByText('cc-situations-002')).toBeInTheDocument();
-    expect(screen.getByText('cc-situations-003')).toBeInTheDocument();
-    expect(screen.queryByText('cc-situations-004')).not.toBeInTheDocument();
+    expect(screen.getByText('Situation One')).toBeInTheDocument();
+    expect(screen.getByText('Situation Two')).toBeInTheDocument();
+    expect(screen.getByText('Situation Three')).toBeInTheDocument();
+    expect(screen.queryByText('Situation Four')).not.toBeInTheDocument();
   });
 
   it('supports keyboard navigation', async () => {
     const user = userEvent.setup();
     render(<GroundingSection grounding={mockGrounding} />);
 
-    const firstRow = screen.getByText('acc-beliefs-001').closest('tr');
-    if (firstRow) {
-      await user.keyboard('{Enter}');
-      expect(firstRow).toHaveAttribute('aria-selected', 'true');
-    }
+    const firstRow = screen.getByText('AI acceleration belief node').closest('tr');
+    expect(firstRow).not.toBeNull();
+    firstRow!.focus();
+    await user.keyboard('{Enter}');
+    expect(firstRow).toHaveAttribute('aria-selected', 'true');
   });
 
   it('renders node preview on row selection', async () => {
     const user = userEvent.setup();
     render(<GroundingSection grounding={mockGrounding} />);
 
-    const firstRow = screen.getByText('acc-beliefs-001').closest('tr');
-    if (firstRow) {
-      await user.click(firstRow);
-      expect(screen.getByTestId('node-preview')).toHaveTextContent('acc-beliefs-001');
-    }
+    const firstRow = screen.getByText('AI acceleration belief node').closest('tr');
+    expect(firstRow).not.toBeNull();
+    await user.click(firstRow!);
+    expect(screen.getByTestId('node-preview')).toHaveTextContent('acc-beliefs-001');
   });
 
   it('shows missing node message when node not in taxonomy', async () => {
     const user = userEvent.setup();
     const groundingWithMissingNode: GroundingEnvelope = {
       nodesByCamp: {
-        acc: [{ id: 'acc-deleted-999' }],
+        acc: [{ nodeId: 'acc-deleted-999', label: 'Stale label', camp: 'acc' }],
       },
     };
 
     render(<GroundingSection grounding={groundingWithMissingNode} />);
-    const firstRow = screen.getByText('acc-deleted-999').closest('tr');
-    if (firstRow) {
-      await user.click(firstRow);
-      expect(screen.getByText('Node no longer in taxonomy')).toBeInTheDocument();
-    }
+    const firstRow = screen.getByText('Stale label').closest('tr');
+    expect(firstRow).not.toBeNull();
+    await user.click(firstRow!);
+    expect(screen.getByText('Node no longer in taxonomy')).toBeInTheDocument();
   });
 });
