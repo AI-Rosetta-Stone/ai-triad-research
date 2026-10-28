@@ -1,5 +1,7 @@
-frozen list sha256 cfb3eef23afcaed51f2047aacaab25ef0a7763cb88e1518f8dfdca45d5798405  targets=3  mode=dry-run
-  OK text-2026: 1 field(s), 2 diff line(s), keys 21 unchanged, post_sha256 2fb45ced93eb408ab90ad548ef7e895cc318d593e0722617a6f1d374f4218846
-  OK text-2026-1: 1 field(s), 2 diff line(s), keys 26 unchanged, post_sha256 44d1e41b501dddc9e7757a523621835d6b90722563158ddb3f2ed5701846384d
-  OK world-economic-outlook-update-global-economy-steady-amid-2026-2: 1 field(s), 2 diff line(s), keys 24 unchanged, post_sha256 8a2ad2e8791c003f921364a38b1979189d1ae01a19bfa252ea676089a32f9bc1
-dry-run: 3/3 targets pass all checks; nothing written
+frozen list sha256 8652ebec303e66c98e6a05ca25a32db6cdaef99f9c32de01a3a57a2dd249ab29  targets=5  mode=dry-run
+  OK text-2026: 2 field(s), 4 diff line(s), keys 21 unchanged, post_sha256 0f4379359bed0a2c33f3190cebbab69449c0cc439710fdd6841e0a744d4093c8
+  OK text-2026-1: 2 field(s), 4 diff line(s), keys 26 unchanged, post_sha256 98b21d8ab50f7e33cb2f986787595b7555a8ee23be893e9b6cc328f9c56f2d0d
+  OK world-economic-outlook-update-global-economy-steady-amid-2026: 2 field(s), 4 diff line(s), keys 27 unchanged, post_sha256 8103066786cd025244b1e05a95406d2c595d4a372d35c70412f67606bed46f93
+  OK world-economic-outlook-update-global-economy-steady-amid-2026-1: 2 field(s), 4 diff line(s), keys 27 unchanged, post_sha256 79824a3011bedbe75ddd65a0f2ca3bca046b5b898c0c8ecca49de7f3181d96ed
+  OK world-economic-outlook-update-global-economy-steady-amid-2026-2: 2 field(s), 4 diff line(s), keys 24 unchanged, post_sha256 a2406bedfda0791763a1544c4485d99c9536027685f6c6ec52140a88902c6786
+dry-run: 5/5 targets pass all checks; nothing written
