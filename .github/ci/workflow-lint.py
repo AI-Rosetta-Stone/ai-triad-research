@@ -247,6 +247,19 @@ TOLERATED_SKIP_RE = re.compile(r'#\s*lint:tolerated-skip:\s*(\S+)\s+(t/\d+|\d{4}
 # Loose form: detect a present-but-malformed marker (missing the ref/date) so it is FLAGGED, not
 # silently ignored — a tolerated-skip with no audit anchor must fail the rule (TL cond 3).
 TOLERATED_SKIP_ANY_RE = re.compile(r'#\s*lint:tolerated-skip:\s*(.*)$')
+# t/4567 (SO/TL e/392#5): a NARROW, machine-checkable R4 exemption for the merge-queue
+# "test each batch once" cancel. Unlike the e/209 precedent (`${{ github.ref !=
+# 'refs/heads/main' }}` — evaluates true on exactly the PRs it's supposed to protect,
+# with no way for a static regex to tell), this shape is checkable: `cancel-in-progress`
+# must be EXACTLY `${{ github.event_name == 'merge_group' }}` (textually, not "close
+# enough" — the comparison IS the discriminator that separates the protected PR/push
+# events from the exempt merge_group ones), the concurrency block's `group:` line must
+# also reference `github.event_name` (so the GROUP itself structurally separates
+# merge_group from everything else, not just the cancel flag), and a co-located
+# `# lint:r4-merge-group-cancel <ticket-or-date>` marker must be present so the
+# exemption is auditable, not silent. All three must hold, or R4 fires as before.
+R4_SAFE_CANCEL_RE = re.compile(r"^\$\{\{\s*github\.event_name\s*==\s*'merge_group'\s*\}\}$")
+R4_MERGE_GROUP_MARKER_RE = re.compile(r'#\s*lint:r4-merge-group-cancel\s+(t/\d+|\d{4}-\d{2}-\d{2})\b')
 
 
 def _strip_comment(line):
@@ -413,8 +426,29 @@ def check_required_context(path, content, context_name, posts=None):
     # missed `${{ github.ref != 'refs/heads/main' }}` — true on exactly the protected PRs (e/209).
     for i, ln in enumerate(lines):
         m = re.match(r'^\s*cancel-in-progress\s*:\s*(.+?)\s*$', ln)
-        if m and m.group(1).strip().strip('\'"') != 'false':
-            errs.append(f'{path}:{i + 1}: R4 required context "{context_name}" — `cancel-in-progress: {m.group(1).strip()}` is not the literal `false`; a cancelled run does not satisfy a required check (the expression form evaluates true on exactly the PRs this protects). Use `cancel-in-progress: false` or omit it.')
+        if not m or m.group(1).strip().strip('\'"') == 'false':
+            continue
+        value = m.group(1).strip()
+        # t/4567 (SO/TL e/392#5): the narrow merge-queue exemption. All three of the
+        # exact cancel-in-progress shape, a github.event_name-bearing group key, and the
+        # audit marker must hold -- any one missing and this falls through to the error.
+        if R4_SAFE_CANCEL_RE.match(value):
+            concurrency_idx = -1
+            for j in range(i, -1, -1):
+                if re.match(r'^\s*concurrency\s*:\s*$', lines[j]):
+                    concurrency_idx = j
+                    break
+                if j < i and re.match(r'^\S', lines[j]):
+                    break  # walked past the enclosing block without finding concurrency:
+            group_has_event_name = concurrency_idx != -1 and any(
+                re.match(r'^\s*group\s*:', lines[k]) and 'github.event_name' in lines[k]
+                for k in range(concurrency_idx, i + 1)
+            )
+            marker_window_start = max(0, (concurrency_idx if concurrency_idx != -1 else i) - 15)
+            has_marker = any(R4_MERGE_GROUP_MARKER_RE.search(lines[k]) for k in range(marker_window_start, i + 1))
+            if group_has_event_name and has_marker:
+                continue
+        errs.append(f'{path}:{i + 1}: R4 required context "{context_name}" — `cancel-in-progress: {value}` is not the literal `false`; a cancelled run does not satisfy a required check (the expression form evaluates true on exactly the PRs this protects). Use `cancel-in-progress: false` or omit it, or qualify for the narrow merge-queue exemption: `cancel-in-progress: ${{{{ github.event_name == \'merge_group\' }}}}` exactly, a `group:` referencing `github.event_name`, and a co-located `# lint:r4-merge-group-cancel <ticket-or-date>` marker.')
 
     # R2 + R5: the reporting job (id == context_name).
     jobs_idx = _find_key(lines, 'jobs', 0)
@@ -998,6 +1032,51 @@ jobs:
         failures.append('R4 MISSED cancel-in-progress expression form (not literal false)')
     else:
         print('  PASS: R4 flags the cancel-in-progress ${{ }} expression form')
+
+    # t/4567 (SO/TL e/392#5): the narrow merge-queue exemption -- all three of the
+    # exact shape, the event_name-bearing group, and the marker must hold together.
+    R4_EXEMPT_BLOCK = (
+        "concurrency:\n"
+        "  group: ci-${{ github.event_name == 'merge_group' && 'batch' || github.run_id }}\n"
+        "  # lint:r4-merge-group-cancel t/4567\n"
+        "  cancel-in-progress: ${{ github.event_name == 'merge_group' }}\n"
+        "on:\n"
+    )
+    rc_r4exempt = rc_ok.replace('on:\n', R4_EXEMPT_BLOCK)
+    if any('R4' in e for e in check_required_context('rc_r4exempt', rc_r4exempt, 'ci-gate')):
+        failures.append('R4 FALSE-FLAGGED the exact merge-group exemption shape (group has github.event_name + cancel-in-progress is the literal merge_group comparison + marker present)')
+    else:
+        print('  PASS: R4 allows the exact merge-group exemption shape')
+
+    rc_r4noMarker = rc_ok.replace('on:\n', R4_EXEMPT_BLOCK.replace('  # lint:r4-merge-group-cancel t/4567\n', ''))
+    if not any('R4' in e for e in check_required_context('rc_r4noMarker', rc_r4noMarker, 'ci-gate')):
+        failures.append('R4 MISSED the exemption shape with NO marker -- the exemption must not apply without an audit anchor')
+    else:
+        print('  PASS: R4 still flags the exemption shape when the marker is missing')
+
+    rc_r4noEventInGroup = rc_ok.replace(
+        'on:\n',
+        R4_EXEMPT_BLOCK.replace(
+            "group: ci-${{ github.event_name == 'merge_group' && 'batch' || github.run_id }}",
+            'group: ci-static-group',
+        ),
+    )
+    if not any('R4' in e for e in check_required_context('rc_r4noEventInGroup', rc_r4noEventInGroup, 'ci-gate')):
+        failures.append("R4 MISSED the exemption shape when `group:` does not reference github.event_name -- the group must also structurally separate merge_group")
+    else:
+        print('  PASS: R4 still flags the exemption shape when the group key omits github.event_name')
+
+    rc_r4wrongCancel = rc_ok.replace(
+        'on:\n',
+        R4_EXEMPT_BLOCK.replace(
+            "cancel-in-progress: ${{ github.event_name == 'merge_group' }}",
+            "cancel-in-progress: ${{ github.event_name != 'pull_request' }}",
+        ),
+    )
+    if not any('R4' in e for e in check_required_context('rc_r4wrongCancel', rc_r4wrongCancel, 'ci-gate')):
+        failures.append('R4 MISSED a near-miss cancel-in-progress expression (not the EXACT merge_group comparison) despite a correct group and marker')
+    else:
+        print('  PASS: R4 still flags a near-miss cancel-in-progress expression even with a correct group and marker')
 
     rc_r5a = rc_ok.replace("        if: contains(needs.*.result, 'failure')\n", '')
     if not any('R5' in e for e in check_required_context('rc_r5a', rc_r5a, 'ci-gate')):

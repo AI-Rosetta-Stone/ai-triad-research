@@ -86,6 +86,21 @@ on:
 permissions:
   contents: read
 
+# t/4567 K1/N1 (SO/TL e/392#5, #10, #11): a merge_group concurrency-cancel block with a
+# CONSTANT group key was tried and reverted. It passed workflow-lint's narrow R4
+# exemption and arms (a)/(d), but the SO's N1 finding (e/392#10) proved out live-fire
+# (app-scratch, 2026-10-28 ~20:16-20:27 UTC): the group key is the same for every
+# merge_group run, so a HEADGREEN bisection round's probe run gets cancelled by the NEXT
+# bisection round sharing that same key -- and that cancellation can leave the queue with
+# no further run queued at all. Arm (c) (consult-hold mid-queue) reproduced a genuine
+# stall: zero new merge_group runs for 10+ minutes after the cancellation, not resolved
+# even after the hold was removed; manual dequeue was required to clear it. Per the TL's
+# ruling (e/392#11): drop the cancel entirely rather than key the group by
+# `merge_group.head_sha` (a no-op cancel, since every merge_group commit already has a
+# distinct head_sha). HEADGREEN alone (ruleset grouping_strategy, already live) already
+# tests each batch once on the head group's result; runner capacity under the Team plan
+# covers the extra concurrent runs this leaves on non-head entries.
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # t/4548: pinned so both Install Pester sites (and their cache keys) agree on exactly
@@ -2243,6 +2258,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Lint workflow YAML files
         run: python3 .github/ci/workflow-lint.py
+      # t/4567 TL e/392#11: workflow-lint.py's own self-test (the R4 narrow-exemption
+      # cases included) existed but was never invoked here, so it never gated anything.
+      # No `|| true`, no pipe — a non-zero exit from --self-test fails this step directly
+      # (SO e/392#12 caution).
+      - name: Self-test workflow-lint.py
+        run: python3 .github/ci/workflow-lint.py --self-test
       - name: Fault tests for test-electron-matrix-membership.mjs (t/4236)
         run: node --test .github/scripts/test-electron-matrix-membership.test.mjs
 
@@ -2718,6 +2739,10 @@ jobs:
         run: |
           chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
           operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
+      - name: Run C5 liveness HEADGREEN head-entry-only shim test (t/4567 arm e, SO/TL)
+        run: |
+          chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-headgreen.sh
+          operations/devops/test-check-merge-queue-liveness-headgreen.sh
 
   ci-gate:
     name: ci-gate
