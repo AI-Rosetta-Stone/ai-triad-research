@@ -1178,8 +1178,15 @@
 
 .node-detail-tab-pill-danger {
   background: rgba(239, 68, 68, 0.15);
-  /* Design, t/4574#15 item 2: #ef4444 on this tint measures 2.86:1; #b91c1c is ~5:1 (AA). */
+  /* Design, t/4574#15 item 2: #ef4444 on this tint measures 2.86:1; #b91c1c is ~5:1 (AA)
+     in light/harvard. #b91c1c itself drops to 2.38:1/2.17:1 in dark/bkc (Design, t/4574#17),
+     so those two themes override to #fca5a5 (8.10:1 / 7.40:1) below. */
   color: #b91c1c;
+}
+
+[data-theme="dark"] .node-detail-tab-pill-danger,
+[data-theme="bkc"] .node-detail-tab-pill-danger {
+  color: #fca5a5;
 }
 
 /* No visible scrollbar on the Advanced tab row overflow (t/4574 spec §2.5). */
