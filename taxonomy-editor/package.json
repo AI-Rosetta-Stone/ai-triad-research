@@ -82,7 +82,7 @@
     "undici": "^8.12.2",
     "ws": "^8.22.0",
     "zod": "^4.6.7",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
