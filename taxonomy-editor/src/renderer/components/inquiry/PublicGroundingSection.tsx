@@ -62,15 +62,15 @@ export function PublicGroundingSection({ grounding }: PublicGroundingSectionProp
   const getCampRows = (camp: Camp) => {
     const nodes = grounding.nodesByCamp[camp] ?? [];
     return nodes.map(node => ({
-      id: node.id,
-      label: getNodeLabel(node.id),
+      id: node.nodeId,
+      label: getNodeLabel(node.nodeId),
     }));
   };
 
   const getSituationRows = () => {
     return (grounding.situationNodes ?? []).slice(0, 3).map(node => ({
-      id: node.id,
-      label: node.id,
+      id: node.nodeId,
+      label: node.label,
     }));
   };
 
