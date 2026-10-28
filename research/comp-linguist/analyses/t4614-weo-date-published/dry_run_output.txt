@@ -1,0 +1,5 @@
+frozen list sha256 cfb3eef23afcaed51f2047aacaab25ef0a7763cb88e1518f8dfdca45d5798405  targets=3  mode=dry-run
+  OK text-2026: 1 field(s), 2 diff line(s), keys 21 unchanged, post_sha256 2fb45ced93eb408ab90ad548ef7e895cc318d593e0722617a6f1d374f4218846
+  OK text-2026-1: 1 field(s), 2 diff line(s), keys 26 unchanged, post_sha256 44d1e41b501dddc9e7757a523621835d6b90722563158ddb3f2ed5701846384d
+  OK world-economic-outlook-update-global-economy-steady-amid-2026-2: 1 field(s), 2 diff line(s), keys 24 unchanged, post_sha256 8a2ad2e8791c003f921364a38b1979189d1ae01a19bfa252ea676089a32f9bc1
+dry-run: 3/3 targets pass all checks; nothing written
