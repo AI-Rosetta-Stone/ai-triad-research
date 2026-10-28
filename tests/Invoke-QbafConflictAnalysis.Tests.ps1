@@ -311,5 +311,97 @@ Describe 'Invoke-QbafConflictAnalysis Stage A/B monotonicity (t/1403 AC#3)' -Tag
                 $r.EdgeCount    | Should -Be 1
             }
         }
+
+        It 'TEMPORAL GATE (t/4474): opposes with non-overlapping temporal bounds is held, not an attack' {
+            # Overwrite the shared fixture (constructed): same opposing claims, but now with
+            # disjoint temporal windows -- "audits improve safety by 2026" vs "audits do NOT
+            # improve safety, 2030-2035" are about different eras, not necessarily in tension.
+            @{ factual_claims = @(@{ claim='Third-party audits improve frontier-model safety by 2026.'
+                claim_label='C1'; linked_taxonomy_nodes=@('saf-desires-002'); doc_position='supports'
+                temporal_bound = 'by 2026' }) } |
+                ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $script:V2Summaries 'docC.json') -Encoding utf8NoBOM
+            @{ factual_claims = @(@{ claim='Third-party audits will NOT improve frontier-model safety, 2030-2035.'
+                claim_label='D1'; linked_taxonomy_nodes=@('saf-desires-002'); doc_position='supports'
+                temporal_bound = '2030-2035' }) } |
+                ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $script:V2Summaries 'docD.json') -Encoding utf8NoBOM
+
+            InModuleScope AITriad {
+                function python {
+                    process {
+                        $items = @($input | Out-String | ConvertFrom-Json)
+                        $out = foreach ($it in $items) {
+                            [pscustomobject]@{ id=$it.id; direction='opposes'; confidence=1.5; method='nli' }
+                        }
+                        ConvertTo-Json -InputObject @($out) -Depth 5
+                    }
+                }
+                $r = Invoke-QbafConflictAnalysis -DryRun -PassThru 6>$null
+                $r.SupportCount      | Should -Be 0 -Because 'held, not the provisional support -- the two claims are not confirmed comparable'
+                $r.AttackCount       | Should -Be 0 -Because 'disjoint temporal windows -- not confirmed as a rebut'
+                $r.EdgeCount         | Should -Be 0
+                $r.TemporalGateHeld  | Should -Be 1
+            }
+        }
+
+        It 'TEMPORAL GATE (t/4474): overlapping temporal bounds still confirm the attack as before' {
+            @{ factual_claims = @(@{ claim='Third-party audits improve frontier-model safety, 2023-2027.'
+                claim_label='C1'; linked_taxonomy_nodes=@('saf-desires-002'); doc_position='supports'
+                temporal_bound = '2023-2027' }) } |
+                ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $script:V2Summaries 'docC.json') -Encoding utf8NoBOM
+            @{ factual_claims = @(@{ claim='Third-party audits will NOT improve frontier-model safety, 2026-2030.'
+                claim_label='D1'; linked_taxonomy_nodes=@('saf-desires-002'); doc_position='supports'
+                temporal_bound = '2026-2030' }) } |
+                ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $script:V2Summaries 'docD.json') -Encoding utf8NoBOM
+
+            InModuleScope AITriad {
+                function python {
+                    process {
+                        $items = @($input | Out-String | ConvertFrom-Json)
+                        $out = foreach ($it in $items) {
+                            [pscustomobject]@{ id=$it.id; direction='opposes'; confidence=1.5; method='nli' }
+                        }
+                        ConvertTo-Json -InputObject @($out) -Depth 5
+                    }
+                }
+                $r = Invoke-QbafConflictAnalysis -DryRun -PassThru 6>$null
+                $r.AttackCount      | Should -Be 1 -Because '2023-2027 and 2026-2030 overlap -- confirmed as before'
+                $r.TemporalGateHeld | Should -Be 0
+            }
+        }
+    }
+
+    Context 'Temporal-bound gate on the hard node-overlap conflict (t/4474)' {
+        # The doc_position-only hard-conflict path (before the directional gate even runs):
+        # opposing doc_position on a shared node, with disjoint temporal_bound windows.
+        AfterEach {
+            if ($script:TDir -and (Test-Path $script:TDir)) {
+                Remove-Item -Recurse -Force -Path $script:TDir -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'CONSTRUCTED: opposing doc_position with non-overlapping temporal bounds is held, not confirmed as a rebut' {
+            $script:TDir = Join-Path ([System.IO.Path]::GetTempPath()) "qbaf-temporal-$(Get-Random)"
+            $summaries = Join-Path $script:TDir 'summaries'
+            $null = New-Item -ItemType Directory -Path $summaries -Force
+            @{ factual_claims = @(@{ claim='Compute governance treaties will be adopted by 2027.'
+                claim_label='E1'; linked_taxonomy_nodes=@('saf-intentions-201'); doc_position='supports'
+                temporal_bound = 'by 2027' }) } |
+                ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $summaries 'docE.json') -Encoding utf8NoBOM
+            @{ factual_claims = @(@{ claim='Compute governance treaties will not be adopted, 2040-2045.'
+                claim_label='F1'; linked_taxonomy_nodes=@('saf-intentions-201'); doc_position='disputes'
+                temporal_bound = '2040-2045' }) } |
+                ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $summaries 'docF.json') -Encoding utf8NoBOM
+
+            InModuleScope AITriad -Parameters @{ SD = $summaries; FD = $script:TDir } {
+                param($SD, $FD)
+                Mock Get-SummariesDir -MockWith ({ $SD }.GetNewClosure())
+                Mock Get-DataRoot     -MockWith ({ $FD }.GetNewClosure())
+                Mock Get-TextEmbedding -MockWith { $null }
+                $r = Invoke-QbafConflictAnalysis -DryRun -PassThru -SkipDirectionalGate 6>$null
+                $r.AttackCount      | Should -Be 0 -Because 'disjoint temporal windows -- not confirmed as a rebut'
+                $r.EdgeCount        | Should -Be 0
+                $r.TemporalGateHeld | Should -Be 1
+            }
+        }
     }
 }
