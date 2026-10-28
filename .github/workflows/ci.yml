@@ -2258,6 +2258,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Lint workflow YAML files
         run: python3 .github/ci/workflow-lint.py
+      # t/4567 TL e/392#11: workflow-lint.py's own self-test (the R4 narrow-exemption
+      # cases included) existed but was never invoked here, so it never gated anything.
+      # No `|| true`, no pipe — a non-zero exit from --self-test fails this step directly
+      # (SO e/392#12 caution).
+      - name: Self-test workflow-lint.py
+        run: python3 .github/ci/workflow-lint.py --self-test
       - name: Fault tests for test-electron-matrix-membership.mjs (t/4236)
         run: node --test .github/scripts/test-electron-matrix-membership.test.mjs
 
