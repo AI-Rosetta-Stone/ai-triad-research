@@ -16,12 +16,12 @@
     "lint": "eslint src/ && node ../lib/eslint-rules/check-complexity-budget-disables.mjs src --include-tests"
   },
   "dependencies": {
-    "@google/genai": "^2.30.0",
+    "@google/genai": "^2.31.0",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zod": "^4.6.7",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
