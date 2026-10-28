@@ -34,13 +34,17 @@ if [ "\$1" = "api" ] && [ "\$2" = "graphql" ]; then
   exit 0
 fi
 if [ "\$1" = "api" ]; then
+  # Real gh, called with --jq '.total_count // 0', prints just the filtered NUMBER,
+  # never the wrapping object -- this shim must match that, or K5's now-correct
+  # numeric validation (SO e/392#6/#7) legitimately rejects the shim's OWN bug as if
+  # it were the real script's.
   case "\$2" in
     *nonhead0000000000000000000000000000000*)
       echo "FAIL-SHIM: check-runs lookup called for the non-head entry's headSha -- the head-only gate did not short-circuit it." >&2
-      echo '{"total_count": 0}'
+      echo '0'
       ;;
     *headcommit00000000000000000000000000000*)
-      echo '{"total_count": 1}'
+      echo '1'
       ;;
     *)
       echo "unexpected check-runs lookup: \$2" >&2
@@ -102,9 +106,10 @@ if [ "\$1" = "api" ] && [ "\$2" = "graphql" ]; then
   exit 0
 fi
 if [ "\$1" = "api" ]; then
+  # Real gh --jq prints just the number, not the wrapping object -- see scenario 1's shim.
   case "\$2" in
     *stale4000000000000000000000000000000000*)
-      echo '{"total_count": 0}'
+      echo '0'
       ;;
     *)
       echo "unexpected check-runs lookup: \$2" >&2
