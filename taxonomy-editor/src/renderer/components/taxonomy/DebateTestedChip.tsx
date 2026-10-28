@@ -85,7 +85,9 @@ export function NodeStatusBadge({ node, onToggleDrilldown }: { node: PovNode; on
         style={{ color: colors.fg }}
         onClick={onToggleDrilldown}
       >
-        {tier === 'well_tested' ? '✓ ' : ''}{TIER_LABELS[tier]}
+        {/* Design, t/4574#15 nit: sentence case in the meta line, as in the mockup —
+            TIER_LABELS stays Title Case for its other (chip) consumers. */}
+        {tier === 'well_tested' ? '✓ Well tested' : TIER_LABELS[tier]}
       </button>
     </>
   );

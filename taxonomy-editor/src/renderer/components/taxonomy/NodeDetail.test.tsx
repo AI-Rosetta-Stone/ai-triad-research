@@ -355,6 +355,17 @@ describe('NodeDetail — panel-local Simple/Advanced toggle isolation and persis
     expect(screen.getByRole('radio', { name: 'Simple' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('radio', { name: 'Advanced' })).toHaveAttribute('aria-checked', 'false');
   });
+
+  // t/4574#15 item 1 (Design): these vanished because TheoryLink's own gate reads the
+  // *global* viewMode, not this panel's local mode — the global control defaults to
+  // Simple, so the icons silently no-op'd even though the panel itself was Advanced.
+  it('the ontology-guide and Soul-analysis icons show in Advanced, independent of the global viewMode', () => {
+    mockPrefsState.viewMode = 'simple'; // the global control stays Simple throughout
+    setNodeMode(mockNode.id, 'advanced');
+    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Help: taxonomy ontology guide' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Soul documents analysis' })).toBeInTheDocument();
+  });
 });
 
 // ── History tab viewMode gating (t/3021) ──────────────────────────────────────

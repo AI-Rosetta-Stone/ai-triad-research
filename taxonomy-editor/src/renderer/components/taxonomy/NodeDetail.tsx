@@ -683,12 +683,16 @@ function NodeDetailMetaLine({ pov, node, readOnly, isAdmin, nodeDetailMode, setN
         {nodeDetailMode === 'advanced' && (
           <>
             <span className="nd-header-icons">
-              <TheoryLink docPath="docs/taxonomy-ontology-guide.md" label="Help: taxonomy ontology guide" size={16} />
+              {/* force: these are gated on the panel-local nodeDetailMode (the `&&` above),
+                  not the global viewMode TheoryLink itself checks (Design, t/4574#15 item 1 —
+                  the icons vanished because the global control defaults to Simple). */}
+              <TheoryLink docPath="docs/taxonomy-ontology-guide.md" label="Help: taxonomy ontology guide" size={16} force />
               <TheoryLink
                 docPath="research/comp-linguist/docs/soul-documents-analysis.md"
                 label="Soul documents analysis"
                 tooltip="Open Soul Documents Analysis in GitHub"
                 size={15}
+                force
               />
               {onOpenSoulDoc && (
                 <button className="nd-header-btn" onClick={() => onOpenSoulDoc(node.pov_tags)} title="Soul document" aria-label="Soul document">&#x1f4dc;</button>
