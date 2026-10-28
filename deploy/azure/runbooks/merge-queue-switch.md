@@ -216,8 +216,17 @@ conditions:
    or a second unrelated failure inside the window breaks that assumption and could
    mislabel the real cause as collateral). The alert tells every owner **some of these
    may be collateral; re-arm pinned to your own current head** -- this workflow never
-   auto-re-enqueues. A `concurrency` group serializes near-simultaneous dequeue events so
-   two can't race on the same issue (duplicate creates or a lost update).
+   auto-re-enqueues. **Append-only** (SO L3', e/392#6/#7: a `concurrency` group with
+   `cancel-in-progress: false` was tried to serialize near-simultaneous dequeues, but
+   GitHub's own concurrency-group mechanics keep at most one run queued behind the
+   active one regardless of `cancel-in-progress` -- a third dequeue arriving while a
+   second is still queued cancels that second run outright, silently dropping its
+   alert). The issue body is written once at creation and never edited again; every
+   dequeue, including the one that creates the issue, is its own comment -- an
+   independent API call with no shared state to race on. The remaining race (two runs
+   both finding no open episode and both creating an issue) is handled by re-listing
+   immediately after create and closing whichever duplicate has the higher issue
+   number, redirecting its entry to the canonical (lower-numbered) issue instead.
 2. This section.
 3. **Count collateral dequeues in the one-week review** (t/4567, due 2026-11-04) -- how
    many clean entries got bounced per real failure, to judge whether the trade-off still

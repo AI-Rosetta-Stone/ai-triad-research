@@ -16,16 +16,14 @@ on:
 permissions:
   issues: write
 
-# t/4567 SO L3 (e/392#2/#3): two dequeues in the same episode can fire close together,
-# and the read-modify-write on the shared batch issue below isn't atomic -- without
-# this, two concurrent runs could both see "no open batch issue" and create duplicates,
-# or both read the same body and one's update could clobber the other's (lost update).
-# `cancel-in-progress: false` -- each dequeue MUST be processed, never dropped; this
-# only serializes (queues), it never cancels a run.
-concurrency:
-  group: merge-queue-dequeue-alert
-  cancel-in-progress: false
-
+# t/4567 SO L3' (e/392#6/#7): a `concurrency` group with `cancel-in-progress: false`
+# was tried here to serialize concurrent dequeues, but GitHub's own concurrency-group
+# mechanics keep at most ONE run queued behind the active one regardless of
+# cancel-in-progress -- a third dequeue arriving while a second is still queued
+# CANCELS that second run outright, silently dropping its alert. Removed. See the
+# append-only design in the job body instead: every dequeue posts its own comment
+# (an independent API call, no shared state to race on), and the create-race for a
+# brand-new episode is handled by re-listing after create and closing a duplicate.
 jobs:
   alert-on-unexpected-dequeue:
     # SO live-fire finding (e/377#2, L1): the reason lives at github.event.reason (top
@@ -63,6 +61,13 @@ jobs:
             // culprit as collateral. List every dequeued PR plainly instead; GitHub
             // never tells us which one actually caused the failure, so this alert
             // never asserts a guess as fact.
+            // t/4567 SO L3' (e/392#6/#7): APPEND-ONLY. The issue body is written ONCE
+            // at creation and never edited again -- every dequeue, including the one
+            // that creates the issue, is recorded as its own comment (an independent
+            // API call with no shared mutable state, so two runs can never clobber
+            // each other's write). The only remaining race is two runs BOTH finding no
+            // open episode and BOTH creating an issue -- handled below by re-listing
+            // after create and closing whichever duplicate has the higher issue number.
             const owner = context.repo.owner, repo = context.repo.repo;
             const pr = context.payload.pull_request;
             // Fail toward alerting, not silence -- an unrecognized/missing reason is NOT
@@ -86,23 +91,42 @@ jobs:
             });
             const batchIssue = candidates.find(i => (now - new Date(i.created_at).getTime()) < WINDOW_MS);
 
-            if (!batchIssue) {
-              const body = `**Merge-queue dequeue batch (t/4567 D1):** one or more PRs have left the merge queue without merging in this episode.\n\n`
-                + `Under HEADGREEN, a batch-failure bisection (or a mid-queue consult-hold) can collaterally dequeue a CLEAN entry along with the actual cause (t/4567 arms b/c, app-scratch #87/#88, #89/#90/#93). GitHub does not tell us which entry below actually caused the dequeue -- **some of these may be collateral; re-arm each one pinned to its own head** (\`gh pr merge <N> --auto --squash --match-head-commit <sha>\`) to re-test individually. Do not blindly auto-re-enqueue without checking your own head is still intended -- this workflow never re-enqueues for you.\n\n${entryLine}`;
-              const created = await github.rest.issues.create({
-                owner, repo,
-                title: `Merge-queue dequeue batch (t/4567 D1), starting PR #${pr.number}`,
-                body,
-                labels: ['alert-escalated', BATCH_LABEL],
-              });
-              console.log(`::warning::Created batch dequeue issue #${created.data.number} for PR #${pr.number} (reason: ${reason})`);
-            } else {
-              const { data: full } = await github.rest.issues.get({ owner, repo, issue_number: batchIssue.number });
-              const updatedBody = `${full.body}\n${entryLine}`;
-              await github.rest.issues.update({ owner, repo, issue_number: batchIssue.number, body: updatedBody });
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: batchIssue.number,
-                body: `PR #${pr.number} @ \`${shortSha}\` (reason: \`${reason}\`) also dequeued in this episode. Re-arm pinned to re-test -- any entry in this issue may be the actual cause or collateral; this alert does not guess which.`,
-              });
+            if (batchIssue) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: batchIssue.number, body: entryLine });
               console.log(`::warning::Appended PR #${pr.number} to existing batch dequeue issue #${batchIssue.number} (reason: ${reason})`);
+              return;
+            }
+
+            // No open episode found -- create one. The body is static from here on;
+            // this dequeue's own entry is posted as the first comment, same as every
+            // later one, so the format is uniform regardless of position in the episode.
+            const body = `**Merge-queue dequeue batch (t/4567 D1):** PRs leaving the merge queue without merging in this episode are listed as comments below, one per dequeue.\n\n`
+              + `Under HEADGREEN, a batch-failure bisection (or a mid-queue consult-hold) can collaterally dequeue a CLEAN entry along with the actual cause (t/4567 arms b/c, app-scratch #87/#88, #89/#90/#93). GitHub does not tell us which entry actually caused the dequeue -- **some of these may be collateral; re-arm each one pinned to its own head** (\`gh pr merge <N> --auto --squash --match-head-commit <sha>\`) to re-test individually. Do not blindly auto-re-enqueue without checking your own head is still intended -- this workflow never re-enqueues for you.`;
+            const created = await github.rest.issues.create({
+              owner, repo,
+              title: `Merge-queue dequeue batch (t/4567 D1), starting PR #${pr.number}`,
+              body,
+              labels: ['alert-escalated', BATCH_LABEL],
+            });
+            await github.rest.issues.createComment({ owner, repo, issue_number: created.data.number, body: entryLine });
+            console.log(`::warning::Created batch dequeue issue #${created.data.number} for PR #${pr.number} (reason: ${reason})`);
+
+            // Create race: another run may have created its own issue for the SAME
+            // episode in the instant between our listForRepo read and our create. If
+            // so, two episode issues now exist with overlapping windows -- keep the
+            // LOWER issue number (it was created first) as canonical, close ours and
+            // redirect this entry there instead, so the episode still has one home.
+            const { data: recheck } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: BATCH_LABEL, sort: 'created', direction: 'desc', per_page: 5,
+            });
+            const overlapping = recheck.filter(i => (now - new Date(i.created_at).getTime()) < WINDOW_MS);
+            const canonical = overlapping.reduce((a, b) => (a.number < b.number ? a : b), created.data);
+            if (canonical.number !== created.data.number) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: canonical.number, body: entryLine });
+              await github.rest.issues.update({ owner, repo, issue_number: created.data.number, state: 'closed' });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: created.data.number,
+                body: `Dup of #${canonical.number} -- a concurrent dequeue created both for the same episode. Entry redirected there.`,
+              });
+              console.log(`::warning::Create-race: closed duplicate #${created.data.number} as dup of #${canonical.number}`);
             }
