@@ -1,0 +1,40 @@
+{
+  "targets": [
+    {
+      "doc_id": "world-economic-outlook-update-global-economy-steady-amid-2026-2",
+      "path": "world-economic-outlook-update-global-economy-steady-amid-2026-2/metadata.json",
+      "pre_sha256": "afcd30b26592fbaf713b187d65d08c796ffd8ff5c3273a32ea87bbb658457097",
+      "post_sha256": "3d5b780325bade8d67e24cf87fe7ea20db1af8606416465d3689c6a0f8f9c7fe",
+      "fields": [
+        {
+          "field": "url",
+          "old": "https://service.betterregulation.com/document/829028",
+          "new": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026",
+          "evidence": "Reusing t/4495's evidence for the same report (text-2026, frozen_metadata_fixes.json): publisher page fetched 2026-10-27 (WebFetch), title 'World Economic Outlook Update, January 2026: Global Economy: Steady amid Divergent Forces', released January 19, 2026 -- matches this canonical's own title and snapshot content (byte-compared, same WEO report body). Old value was a confidence:'search' provenance guess at a betterregulation.com mirror."
+        },
+        {
+          "field": "resolved_url",
+          "old": "https://service.betterregulation.com/document/829028",
+          "new": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026",
+          "evidence": "Same as url. Debate citation paths prefer resolved_url over url (lib/debate/debateEngine.ts:1375-1377), so a url-only fix would leave debates linking to the mirror."
+        },
+        {
+          "field": "provenance",
+          "old": [
+            {"scheme": "url", "id": "https://service.betterregulation.com/document/829028", "confidence": "search"}
+          ],
+          "new": [
+            {"scheme": "url", "id": "https://www.imf.org/en/Publications/WEO/Issues/2026/01/19/world-economic-outlook-update-january-2026", "confidence": "verified"}
+          ],
+          "evidence": "The only entry is the wrong search guess; 'verified' basis is a page fetch, same vocabulary and basis as t/4495's text-2026 fix."
+        },
+        {
+          "field": "provenance_status",
+          "old": "extracted",
+          "new": "verified",
+          "evidence": "Derived by the existing rule (populate_provenance.py): any 'verified' provenance entry => status 'verified'."
+        }
+      ]
+    }
+  ]
+}
