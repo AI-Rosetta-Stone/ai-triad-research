@@ -128,19 +128,14 @@ export const createDebatePhaseSlice: StateCreator<DebateStore, [], [], DebatePha
     getGlobalRecorder()?.record({ type: 'debate.round', component: 'debate-store', level: 'debug', debate_id: activeDebate?.id, message: 'crossRespond entered', data: { protocol_id: activeDebate?.protocol_id, phase: activeDebate?.phase, transcript_length: activeDebate?.transcript.length, adaptive_phase: activeDebate?.adaptive_staging?.phase_state?.current_phase } });
 
     // Guard: if openings completed but abort guard prevented phase transition, fix it now
-    if (activeDebate.phase === 'opening' && activeDebate.transcript.some(e => e.type === 'opening')) {
-      get().updatePhase('debate');
-    }
+    fixOpeningPhaseTransition(activeDebate, get);
 
     newAbortController();
     const isStillValid = createDebateGuard(get);
     set({ debateError: null, debateWarnings: [] });
 
     // Lazy-load edges for moderator context
-    const taxState = useTaxonomyStore.getState();
-    if (!taxState.edgesFile) {
-      await useTaxonomyStore.getState().loadEdges();
-    }
+    await ensureEdgesLoaded();
 
     const model = getConfiguredModel();
     const topic = activeDebate.topic.final;
@@ -216,12 +211,7 @@ export const createDebatePhaseSlice: StateCreator<DebateStore, [], [], DebatePha
     getGlobalRecorder()?.record({ type: 'debate.moderate', component: 'moderator', level: 'info', debate_id: activeDebate.id, message: intervention ? `Moderator intervention: ${intervention.move}` : `Moderator selected: ${responderPover}`, data: { responder: responderPover, intervention_move: intervention?.move ?? null, budget_remaining: modState.budget_remaining, health_score: healthScore?.value, health_trend: healthScore?.trend } });
 
     // Persist moderator state on the session
-    {
-      const freshDebate = get().activeDebate;
-      if (freshDebate) {
-        set({ activeDebate: { ...freshDebate, moderator_state: modState } });
-      }
-    }
+    persistModeratorStateUpdate(get, set, modState);
 
     const moderatorTrace = buildModeratorTrace(activeDebate, aiPovers, responderPover, focusPoint, modResult, modState, engineValidation, selectionResult, healthScore);
 
@@ -273,32 +263,13 @@ export const createDebatePhaseSlice: StateCreator<DebateStore, [], [], DebatePha
       const { statement, taxonomyRefs, meta, validation, attempts, pipelineResult } = turnResult;
 
       // Enrich taxonomy refs with relevance scores from context injection
-      if (ctx.nodeScores) {
-        for (const ref of taxonomyRefs) {
-          const score = ctx.nodeScores.get(ref.node_id);
-          if (score != null) ref.relevance_score = score;
-        }
-      }
+      enrichTaxonomyRefScores(ctx, taxonomyRefs);
 
       // Serialize source tracking for diagnostics display
       const relevanceSources = serializeNodeSourceMap(ctx.nodeSourceMap, taxonomyRefs);
 
-      // Extract caveats: only QUALITY (judge weakness) hints — not DRAFT or CITE structural hints
-      const CITE_RE = /taxonomy_refs.*(?:filler|too-short|relevance)|No new taxonomy_refs|Unknown taxonomy node|Unknown policy_refs|grounding_confidence/i;
-      const DRAFT_RE = /move_types|my_claims|paragraph|statement|hedge|constructive|pin_response|probe_response|challenge_response|clarification|check_response|revoice|reflection|compressed_thesis|commitment/i;
-      const caveats = (validation.repairHints ?? []).filter((h: string) =>
-        !CITE_RE.test(h) && !DRAFT_RE.test(h)
-      );
-
-      // Add ungrounded claims from the evidence work product
-      const evidenceDiagForCaveats = pipelineResult.stage_diagnostics.find((s: { stage: string }) => s.stage === 'evidence');
-      const ungroundedClaims = (evidenceDiagForCaveats?.work_product as Record<string, unknown>)?.ungrounded_claims as
-        Array<{ claim: string; reason: string }> | undefined;
-      if (ungroundedClaims?.length) {
-        for (const uc of ungroundedClaims) {
-          caveats.push(`[Ungrounded] ${uc.claim}`);
-        }
-      }
+      // Extract caveats: quality hints only, plus ungrounded claims from evidence stage
+      const caveats = buildCaveatsFromValidation(validation, pipelineResult);
 
       addTranscriptEntry({
         type: 'statement',
@@ -307,143 +278,32 @@ export const createDebatePhaseSlice: StateCreator<DebateStore, [], [], DebatePha
         taxonomy_refs: taxonomyRefs,
         policy_refs: enrichPolicyRefs(meta.policy_refs, pipelineResult.draft as unknown as Record<string, unknown>),
         addressing: 'all',
-        caveats: caveats.length > 0 ? caveats : undefined,
-        metadata: {
-          cross_respond: true, round: crossRespondRound,
-          focus_point: focusPoint, addressing_label: addressingLabel,
-          moderator_trace: moderatorTrace, ...meta,
-          relevance_sources: relevanceSources,
-          turn_validation_outcome: validation.outcome,
-          turn_validation_score: validation.score,
-          turn_validation_attempts: attempts.length,
-          turn_validation_flagged: validation.outcome === 'accept_with_flag' ? true : undefined,
-          concession_candidates_offered: concessionCandidateIds.length > 0 ? concessionCandidateIds : undefined,
-          concession_considered: (meta as Record<string, unknown>)?.concession_considered as string | undefined,
-          injection_manifest: ctx.injectionManifest,
-        },
+        caveats,
+        metadata: buildCrossRespondEntryMetadata(
+          crossRespondRound, focusPoint, addressingLabel, moderatorTrace, meta as PoverResponseMeta & Record<string, unknown>,
+          relevanceSources, validation, attempts, concessionCandidateIds, ctx,
+        ),
       });
 
       trackDebateTurn(activeDebate.id, crossRespondRound, responderPover);
 
       // Persist validation trail + route clarifies_taxonomy hints
-      {
-        const lastId = get().activeDebate?.transcript.slice(-1)[0]?.id;
-        if (lastId) {
-          const curr = get().activeDebate;
-          if (curr) {
-            const trail: TurnValidationTrail = { attempts, final: validation };
-            const trails = { ...(curr.turn_validations ?? {}), [lastId]: trail };
-            let suggestions = curr.taxonomy_suggestions;
-            if (validation.clarifies_taxonomy.length > 0) {
-              suggestions = routeTurnValidatorHintsIntoSuggestions(validation, lastId, suggestions);
-            }
-            set({ activeDebate: { ...curr, turn_validations: trails, taxonomy_suggestions: suggestions } });
-          }
-        }
-      }
+      persistValidationTrail(get, set, validation, attempts, get().activeDebate?.transcript.slice(-1)[0]?.id);
 
-      const draftDiag = pipelineResult.stage_diagnostics.find(s => s.stage === 'draft');
-      const lastEntry = get().activeDebate?.transcript.slice(-1)[0];
-      if (lastEntry) {
-        const topicAlignDiag = pipelineResult.topicAlignmentResult
-          ? {
-            topic_aligned: pipelineResult.topicAlignmentResult.topic_aligned,
-            repaired: pipelineResult.topicAlignmentResult.repaired || undefined,
-            draft_attempt: pipelineResult.topicAlignmentResult.draft_attempt,
-            scope_used: get().activeDebate?.topic?.scope ?? null,
-          }
-          : undefined;
-        recordDiagnostic(get, set, lastEntry.id, {
-          prompt: draftDiag?.prompt ?? '',
-          raw_response: draftDiag?.raw_response ?? '',
-          model,
-          response_time_ms: pipelineResult.total_time_ms,
-          taxonomy_context: taxonomyBlock,
-          commitment_context: commitBlock || undefined,
-          stage_diagnostics: pipelineResult.stage_diagnostics,
-          topic_alignment: topicAlignDiag,
-          quality_gate: pipelineResult.qualityGateResult,
-        });
-        void extractClaimsAndUpdateAN(statement, responderPover, lastEntry.id, taxonomyRefs.map(r => r.node_id), get, set, meta.my_claims,
-          // Lookahead regen callback: regenerate with per-claim guidance, frozen Brief
-          async (guidance) => {
-            try {
-              const regenPipelineInput = {
-                ...pipelineInput,
-                frozenBrief: pipelineResult.brief,           // skip Brief stage — situation doesn't change between retries
-                strongFoundations: guidance.strongFoundations, // "base your argument on these"
-                avoidClaims: guidance.avoidClaims,             // "do not use these for these reasons"
-              };
-              const regenPipelineResult = await runTurnPipeline(regenPipelineInput, stageGenerate, (_stage, label) => set({ debateActivity: `Regenerating: ${label}` }));
-              const regenAssembled = assemblePipelineResult(regenPipelineResult, getAllKnownNodeIds());
-              if (!regenAssembled) return null;
-              const { statement: newStatement, meta: newMeta } = regenAssembled;
-              return { statement: newStatement, debaterClaims: newMeta.my_claims };
-            } catch (err) {
-              // Propagate a user cancel to the outer catch (t/2508) rather than silently
-              // falling back to the un-regenerated statement.
-              if (isCancellationError(err)) throw err;
-              getGlobalRecorder()?.record({
-                type: 'system.error',
-                debate_id: activeDebate?.id,
-                component: 'debate-store',
-                level: 'warn',
-                message: 'Lookahead response regeneration failed',
-                error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-              });
-              console.warn('[Lookahead] Response regeneration failed:', err);
-              return null;
-            }
-          },
-        );
-        // Post-turn summarization (DT-2)
-        await summarizeTranscriptEntry(lastEntry.id, statement, info.label, model, get, set);
-
-        await detectPositionDrift(get, set, addTranscriptEntry, activeDebate, responderPover, info, crossRespondRound, statement);
-        // h3: similarity to the speaker's own camp narrative (drift from the opening baseline)
-        await updateNarrativeSimilarity(get, set, lastEntry.id, responderPover, statement);
-      }
+      await recordLastEntryDiagnosticsAndDrift(
+        get().activeDebate?.transcript.slice(-1)[0],
+        get, set, addTranscriptEntry, pipelineResult, model, taxonomyBlock, commitBlock,
+        statement, responderPover, crossRespondRound, info, activeDebate,
+        stageGenerate, pipelineInput, taxonomyRefs, meta,
+      );
       // ── Neutral evaluation: midpoint checkpoint ──
-      try {
-        const midDebate = get().activeDebate;
-        if (midDebate && !(midDebate.neutral_evaluations ?? []).some(e => e.checkpoint === 'midpoint')) {
-          const midTotal = get().initialCrossRespondRounds || 5;
-          const midRound = Math.ceil(midTotal / 2) + 1;
-          const curRound = midDebate.transcript.filter(e => e.type === 'statement').length;
-          if (curRound === midRound) {
-            void runNeutralCheckpoint('midpoint', get, set as any, addTranscriptEntry as Parameters<typeof runNeutralCheckpoint>[3]);
-          }
-        }
-      } catch (e) { getGlobalRecorder()?.record({ type: 'system.error', debate_id: activeDebate?.id, component: 'debate-store', level: 'warn', message: 'Neutral midpoint checkpoint failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } }); }
+      checkNeutralMidpointCheckpoint(get, set as any, addTranscriptEntry, crossRespondRound, activeDebate);
 
       await runGapInjectionCheck(get, set, addTranscriptEntry, activeDebate);
     } catch (err) {
       // User cancel / model switch (t/2508) — bail quietly, no error toast (helper logged info).
       if (isCancellationError(err)) { releaseDebateDriver(); set({ debateGenerating: null, debateActivity: null }); return; }
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'error', debate_id: activeDebate.id, message: `Pipeline failed for ${responderPover} R${crossRespondRound}`, data: { round: crossRespondRound, speaker: responderPover, error: String(err), stack: (err as Error).stack?.slice(0, 500), transcript_length: get().activeDebate?.transcript.length } });
-      if (isDailyLimitError(err)) {
-        addTranscriptEntry({ type: 'system', speaker: 'system', content: DAILY_LIMIT_MESSAGE, taxonomy_refs: [] });
-        releaseDebateDriver();
-        set({ debateGenerating: null, debateActivity: null, debateError: DAILY_LIMIT_MESSAGE, dailyLimitPaused: true });
-        getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'info', debate_id: activeDebate.id, message: 'debate.paused', data: { reason: 'daily_token_limit', round: crossRespondRound, speaker: responderPover } });
-        return;
-      }
-      // t/3053: idempotent per-round turn-failure marker (mirror t/2907 slot-lifecycle). Each retry
-      // for a failed turn adds no statement, so the round is stable — refresh ONE marker for this
-      // round instead of appending a fresh one every pass (the S6→S7 dupes). Matched anywhere in the
-      // transcript (not trailing-only), keyed on the round.
-      const turnFailureContent = `${info.label} failed to cross-respond: ${mapErrorToUserMessage(err)}`;
-      const existingFailure = get().activeDebate?.transcript.find(
-        e => e.type === 'system'
-          && (e.metadata as Record<string, unknown> | undefined)?.turn_failure === true
-          && (e.metadata as Record<string, unknown> | undefined)?.round === crossRespondRound,
-      );
-      if (existingFailure) {
-        get().updateTranscriptEntry(existingFailure.id, { content: turnFailureContent, metadata: { turn_failure: true, round: crossRespondRound } });
-      } else {
-        addTranscriptEntry({ type: 'system', speaker: 'system', content: turnFailureContent, taxonomy_refs: [], metadata: { turn_failure: true, round: crossRespondRound } });
-      }
-      getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'error', debate_id: activeDebate.id, message: 'debate.turn_failed', data: { reason: 'pipeline_error', round: crossRespondRound, speaker: responderPover, error: String(err) } });
+      handleTurnPipelineError(get, set, addTranscriptEntry, activeDebate, info, responderPover, crossRespondRound, err);
     }
 
     getGlobalRecorder()?.record({ type: 'debate.round', component: 'debate-store', level: 'debug', debate_id: activeDebate.id, message: `Cross-respond turn complete, entering post-processing`, data: { round: crossRespondRound, speaker: responderPover, transcript_length: get().activeDebate?.transcript.length } });
@@ -1563,4 +1423,235 @@ async function runModeratorStep(selectionInput: ModeratorSelectionInput, selecti
     return handleModeratorAgreementEarly(activeDebate, crossRespondRound, phase, modResult, get, set, saveDebate);
   }
   return modResult;
+}
+
+// ── _crossRespondLeased decomposition helpers (CC-reduction pass, PR #4089) ──
+// Ten focused helpers extracted from _crossRespondLeased to bring it from CC≈33 to CC≈9.
+// Behavior preserved verbatim — pure structural extraction, no logic changes.
+
+function fixOpeningPhaseTransition(activeDebate: DebateSession, get: _Get): void {
+  if (activeDebate.phase === 'opening' && activeDebate.transcript.some(e => e.type === 'opening')) {
+    get().updatePhase('debate');
+  }
+}
+
+async function ensureEdgesLoaded(): Promise<void> {
+  const taxState = useTaxonomyStore.getState();
+  if (!taxState.edgesFile) {
+    await useTaxonomyStore.getState().loadEdges();
+  }
+}
+
+function persistModeratorStateUpdate(get: _Get, set: _Set, modState: ModeratorState): void {
+  const freshDebate = get().activeDebate;
+  if (freshDebate) {
+    set({ activeDebate: { ...freshDebate, moderator_state: modState } });
+  }
+}
+
+function enrichTaxonomyRefScores(
+  ctx: { nodeScores?: Map<string, number> },
+  taxonomyRefs: { node_id: string; relevance_score?: number }[],
+): void {
+  if (!ctx.nodeScores) return;
+  for (const ref of taxonomyRefs) {
+    const score = ctx.nodeScores.get(ref.node_id);
+    if (score != null) ref.relevance_score = score;
+  }
+}
+
+function buildCaveatsFromValidation(
+  validation: { repairHints?: string[] },
+  pipelineResult: { stage_diagnostics: { stage: string; work_product?: unknown }[] },
+): string[] | undefined {
+  const CITE_RE = /taxonomy_refs.*(?:filler|too-short|relevance)|No new taxonomy_refs|Unknown taxonomy node|Unknown policy_refs|grounding_confidence/i;
+  const DRAFT_RE = /move_types|my_claims|paragraph|statement|hedge|constructive|pin_response|probe_response|challenge_response|clarification|check_response|revoice|reflection|compressed_thesis|commitment/i;
+  const caveats = (validation.repairHints ?? []).filter((h: string) =>
+    !CITE_RE.test(h) && !DRAFT_RE.test(h)
+  );
+  const evidenceDiag = pipelineResult.stage_diagnostics.find((s: { stage: string }) => s.stage === 'evidence');
+  const ungroundedClaims = (evidenceDiag?.work_product as Record<string, unknown>)?.ungrounded_claims as
+    Array<{ claim: string; reason: string }> | undefined;
+  if (ungroundedClaims?.length) {
+    for (const uc of ungroundedClaims) {
+      caveats.push(`[Ungrounded] ${uc.claim}`);
+    }
+  }
+  return caveats.length > 0 ? caveats : undefined;
+}
+
+function buildCrossRespondEntryMetadata(
+  crossRespondRound: number,
+  focusPoint: string | undefined,
+  addressingLabel: string | undefined,
+  moderatorTrace: Record<string, unknown>,
+  meta: PoverResponseMeta & Record<string, unknown>,
+  relevanceSources: unknown,
+  validation: { outcome: string; score?: number },
+  attempts: TurnAttempt[],
+  concessionCandidateIds: string[],
+  ctx: { injectionManifest?: unknown },
+): Record<string, unknown> {
+  return {
+    cross_respond: true, round: crossRespondRound,
+    focus_point: focusPoint, addressing_label: addressingLabel,
+    moderator_trace: moderatorTrace, ...meta,
+    relevance_sources: relevanceSources,
+    turn_validation_outcome: validation.outcome,
+    turn_validation_score: validation.score,
+    turn_validation_attempts: attempts.length,
+    turn_validation_flagged: validation.outcome === 'accept_with_flag' ? true : undefined,
+    concession_candidates_offered: concessionCandidateIds.length > 0 ? concessionCandidateIds : undefined,
+    concession_considered: (meta as Record<string, unknown>)?.concession_considered as string | undefined,
+    injection_manifest: ctx.injectionManifest,
+  };
+}
+
+function persistValidationTrail(
+  get: _Get,
+  set: _Set,
+  validation: TurnValidation,
+  attempts: TurnAttempt[],
+  lastId: string | undefined,
+): void {
+  if (!lastId) return;
+  const curr = get().activeDebate;
+  if (!curr) return;
+  const trail: TurnValidationTrail = { attempts, final: validation };
+  const trails = { ...(curr.turn_validations ?? {}), [lastId]: trail };
+  let suggestions = curr.taxonomy_suggestions;
+  if (validation.clarifies_taxonomy.length > 0) {
+    suggestions = routeTurnValidatorHintsIntoSuggestions(validation, lastId, suggestions);
+  }
+  set({ activeDebate: { ...curr, turn_validations: trails, taxonomy_suggestions: suggestions } });
+}
+
+async function recordLastEntryDiagnosticsAndDrift(
+  lastEntry: TranscriptEntry | undefined,
+  get: _Get,
+  set: _Set,
+  addTranscriptEntry: _AddEntry,
+  pipelineResult: Awaited<ReturnType<typeof runTurnPipeline>>,
+  model: string,
+  taxonomyBlock: string,
+  commitBlock: string,
+  statement: string,
+  responderPover: _AiPover,
+  crossRespondRound: number,
+  info: _PoverInfo,
+  activeDebate: DebateSession,
+  stageGenerate: ReturnType<typeof makeStageGenerate>,
+  pipelineInput: TurnPipelineInput,
+  taxonomyRefs: { node_id: string }[],
+  meta: PoverResponseMeta,
+): Promise<void> {
+  if (!lastEntry) return;
+  const draftDiag = pipelineResult.stage_diagnostics.find(s => s.stage === 'draft');
+  const topicAlignDiag = pipelineResult.topicAlignmentResult
+    ? {
+      topic_aligned: pipelineResult.topicAlignmentResult.topic_aligned,
+      repaired: pipelineResult.topicAlignmentResult.repaired || undefined,
+      draft_attempt: pipelineResult.topicAlignmentResult.draft_attempt,
+      scope_used: get().activeDebate?.topic?.scope ?? null,
+    }
+    : undefined;
+  recordDiagnostic(get, set, lastEntry.id, {
+    prompt: draftDiag?.prompt ?? '',
+    raw_response: draftDiag?.raw_response ?? '',
+    model,
+    response_time_ms: pipelineResult.total_time_ms,
+    taxonomy_context: taxonomyBlock,
+    commitment_context: commitBlock || undefined,
+    stage_diagnostics: pipelineResult.stage_diagnostics,
+    topic_alignment: topicAlignDiag,
+    quality_gate: pipelineResult.qualityGateResult,
+  });
+  void extractClaimsAndUpdateAN(statement, responderPover, lastEntry.id, taxonomyRefs.map(r => r.node_id), get, set, meta.my_claims,
+    async (guidance) => {
+      try {
+        const regenPipelineInput = {
+          ...pipelineInput,
+          frozenBrief: pipelineResult.brief,
+          strongFoundations: guidance.strongFoundations,
+          avoidClaims: guidance.avoidClaims,
+        };
+        const regenPipelineResult = await runTurnPipeline(regenPipelineInput as TurnPipelineInput, stageGenerate, (_stage, label) => set({ debateActivity: `Regenerating: ${label}` }));
+        const regenAssembled = assemblePipelineResult(regenPipelineResult, getAllKnownNodeIds());
+        if (!regenAssembled) return null;
+        const { statement: newStatement, meta: newMeta } = regenAssembled;
+        return { statement: newStatement, debaterClaims: newMeta.my_claims };
+      } catch (err) {
+        if (isCancellationError(err)) throw err;
+        getGlobalRecorder()?.record({
+          type: 'system.error',
+          debate_id: activeDebate?.id,
+          component: 'debate-store',
+          level: 'warn',
+          message: 'Lookahead response regeneration failed',
+          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+        });
+        console.warn('[Lookahead] Response regeneration failed:', err);
+        return null;
+      }
+    },
+  );
+  await summarizeTranscriptEntry(lastEntry.id, statement, info.label, model, get, set);
+  await detectPositionDrift(get, set, addTranscriptEntry, activeDebate, responderPover, info, crossRespondRound, statement);
+  await updateNarrativeSimilarity(get, set, lastEntry.id, responderPover, statement);
+}
+
+function checkNeutralMidpointCheckpoint(
+  get: _Get,
+  set: _Set,
+  addTranscriptEntry: _AddEntry,
+  crossRespondRound: number,
+  activeDebate: DebateSession,
+): void {
+  try {
+    const midDebate = get().activeDebate;
+    if (midDebate && !(midDebate.neutral_evaluations ?? []).some(e => e.checkpoint === 'midpoint')) {
+      const midTotal = get().initialCrossRespondRounds || 5;
+      const midRound = Math.ceil(midTotal / 2) + 1;
+      const curRound = midDebate.transcript.filter(e => e.type === 'statement').length;
+      if (curRound === midRound) {
+        void runNeutralCheckpoint('midpoint', get, set as any, addTranscriptEntry as Parameters<typeof runNeutralCheckpoint>[3]);
+      }
+    }
+  } catch (e) {
+    getGlobalRecorder()?.record({ type: 'system.error', debate_id: activeDebate?.id, component: 'debate-store', level: 'warn', message: 'Neutral midpoint checkpoint failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } });
+  }
+}
+
+function handleTurnPipelineError(
+  get: _Get,
+  set: _Set,
+  addTranscriptEntry: _AddEntry,
+  activeDebate: DebateSession,
+  info: _PoverInfo,
+  responderPover: _AiPover,
+  crossRespondRound: number,
+  err: unknown,
+): void {
+  getGlobalRecorder()?.record({ type: 'system.error', component: 'debate-store', level: 'error', debate_id: activeDebate.id, message: `Pipeline failed for ${responderPover} R${crossRespondRound}`, data: { round: crossRespondRound, speaker: responderPover, error: String(err), stack: (err as Error).stack?.slice(0, 500), transcript_length: get().activeDebate?.transcript.length } });
+  if (isDailyLimitError(err)) {
+    addTranscriptEntry({ type: 'system', speaker: 'system', content: DAILY_LIMIT_MESSAGE, taxonomy_refs: [] });
+    releaseDebateDriver();
+    set({ debateGenerating: null, debateActivity: null, debateError: DAILY_LIMIT_MESSAGE, dailyLimitPaused: true });
+    getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'info', debate_id: activeDebate.id, message: 'debate.paused', data: { reason: 'daily_token_limit', round: crossRespondRound, speaker: responderPover } });
+    return;
+  }
+  // t/3053: idempotent per-round turn-failure marker (mirror t/2907 slot-lifecycle). Each retry
+  // for a failed turn adds no statement — refresh ONE marker for this round instead of appending.
+  const turnFailureContent = `${info.label} failed to cross-respond: ${mapErrorToUserMessage(err)}`;
+  const existingFailure = get().activeDebate?.transcript.find(
+    e => e.type === 'system'
+      && (e.metadata as Record<string, unknown> | undefined)?.turn_failure === true
+      && (e.metadata as Record<string, unknown> | undefined)?.round === crossRespondRound,
+  );
+  if (existingFailure) {
+    get().updateTranscriptEntry(existingFailure.id, { content: turnFailureContent, metadata: { turn_failure: true, round: crossRespondRound } });
+  } else {
+    addTranscriptEntry({ type: 'system', speaker: 'system', content: turnFailureContent, taxonomy_refs: [], metadata: { turn_failure: true, round: crossRespondRound } });
+  }
+  getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'error', debate_id: activeDebate.id, message: 'debate.turn_failed', data: { reason: 'pipeline_error', round: crossRespondRound, speaker: responderPover, error: String(err) } });
 }
