@@ -59,6 +59,11 @@ interface TheoryLinkBaseProps {
   size?: number;
   /** Extra class(es) for inline positioning by consumers — appended to the base class. */
   className?: string;
+  /** Skips the app-wide "Simple view hides all doc links" gate (t/2867). For a caller that
+   *  already gates visibility on its own mode and isn't a consumer of the global `viewMode`
+   *  control — e.g. NodeDetail's panel-local Advanced (t/4574, Design t/4574#15 item 1), whose
+   *  icons disappeared because this gate reads the *global* viewMode, not the panel's own. */
+  force?: boolean;
 }
 
 /** Exactly one of `url` or `docPath` must be supplied (discriminated union). */
@@ -67,14 +72,15 @@ export type TheoryLinkProps =
   | (TheoryLinkBaseProps & { docPath: string; anchor?: string; url?: never });
 
 export function TheoryLink(props: TheoryLinkProps) {
-  const { label, tooltip, size = 15, className } = props;
+  const { label, tooltip, size = 15, className, force } = props;
 
   // t/2867: Simple view hides ALL doc/help links app-wide — a single-point gate here
   // (mirrors PinnedPanel, t/2826) instead of ~40 per-site conditionals, which removes the
   // missed-surface risk. Store subscription ⇒ Simple↔Advanced toggles live with no reload.
   // (Redundant-but-harmless on the diagnostics surfaces that are already Advanced-only.)
+  // `force` skips this for callers gated on a different (e.g. panel-local) mode — see prop doc.
   const viewMode = usePreferencesStore((s) => s.viewMode);
-  if (viewMode !== 'advanced') return null;
+  if (!force && viewMode !== 'advanced') return null;
 
   // Runtime guard (t/2410): exactly one of `url` / `docPath`. The discriminated union
   // catches static callers; this catches spread / `as any` / JS-caller bypasses — record a
