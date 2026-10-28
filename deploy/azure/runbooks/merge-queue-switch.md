@@ -101,19 +101,47 @@ foreach ($pr in 4036, 4037, 4038, 4039) {
     gh pr merge $pr --auto --squash --match-head-commit $headSha
 }
 
-# 5. Confirm the drift guard is clean against the newly fixed live state -- not a parallel check,
-#    the final confirmation. If this doesn't exit 0, STOP and diagnose before anything else enqueues.
+# #4040 itself goes in the SAME window (TL e/388#9) -- it merges through the now-fixed queue
+# right alongside the batch it unblocks, not as a separate manual step. Pin it to $ClearedSha
+# specifically, NOT to its "current head" (SO e/388#10): if the PR has moved since the SO
+# cleared it, the cleared version isn't what would merge, so this should stop rather than merge
+# something nobody reviewed. The TL's T1 approval comment must also be posted against
+# $ClearedSha before this is armed -- confirm that on the PR before running it.
+gh pr merge 4040 --auto --squash --match-head-commit $ClearedSha
+```
+
+**Stop here -- do NOT run the drift guard from this session.** (TL e/388#9, correcting an earlier
+draft of this runbook that had it as step 5.) `Test-RequiredContextsListDrift.ps1` reads the SSOT
+(`.github/ci/required-contexts.json`) from **this local checkout**, which is still on the OLD
+`main` -- #4040 (the C2 drift-guard extension and the fixed SSOT) hasn't merged yet at this point,
+so the guard would compare the newly-fixed live state against a stale SSOT that still says
+`CodeQL` and has no `merge_queue_ruleset` expectation at all. That's a false red, not a real one.
+
+**Order matters** (SO e/388#2, TL-accepted e/388#3): the ruleset `PUT` (1) lands before classic
+protection (2); the retrigger (3) runs before the batch -- including #4040 -- is re-enqueued (4).
+This is also why #4040 merges **after** C1, in the same window, not before: before C1 lands,
+#4040's SSOT/AGENTS.md/runbook/liveness-list would describe a `CodeQL Analysis` state that doesn't
+exist yet on the live ruleset/classic protection, and the daily drift job would flag that gap as
+drift that isn't real (Q1, e/388#2).
+
+## Post-merge confirmation (TL, after #4040 lands)
+
+Once #4040 has merged through step 4 above, **the TL** -- not the PI, and from a fresh worktree
+on the new `origin/main`, not this session's checkout -- confirms the fix actually landed clean:
+
+```powershell
+git worktree add -b t4567-post-merge-check .worktrees/t4567-post-merge-check origin/main
+cd .worktrees/t4567-post-merge-check
 ./operations/devops/Test-RequiredContextsListDrift.ps1
 $LASTEXITCODE   # must be 0
 ```
 
-**Order matters** (SO e/388#2, TL-accepted e/388#3): the ruleset `PUT` (1) lands before classic
-protection (2); the retrigger (3) runs before the stuck batch is re-enqueued (4); the drift guard
-(5) is the final confirmation, not a parallel check. **Then, in the same window, merge PR #4040**
--- not before. Before C1 lands, #4040's SSOT/AGENTS.md/runbook/liveness-list would describe a
-`CodeQL Analysis` state that doesn't exist yet on the live ruleset/classic protection, and the
-daily drift job (`Test-RequiredContextsListDrift.ps1` on its own schedule) would flag that gap as
-drift that isn't real (Q1, e/388#2).
+This now runs the C2-extended guard against the SSOT and `merge_queue_ruleset` expectation that
+actually matches #4040's merged code -- the PI's local checkout never had either. **Expected
+output** (SO e/388#10): exit code `0`, and a `RULESET 'main-merge-queue':` line showing
+`active=True` and `tool=CodeQL/high_or_higher/errors`. Post the exit code and this line on t/4567.
+If it isn't 0, STOP and diagnose before anything else enqueues -- do
+not treat a non-zero exit here as "probably just the merge not propagated yet."
 
 ## Mandatory follow-up: context-swap retrigger
 
