@@ -152,6 +152,14 @@ const TREE_SHA = 'tree-sha-000000000000000000000000000dead';
 const COMMIT_SHA = 'commit-sha-00000000000000000000000000dead';
 
 function handleDefaultGithubApi(url: string, method: string, body?: unknown): Response {
+  // t/4585: this file predates raw.githubusercontent.com main-pinned reads and
+  // exercises Contents-API/circuit-breaker behavior specifically — force every
+  // raw attempt to fall back to REST (a definite non-404 failure, never a
+  // genuine "absent") so the scenarios below still reach the REST mock logic
+  // they're actually testing, unchanged.
+  if (url.startsWith('https://raw.githubusercontent.com/')) {
+    return mockFetchResponse(500, { message: 'raw not mocked in this test file' });
+  }
   const path = url.replace('https://api.github.com', '');
 
   // GET /repos/:owner/:repo/commits/main

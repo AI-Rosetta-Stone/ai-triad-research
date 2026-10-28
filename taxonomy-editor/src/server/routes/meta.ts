@@ -263,6 +263,11 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
         coherencyViolations: githubBackend.getCoherencyViolations(),
         activeBranches: githubBackend.getActiveBranchCount(),
         lastPollAgeS: githubBackend.getLastPollAge(),
+        // t/4585 AC2: REST calls since boot (the measurable the cold-boot
+        // raw-read fix targets) and raw.githubusercontent.com fallback
+        // events, by reason.
+        restCallsSinceBoot: githubBackend.getRequestMetrics().totalRequests,
+        rawFallback: githubBackend.getRawFallbackStats(),
       };
     }
 

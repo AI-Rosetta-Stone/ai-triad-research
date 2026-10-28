@@ -13,9 +13,15 @@ import crypto from 'crypto';
  * AzureBlobBackend as their write-precondition version: they have no
  * server-assigned SHA of their own, so they version local content by its
  * git blob hash instead.
+ *
+ * t/4585: accepts raw bytes directly (a `Buffer`) so a caller that read a
+ * response as `arrayBuffer()` can hash the original bytes, never a value
+ * that already went through a decode (a BOM or an invalid UTF-8 sequence
+ * changes bytes on decode-then-re-encode, which would desync the cached sha
+ * from git's actual blob hash — see githubAPIBackend.ts's raw-fetch path).
  */
-export function gitBlobSha(content: string): string {
-  const buf = Buffer.from(content, 'utf-8');
+export function gitBlobSha(content: string | Buffer): string {
+  const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf-8');
   const header = `blob ${buf.byteLength}\0`;
   // codeql[js/weak-cryptographic-algorithm] -- git blob object-hash format (must match GitHub's sha); a version tag, not a security control
   return crypto.createHash('sha1').update(header).update(buf).digest('hex');
