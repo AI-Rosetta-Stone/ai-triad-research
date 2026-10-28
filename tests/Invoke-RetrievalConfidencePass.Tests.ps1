@@ -15,6 +15,11 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
     #   VecA: unit vector at dim 0  (assigned to acc-bel-001)
     #   VecB: unit vector at dim 1  (assigned to saf-bel-001, orthogonal to VecA)
     # cosine(VecA, VecA) = 1.0, cosine(VecA, VecB) = 0.0
+    #
+    # t/4478: -KeyPoints (bare key_point array) became -KeyPointItems (@{KeyPoint;POV}), since POV
+    # scopes the candidate pool. None of these fixture key_points set `category`, so they all take
+    # the WARN-fallback-to-POV-only path -- this file is pinning the pre-t/4478 POV-only behavior
+    # under the new signature; Invoke-RetrievalConfidencePass.BdiScoping.Tests.ps1 covers the BDI path.
 
     BeforeEach {
         InModuleScope AITriad {
@@ -27,12 +32,12 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
             $script:TaxonomyData = @{
                 acc = [PSCustomObject]@{
                     nodes = @(
-                        [PSCustomObject]@{ id = 'acc-bel-001'; label = 'Accelerationist Belief 1' }
+                        [PSCustomObject]@{ id = 'acc-bel-001'; label = 'Accelerationist Belief 1'; category = 'Beliefs' }
                     )
                 }
                 saf = [PSCustomObject]@{
                     nodes = @(
-                        [PSCustomObject]@{ id = 'saf-bel-001'; label = 'Safetyist Belief 1' }
+                        [PSCustomObject]@{ id = 'saf-bel-001'; label = 'Safetyist Belief 1'; category = 'Beliefs' }
                     )
                 }
             }
@@ -47,7 +52,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'some text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
 
                 $kp.PSObject.Properties.Name | Should -Contain 'retrieval_confidence'
                 $kp.PSObject.Properties.Name | Should -Contain 'taxonomy_node_candidates'
@@ -62,7 +67,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'aligned text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
 
                 $kp.retrieval_confidence | Should -Be 1.0
             }
@@ -74,7 +79,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'aligned text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
 
                 $kp.retrieval_low_confidence | Should -Be $false
             }
@@ -87,7 +92,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'saf-bel-001'; attribution_text = 'misaligned text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'safetyist' }) -Threshold 0.45
 
                 $kp.retrieval_low_confidence | Should -Be $true
                 $kp.retrieval_confidence     | Should -Be 0.0
@@ -102,7 +107,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'aligned text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
 
                 $candidates = @($kp.taxonomy_node_candidates)
                 $candidates.Count | Should -BeLessOrEqual 3
@@ -117,7 +122,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'aligned text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
 
                 $candidateIds = @($kp.taxonomy_node_candidates | ForEach-Object { $_.id })
                 $candidateIds | Should -Contain 'acc-bel-001'
@@ -130,7 +135,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'aligned text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
 
                 $top = $kp.taxonomy_node_candidates | Where-Object { $_.id -eq 'acc-bel-001' }
                 $top.label | Should -Be 'Accelerationist Belief 1'
@@ -139,7 +144,9 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
 
         It 'emits empty string label for node not found in TaxonomyData (rare fallback)' {
             InModuleScope AITriad {
-                # Add cached embedding for a node not in TaxonomyData
+                # Add cached embedding for a node not in TaxonomyData, with no recognized POV prefix
+                # -- POV is unrecognized ('none') so Get-BdiScopedNodeIds applies no POV filter either,
+                # matching pre-t/4478 behavior for a node id outside the acc-/saf-/skp- convention.
                 $GhostVec = [double[]]::new(384); $GhostVec[2] = 1.0
                 $script:CachedEmbeddings['ghost-001'] = $GhostVec
 
@@ -147,7 +154,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
                 Mock Invoke-BatchEmbedAttribution { @{ 'kp_0' = $QVec } }
 
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'ghost-001'; attribution_text = 'ghostly text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'none' }) -Threshold 0.45
 
                 $top = @($kp.taxonomy_node_candidates)[0]
                 $top.id    | Should -Be 'ghost-001'
@@ -161,7 +168,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
             InModuleScope AITriad {
                 $script:CachedEmbeddings = @{}
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'some text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
                 $kp.PSObject.Properties.Name | Should -Not -Contain 'retrieval_confidence'
             }
         }
@@ -170,7 +177,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
             InModuleScope AITriad {
                 $script:CachedEmbeddings = $null
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'some text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
                 $kp.PSObject.Properties.Name | Should -Not -Contain 'retrieval_confidence'
             }
         }
@@ -179,7 +186,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
             InModuleScope AITriad {
                 Mock Invoke-BatchEmbedAttribution { return $null }
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'some text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
                 $kp.PSObject.Properties.Name | Should -Not -Contain 'retrieval_confidence'
             }
         }
@@ -188,7 +195,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
             InModuleScope AITriad {
                 Mock Invoke-BatchEmbedAttribution { @{} }
                 $kp = [PSCustomObject]@{ taxonomy_node_id = $null; attribution_text = 'some text'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
                 $kp.PSObject.Properties.Name | Should -Not -Contain 'retrieval_confidence'
             }
         }
@@ -197,7 +204,7 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
             InModuleScope AITriad {
                 Mock Invoke-BatchEmbedAttribution { @{} }
                 $kp = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; point = 'claim' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(@{ KeyPoint = $kp; POV = 'accelerationist' }) -Threshold 0.45
                 $kp.PSObject.Properties.Name | Should -Not -Contain 'retrieval_confidence'
             }
         }
@@ -210,7 +217,10 @@ Describe 'Invoke-RetrievalConfidencePass' -Tag 'retrieval', 'confidence' {
 
                 $kp0 = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'text 0'; point = 'claim 0' }
                 $kp1 = [PSCustomObject]@{ taxonomy_node_id = 'acc-bel-001'; attribution_text = 'text 1'; point = 'claim 1' }
-                Invoke-RetrievalConfidencePass -KeyPoints @($kp0, $kp1) -Threshold 0.45
+                Invoke-RetrievalConfidencePass -KeyPointItems @(
+                    @{ KeyPoint = $kp0; POV = 'accelerationist' },
+                    @{ KeyPoint = $kp1; POV = 'accelerationist' }
+                ) -Threshold 0.45
 
                 # kp0 has no vector returned → no confidence fields
                 $kp0.PSObject.Properties.Name | Should -Not -Contain 'retrieval_confidence'
