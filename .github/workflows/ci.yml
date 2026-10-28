@@ -439,7 +439,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -737,7 +737,7 @@ jobs:
       - name: Upload test-powershell self-heal records (t/4085)
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: flake-heals-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/flake-heals/flake-heals-shard-${{ matrix.shard }}.jsonl
@@ -797,7 +797,7 @@ jobs:
       - name: Upload test-powershell abnormal-end classification (t/4548 arm 3)
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: pester-classify-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/pester-classify/shard-${{ matrix.shard }}.json
@@ -848,7 +848,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -934,7 +934,7 @@ jobs:
       - name: Upload complexity-budget violations
         if: failure() && steps.lint.outcome == 'failure'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: complexity-violations-${{ matrix.app }}
           path: ${{ runner.temp }}/complexity-reports/
@@ -1100,7 +1100,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'   # PIN — load-bearing; see header (Playwright runner hangs on Node 24)
           cache: 'pnpm'
@@ -1189,7 +1189,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -1247,7 +1247,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -1337,7 +1337,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
 
@@ -1422,7 +1422,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -1483,7 +1483,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -1525,7 +1525,7 @@ jobs:
         with:
           fetch-depth: 0  # required: script runs `git show origin/<base>:<file>` (t/2808 GV)
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
 
@@ -1576,7 +1576,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -1621,7 +1621,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         continue-on-error: true
         with:
           node-version: '26'
@@ -1674,7 +1674,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         continue-on-error: true
         with:
           node-version: '26'
@@ -1720,7 +1720,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -1902,7 +1902,7 @@ jobs:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.12'
           cache: pip
@@ -1977,7 +1977,7 @@ jobs:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.12'
           cache: pip
@@ -2035,7 +2035,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
       - name: Check lockfile overrides in sync
@@ -2061,7 +2061,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
       - name: Build-path dependency coverage check
@@ -2089,7 +2089,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -2173,7 +2173,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -2298,7 +2298,7 @@ jobs:
         with:
           version: '11.20.0'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
           cache: 'pnpm'
@@ -2532,14 +2532,14 @@ jobs:
       - name: Upload PowerShell budget violations
         if: steps.ps-budget-scripts.outcome == 'failure' || steps.ps-budget-operations.outcome == 'failure'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: complexity-violations-powershell
           path: ${{ runner.temp }}/complexity-reports/
           if-no-files-found: ignore
           retention-days: 3
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
 
@@ -2631,13 +2631,13 @@ jobs:
 
       - name: Download complexity-budget violations
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           pattern: complexity-violations-*
           path: complexity-reports
           merge-multiple: true
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
         with:
           node-version: '26'
 
