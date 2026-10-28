@@ -8,7 +8,11 @@
     "max_tokens": 32768,
     "extraction_mode": "single_shot",
     "taxonomy_filter": "compact",
-    "taxonomy_nodes": 6
+    "taxonomy_nodes": 6,
+    "json_repaired": false,
+    "finish_reason": "stop",
+    "output_tokens": null,
+    "density_retries": 0
   },
   "context_rot": {
     "schema_version": 1,

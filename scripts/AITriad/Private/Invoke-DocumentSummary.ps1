@@ -144,7 +144,9 @@ function Invoke-DocumentSummary {
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed `
         -TaxonomyJson $PipelineResult.TaxonomyJson -MaxTokens $PipelineResult['MaxTokens'] `
-        -FireStats $PipelineResult.FireStats -EnablePolarityGate $EnablePolarityGate
+        -FireStats $PipelineResult.FireStats -EnablePolarityGate $EnablePolarityGate `
+        -JsonRepaired $PipelineResult['JsonRepaired'] -Truncated $PipelineResult['Truncated'] `
+        -OutputTokens $PipelineResult['OutputTokens']
 }
 
 # ============================================================================
@@ -245,6 +247,11 @@ function Invoke-ChunkedSummary {
     $ChunkRAGMetrics = [System.Collections.Generic.List[object]]::new()
     $ChunkExtractionStats = @{ TotalPoints = 0; NullNodes = 0; FactualClaims = 0; UnmappedConcepts = 0; PromptChars = 0 }
     $ChunkMaxTokens = 65536   # every chunk's extraction call; recorded as model_info.max_tokens (t/4079)
+    # t/4479: aggregated across chunks, forensic/additive, nothing branches on them -- the
+    # exemption lapses the moment a consumer branches on json_repaired/truncated/output_tokens.
+    $ChunkJsonRepairedCount = 0
+    $ChunkAnyTruncated = $false
+    $ChunkOutputTokensSum = 0
 
     for ($i = 0; $i -lt $ChunkCount; $i++) {
         $ChunkNum = $i + 1
@@ -324,9 +331,15 @@ $ChunkText
 
             if ($AIResult.PSObject.Properties['Truncated'] -and $AIResult.Truncated) {
                 Write-Host " ⚠ TRUNCATED — output exceeded model limit, extraction may be incomplete" -ForegroundColor Yellow
+                $ChunkAnyTruncated = $true
+            }
+            if ($AIResult.PSObject.Properties['Usage'] -and $AIResult.Usage) {
+                $ChunkOutputTokensSum += $AIResult.Usage.OutputTokens
             }
 
-            $ChunkObj = Parse-AIResponse -RawText $AIResult.Text -ThisDocId "$ThisDocId-chunk$ChunkNum" -SummariesDir $SummariesDir
+            $ChunkWasRepaired = [ref]$false
+            $ChunkObj = Parse-AIResponse -RawText $AIResult.Text -ThisDocId "$ThisDocId-chunk$ChunkNum" -SummariesDir $SummariesDir -WasRepaired $ChunkWasRepaired
+            if ($ChunkWasRepaired.Value) { $ChunkJsonRepairedCount++ }
             if ($null -eq $ChunkObj) {
                 Write-Host " ✗ bad JSON" -ForegroundColor Red
                 $FailedChunks++
@@ -446,7 +459,8 @@ $ChunkText
     return Finalize-Summary -SummaryObject $SummaryObject -ThisDocId $ThisDocId `
         -TaxonomyVersion $TaxonomyVersion -Model $Model -Temperature $Temperature `
         -Now $Now -SummariesDir $SummariesDir -Doc $Doc -Elapsed $Elapsed -ChunkCount $ChunkCount `
-        -TaxonomyJson $TaxonomyJson -MaxTokens $ChunkMaxTokens -EnablePolarityGate $EnablePolarityGate
+        -TaxonomyJson $TaxonomyJson -MaxTokens $ChunkMaxTokens -EnablePolarityGate $EnablePolarityGate `
+        -JsonRepaired $ChunkJsonRepairedCount -Truncated $ChunkAnyTruncated -OutputTokens $ChunkOutputTokensSum
 }
 
 # ============================================================================
@@ -588,7 +602,10 @@ function Parse-AIResponse {
     param(
         [string]$RawText,
         [string]$ThisDocId,
-        [string]$SummariesDir
+        [string]$SummariesDir,
+        # t/4479: optional out-parameter, set $true when the repair path below is the one that
+        # produced the returned object. $null/unset by default, so existing callers are unaffected.
+        [ref]$WasRepaired = $null
     )
 
     $CleanText = $RawText -replace '(?s)^```json\s*', '' -replace '(?s)\s*```$', ''
@@ -601,7 +618,9 @@ function Parse-AIResponse {
         $Repaired = Repair-TruncatedJson -Text $RawText
         if ($Repaired) {
             try {
-                return ($Repaired | ConvertFrom-Json)
+                $RepairedObj = $Repaired | ConvertFrom-Json
+                if ($WasRepaired) { $WasRepaired.Value = $true }
+                return $RepairedObj
             } catch {
                 # fall through
             }
@@ -673,7 +692,13 @@ function Finalize-Summary {
         [object]$MaxTokens = $null,
         # Explicit since t/4136: it used to resolve from the caller's scope. Default matches
         # Invoke-DocumentSummary's (gate ON, t/2912); both callers pass it.
-        [bool]$EnablePolarityGate = $true
+        [bool]$EnablePolarityGate = $true,
+        # t/4479: forensic/additive observability fields, nothing branches on them -- the exemption
+        # lapses the moment a consumer branches on json_repaired/truncated/output_tokens. $null
+        # means "unknown to this caller", never a guessed value.
+        [object]$JsonRepaired = $false,
+        [object]$Truncated = $null,
+        [object]$OutputTokens = $null
     )
 
     # -- Schema validation and normalization (Gap 3.4) -------------------------
@@ -726,7 +751,8 @@ function Finalize-Summary {
 
     # -- Write summaries/<doc-id>.json ----------------------------------------
     $ModelInfo = New-SummaryModelInfo -Model $Model -Temperature $Temperature -TaxonomyJson $TaxonomyJson `
-        -ChunkCount $ChunkCount -FireStats $FireStats -MaxTokens $MaxTokens
+        -ChunkCount $ChunkCount -FireStats $FireStats -MaxTokens $MaxTokens `
+        -JsonRepaired $JsonRepaired -Truncated $Truncated -OutputTokens $OutputTokens
 
     # -- Build context-rot metrics from stages collected during processing ----
     $ContextRotStages = @($script:ContextRotStages)
