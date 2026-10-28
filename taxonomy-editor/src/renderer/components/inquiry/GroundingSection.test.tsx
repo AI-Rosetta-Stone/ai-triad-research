@@ -15,6 +15,9 @@ vi.mock('../../hooks/useTaxonomyStore', () => ({
     skeptic: { 'skp-beliefs-001': { id: 'skp-beliefs-001', label: 'AI skeptic belief node' } },
   })),
 }));
+vi.mock('../shared/LinkedNodePreview', () => ({
+  LinkedNodePreview: ({ nodeId }: { nodeId: string }) => <div data-testid="node-preview">{nodeId}</div>,
+}));
 
 describe('GroundingSection (t/4591)', () => {
   const mockGrounding: GroundingEnvelope = {
@@ -101,6 +104,33 @@ describe('GroundingSection (t/4591)', () => {
     if (firstRow) {
       await user.keyboard('{Enter}');
       expect(firstRow).toHaveAttribute('aria-selected', 'true');
+    }
+  });
+
+  it('renders node preview on row selection', async () => {
+    const user = userEvent.setup();
+    render(<GroundingSection grounding={mockGrounding} />);
+
+    const firstRow = screen.getByText('acc-beliefs-001').closest('tr');
+    if (firstRow) {
+      await user.click(firstRow);
+      expect(screen.getByTestId('node-preview')).toHaveTextContent('acc-beliefs-001');
+    }
+  });
+
+  it('shows missing node message when node not in taxonomy', async () => {
+    const user = userEvent.setup();
+    const groundingWithMissingNode: GroundingEnvelope = {
+      nodesByCamp: {
+        acc: [{ id: 'acc-deleted-999' }],
+      },
+    };
+
+    render(<GroundingSection grounding={groundingWithMissingNode} />);
+    const firstRow = screen.getByText('acc-deleted-999').closest('tr');
+    if (firstRow) {
+      await user.click(firstRow);
+      expect(screen.getByText('Node no longer in taxonomy')).toBeInTheDocument();
     }
   });
 });

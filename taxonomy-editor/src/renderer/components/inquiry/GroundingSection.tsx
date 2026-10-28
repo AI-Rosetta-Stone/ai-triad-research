@@ -6,6 +6,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { Camp, GroundingEnvelope } from '@lib/inquiry';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import type { PovNode } from '../../types/taxonomy';
+import { LinkedNodePreview } from '../shared/LinkedNodePreview';
 import './GroundingSection.css';
 
 type TabId = Camp | 'situation';
@@ -131,35 +132,48 @@ export function GroundingSection({ grounding, nodesByPov = {} }: GroundingSectio
               : `No grounding nodes for ${CAMP_LABELS[activeTab as Camp]}`}
           </div>
         ) : (
-          <table className="grounding-table" role="grid" aria-label={`${CAMP_LABELS[activeTab as Camp]} grounding nodes`}>
-            <thead>
-              <tr>
-                <th scope="col">Node ID</th>
-                <th scope="col">Label</th>
-              </tr>
-            </thead>
-            <tbody>
-              {currentRows.map((row, idx) => (
-                <tr
-                  key={row.id}
-                  className={`grounding-row ${selectedRowId === row.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedRowId(row.id)}
-                  role="row"
-                  aria-selected={selectedRowId === row.id}
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setSelectedRowId(row.id);
-                    }
-                  }}
-                >
-                  <td className="grounding-cell-id">{row.id}</td>
-                  <td className="grounding-cell-label">{row.label}</td>
+          <div className="grounding-content">
+            <table className="grounding-table" role="grid" aria-label={`${CAMP_LABELS[activeTab as Camp]} grounding nodes`}>
+              <thead>
+                <tr>
+                  <th scope="col">Node ID</th>
+                  <th scope="col">Label</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {currentRows.map((row, idx) => (
+                  <tr
+                    key={row.id}
+                    className={`grounding-row ${selectedRowId === row.id ? 'selected' : ''}`}
+                    onClick={() => setSelectedRowId(row.id)}
+                    role="row"
+                    aria-selected={selectedRowId === row.id}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedRowId(row.id);
+                      }
+                    }}
+                  >
+                    <td className="grounding-cell-id">{row.id}</td>
+                    <td className="grounding-cell-label">{row.label}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {selectedRowId && (
+              <div className="grounding-detail">
+                <LinkedNodePreview nodeId={selectedRowId} />
+                {!currentRows.find(r => r.id === selectedRowId) && (
+                  <div className="grounding-detail-missing">
+                    Node no longer in taxonomy
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

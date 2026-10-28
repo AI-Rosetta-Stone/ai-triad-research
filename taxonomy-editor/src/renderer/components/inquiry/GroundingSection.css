@@ -116,6 +116,28 @@
   color: var(--text);
 }
 
+.grounding-content {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-4);
+}
+
+.grounding-detail {
+  padding: var(--sp-3);
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+.grounding-detail-missing {
+  padding: var(--sp-4);
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
 /* Phone width */
 @media (max-width: 640px) {
   .grounding-section {
