@@ -1,0 +1,51 @@
+name: merge-queue-dequeue-alert
+
+# t/4567 D1 (SO p/836#2, TL-adopted t/4567#38): the immediate, event-driven signal for a
+# merge-queue entry dropping silently -- a dequeue GitHub itself initiates (timed-out
+# checks, failed checks) starts a `pull_request` event with `action: dequeued` and a
+# `reason`. A merge or a manual removal are expected, routine outcomes; anything else
+# (CHECKS_TIMED_OUT, FAILED_CHECKS, or any future reason) means the entry left the queue
+# without ever merging and without a human choosing to pull it -- exactly the silent-drop
+# class t/4567#36 found. This fires immediately, not on a poll cadence; the companion
+# merge-queue-liveness.yml is the time-based backstop for whatever this event itself
+# fails to catch.
+on:
+  pull_request:
+    types: [dequeued]
+
+permissions:
+  issues: write
+
+jobs:
+  alert-on-unexpected-dequeue:
+    # SO live-fire finding (e/377#2, L1): the reason lives at github.event.reason (top
+    # level of the dequeued payload), NOT github.event.pull_request.merge_queue_dequeue_reason
+    # -- confirmed via a payload dump (reason: "MERGE" on a clean merge, "CI_FAILURE" on a
+    # real test failure). The wrong path here meant this job's `if:` was always false --
+    # D1 never ran on this file, even though arm 5b's scratch copy (fixed separately) did.
+    #
+    # M2 live-fire finding: MANUAL *is* a distinct GitHub reason value (confirmed via a
+    # real manual dequeue, not the "manual isn't distinct today" assumption this comment
+    # originally made) -- a human/agent choosing to pull a PR is the expected, routine
+    # outcome D1 exists to distinguish FROM a silent drop, not to alert on. Exclude it too.
+    if: github.event.reason != 'MERGE' && github.event.reason != 'MANUAL'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            // Fail toward alerting, not silence -- an unrecognized/missing reason is NOT
+            // the same as a known-safe one.
+            const reason = context.payload.reason || 'unknown';
+            const body = `**Unexpected merge-queue dequeue (t/4567 D1):** PR #${pr.number} @ \`${pr.head.sha.slice(0, 7)}\` left the merge queue with reason \`${reason}\` -- not a merge. This is the silent-drop class (t/4567#36): a stuck entry can leave the queue with no further signal unless this alert catches it.\n\n- **PR:** ${pr.html_url}`;
+            const created = await github.rest.issues.create({
+              owner, repo,
+              title: `Merge-queue dequeue, not a merge: PR #${pr.number} (${reason})`,
+              body,
+              labels: ['alert-escalated'],
+            });
+            console.log(`::warning::Created alert issue #${created.data.number} for unexpected dequeue of PR #${pr.number} (reason: ${reason})`);

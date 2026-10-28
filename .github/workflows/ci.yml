@@ -14,6 +14,9 @@
 #   test-electron  Required scripts present + TypeScript check (renderer) (t/3897; 8-day warn
 #                  cycle 2026-10-04 to 2026-10-12, zero failure annotations; --if-present also
 #                  dropped from Lint/Test in the same PR, plus the new matrix-membership job)
+#   merge-queue-f4-shim-test  F4 count==position fail-closed self-check (t/4567 SO N2,
+#                  e/380#2): blocking from the start, no warn cycle -- a self-check for a
+#                  fail-closed safety script must never be skippable or advisory-only.
 # FLIP-PENDING (remove continue-on-error to enforce):
 #   doc-accuracy  doc-claims + REPO_MAP steps (t/1324)
 #   schema-drift  warn-only until Phase-2 blocking flip (t/3447, t/3469)
@@ -2693,9 +2696,29 @@ jobs:
   # worker↔in-thread equivalence; path-filtered to embeddings changes + the ORT
   # manifest/lockfile, skip = OK. Promoted advisory→required per TL GV t/3240#5 +
   # Second Opinion e/143#2.
+  # ── merge-queue-f4-shim-test (t/4567 SO M3/N2/P2, e/378#2/e/380#2/e/381#2): both the F4
+  # count==position check and the C5 liveness check's lookup-failure path can't be forced
+  # through the real GraphQL/REST APIs live-fire, so they're proven only via shim tests.
+  # Blocking from the start (N2: no continue-on-error, joins ci-gate's needs) -- a
+  # self-check for a fail-closed safety script must never be skippable OR merely advisory.
+  merge-queue-f4-shim-test:
+    needs: [changes]
+    if: always() && !cancelled() && needs.changes.result != 'failure' && needs.changes.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Run F4 shim test
+        run: |
+          chmod +x operations/devops/get-merge-group-prs.sh operations/devops/test-get-merge-group-prs-f4.sh
+          operations/devops/test-get-merge-group-prs-f4.sh
+      - name: Run C5 liveness lookup-failure shim test (SO P2)
+        run: |
+          chmod +x operations/devops/check-merge-queue-liveness.sh operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
+          operations/devops/test-check-merge-queue-liveness-lookup-failure.sh
+
   ci-gate:
     name: ci-gate
-    needs: [changes, test-powershell, test-electron, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget]
+    needs: [changes, test-powershell, test-electron, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test]
     if: always()
     # lint:skipped-tolerated: yes — path-filtered gated jobs gate on needs.changes.outputs.* and
     #   skip by design on PRs that don't touch their subsystem; a skipped need is expected, not a
