@@ -10,7 +10,7 @@
 
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { PublicInquiryShare } from '@lib/inquiry';
-import { CAMP_LABELS, FIDELITY_LABELS } from './inquiry/inquiryDisplay';
+import { CAMP_LABELS, FIDELITY_LABELS, trustVerdictLabel } from './inquiry/inquiryDisplay';
 import { InquiryTagScope } from './InquiryTagScope';
 import { PublicGroundingSection } from './inquiry/PublicGroundingSection';
 import './PublicInquiryView.css';
@@ -116,8 +116,24 @@ export function PublicInquiryShareContent({ doc }: { doc: PublicInquiryShare }) 
             </section>
           )}
 
-          {/* t/4591: Grounding replaces Calibration on this page — calibration data itself stays
-           *  in the result, this only removes it from the public share page. */}
+          {/* t/4591 removes only the Calibration badge CARDS (metric name, value, pill) — the
+           *  trust reason itself is a must-include per SO review (t/3628#2) and stays on the
+           *  page in this minimal form (TL triage, p/336#701). */}
+          {doc.calibration.length > 0 && (
+            <section className="pov-inquiry-sect">
+              <div className="pov-inquiry-trust-notes">
+                {doc.calibration.map((entry, i) => (
+                  <p className="pov-inquiry-trust-note" key={i}>
+                    <span className="pov-inquiry-trust-verdict">{trustVerdictLabel(entry.trust.verdict)}</span>
+                    {' — '}{entry.trust.reason}
+                  </p>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* t/4591: Grounding replaces Calibration's badge-card UI on this page — calibration
+           *  data itself stays in the result, this only removes the cards from the page. */}
           <PublicInquiryGrounding grounding={doc.grounding} />
         </>
       )}

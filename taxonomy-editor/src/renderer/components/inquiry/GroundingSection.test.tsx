@@ -34,9 +34,9 @@ describe('GroundingSection (t/4591)', () => {
 
   it('renders camp tabs for camps with nodes', () => {
     render(<GroundingSection grounding={mockGrounding} />);
-    expect(screen.getByRole('button', { name: 'Accelerationist' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Safetyist' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Skeptic' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Accelerationist' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Safetyist' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Skeptic' })).toBeInTheDocument();
   });
 
   it('displays nodes for the active tab', () => {
@@ -48,11 +48,11 @@ describe('GroundingSection (t/4591)', () => {
     const user = userEvent.setup();
     render(<GroundingSection grounding={mockGrounding} />);
 
-    const safetyistTab = screen.getByRole('button', { name: 'Safetyist' });
+    const safetyistTab = screen.getByRole('tab', { name: 'Safetyist' });
     await user.click(safetyistTab);
 
     expect(screen.getByText('AI safety belief node')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Safetyist' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Safetyist' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('handles empty grounding gracefully', () => {
@@ -72,7 +72,7 @@ describe('GroundingSection (t/4591)', () => {
     };
 
     render(<GroundingSection grounding={groundingWithSituations} />);
-    expect(screen.getByRole('button', { name: 'Situation' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Situation' })).toBeInTheDocument();
   });
 
   it('limits situation tab to top 3 nodes', async () => {
@@ -88,7 +88,7 @@ describe('GroundingSection (t/4591)', () => {
     };
 
     render(<GroundingSection grounding={groundingWithManyNodes} />);
-    await user.click(screen.getByRole('button', { name: 'Situation' }));
+    await user.click(screen.getByRole('tab', { name: 'Situation' }));
 
     expect(screen.getByText('Situation One')).toBeInTheDocument();
     expect(screen.getByText('Situation Two')).toBeInTheDocument();

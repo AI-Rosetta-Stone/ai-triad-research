@@ -33,16 +33,16 @@
 }
 
 .grounding-tab:hover {
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .grounding-tab[aria-selected="true"] {
-  color: var(--text);
-  border-bottom-color: var(--accent);
+  color: var(--text-primary);
+  border-bottom-color: var(--focus-ring);
 }
 
 .grounding-tab:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -77,7 +77,7 @@
   padding: var(--sp-3);
   text-align: left;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .grounding-row {
@@ -95,7 +95,7 @@
 }
 
 .grounding-row:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -113,7 +113,7 @@
 }
 
 .grounding-cell-label {
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .grounding-content {

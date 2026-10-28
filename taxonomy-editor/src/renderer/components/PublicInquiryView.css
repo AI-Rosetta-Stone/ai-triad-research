@@ -113,6 +113,64 @@
   margin: 1.5rem 0;
 }
 
+/* t/4591: public Grounding tabs — pure display, no interactive table (nodeId is excluded from
+   the public projection, so there is nothing to select against). */
+.pov-grounding-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 0.75rem;
+}
+.pov-grounding-tab {
+  padding: 0.4rem 0.75rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.pov-grounding-tab:hover { color: var(--text-primary); }
+.pov-grounding-tab[aria-selected="true"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--link-color);
+}
+.pov-grounding-panel { padding: 0.5rem 0; }
+.pov-grounding-empty {
+  padding: 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  background: var(--bg-primary, transparent);
+  border-radius: 8px;
+}
+.pov-grounding-nodes {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* t/4591: minimal trust-reason line — the Calibration badge cards are gone, but the reason
+   text itself is a must-include (SO review t/3628#2). */
+.pov-inquiry-trust-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.pov-inquiry-trust-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.pov-inquiry-trust-verdict {
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+}
+
 .pov-inquiry-camps {
   display: flex;
   flex-direction: column;
