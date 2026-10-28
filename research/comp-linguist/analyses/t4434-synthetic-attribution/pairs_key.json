@@ -1,0 +1,152 @@
+[
+  {
+    "pair_id": "p00",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.574
+  },
+  {
+    "pair_id": "p01",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.52
+  },
+  {
+    "pair_id": "p02",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.676
+  },
+  {
+    "pair_id": "p03",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.448
+  },
+  {
+    "pair_id": "p04",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.668
+  },
+  {
+    "pair_id": "p05",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.612
+  },
+  {
+    "pair_id": "p06",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.659
+  },
+  {
+    "pair_id": "p07",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.535
+  },
+  {
+    "pair_id": "p08",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.676
+  },
+  {
+    "pair_id": "p09",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.413
+  },
+  {
+    "pair_id": "p10",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.749
+  },
+  {
+    "pair_id": "p11",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.685
+  },
+  {
+    "pair_id": "p12",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.548
+  },
+  {
+    "pair_id": "p13",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.703
+  },
+  {
+    "pair_id": "p14",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.511
+  },
+  {
+    "pair_id": "p15",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.509
+  },
+  {
+    "pair_id": "p16",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.544
+  },
+  {
+    "pair_id": "p17",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.492
+  },
+  {
+    "pair_id": "p18",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.524
+  },
+  {
+    "pair_id": "p19",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.655
+  },
+  {
+    "pair_id": "p20",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.641
+  },
+  {
+    "pair_id": "p21",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.665
+  },
+  {
+    "pair_id": "p22",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.571
+  },
+  {
+    "pair_id": "p23",
+    "X_is": "description",
+    "Y_is": "statement",
+    "statement_cos_to_claim": 0.461
+  },
+  {
+    "pair_id": "p24",
+    "X_is": "statement",
+    "Y_is": "description",
+    "statement_cos_to_claim": 0.449
+  }
+]
