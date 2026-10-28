@@ -45,13 +45,12 @@ permissions:
   contents: read
   security-events: write
 
-# t/4567 (SO K1, e/392#2/#3): same concurrency scoping as ci.yml -- merge_group runs
-# share one cancellable group ("merge-group-batch"); every other event gets
-# `github.run_id`, unique per run, so it can never collide with any other run. This is
-# merge_group-only BY CONSTRUCTION, not by relying on the ternary's direction.
-concurrency:
-  group: codeql-${{ github.event_name == 'merge_group' && 'merge-group-batch' || github.run_id }}
-  cancel-in-progress: true
+# t/4567 K1 (SO e/392#2/#3): same conflict as ci.yml -- a concurrency cancel-in-progress
+# block was attempted here but workflow-lint R4 categorically rejects any non-false
+# cancel-in-progress on a file backing a required context ("CodeQL Analysis"), no
+# matter how the expression is conditioned. Not implemented here; see ci.yml's comment
+# and t/4567 for the open design decision (the TL's own "superseded, exit early" job-body
+# fallback is the correct path, not a concurrency block).
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

@@ -86,17 +86,17 @@ on:
 permissions:
   contents: read
 
-# t/4567 (SO K1, e/392#2/#3): test each merge-queue batch once. Every merge_group run
-# shares ONE group ("merge-group-batch"), so a newer, larger group's run cancels the
-# older, smaller group's -- "test each batch once" (t/4567#71). Every OTHER event
-# (push/pull_request/schedule/workflow_dispatch) gets `github.run_id` as its group,
-# which is unique per run by definition -- it can never collide with any other run,
-# including another PR-tier run on the same ref. This is merge_group-only BY
-# CONSTRUCTION: even if the ternary direction were somehow wrong, the failure mode is
-# merge_group losing the cancel optimization, never PR-tier runs cancelling each other.
-concurrency:
-  group: ci-${{ github.event_name == 'merge_group' && 'merge-group-batch' || github.run_id }}
-  cancel-in-progress: true
+# t/4567 K1 (SO e/392#2/#3): a `concurrency: cancel-in-progress` block was attempted
+# here to cancel superseded merge_group runs (TL design, t/4567#71), but
+# workflow-lint's R4 rule categorically rejects ANY non-literal-`false`
+# `cancel-in-progress` on a file backing a required context (ci-gate) -- not just a
+# literal `true`, but every expression form too, with its own dedicated test case
+# (the e/209 "true on exactly the protected PRs" precedent). A cancelled run can never
+# satisfy a required check, and R4 doesn't trust a conditional to prove that's
+# avoided. The TL's own design already names the correct fallback: a "superseded,
+# exit success early" check inside ci-gate's own job, never a cancellation. That's a
+# bigger change (job-body logic, not YAML metadata) and needs its own review before
+# landing -- not implemented here. See t/4567 for the open design decision.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
