@@ -483,6 +483,9 @@ jobs:
               githubAppId=${{ vars.SYNC_GITHUB_APP_ID }} \
               githubAppInstallationId=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID }} \
               githubAppPrivateKeySecretName=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }} \
+              githubAppIdStaging=${{ vars.SYNC_GITHUB_APP_ID_STAGING }} \
+              githubAppInstallationIdStaging=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }} \
+              githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }} \
               githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }} \
               freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
@@ -529,6 +532,9 @@ jobs:
             githubAppId=${{ vars.SYNC_GITHUB_APP_ID }}
             githubAppInstallationId=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID }}
             githubAppPrivateKeySecretName=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }}
+            githubAppIdStaging=${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
+            githubAppInstallationIdStaging=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }}
+            githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
             githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }}
             freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }}
             geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }}

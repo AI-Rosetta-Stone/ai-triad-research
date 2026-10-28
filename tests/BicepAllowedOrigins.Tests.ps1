@@ -41,8 +41,14 @@ Describe 'ALLOWED_ORIGINS per app (t/4406)' {
     }
 
     It 'stagingBaseEnv filters baseEnv ALLOWED_ORIGINS out, so staging carries one value, not prod''s plus its own' {
+        # t/4587: the filter moved from a chained e.name != '...' && ... predicate to
+        # !contains(stagingOverriddenKeys, e.name) once the list grew past the ALLOWED_ORIGINS/
+        # TAXONOMY_CACHE_DIR/GIT_SYNC_ENABLED trio (GitHub App staging overrides added). Assert
+        # the filter uses the contains()-against-list shape, and that ALLOWED_ORIGINS is in that list.
         $script:Bicep -match "(?s)var stagingBaseEnv\s*=\s*concat\(\s*filter\(baseEnv,\s*e\s*=>\s*([^\)]*)\)" | Should -Be $true
-        $Matches[1] | Should -Match "e\.name != 'ALLOWED_ORIGINS'"
+        $Matches[1] | Should -Match "!contains\(stagingOverriddenKeys,\s*e\.name"
+        $script:Bicep -match "(?s)var stagingOverriddenKeys\s*=\s*\[([^\]]*)\]" | Should -Be $true
+        $Matches[1] | Should -Match "'ALLOWED_ORIGINS'"
     }
 
     It 'the prod and staging origins differ' {
