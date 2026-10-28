@@ -1,0 +1,40 @@
+{
+  "_comment": "t/4567#58 -- the PI's switch package. Values proven on app-scratch across the full t/4567 live-fire cycle (F1-F4, D1/C5, L1-L3, M1-M3, N1-N2, P1-P2). DevOps commits this file but does NOT apply it -- applying the merge queue to main is the PI's step.",
+  "name": "main-merge-queue",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/main"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "check_response_timeout_minutes": 60,
+        "grouping_strategy": "ALLGREEN",
+        "max_entries_to_build": 4,
+        "max_entries_to_merge": 4,
+        "merge_method": "SQUASH",
+        "min_entries_to_merge": 1,
+        "min_entries_to_merge_wait_minutes": 15
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "ci-gate" },
+          { "context": "CodeQL" },
+          { "context": "joint-gv-guard" },
+          { "context": "consult-hold-guard" }
+        ]
+      }
+    }
+  ]
+}
