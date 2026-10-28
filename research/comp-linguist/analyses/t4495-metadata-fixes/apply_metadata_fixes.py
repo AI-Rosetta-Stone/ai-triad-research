@@ -11,8 +11,12 @@ default; --apply writes. Per target it refuses (exit 2, nothing written) unless:
   - when the frozen file carries a post_sha256, the result hashes to it.
 All targets are checked before any file is written.
 
+--apply additionally REQUIRES --approved-sha256 <hash>, matched against the
+frozen file's own sha256 before anything else runs (t/4495, SO condition C1,
+e/391#2). A dry run doesn't need it, since nothing is written either way.
+
 Usage:
-    python apply_metadata_fixes.py <sources_root> [--apply] [--emit-post-hashes]
+    python apply_metadata_fixes.py <sources_root> [--apply --approved-sha256 <hash>] [--emit-post-hashes]
 """
 import difflib
 import hashlib
@@ -59,7 +63,15 @@ def main():
     root, apply_, emit = args[0], "--apply" in args, "--emit-post-hashes" in args
     frozen_bytes = open(FROZEN, "rb").read()
     frozen = json.loads(frozen_bytes)
-    print(f"frozen list sha256 {sha(frozen_bytes)}  targets={len(frozen['targets'])}  mode={'APPLY' if apply_ else 'dry-run'}")
+    frozen_hash = sha(frozen_bytes)
+    print(f"frozen list sha256 {frozen_hash}  targets={len(frozen['targets'])}  mode={'APPLY' if apply_ else 'dry-run'}")
+
+    if apply_:
+        if "--approved-sha256" not in args:
+            fail("--apply requires --approved-sha256 <hash> (t/4495 SO condition C1)")
+        approved = args[args.index("--approved-sha256") + 1]
+        if approved != frozen_hash:
+            fail(f"--approved-sha256 {approved} does not match the frozen list's own sha256 {frozen_hash}")
 
     planned = []
     for t in frozen["targets"]:
