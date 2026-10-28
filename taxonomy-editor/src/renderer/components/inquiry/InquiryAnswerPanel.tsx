@@ -10,6 +10,7 @@ import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { CAMP_LABELS, trustVerdictLabel, isZeroResult } from './inquiryDisplay';
 import { InquiryExportDropdown } from './InquiryExportDropdown';
 import { InquiryShareControl } from './InquiryShareControl';
+import { GroundingSection } from './GroundingSection';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import './InquiryTab.css';
 
@@ -162,6 +163,8 @@ export function InquiryAnswerPanel() {
           </div>
         </div>
       )}
+
+      {result.grounding && <GroundingSection grounding={result.grounding} />}
 
       {result.convergences.map((conv, i) => (
         <div className="inquiry-conv" key={i}>

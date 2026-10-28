@@ -1,0 +1,149 @@
+.grounding-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.grounding-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.grounding-tabs {
+  display: flex;
+  gap: var(--sp-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.grounding-tab {
+  padding: var(--sp-2) var(--sp-3);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.grounding-tab:hover {
+  color: var(--text);
+}
+
+.grounding-tab[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.grounding-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.grounding-panel {
+  padding: var(--sp-3) 0;
+}
+
+.grounding-empty {
+  padding: var(--sp-4);
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.grounding-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.grounding-table thead {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.grounding-table th {
+  padding: var(--sp-3);
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.grounding-row {
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.grounding-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.grounding-row[aria-selected="true"] {
+  background-color: var(--bg-selected);
+}
+
+.grounding-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.grounding-cell-id,
+.grounding-cell-label {
+  padding: var(--sp-3);
+  word-break: break-word;
+}
+
+.grounding-cell-id {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 200px;
+}
+
+.grounding-cell-label {
+  color: var(--text);
+}
+
+/* Phone width */
+@media (max-width: 640px) {
+  .grounding-section {
+    padding: var(--sp-3) 0;
+  }
+
+  .grounding-tabs {
+    gap: var(--sp-1);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .grounding-tab {
+    padding: var(--sp-2);
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  .grounding-table {
+    font-size: 12px;
+  }
+
+  .grounding-cell-id,
+  .grounding-cell-label {
+    padding: var(--sp-2);
+  }
+
+  .grounding-cell-id {
+    max-width: 120px;
+  }
+}

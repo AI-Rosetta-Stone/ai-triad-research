@@ -11,6 +11,7 @@
 import type { PublicInquiryShare } from '@lib/inquiry';
 import { CAMP_LABELS, FIDELITY_LABELS, trustVerdictLabel } from './inquiry/inquiryDisplay';
 import { InquiryTagScope } from './InquiryTagScope';
+import { PublicGroundingSection } from './inquiry/PublicGroundingSection';
 import './PublicInquiryView.css';
 
 /** ADR-001 graceful-empty: a terminal share with no substantive content needs its own
@@ -61,6 +62,8 @@ export function PublicInquiryShareContent({ doc }: { doc: PublicInquiryShare }) 
               </div>
             </section>
           )}
+
+          {doc.grounding && <PublicGroundingSection grounding={doc.grounding} />}
 
           {doc.convergences.map((conv, i) => (
             <section className="pov-inquiry-conv" key={i}>
