@@ -86,17 +86,20 @@ on:
 permissions:
   contents: read
 
-# t/4567 K1 (SO e/392#2/#3): a `concurrency: cancel-in-progress` block was attempted
-# here to cancel superseded merge_group runs (TL design, t/4567#71), but
-# workflow-lint's R4 rule categorically rejects ANY non-literal-`false`
-# `cancel-in-progress` on a file backing a required context (ci-gate) -- not just a
-# literal `true`, but every expression form too, with its own dedicated test case
-# (the e/209 "true on exactly the protected PRs" precedent). A cancelled run can never
-# satisfy a required check, and R4 doesn't trust a conditional to prove that's
-# avoided. The TL's own design already names the correct fallback: a "superseded,
-# exit success early" check inside ci-gate's own job, never a cancellation. That's a
-# bigger change (job-body logic, not YAML metadata) and needs its own review before
-# landing -- not implemented here. See t/4567 for the open design decision.
+# t/4567 K1 (SO/TL e/392#5): test each merge-queue batch once. The SO rejected the
+# job-body "superseded, exit success early" fallback (that's a false `success` on an
+# untested intermediate group, and HEADGREEN bisection could then merge on it -- a
+# cancelled run having NO result is the safe option). Instead, this qualifies for
+# workflow-lint's narrow R4 exemption (see workflow-lint.py): `group:` references
+# `github.event_name` so merge_group structurally never shares a group with any other
+# event; `cancel-in-progress` is EXACTLY the literal comparison below, textually
+# verified by R4, not trusted on good faith; and the marker makes the exemption
+# auditable. Every non-merge_group event gets `github.run_id` as its group, unique per
+# run by definition, so cancellation can never fire for a PR-tier/push run regardless.
+concurrency:
+  group: ci-${{ github.event_name == 'merge_group' && 'merge-group-batch' || github.run_id }}
+  # lint:r4-merge-group-cancel t/4567
+  cancel-in-progress: ${{ github.event_name == 'merge_group' }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

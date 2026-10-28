@@ -56,6 +56,15 @@ esac
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
 
+# t/4567 SO K5 (e/392#6/#7, HIGH): a missing `jq` binary must fail closed, not silently
+# produce malformed output that the rest of the script then can't interpret. This is
+# the exact silent-stall class this whole mechanism exists to catch -- a liveness check
+# that goes quiet because of its OWN missing dependency is worse than no check at all.
+if ! command -v jq >/dev/null 2>&1; then
+  echo '[{"kind": "liveness-check-failed", "number": 0, "ageMinutes": 0}]'
+  exit 0
+fi
+
 # t/4567 SO L3 (e/377#2): a GraphQL failure must never go silently red under `set -e` --
 # a liveness check that can fail invisibly is the exact silent-drop class this whole
 # mechanism exists to catch. Emit a distinct violation instead of dying.
@@ -139,7 +148,14 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
       LOOKUP_FAILED=false
       for ctx in "ci-gate" "CodeQL Analysis" "consult-hold-guard" "joint-gv-guard"; do
         encoded_ctx=$(printf '%s' "$ctx" | sed 's/ /%20/g')
-        if ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs?check_name=${encoded_ctx}" --jq '.total_count // 0' 2>/dev/null); then
+        ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs?check_name=${encoded_ctx}" --jq '.total_count // 0' 2>/dev/null)
+        # SO K5 (e/392#6/#7, HIGH): validate the result is a plain non-negative integer
+        # before using it in arithmetic. The live-fire reproducer (a shim that ignores
+        # --jq and returns the raw JSON object) showed this was a genuine fail-OPEN: a
+        # non-numeric ctx_count made the later `$((CHECK_COUNT + ctx_count))` arithmetic
+        # fail, and with no validation the script still printed `[]` -- silently
+        # "healthy" on exactly the class of break this check exists to catch.
+        if [ $? -eq 0 ] && [[ "$ctx_count" =~ ^[0-9]+$ ]]; then
           CHECK_COUNT=$((CHECK_COUNT + ctx_count))
         else
           LOOKUP_FAILED=true

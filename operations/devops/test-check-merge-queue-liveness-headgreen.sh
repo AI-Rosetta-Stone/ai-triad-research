@@ -145,3 +145,71 @@ if [ "$FAIL2" -ne 0 ]; then
 fi
 
 echo "PASS: a stale AWAITING_CHECKS entry below a higher QUEUED position still alerts (head = max position among AWAITING_CHECKS, not max position overall)."
+
+# ---- Scenario 3: SO K5 (e/392#6/#7, HIGH) -- a missing `jq` binary must fail closed ----
+# (liveness-check-failed), never silently produce malformed output. PATH is emptied
+# entirely -- the script must detect jq's absence and exit before touching gh at all.
+TMPDIR3=$(mktemp -d)
+trap 'rm -rf "$TMPDIR" "$TMPDIR2" "$TMPDIR3"' EXIT
+
+OUTPUT3=$(PATH="$TMPDIR3" "$SCRIPT_DIR/check-merge-queue-liveness.sh" "owner/repo" "main" 2>&1)
+
+if ! echo "$OUTPUT3" | grep -q '"kind": "liveness-check-failed"'; then
+  echo "FAIL: a missing jq binary did not report liveness-check-failed. Output:"
+  echo "$OUTPUT3"
+  exit 1
+fi
+
+echo "PASS: a missing jq binary fails closed (liveness-check-failed), not silently."
+
+# ---- Scenario 4: SO K5 (e/392#6/#7, HIGH) -- a non-numeric check-runs count (the real ----
+# live-fire reproducer: a shim/response that ignores --jq and returns the raw JSON object
+# instead of just the count) must report liveness-check-failed, NOT silently print `[]`
+# (fail-open) by corrupting the later arithmetic. One context ("ci-gate") returns a raw
+# JSON object; the others return clean integers.
+TMPDIR4=$(mktemp -d)
+trap 'rm -rf "$TMPDIR" "$TMPDIR2" "$TMPDIR3" "$TMPDIR4"' EXIT
+
+cat > "$TMPDIR4/gh" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "api" ] && [ "\$2" = "graphql" ]; then
+  echo '[{"position":1,"state":"AWAITING_CHECKS","enqueuedAt":"${OLD_ENOUGH}","headCommit":{"oid":"badcount0000000000000000000000000000000"},"pullRequest":{"number":906}}]'
+  exit 0
+fi
+if [ "\$1" = "api" ]; then
+  case "\$2" in
+    *check_name=ci-gate*)
+      echo '{"total_count": 1}'   # the bug shape: ignores --jq, prints the raw object
+      ;;
+    *)
+      echo '1'
+      ;;
+  esac
+  exit 0
+fi
+echo "unexpected gh invocation: \$*" >&2
+exit 1
+SHIM
+chmod +x "$TMPDIR4/gh"
+
+OUTPUT4=$(PATH="$TMPDIR4:$PATH" "$SCRIPT_DIR/check-merge-queue-liveness.sh" "owner/repo" "main" 2>&1)
+
+FAIL4=0
+
+if ! echo "$OUTPUT4" | grep -q '"number": 906'; then
+  echo "FAIL: a non-numeric check-runs count was not reported at all (silent fail-open). Output:"
+  echo "$OUTPUT4"
+  FAIL4=1
+fi
+
+if ! echo "$OUTPUT4" | grep -q '"kind": "liveness-check-failed"'; then
+  echo "FAIL: a non-numeric check-runs count did not report liveness-check-failed -- it must not be silently absorbed into the CHECK_COUNT arithmetic. Output:"
+  echo "$OUTPUT4"
+  FAIL4=1
+fi
+
+if [ "$FAIL4" -ne 0 ]; then
+  exit 1
+fi
+
+echo "PASS: a non-numeric check-runs count fails closed (liveness-check-failed), not fail-open (silently healthy)."
