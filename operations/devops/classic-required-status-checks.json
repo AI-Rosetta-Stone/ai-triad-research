@@ -1,0 +1,9 @@
+{
+  "strict": false,
+  "checks": [
+    { "context": "ci-gate", "app_id": 15368 },
+    { "context": "CodeQL Analysis", "app_id": 15368 },
+    { "context": "joint-gv-guard", "app_id": 15368 },
+    { "context": "consult-hold-guard", "app_id": 15368 }
+  ]
+}

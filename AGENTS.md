@@ -52,7 +52,7 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 
 ### Pre-Self-Merge Verification
 
-- **Land code through a PR to `main`.** The required contexts are `ci-gate`, `CodeQL`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on.
+- **Land code through a PR to `main`.** The required contexts are `ci-gate`, `CodeQL Analysis`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on. (t/4567: the native `CodeQL` alert-gating check never reports on a merge-group ref; alert-gating is enforced by the merge queue's `code_scanning` ruleset rule instead.)
 - **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. Enqueue pinned: `gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`; a push after enqueue drops the entry, so re-arm on the new head. Never a bare manual merge. Ref §3.
 - **Incident hotfix (jump the queue):** only the TL, or DevOps Lead with the TL's recorded go, for a PR fixing an active incident with an anchor ticket. Enqueue with `jump`, head pinned; every required check still runs. Never for `consult-hold` or `joint-gv` PRs; a T2 fix still needs its SO clearance and approval. Log each jump on the incident ticket. Bypassing branch protection stays PI-only.
 

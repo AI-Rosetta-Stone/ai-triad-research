@@ -28,10 +28,22 @@
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
-          { "context": "ci-gate" },
-          { "context": "CodeQL" },
-          { "context": "joint-gv-guard" },
-          { "context": "consult-hold-guard" }
+          { "context": "ci-gate", "integration_id": 15368 },
+          { "context": "CodeQL Analysis", "integration_id": 15368 },
+          { "context": "joint-gv-guard", "integration_id": 15368 },
+          { "context": "consult-hold-guard", "integration_id": 15368 }
+        ]
+      }
+    },
+    {
+      "type": "code_scanning",
+      "parameters": {
+        "code_scanning_tools": [
+          {
+            "tool": "CodeQL",
+            "security_alerts_threshold": "high_or_higher",
+            "alerts_threshold": "errors"
+          }
         ]
       }
     }

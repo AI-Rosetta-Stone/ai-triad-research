@@ -32,6 +32,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
 . "$PSScriptRoot/RequiredContextsDriftVerdict.ps1"
+. "$PSScriptRoot/RulesetAlertGatingVerdict.ps1"
 
 if (-not $SsotPath) {
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # operations/devops -> repo root
@@ -139,11 +140,86 @@ if (-not $protection.PSObject.Properties['enforce_admins'] -or -not $protection.
 }
 $apiEnforceAdmins = [bool]$protection.enforce_admins.enabled
 
+# ── t/4567 C2: merge-queue ruleset alert-gating (optional — only checked when the SSOT ──
+# declares `merge_queue_ruleset`). Alert-gating moved OUT of classic protection and INTO
+# this ruleset's own `code_scanning` rule (see required-contexts.json's _comment and
+# deploy/azure/runbooks/merge-queue-switch.md's Coupling warning) — disabling or
+# misconfiguring the ruleset silently drops it with classic protection looking unchanged.
+$rulesetExpected = $ssotJson.PSObject.Properties['merge_queue_ruleset']
+$rsExpectedActive = $null
+$rsExpectedTool = $null
+$rsExpectedSecurityAlertsThreshold = $null
+$rsExpectedAlertsThreshold = $null
+$rsActualActive = $null
+$rsActualTool = $null
+$rsActualSecurityAlertsThreshold = $null
+$rsActualAlertsThreshold = $null
+if ($rulesetExpected -and $ssotJson.merge_queue_ruleset.PSObject.Properties['name']) {
+    $rsName = $ssotJson.merge_queue_ruleset.name
+    $rsExpectedActive = [bool]$ssotJson.merge_queue_ruleset.active
+    if ($ssotJson.merge_queue_ruleset.PSObject.Properties['code_scanning_rule']) {
+        $rsExpectedTool = $ssotJson.merge_queue_ruleset.code_scanning_rule.tool
+        $rsExpectedSecurityAlertsThreshold = $ssotJson.merge_queue_ruleset.code_scanning_rule.security_alerts_threshold
+        $rsExpectedAlertsThreshold = $ssotJson.merge_queue_ruleset.code_scanning_rule.alerts_threshold
+    }
+
+    $rulesetsRaw = & gh api "repos/$Repo/rulesets" 2>&1
+    $rulesetsExit = $LASTEXITCODE
+    if ($rulesetsExit -ne 0) {
+        $txt = ($rulesetsRaw | ForEach-Object { "$_" }) -join ' '
+        Write-Host "::error::required-contexts drift-guard: could not list rulesets to find '$rsName' — gh error: $($txt.Substring(0,[Math]::Min(160,$txt.Length))) (exit 2, NOT in-sync)."
+        exit 2
+    }
+    try {
+        $rulesets = ($rulesetsRaw | ForEach-Object { "$_" }) -join "`n" | ConvertFrom-Json
+    } catch {
+        Write-Host "::error::required-contexts drift-guard: rulesets list payload unparseable ($($_.Exception.Message)) — cannot verify (exit 2)."
+        exit 2
+    }
+    $rsSummary = @($rulesets | Where-Object { $_.name -eq $rsName }) | Select-Object -First 1
+    if (-not $rsSummary) {
+        # A declared ruleset that no longer EXISTS is drift, not a verification failure —
+        # treat it the same as "disabled" so it reports as DRIFT (exit 1), not exit 2.
+        $rsActualActive = $false
+    } else {
+        $rsActualActive = ($rsSummary.enforcement -eq 'active')
+        $rsDetailRaw = & gh api "repos/$Repo/rulesets/$($rsSummary.id)" 2>&1
+        $rsDetailExit = $LASTEXITCODE
+        if ($rsDetailExit -ne 0) {
+            $txt = ($rsDetailRaw | ForEach-Object { "$_" }) -join ' '
+            Write-Host "::error::required-contexts drift-guard: could not read ruleset '$rsName' (id $($rsSummary.id)) — gh error: $($txt.Substring(0,[Math]::Min(160,$txt.Length))) (exit 2, NOT in-sync)."
+            exit 2
+        }
+        try {
+            $rsDetail = ($rsDetailRaw | ForEach-Object { "$_" }) -join "`n" | ConvertFrom-Json
+        } catch {
+            Write-Host "::error::required-contexts drift-guard: ruleset detail payload unparseable ($($_.Exception.Message)) — cannot verify (exit 2)."
+            exit 2
+        }
+        $csRule = @($rsDetail.rules | Where-Object { $_.type -eq 'code_scanning' }) | Select-Object -First 1
+        if ($csRule) {
+            $csParams = @($csRule.parameters.code_scanning_tools | Where-Object { $_.tool -eq $rsExpectedTool }) | Select-Object -First 1
+            if (-not $csParams) { $csParams = @($csRule.parameters.code_scanning_tools) | Select-Object -First 1 }
+            if ($csParams) {
+                $rsActualTool = $csParams.tool
+                $rsActualSecurityAlertsThreshold = $csParams.security_alerts_threshold
+                $rsActualAlertsThreshold = $csParams.alerts_threshold
+            }
+        }
+    }
+}
+$rsVerdict = Get-RulesetAlertGatingVerdict -ExpectedActive $rsExpectedActive -ActualActive $rsActualActive `
+    -ExpectedTool $rsExpectedTool -ExpectedSecurityAlertsThreshold $rsExpectedSecurityAlertsThreshold -ExpectedAlertsThreshold $rsExpectedAlertsThreshold `
+    -ActualTool $rsActualTool -ActualSecurityAlertsThreshold $rsActualSecurityAlertsThreshold -ActualAlertsThreshold $rsActualAlertsThreshold
+
 # ── Compare ──────────────────────────────────────────────────────────────────
 $v = Get-RequiredContextsDriftVerdict -Ssot $ssotContexts -Api $apiContexts -SsotStrict $ssotStrict -ApiStrict $apiStrict -SsotEnforceAdmins $ssotEnforceAdmins -ApiEnforceAdmins $apiEnforceAdmins
 Write-Host "SSOT:  $([string]::Join(', ', ($ssotContexts | Sort-Object))) | strict=$ssotStrict | enforce_admins=$ssotEnforceAdmins"
 Write-Host "API:   $([string]::Join(', ', ($apiContexts | Sort-Object))) | strict=$apiStrict | enforce_admins=$apiEnforceAdmins"
-if ($v.InSync) {
+if ($rsVerdict.ActiveChecked -or $rsVerdict.CodeScanningRuleChecked) {
+    Write-Host "RULESET '$rsName': expected active=$rsExpectedActive tool=$rsExpectedTool/$rsExpectedSecurityAlertsThreshold/$rsExpectedAlertsThreshold | live active=$rsActualActive tool=$rsActualTool/$rsActualSecurityAlertsThreshold/$rsActualAlertsThreshold"
+}
+if ($v.InSync -and $rsVerdict.InSync) {
     Write-Host 'required-contexts drift-guard: IN SYNC — SSOT matches live branch protection.'
     exit 0
 }
@@ -173,5 +249,11 @@ if (-not $v.EnforceAdminsInSync) {
         ''
     }
     Write-Host "::error::required-contexts drift-guard: 'enforce_admins' mismatch — SSOT expects $ssotEnforceAdmins, branch protection has $apiEnforceAdmins.$eaRegressionNote"
+}
+if (-not $rsVerdict.ActiveInSync) {
+    Write-Host "::error::required-contexts drift-guard: ruleset '$rsName' enforcement mismatch — expected active=$rsExpectedActive, live active=$rsActualActive. Alert-gating lives ONLY in this ruleset's code_scanning rule (not classic protection) — see deploy/azure/runbooks/merge-queue-switch.md Coupling warning (t/4567 C2)."
+}
+if (-not $rsVerdict.CodeScanningRuleInSync) {
+    Write-Host "::error::required-contexts drift-guard: ruleset '$rsName' code_scanning rule mismatch — expected tool=$rsExpectedTool/$rsExpectedSecurityAlertsThreshold/$rsExpectedAlertsThreshold, live tool=$rsActualTool/$rsActualSecurityAlertsThreshold/$rsActualAlertsThreshold (ActualToolPresent=$($rsVerdict.ActualToolPresent)). This is the alert-gating rule itself — a mismatch means new high-severity CodeQL alerts may merge unblocked (t/4567 C2)."
 }
 exit 1

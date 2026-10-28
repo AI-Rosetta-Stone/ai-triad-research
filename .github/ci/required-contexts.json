@@ -7,14 +7,18 @@
     "operations/devops/Test-RequiredContextsListDrift.ps1 validates this list against the live",
     "API; that drift-guard MUST be green on main BEFORE the workflow-lint required-context rule",
     "is promoted from warn-only to blocking (a lint enforcing a stale mirror is worse than none).",
-    "CodeQL (t/3691): the 'CodeQL' required check is posted by the GitHub CodeQL App as an AGGREGATE,",
-    "not by a job in codeql.yml (whose jobs are 'analyze' + 'record-base-ref'). So its entry names the",
-    "file AND carries \"posts\": \"app-aggregate\": the FILE-level rules (R1/R3/R4) DO lint codeql.yml",
-    "(closing the t/2025 anti-strand gap that was previously protected by a comment alone), while the",
-    "JOB-level rules (R2/R5 — look up a job whose posted name == the context) are N/A and skipped.",
-    "'posts' is a VERIFIABLE claim, not a bare opt-out (app-posted = a bare /runs/<id> status; a workflow",
-    "job = /actions/runs/.../job/); an UNMARKED context with no matching job still HARD-FAILS R2 (typo",
-    "catch preserved). The R2/R5 job lookup is name-then-id (workflow-lint _find_reporting_job, t/3691).",
+    "CodeQL (t/4567): the required context was 'CodeQL', posted by the GitHub CodeQL App as an",
+    "AGGREGATE status, not by a job in codeql.yml. That native alert-gating check never reports on",
+    "a merge-group ref (gh-readonly-queue/*), so the first real merge-queue batch stalled on it",
+    "indefinitely. Swapped to 'CodeQL Analysis' — the job-level check (codeql.yml's 'analyze' job),",
+    "which DOES fire reliably on merge_group — and alert-gating is restored at the RULESET level via",
+    "a 'code_scanning' rule (tool CodeQL, security_alerts_threshold high_or_higher), proven live-fire",
+    "on app-scratch (clean group merges; a group with a planted high-severity alert is refused at",
+    "enqueue, both for a pending and a failed analysis). No 'posts' marker now — R2/R5's job lookup",
+    "finds 'analyze' (posted name 'CodeQL Analysis') directly, same as any other job-level context.",
+    "'posts': 'app-aggregate' remains a valid marker for any FUTURE app-posted required context; it is",
+    "just not what CodeQL uses anymore. The R2/R5 job lookup is name-then-id (workflow-lint",
+    "_find_reporting_job, t/3691).",
     "t/3804 PR-1: 'strict' is the SSOT's declared expectation for required_status_checks.strict —",
     "Test-RequiredContextsListDrift.ps1 reads this field and compares it against the live API (already",
     "present in the payload it queries; no endpoint change). Expected false: a stale-base PR must stay",
@@ -25,14 +29,29 @@
     "reads it; see Test-RequiredContextsListDrift.ps1). Expected true: per root AGENTS.md Pre-Self-Merge",
     "Verification, this setting currently substitutes for two inert feedback rules (pre-self-merge-verify,",
     "auto-merge-jointgv-guard; t/3695) by binding branch protection to admins too. enforce_admins:false",
-    "here would be a REGRESSION that silently re-opens both incident classes (t/3804)."
+    "here would be a REGRESSION that silently re-opens both incident classes (t/3804).",
+    "t/4567 C2 (SO e/387#2, TL-accepted e/387#3): alert-gating now lives ONLY in the",
+    "'main-merge-queue' ruleset's own 'code_scanning' rule, not in classic protection — disabling",
+    "that ruleset silently drops alert-gating with classic protection looking unchanged (see the",
+    "Coupling warning in deploy/azure/runbooks/merge-queue-switch.md). merge_queue_ruleset below is",
+    "the declared expectation Test-RequiredContextsListDrift.ps1 checks against the live ruleset:",
+    "enforcement must be 'active' AND a matching code_scanning rule must be present."
   ],
   "strict": false,
   "enforce_admins": true,
   "required_contexts": [
     { "context": "ci-gate", "workflow": ".github/workflows/ci.yml" },
     { "context": "joint-gv-guard", "workflow": ".github/workflows/joint-gv-guard.yml" },
-    { "context": "CodeQL", "workflow": ".github/workflows/codeql.yml", "posts": "app-aggregate" },
+    { "context": "CodeQL Analysis", "workflow": ".github/workflows/codeql.yml" },
     { "context": "consult-hold-guard", "workflow": ".github/workflows/consult-hold-guard.yml" }
-  ]
+  ],
+  "merge_queue_ruleset": {
+    "name": "main-merge-queue",
+    "active": true,
+    "code_scanning_rule": {
+      "tool": "CodeQL",
+      "security_alerts_threshold": "high_or_higher",
+      "alerts_threshold": "errors"
+    }
+  }
 }

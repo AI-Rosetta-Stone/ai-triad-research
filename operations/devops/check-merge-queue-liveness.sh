@@ -109,7 +109,7 @@ for i in $(seq 0 $((ENTRY_COUNT - 1))); do
       # ("healthy") -- that's indistinguishable from the exact silent-drop shape this
       # check exists to catch. Treat it as its own liveness-check-failed violation.
       LOOKUP_FAILED=false
-      for ctx in "ci-gate" "CodeQL" "consult-hold-guard" "joint-gv-guard"; do
+      for ctx in "ci-gate" "CodeQL Analysis" "consult-hold-guard" "joint-gv-guard"; do
         encoded_ctx=$(printf '%s' "$ctx" | sed 's/ /%20/g')
         if ctx_count=$(gh api "repos/${REPO}/commits/${headSha}/check-runs?check_name=${encoded_ctx}" --jq '.total_count // 0' 2>/dev/null); then
           CHECK_COUNT=$((CHECK_COUNT + ctx_count))
