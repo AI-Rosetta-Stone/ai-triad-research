@@ -69,7 +69,18 @@ export function InquiryAnswerPanel() {
   };
 
   const handleSubmitToCommunity = async () => {
-    if (!jobId) return;
+    if (!jobId) {
+      setShareStatus('Failed: Missing inquiry job ID');
+      setTimeout(() => setShareStatus(null), 4000);
+      getGlobalRecorder()?.record({
+        type: 'system.error',
+        component: 'InquiryAnswerPanel',
+        level: 'warn',
+        message: 'submitToCommunity called without jobId',
+        error: { name: 'ValidationError', message: 'jobId is required for share', stack: '' },
+      });
+      return;
+    }
     setShareStatus('Submitting...');
     const outcome = await runSubmitToCommunity(jobId);
     setShareStatus(outcome.ok ? `Shared! (${outcome.submissionId.slice(0, 8)})` : `Failed: ${outcome.message}`);
