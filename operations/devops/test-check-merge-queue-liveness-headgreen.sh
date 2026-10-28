@@ -19,6 +19,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolved ONCE via the real, unmodified PATH, before scenario 3 overrides PATH for
+# its own child process. `VAR=val cmd` resolves `cmd` using the NEW value of VAR when
+# VAR is PATH (confirmed live-fire, e/392: `bash` itself went unresolved under
+# PATH="$TMPDIR3" bash ..., not just under the direct shebang-exec form tried first).
+# An absolute path bypasses PATH lookup entirely, so this is immune to that.
+BASH_BIN="$(command -v bash)"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -157,14 +163,14 @@ echo "PASS: a stale AWAITING_CHECKS entry below a higher QUEUED position still a
 TMPDIR3=$(mktemp -d)
 trap 'rm -rf "$TMPDIR" "$TMPDIR2" "$TMPDIR3"' EXIT
 
-# Invoke via explicit `bash <script>`, NOT the script's own shebang -- `bash` is
-# resolved via THIS (outer, unmodified) shell's PATH before the PATH=$TMPDIR3 prefix
-# takes effect for the child process. Invoking the script file directly instead
-# would rely on the kernel re-execing `/usr/bin/env bash`, and env itself would then
-# try to resolve `bash` using the CHILD's (emptied) PATH and fail with exit 127 --
-# a real failure hit live-fire, not a hypothetical (this comment exists because it
-# broke CI once already).
-OUTPUT3=$(PATH="$TMPDIR3" bash "$SCRIPT_DIR/check-merge-queue-liveness.sh" "owner/repo" "main" 2>&1)
+# Invoke via $BASH_BIN's ABSOLUTE path (resolved above, before PATH was touched),
+# not the bare word "bash" and not the script's own shebang. A command name
+# containing a slash bypasses PATH lookup entirely (POSIX), so this is immune to
+# PATH="$TMPDIR3" below -- confirmed necessary live-fire: both the shebang form
+# (env re-resolving bash via the child's PATH) and the bare "bash" word (which ALSO
+# resolves via the OVERRIDDEN PATH when PATH is the var being assigned, not the
+# shell's prior PATH) hit exit 127 before this fix.
+OUTPUT3=$(PATH="$TMPDIR3" "$BASH_BIN" "$SCRIPT_DIR/check-merge-queue-liveness.sh" "owner/repo" "main" 2>&1)
 
 if ! echo "$OUTPUT3" | grep -q '"kind": "liveness-check-failed"'; then
   echo "FAIL: a missing jq binary did not report liveness-check-failed. Output:"
