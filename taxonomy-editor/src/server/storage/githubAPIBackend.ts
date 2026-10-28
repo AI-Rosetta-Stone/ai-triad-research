@@ -184,6 +184,20 @@ async function mapWithLimit<T>(items: T[], limit: number, fn: (item: T) => Promi
  *  only the ones a `readFileStrict` caller happens to care about. */
 type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds' | `status=${number}`;
 
+/** t/4585: the three-way result of a main-pinned raw.githubusercontent.com
+ *  attempt. `fallback` means "don't trust this as an answer, fall through
+ *  to the existing REST Contents-API path" — covers a genuine raw outage
+ *  (429/5xx/network/timeout) AND a raw 404 for a path the tree says exists
+ *  (TL condition 1: the exact t/4584 failure class — a read failure must
+ *  never silently collapse to "absent"). Only a 404 for a path NOT in the
+ *  tree is `not_found`. */
+type RawFallbackReason = 'raw_404_but_in_tree' | 'status=429' | `status=${number}` | 'network_error';
+
+type RawFetchResult =
+  | { kind: 'hit'; content: string; sha: string }
+  | { kind: 'not_found' }
+  | { kind: 'fallback'; reason: RawFallbackReason };
+
 // ── GitHubAPIBackend ─────────────────────────────────────────────────────
 
 export class GitHubAPIBackend implements StorageBackend {
@@ -300,6 +314,26 @@ export class GitHubAPIBackend implements StorageBackend {
   // t/4298/t/4299/t/4300: counts main-cache misses this process has paid
   // GitHub for since boot — never reset, so it reads as "since cold start".
   private coldCacheMissCount = 0;
+
+  // t/4585: raw.githubusercontent.com cold-boot cache warm. Counts every
+  // raw-fetch-falls-back-to-REST event since boot, split by reason so
+  // staging measurement can tell whether raw is throttling (429) versus
+  // something else (network, 5xx, a tree-present path that 404'd).
+  private rawFallbackCounts: Record<string, number> = {};
+  // t/4585 TL condition 1: a disable switch, never re-enabled this process's
+  // lifetime once tripped — avoids paying a raw miss on every single read
+  // if raw starts misbehaving broadly (repo turns private, CDN outage).
+  private rawDisabled = false;
+  private rawFallbackWindowStart = 0;
+  private rawFallbackWindowCount = 0;
+  private static readonly RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE = 20;
+  // t/4585 TL condition 3: bounds raw's own concurrency so a cold boot's
+  // ~1,000 near-simultaneous reads don't fire that many unauthenticated
+  // requests at once and trip raw.githubusercontent.com's undocumented
+  // per-IP limits (staging and prod share egress characteristics).
+  private rawInFlight = 0;
+  private rawWaiters: Array<() => void> = [];
+  private static readonly RAW_CONCURRENCY_LIMIT = 8;
 
   // Manifest write mutex — serializes all manifest mutations to prevent
   // concurrent read-modify-write races (see t/479). Without this, parallel
@@ -912,6 +946,29 @@ export class GitHubAPIBackend implements StorageBackend {
     // degraded state), unlike the other five which only fire in already-abnormal
     // conditions. Revisit sampling/throttling here if ingestion volume proves material.
     log.cache.info({ path: repoPath }, `cache.miss: ${repoPath}`);
+
+    // t/4585: a main-pinned read of the public data repo can be served from
+    // raw.githubusercontent.com at the resolved commit SHA — immutable
+    // content, no auth, no REST quota. Tried before the REST circuit check
+    // below (a different host, unaffected by GitHub REST's circuit state).
+    // Gated on having a resolved commit SHA (set at initialize(); a
+    // cold-cold boot before the first tree load just skips straight to the
+    // existing REST path below, same as pre-t/4585 behavior).
+    const mainSha = ref === this.baseBranch ? this.manifest?.lastCommitSha : undefined;
+    if (mainSha) {
+      const rawResult = await this.fetchFileFromRaw(repoPath, mainSha);
+      if (rawResult.kind === 'hit') {
+        await this.writeToDiskCache(repoPath, rawResult.content, rawResult.sha, '');
+        return rawResult.content;
+      }
+      if (rawResult.kind === 'not_found') {
+        this.logNullReadReason(repoPath, 'not_found', optional);
+        return null;
+      }
+      this.recordRawFallback(rawResult.reason);
+      log.github.warn({ path: repoPath, reason: rawResult.reason },
+        `fetchFileFromRaw: falling back to REST (${rawResult.reason})`);
+    }
 
     if (this.rest.isTripped()) {
       this.logNullReadReason(repoPath, 'circuit_open', optional);
@@ -2701,6 +2758,120 @@ export class GitHubAPIBackend implements StorageBackend {
     }
   }
 
+  // ── Raw-at-commit-SHA main reads (t/4585) ───────────────────────────────
+
+  /** TL condition 1: a raw 404 for a path the tree already knows about must
+   *  never collapse to "absent" — that's the exact t/4584 failure class.
+   *  Mirrors `fileExistsInBaseBranchCache`'s own membership check (manifest
+   *  file list, then the in-memory tree), without triggering a lazy
+   *  `ensureRepoTreeFilled()` — an empty tree here just means "we can't
+   *  confirm it exists," which keeps the conservative pre-t/4585 behavior
+   *  (a 404 is `not_found`) rather than inventing a new default. */
+  private isPathKnownInTree(repoPath: string): boolean {
+    if (this.manifest?.files[repoPath]) return true;
+    return this.repoTree.has(repoPath);
+  }
+
+  /** TL condition 3: bounds raw's own concurrency (8 in flight) so a cold
+   *  boot's ~1,000 near-simultaneous reads don't fire that many
+   *  unauthenticated requests at raw.githubusercontent.com at once. */
+  private async acquireRawSlot(): Promise<void> {
+    if (this.rawInFlight < GitHubAPIBackend.RAW_CONCURRENCY_LIMIT) {
+      this.rawInFlight++;
+      return;
+    }
+    await new Promise<void>((resolve) => this.rawWaiters.push(resolve));
+    this.rawInFlight++;
+  }
+
+  private releaseRawSlot(): void {
+    this.rawInFlight--;
+    const next = this.rawWaiters.shift();
+    if (next) next();
+  }
+
+  /** TL condition 1's disable guard: a fixed one-minute window counting
+   *  every raw-fallback event, regardless of reason. Crossing the threshold
+   *  trips `rawDisabled` for the rest of the process's lifetime (never
+   *  re-enabled — a restart is the recovery path) so a broadly misbehaving
+   *  raw endpoint (repo turned private, CDN outage) doesn't pay a raw miss
+   *  on every single subsequent read. Also tallies `rawFallbackCounts` by
+   *  reason (unconditionally, even after disable) so staging measurement
+   *  can see 429s separately from other causes (TL condition 3). */
+  private recordRawFallback(reason: RawFallbackReason): void {
+    this.rawFallbackCounts[reason] = (this.rawFallbackCounts[reason] ?? 0) + 1;
+
+    const now = Date.now();
+    if (now - this.rawFallbackWindowStart > 60_000) {
+      this.rawFallbackWindowStart = now;
+      this.rawFallbackWindowCount = 0;
+    }
+    this.rawFallbackWindowCount++;
+    if (!this.rawDisabled && this.rawFallbackWindowCount > GitHubAPIBackend.RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE) {
+      this.rawDisabled = true;
+      log.github.error({ counts: { ...this.rawFallbackCounts } },
+        `fetchFileFromRaw: disabling raw reads for the rest of this process — more than ${GitHubAPIBackend.RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE} fallbacks in the last minute`);
+      this.recordEvent({
+        type: 'system.error', component: 'github-api', level: 'error',
+        message: 'fetchFileFromRaw: raw reads disabled for process lifetime — fallback rate exceeded threshold',
+        data: { counts: { ...this.rawFallbackCounts } },
+      });
+    }
+  }
+
+  /** t/4585 (TL design t/4585#2): main-pinned reads of the public data repo
+   *  via `raw.githubusercontent.com/<repo>/<commitSha>/<path>` — pinning the
+   *  commit SHA makes the content immutable, so no auth and no REST quota
+   *  are spent. Tried before the REST circuit-breaker check (a different
+   *  host/CDN, unaffected by GitHub REST's own circuit state). Never throws;
+   *  any failure becomes `fallback` for the caller to retry via REST. */
+  private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
+    if (this.rawDisabled) return { kind: 'fallback', reason: 'status=503' };
+
+    const creds = await this.getCredsCached();
+    if (!creds) return { kind: 'fallback', reason: 'network_error' };
+
+    const encodedPath = repoPath.split('/').map(encodeURIComponent).join('/');
+    const url = `https://raw.githubusercontent.com/${creds.repo}/${commitSha}/${encodedPath}`;
+
+    await this.acquireRawSlot();
+    try {
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      } catch {
+        // telemetry — silent by design here; the caller (readFileFromMainCache)
+        // logs exactly one WARN for every `fallback` result, naming the reason
+        // — a second record here would double-log the same event.
+        return { kind: 'fallback', reason: 'network_error' };
+      }
+
+      if (res.status === 404) {
+        // TL condition 1: a tree-known path 404ing on raw is never trusted
+        // as a genuine absence — could be a renamed/moved CDN edge case, a
+        // repo-visibility change, or raw misbehaving. Only an UNKNOWN path
+        // gets the fast, quiet "absent" answer.
+        return this.isPathKnownInTree(repoPath)
+          ? { kind: 'fallback', reason: 'raw_404_but_in_tree' }
+          : { kind: 'not_found' };
+      }
+      if (!res.ok) {
+        return { kind: 'fallback', reason: res.status === 429 ? 'status=429' : `status=${res.status}` };
+      }
+
+      // TL condition 2: hash the ORIGINAL bytes, before any decode — a
+      // decode-then-re-encode round trip (res.text()) can change bytes (a
+      // BOM, an invalid UTF-8 sequence), desyncing the cached sha from
+      // git's actual blob hash.
+      const bytes = Buffer.from(await res.arrayBuffer());
+      const sha = gitBlobSha(bytes);
+      const content = bytes.toString('utf-8');
+      return { kind: 'hit', content, sha };
+    } finally {
+      this.releaseRawSlot();
+    }
+  }
+
   private async fetchFileFromGitHub(
     repoPath: string,
     ref: string,
@@ -3569,6 +3740,15 @@ export class GitHubAPIBackend implements StorageBackend {
   getRequestMetrics(): { totalRequests: number; byRouteClass: Record<string, number>; rateLimitRemaining: number } {
     return this.rest.getRequestMetrics();
   }
+
+  /** t/4585 AC2: raw.githubusercontent.com fallback-to-REST events since
+   *  boot, by reason (`status=429` counted separately — TL condition 3 —
+   *  so staging measurement can tell whether raw is throttling versus
+   *  something else), plus whether the disable guard has tripped. */
+  getRawFallbackStats(): { counts: Record<string, number>; disabled: boolean } {
+    return { counts: { ...this.rawFallbackCounts }, disabled: this.rawDisabled };
+  }
+
   getCacheHitRate(): number {
     // Approximation from tree + manifest coverage
     if (this.repoTree.size === 0) return 0;
