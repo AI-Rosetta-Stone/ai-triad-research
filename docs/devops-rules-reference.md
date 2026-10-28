@@ -25,3 +25,13 @@ Three occurrences on 2026-10-27, all within the t/4567 merge-queue live-fire cyc
 - **t/4567#52** — a "transient API blip" that was actually a deterministic `AGE_MIN=15` / `[ "$AGE_MIN" -gt 15 ]` boundary condition in our own liveness-check script (exactly 15 is false; a re-dispatch 90 seconds later crossed into 16 and correctly tripped) — caught and corrected by the Second Opinion.
 
 Each was initially blamed on GitHub being unreliable, and each turned out to be our own code or an off-by-one in our own condition. The rule exists so the next ambiguous failure gets reproduced before it gets a platform label.
+
+## §4 — Evidence for Claims (PI-approved 2026-10-28, owner DevOps, review-by 2027-01-31)
+
+Four occurrences on 2026-10-28, all within the t/4567 HEADGREEN part-2 review cycle:
+- **e/387** — reported the PI had disabled merge-queue ruleset 26043005 based on the TL saying they were "asking the PI to disable it now"; the SO's review found it was still `active` live, with 4 PRs stuck, not 3.
+- **K1 (e/392#2/#3)** — an SO request described PR #4055 as already containing the `merge_group` concurrency cancel; the diff at the actual head had no `concurrency:` key at all. Caught by the SO, not self-caught.
+- **K4 ("CI green", e/392#4/#6)** — reported CI green on PR #4055 at a specific head; `merge-queue-f4-shim-test` was actually `failure` on that exact run. Caught by the SO re-checking job conclusions directly, not the PR-checks summary line.
+- **t/4567#37 (arm-5 pass)** — a live-fire arm reported as passing without the underlying job conclusion confirmed at the exact run ID.
+
+Every one of these was a reported state (ruleset status, diff contents, CI result) that turned out wrong when someone actually read the system instead of trusting the report. **Before reporting any state — "CI green", "X is in the PR", "applied", "passed" — read it at the exact head SHA or the live system, and include the evidence in the report:** the job conclusions at that SHA (not just the `gh pr checks` summary line — pull the actual run/job conclusion), the diff line (not a description of what you meant to change), the live API response (not what a teammate said would happen). A claim without that evidence is a guess wearing a verified claim's clothes.
