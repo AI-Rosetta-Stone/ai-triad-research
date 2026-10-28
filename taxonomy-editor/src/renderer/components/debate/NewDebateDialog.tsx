@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
-import type { TextareaHTMLAttributes, RefObject } from 'react';
+import type { TextareaHTMLAttributes, RefObject, Dispatch, SetStateAction, ReactNode } from 'react';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTaxonomyStore, AI_BACKENDS, MODELS_BY_BACKEND, DEBATE_TIERS, FALLBACK_CHAINS, backendForModelWithFallback, initAIModels, type AIBackend } from '../../hooks/useTaxonomyStore';
@@ -378,35 +378,44 @@ interface DebateSettingsProps {
   onSaveAsPreset: (name: string, settings: SettingsApply) => void;
 }
 
+type PresetDef = typeof PRESET_DEFAULTS[BuiltInPresetId];
+type SectionDiffState = {
+  protocolId: string; dialecticalStyle: DialecticalStyle;
+  confrontationRounds: number; argumentationRounds: number; concludingRounds: number;
+  stepMode: boolean; narrativeVoicing: boolean; modelTier: 'basic' | 'advanced';
+  multiProvider: boolean; useCustomModel: boolean;
+  selected: Set<SpeakerId>; userIsPover: boolean; audience: DebateAudience;
+  excludeGreatestHits: boolean; titleOverride: string; background: string;
+};
+
+function fmtDiff(p: PresetDef, s: SectionDiffState): boolean {
+  return s.protocolId !== p.protocolId || s.dialecticalStyle !== p.dialecticalStyle ||
+    s.confrontationRounds !== p.confrontationRounds || s.argumentationRounds !== p.argumentationRounds ||
+    s.concludingRounds !== p.concludingRounds || s.stepMode !== p.stepMode || s.narrativeVoicing;
+}
+function voicesDiff(s: SectionDiffState): boolean {
+  return s.selected.size !== AI_POVERS.length || AI_POVERS.some(id => !s.selected.has(id)) ||
+    s.userIsPover || s.audience !== 'policymakers';
+}
+function modelDiff(p: PresetDef, s: SectionDiffState): boolean {
+  return s.modelTier !== p.modelTier || s.multiProvider || s.useCustomModel;
+}
+function materialDiff(s: SectionDiffState): boolean {
+  return s.titleOverride !== '' || s.background !== '';
+}
+
 function sectionHasDiff(
   section: SettingsSection,
   preset: BuiltInPresetId,
-  s: {
-    protocolId: string; dialecticalStyle: DialecticalStyle;
-    confrontationRounds: number; argumentationRounds: number; concludingRounds: number;
-    stepMode: boolean; narrativeVoicing: boolean; modelTier: 'basic' | 'advanced';
-    multiProvider: boolean; useCustomModel: boolean;
-    selected: Set<SpeakerId>; userIsPover: boolean; audience: DebateAudience;
-    excludeGreatestHits: boolean;
-    titleOverride: string; background: string;
-  },
+  s: SectionDiffState,
 ): boolean {
   const p = PRESET_DEFAULTS[preset];
   switch (section) {
-    case 'format':
-      return s.protocolId !== p.protocolId || s.dialecticalStyle !== p.dialecticalStyle ||
-        s.confrontationRounds !== p.confrontationRounds || s.argumentationRounds !== p.argumentationRounds ||
-        s.concludingRounds !== p.concludingRounds || s.stepMode !== p.stepMode || s.narrativeVoicing;
-    case 'voices':
-      return s.selected.size !== AI_POVERS.length ||
-        AI_POVERS.some(id => !s.selected.has(id)) || s.userIsPover ||
-        s.audience !== 'policymakers';
-    case 'model':
-      return s.modelTier !== p.modelTier || s.multiProvider || s.useCustomModel;
-    case 'sourcing':
-      return s.excludeGreatestHits;
-    case 'material':
-      return s.titleOverride !== '' || s.background !== '';
+    case 'format':   return fmtDiff(p, s);
+    case 'voices':   return voicesDiff(s);
+    case 'model':    return modelDiff(p, s);
+    case 'sourcing': return s.excludeGreatestHits;
+    case 'material': return materialDiff(s);
   }
 }
 
@@ -436,6 +445,263 @@ function SaveAsPresetModal({
       </div>
     </div>
   );
+}
+
+// ── Section panel sub-components for DebateSettingsDialog (local/complexity-budget t/3821) ──
+
+interface FormatPacingProps {
+  localProtocolId: string; setLocalProtocolId: (v: string) => void;
+  localStyle: DialecticalStyle; setLocalStyle: (v: DialecticalStyle) => void;
+  localConfrontation: number; setLocalConfrontation: (v: number) => void;
+  localArgumentation: number; setLocalArgumentation: (v: number) => void;
+  localConcluding: number; setLocalConcluding: (v: number) => void;
+  localStepMode: boolean; setLocalStepMode: (v: boolean) => void;
+  localNarrativeVoicing: boolean; setLocalNarrativeVoicing: (v: boolean) => void;
+}
+function FormatPacingSection({ localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing }: FormatPacingProps) {
+  return (
+    <>
+      <h3 className="ndd-settings-section-title">Format &amp; pacing</h3>
+      <div className="ndd-settings-field">
+        <label className="ndd-field-label" htmlFor="ndd-s-protocol">Protocol</label>
+        <select id="ndd-s-protocol" className="ndd-input" value={localProtocolId} onChange={e => setLocalProtocolId(e.target.value)}>
+          {DEBATE_PROTOCOLS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+        <p className="ndd-settings-field-hint">{DEBATE_PROTOCOLS.find(p => p.id === localProtocolId)?.description}</p>
+      </div>
+      <div className="ndd-settings-field">
+        <label className="ndd-field-label">Dialectical style</label>
+        <div className="ndd-style-options">
+          {STYLE_PRESETS.map(s => (
+            <label key={s.id} className={`ndd-style-option${localStyle === s.id ? ' active' : ''}`}>
+              <input type="radio" name="ndd-style" value={s.id} checked={localStyle === s.id} onChange={() => setLocalStyle(s.id)} className="sr-only" />
+              <span className="ndd-style-label">{s.label}</span>
+              <span className="ndd-style-desc">{s.desc}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="ndd-settings-field">
+        <label className="ndd-field-label">Max rounds per phase</label>
+        <div className="ndd-rounds-grid">
+          {([
+            { label: 'Confrontation', value: localConfrontation, set: setLocalConfrontation, min: 1, max: 6 },
+            { label: 'Argumentation', value: localArgumentation, set: setLocalArgumentation, min: 1, max: 10 },
+            { label: 'Concluding',    value: localConcluding,    set: setLocalConcluding,    min: 1, max: 4 },
+          ] as const).map(r => (
+            <div key={r.label} className="ndd-rounds-field">
+              <label className="ndd-rounds-label">{r.label}</label>
+              <input type="number" className="ndd-input ndd-rounds-input" min={r.min} max={r.max} value={r.value}
+                onChange={e => r.set(Math.min(r.max, Math.max(r.min, parseInt(e.target.value, 10) || r.min)))} />
+            </div>
+          ))}
+        </div>
+      </div>
+      <SettingsToggleRow checked={localStepMode} onChange={setLocalStepMode}
+        name="Pause between phases" help="Wait for your input before each new debate phase" />
+      <SettingsToggleRow checked={localNarrativeVoicing} onChange={setLocalNarrativeVoicing}
+        name="Moderator voices each camp's story"
+        help="Before the openings, the moderator retells what each camp fears losing and what history it carries. Experimental." />
+    </>
+  );
+}
+
+interface VoicesAudienceProps {
+  isSocratic: boolean;
+  localSelected: Set<SpeakerId>; setLocalSelected: Dispatch<SetStateAction<Set<SpeakerId>>>;
+  toggleDebater: (id: SpeakerId) => void;
+  localSeatTags: Partial<Record<SpeakerId, SeatTag>>; setLocalSeatTags: Dispatch<SetStateAction<Partial<Record<SpeakerId, SeatTag>>>>;
+  povTagRegistry: ReturnType<typeof registryOrNull>;
+  localUserIsPover: boolean; setLocalUserIsPover: Dispatch<SetStateAction<boolean>>;
+  localAudience: DebateAudience; setLocalAudience: (v: DebateAudience) => void;
+  localSeatTagIssue: ReturnType<typeof seatTagRefusal>;
+}
+function VoicesAudienceSection({ isSocratic, localSelected, setLocalSelected, toggleDebater, localSeatTags, setLocalSeatTags, povTagRegistry, localUserIsPover, setLocalUserIsPover, localAudience, setLocalAudience, localSeatTagIssue }: VoicesAudienceProps) {
+  return (
+    <>
+      <h3 className="ndd-settings-section-title">Voices &amp; audience</h3>
+      <label className="ndd-field-label">Debaters</label>
+      {isSocratic && <p className="ndd-settings-field-hint">Socratic elenchus examines one interlocutor. Select one perspective.</p>}
+      <div className="ndd-settings-debaters">
+        {AI_POVERS.map(id => {
+          const info = POVER_INFO[id];
+          const camp = povToCamp(id);
+          const sel = localSelected.has(id);
+          const tagLabel = seatTagLabel(id, localSeatTags[id], povTagRegistry);
+          return (
+            <div key={id} className="ndd-settings-debater-group">
+              <label className={`ndd-settings-debater-row${isSocratic && !sel ? ' ndd-settings-debater-row--dim' : ''}`}>
+                <input type="checkbox" checked={sel} onChange={() => isSocratic ? setLocalSelected(new Set([id])) : toggleDebater(id)} />
+                <span className="ndd-debater-chip" data-camp={camp}>
+                  <span className="ndd-debater-chip-icon" aria-hidden="true"><CampGlyph camp={camp!} size={12} /></span>
+                  {info.label}{tagLabel && ` · ${tagLabel}`}
+                </span>
+                <span className="ndd-step-help" style={{ margin: 0 }}>{info.personality}</span>
+              </label>
+              {sel && (
+                <SeatTagPicker pov={id} povNodes={useTaxonomyStore.getState()[id]?.nodes ?? []} registry={povTagRegistry}
+                  seatTag={localSeatTags[id]}
+                  onChange={t => setLocalSeatTags(p => { const n = { ...p }; if (t) n[id] = t; else delete n[id]; return n; })} />
+              )}
+            </div>
+          );
+        })}
+        <label className="ndd-settings-debater-row">
+          <input type="checkbox" checked={localUserIsPover} disabled={isSocratic} onChange={() => setLocalUserIsPover(v => !v)} />
+          <span className="ndd-debater-chip ndd-debater-chip--user">👤 You</span>
+          <span className="ndd-step-help" style={{ margin: 0 }}>Argue a position yourself</span>
+        </label>
+      </div>
+      {localSelected.size < 1 && <div className="ndd-hint-error">Select at least 1 perspective</div>}
+      {renderSeatTagIssueBanner(null, localSeatTagIssue, 'ndd-hint-error')}
+      <div className="ndd-settings-audience-select">
+        <label className="ndd-field-label" htmlFor="ndd-settings-audience">Written for</label>
+        <select id="ndd-settings-audience" className="ndd-input" value={localAudience} onChange={e => setLocalAudience(e.target.value as DebateAudience)}>
+          {DEBATE_AUDIENCES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+        </select>
+      </div>
+    </>
+  );
+}
+
+interface ModelProvidersProps {
+  localModelTier: 'basic' | 'advanced'; setLocalModelTier: (v: 'basic' | 'advanced') => void;
+  localMultiProvider: boolean; setLocalMultiProvider: (v: boolean) => void;
+  backendsWithKeys: string[];
+  localExcludedBackends: Set<string>; toggleBackend: (id: string) => void;
+  hasApiKey: Record<string, boolean>;
+  localUseCustomModel: boolean; setLocalUseCustomModel: (v: boolean) => void;
+  localCustomModel: string; setLocalCustomModel: (v: string) => void;
+  localCustomFamily: AIBackend; setLocalCustomFamily: (v: AIBackend) => void;
+  globalModel: string;
+  refreshing: boolean; setRefreshing: (v: boolean) => void;
+}
+function ModelProvidersSection({ localModelTier, setLocalModelTier, localMultiProvider, setLocalMultiProvider, backendsWithKeys, localExcludedBackends, toggleBackend, hasApiKey, localUseCustomModel, setLocalUseCustomModel, localCustomModel, setLocalCustomModel, localCustomFamily, setLocalCustomFamily, globalModel, refreshing, setRefreshing }: ModelProvidersProps) {
+  return (
+    <>
+      <h3 className="ndd-settings-section-title">Model &amp; providers</h3>
+      <div className="ndd-settings-field">
+        <label className="ndd-field-label">Model tier</label>
+        <div className="ndd-tier-chips">
+          {(['basic', 'advanced'] as const).map(tier => (
+            <button key={tier} type="button" className={`ndd-tier-chip${localModelTier === tier ? ' active' : ''}`} onClick={() => setLocalModelTier(tier)}>
+              {tier === 'basic' ? 'Basic' : 'Frontier'}
+            </button>
+          ))}
+        </div>
+        <p className="ndd-settings-field-hint">
+          {localModelTier === 'basic' ? 'Faster and lower-cost. Good for quick topics.' : 'Most capable model tier. Better for nuanced, complex topics.'}
+        </p>
+      </div>
+      <label className="ndd-settings-toggle-row">
+        <input type="checkbox" checked={localMultiProvider} onChange={e => setLocalMultiProvider(e.target.checked)} />
+        <div>
+          <span className="ndd-toggle-name">Multi-provider mode</span>
+          <span className="ndd-step-help">Assign different AI backends to each debater</span>
+        </div>
+      </label>
+      {localMultiProvider ? (
+        <div className="ndd-settings-field">
+          <label className="ndd-field-label">Active backends</label>
+          <div className="ndd-backend-chips">
+            {backendsWithKeys.map(id => {
+              const info = AI_BACKENDS.find(b => b.value === id);
+              const active = !localExcludedBackends.has(id);
+              return (
+                <button key={id} type="button" className={`ndd-backend-chip${active ? ' active' : ''}`} onClick={() => toggleBackend(id)}>
+                  {info?.label ?? id}
+                  {hasApiKey[id] === false && <span className="ndd-backend-nokey" title="No API key"> !</span>}
+                </button>
+              );
+            })}
+          </div>
+          {backendsWithKeys.length < 2 && <p className="ndd-warning-text">Multi-provider needs at least 2 backends with API keys.</p>}
+        </div>
+      ) : (
+        <>
+          <label className="ndd-settings-toggle-row" style={{ marginTop: 'var(--sp-4)' }}>
+            <input type="checkbox" checked={localUseCustomModel} onChange={e => setLocalUseCustomModel(e.target.checked)} />
+            <div>
+              <span className="ndd-toggle-name">Custom model</span>
+              <span className="ndd-step-help">Override the default model for this debate</span>
+            </div>
+          </label>
+          {localUseCustomModel && (
+            <div style={{ marginTop: 'var(--sp-2)' }}>
+              <div className="ndd-custom-model-row">
+                <div className="ndd-custom-model-field">
+                  <label className="ndd-settings-field-hint">Model family</label>
+                  <select className="ndd-input" value={localCustomFamily} onChange={e => { const fam = e.target.value as AIBackend; setLocalCustomFamily(fam); setLocalCustomModel(MODELS_BY_BACKEND[fam]?.[0]?.value ?? localCustomModel); }}>
+                    {AI_BACKENDS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                  </select>
+                </div>
+                <button type="button" className="ndd-refresh-btn" disabled={refreshing} onClick={async () => { setRefreshing(true); try { await api.refreshAIModels({ dryRun: true }); await initAIModels(); } catch { /* telemetry — silent by design */ } setRefreshing(false); }}>
+                  {refreshing ? 'Refreshing…' : 'Refresh models'}
+                </button>
+              </div>
+              <div className="ndd-custom-model-field" style={{ marginTop: 'var(--sp-2)' }}>
+                <label className="ndd-settings-field-hint">Model</label>
+                <select className="ndd-input" value={localCustomModel} onChange={e => setLocalCustomModel(e.target.value)}>
+                  {(MODELS_BY_BACKEND[localCustomFamily] ?? []).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          {!localUseCustomModel && (
+            <p className="ndd-settings-field-hint" style={{ marginTop: 'var(--sp-2)' }}>
+              Using default model: <code>{globalModel}</code>
+            </p>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function ArgumentSourcingSection({ localExcludeGreatestHits, setLocalExcludeGreatestHits }: { localExcludeGreatestHits: boolean; setLocalExcludeGreatestHits: (v: boolean) => void }) {
+  return (
+    <>
+      <h3 className="ndd-settings-section-title">Argument sourcing</h3>
+      <SettingsToggleRow checked={localExcludeGreatestHits} onChange={setLocalExcludeGreatestHits}
+        name="Exclude well-tested nodes"
+        help="Skip well-tested taxonomy nodes and the curated greatest-hits list, and favor untested or only-cited nodes, so the debate stress-tests under-examined arguments" />
+    </>
+  );
+}
+
+function SourceMaterialSection({ localTitleOverride, setLocalTitleOverride, localBackground, setLocalBackground }: { localTitleOverride: string; setLocalTitleOverride: (v: string) => void; localBackground: string; setLocalBackground: (v: string) => void }) {
+  return (
+    <>
+      <h3 className="ndd-settings-section-title">Source material</h3>
+      <div className="ndd-settings-field">
+        <label className="ndd-field-label" htmlFor="ndd-s-title-override">Title override</label>
+        <input id="ndd-s-title-override" className="ndd-input" type="text" placeholder="Leave blank to auto-generate from topic" value={localTitleOverride} onChange={e => setLocalTitleOverride(e.target.value)} maxLength={120} />
+        <p className="ndd-settings-field-hint">Overrides the generated title if set.</p>
+      </div>
+      <div className="ndd-settings-field">
+        <label className="ndd-field-label" htmlFor="ndd-s-background">Background context</label>
+        <AutoGrowTextarea id="ndd-s-background" className="ndd-adder-textarea" value={localBackground} onChange={e => setLocalBackground(e.target.value)} rows={4} placeholder="Additional context for the debaters…" />
+      </div>
+    </>
+  );
+}
+
+interface RenderSectionArgs {
+  activeSection: SettingsSection;
+  formatProps: FormatPacingProps;
+  voicesProps: VoicesAudienceProps;
+  modelProps: ModelProvidersProps;
+  sourcingProps: { localExcludeGreatestHits: boolean; setLocalExcludeGreatestHits: (v: boolean) => void };
+  materialProps: { localTitleOverride: string; setLocalTitleOverride: (v: string) => void; localBackground: string; setLocalBackground: (v: string) => void };
+}
+function renderSettingsSection({ activeSection, formatProps, voicesProps, modelProps, sourcingProps, materialProps }: RenderSectionArgs): ReactNode {
+  switch (activeSection) {
+    case 'format':   return <FormatPacingSection {...formatProps} />;
+    case 'voices':   return <VoicesAudienceSection {...voicesProps} />;
+    case 'model':    return <ModelProvidersSection {...modelProps} />;
+    case 'sourcing': return <ArgumentSourcingSection {...sourcingProps} />;
+    case 'material': return <SourceMaterialSection {...materialProps} />;
+  }
 }
 
 function DebateSettingsDialog({
@@ -624,317 +890,18 @@ function DebateSettingsDialog({
 
           <div className={`ndd-settings-body${isMobile && mobileSubView === null ? ' ndd-hidden' : ''}`}>
             {isMobile && mobileSubView !== null && (
-              <button
-                type="button"
-                className="ndd-mobile-back-btn"
-                onClick={() => setMobileSubView(null)}
-                aria-label="Back to sections"
-              >
+              <button type="button" className="ndd-mobile-back-btn" onClick={() => setMobileSubView(null)} aria-label="Back to sections">
                 ← Back
               </button>
             )}
-
-            {/* Format & pacing */}
-            {activeSection === 'format' && (
-              <>
-                <h3 className="ndd-settings-section-title">Format &amp; pacing</h3>
-
-                <div className="ndd-settings-field">
-                  <label className="ndd-field-label" htmlFor="ndd-s-protocol">Protocol</label>
-                  <select
-                    id="ndd-s-protocol"
-                    className="ndd-input"
-                    value={localProtocolId}
-                    onChange={e => setLocalProtocolId(e.target.value)}
-                  >
-                    {DEBATE_PROTOCOLS.map(p => (
-                      <option key={p.id} value={p.id}>{p.label}</option>
-                    ))}
-                  </select>
-                  <p className="ndd-settings-field-hint">
-                    {DEBATE_PROTOCOLS.find(p => p.id === localProtocolId)?.description}
-                  </p>
-                </div>
-
-                <div className="ndd-settings-field">
-                  <label className="ndd-field-label">Dialectical style</label>
-                  <div className="ndd-style-options">
-                    {STYLE_PRESETS.map(s => (
-                      <label key={s.id} className={`ndd-style-option${localStyle === s.id ? ' active' : ''}`}>
-                        <input
-                          type="radio"
-                          name="ndd-style"
-                          value={s.id}
-                          checked={localStyle === s.id}
-                          onChange={() => setLocalStyle(s.id)}
-                          className="sr-only"
-                        />
-                        <span className="ndd-style-label">{s.label}</span>
-                        <span className="ndd-style-desc">{s.desc}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="ndd-settings-field">
-                  <label className="ndd-field-label">Max rounds per phase</label>
-                  <div className="ndd-rounds-grid">
-                    {([
-                      { label: 'Confrontation', value: localConfrontation, set: setLocalConfrontation, min: 1, max: 6 },
-                      { label: 'Argumentation', value: localArgumentation, set: setLocalArgumentation, min: 1, max: 10 },
-                      { label: 'Concluding',    value: localConcluding,    set: setLocalConcluding,    min: 1, max: 4 },
-                    ] as const).map(r => (
-                      <div key={r.label} className="ndd-rounds-field">
-                        <label className="ndd-rounds-label">{r.label}</label>
-                        <input
-                          type="number"
-                          className="ndd-input ndd-rounds-input"
-                          min={r.min}
-                          max={r.max}
-                          value={r.value}
-                          onChange={e => r.set(Math.min(r.max, Math.max(r.min, parseInt(e.target.value, 10) || r.min)))}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <SettingsToggleRow checked={localStepMode} onChange={setLocalStepMode}
-                  name="Pause between phases" help="Wait for your input before each new debate phase" />
-                <SettingsToggleRow checked={localNarrativeVoicing} onChange={setLocalNarrativeVoicing}
-                  name="Moderator voices each camp's story"
-                  help="Before the openings, the moderator retells what each camp fears losing and what history it carries. Experimental." />
-              </>
-            )}
-
-            {/* Voices & audience */}
-            {activeSection === 'voices' && (
-              <>
-                <h3 className="ndd-settings-section-title">Voices &amp; audience</h3>
-
-                <label className="ndd-field-label">Debaters</label>
-                {isSocratic && <p className="ndd-settings-field-hint">Socratic elenchus examines one interlocutor. Select one perspective.</p>}
-                <div className="ndd-settings-debaters">
-                  {AI_POVERS.map(id => {
-                    const info = POVER_INFO[id];
-                    const camp = povToCamp(id);
-                    const sel = localSelected.has(id);
-                    const tagLabel = seatTagLabel(id, localSeatTags[id], povTagRegistry);
-                    return (
-                      <div key={id} className="ndd-settings-debater-group">
-                        <label className={`ndd-settings-debater-row${isSocratic && !sel ? ' ndd-settings-debater-row--dim' : ''}`}>
-                          <input
-                            type="checkbox"
-                            checked={sel}
-                            onChange={() => isSocratic ? setLocalSelected(new Set([id])) : toggleDebater(id)}
-                          />
-                          <span className="ndd-debater-chip" data-camp={camp}>
-                            <span className="ndd-debater-chip-icon" aria-hidden="true"><CampGlyph camp={camp!} size={12} /></span>
-                            {info.label}{tagLabel && ` · ${tagLabel}`}
-                          </span>
-                          <span className="ndd-step-help" style={{ margin: 0 }}>{info.personality}</span>
-                        </label>
-                        {sel && (
-                          <SeatTagPicker
-                            pov={id}
-                            povNodes={useTaxonomyStore.getState()[id]?.nodes ?? []}
-                            registry={povTagRegistry}
-                            seatTag={localSeatTags[id]}
-                            onChange={t => setLocalSeatTags(p => { const n = { ...p }; if (t) n[id] = t; else delete n[id]; return n; })}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                  <label className="ndd-settings-debater-row">
-                    <input type="checkbox" checked={localUserIsPover} disabled={isSocratic} onChange={() => setLocalUserIsPover(v => !v)} />
-                    <span className="ndd-debater-chip ndd-debater-chip--user">👤 You</span>
-                    <span className="ndd-step-help" style={{ margin: 0 }}>Argue a position yourself</span>
-                  </label>
-                </div>
-                {localSelected.size < 1 && <div className="ndd-hint-error">Select at least 1 perspective</div>}{renderSeatTagIssueBanner(null, localSeatTagIssue, 'ndd-hint-error')}
-
-                <div className="ndd-settings-audience-select">
-                  <label className="ndd-field-label" htmlFor="ndd-settings-audience">Written for</label>
-                  <select
-                    id="ndd-settings-audience"
-                    className="ndd-input"
-                    value={localAudience}
-                    onChange={e => setLocalAudience(e.target.value as DebateAudience)}
-                  >
-                    {DEBATE_AUDIENCES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
-                  </select>
-                </div>
-              </>
-            )}
-
-            {/* Model & providers */}
-            {activeSection === 'model' && (
-              <>
-                <h3 className="ndd-settings-section-title">Model &amp; providers</h3>
-
-                <div className="ndd-settings-field">
-                  <label className="ndd-field-label">Model tier</label>
-                  <div className="ndd-tier-chips">
-                    {(['basic', 'advanced'] as const).map(tier => (
-                      <button
-                        key={tier}
-                        type="button"
-                        className={`ndd-tier-chip${localModelTier === tier ? ' active' : ''}`}
-                        onClick={() => setLocalModelTier(tier)}
-                      >
-                        {tier === 'basic' ? 'Basic' : 'Frontier'}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="ndd-settings-field-hint">
-                    {localModelTier === 'basic'
-                      ? 'Faster and lower-cost. Good for quick topics.'
-                      : 'Most capable model tier. Better for nuanced, complex topics.'}
-                  </p>
-                </div>
-
-                <label className="ndd-settings-toggle-row">
-                  <input type="checkbox" checked={localMultiProvider} onChange={e => setLocalMultiProvider(e.target.checked)} />
-                  <div>
-                    <span className="ndd-toggle-name">Multi-provider mode</span>
-                    <span className="ndd-step-help">Assign different AI backends to each debater</span>
-                  </div>
-                </label>
-
-                {localMultiProvider ? (
-                  <div className="ndd-settings-field">
-                    <label className="ndd-field-label">Active backends</label>
-                    <div className="ndd-backend-chips">
-                      {backendsWithKeys.map(id => {
-                        const info = AI_BACKENDS.find(b => b.value === id);
-                        const active = !localExcludedBackends.has(id);
-                        return (
-                          <button
-                            key={id}
-                            type="button"
-                            className={`ndd-backend-chip${active ? ' active' : ''}`}
-                            onClick={() => toggleBackend(id)}
-                          >
-                            {info?.label ?? id}
-                            {hasApiKey[id] === false && <span className="ndd-backend-nokey" title="No API key"> !</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {backendsWithKeys.length < 2 && (
-                      <p className="ndd-warning-text">Multi-provider needs at least 2 backends with API keys.</p>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <label className="ndd-settings-toggle-row" style={{ marginTop: 'var(--sp-4)' }}>
-                      <input
-                        type="checkbox"
-                        checked={localUseCustomModel}
-                        onChange={e => setLocalUseCustomModel(e.target.checked)}
-                      />
-                      <div>
-                        <span className="ndd-toggle-name">Custom model</span>
-                        <span className="ndd-step-help">Override the default model for this debate</span>
-                      </div>
-                    </label>
-                    {localUseCustomModel && (
-                      <div style={{ marginTop: 'var(--sp-2)' }}>
-                        <div className="ndd-custom-model-row">
-                          <div className="ndd-custom-model-field">
-                            <label className="ndd-settings-field-hint">Model family</label>
-                            <select
-                              className="ndd-input"
-                              value={localCustomFamily}
-                              onChange={e => {
-                                const fam = e.target.value as AIBackend;
-                                setLocalCustomFamily(fam);
-                                setLocalCustomModel(MODELS_BY_BACKEND[fam]?.[0]?.value ?? localCustomModel);
-                              }}
-                            >
-                              {AI_BACKENDS.map(b => (
-                                <option key={b.value} value={b.value}>{b.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <button
-                            type="button"
-                            className="ndd-refresh-btn"
-                            disabled={refreshing}
-                            onClick={async () => {
-                              setRefreshing(true);
-                              try { await api.refreshAIModels({ dryRun: true }); await initAIModels(); } catch { /* telemetry — silent by design */ }
-                              setRefreshing(false);
-                            }}
-                          >{refreshing ? 'Refreshing…' : 'Refresh models'}</button>
-                        </div>
-                        <div className="ndd-custom-model-field" style={{ marginTop: 'var(--sp-2)' }}>
-                          <label className="ndd-settings-field-hint">Model</label>
-                          <select
-                            className="ndd-input"
-                            value={localCustomModel}
-                            onChange={e => setLocalCustomModel(e.target.value)}
-                          >
-                            {(MODELS_BY_BACKEND[localCustomFamily] ?? []).map(m => (
-                              <option key={m.value} value={m.value}>{m.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                    {!localUseCustomModel && (
-                      <p className="ndd-settings-field-hint" style={{ marginTop: 'var(--sp-2)' }}>
-                        Using default model: <code>{globalModel}</code>
-                      </p>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-
-            {/* Argument sourcing */}
-            {activeSection === 'sourcing' && (
-              <>
-                <h3 className="ndd-settings-section-title">Argument sourcing</h3>
-                <SettingsToggleRow checked={localExcludeGreatestHits} onChange={setLocalExcludeGreatestHits}
-                  name="Exclude well-tested nodes"
-                  help="Skip well-tested taxonomy nodes and the curated greatest-hits list, and favor untested or only-cited nodes, so the debate stress-tests under-examined arguments" />
-              </>
-            )}
-
-            {/* Source material */}
-            {activeSection === 'material' && (
-              <>
-                <h3 className="ndd-settings-section-title">Source material</h3>
-
-                <div className="ndd-settings-field">
-                  <label className="ndd-field-label" htmlFor="ndd-s-title-override">Title override</label>
-                  <input
-                    id="ndd-s-title-override"
-                    className="ndd-input"
-                    type="text"
-                    placeholder="Leave blank to auto-generate from topic"
-                    value={localTitleOverride}
-                    onChange={e => setLocalTitleOverride(e.target.value)}
-                    maxLength={120}
-                  />
-                  <p className="ndd-settings-field-hint">Overrides the generated title if set.</p>
-                </div>
-
-                <div className="ndd-settings-field">
-                  <label className="ndd-field-label" htmlFor="ndd-s-background">Background context</label>
-                  <AutoGrowTextarea
-                    id="ndd-s-background"
-                    className="ndd-adder-textarea"
-                    value={localBackground}
-                    onChange={e => setLocalBackground(e.target.value)}
-                    rows={4}
-                    placeholder="Additional context for the debaters…"
-                  />
-                </div>
-              </>
-            )}
+            {renderSettingsSection({
+              activeSection,
+              formatProps: { localProtocolId, setLocalProtocolId, localStyle, setLocalStyle, localConfrontation, setLocalConfrontation, localArgumentation, setLocalArgumentation, localConcluding, setLocalConcluding, localStepMode, setLocalStepMode, localNarrativeVoicing, setLocalNarrativeVoicing },
+              voicesProps: { isSocratic, localSelected, setLocalSelected, toggleDebater, localSeatTags, setLocalSeatTags, povTagRegistry, localUserIsPover, setLocalUserIsPover, localAudience, setLocalAudience, localSeatTagIssue },
+              modelProps: { localModelTier, setLocalModelTier, localMultiProvider, setLocalMultiProvider, backendsWithKeys, localExcludedBackends, toggleBackend, hasApiKey, localUseCustomModel, setLocalUseCustomModel, localCustomModel, setLocalCustomModel, localCustomFamily, setLocalCustomFamily, globalModel, refreshing, setRefreshing },
+              sourcingProps: { localExcludeGreatestHits, setLocalExcludeGreatestHits },
+              materialProps: { localTitleOverride, setLocalTitleOverride, localBackground, setLocalBackground },
+            })}
           </div>
         </div>
 
@@ -960,6 +927,178 @@ function DebateSettingsDialog({
       )}
     </div>
   );
+}
+
+// ── handleStart helpers (local/complexity-budget t/3821) ─────────────────────
+
+function validateDebateStart(
+  canStart: boolean,
+  creating: boolean,
+  isAnonymous: boolean,
+  activeAdder: 'none' | 'background' | 'source',
+  sourceType: DebateSourceType,
+): 'blocked' | 'sign-in' | null {
+  if (!canStart || creating) return 'blocked';
+  if (isAnonymous && activeAdder === 'source' && sourceType === 'url') return 'sign-in';
+  return null;
+}
+
+async function resolveFinalTopic(
+  activeAdder: 'none' | 'background' | 'source',
+  sourceType: DebateSourceType,
+  sourceRef: string,
+  fileName: string,
+  sourceContent: string,
+  topic: string,
+): Promise<{ finalTopic: string; finalContent: string }> {
+  let finalTopic = topic.trim();
+  let finalContent = sourceContent;
+  if (activeAdder === 'source' && sourceType === 'url') {
+    if (!finalTopic) finalTopic = `Discuss: ${sourceRef.trim()}`;
+    finalContent = await fetchDebateUrlContent(sourceRef);
+  }
+  if (activeAdder === 'source' && sourceType === 'document' && !finalTopic) {
+    finalTopic = `Discuss: ${fileName}`;
+  }
+  return { finalTopic, finalContent };
+}
+
+function resolvePoversAndModels(
+  selected: Set<SpeakerId>,
+  userIsPover: boolean,
+  multiProvider: boolean,
+  modelTier: 'basic' | 'advanced',
+  activeBackends: string[],
+): { povers: SpeakerId[]; speakerModels?: Record<string, string>; eligibleBackends?: string[] } | typeof RESOLVE_FAILED {
+  const povers = Array.from(selected);
+  if (userIsPover && !povers.includes('user')) povers.push('user');
+  if (!multiProvider) return { povers };
+  const resolved = resolveDebateSpeakerModels(modelTier, activeBackends, povers);
+  if (resolved === RESOLVE_FAILED) return RESOLVE_FAILED;
+  return { povers, speakerModels: resolved.speakerModels, eligibleBackends: resolved.eligibleBackends };
+}
+
+// ── DebateBodyContent — body of Screen A (local/complexity-budget t/3821) ────
+
+interface DebateBodyContentProps {
+  topic: string; setTopic: (v: string) => void;
+  activeAdder: 'none' | 'background' | 'source'; setActiveAdder: (v: 'none' | 'background' | 'source') => void;
+  sourceType: DebateSourceType; setSourceType: (v: DebateSourceType) => void;
+  sourceRef: string; setSourceRef: (v: string) => void;
+  fileName: string;
+  isAnonymous: boolean;
+  background: string; setBackground: (v: string) => void;
+  selected: Set<SpeakerId>; userIsPover: boolean;
+  seatTags: Partial<Record<SpeakerId, SeatTag>>; povTagRegistry: ReturnType<typeof registryOrNull>;
+  audience: DebateAudience; handleAudienceChange: (v: DebateAudience) => void;
+  basePreset: BuiltInPresetId; isCustom: boolean; handlePresetSelect: (id: BuiltInPresetId) => void;
+  openSettings: (section: SettingsSection) => void;
+  handlePickFile: () => void; handleRevertToTopic: () => void;
+}
+function DebateBodyContent({ topic, setTopic, activeAdder, setActiveAdder, sourceType, setSourceType, sourceRef, setSourceRef, fileName, isAnonymous, background, setBackground, selected, userIsPover, seatTags, povTagRegistry, audience, handleAudienceChange, basePreset, isCustom, handlePresetSelect, openSettings, handlePickFile, handleRevertToTopic }: DebateBodyContentProps) {
+  return (
+    <div className="ndd-dialog-body">
+      {activeAdder !== 'source' ? (
+        <>
+          <label className="ndd-field-label" htmlFor="ndd-topic">
+            Topic <span className="ndd-required-mark" aria-hidden="true">*</span>
+          </label>
+          <AutoGrowTextarea id="ndd-topic" className="ndd-topic-primary" value={topic} onChange={e => setTopic(e.target.value)} rows={3} maxHeight={144} placeholder="What should the AI debate?" autoFocus aria-required="true" />
+        </>
+      ) : (
+        <>
+          <label className="ndd-field-label">Source</label>
+          <div className="ndd-adder-content">
+            <div className="ndd-source-type-tabs">
+              <button type="button" className={`ndd-source-tab${sourceType === 'document' ? ' active' : ''}`} onClick={() => setSourceType('document')}>Document</button>
+              <button type="button" className={`ndd-source-tab${sourceType === 'url' ? ' active' : ''}`} onClick={() => !isAnonymous && setSourceType('url')} disabled={isAnonymous} title={isAnonymous ? 'Sign in to use URL sources' : undefined}>URL</button>
+            </div>
+            {isAnonymous && (
+              <p className="ndd-warning-text">
+                URL fetching requires sign-in.{' '}
+                <a href="/api/auth/fresh-login/github">Sign in with GitHub</a>{' or '}<a href="/api/auth/fresh-login/google">Google</a>.
+              </p>
+            )}
+            {sourceType === 'document' && (
+              <div className="ndd-file-pick-row">
+                <button type="button" className="btn btn-sm" onClick={handlePickFile}>Pick file…</button>
+                {fileName && <span className="ndd-file-name">{fileName}</span>}
+              </div>
+            )}
+            {sourceType === 'url' && (
+              <input type="url" className="ndd-input" value={sourceRef}
+                onChange={e => { setSourceRef(e.target.value); if (!e.target.value) handleRevertToTopic(); }}
+                onBlur={() => { if (!sourceRef.trim()) handleRevertToTopic(); }}
+                placeholder="https://…" autoFocus />
+            )}
+            <button type="button" className="ndd-adder-collapse" onClick={handleRevertToTopic}>← Use topic instead</button>
+          </div>
+        </>
+      )}
+
+      <PresetCards basePreset={basePreset} isCustom={isCustom} onSelect={handlePresetSelect} />
+
+      <div className="ndd-field-row">
+        <label className="ndd-field-label ndd-audience-label" htmlFor="ndd-audience">Written for</label>
+        <select id="ndd-audience" className="ndd-input ndd-audience-select" value={audience} onChange={e => handleAudienceChange(e.target.value as DebateAudience)}>
+          {DEBATE_AUDIENCES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+        </select>
+      </div>
+
+      <div className="ndd-voices-row">
+        <div className="ndd-debater-chips" role="list" aria-label="Selected debaters">
+          {AI_POVERS.filter(id => selected.has(id)).map(id => {
+            const camp = povToCamp(id);
+            const tagLabel = seatTagLabel(id, seatTags[id], povTagRegistry);
+            return (
+              <span key={id} className="ndd-debater-chip" data-camp={camp} role="listitem">
+                <span className="ndd-debater-chip-icon" aria-hidden="true"><CampGlyph camp={camp!} size={12} /></span>
+                {POVER_INFO[id].label}{tagLabel && ` · ${tagLabel}`}
+              </span>
+            );
+          })}
+          {userIsPover && <span className="ndd-debater-chip ndd-debater-chip--user" role="listitem">👤 You</span>}
+        </div>
+        <button type="button" className="ndd-change-voices-btn" onClick={() => openSettings('voices')}>Change voices</button>
+      </div>
+
+      <div className="ndd-adders">
+        {activeAdder !== 'background' ? (
+          <button type="button" className="ndd-adder-btn" onClick={() => setActiveAdder('background')}>+ Add background context</button>
+        ) : (
+          <div className="ndd-adder-content">
+            <label className="ndd-field-label" htmlFor="ndd-background">Background context</label>
+            <AutoGrowTextarea id="ndd-background" className="ndd-adder-textarea" value={background}
+              onChange={e => setBackground(e.target.value)}
+              onBlur={() => { if (!background.trim()) setActiveAdder('none'); }}
+              rows={3} placeholder="Additional context for the debaters…" autoFocus />
+            {background && (
+              <button type="button" className="ndd-adder-collapse" onClick={() => { setBackground(''); setActiveAdder('none'); }}>Remove</button>
+            )}
+          </div>
+        )}
+        {activeAdder !== 'source' && (
+          <button type="button" className="ndd-adder-btn" onClick={() => { setSourceType(isAnonymous ? 'document' : 'url'); setActiveAdder('source'); }}>
+            + Use a document or URL
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface DebateStartHintProps {
+  multiProvider: boolean;
+  activeModelExcluded: boolean;
+}
+function DebateStartHint({ multiProvider, activeModelExcluded }: DebateStartHintProps) {
+  if (multiProvider) {
+    return <p className="ndd-start-hint" role="status">Select at least 2 active backends with an API key for multi-provider mode.</p>;
+  }
+  if (activeModelExcluded) {
+    return <p className="ndd-start-hint" role="status">This model is not supported for debates — pick a different model.</p>;
+  }
+  return <p className="ndd-start-hint" role="status">No API key for this model — <button type="button" className="ndd-start-hint-link" onClick={() => useSettingsDialog.getState().open('apiKeys')}>add one in Settings</button></p>;
 }
 
 // ── Main dialog ───────────────────────────────────────────────────────────────
@@ -1193,44 +1332,21 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
   };
 
   const handleStart = async () => {
-    if (!canStart || creating) return;
-    if (isAnonymous && activeAdder === 'source' && sourceType === 'url') {
-      setStartError('Sign in to use URL sources.');
-      return;
-    }
+    const guard = validateDebateStart(canStart, creating, isAnonymous, activeAdder, sourceType);
+    if (guard === 'blocked') return;
+    if (guard === 'sign-in') { setStartError('Sign in to use URL sources.'); return; }
     await checkGeminiOnboarding({ freeTier, geminiAllowlisted: userProfile?.geminiAllowlisted });
     setCreating(true);
     setStartError(null);
 
     try {
-      let finalTopic = topic.trim();
-      let finalContent = sourceContent;
-
-      if (activeAdder === 'source' && sourceType === 'url') {
-        if (!finalTopic) finalTopic = `Discuss: ${sourceRef.trim()}`;
-        finalContent = await fetchDebateUrlContent(sourceRef);
-      }
-      if (activeAdder === 'source' && sourceType === 'document' && !finalTopic) {
-        finalTopic = `Discuss: ${fileName}`;
-      }
-
-      const povers = Array.from(selected);
-      if (userIsPover && !povers.includes('user')) povers.push('user');
+      const { finalTopic, finalContent } = await resolveFinalTopic(activeAdder, sourceType, sourceRef, fileName, sourceContent, topic);
+      const resolved = resolvePoversAndModels(selected, userIsPover, multiProvider, modelTier, activeBackends);
+      if (resolved === RESOLVE_FAILED) { setCreating(false); return; }
+      const { povers, speakerModels, eligibleBackends } = resolved;
       const effectiveModel = useCustomModel ? customModel : globalModel;
       const debateModelOverride = computeDebateModelOverride(multiProvider, useCustomModel, customModel);
-
-      let speakerModels: Record<string, string> | undefined;
-      let eligibleBackends: string[] | undefined;
-      if (multiProvider) {
-        const resolved = resolveDebateSpeakerModels(modelTier, activeBackends, povers);
-        if (resolved === RESOLVE_FAILED) { setCreating(false); return; }
-        speakerModels = resolved.speakerModels;
-        eligibleBackends = resolved.eligibleBackends;
-      }
-
-      const { sourceTypeArg, sourceRefArg, contentArg } = buildDebateSourceArgs(
-        activeAdder === 'source' ? sourceType : 'topic', sourceRef, finalContent
-      );
+      const { sourceTypeArg, sourceRefArg, contentArg } = buildDebateSourceArgs(activeAdder === 'source' ? sourceType : 'topic', sourceRef, finalContent);
 
       const id = await createDebate(
         finalTopic, povers, userIsPover, sourceTypeArg, sourceRefArg, contentArg,
@@ -1280,182 +1396,21 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
           <button type="button" className="ndd-close-btn" onClick={onClose} aria-label="Close">&times;</button>
         </div>
 
-        {/* Body */}
-        <div className="ndd-dialog-body">
-
-          {/* Topic field OR source picker — mutually exclusive (t/2200) */}
-          {activeAdder !== 'source' ? (
-            <>
-              <label className="ndd-field-label" htmlFor="ndd-topic">
-                Topic <span className="ndd-required-mark" aria-hidden="true">*</span>
-              </label>
-              <AutoGrowTextarea
-                id="ndd-topic"
-                className="ndd-topic-primary"
-                value={topic}
-                onChange={e => setTopic(e.target.value)}
-                rows={3}
-                maxHeight={144}
-                placeholder="What should the AI debate?"
-
-                autoFocus
-                aria-required="true"
-              />
-            </>
-          ) : (
-            <>
-              <label className="ndd-field-label">Source</label>
-              <div className="ndd-adder-content">
-                <div className="ndd-source-type-tabs">
-                  <button
-                    type="button"
-                    className={`ndd-source-tab${sourceType === 'document' ? ' active' : ''}`}
-                    onClick={() => setSourceType('document')}
-                  >
-                    Document
-                  </button>
-                  <button
-                    type="button"
-                    className={`ndd-source-tab${sourceType === 'url' ? ' active' : ''}`}
-                    onClick={() => !isAnonymous && setSourceType('url')}
-                    disabled={isAnonymous}
-                    title={isAnonymous ? 'Sign in to use URL sources' : undefined}
-                  >
-                    URL
-                  </button>
-                </div>
-                {isAnonymous && (
-                  <p className="ndd-warning-text">
-                    URL fetching requires sign-in.{' '}
-                    <a href="/api/auth/fresh-login/github">Sign in with GitHub</a>
-                    {' or '}
-                    <a href="/api/auth/fresh-login/google">Google</a>.
-                  </p>
-                )}
-                {sourceType === 'document' && (
-                  <div className="ndd-file-pick-row">
-                    <button type="button" className="btn btn-sm" onClick={handlePickFile}>Pick file…</button>
-                    {fileName && <span className="ndd-file-name">{fileName}</span>}
-                  </div>
-                )}
-                {sourceType === 'url' && (
-                  <input
-                    type="url"
-                    className="ndd-input"
-                    value={sourceRef}
-                    onChange={e => {
-                      setSourceRef(e.target.value);
-                      if (!e.target.value) handleRevertToTopic();
-                    }}
-                    onBlur={() => { if (!sourceRef.trim()) handleRevertToTopic(); }}
-                    placeholder="https://…"
-    
-                    autoFocus
-                  />
-                )}
-                <button type="button" className="ndd-adder-collapse" onClick={handleRevertToTopic}>
-                  ← Use topic instead
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* Preset cards (t/2199) */}
-          <PresetCards basePreset={basePreset} isCustom={isCustom} onSelect={handlePresetSelect} />
-
-          {/* Written for (audience select) — t/2200 */}
-          <div className="ndd-field-row">
-            <label className="ndd-field-label ndd-audience-label" htmlFor="ndd-audience">Written for</label>
-            <select
-              id="ndd-audience"
-              className="ndd-input ndd-audience-select"
-              value={audience}
-              onChange={e => handleAudienceChange(e.target.value as DebateAudience)}
-            >
-              {DEBATE_AUDIENCES.map(a => (
-                <option key={a.id} value={a.id}>{a.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Debater chips — read-only; Change voices → Screen B (t/2200) */}
-          <div className="ndd-voices-row">
-            <div className="ndd-debater-chips" role="list" aria-label="Selected debaters">
-              {AI_POVERS.filter(id => selected.has(id)).map(id => {
-                const camp = povToCamp(id); const tagLabel = seatTagLabel(id, seatTags[id], povTagRegistry);
-                return (
-                  <span key={id} className="ndd-debater-chip" data-camp={camp} role="listitem">
-                    <span className="ndd-debater-chip-icon" aria-hidden="true">
-                      <CampGlyph camp={camp!} size={12} />
-                    </span>
-                    {POVER_INFO[id].label}{tagLabel && ` · ${tagLabel}`}
-                  </span>
-                );
-              })}
-              {userIsPover && (
-                <span className="ndd-debater-chip ndd-debater-chip--user" role="listitem">
-                  👤 You
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              className="ndd-change-voices-btn"
-              onClick={() => openSettings('voices')}
-            >
-              Change voices
-            </button>
-          </div>
-
-          {/* Optional adders — t/2200 */}
-          <div className="ndd-adders">
-            {/* Background context */}
-            {activeAdder !== 'background' ? (
-              <button
-                type="button"
-                className="ndd-adder-btn"
-                onClick={() => setActiveAdder('background')}
-              >
-                + Add background context
-              </button>
-            ) : (
-              <div className="ndd-adder-content">
-                <label className="ndd-field-label" htmlFor="ndd-background">Background context</label>
-                <AutoGrowTextarea
-                  id="ndd-background"
-                  className="ndd-adder-textarea"
-                  value={background}
-                  onChange={e => setBackground(e.target.value)}
-                  onBlur={() => { if (!background.trim()) setActiveAdder('none'); }}
-                  rows={3}
-                  placeholder="Additional context for the debaters…"
-  
-                  autoFocus
-                />
-                {background && (
-                  <button
-                    type="button"
-                    className="ndd-adder-collapse"
-                    onClick={() => { setBackground(''); setActiveAdder('none'); }}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Document / URL source (only when topic is active) */}
-            {activeAdder !== 'source' && (
-              <button
-                type="button"
-                className="ndd-adder-btn"
-                onClick={() => { setSourceType(isAnonymous ? 'document' : 'url'); setActiveAdder('source'); }}
-              >
-                + Use a document or URL
-              </button>
-            )}
-          </div>
-        </div>
+        {/* Body — t/2199, t/2200 */}
+        <DebateBodyContent
+          topic={topic} setTopic={setTopic}
+          activeAdder={activeAdder} setActiveAdder={setActiveAdder}
+          sourceType={sourceType} setSourceType={setSourceType}
+          sourceRef={sourceRef} setSourceRef={setSourceRef}
+          fileName={fileName} isAnonymous={isAnonymous}
+          background={background} setBackground={setBackground}
+          selected={selected} userIsPover={userIsPover}
+          seatTags={seatTags} povTagRegistry={povTagRegistry}
+          audience={audience} handleAudienceChange={handleAudienceChange}
+          basePreset={basePreset} isCustom={isCustom} handlePresetSelect={handlePresetSelect}
+          openSettings={openSettings}
+          handlePickFile={handlePickFile} handleRevertToTopic={handleRevertToTopic}
+        />
 
         {/* Footer */}
         <div className="ndd-dialog-footer">
@@ -1519,11 +1474,7 @@ export function NewDebateDialog({ onClose, onAtCap, initialTopic, initialPovers 
             </div>
           </div>
           {!canStart && !creating && hasSource && selected.size >= 1 && (
-            multiProvider
-              ? <p className="ndd-start-hint" role="status">Select at least 2 active backends with an API key for multi-provider mode.</p>
-              : activeModelExcluded
-                ? <p className="ndd-start-hint" role="status">This model is not supported for debates — pick a different model.</p>
-                : <p className="ndd-start-hint" role="status">No API key for this model — <button type="button" className="ndd-start-hint-link" onClick={() => useSettingsDialog.getState().open('apiKeys')}>add one in Settings</button></p>
+            <DebateStartHint multiProvider={multiProvider} activeModelExcluded={activeModelExcluded} />
           )}
         </div>
       </div>
