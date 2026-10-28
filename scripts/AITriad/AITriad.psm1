@@ -672,12 +672,32 @@ if (Test-Path $AIModelsPath) {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Dot-source Private/ then Public/ functions
+#
+# Each file is parsed in memory and its AST's script block dot-sourced, rather
+# than `. $File.FullName`. Measured 2026-10-28 over 642 files: 7.4 s -> 2.0 s;
+# the cost is per-file overhead of dot-sourcing a path, not parsing (all files
+# parsed as one block take ~1 s). ParseFile keeps the file identity, so
+# $PSScriptRoot, $PSCommandPath, error positions and breakpoints still resolve
+# to the real file. Under AllSigned we keep dot-sourcing, because that is what
+# enforces each file's signature check.
 # ─────────────────────────────────────────────────────────────────────────────
+$_dotSourcePerFile = (Get-ExecutionPolicy) -eq 'AllSigned'
+if ($_dotSourcePerFile) {
+    Write-Warning "AITriad: execution policy is AllSigned — dot-sourcing each Private/Public file so its signature is checked. Import is several seconds slower on this path."
+}
 foreach ($Scope in @('Private', 'Public')) {
     $Dir = Join-Path $PSScriptRoot $Scope
     if (Test-Path $Dir) {
         foreach ($File in Get-ChildItem -Path $Dir -Filter '*.ps1' -File -Recurse) {
-            . $File.FullName
+            if ($_dotSourcePerFile) {
+                . $File.FullName
+            } else {
+                $_parseErrors = $null
+                $_ast = [System.Management.Automation.Language.Parser]::ParseFile($File.FullName, [ref]$null, [ref]$_parseErrors)
+                # Same failure `. $File.FullName` raises on a syntax error: the import stops.
+                if ($_parseErrors) { throw [System.Management.Automation.ParseException]::new($_parseErrors) }
+                . $_ast.GetScriptBlock()
+            }
         }
     }
 }
@@ -739,7 +759,12 @@ if (Test-Path $TaxonomyDir) {
                 Write-Warning "Taxonomy: skipping $($File.Name) — file is $([math]::Round($File.Length / 1MB, 1)) MB (likely corrupted, max 10 MB)."
             } else {
                 try {
-                    $Json = Get-Content -Raw -Path $File.FullName | ConvertFrom-Json
+                    # Cheap pre-check (~1.5 s saved at import): non-POV files such as
+                    # source_index.json are rejected without a full ConvertFrom-Json.
+                    $Json = $null
+                    if (Test-IsPovTaxonomyBytes -Bytes ([System.IO.File]::ReadAllBytes($File.FullName)) -FileName $File.Name) {
+                        $Json = Get-Content -Raw -Path $File.FullName | ConvertFrom-Json
+                    }
                     # Only register POV files that follow the taxonomy-node shape (a .nodes
                     # array whose entries carry an 'id'). Auxiliary files (lineage_categories.json)
                     # and sidecar logs (entity_extraction_log.json, whose nodes are keyed by

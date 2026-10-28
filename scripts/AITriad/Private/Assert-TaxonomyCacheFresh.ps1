@@ -62,6 +62,8 @@ function Assert-TaxonomyCacheFresh {
             $script:TaxonomyFileTimestamps[$File.FullName] = $File.LastWriteTime
             if ($File.Length -gt 10MB) { continue }
             try {
+                # Cheap pre-check: non-POV files skip the full ConvertFrom-Json.
+                if (-not (Test-IsPovTaxonomyBytes -Bytes ([System.IO.File]::ReadAllBytes($File.FullName)) -FileName $File.Name)) { continue }
                 $Json = Get-Content -Raw -Path $File.FullName | ConvertFrom-Json
                 # Shape-gate: only real POV node files (nodes[].id) register. Sidecar
                 # logs like entity_extraction_log.json (nodes keyed by 'node_id') are
