@@ -216,12 +216,18 @@ function Merge-ChunkSummaries {
         Write-Warning "Merge-ChunkSummaries: dropped $NullConceptsDropped null unmapped_concepts entry/entries during merge (t/3907)"
     }
 
-    # ── Merge empty_cells (t/4473/t/4519) ────────────────────────────────────
-    # A cell is empty for the document only if every chunk declared it empty
-    # AND the merged key_points for that camp have no point in that category.
-    # Keep the first chunk's reason.
+    # ── Merge empty_cells (t/4473/t/4519/t/4601) ─────────────────────────────
+    # A cell is empty for the document if ANY chunk declared it empty AND the
+    # merged key_points for that camp have no point in that category. Unanimity
+    # was too strict (t/4601): one chunk that simply doesn't address a camp
+    # (silent, not an explicit non-empty claim) used to erase another chunk's
+    # genuine empty-declaration for the whole doc. A silent chunk is not
+    # evidence the camp is non-empty -- it just didn't cover it. Keep the
+    # first declaring chunk's reason. WARN when chunks disagree (some declare
+    # empty, some stay silent) so the rate stays visible.
     $MergedEmptyCells = [System.Collections.Generic.List[object]]::new()
     $Categories = $script:AITriadPovCategories
+    $DisagreementCount = 0
     foreach ($Camp in $Camps) {
         $CampKeyPoints = @($MergedPovSummaries[$Camp].key_points)
         foreach ($Cat in $Categories) {
@@ -231,7 +237,8 @@ function Merge-ChunkSummaries {
             }
             if ($HasPointInCat) { continue }
 
-            $AllChunksDeclaredEmpty = $true
+            $AnyChunkDeclaredEmpty = $false
+            $AnyChunkSilent = $false
             $FirstReason = $null
             foreach ($Chunk in $ChunkResults) {
                 $ChunkEmptyCells = Get-SummaryProp $Chunk 'empty_cells'
@@ -245,12 +252,16 @@ function Merge-ChunkSummaries {
                         }
                     }
                 }
-                if (-not $Declared) { $AllChunksDeclaredEmpty = $false; break }
+                if ($Declared) { $AnyChunkDeclaredEmpty = $true } else { $AnyChunkSilent = $true }
             }
-            if ($AllChunksDeclaredEmpty) {
+            if ($AnyChunkDeclaredEmpty -and $AnyChunkSilent) { $DisagreementCount++ }
+            if ($AnyChunkDeclaredEmpty) {
                 $MergedEmptyCells.Add([ordered]@{ camp = $Camp; category = $Cat; reason = $FirstReason })
             }
         }
+    }
+    if ($DisagreementCount -gt 0) {
+        Write-Warning "Merge-ChunkSummaries: $DisagreementCount camp/category cell(s) had chunks disagree on emptiness (some declared empty, some silent) -- kept as empty per the any-chunk rule (t/4601)"
     }
 
     # ── Context-rot: merge/dedup metrics ─────────────────────────────────────
