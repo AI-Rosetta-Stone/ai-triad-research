@@ -9,10 +9,15 @@ import type { SoulResolverFn } from './soulDocSchema.js';
 import type { InquiryRequest, ResolvedDerivation, Fidelity } from '../inquiry/index.js';
 import type { ModelRegistry } from '../ai-client/registry.js';
 import { ActionableError } from './errors.js';
+import { loadProvisionalWeights } from './phaseTransitions.js';
 
-// Matches phaseTransitions.ts budget.hard_multiplier — the multiplier that converts
-// maxTotalRounds into the API hard ceiling the engine enforces.
-const HARD_MULTIPLIER = 15;
+// t/4598: was a hardcoded duplicate of phaseTransitions.ts's budget.hard_multiplier — the exact
+// shape of drift the PI's truncation report traced back to (two independent copies of the same
+// number, free to go out of sync). Read from the SAME calibration-config.json source
+// phaseTransitions uses for enforcement, so the displayed budget can't drift from the enforced
+// ceiling again. loadProvisionalWeights() reads a statically-bundled JSON import (cached after
+// the first call), not disk I/O, so this keeps deriveDebateConfig's "no I/O" characterization.
+const HARD_MULTIPLIER = loadProvisionalWeights().budget.hard_multiplier;
 
 interface FidelityProfile {
   pacing: 'tight' | 'moderate' | 'thorough';
