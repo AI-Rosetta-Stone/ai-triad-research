@@ -107,8 +107,8 @@ importers:
         specifier: ^4.0.1
         version: 4.0.1(supports-color@10.2.2)
       undici:
-        specifier: ^6.29.1
-        version: 6.29.1
+        specifier: ^8.12.2
+        version: 8.12.3
       ws:
         specifier: ^8.22.0
         version: 8.22.0

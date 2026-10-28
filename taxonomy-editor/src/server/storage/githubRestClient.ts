@@ -47,19 +47,23 @@ const CIRCUIT_FAILURE_THRESHOLD = 5;
 const CIRCUIT_PROBE_SCHEDULE_MS = [30_000, 60_000, 120_000, 300_000]; // 30s→1m→2m→5m cap
 
 // Explicit undici Agent: disables TLS session caching (maxCachedSessions:0) so the
-// CVE-2026-58040 session-reuse identity check in undici 6.28.0+ (node 22.23.2) cannot
-// silently break GitHub API connections on startup. Per-call dispatcher — does not affect
-// urlFetch.ts, healthProbe.ts, or other fetch sites. (t/2053)
-// t/3267: explicit timeouts prevent OS-level TCP hang (~90-120s) on slow/unresponsive
-// GitHub API connections. connectTimeout: 10s (TCP handshake); headersTimeout: 60s
-// (allows large-body uploads before GitHub starts sending a response);
-// bodyTimeout: 120s (full response body including large tree/blob responses).
+// CVE-2026-58040 session-reuse identity check in undici 6.28.0+ (node 22.23.2), reproven
+// under undici 8.x (node 26.12.1, t/1990), cannot silently break GitHub API connections on
+// startup. Per-call dispatcher — does not affect urlFetch.ts, healthProbe.ts, or other
+// fetch sites. (t/2053)
+// t/1990: undici 8 defaults allowH2:true (HTTP/2 negotiated via ALPN when the server offers
+// it). H2 multiplexes requests over one long-lived session rather than the HTTP/1.1
+// connect-per-request-then-cache-or-reuse-session model maxCachedSessions:0 was designed
+// and reasoned about against — an unreviewed protocol change on a security-sensitive client
+// is exactly the kind of implicit behavior shift this bump should not introduce as a side
+// effect. Pinned to the tested HTTP/1.1-only behavior; H2 can be a deliberate follow-up.
 const githubAgent = new Agent({
   connect: {
     rejectUnauthorized: true,
     maxCachedSessions: 0,
     timeout: 10_000,       // TCP connect timeout: 10s
   },
+  allowH2: false,
   headersTimeout: 60_000,  // Server must begin responding within 60s (covers large uploads)
   bodyTimeout: 120_000,    // Full response body within 120s
   keepAliveTimeout: 4_000,
