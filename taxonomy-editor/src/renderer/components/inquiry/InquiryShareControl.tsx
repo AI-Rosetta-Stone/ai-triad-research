@@ -66,8 +66,21 @@ export function InquiryShareControl({ jobId, result }: { jobId: string; result: 
     }
   }, [jobId]);
 
-  // Same web-only posture as op-ed sharing — hide, don't error (t/3654#1).
-  if (isElectronMode()) return null;
+  // t/4611: Show unavailability reason instead of silently hiding (was: hide, don't error per t/3654#1).
+  if (isElectronMode()) {
+    return (
+      <span className="oped-share" title="Public sharing is available in the web app only">
+        <button
+          type="button"
+          className="inquiry-ghost"
+          disabled
+          title="Public sharing is available in the web app only"
+        >
+          Share (web only)
+        </button>
+      </span>
+    );
+  }
 
   if (state.status === 'previewing') {
     return (
