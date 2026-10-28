@@ -1,0 +1,12 @@
+{
+  "_doc": "t/4551 blind hand labels (CL, single rater, 2026-10-28). Sample = sample.json (seed 4551, pool = all 1,076 argument_network node texts across the 50 successful t/4507 debates). Classes per decontextualization-rule-spec.md: ok | pronoun (unresolved pronoun/deictic) | internal (source-internal definite description or debate-camp self-reference, e.g. a coined name, or 'Safetyists counter...' in place of the substantive claim) | date_no_year | elided (claim is about a specific instrument/jurisdiction/actor the text dropped) | artifact (not a claim).",
+  "labels": {
+    "0": "ok", "1": "ok", "2": "ok", "3": "ok", "4": "ok",
+    "5": "ok", "6": "ok", "7": "ok", "8": "ok", "9": "ok",
+    "10": "ok", "11": "ok", "12": "ok", "13": "ok",
+    "14": "internal (debate-camp self-reference: 'Safetyists counter that...' names the speaking camp instead of stating the substantive position -- same violation class as the org-stance 'The organization...' finding, worded via camp name instead)",
+    "15": "ok", "16": "ok", "17": "ok", "18": "ok", "19": "ok"
+  },
+  "summary": {"n": 20, "ok": 19, "internal": 1, "pronoun": 0, "date_no_year": 0, "elided": 0, "artifact": 0},
+  "baseline_n19": {"internal": 2, "note": "decontextualization-rule-spec.md table row 'debate canonical_proposition', pre-#3799: 2/19 internal, both coined names ('the attestation', 'the two-year verification test')"}
+}
