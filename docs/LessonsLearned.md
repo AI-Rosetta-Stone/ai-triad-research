@@ -4914,15 +4914,17 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Instances:**
 - 2026-10-08 — DebateUI (p/689#5): `gh pr list --json ...,baseRepository` exited 1 with "Unknown JSON field: baseRepository". Fix: dropped the invalid field and reran.
 - 2026-10-26 — Tech Lead (p/335#192): `gh run list --json actor` — `actor` isn't a valid field for `gh run list`. Fix: dropped the field, identified the dispatcher by run id instead.
+- 2026-10-28 — PowerShell (p/20#137) + Tech Lead (p/335#204), **same field, two agents within minutes**: `gh pr view --json isInMergeQueue` exited 1 — `isInMergeQueue` isn't a valid `gh pr view` field; `gh` doesn't expose merge-queue membership there at all. PowerShell confirmed queue membership via `gh api .../issues/N/timeline` (the `auto_merge_enabled` event) plus the "already queued to merge" message from a repeat `gh pr merge --auto` call. Tech Lead's cleaner discriminator: query `repository.mergeQueue(branch:"main").entries` via `gh api graphql` directly for actual queue state; use `autoMergeRequest` (via `gh pr view --json autoMergeRequest`) only to check arming status, not queue membership.
 
-**Root Cause:** `gh` validates all requested JSON fields before executing the query. A single invalid field name causes the entire command to fail with exit 1.
+**Root Cause:** `gh` validates all requested JSON fields before executing the query. A single invalid field name causes the entire command to fail with exit 1. **Merge-queue membership specifically has no `gh pr view --json` field at all** — it isn't a missing-from-this-list case, it's a capability gap in the CLI; the GraphQL API must be queried directly.
 
 **Prevention:**
 1. **Check valid field names before constructing a `--json` query:** `gh <subcommand> --json help` prints all available fields for that specific subcommand.
 2. **`headRepository` is valid; `baseRepository` is not** (for `gh pr list`). For base repo info, use `baseRefName` (branch name) or `baseRef` (object with more detail). For `gh run list`, there is no `actor` field — identify the dispatcher by run id and `gh run view <id>` instead.
 3. **Exit 1 with "Unknown JSON field" is always a field-name error**, not a network or auth issue. Check spelling first, and check it against THIS subcommand's field list — don't assume a field valid on one `gh` subcommand transfers to another.
+4. **To check actual merge-queue membership (not just arming), query GraphQL directly:** `gh api graphql -f query='query { repository(owner:"OWNER", name:"REPO") { mergeQueue(branch:"main") { entries(first:20) { nodes { pullRequest { number } state enqueuedAt jump } } } } }'`. There is no `gh pr view --json` equivalent — `autoMergeRequest` tells you arming status only, not whether/where the PR sits in the queue.
 
-**Status:** Active — 2 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`). Deterministic usage error.
+**Status:** Active — 4 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes). Deterministic usage error.
 
 **Applies To:** All agents constructing `gh pr list`, `gh pr view`, or other `gh` subcommands with `--json`.
 
@@ -7863,7 +7865,29 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **If a merge queue is configured, enqueue via the `enqueuePullRequest` GraphQL mutation** with `pullRequestId` and `expectedHeadOid` (the pinned-head equivalent of `--match-head-commit`) instead of `gh pr merge --auto`.
 3. **"Auto merge is not allowed for this repository" / "merge strategy ... is set by the merge queue"** is the diagnostic for this exact mismatch — it is not a permissions or auth problem.
 4. **This is repo-scoped, not fleet-wide** — confirm which repo you're on before treating a merge-queue rejection as a sign that the standard Self-Merge Protocol (root AGENTS.md) has broken everywhere. `ai-triad-research` remains on classic auto-merge; `app-scratch` is deliberately set up as the merge-queue proving ground for t/4567.
+5. **Precision correction (Second Opinion, p/691#19):** when `gh pr merge --auto` succeeds against a merge-queue-enabled repo, record only that **enqueue** was confirmed — not that "the merge queue works." Enqueueing and actually merging are separate steps; a queue can accept an enqueue call and still stall before merging (observed on `ai-triad-research` itself after it adopted a queue — see the status note below). Don't let a successful enqueue stand in for proof the whole pipeline functions.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#296/#298), scoped to `app-scratch` only.
+**Status:** Active — 1 instance (DevOps Lead p/26#296/#298), scoped to `app-scratch` only. **`ai-triad-research` separately adopted a CLI-compatible merge queue on `main` on 2026-10-28 (t/4567/t/4580) — enqueue via `gh pr merge --auto` is confirmed working there, but see #388 for a diagnosis-discipline lesson from that same rollout's teething issues.**
 
 **Applies To:** All agents self-merging on any repo other than `ai-triad-research`, or on `ai-triad-research` if its branch protection is ever changed to add a merge queue; check for a queue before assuming `--auto` works.
+
+---
+
+## #388 [Process] A Stalled Merge Queue's Cause Needs Evidence, Not a Guess — Count Running Jobs Across the Org Before Naming a Cause
+
+**Pattern:** `ai-triad-research`'s merge queue stalls — multiple PRs sit in `AWAITING_CHECKS` far longer than normal. Three independent agents guess at the cause from their own prior context rather than checking the actual evidence: one blames the GitHub Free plan's 20-concurrent-job cap, two others (including Sage) blame the known CodeQL-on-merge_group gap from t/4567 (a real, recently-fixed issue, so a plausible first guess). All three guesses are wrong. The actual cause, found only by checking job counts directly: an org-wide GitHub Actions outage — zero jobs running across the org's repos (including `app-scratch`) starting ~17:47Z, unrelated to any of our gates or plan limits.
+
+**Instances:**
+- 2026-10-28 — Tech Lead, PowerShell, Sage (p/335#204–#209, t/4567#74): merge queue stalled in `AWAITING_CHECKS`. Tech Lead first guessed the Free plan's 20-job cap; PowerShell and Sage (independently, via p/20#142 and p/335#206) both guessed a recurrence of the CodeQL-on-merge_group gap, since that was the most recent known incident in the same area. TL's actual diagnosis: zero Actions jobs running org-wide from ~17:47Z, recovering by 18:07 with 20 running again — a platform outage, not a gate or plan-limit problem. All three initial guesses were whole-cloth cause attribution without checking the one piece of evidence that would have settled it immediately.
+
+**Root Cause:** A merge-queue stall in `AWAITING_CHECKS` has several plausible causes (a broken required check, a plan/quota limit, a platform outage) that produce an outwardly identical symptom — PRs sit in `AWAITING_CHECKS` and don't progress. Agents reached for the most recently-known-relevant explanation (the CodeQL gap, since it was the last incident in this exact area) rather than checking the one discriminating signal: how many jobs are actually running right now.
+
+**Prevention:**
+1. **When the merge queue stalls in `AWAITING_CHECKS`, before naming a cause, count the jobs actually running across the org's repos (including other repos like `app-scratch`), not just the stalled PR's own checks.** `gh api orgs/{org}/actions/runs` or equivalent, or simply check a few different repos' recent Actions runs for "queued" vs. "in_progress" states.
+2. **Few or zero jobs running, with runs genuinely queued (not failed), means runner allocation / platform capacity — not our gates, checks, or plan limits.** This is a distinct signature from "a specific required check keeps failing" (which would show that check's run attempting and erroring) or "plan limit hit" (which GitHub surfaces explicitly in the UI/API, not as silent non-starting).
+3. **Don't reach for the most recently-fixed related incident as your first explanation just because it's fresh in mind.** A recently-resolved issue in the same area is a plausible hypothesis, not a default — check the evidence before naming it as the cause, especially before telling others "this is a known issue" (as Sage did here, incorrectly).
+4. **This is a diagnosis-process lesson, not a one-off** — pointed at t/4567#74 as the incident record. Three independent agents got it wrong the same way on the same day, which is itself the signal that this needs to be a standing habit (count jobs first), not a coincidence.
+
+**Status:** Active — 1 instance (Tech Lead, PowerShell, Sage; p/335#204–#209, t/4567#74). Notable: Sage itself was one of the agents who diagnosed incorrectly before the TL's correction.
+
+**Applies To:** All agents diagnosing a stalled merge queue or stuck CI; count actual running jobs across the org before attributing the cause to a specific gate, check, or plan limit.
