@@ -53,12 +53,8 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 ### Pre-Self-Merge Verification
 
 - **Land code through a PR to `main`.** The required contexts are `ci-gate`, `CodeQL`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on.
-- **Before a manual merge,** confirm all of:
-  - the base is `main`;
-  - CI is green on the exact head;
-  - no hold is still open.
-
-  Then merge with `gh pr merge <N> --squash --match-head-commit <headRefOid>`; never do a bare manual merge. Ref §3.
+- **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. Enqueue pinned: `gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`; a push after enqueue drops the entry, so re-arm on the new head. Never a bare manual merge. Ref §3.
+- **Incident hotfix (jump the queue):** only the TL, or DevOps Lead with the TL's recorded go, for a PR fixing an active incident with an anchor ticket. Enqueue with `jump`, head pinned; every required check still runs. Never for `consult-hold` or `joint-gv` PRs; a T2 fix still needs its SO clearance and approval. Log each jump on the incident ticket. Bypassing branch protection stays PI-only.
 
 ### PR-Flow Practice Rules
 
@@ -68,7 +64,8 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 - **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
   - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
   - or with the "SO did not review" note plus the human approval.
-- **Co-landing PRs** carry `joint-gv` and are merged manually after their joint review.
+  - Adding `consult-hold` or `joint-gv` removes a PR from the queue, and the queue guards refuse any batch containing one.
+- **Co-landing PRs** carry `joint-gv` until their joint review clears. Then each reviewer posts `Joint review cleared (<roles>): <head sha>` on every PR in the set, the owner removes `joint-gv`, and enqueues them back-to-back with heads pinned — later entries' groups include the earlier ones, so the set is tested together. If the PRs must land atomically, combine them into one PR instead; the queue can land one without the other. Cross-repo sets (e.g. a data-repo PR) keep their existing order; only `main` here is queued.
 - **Approve via the reviewer App:** `Invoke-AsAgentApp -Role reviewer`, with the review body `Approved (<role>): …`. Never approve your own role's PR. It fails closed; procedure in `docs/agent-pr-approval.md`. The approval is a record, not a merge requirement.
 - **Where this section differs from Change Tiers below, Change Tiers wins.** Ref §4.
 

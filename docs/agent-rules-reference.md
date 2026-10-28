@@ -73,6 +73,8 @@ Before `gh pr merge`, confirm all four (prevents stranded/stale-head merges — 
 
 The `pre-self-merge-verify` hook **injects an advisory** on a manual `gh pr merge` that omits `--match-head-commit` (t/3270; pure-predicate `operations/devops/merge-guard-predicate.mjs`). It is not blocking yet; see above. `--auto` is exempt: it can't carry the flag and is stale-head-safe by GitHub re-targeting, and its gated-PR risk is handled by the `consult-hold` and `joint-gv` contexts. **Emergency override, once it blocks** (broken tooling / P1 hotfix), in the same spirit as the commit-guard's `--no-verify`: `disable_feedback_rule pre-self-merge-verify`, merge, then re-enable.
 
+**Merge queue (t/4567, t/4580).** Once `main` moves to the GitHub merge queue, "self-merge" becomes "enqueue pinned", a bare manual merge is refused by branch protection, and the incident hotfix jumps the queue without skipping any required check. The queue rationale, the fail-closed label guards, and the SO conditions C1–C5 are in t/4567 and t/4580.
+
 ## 4. PR-flow practice rules (full text)
 
 > **Superseded on 2026-10-12 (t/4093): the hold ceremony below.** The `consult-hold` label, for T2 only, is now the only required hold. Draft state, hold comments and the verbatim conditions checklist are optional visibility aids.
