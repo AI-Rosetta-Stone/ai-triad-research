@@ -447,6 +447,21 @@ jobs:
             }
           }
 
+      - name: Check staging GitHub App vars are set (t/4587 SO C4)
+        run: |
+          # SO condition (e/384): an empty _STAGING var falls back to prod's App values,
+          # silently sharing the quota again (the exact t/4584 condition this ticket fixes).
+          # Fallback itself is fine as a default, but it must never be silent -- warn.
+          for v in SYNC_GITHUB_APP_ID_STAGING SYNC_GITHUB_APP_INSTALLATION_ID_STAGING SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING; do
+            if [ -z "${!v}" ]; then
+              echo "::warning::$v is empty -- staging will fall back to prod's GitHub App values (shared rate-limit quota, t/4584 condition)."
+            fi
+          done
+        env:
+          SYNC_GITHUB_APP_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
+          SYNC_GITHUB_APP_INSTALLATION_ID_STAGING: ${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }}
+          SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING: ${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
+
       - name: Preview Bicep changes (what-if)
         env:
           # t/4326: passed through env (not inlined) so bash never interprets the value.
@@ -483,6 +498,9 @@ jobs:
               githubAppId=${{ vars.SYNC_GITHUB_APP_ID }} \
               githubAppInstallationId=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID }} \
               githubAppPrivateKeySecretName=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }} \
+              githubAppIdStaging=${{ vars.SYNC_GITHUB_APP_ID_STAGING }} \
+              githubAppInstallationIdStaging=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }} \
+              githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }} \
               githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }} \
               freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }} \
               geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }} \
@@ -529,6 +547,9 @@ jobs:
             githubAppId=${{ vars.SYNC_GITHUB_APP_ID }}
             githubAppInstallationId=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID }}
             githubAppPrivateKeySecretName=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }}
+            githubAppIdStaging=${{ vars.SYNC_GITHUB_APP_ID_STAGING }}
+            githubAppInstallationIdStaging=${{ vars.SYNC_GITHUB_APP_INSTALLATION_ID_STAGING }}
+            githubAppPrivateKeySecretNameStaging=${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME_STAGING }}
             githubWebhookSecret=${{ secrets.SYNC_GITHUB_WEBHOOK_SECRET }}
             freeTierGeminiKey=${{ secrets.FREE_TIER_GEMINI_KEY }}
             geminiPaidKey=${{ secrets.GEMINI_PAID_KEY }}
