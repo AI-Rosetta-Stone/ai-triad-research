@@ -16,7 +16,9 @@ gh api -X POST repos/AI-Rosetta-Stone/ai-triad-research/rulesets \
 ```
 
 This creates a new ruleset (`main-merge-queue`) enforcing the merge queue on `main` with:
-- `SQUASH` merges, `ALLGREEN` grouping;
+- `SQUASH` merges. **`grouping_strategy` is `HEADGREEN` as of 2026-10-28** (PI-applied,
+  t/4567#72) -- originally created `ALLGREEN`, switched to test each batch once instead of
+  once per entry (TL design, t/4567#71). See "Collateral dequeues" below for what changed.
 - build and merge groups capped at 4 entries, minimum 1 to merge, a 15-minute merge wait;
 - `check_response_timeout_minutes: 60` (D3 -- a required context that never reports gets
   60 minutes before the merge queue itself gives up on the group, well past the merge-queue
@@ -186,6 +188,50 @@ merge-group commits too, so re-adding it there would just re-stall the queue the
 way. If you disable this ruleset, alert-gating is OFF until you either re-enable it or
 add an equivalent `code_scanning` ruleset rule elsewhere -- do not treat "classic
 protection still applies" as "nothing changed."
+
+## Collateral dequeues under HEADGREEN (TL p/331#2497, accepted condition)
+
+Switching `grouping_strategy` to `HEADGREEN` and adding a `concurrency` cancel-in-progress
+group to `ci.yml`/`codeql.yml`'s `merge_group` runs (t/4567#71) means the queue tests each
+batch once instead of once per entry -- a real win on the Free plan's ~20-concurrent-job
+cap. Live-fire on `app-scratch` (t/4567 arms a-d, t/4567#77) proved the saving is real, but
+also found a trade-off:
+
+**A real CI failure anywhere in a batch can collaterally dequeue CLEAN entries too, not
+just the actual culprit.** GitHub's bisection progressively drops the oldest untested
+entry and retests; whichever entries fall out of the surviving test group get dequeued
+`CI_FAILURE`, whether or not they were ever individually proven bad. Confirmed live-fire
+twice: a clean PR (#84, arm b) and a clean PR queued ahead of a held one (#89, arm c) were
+both dequeued `CI_FAILURE` despite never failing on their own.
+
+**TL's call (t/4567#77, p/331#2497): accept this trade-off.** It's safe (nothing unsafe
+ever merges) and the saving applies to every batch, not just failing ones. Three
+conditions:
+1. **D1 (`merge-queue-dequeue-alert.yml`) groups every dequeue from the same
+   batch-failure episode into one issue** instead of one issue per PR, keyed on the
+   issue's `created_at` (not `updated_at` -- a later comment must not revive an old,
+   resolved episode). It lists every dequeued PR **plainly, with no "collateral" marking**
+   (SO L1, e/392#2/#3: an earlier "mark every entry before the last as collateral"
+   heuristic assumed exactly one episode with collateral-first ordering -- a consult-hold
+   or a second unrelated failure inside the window breaks that assumption and could
+   mislabel the real cause as collateral). The alert tells every owner **some of these
+   may be collateral; re-arm pinned to your own current head** -- this workflow never
+   auto-re-enqueues. **Append-only** (SO L3', e/392#6/#7: a `concurrency` group with
+   `cancel-in-progress: false` was tried to serialize near-simultaneous dequeues, but
+   GitHub's own concurrency-group mechanics keep at most one run queued behind the
+   active one regardless of `cancel-in-progress` -- a third dequeue arriving while a
+   second is still queued cancels that second run outright, silently dropping its
+   alert). The issue body is written once at creation and never edited again; every
+   dequeue, including the one that creates the issue, is its own comment -- an
+   independent API call with no shared state to race on. The remaining race (two runs
+   both finding no open episode and both creating an issue) is handled by re-listing
+   immediately after create and closing whichever duplicate has the higher issue
+   number, redirecting its entry to the canonical (lower-numbered) issue instead.
+2. This section.
+3. **Count collateral dequeues in the one-week review** (t/4567, due 2026-11-04) -- how
+   many clean entries got bounced per real failure, to judge whether the trade-off still
+   holds at real-repo batch sizes and suite lengths (app-scratch's ~45s `ci-gate` is not a
+   stand-in for the real ~25-30min suite's bisection cost).
 
 ## What's NOT in this switch
 
