@@ -75,6 +75,8 @@ The `pre-self-merge-verify` hook **injects an advisory** on a manual `gh pr merg
 
 **Merge queue (t/4567, t/4580).** Once `main` moves to the GitHub merge queue, "self-merge" becomes "enqueue pinned", a bare manual merge is refused by branch protection, and the incident hotfix jumps the queue without skipping any required check. The queue rationale, the fail-closed label guards, and the SO conditions C1–C5 are in t/4567 and t/4580.
 
+> **`autoMergeRequest` does not track merge-queue state (found p/27#91, confirmed on #4075).** `gh pr view <N> --json autoMergeRequest` reports `null` for a PR that IS correctly enqueued (verified: `isInMergeQueue: true`, `mergeQueueEntry: {position, state}` non-null via `gh api graphql`, same PR). Checking "is it armed" against `autoMergeRequest` alone on a queue-era PR silently lies — it looks disarmed when it is not, risking a double re-arm. **Use `isInMergeQueue` / `mergeQueueEntry{position,state}` via GraphQL** to check queue membership; `autoMergeRequest` still answers the pre-queue "is `--auto` armed" question for a PR not yet enqueued, but is not a substitute for queue-state once enqueued.
+
 ## 4. PR-flow practice rules (full text)
 
 > **Superseded on 2026-10-12 (t/4093): the hold ceremony below.** The `consult-hold` label, for T2 only, is now the only required hold. Draft state, hold comments and the verbatim conditions checklist are optional visibility aids.
