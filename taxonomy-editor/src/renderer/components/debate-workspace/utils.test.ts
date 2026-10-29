@@ -18,6 +18,7 @@ import {
   nodeIdToTab,
   getNodeLabel,
   getNodeWeight,
+  modeOfTier,
 } from './utils';
 
 // ── Mocks ────────────────────────────────────────────────────
@@ -310,5 +311,42 @@ describe('getNodeWeight', () => {
   it('returns null when the node is unknown to allNodesById', () => {
     mockAllNodesById.mockReturnValue(new Map());
     expect(getNodeWeight('acc-beliefs-999')).toBeNull();
+  });
+});
+
+// ── modeOfTier (t/4625) ────────────────────────────────────────
+// AC4: a debate saved before this change has no 'why' tier anywhere in it. A statement whose
+// display_tier is undefined, or a future/unrecognized tier string, must still classify cleanly
+// (default to Text) rather than throw or mis-render.
+
+describe('modeOfTier', () => {
+  it('classifies the text tiers', () => {
+    expect(modeOfTier('brief')).toBe('text');
+    expect(modeOfTier('medium')).toBe('text');
+    expect(modeOfTier('detailed')).toBe('text');
+  });
+
+  it('classifies the analysis (How) tiers', () => {
+    expect(modeOfTier('reasoning')).toBe('analysis');
+    expect(modeOfTier('terms')).toBe('analysis');
+    expect(modeOfTier('lineage')).toBe('analysis');
+    expect(modeOfTier('claims')).toBe('analysis');
+    expect(modeOfTier('convergence')).toBe('analysis');
+  });
+
+  it('classifies why as its own mode, not analysis', () => {
+    expect(modeOfTier('why')).toBe('why');
+  });
+
+  it('a pre-t/4625 saved debate (no why tier anywhere) still classifies every one of its known tiers correctly', () => {
+    const oldSavedTiers = ['brief', 'medium', 'detailed', 'reasoning', 'terms', 'lineage', 'claims', 'convergence'];
+    for (const tier of oldSavedTiers) {
+      expect(modeOfTier(tier)).not.toBe('why');
+    }
+  });
+
+  it('defaults an unrecognized tier (e.g. undefined display_tier, or a future value this build predates) to text', () => {
+    expect(modeOfTier('not-a-real-tier')).toBe('text');
+    expect(modeOfTier('')).toBe('text');
   });
 });

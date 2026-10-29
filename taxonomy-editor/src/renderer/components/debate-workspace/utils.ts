@@ -200,7 +200,9 @@ export function renderedOffsetOf(container: HTMLElement, node: Node, offset: num
 // ── Tier metadata (shared across StatementCard + DebateWorkspace) ────────────
 
 /** Tiers that render a structured analysis view (not prose text). Used to derive
- *  the active "mode" (Text vs Analysis) without a second store field. */
+ *  the active "mode" (Text vs Analysis) without a second store field. 'why' (t/4625) is
+ *  deliberately NOT in this set — it gets its own render branch and its own mode, not the
+ *  Plan/Claims/etc. sub-tier machinery this set otherwise drives. */
 export const META_TIERS = new Set(['reasoning', 'terms', 'lineage', 'claims', 'convergence']);
 
 /** Human-readable labels for every tier — single source of truth for both
@@ -208,8 +210,18 @@ export const META_TIERS = new Set(['reasoning', 'terms', 'lineage', 'claims', 'c
  *  duplicated maps; labels updated: Med→Medium, Detail→Detailed per t/2172). */
 export const TIER_LABELS: Record<string, string> = {
   brief: 'Brief', medium: 'Medium', detailed: 'Detailed', reasoning: 'Plan',
-  claims: 'Claims', terms: 'Terms', lineage: 'Lineage', convergence: 'Conv',
+  claims: 'Claims', terms: 'Terms', lineage: 'Lineage', convergence: 'Conv', why: 'Why',
 };
+
+/** The three-way mode a display tier belongs to (t/4625: Text | Why | How — "How" is the
+ *  label; the tier id stays `analysis`, a label-only rename). Checked ahead of META_TIERS so
+ *  'why' classifies as its own mode rather than falling into the How/Analysis sub-tier set.
+ *  Single source of truth for both StatementTierPills (per-statement) and GlobalModeControl. */
+export type DisplayMode = 'text' | 'why' | 'analysis';
+export function modeOfTier(tier: string): DisplayMode {
+  if (tier === 'why') return 'why';
+  return META_TIERS.has(tier) ? 'analysis' : 'text';
+}
 
 // ── Find-in-debate helpers ────────────────────────────────
 

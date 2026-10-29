@@ -206,6 +206,13 @@
   font-style: italic;
 }
 
+.taxrefs-why-empty {
+  margin: 4px 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .taxrefs-directive-box {
   padding: 6px;
   margin: 4px 0;
