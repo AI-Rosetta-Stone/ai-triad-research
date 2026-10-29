@@ -1,0 +1,24 @@
+{
+  "targets": [
+    {
+      "doc_id": "situations.json (sit-493, sit-484)",
+      "path": "taxonomy/Origin/situations.json",
+      "pre_sha256": "4b549e0ee09653038c201abd3c3afa3a29280c6f57a1bcb158e449ba46ec0ccb",
+      "post_sha256": "b9e5f662cb742b9dd679a6e02805ac7285eb66d038f542d86ab54214df504bef",
+      "line_replacements": [
+        {
+          "node": "sit-493",
+          "old": "      \"description\": \"A Belief within safetyist and skeptic discourse that post-mortem privacy and publicity rights must be balanced against collective data realities and First Amendment protections. Encompasses: Digital afterlife regulation, estate planning restrictions on AI avatars, and non-commercial digital re-enactments. Excludes: Commercial misappropriation of likeness during life.\",",
+          "new": "      \"description\": \"A situation concept that describes the tension between post-mortem privacy and publicity rights and the realities of collective data retention and First Amendment protections. Encompasses: Digital afterlife regulation, estate planning restrictions on AI avatars, and non-commercial digital re-enactments. Excludes: Commercial misappropriation of likeness during life.\",",
+          "evidence": "docs/ontology-reference.md:11 requires the situation genus ('A situation that...'; corpus convention is 'A situation concept that...'). sit-493 used the POV-node genus ('A Belief within <POV> discourse that...') and arbitrarily named only 2 of the node's camps despite carrying interpretations for all of them. Encompasses/Excludes content preserved verbatim; only the genus clause and camp-naming removed, rephrased as a neutral situation description."
+        },
+        {
+          "node": "sit-484",
+          "old": "      \"description\": \"A situation concept that characterizes how AI models generate the majority of method proposals while human researchers retain final selection authority across development tasks. Encompasses: idea generation by agents, human curation of options, decoupling of proposal from selection.\\nEncompasses: Idea generation disparity, human selection dominance, workflow delegation patterns.\\nExcludes: Full human control models and fully autonomous agent decision-making.\",",
+          "new": "      \"description\": \"A situation concept that characterizes how AI models generate the majority of method proposals while human researchers retain final selection authority across development tasks. Encompasses: idea generation by agents, human curation of options, decoupling of proposal from selection, idea generation disparity, human selection dominance, workflow delegation patterns. Excludes: Full human control models and fully autonomous agent decision-making.\",",
+          "evidence": "Duplicate 'Encompasses:' clause (one inline after the differentia, a second on its own line) merged into a single clause; no content dropped, both lists concatenated."
+        }
+      ]
+    }
+  ]
+}
