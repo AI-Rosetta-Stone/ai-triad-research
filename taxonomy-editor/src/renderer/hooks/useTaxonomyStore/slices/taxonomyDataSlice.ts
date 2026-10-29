@@ -334,6 +334,239 @@ export interface TaxonomyDataSlice {
   showCruxDetail: (id: string | null) => void;
 }
 
+// ── Module-level helpers (extracted to keep slice methods below CC 10) ──
+
+// --- fixIntegrityErrors helpers ---
+
+function isEdgeDanglingIssue(issue: ValidationIssue): boolean {
+  return issue.code === 'EDGE_DANGLING_SOURCE' || issue.code === 'EDGE_DANGLING_TARGET';
+}
+
+function handleDanglingChild(
+  node: PovNode, issue: ValidationIssue, entityPov: string | null,
+  validNodeIds: Set<string>, dirtyPovs: Set<string>,
+): void {
+  const match = issue.message.match(/Child '([^']+)'/);
+  if (match) {
+    node.children = node.children.filter(id => validNodeIds.has(id));
+    if (entityPov) dirtyPovs.add(entityPov);
+  }
+}
+
+function handleDanglingParent(node: PovNode, entityPov: string | null, dirtyPovs: Set<string>): void {
+  node.parent_id = null;
+  if (entityPov) dirtyPovs.add(entityPov);
+}
+
+function handleDanglingSituationRef(
+  node: PovNode, entityPov: string | null, sitIds: Set<string>, dirtyPovs: Set<string>,
+): void {
+  node.situation_refs = node.situation_refs.filter(id => sitIds.has(id));
+  if (entityPov) dirtyPovs.add(entityPov);
+}
+
+type NodeFixHandler = (node: PovNode, issue: ValidationIssue, entityPov: string | null, validNodeIds: Set<string>, sitIds: Set<string>, dirtyPovs: Set<string>) => void;
+const NODE_FIX_HANDLERS: Record<string, NodeFixHandler> = {
+  DANGLING_CHILD: (node, issue, entityPov, validNodeIds, _sitIds, dirtyPovs) => handleDanglingChild(node, issue, entityPov, validNodeIds, dirtyPovs),
+  DANGLING_PARENT: (node, _issue, entityPov, _validNodeIds, _sitIds, dirtyPovs) => handleDanglingParent(node, entityPov, dirtyPovs),
+  DANGLING_SITUATION_REF: (node, _issue, entityPov, _validNodeIds, sitIds, dirtyPovs) => handleDanglingSituationRef(node, entityPov, sitIds, dirtyPovs),
+};
+
+function applyNodeFixes(
+  issues: ValidationIssue[],
+  povFiles: Record<string, PovTaxonomyFile | null>,
+  validNodeIds: Set<string>,
+  sitIds: Set<string>,
+): Set<string> {
+  const dirtyPovs = new Set<string>();
+  for (const issue of issues) {
+    if (isEdgeDanglingIssue(issue)) continue;
+    const entityPov = nodePovFromId(issue.entityId);
+    const file = entityPov ? povFiles[entityPov] : null;
+    if (!file) continue;
+    const node = file.nodes.find(n => n.id === issue.entityId);
+    if (!node) continue;
+    NODE_FIX_HANDLERS[issue.code]?.(node, issue, entityPov, validNodeIds, sitIds, dirtyPovs);
+  }
+  return dirtyPovs;
+}
+
+function repairDanglingEdges(
+  edgesFile: EdgesFile,
+  validNodeIds: Set<string>,
+): { repairedEdgesFile: EdgesFile; removedEdges: number } {
+  const kept = edgesFile.edges.filter(e => validNodeIds.has(e.source) && validNodeIds.has(e.target));
+  const removedEdges = edgesFile.edges.length - kept.length;
+  const repairedEdgesFile = removedEdges > 0 ? { ...edgesFile, edges: kept } : edgesFile;
+  return { repairedEdgesFile, removedEdges };
+}
+
+// --- save helpers ---
+
+type SaveState = TaxonomyDataSlice;
+
+function validatePovKey(
+  key: string, state: SaveState, errors: ValidationErrors, orphanedTagNodeIds: string[],
+): void {
+  const file = state[key as typeof POV_KEYS[number]];
+  if (!file) return;
+  const result = povTaxonomyFileSchema.safeParse(file);
+  if (!result.success) Object.assign(errors, extractPovErrors(result.error, file.nodes));
+  const membership = povTagMembership(file.nodes, state.povTagsBaseline);
+  Object.assign(errors, membership.errors);
+  orphanedTagNodeIds.push(...membership.orphanedNodeIds);
+}
+
+function validateSituationsKey(state: SaveState, errors: ValidationErrors): SituationBdiRefusal {
+  const file = state.situations;
+  if (!file) return NO_BDI_REFUSAL;
+  const result = situationsFileSchema.safeParse(file);
+  if (!result.success) Object.assign(errors, extractPovErrors(result.error, file.nodes));
+  const bdi = situationBdiOutcome(file.nodes, state.situationsBaseline);
+  Object.assign(errors, bdi.errors);
+  return bdi;
+}
+
+function validateConflictKey(key: string, state: SaveState, errors: ValidationErrors): void {
+  const conflict = state.conflicts.find(c => c.claim_id === key);
+  if (!conflict) return;
+  const result = conflictFileSchema.safeParse(conflict);
+  if (!result.success) Object.assign(errors, extractConflictErrors(result.error, key));
+}
+
+function validateDirtyFiles(
+  dirtyKeys: Set<string>,
+  state: SaveState,
+): { errors: ValidationErrors; bdi: SituationBdiRefusal; orphanedTagNodeIds: string[] } {
+  const errors: ValidationErrors = {};
+  const orphanedTagNodeIds: string[] = [];
+  let bdi = NO_BDI_REFUSAL;
+  for (const key of dirtyKeys) {
+    if ((POV_KEYS as readonly string[]).includes(key)) {
+      validatePovKey(key, state, errors, orphanedTagNodeIds);
+    } else if (key === 'situations') {
+      bdi = validateSituationsKey(state, errors);
+    } else if (key.startsWith('conflict-')) {
+      validateConflictKey(key, state, errors);
+    }
+  }
+  return { errors, bdi, orphanedTagNodeIds };
+}
+
+function getRequiredTaxonomyFiles(state: SaveState) {
+  const { accelerationist, safetyist, skeptic, situations } = state;
+  if (!accelerationist || !safetyist || !skeptic || !situations) return null;
+  return { accelerationist, safetyist, skeptic, situations };
+}
+
+function buildIntegrityErrorSummary(integrityErrors: ValidationIssue[]): string {
+  const byCode = new Map<string, Map<string, number>>();
+  for (const i of integrityErrors) {
+    let entities = byCode.get(i.code);
+    if (!entities) { entities = new Map(); byCode.set(i.code, entities); }
+    entities.set(i.entityId, (entities.get(i.entityId) ?? 0) + 1);
+  }
+  const lines: string[] = [];
+  for (const [code, entities] of byCode) {
+    const ids = [...entities.entries()];
+    if (ids.length <= 3) {
+      lines.push(`${code}: ${ids.map(([id, n]) => n > 1 ? `${id} (×${n})` : id).join(', ')}`);
+    } else {
+      const shown = ids.slice(0, 2).map(([id, n]) => n > 1 ? `${id} (×${n})` : id).join(', ');
+      lines.push(`${code}: ${shown} + ${ids.length - 2} more (${integrityErrors.filter(e => e.code === code).length} total)`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function appendPovSavePromise(key: string, state: SaveState, promises: Promise<void>[]): void {
+  const file = state[key as typeof POV_KEYS[number]];
+  if (!file) return;
+  const povKey = key as typeof POV_KEYS[number];
+  promises.push(reattachStrippedLogicalForms(povKey, file).then((f) => api.saveTaxonomyFile(povKey, f)));
+}
+
+function appendSituationsSavePromise(state: SaveState, promises: Promise<void>[]): void {
+  if (state.situations) promises.push(api.saveTaxonomyFile('situations', state.situations));
+}
+
+function appendConflictSavePromise(key: string, state: SaveState, promises: Promise<void>[]): void {
+  const conflict = state.conflicts.find(c => c.claim_id === key);
+  if (conflict) promises.push(api.saveConflictFile(key, conflict));
+}
+
+function appendEdgesSavePromise(state: SaveState, promises: Promise<void>[]): void {
+  if (state.edgesFile) promises.push(api.saveEdges(state.edgesFile));
+}
+
+function buildSavePromises(dirtyKeys: Set<string>, state: SaveState): Promise<void>[] {
+  const promises: Promise<void>[] = [];
+  for (const key of dirtyKeys) {
+    if ((POV_KEYS as readonly string[]).includes(key)) {
+      appendPovSavePromise(key, state, promises);
+    } else if (key === 'situations') {
+      appendSituationsSavePromise(state, promises);
+    } else if (key.startsWith('conflict-')) {
+      appendConflictSavePromise(key, state, promises);
+    } else if (key === 'edges') {
+      appendEdgesSavePromise(state, promises);
+    }
+  }
+  return promises;
+}
+
+function buildEmbeddingBatch(
+  dirtyKeys: Set<string>,
+  state: SaveState,
+): { id: string; text: string; pov: string; exclusionText?: string }[] {
+  const stripExcludes = (text: string | undefined) => (text ?? '').replace(/\s*Excludes:.*/s, '').trim();
+  const extractExcludesText = (text: string | undefined): string | undefined => {
+    const match = (text ?? '').match(/\bExcludes:\s*([\s\S]*?)\.?\s*$/);
+    return match?.[1]?.trim() || undefined;
+  };
+  const nodesToEmbed: { id: string; text: string; pov: string; exclusionText?: string }[] = [];
+  for (const key of dirtyKeys) {
+    if ((POV_KEYS as readonly string[]).includes(key)) {
+      const file = state[key as typeof POV_KEYS[number]];
+      if (file) {
+        for (const node of file.nodes) {
+          nodesToEmbed.push({ id: node.id, text: node.description, pov: key, exclusionText: extractExcludesText(node.description) });
+        }
+      }
+    } else if (key === 'situations') {
+      const file = state.situations;
+      if (file) {
+        for (const node of file.nodes) {
+          nodesToEmbed.push({
+            id: node.id,
+            text: `[situations]\nID: ${node.id}\nLabel: ${node.label}\nDescription: ${stripExcludes(node.description)}\nAccelerationist interpretation: ${interpretationText(node.interpretations.accelerationist)}\nSafetyist interpretation: ${interpretationText(node.interpretations.safetyist)}\nSkeptic interpretation: ${interpretationText(node.interpretations.skeptic)}`,
+            pov: 'situations',
+            exclusionText: extractExcludesText(node.description),
+          });
+        }
+      }
+    }
+  }
+  return nodesToEmbed;
+}
+
+// --- lookupPinnedData helper ---
+
+function findPolicyPinData(id: string, state: SaveState): PinnedData | null {
+  const policy = state.policyRegistry?.find(p => p.id === id);
+  if (!policy) return null;
+  const referencingNodes: PolicyReferencingNode[] = [];
+  for (const pov of POV_KEYS) {
+    const file = state[pov];
+    if (!file?.nodes) continue;
+    for (const n of file.nodes) {
+      const match = n.graph_attributes?.policy_actions?.find(p => p.policy_id === id);
+      if (match) referencingNodes.push({ id: n.id, label: n.label, pov, action: match.action, framing: match.framing });
+    }
+  }
+  return { type: 'policy', policy: structuredClone(policy), referencingNodes: structuredClone(referencingNodes) };
+}
+
 // ── Slice creator ──
 
 export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], TaxonomyDataSlice> = (set, get) => ({
@@ -501,9 +734,6 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
     const issues = state.integrityIssues.filter(i => i.severity === 'error');
     if (issues.length === 0) return;
 
-    const dirtyPovs = new Set<string>();
-    const povKeys = ['accelerationist', 'safetyist', 'skeptic'] as const;
-
     // Valid edge endpoints / reference targets = all POV nodes + all situation nodes
     // (mirrors checkReferentialIntegrity's allIds set in validators.ts). t/4355: superseded nodes still
     // exist, so an edge or reference to one is not dangling and must not be removed.
@@ -511,41 +741,16 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
     const sitIds = new Set(state.situations?.nodes.map(n => n.id) ?? []);
     for (const id of sitIds) validNodeIds.add(id);
 
-    for (const issue of issues) {
-      // Edge-dangling errors are handled in bulk below — they have no owning node to mutate.
-      if (issue.code === 'EDGE_DANGLING_SOURCE' || issue.code === 'EDGE_DANGLING_TARGET') continue;
+    const povFiles = { accelerationist: state.accelerationist, safetyist: state.safetyist, skeptic: state.skeptic };
+    const dirtyPovs = applyNodeFixes(issues, povFiles, validNodeIds, sitIds);
 
-      const entityPov = nodePovFromId(issue.entityId);
-      const file = entityPov ? state[entityPov as keyof typeof state] as PovTaxonomyFile | null : null;
-      if (!file) continue;
-      const node = file.nodes.find(n => n.id === issue.entityId);
-      if (!node) continue;
-
-      if (issue.code === 'DANGLING_CHILD') {
-        const match = issue.message.match(/Child '([^']+)'/);
-        if (match) {
-          node.children = node.children.filter(id => validNodeIds.has(id));
-          if (entityPov) dirtyPovs.add(entityPov);
-        }
-      } else if (issue.code === 'DANGLING_PARENT') {
-        node.parent_id = null;
-        if (entityPov) dirtyPovs.add(entityPov);
-      } else if (issue.code === 'DANGLING_SITUATION_REF') {
-        node.situation_refs = node.situation_refs.filter(id => sitIds.has(id));
-        if (entityPov) dirtyPovs.add(entityPov);
-      }
-    }
-
-    // Edge integrity: drop any edge whose source or target no longer resolves to a node.
+    const hasEdgeIssues = issues.some(i => isEdgeDanglingIssue(i));
     let removedEdges = 0;
     let repairedEdgesFile = state.edgesFile;
-    const hasEdgeIssues = issues.some(i => i.code === 'EDGE_DANGLING_SOURCE' || i.code === 'EDGE_DANGLING_TARGET');
     if (hasEdgeIssues && state.edgesFile) {
-      const kept = state.edgesFile.edges.filter(e => validNodeIds.has(e.source) && validNodeIds.has(e.target));
-      removedEdges = state.edgesFile.edges.length - kept.length;
-      if (removedEdges > 0) {
-        repairedEdgesFile = { ...state.edgesFile, edges: kept };
-      }
+      const r = repairDanglingEdges(state.edgesFile, validNodeIds);
+      removedEdges = r.removedEdges;
+      repairedEdgesFile = r.repairedEdgesFile;
     }
 
     if (dirtyPovs.size > 0 || removedEdges > 0) {
@@ -558,48 +763,15 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
   },
 
   save: async () => {
-    const state = withSupersededForSave(get()); // t/4355: validate and write each POV file whole, superseded nodes in place
-    const errors: ValidationErrors = {};
+    const state = withSupersededForSave(get()) as TaxonomyDataSlice; // t/4355: validate and write each POV file whole, superseded nodes in place
     const dirtyKeys = state.dirty;
     const saveStart = performance.now();
 
     getGlobalRecorder()?.record({ type: 'state.change', component: 'taxonomy-store', level: 'info', message: 'save.called', data: { dirty: [...dirtyKeys] } });
     if (dirtyKeys.size === 0) return;
-    const orphanedTagNodeIds: string[] = []; // t/3984
-    let bdi = NO_BDI_REFUSAL; // t/3888 — set in the situations branch below
 
-    for (const key of dirtyKeys) {
-      if ((POV_KEYS as readonly string[]).includes(key)) {
-        const file = state[key as typeof POV_KEYS[number]];
-        if (!file) continue;
-        const result = povTaxonomyFileSchema.safeParse(file);
-        if (!result.success) {
-          Object.assign(errors, extractPovErrors(result.error, file.nodes));
-        }
-        const membership = povTagMembership(file.nodes, state.povTagsBaseline);
-        Object.assign(errors, membership.errors);
-        orphanedTagNodeIds.push(...membership.orphanedNodeIds); // t/3984: shown after a successful save
-      } else if (key === 'situations') {
-        const file = state.situations;
-        if (!file) continue;
-        const result = situationsFileSchema.safeParse(file);
-        if (!result.success) {
-          Object.assign(errors, extractPovErrors(result.error, file.nodes));
-        }
-        // t/3888: BDI gate on situations whose interpretations changed since load/save. The
-        // structural Zod check above stays permissive on purpose (SO e/244#2 Finding 1): flat
-        // legacy nodes exist on disk, so whole-file strictness would block every save.
-        bdi = situationBdiOutcome(file.nodes, state.situationsBaseline);
-        Object.assign(errors, bdi.errors);
-      } else if (key.startsWith('conflict-')) {
-        const conflict = state.conflicts.find(c => c.claim_id === key);
-        if (!conflict) continue;
-        const result = conflictFileSchema.safeParse(conflict);
-        if (!result.success) {
-          Object.assign(errors, extractConflictErrors(result.error, key));
-        }
-      }
-    }
+    // t/3984, t/3888: validate all dirty files; collect orphaned tag node ids and BDI refusal
+    const { errors, bdi, orphanedTagNodeIds } = validateDirtyFiles(dirtyKeys, state);
 
     if (Object.keys(errors).length > 0) {
       const v = await assessValidationFailure(Object.keys(errors).map(errorKeyNodeId), [state.accelerationist, state.safetyist, state.skeptic, state.situations]);
@@ -608,35 +780,20 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       return;
     }
 
-    if (state.accelerationist && state.safetyist && state.skeptic && state.situations) {
+    const allFiles = getRequiredTaxonomyFiles(state);
+    if (allFiles) {
       const taxData = {
-        accelerationist: { nodes: state.accelerationist.nodes },
-        safetyist: { nodes: state.safetyist.nodes },
-        skeptic: { nodes: state.skeptic.nodes },
-        situations: { nodes: state.situations.nodes },
+        accelerationist: { nodes: allFiles.accelerationist.nodes },
+        safetyist: { nodes: allFiles.safetyist.nodes },
+        skeptic: { nodes: allFiles.skeptic.nodes },
+        situations: { nodes: allFiles.situations.nodes },
         edges: state.edgesFile?.edges ?? [],
       };
       const integrity: ValidationResult = validateTaxonomy(taxData);
       const integrityErrors = integrity.issues.filter(i => i.severity === 'error');
       if (integrityErrors.length > 0) {
-        const byCode = new Map<string, Map<string, number>>();
-        for (const i of integrityErrors) {
-          let entities = byCode.get(i.code);
-          if (!entities) { entities = new Map(); byCode.set(i.code, entities); }
-          entities.set(i.entityId, (entities.get(i.entityId) ?? 0) + 1);
-        }
-        const lines: string[] = [];
-        for (const [code, entities] of byCode) {
-          const ids = [...entities.entries()];
-          if (ids.length <= 3) {
-            lines.push(`${code}: ${ids.map(([id, n]) => n > 1 ? `${id} (×${n})` : id).join(', ')}`);
-          } else {
-            const shown = ids.slice(0, 2).map(([id, n]) => n > 1 ? `${id} (×${n})` : id).join(', ');
-            lines.push(`${code}: ${shown} + ${ids.length - 2} more (${integrityErrors.filter(e => e.code === code).length} total)`);
-          }
-        }
-        const errorSummary = lines.join('\n');
-        const v = await assessValidationFailure(integrityErrors.map(i => i.entityId), [state.accelerationist, state.safetyist, state.skeptic, state.situations]);
+        const errorSummary = buildIntegrityErrorSummary(integrityErrors);
+        const v = await assessValidationFailure(integrityErrors.map(i => i.entityId), [allFiles.accelerationist, allFiles.safetyist, allFiles.skeptic, allFiles.situations]);
         getGlobalRecorder()?.record({ type: 'state.error', component: 'taxonomy-store', level: 'error', message: 'save.validation', data: { stage: 'integrity', error_count: integrityErrors.length, entities: integrityErrors.slice(0, 10).map(i => `${i.code}: ${i.entityId}`), ...branchEventData(v), duration_ms: Math.round(performance.now() - saveStart) } });
         set({
           validationErrors: errors,
@@ -656,40 +813,8 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
     set({ saveError: null, staleBranchHint: null, validationErrors: {} });
 
     try {
-      const promises: Promise<void>[] = [];
-
-      for (const key of dirtyKeys) {
-        if ((POV_KEYS as readonly string[]).includes(key)) {
-          const file = state[key as typeof POV_KEYS[number]];
-          if (file) {
-            const povKey = key as typeof POV_KEYS[number];
-            promises.push(
-              reattachStrippedLogicalForms(povKey, file).then((f) => api.saveTaxonomyFile(povKey, f)),
-            );
-          }
-        } else if (key === 'situations') {
-          const file = state.situations;
-          if (file) {
-            promises.push(api.saveTaxonomyFile('situations', file));
-          }
-        } else if (key.startsWith('conflict-')) {
-          const conflict = state.conflicts.find(c => c.claim_id === key);
-          if (conflict) {
-            promises.push(api.saveConflictFile(key, conflict));
-          }
-        } else if (key === 'edges') {
-          // New-edge persistence (t/1816). The whole edges file is dirty-marked by the
-          // edge-mutating paths — integrity auto-fix, node-id rename, and acceptConsensus's
-          // convergence edges — but `save()` had no edges branch, so `dirty` was cleared
-          // without ever writing them (the latent no-op). Persist via the frozen
-          // `saveEdges` bridge method (web PUT /api/edges / electron save-edges IPC →
-          // writeEdgesFile atomic temp→rename). Whole-file, mirroring update/swap/bulk.
-          if (state.edgesFile) {
-            promises.push(api.saveEdges(state.edgesFile));
-          }
-        }
-      }
-
+      // New-edge persistence (t/1816): edges branch in buildSavePromises writes the whole file.
+      const promises = buildSavePromises(dirtyKeys, state);
       await Promise.all(promises);
       // t/4034: recount the registry for policy ids this save changed, BEFORE the commit so it lands with the edit.
       const policyRecount = await runPolicyRecount(affectedPolicyIds(savedPolicyNodes(dirtyKeys, state), allPolicyNodes(state), state.policyIdsBaseline), api.recountPolicyMembers, { leavesRegistryUncommitted: import.meta.env.VITE_TARGET !== 'web' });
@@ -710,37 +835,9 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
       // The file write, commit, and `dirty` clear above have already succeeded. A throw
       // while building or dispatching the embedding batch must NOT surface as
       // "Save failed" (a trust-eroding false negative — the edit IS saved). Record it as
-      // a non-blocking event and leave `saveError` untouched. The null-guards below fix
-      // today's instance (undefined `node.description`); this boundary fixes the class.
+      // a non-blocking event and leave `saveError` untouched.
       try {
-        const stripExcludes = (text: string | undefined) => (text ?? '').replace(/\s*Excludes:.*/s, '').trim();
-        const extractExcludesText = (text: string | undefined): string | undefined => {
-          const match = (text ?? '').match(/\bExcludes:\s*([\s\S]*?)\.?\s*$/);
-          return match?.[1]?.trim() || undefined;
-        };
-        const nodesToEmbed: { id: string; text: string; pov: string; exclusionText?: string }[] = [];
-        for (const key of dirtyKeys) {
-          if ((POV_KEYS as readonly string[]).includes(key)) {
-            const file = state[key as typeof POV_KEYS[number]];
-            if (file) {
-              for (const node of file.nodes) {
-                nodesToEmbed.push({ id: node.id, text: node.description, pov: key, exclusionText: extractExcludesText(node.description) });
-              }
-            }
-          } else if (key === 'situations') {
-            const file = state.situations;
-            if (file) {
-              for (const node of file.nodes) {
-                nodesToEmbed.push({
-                  id: node.id,
-                  text: `[situations]\nID: ${node.id}\nLabel: ${node.label}\nDescription: ${stripExcludes(node.description)}\nAccelerationist interpretation: ${interpretationText(node.interpretations.accelerationist)}\nSafetyist interpretation: ${interpretationText(node.interpretations.safetyist)}\nSkeptic interpretation: ${interpretationText(node.interpretations.skeptic)}`,
-                  pov: 'situations',
-                  exclusionText: extractExcludesText(node.description),
-                });
-              }
-            }
-          }
-        }
+        const nodesToEmbed = buildEmbeddingBatch(dirtyKeys, state);
         if (nodesToEmbed.length > 0) {
           // Positive marker that the post-save embedding phase started — distinct from
           // save.completed (file write), pairs with save.embedding-refresh-failed (t/1710).
@@ -1267,20 +1364,7 @@ export const createTaxonomyDataSlice: StateCreator<TaxonomyStore, [], [], Taxono
     // t/3401: pol-* ids live in policy_actions.json (policyRegistry), not the Perspective files —
     // the popup previously fell through every branch to "Node not found." Reuses the already-loaded
     // registry (same source getLabelForId/getDescriptionForId already dispatch on, above).
-    if (id.startsWith('pol-')) {
-      const policy = state.policyRegistry?.find(p => p.id === id);
-      if (!policy) return null;
-      const referencingNodes: PolicyReferencingNode[] = [];
-      for (const pov of POV_KEYS) {
-        const file = state[pov];
-        if (!file?.nodes) continue;
-        for (const n of file.nodes) {
-          const match = n.graph_attributes?.policy_actions?.find(p => p.policy_id === id);
-          if (match) referencingNodes.push({ id: n.id, label: n.label, pov, action: match.action, framing: match.framing });
-        }
-      }
-      return { type: 'policy', policy: structuredClone(policy), referencingNodes: structuredClone(referencingNodes) };
-    }
+    if (id.startsWith('pol-')) return findPolicyPinData(id, state as TaxonomyDataSlice);
     // t/4355: a pinned id may be cited history, so look it up over the exact-node index (superseded included).
     const node = allNodesById(state).get(id);
     const pov = povOfNode(state, id);
