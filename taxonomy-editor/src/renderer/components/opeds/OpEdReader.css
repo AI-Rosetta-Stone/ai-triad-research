@@ -195,7 +195,7 @@
   cursor: pointer;
   font-family: var(--font-mono, monospace);
   font-size: 0.8125rem;
-  color: var(--focus-ring);
+  color: var(--link-color); /* t/4634#4: --focus-ring measured 2.80-4.05:1 (fails AA); --link-color is 5.17-7.06:1 */
   text-align: left;
   white-space: nowrap;
 }
