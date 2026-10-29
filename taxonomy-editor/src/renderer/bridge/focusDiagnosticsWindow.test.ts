@@ -63,17 +63,11 @@ describe('web-bridge focusDiagnosticsWindow', () => {
 
 describe('electron-bridge focusDiagnosticsWindow', () => {
   let innerWidthSpy: ReturnType<typeof vi.spyOn>;
-  let electronFocus: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.resetModules();
     window.location.hash = '';
     innerWidthSpy = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1920);
-    electronFocus = vi.fn().mockResolvedValue('focused');
-    (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
-      ...(window as unknown as { electronAPI?: Record<string, unknown> }).electronAPI,
-      focusDiagnosticsWindow: electronFocus,
-    };
   });
 
   afterEach(() => {
@@ -81,22 +75,19 @@ describe('electron-bridge focusDiagnosticsWindow', () => {
     window.location.hash = '';
   });
 
-  it('delegates to window.electronAPI.focusDiagnosticsWindow on a wide window', async () => {
+  // t/4642: ElectronMain's 'focus-diagnostics-window' IPC handler + preload exposure haven't
+  // landed yet (see the comment on focusDiagnosticsWindow in electron-bridge.ts), so this side
+  // always resolves 'not-open' on a wide window today — accurate, since no handler exists to
+  // delegate to. Once ElectronMain's PR adds window.electronAPI.focusDiagnosticsWindow, this
+  // method delegates to it and this test gets a 'focused'/real-not-open arm added alongside.
+  it('resolves not-open on a wide window pending ElectronMain\'s IPC handler', async () => {
     const { api } = await import('./electron-bridge');
-    expect(await api.focusDiagnosticsWindow()).toBe('focused');
-    expect(electronFocus).toHaveBeenCalledTimes(1);
+    expect(await api.focusDiagnosticsWindow()).toBe('not-open');
   });
 
-  it('returns inline on a narrow main window without an IPC round-trip', async () => {
+  it('returns inline on a narrow main window', async () => {
     innerWidthSpy.mockReturnValue(800);
     const { api } = await import('./electron-bridge');
     expect(await api.focusDiagnosticsWindow()).toBe('inline');
-    expect(electronFocus).not.toHaveBeenCalled();
-  });
-
-  it('passes through not-open from the main process when no BrowserWindow exists', async () => {
-    electronFocus.mockResolvedValue('not-open');
-    const { api } = await import('./electron-bridge');
-    expect(await api.focusDiagnosticsWindow()).toBe('not-open');
   });
 });

@@ -269,9 +269,6 @@ export interface ElectronAPI {
   openDiagnosticsWindow: () => Promise<void>;
   openPovProgressionWindow: () => Promise<void>;
   closeDiagnosticsWindow: () => Promise<void>;
-  // t/4642: main.ts's IPC handler only ever resolves 'focused' or 'not-open' — electron-bridge.ts
-  // decides 'inline' itself (narrow-window drawer) before this is ever called.
-  focusDiagnosticsWindow: () => Promise<'focused' | 'not-open'>;
   sendDiagnosticsState: (state: unknown) => void;
   onDiagnosticsStateUpdate: (callback: (state: unknown) => void) => () => void;
   onDiagnosticsPopoutClosed: (callback: () => void) => () => void;

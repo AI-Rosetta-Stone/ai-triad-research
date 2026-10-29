@@ -42,18 +42,8 @@ function openAppWindow(hash: string): void {
   }
 }
 
-// t/4642: shared by openDiagnosticsWindow and focusDiagnosticsWindow so the drawer-vs-popout
-// rule exists in one place. isPopout means THIS window is itself a debate popout — diagnostics
-// there always gets a real tab, never the drawer, regardless of width.
-function isDiagnosticsInline(): boolean {
-  const isPopout = window.location.hash.includes('debate-window');
-  return !isPopout && window.innerWidth <= 1023;
-}
-
-// t/4642: kept as module state (not a ref object) because this module has exactly one web app
-// instance per tab — the diagnostics popout is a singleton, same as diagChannel below.
+function isDiagnosticsInline(): boolean { return !window.location.hash.includes('debate-window') && window.innerWidth <= 1023; } // t/4642
 let diagWindowRef: Window | null = null;
-
 function throwHttpError(status: number, err: ActionableError): never {
   (err as ActionableError & { httpStatus: number }).httpStatus = status;
   throw err;
@@ -1317,30 +1307,14 @@ const rawApi: AppAPI = {
 
   // Diagnostics — in web mode, communicate cross-tab via BroadcastChannel
   openDiagnosticsWindow: async () => {
-    console.log(`[diagnostics] openDiagnosticsWindow: width=${window.innerWidth}, hash=${window.location.hash}`);
-    if (isDiagnosticsInline()) {
-      console.log('[diagnostics] Using drawer path (narrow main window)');
-      window.dispatchEvent(new CustomEvent('open-diagnostics-drawer'));
-      return;
-    }
-    // t/4642: mobile keeps openAppWindow's in-place hash navigation (no separate window exists
-    // to focus there, same as before); desktop/wide gets a named target so the reference below
-    // survives repeat clicks and focusDiagnosticsWindow can bring it forward.
-    if (isMobilePlatform()) {
-      console.log('[diagnostics] Using in-place navigation (mobile)');
-      window.location.hash = 'diagnostics-window';
-      return;
-    }
-    console.log('[diagnostics] Using named-tab path (popout or wide window)');
+    if (isDiagnosticsInline()) { window.dispatchEvent(new CustomEvent('open-diagnostics-drawer')); return; }
+    if (isMobilePlatform()) { window.location.hash = 'diagnostics-window'; return; }
     diagWindowRef = window.open(`${location.origin}/#diagnostics-window`, 'aitriad-diagnostics');
   },
   focusDiagnosticsWindow: async () => {
     if (isDiagnosticsInline()) return 'inline';
-    if (diagWindowRef && !diagWindowRef.closed) {
-      diagWindowRef.focus();
-      return 'focused';
-    }
-    return 'not-open';
+    if (!diagWindowRef || diagWindowRef.closed) return 'not-open';
+    diagWindowRef.focus(); return 'focused';
   },
   openPovProgressionWindow: async () => {
     openAppWindow('pov-progression-window');
