@@ -66,6 +66,14 @@ def main():
             c = new_text.count(old)
             if c != 1:
                 fail(f"{t['path']}: {rep['node']} old text occurs {c} times, need exactly 1")
+            if "old_prefix" in rep and "new_prefix" in rep:
+                old_desc, new_desc = rep["old_desc"], rep["new_desc"]
+                old_prefix, new_prefix = rep["old_prefix"], rep["new_prefix"]
+                if not (old_desc.startswith(old_prefix) and new_desc.startswith(new_prefix)):
+                    fail(f"{t['path']}: {rep['node']} declared prefix doesn't match its own old/new_desc")
+                if new_desc[len(new_prefix):] != old_desc[len(old_prefix):]:
+                    fail(f"{t['path']}: {rep['node']} differentia not verbatim "
+                         f"(new minus new_prefix != old minus old_prefix) -- SO C1 check (e/396#2)")
             new_text = new_text.replace(old, new, 1)
             changed_nodes.add(rep["node"])
 
