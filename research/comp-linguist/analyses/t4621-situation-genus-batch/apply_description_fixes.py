@@ -14,6 +14,17 @@ file's own sha256 before anything else runs (same C1 discipline as t/4495/t/4604
 The frozen list's hash is computed LF-normalised (SO condition C2, e/395#2), so the
 approval binds to the file's content, not to a checkout's line-ending setting.
 
+Each line_replacement MUST declare its mode (t/4622, SO tightening e/396#4):
+  - a pure prefix swap carries `old_prefix`/`new_prefix`. old_desc/new_desc are then
+    DERIVED by parsing the actual `old`/`new` lines (never trusted from declared
+    fields), and the script asserts new_desc[len(new_prefix):] == old_desc[len(old_prefix):]
+    -- the differentia is machine-verified verbatim, not asserted in prose.
+  - a freeform content rewrite (the differentia itself changes, e.g. a normative
+    claim restructured into a neutral one) carries `freeform: true` instead, which
+    explicitly opts out of the verbatim-differentia check.
+  - a line_replacement with neither key is refused: silently skipping the check
+    for an under-specified entry is exactly the gap the SO flagged.
+
 Usage:
     python apply_description_fixes.py <data_root> [--apply --approved-sha256 <hash>]
 """
@@ -66,11 +77,21 @@ def main():
             c = new_text.count(old)
             if c != 1:
                 fail(f"{t['path']}: {rep['node']} old text occurs {c} times, need exactly 1")
-            if "old_prefix" in rep and "new_prefix" in rep:
-                old_desc, new_desc = rep["old_desc"], rep["new_desc"]
+            has_prefix = "old_prefix" in rep and "new_prefix" in rep
+            is_freeform = rep.get("freeform") is True
+            if not has_prefix and not is_freeform:
+                fail(f"{t['path']}: {rep['node']} must declare either old_prefix/new_prefix "
+                     f"(mechanical verbatim-differentia check) or freeform: true (explicit "
+                     f"opt-out for content rewording) -- SO C1 tightening (e/396#4, t/4622)")
+            if has_prefix:
                 old_prefix, new_prefix = rep["old_prefix"], rep["new_prefix"]
+                # Derive old_desc/new_desc by parsing the ACTUAL old/new lines -- never
+                # trust separately-declared fields (SO e/396#4: "tie them to the old/new
+                # lines it actually writes").
+                old_desc = json.loads("{" + old.strip().rstrip(",") + "}")["description"]
+                new_desc = json.loads("{" + new.strip().rstrip(",") + "}")["description"]
                 if not (old_desc.startswith(old_prefix) and new_desc.startswith(new_prefix)):
-                    fail(f"{t['path']}: {rep['node']} declared prefix doesn't match its own old/new_desc")
+                    fail(f"{t['path']}: {rep['node']} declared prefix doesn't match its own old/new line")
                 if new_desc[len(new_prefix):] != old_desc[len(old_prefix):]:
                     fail(f"{t['path']}: {rep['node']} differentia not verbatim "
                          f"(new minus new_prefix != old minus old_prefix) -- SO C1 check (e/396#2)")
