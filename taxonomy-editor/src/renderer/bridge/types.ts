@@ -751,6 +751,12 @@ export interface AppAPI {
   openPovProgressionWindow: () => Promise<void>;
   closeDiagnosticsWindow: () => Promise<void>;
   sendDiagnosticsState: (state: unknown) => void;
+  /**
+   * t/4642: brings an already-open diagnostics surface to the front. 'inline' means diagnostics
+   * is shown in the narrow-window drawer (no separate window to focus, no notice needed);
+   * 'not-open' means no window reference / BrowserWindow exists to focus.
+   */
+  focusDiagnosticsWindow: () => Promise<'focused' | 'not-open' | 'inline'>;
 
   // --- Data file diff popout ---
   openDiffWindow: (filePath: string) => Promise<void>;
