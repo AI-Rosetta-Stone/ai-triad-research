@@ -42,6 +42,8 @@ function openAppWindow(hash: string): void {
   }
 }
 
+function isDiagnosticsInline(): boolean { return !window.location.hash.includes('debate-window') && window.innerWidth <= 1023; } // t/4642
+let diagWindowRef: Window | null = null;
 function throwHttpError(status: number, err: ActionableError): never {
   (err as ActionableError & { httpStatus: number }).httpStatus = status;
   throw err;
@@ -1305,16 +1307,14 @@ const rawApi: AppAPI = {
 
   // Diagnostics — in web mode, communicate cross-tab via BroadcastChannel
   openDiagnosticsWindow: async () => {
-    const isPopout = window.location.hash.includes('debate-window');
-    const width = window.innerWidth;
-    console.log(`[diagnostics] openDiagnosticsWindow: width=${width}, isPopout=${isPopout}, hash=${window.location.hash}`);
-    if (!isPopout && width <= 1023) {
-      console.log('[diagnostics] Using drawer path (narrow main window)');
-      window.dispatchEvent(new CustomEvent('open-diagnostics-drawer'));
-      return;
-    }
-    console.log('[diagnostics] Using new-tab path (popout or wide window)');
-    openAppWindow('diagnostics-window');
+    if (isDiagnosticsInline()) { window.dispatchEvent(new CustomEvent('open-diagnostics-drawer')); return; }
+    if (isMobilePlatform()) { window.location.hash = 'diagnostics-window'; return; }
+    diagWindowRef = window.open(`${location.origin}/#diagnostics-window`, 'aitriad-diagnostics');
+  },
+  focusDiagnosticsWindow: async () => {
+    if (isDiagnosticsInline()) return 'inline';
+    if (!diagWindowRef || diagWindowRef.closed) return 'not-open';
+    diagWindowRef.focus(); return 'focused';
   },
   openPovProgressionWindow: async () => {
     openAppWindow('pov-progression-window');

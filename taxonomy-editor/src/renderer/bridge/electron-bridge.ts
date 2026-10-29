@@ -75,6 +75,13 @@ function rejectOpEdIpc(goal: string, method: string): Promise<never> {
 // When the drawer is used instead, we also deliver to local callbacks.
 const localDiagCallbacks = new Set<(state: unknown) => void>();
 
+// t/4642: shared by openDiagnosticsWindow and focusDiagnosticsWindow so the drawer-vs-popout
+// rule exists in one place, same extraction as web-bridge.ts's.
+function isDiagnosticsInline(): boolean {
+  const isPopout = window.location.hash.includes('debate-window');
+  return !isPopout && window.innerWidth <= 1023;
+}
+
 // Brief-timeout renderer-local event bus (t/2307). The debate pipeline runs in
 // THIS renderer window and the toast/dialog render in the SAME window, so emit
 // and consume share a module-local Set — no main-process IPC round-trip. Mirrors
@@ -520,16 +527,24 @@ export const api: AppAPI = {
 
   // Diagnostics
   openDiagnosticsWindow: () => {
-    const isPopout = window.location.hash.includes('debate-window');
-    const width = window.innerWidth;
-    console.log(`[diagnostics] openDiagnosticsWindow: width=${width}, isPopout=${isPopout}, hash=${window.location.hash}`);
-    if (!isPopout && width <= 1023) {
+    console.log(`[diagnostics] openDiagnosticsWindow: width=${window.innerWidth}, hash=${window.location.hash}`);
+    if (isDiagnosticsInline()) {
       console.log('[diagnostics] Using drawer path (narrow main window)');
       window.dispatchEvent(new CustomEvent('open-diagnostics-drawer'));
       return Promise.resolve();
     }
     console.log('[diagnostics] Using IPC path (popout or wide window)');
     return window.electronAPI.openDiagnosticsWindow();
+  },
+  // t/4642: ElectronMain's 'focus-diagnostics-window' IPC handler + preload.cts exposure +
+  // ElectronAPI.focusDiagnosticsWindow type haven't landed yet (preloadElectronApiContract's
+  // t/3529 typecheck pairs preload.cjs and electron.d.ts, so this side can't declare the type
+  // without them). Until then, resolving 'not-open' here is accurate, not a stand-in — there is
+  // no BrowserWindow-focusing handler to delegate to. ElectronMain's PR adds the real delegation
+  // once window.electronAPI.focusDiagnosticsWindow exists.
+  focusDiagnosticsWindow: () => {
+    if (isDiagnosticsInline()) return Promise.resolve('inline' as const);
+    return Promise.resolve('not-open' as const);
   },
   openPovProgressionWindow: () => window.electronAPI.openPovProgressionWindow(),
   closeDiagnosticsWindow: () => window.electronAPI.closeDiagnosticsWindow(),
