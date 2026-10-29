@@ -122,6 +122,38 @@ export function resolveStoredBackend(
   return 'gemini';
 }
 
+/** t/4628: both raw localStorage reads needed by applyAnonymousSessionDefaults, extracted so
+ *  that function's own complexity stays under the per-file budget (same extract-don't-seam
+ *  discipline as resolveStoredBackend/resolveStoredModel above). */
+function readStoredAISelectionRaw(): { storedModel: string | null; storedBackend: string | null } {
+  let storedModel: string | null = null;
+  let storedBackend: string | null = null;
+  try { storedModel = localStorage.getItem('taxonomy-editor-gemini-model'); } catch (err) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to read stored AI model while applying anonymous-session defaults', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+  }
+  try { storedBackend = localStorage.getItem('taxonomy-editor-ai-backend'); } catch (err) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to read stored AI backend while applying anonymous-session defaults', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+  }
+  return { storedModel, storedBackend };
+}
+
+/** t/4628 condition 4: WARN only when a stored value is actually being overridden, not on every
+ *  anonymous load (a first-ever visit with nothing stored fires nothing here). Extracted
+ *  alongside readStoredAISelectionRaw for the same reason. */
+function logIgnoredAnonymousSelection(
+  storedModel: string | null, targetModel: string,
+  storedBackend: string | null, targetBackend: string,
+): void {
+  const ignoredModel = storedModel && storedModel !== targetModel ? storedModel : null;
+  const ignoredBackend = storedBackend && storedBackend !== targetBackend ? storedBackend : null;
+  if (!ignoredModel && !ignoredBackend) return;
+  getGlobalRecorder()?.record({
+    type: 'system.error', component: 'taxonomy-store', level: 'warn',
+    message: `Anonymous session: ignoring stored AI selection (model='${ignoredModel ?? 'unchanged'}', backend='${ignoredBackend ?? 'unchanged'}') — using session default`,
+    error: { name: 'AnonymousModelOverride', message: 'stored AI selection overridden for an anonymous session', stack: '' },
+  });
+}
+
 function getStoredBackend(): AIBackend {
   let stored: string | null = null;
   try {
@@ -355,31 +387,11 @@ export const createSettingsSlice: StateCreator<TaxonomyStore, [], [], SettingsSl
     sessionIsAnonymousWeb = isAnonymous;
     if (!isAnonymous) return;
 
-    let storedModel: string | null = null;
-    let storedBackendRaw: string | null = null;
-    try { storedModel = localStorage.getItem('taxonomy-editor-gemini-model'); } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to read stored AI model while applying anonymous-session defaults', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    }
-    try { storedBackendRaw = localStorage.getItem('taxonomy-editor-ai-backend'); } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to read stored AI backend while applying anonymous-session defaults', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    }
-
     // t/4628: condition 3 — don't delete what's stored, just ignore it for this session.
-    const targetBackend = resolveStoredBackend(storedBackendRaw, KNOWN_BACKENDS, true);
+    const { storedModel, storedBackend } = readStoredAISelectionRaw();
+    const targetBackend = resolveStoredBackend(storedBackend, KNOWN_BACKENDS, true);
     const targetModel = resolveStoredModel(storedModel, targetBackend, DEFAULT_MODELS, ALL_MODEL_IDS, DEFAULT_MODEL, true);
-
-    // t/4628 condition 4: WARN only when a stored value is actually being overridden, not on
-    // every anonymous load (a first-ever visit with nothing stored fires nothing here).
-    const ignoredModel = storedModel && storedModel !== targetModel ? storedModel : null;
-    const ignoredBackend = storedBackendRaw && storedBackendRaw !== targetBackend ? storedBackendRaw : null;
-    if (ignoredModel || ignoredBackend) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', component: 'taxonomy-store', level: 'warn',
-        message: `Anonymous session: ignoring stored AI selection (model='${ignoredModel ?? 'unchanged'}', backend='${ignoredBackend ?? 'unchanged'}') — using session default`,
-        error: { name: 'AnonymousModelOverride', message: 'stored AI selection overridden for an anonymous session', stack: '' },
-      });
-    }
-
+    logIgnoredAnonymousSelection(storedModel, targetModel, storedBackend, targetBackend);
     set({ geminiModel: targetModel, aiBackend: targetBackend });
   },
 
