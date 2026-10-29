@@ -420,7 +420,13 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   );
 }
 
-function BdiSection({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
+/**
+ * The BDI grounding content: chips, per-node entries, and the inline POV detail when a ref is
+ * clicked. No outer disclosure — callers that need one (BdiSection, below) wrap it; the Why tab
+ * (t/4625) renders it directly since the tab selection is itself the disclosure. Shared, not
+ * copied, between How→Plan's collapsible BDI section and the standalone Why view.
+ */
+function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
   refs: TaxonomyRef[];
   polRefs: PolicyRefEntry[];
   selectedBdiNodeId: string | null;
@@ -429,57 +435,89 @@ function BdiSection({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, to
 }) {
   const sortedRefs = [...refs].sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
   return (
-    <details className="debate-reasoning-section">
-      <summary className="debate-reasoning-section-title taxrefs-section-bdi">BDI</summary>
-      <div className="debate-reasoning-section-body">
-        <div className="debate-taxonomy-refs taxrefs-refs-mb">
-          {sortedRefs.map((taxRef) => (
-            <TaxonomyPill
-              key={taxRef.node_id}
-              taxRef={taxRef}
-              onSelect={toggleBdiNode}
-              selected={selectedBdiNodeId === taxRef.node_id}
-            />
-          ))}
-          {polRefs.map((polRef, i) => {
-            const { id } = resolvePolRef(polRef);
-            return (
-              <span
-                key={`${id}-${i}`}
-                className={`debate-taxonomy-pill debate-taxonomy-pill-clickable taxrefs-pol-pill${selectedBdiNodeId === id ? ' debate-taxonomy-pill-selected' : ''}`}
-                title={getPolicyAction(id)}
-                aria-pressed={selectedBdiNodeId === id}
-                onClick={(e) => { e.stopPropagation(); toggleBdiNode(id); }}
-              >
-                {id}
-              </span>
-            );
-          })}
-        </div>
+    <div className="debate-reasoning-section-body">
+      <div className="debate-taxonomy-refs taxrefs-refs-mb">
         {sortedRefs.map((taxRef) => (
-          <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
+          <TaxonomyPill
+            key={taxRef.node_id}
+            taxRef={taxRef}
+            onSelect={toggleBdiNode}
+            selected={selectedBdiNodeId === taxRef.node_id}
+          />
         ))}
         {polRefs.map((polRef, i) => {
-          const { id, relevance } = resolvePolRef(polRef);
+          const { id } = resolvePolRef(polRef);
           return (
-            <div key={`${id}-${i}`} className="debate-reasoning-item">
-              <button
-                className="debate-reasoning-node taxrefs-node-sit"
-                aria-expanded={selectedBdiNodeId === id}
-                onClick={() => toggleBdiNode(id)}
-              >
-                {id}
-              </button>
-              <span className="debate-reasoning-label">{getPolicyAction(id)}</span>
-              <span className="debate-reasoning-text">{relevance ?? "Policy action referenced by this debater's argument"}</span>
-            </div>
+            <span
+              key={`${id}-${i}`}
+              className={`debate-taxonomy-pill debate-taxonomy-pill-clickable taxrefs-pol-pill${selectedBdiNodeId === id ? ' debate-taxonomy-pill-selected' : ''}`}
+              title={getPolicyAction(id)}
+              aria-pressed={selectedBdiNodeId === id}
+              onClick={(e) => { e.stopPropagation(); toggleBdiNode(id); }}
+            >
+              {id}
+            </span>
           );
         })}
-        {/* Inline POV detail for the clicked BDI ref (chip or node id). */}
-        {selectedBdiNodeId && <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />}
       </div>
+      {sortedRefs.map((taxRef) => (
+        <BdiRefItem key={taxRef.node_id} taxRef={taxRef} selectedBdiNodeId={selectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
+      ))}
+      {polRefs.map((polRef, i) => {
+        const { id, relevance } = resolvePolRef(polRef);
+        return (
+          <div key={`${id}-${i}`} className="debate-reasoning-item">
+            <button
+              className="debate-reasoning-node taxrefs-node-sit"
+              aria-expanded={selectedBdiNodeId === id}
+              onClick={() => toggleBdiNode(id)}
+            >
+              {id}
+            </button>
+            <span className="debate-reasoning-label">{getPolicyAction(id)}</span>
+            <span className="debate-reasoning-text">{relevance ?? "Policy action referenced by this debater's argument"}</span>
+          </div>
+        );
+      })}
+      {/* Inline POV detail for the clicked BDI ref (chip or node id). */}
+      {selectedBdiNodeId && <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />}
+    </div>
+  );
+}
+
+function BdiSection({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
+  refs: TaxonomyRef[];
+  polRefs: PolicyRefEntry[];
+  selectedBdiNodeId: string | null;
+  setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
+  toggleBdiNode: (nodeId: string) => void;
+}) {
+  return (
+    <details className="debate-reasoning-section">
+      <summary className="debate-reasoning-section-title taxrefs-section-bdi">BDI</summary>
+      <BdiSectionBody refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
     </details>
   );
+}
+
+/**
+ * t/4625: the standalone "Why" tab — a statement's BDI grounding on its own, reusing
+ * BdiSectionBody (same chips/per-node/inline-detail UI as How→Plan's BDI section). AC5: a
+ * statement with no BDI refs (e.g. the System entry) shows a short empty-state line, not an
+ * empty pane.
+ */
+export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs }: {
+  refs: TaxonomyRef[];
+  policyRefs?: PolicyRefEntry[];
+  metaPolicyRefs?: PolicyRefEntry[];
+}) {
+  const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
+  const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
+  const polRefs = metaPolicyRefs || policyRefs || [];
+  if (refs.length === 0 && polRefs.length === 0) {
+    return <p className="taxrefs-why-empty">No BDI grounding for this statement.</p>;
+  }
+  return <BdiSectionBody refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />;
 }
 
 function ReasoningList({ briefStage, planStage, refs, polRefs, selectedPlanNodeId, setSelectedPlanNodeId, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {

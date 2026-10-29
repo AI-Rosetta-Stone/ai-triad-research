@@ -16,7 +16,7 @@ import { computeCoverageMap, computeStrengthWeightedCoverage } from '@lib/debate
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import {
   speakerLabel, speakerColor, nodeIdToTab, focusMainWindowNode, countOccurrences, renderedOffsetOf,
-  META_TIERS, TIER_LABELS,
+  TIER_LABELS, modeOfTier, type DisplayMode,
 } from './utils';
 import type { AdaptivePhase } from './utils';
 import { CommentCreationPopover } from '../chat/CommentCreationPopover';
@@ -393,18 +393,21 @@ type GlobalTextTier = 'brief' | 'medium' | 'detailed';
 type GlobalAnalysisTier = 'reasoning' | 'claims' | 'convergence';
 const GLOBAL_TEXT_TIERS: GlobalTextTier[] = ['brief', 'medium', 'detailed'];
 const GLOBAL_ANALYSIS_TIERS: GlobalAnalysisTier[] = ['reasoning', 'claims', 'convergence'];
+const GLOBAL_WHY_TIERS = ['why'] as const;
 const GLOBAL_TIER_TITLES: Record<string, string> = {
   brief: 'Set all turns to brief (2–3 sentences)', medium: 'Set all turns to medium (key points)',
   detailed: 'Set all turns to full content', reasoning: 'Show brief, plan & BDI (replaces text)',
   claims: 'Show argument network claims', convergence: 'Show convergence diagnostics',
+  why: "Show every turn's BDI grounding",
 };
-const GLOBAL_MODE_IDS = [{ id: 'text', label: 'Text' }, { id: 'analysis', label: 'Analysis' }] as const;
+// t/4625: Text | Why | How. `analysis` id unchanged (label-only rename: Analysis → How).
+const GLOBAL_MODE_IDS = [{ id: 'text', label: 'Text' }, { id: 'why', label: 'Why' }, { id: 'analysis', label: 'How' }] as const;
 
 function GlobalModeControl({ defaultTier, setDefaultTier }: {
   defaultTier: DWStore['defaultDisplayTier'];
   setDefaultTier: DWStore['setDefaultDisplayTier'];
 }) {
-  const activeMode = META_TIERS.has(defaultTier) ? 'analysis' : 'text';
+  const activeMode = modeOfTier(defaultTier);
   const [lastText, setLastText] = useState<GlobalTextTier>(
     activeMode === 'text' ? (defaultTier as GlobalTextTier) : 'detailed'
   );
@@ -413,30 +416,33 @@ function GlobalModeControl({ defaultTier, setDefaultTier }: {
   );
 
   useEffect(() => {
-    if (META_TIERS.has(defaultTier)) setLastAnalysis(defaultTier as GlobalAnalysisTier);
-    else setLastText(defaultTier as GlobalTextTier);
+    const mode = modeOfTier(defaultTier);
+    if (mode === 'analysis') setLastAnalysis(defaultTier as GlobalAnalysisTier);
+    else if (mode === 'text') setLastText(defaultTier as GlobalTextTier);
   }, [defaultTier]);
 
-  const subTiers = activeMode === 'text' ? GLOBAL_TEXT_TIERS : GLOBAL_ANALYSIS_TIERS;
+  const subTiers: readonly string[] = activeMode === 'text' ? GLOBAL_TEXT_TIERS : activeMode === 'why' ? GLOBAL_WHY_TIERS : GLOBAL_ANALYSIS_TIERS;
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const handleModeSelect = useCallback((mode: 'text' | 'analysis') => {
+  const handleModeSelect = useCallback((mode: DisplayMode) => {
     if (mode === activeMode) return;
-    setDefaultTier(mode === 'text' ? lastText : lastAnalysis);
+    if (mode === 'text') setDefaultTier(lastText);
+    else if (mode === 'analysis') setDefaultTier(lastAnalysis);
+    else setDefaultTier('why');
   }, [activeMode, lastText, lastAnalysis, setDefaultTier]);
 
   const handleSubSelect = useCallback((tier: string) => {
-    setDefaultTier(tier as GlobalTextTier | GlobalAnalysisTier);
+    setDefaultTier(tier as GlobalTextTier | GlobalAnalysisTier | 'why');
     if (activeMode === 'text') setLastText(tier as GlobalTextTier);
-    else setLastAnalysis(tier as GlobalAnalysisTier);
+    else if (activeMode === 'analysis') setLastAnalysis(tier as GlobalAnalysisTier);
   }, [activeMode, setDefaultTier]);
 
   const handleModeKey = useCallback((e: { key: string; preventDefault(): void }, idx: number) => {
     let next = idx;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % 2;
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + 2) % 2;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % GLOBAL_MODE_IDS.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + GLOBAL_MODE_IDS.length) % GLOBAL_MODE_IDS.length;
     else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = 1;
+    else if (e.key === 'End') next = GLOBAL_MODE_IDS.length - 1;
     else return;
     e.preventDefault();
     handleModeSelect(GLOBAL_MODE_IDS[next].id);
@@ -466,7 +472,7 @@ function GlobalModeControl({ defaultTier, setDefaultTier }: {
           no per-statement override, so no dot / match-global item here. */}
       <select
         className="debate-detail-dropdown debate-value-dropdown"
-        aria-label={activeMode === 'text' ? 'Text detail level' : 'Analysis view'}
+        aria-label={activeMode === 'text' ? 'Text detail level' : activeMode === 'why' ? 'Why view' : 'How view'}
         value={defaultTier}
         title={GLOBAL_TIER_TITLES[defaultTier]}
         onChange={(e) => handleSubSelect(e.target.value)}
