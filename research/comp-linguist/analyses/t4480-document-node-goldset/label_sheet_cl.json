@@ -14,7 +14,7 @@
       "assigned_node_label": "Converting Historical Discovery Trees into Active Replay Simulators",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -29,7 +29,7 @@
       "assigned_node_label": "More Self-Correction Attempts Yield Diminishing Accuracy Gains",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -44,7 +44,7 @@
       "assigned_node_label": "Restricting AI Training Data Is Like Restricting What Humans Are Allowed to Read",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -59,7 +59,7 @@
       "assigned_node_label": "Lab Testing Cannot Reveal Real-World AI Harms",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -74,7 +74,7 @@
       "assigned_node_label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -89,7 +89,7 @@
       "assigned_node_label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -104,9 +104,9 @@
       "assigned_node_label": "Quantifiable AI Harms Turn Fairness Into a Business Imperative, Not Just an Ethical One",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -119,9 +119,9 @@
       "assigned_node_label": "Reinforcement Learning Turns Static Models into Goal-Directed Agents",
       "cell": "acc|beliefs|2-5",
       "rank": 3,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -134,7 +134,7 @@
       "assigned_node_label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
       "cell": "acc|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -149,9 +149,9 @@
       "assigned_node_label": "AI Capabilities Emerge From Tuning, Context, and Compression -- Not Just Training Data",
       "cell": "acc|beliefs|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -164,7 +164,7 @@
       "assigned_node_label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
       "cell": "acc|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -179,9 +179,9 @@
       "assigned_node_label": "AI as Structurally Inevitable Economic Transformation",
       "cell": "acc|beliefs|6-30",
       "rank": 29,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -194,9 +194,9 @@
       "assigned_node_label": "AI Models Encode Useful Knowledge That Exists Outside Human Language",
       "cell": "acc|beliefs|6-30",
       "rank": 13,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -209,7 +209,7 @@
       "assigned_node_label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
       "cell": "acc|beliefs|6-30",
       "rank": 8,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -224,9 +224,9 @@
       "assigned_node_label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
       "cell": "acc|beliefs|6-30",
       "rank": 15,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
