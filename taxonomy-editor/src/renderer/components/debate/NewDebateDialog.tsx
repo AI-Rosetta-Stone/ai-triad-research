@@ -969,15 +969,25 @@ function DebateBodyContent({ topic, setTopic, activeAdder, setActiveAdder, sourc
             Topic <span className="ndd-required-mark" aria-hidden="true">*</span>
           </label>
           <AutoGrowTextarea id="ndd-topic" className="ndd-topic-primary" value={topic} onChange={e => setTopic(e.target.value)} rows={3} maxHeight={144} placeholder="What should the AI debate?" autoFocus aria-required="true" />
+          <div className="ndd-source-links" role="group" aria-labelledby="ndd-source-links-hint">
+            <span id="ndd-source-links-hint" className="ndd-source-links-hint">Or debate a source instead of a topic:</span>
+            <button type="button" className="ndd-source-link" onClick={() => { setSourceType('document'); setActiveAdder('source'); }}>Attach a document</button>
+            <button type="button" className="ndd-source-link"
+              aria-disabled={isAnonymous || undefined}
+              aria-describedby={isAnonymous ? 'ndd-url-signin-note' : undefined}
+              onClick={() => { if (isAnonymous) return; setSourceType('url'); setActiveAdder('source'); }}>Use a URL</button>
+            {isAnonymous && <span id="ndd-url-signin-note" className="ndd-source-links-note">(sign in to use URLs)</span>}
+          </div>
         </>
       ) : (
         <>
-          <label className="ndd-field-label">Source</label>
+          <label className="ndd-field-label">Source (replaces the topic)</label>
           <div className="ndd-adder-content">
             <div className="ndd-source-type-tabs">
               <button type="button" className={`ndd-source-tab${sourceType === 'document' ? ' active' : ''}`} onClick={() => setSourceType('document')}>Document</button>
               <button type="button" className={`ndd-source-tab${sourceType === 'url' ? ' active' : ''}`} onClick={() => !isAnonymous && setSourceType('url')} disabled={isAnonymous} title={isAnonymous ? 'Sign in to use URL sources' : undefined}>URL</button>
             </div>
+            <p className="ndd-settings-field-hint">{sourceType === 'document' ? 'The debaters will argue over what this document claims.' : 'The debaters will argue over what this page claims.'}</p>
             {isAnonymous && (
               <p className="ndd-warning-text">
                 URL fetching requires sign-in.{' '}
@@ -1041,11 +1051,6 @@ function DebateBodyContent({ topic, setTopic, activeAdder, setActiveAdder, sourc
               <button type="button" className="ndd-adder-collapse" onClick={() => { setBackground(''); setActiveAdder('none'); }}>Remove</button>
             )}
           </div>
-        )}
-        {activeAdder !== 'source' && (
-          <button type="button" className="ndd-adder-btn" onClick={() => { setSourceType(isAnonymous ? 'document' : 'url'); setActiveAdder('source'); }}>
-            + Use a document or URL
-          </button>
         )}
       </div>
     </div>
