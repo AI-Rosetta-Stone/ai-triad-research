@@ -1,0 +1,55 @@
+{
+  "_comment": "t/4624 FROZEN addition to t/4278's supersede-in-place packet (TL ruling t/4624#2). Sibling list, same tooling as frozen_list.json (build_manifest.py / check_c6_no_chains.py / dryrun_apply_undo.py read both). Built read-only on 2026-10-29 against ai-triad-data origin/main 2abb64ef. Disposition: demote-to-parent, not a duplicate-of-another-node merge -- these two nodes are too implementation-specific to be valid Safetyist positions at all (editorial read: t/4624#1), not duplicates of each other or of their parents.",
+  "data_revision": "2abb64ef",
+  "groups": [
+    {
+      "group": "G9",
+      "pov": "safetyist",
+      "label": "Prefix-Safe Context Isolation",
+      "kind": "demote-to-parent: implementation detail of one system (Dream-RSI), not a generalizable AI-policy position",
+      "disposition": "demote-to-parent",
+      "fold_edges": false,
+      "survivor": "saf-intentions-140",
+      "retire": [
+        "saf-intentions-256"
+      ],
+      "edges": {
+        "saf-intentions-140": null,
+        "saf-intentions-256": 5
+      },
+      "note": "Parent 'Containing the Blast Radius of Autonomous AI' is a legitimate general position; -256 narrowed it to one paper's engineering mechanism (sidecar manifests, trace isolation) with 0 situation_refs. source_refs are deliberately NOT folded onto the parent (build_manifest.py's REF_FIELDS already excludes source_refs) -- the parent is a general-risk node, not a Dream-RSI-specific one, and inheriting a single-paper citation would misrepresent what it's about. Per SO condition C1 (e/398#2): fold_edges is false -- all 5 of -256's edges are AI-discovered, status:proposed, and never reviewed, discovered for the narrow Dream-RSI claim. A child's relations (including a TENSION_WITH) don't inherit upward to a general parent the same way a duplicate-merge's do. The edges stay on -256, going dormant with the superseded node; if any relation is independently valid for -140, it should be proposed fresh through edge discovery on the parent, not carried by the fold.",
+      "retire_mechanical": [
+        "saf-intentions-256"
+      ],
+      "survivor_basis": "editorial: -256 is an over-specific child of its own existing parent -140, not a duplicate of any sibling node"
+    },
+    {
+      "group": "G10",
+      "pov": "safetyist",
+      "label": "Prefix-Safe Historical Context Isolation",
+      "kind": "demote-to-parent: implementation detail of one system (Dream-RSI), not a generalizable AI-policy position",
+      "disposition": "demote-to-parent",
+      "fold_edges": false,
+      "survivor": "saf-beliefs-097",
+      "retire": [
+        "saf-beliefs-281"
+      ],
+      "edges": {
+        "saf-beliefs-097": null,
+        "saf-beliefs-281": 8
+      },
+      "note": "Parent 'AI's Architectural Complexity Generates Qualitatively New Security Risks' is a legitimate general position; -281 narrowed it to the same Dream-RSI engineering mechanism, with 0 situation_refs. source_refs deliberately NOT folded, same reasoning as G9. -281 and -256 (G9) are a legitimate BDI Belief/Intention pair about the same narrow technical detail -- not duplicates of EACH OTHER either; each is independently too narrow to be a valid position and is demoted to its OWN parent, not merged with its BDI counterpart. Per SO condition C1 (e/398#2): fold_edges is false, same reasoning as G9 -- all 8 of -281's edges (including a CONTRADICTS with acc-beliefs-122 and an INTERPRETS of sit-288) are proposed, never-reviewed, discovered for the narrow claim, and would misrepresent the general parent if folded.",
+      "retire_mechanical": [
+        "saf-beliefs-281"
+      ],
+      "survivor_basis": "editorial: -281 is an over-specific child of its own existing parent -097, not a duplicate of any sibling node"
+    }
+  ],
+  "totals": {
+    "groups": 2,
+    "nodes_retired_mechanical": 2,
+    "held_editorial": []
+  },
+  "disposition_note": "G1-G8 in frozen_list.json (unmodified, not touched by this file) are all disposition: duplicate (implicit default in build_manifest.py when a group has no explicit 'disposition' key) -- a reviewed corpus cleanup merging a node into its byte-identical or near-identical twin, SO-cleared at e/343#2. G9/G10 here are disposition: demote-to-parent -- an editorial call that a node is too narrow/implementation-specific to be a valid position at all, folded into its own existing general parent. The two dispositions are recorded as packet metadata (this field plus each group's 'disposition' key), not a data-schema field; superseded_by itself doesn't distinguish them.",
+  "so_review": "CLEARED WITH CONDITIONS at e/398#2. Agreed: demote-to-parent disposition, not folding source_refs, and the global retire->survivor remap fix (kept -- also protects G1-G8 from the same half-remap, though proven a no-op for G1-G8 at the current data revision since no G1-G8 retiree edges cross groups). C1 applied: fold_edges set to false on both G9 and G10, edges stay dormant on the retired ids rather than folding onto the general parents. C2 applied: disposition recorded per group (this field). C3 (t/4278's existing conditions, esp. C7 point 3) carries over unchanged; with C1, edges.json gets zero G9/G10 changes. Not re-opening t/4278's original e/343#2 SO clearance of G1-G8."
+}
