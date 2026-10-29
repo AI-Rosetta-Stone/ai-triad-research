@@ -1,10 +1,9 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/4625: BdiGroundingView — the standalone "Why" tab's content. Reuses the same
-// chips/per-node/inline-detail UI as TaxonomyRefsSection's How->Plan BDI section
-// (BdiSectionBody, shared not copied), without the outer <details> disclosure, and with
-// its own empty state (AC5) when a statement has no BDI refs.
+// t/4625: BdiGroundingView — the standalone "Why" tab's content (BdiSectionBody), with its own
+// empty state (AC5) when a statement has no BDI refs. This used to also back a collapsible BDI
+// section in How->Plan, removed as redundant with this always-visible view (t/4625#10).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';

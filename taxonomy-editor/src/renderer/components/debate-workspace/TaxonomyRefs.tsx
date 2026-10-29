@@ -422,9 +422,9 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
 
 /**
  * The BDI grounding content: chips, per-node entries, and the inline POV detail when a ref is
- * clicked. No outer disclosure — callers that need one (BdiSection, below) wrap it; the Why tab
- * (t/4625) renders it directly since the tab selection is itself the disclosure. Shared, not
- * copied, between How→Plan's collapsible BDI section and the standalone Why view.
+ * clicked. No outer disclosure — the Why tab (t/4625) renders it directly since the tab
+ * selection is itself the disclosure (t/4625 follow-up: this used to also back a collapsible
+ * BDI section inside How→Plan, removed as redundant with the always-visible Why tab).
  */
 function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
   refs: TaxonomyRef[];
@@ -485,26 +485,11 @@ function BdiSectionBody({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId
   );
 }
 
-function BdiSection({ refs, polRefs, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
-  refs: TaxonomyRef[];
-  polRefs: PolicyRefEntry[];
-  selectedBdiNodeId: string | null;
-  setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
-  toggleBdiNode: (nodeId: string) => void;
-}) {
-  return (
-    <details className="debate-reasoning-section">
-      <summary className="debate-reasoning-section-title taxrefs-section-bdi">BDI</summary>
-      <BdiSectionBody refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
-    </details>
-  );
-}
-
 /**
- * t/4625: the standalone "Why" tab — a statement's BDI grounding on its own, reusing
- * BdiSectionBody (same chips/per-node/inline-detail UI as How→Plan's BDI section). AC5: a
- * statement with no BDI refs (e.g. the System entry) shows a short empty-state line, not an
- * empty pane.
+ * t/4625: the standalone "Why" tab — a statement's BDI grounding on its own, via
+ * BdiSectionBody. AC5: a statement with no BDI refs (e.g. the System entry) shows a short
+ * empty-state line, not an empty pane. (How→Plan used to also show this in a collapsible BDI
+ * section; removed as redundant with this always-visible view, t/4625#10.)
  */
 export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs }: {
   refs: TaxonomyRef[];
@@ -520,24 +505,16 @@ export function BdiGroundingView({ refs, policyRefs, metaPolicyRefs }: {
   return <BdiSectionBody refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />;
 }
 
-function ReasoningList({ briefStage, planStage, refs, polRefs, selectedPlanNodeId, setSelectedPlanNodeId, selectedBdiNodeId, setSelectedBdiNodeId, toggleBdiNode }: {
+function ReasoningList({ briefStage, planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
   briefStage?: { stage: string; raw_response: string; work_product: Record<string, unknown> };
   planStage?: { stage: string; raw_response: string; work_product: Record<string, unknown> };
-  refs: TaxonomyRef[];
-  polRefs: PolicyRefEntry[];
   selectedPlanNodeId: string | null;
   setSelectedPlanNodeId: React.Dispatch<React.SetStateAction<string | null>>;
-  selectedBdiNodeId: string | null;
-  setSelectedBdiNodeId: React.Dispatch<React.SetStateAction<string | null>>;
-  toggleBdiNode: (nodeId: string) => void;
 }) {
   return (
     <div className="debate-reasoning-list">
       {briefStage && <BriefSection briefStage={briefStage} />}
       {planStage && <PlanSection planStage={planStage} selectedPlanNodeId={selectedPlanNodeId} setSelectedPlanNodeId={setSelectedPlanNodeId} />}
-      {(refs.length > 0 || polRefs.length > 0) && (
-        <BdiSection refs={refs} polRefs={polRefs} selectedBdiNodeId={selectedBdiNodeId} setSelectedBdiNodeId={setSelectedBdiNodeId} toggleBdiNode={toggleBdiNode} />
-      )}
     </div>
   );
 }
@@ -602,10 +579,6 @@ export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, s
   const { explainScope, explainKey, handleExplainClick, closeExplain } = useExplainPanel(entry);
   // Selected PLAN-view taxonomy anchor → shows its POV details inline (t/1724).
   const [selectedPlanNodeId, setSelectedPlanNodeId] = useState<string | null>(null);
-  // Selected BDI ref → shows its POV details inline below the list, in place of
-  // navigating away to the main window (same t/1724 inline-detail pattern).
-  const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
-  const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
   const polRefs = metaPolicyRefs || policyRefs || [];
 
   const briefStage = stageDiagnostics?.find(s => s.stage === 'brief');
@@ -629,13 +602,8 @@ export function TaxonomyRefsSection({ refs, policyRefs, metaPolicyRefs, entry, s
         <ReasoningList
           briefStage={briefStage}
           planStage={planStage}
-          refs={refs}
-          polRefs={polRefs}
           selectedPlanNodeId={selectedPlanNodeId}
           setSelectedPlanNodeId={setSelectedPlanNodeId}
-          selectedBdiNodeId={selectedBdiNodeId}
-          setSelectedBdiNodeId={setSelectedBdiNodeId}
-          toggleBdiNode={toggleBdiNode}
         />
       )}
     </div>
