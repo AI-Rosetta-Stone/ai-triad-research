@@ -161,8 +161,8 @@ export function DescriptionSection({ pov, node, readOnly, err, nodeDetailMode, d
   const { findQuery, findMode, findCaseSensitive } = useTaxonomyStore();
   const [localIsEditing, setLocalIsEditing] = useState(false);
   const isEditing = externalIsEditing ?? localIsEditing;
-  const setIsEditing = externalSetIsEditing ?? setLocalIsEditing;
-  useEffect(() => { if (!externalIsEditing) setLocalIsEditing(false); }, [node.id, externalIsEditing]);
+  const setIsEditing: (value: boolean | ((v: boolean) => boolean)) => void = externalSetIsEditing ?? setLocalIsEditing;
+  useEffect(() => { if (externalIsEditing === undefined) setLocalIsEditing(false); }, [node.id, externalIsEditing]);
   // A validation error on description must stay reachable for the existing scroll+focus
   // recovery flow (NodeDetail's hasErrors effect), so force edit mode open when one is set.
   const descError = err('description');

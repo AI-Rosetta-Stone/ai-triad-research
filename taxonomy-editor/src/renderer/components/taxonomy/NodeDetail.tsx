@@ -86,6 +86,39 @@ const POV_LABELS: Record<Pov, string> = {
 
 type NodeDetailTabId = 'content' | 'related' | 'attributes' | 'conflicts' | 'phrases' | 'sources' | 'facts' | 'cruxes' | 'research' | 'history';
 
+interface NodeDetailAccentRowProps {
+  nodeDetailMode: 'simple' | 'advanced';
+  node: PovNode;
+  pov: Pov;
+  readOnly?: boolean;
+  descMode: 'formal' | 'plain';
+  setDescMode: (mode: 'formal' | 'plain') => void;
+  isEditing: boolean;
+  setIsEditing: (value: boolean | ((v: boolean) => boolean)) => void;
+  updatePovNode: (pov: Pov, id: string, updates: Partial<PovNode>) => void;
+}
+
+function NodeDetailAccentRow({ nodeDetailMode, node, pov, readOnly, descMode, setDescMode, isEditing, setIsEditing, updatePovNode }: NodeDetailAccentRowProps) {
+  return (
+    <div className="nd-accent-description-row">
+      <div className="nd-accent-rule" />
+      {nodeDetailMode === 'advanced' && (
+        <AdvancedDescriptionToolbar
+          descMode={descMode}
+          setDescMode={setDescMode}
+          hasPlainDescription={!!node.plain_description}
+          showEdit={!readOnly && (node.description ? true : false)}
+          isEditing={isEditing}
+          onToggleEdit={() => setIsEditing(v => !v)}
+          showRegenerate={!readOnly}
+          regenerateDisabled={node.plain_description === null}
+          onRegenerate={() => triggerPovNodeRegeneration(pov, node.id, node.description, updatePovNode)}
+        />
+      )}
+    </div>
+  );
+}
+
 /** Reset tab to Simple-view available tabs when mode changes. */
 function useSimpleViewTabReset(nodeDetailMode: string, activeTab: NodeDetailTabId, setActiveTab: (tab: NodeDetailTabId) => void) {
   useEffect(() => {
@@ -415,23 +448,17 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         </div>
       )}
 
-      {/* Accent rule + toolbar row (t/4641) — rule alone in Simple, rule + toolbar in Advanced */}
-      <div className="nd-accent-description-row">
-        <div className="nd-accent-rule" />
-        {nodeDetailMode === 'advanced' && (
-          <AdvancedDescriptionToolbar
-            descMode={descMode}
-            setDescMode={setDescMode}
-            hasPlainDescription={!!node.plain_description}
-            showEdit={!readOnly && (node.description ? true : false)}
-            isEditing={isEditing}
-            onToggleEdit={() => setIsEditing(v => !v)}
-            showRegenerate={!readOnly}
-            regenerateDisabled={node.plain_description === null}
-            onRegenerate={() => triggerPovNodeRegeneration(pov, node.id, node.description, updatePovNode)}
-          />
-        )}
-      </div>
+      <NodeDetailAccentRow
+        nodeDetailMode={nodeDetailMode}
+        node={node}
+        pov={pov}
+        readOnly={readOnly}
+        descMode={descMode}
+        setDescMode={setDescMode}
+        isEditing={isEditing}
+        setIsEditing={setIsEditing}
+        updatePovNode={updatePovNode}
+      />
 
       {/* Description above tabs (t/4574) — shows in both Simple and Advanced views */}
       <DescriptionSection
