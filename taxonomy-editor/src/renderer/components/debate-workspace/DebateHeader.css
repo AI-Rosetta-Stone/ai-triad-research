@@ -54,16 +54,17 @@
 .debate-hdr-theory-link {
   flex: 0 0 auto;
 }
+/* t/4649: was clamped to 2 lines with overflow:hidden and no visible ellipsis, so a longer
+   topic silently truncated — readable only via the hover title or the click-to-expand setup
+   popup. Wraps in full instead; the header grows to fit, which is the PI's requested fix. */
 .debate-hdr-title {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 700;
   line-height: 1.25;
   color: var(--text-primary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 .debate-hdr-source {
   font-size: 0.75rem;
