@@ -42,6 +42,13 @@ function initialListView(hideMyTab: boolean, defaultCommunityOnWeb: boolean, isW
   return 'my';
 }
 
+// t/4643: Edit is admin-only on the Community tab. Pulled out of LibraryListPage's body (rather
+// than inlined as a boolean expression) to keep that function's cyclomatic complexity under the
+// repo's per-file budget — see eslint.config.mjs's local/complexity-budget rule.
+function canShowEditFor(showEdit: boolean, listView: LibraryVariant, isAdmin: boolean): boolean {
+  return showEdit && (listView !== 'community' || isAdmin);
+}
+
 function warnMissingComparator(columnKey: string): void {
   getGlobalRecorder()?.record({
     type: 'system.error',
@@ -565,7 +572,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   const editModeActive = !!config.editMode?.active;
   // t/4643: Edit is admin-only on Community. "The shell gates this once" per the ticket — any
   // tool that turns on config.showEdit later inherits the rule automatically.
-  const canShowEdit = !!config.showEdit && (listView !== 'community' || isAdmin);
+  const canShowEdit = canShowEditFor(!!config.showEdit, listView, isAdmin);
   const gridCols = [
     editModeActive ? CHECKBOX_COL_WIDTH : null,
     '1fr',
