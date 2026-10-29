@@ -954,3 +954,19 @@ span.debate-tier-pills {
   font-size: var(--text-sm);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
+
+/* t/4645: the fallback's role="status" region stays mounted even when there's nothing to
+   announce — only its text and this class toggle. Visually hidden but still reachable by
+   assistive tech, so NVDA/JAWS pick up the text change instead of missing an already-filled
+   region that just appeared. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
