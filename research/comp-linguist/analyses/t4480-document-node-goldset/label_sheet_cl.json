@@ -239,7 +239,7 @@
       "assigned_node_label": "Regulatory Structures as Barriers to Competitive AI Innovation",
       "cell": "acc|beliefs|6-30",
       "rank": 28,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -254,7 +254,7 @@
       "assigned_node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
       "cell": "acc|beliefs|6-30",
       "rank": 8,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -269,9 +269,9 @@
       "assigned_node_label": "Regulatory Structures as Barriers to Competitive AI Innovation",
       "cell": "acc|beliefs|>30",
       "rank": 35,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -284,7 +284,7 @@
       "assigned_node_label": "AI Harm Materializes at Downstream Integration and Execution",
       "cell": "acc|beliefs|>30",
       "rank": 36,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -299,9 +299,9 @@
       "assigned_node_label": "Asymmetry Between Reconstructive Burden and Remediation Cost",
       "cell": "acc|beliefs|>30",
       "rank": 569,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -314,9 +314,9 @@
       "assigned_node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
       "cell": "acc|beliefs|>30",
       "rank": 1505,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -329,7 +329,7 @@
       "assigned_node_label": "AI Harm Materializes at Downstream Integration and Execution",
       "cell": "acc|beliefs|>30",
       "rank": 61,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -344,9 +344,9 @@
       "assigned_node_label": "Quantifiable AI Harms Turn Fairness Into a Business Imperative, Not Just an Ethical One",
       "cell": "acc|beliefs|>30",
       "rank": 479,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -359,7 +359,7 @@
       "assigned_node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
       "cell": "acc|beliefs|>30",
       "rank": 45,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -374,7 +374,7 @@
       "assigned_node_label": "Accelerating Core AI Capabilities",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -389,7 +389,7 @@
       "assigned_node_label": "Positive Alignment Paradigm",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -404,7 +404,7 @@
       "assigned_node_label": "National Self-Sufficiency in AI Infrastructure",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -419,7 +419,7 @@
       "assigned_node_label": "Mandatory AI Education for All",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -434,7 +434,7 @@
       "assigned_node_label": "Accelerating Core AI Capabilities",
       "cell": "acc|desires|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -449,9 +449,9 @@
       "assigned_node_label": "Total Abolition of Suffering Through Technology",
       "cell": "acc|desires|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
