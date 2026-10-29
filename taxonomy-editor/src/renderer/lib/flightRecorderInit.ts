@@ -999,7 +999,9 @@ export function initFlightRecorder(): FlightRecorder {
   registerHmrListeners(recorder, loadGeneration);
 
   // ── Auth flow instrumentation (web only, main window only) ──
-  if (!isPopup && isWeb) {
+  // Use window.opener === null rather than the hash-derived isPopup: opener is a
+  // browser-controlled property and avoids a user-controlled-bypass lint finding.
+  if (isWeb && window.opener === null) {
     initAuthInstrumentation(recorder);
   }
 
