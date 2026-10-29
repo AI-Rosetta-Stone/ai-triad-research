@@ -419,27 +419,10 @@
   font-size: var(--text-md);
 }
 
-/* ─── Chat Taxonomy Refs ─────────────────────────────── */
+/* ─── Chat Taxonomy Refs (t/4627: always-visible per-reply BDI grounding list) ──── */
 
 .chat-taxonomy-refs {
   margin-top: 6px;
-}
-
-.chat-taxonomy-pills {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-
-.chat-taxonomy-toggle {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0 4px;
 }
 
 .chat-taxonomy-reasoning {
@@ -453,8 +436,14 @@
 .chat-taxonomy-reasoning-item {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 3px 0;
+}
+
+.chat-reasoning-label {
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .chat-reasoning-text {
@@ -630,22 +619,6 @@
 
 .chat-input {
   border-radius: var(--radius-lg);
-}
-
-/* ── Reference pills collapsed ───────────────────────── */
-
-.chat-refs-collapsed {
-  font-size: var(--text-2xs);
-  color: var(--text-muted);
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: var(--sp-1) 0;
-  text-decoration: underline;
-}
-
-.chat-refs-collapsed:hover {
-  color: var(--text-secondary);
 }
 
 /* ── Header inline-style hoists ──────────────────────── */
