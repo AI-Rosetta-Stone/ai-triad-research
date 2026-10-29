@@ -58,7 +58,9 @@ describe('RosettaStoneTab (t/4543)', () => {
     expect(specimen).toContainElement(coda);
     const children = Array.from(specimen!.children);
     const voicesList = skeptic!.closest('ul');
-    expect(children.indexOf(voicesList!)).toBeLessThan(children.indexOf(coda.parentElement!));
+    // coda is itself a direct child of specimen (not wrapped), so compare it directly —
+    // not coda.parentElement, which is specimen and therefore never a child of itself.
+    expect(children.indexOf(voicesList!)).toBeLessThan(children.indexOf(coda));
   });
 
   it('renders the Who it’s for section above What you can do here (t/4542 follow-up)', () => {
