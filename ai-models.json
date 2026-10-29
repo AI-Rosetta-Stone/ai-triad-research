@@ -1028,7 +1028,7 @@
     }
   ],
   "defaults": {
-    "gemini": "gemini-3.1-pro-preview",
+    "gemini": "gemini-3.5-flash-lite",
     "claude": "claude-sonnet-4-6",
     "groq": "groq-openai-gpt-oss-120b",
     "deepseek": "deepseek-deepseek-v4.1-flash",
@@ -1041,6 +1041,10 @@
   "fallbackChains": {
     "gemini-3.1-pro-preview": [
       "gemini-3.1-pro-preview"
+    ],
+    "gemini-3.5-flash-lite": [
+      "gemini-3.1-flash-lite",
+      "groq-openai-gpt-oss-20b"
     ],
     "claude-opus-5": [
       "claude-sonnet-4-6",
