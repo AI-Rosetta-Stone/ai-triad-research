@@ -26,7 +26,7 @@ BeforeAll {
 
 Describe 'Test-TaxEditorEndpoints — auth-gated interstitial reclassify (t/1657)' -Tag 'health' {
 
-    It 'reclassifies the Easy-Auth interstitial on AuthGated routes to PASS' {
+    It 'FAILs (never PASSes) a Data row on the interstitial with no session established — Arm A (t/4631)' {
         InModuleScope AITriad -Parameters @{ Interstitial = $script:Interstitial } {
             param($Interstitial)
             Mock Get-TaxEditorBaseUrl -MockWith { 'https://stub.example.com' }
@@ -38,13 +38,73 @@ Describe 'Test-TaxEditorEndpoints — auth-gated interstitial reclassify (t/1657
                 }
             }
 
-            # -Category Data selects 5 AuthGated rows (accelerationist, safetyist,
-            # skeptic, edges, conflicts).
+            # -Category Data, no -AnonymousSession/-UserType Anonymous: the
+            # interstitial means no data was ever verified, so every row must
+            # FAIL with a reason — a PASS here would be indistinguishable from a
+            # real, verified data response (the t/4631 false-PASS this guards).
             $results = Test-TaxEditorEndpoints -BaseUrl 'https://stub' -Category Data 6>$null
 
             @($results).Count | Should -Be 5
-            @($results | Where-Object { $_.Pass -eq $true }).Count  | Should -Be 5
-            @($results | Where-Object { $_.Pass -eq $false }).Count | Should -Be 0
+            @($results | Where-Object { $_.Pass -eq $true }).Count  | Should -Be 0
+            @($results | Where-Object { $_.Pass -eq $false }).Count | Should -Be 5
+            @($results | Where-Object { $_.Error -match 'no anonymous session was established' }).Count | Should -Be 5
+        }
+    }
+
+    It 'FAILs a Data row on the interstitial even when a session was established — Arm A variant (t/4631)' {
+        InModuleScope AITriad -Parameters @{ Interstitial = $script:Interstitial } {
+            param($Interstitial)
+            Mock Get-TaxEditorBaseUrl -MockWith { 'https://stub.example.com' }
+            # Every call — session establishment AND every endpoint request —
+            # returns the interstitial. A session was established (2xx), but the
+            # data endpoints still never return real data: must still FAIL, with
+            # a reason naming the established-session case specifically.
+            Mock Invoke-WebRequest -MockWith {
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('text/html; charset=utf-8') }
+                    Content    = $Interstitial
+                }
+            }
+
+            $results = Test-TaxEditorEndpoints -BaseUrl 'https://stub' -Category Data -UserType Anonymous 6>$null
+
+            @($results).Count | Should -Be 5
+            @($results | Where-Object { $_.Pass -eq $true }).Count | Should -Be 0
+            @($results | Where-Object { $_.Error -match 'despite an established anonymous session' }).Count | Should -Be 5
+        }
+    }
+
+    It 'PASSes a Data row only when a real body with nodes is returned via an established session — Arm B (t/4631)' {
+        InModuleScope AITriad {
+            Mock Get-TaxEditorBaseUrl -MockWith { 'https://stub.example.com' }
+            Mock Invoke-WebRequest -MockWith {
+                param($Uri)
+                if ($Uri -match '/\.auth/anonymous') {
+                    # Session establishment: any 2xx with no body is enough.
+                    return [PSCustomObject]@{
+                        StatusCode = 200
+                        Headers    = @{ 'Content-Type' = @('application/json') }
+                        Content    = '{}'
+                    }
+                }
+                # A real, session-authenticated data response — JSON, non-empty nodes.
+                [PSCustomObject]@{
+                    StatusCode = 200
+                    Headers    = @{ 'Content-Type' = @('application/json; charset=utf-8') }
+                    Content    = '{"nodes":[{"id":"acc-beliefs-001"},{"id":"acc-beliefs-002"}]}'
+                }
+            }
+
+            # /api/edges and /api/conflicts have no 'nodes' field (Field=$null), so
+            # they PASS on Success alone; the 3 taxonomy rows assert NodeCount too.
+            $results = Test-TaxEditorEndpoints -BaseUrl 'https://stub' -Category Data -UserType Anonymous 6>$null
+
+            @($results).Count | Should -Be 5
+            @($results | Where-Object { $_.Pass -eq $true }).Count | Should -Be 5
+            $nodeRows = @($results | Where-Object { $_.Endpoint -like '/api/taxonomy/*' })
+            $nodeRows.Count | Should -Be 3
+            @($nodeRows | Where-Object { $_.NodeCount -gt 0 }).Count | Should -Be 3
         }
     }
 
