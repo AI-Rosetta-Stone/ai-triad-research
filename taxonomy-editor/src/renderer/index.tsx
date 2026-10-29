@@ -13,6 +13,7 @@ import { PublicOpEdView } from './components/PublicOpEdView';
 import { PublicOpEdIndexView } from './components/PublicOpEdIndexView';
 import { PublicInquiryView } from './components/PublicInquiryView';
 import { installVitePreloadRecovery } from './lib/vitePreloadRecovery';
+import './BaseReset.css'; // t/4647: global [hidden] reset, loaded before styles.css
 import './LibraryTheme.css'; // loaded before styles.css, as its @import was (keeps styles.css under its LOC ceiling)
 import './styles.css';
 import './responsive.css';
