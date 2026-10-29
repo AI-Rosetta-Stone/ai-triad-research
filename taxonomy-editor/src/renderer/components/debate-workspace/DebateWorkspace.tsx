@@ -16,7 +16,7 @@ import { computeCoverageMap, computeStrengthWeightedCoverage } from '@lib/debate
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import {
   speakerLabel, speakerColor, nodeIdToTab, focusMainWindowNode, countOccurrences, renderedOffsetOf,
-  META_TIERS, TIER_LABELS,
+  META_TIERS, TIER_LABELS, copyPromptForGemini,
 } from './utils';
 import type { AdaptivePhase } from './utils';
 import { CommentCreationPopover } from '../chat/CommentCreationPopover';
@@ -352,10 +352,14 @@ function DebateContextMenu({
       <button className="debate-context-menu-item" onClick={() => {
         // t/4514: open the same inline in-app panel the card's "Explain" button uses, scoped to
         // this selection, via the entry's registered handler. No handler registered (panel not
-        // mounted for this entry) falls back to the old clipboard+browser escape hatch.
+        // mounted for this entry) falls back to the copy+open escape hatch — routed through
+        // copyPromptForGemini (t/4645) so a failed clipboard write never opens Gemini. This
+        // fallback has no persistent surface to show a confirmation on first, unlike
+        // ExplainPanel's "Copy prompt & open Gemini" button — see t/4645 completion note.
         if (!requestExplainForSelection(menu.entryId, menu.selectedText)) {
-          void api.clipboardWriteText(`EXPLAIN: ${menu.selectedText}`);
-          void api.openExternal('https://gemini.google.com/app');
+          void copyPromptForGemini(`EXPLAIN: ${menu.selectedText}`).then((ok) => {
+            if (ok) void api.openExternal('https://gemini.google.com/app');
+          });
         }
         onClose();
       }}>
