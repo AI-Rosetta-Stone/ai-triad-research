@@ -409,94 +409,116 @@ async function _resolveStack(stack: string): Promise<string> {
   return out.join('\n');
 }
 
-export function initFlightRecorder(): FlightRecorder {
-  if (initialized) return getGlobalRecorder()!;
-  initialized = true;
+// ── initFlightRecorder helpers ───────────────────────────────────────────
 
-  // Identify which window this recorder belongs to
-  const hash = window.location.hash;
-  const isPopup = hash.startsWith('#debate-window') || hash === '#diagnostics-window' || hash === '#pov-progression-window' || hash === '#chat-window';
-  const windowId = hash.startsWith('#debate-window')
-    ? `debate:${new URLSearchParams(hash.split('?')[1] || '').get('id')?.slice(0, 8) || 'unknown'}`
-    : hash === '#diagnostics-window' ? 'diagnostics'
-    : hash === '#pov-progression-window' ? 'pov-progression'
-    : hash === '#chat-window' ? 'chat'
-    : 'main';
-
-  // Popup windows use a thin shim — no local buffer, forward everything to main.
-  // Electron: IPC via electronAPI. Web: BroadcastChannel.
-  if (isPopup) {
-    const hasElectronIPC = typeof (window as unknown as { electronAPI?: { forwardFlightEvent?: unknown } }).electronAPI?.forwardFlightEvent === 'function';
-    const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
-
-    if (hasElectronIPC || hasBroadcastChannel) {
-      const shim = hasElectronIPC
-        ? createPopupShim(windowId)
-        : createWebPopupShim(windowId);
-      setGlobalRecorder(shim);
-
-      // Set up error boundary hook for popup — forward crash event to main window's recorder
-      (globalThis as unknown as { __onErrorBoundaryCatch: (err: Error, stack?: string) => void }).__onErrorBoundaryCatch = (error, componentStack) => {
-        // Forward the crash SYNCHRONOUSLY first (t/2297) so it reaches the main
-        // recorder before the user can click "Dump Log" — the popup's dump pulls
-        // from the main buffer, so a late (post-await) forward could miss the dump.
-        shim.record({
-          type: 'system.error',
-          component: 'react-error-boundary',
-          level: 'fatal',
-          message: error.message,
-          error: { name: error.name, message: error.message, stack: error.stack?.slice(0, 500) },
-          data: componentStack ? { component_stack: componentStack.slice(0, 1000) } : undefined,
-        });
-        // DEV-only: resolve bundle positions to source coordinates and forward as a
-        // follow-up enrichment (lifecycle, not a second crash) once resolution completes.
-        if (import.meta.env.DEV && componentStack) {
-          void _resolveStack(componentStack).then(resolved => {
-            shim.record({
-              type: 'lifecycle',
-              component: 'react-error-boundary',
-              level: 'debug',
-              message: `Resolved component stack for: ${error.message}`,
-              data: { component_stack_resolved: resolved.slice(0, 1000) },
-            });
-          }).catch(() => { /* source-map resolution is best-effort */ });
-        }
-      };
-
-      // Set up manual dump trigger for popup — request main window to dump.
-      // Stored in module-level _popupDumpHandler AND on globalThis so both the
-      // error-boundary hook (globalThis) and the "Dump Log" UI buttons (which
-      // import triggerManualDump directly) route through this IPC/BroadcastChannel
-      // forwarder instead of persisting the empty local shim buffer (t/2690).
-      const popupDumpHandler = () => {
-        shim.record({ type: 'lifecycle', component: 'flight-recorder', level: 'info', message: 'Manual dump requested from popup' });
-        if (hasElectronIPC) {
-          try {
-            const eApi = (window as unknown as { electronAPI: { triggerMainDump?: () => Promise<{ filePath: string }> } }).electronAPI;
-            if (eApi.triggerMainDump) {
-              void eApi.triggerMainDump().then(result => {
-                console.log(`[flight-recorder] Dump saved: ${result.filePath}`);
-                void api.clipboardWriteText(result.filePath);
-              });
-            }
-          } catch { /* flight recorder init — silent by design (dump request forwarded as event) */ }
-        } else if (hasBroadcastChannel) {
-          const ch = new BroadcastChannel('aitriad-flight-recorder');
-          ch.postMessage({ type: 'dump-request', origin: windowId });
-          ch.close();
-        }
-      };
-      _popupDumpHandler = popupDumpHandler;
-      (globalThis as unknown as { __triggerManualDump: () => Promise<void> | void }).__triggerManualDump = popupDumpHandler;
-
-      return shim;
-    }
+/** Derives window identity (isPopup + windowId) from the URL hash. */
+function resolveWindowId(hash: string): { isPopup: boolean; windowId: string } {
+  const isPopup =
+    hash.startsWith('#debate-window') ||
+    hash === '#diagnostics-window' ||
+    hash === '#pov-progression-window' ||
+    hash === '#chat-window';
+  let windowId = 'main';
+  if (hash.startsWith('#debate-window')) {
+    windowId = `debate:${new URLSearchParams(hash.split('?')[1] || '').get('id')?.slice(0, 8) || 'unknown'}`;
+  } else if (hash === '#diagnostics-window') {
+    windowId = 'diagnostics';
+  } else if (hash === '#pov-progression-window') {
+    windowId = 'pov-progression';
+  } else if (hash === '#chat-window') {
+    windowId = 'chat';
   }
+  return { isPopup, windowId };
+}
 
-  const recorder = new FlightRecorder({ capacity: RECORDER_CAPACITY_DEFAULT, dumpOnError: true });
-  setGlobalRecorder(recorder);
+/** Wires __onErrorBoundaryCatch on a popup shim to forward the crash synchronously. */
+function registerPopupErrorBoundary(shim: FlightRecorder, error: Error, componentStack?: string): void {
+  shim.record({
+    type: 'system.error',
+    component: 'react-error-boundary',
+    level: 'fatal',
+    message: error.message,
+    error: { name: error.name, message: error.message, stack: error.stack?.slice(0, 500) },
+    data: componentStack ? { component_stack: componentStack.slice(0, 1000) } : undefined,
+  });
+  // DEV-only: resolve bundle positions to source coordinates and forward as a
+  // follow-up enrichment (lifecycle, not a second crash) once resolution completes.
+  if (import.meta.env.DEV && componentStack) {
+    void _resolveStack(componentStack).then(resolved => {
+      shim.record({
+        type: 'lifecycle',
+        component: 'react-error-boundary',
+        level: 'debug',
+        message: `Resolved component stack for: ${error.message}`,
+        data: { component_stack_resolved: resolved.slice(0, 1000) },
+      });
+    }).catch(() => { /* source-map resolution is best-effort */ });
+  }
+}
 
-  // Register known dictionary entries
+/** Sets up the popup dump handler (IPC or BroadcastChannel → main) and stores it module-level. */
+function registerPopupDumpHandler(
+  shim: FlightRecorder,
+  windowId: string,
+  hasElectronIPC: boolean,
+  hasBroadcastChannel: boolean,
+): void {
+  const popupDumpHandler = () => {
+    shim.record({ type: 'lifecycle', component: 'flight-recorder', level: 'info', message: 'Manual dump requested from popup' });
+    if (hasElectronIPC) {
+      try {
+        const eApi = (window as unknown as { electronAPI: { triggerMainDump?: () => Promise<{ filePath: string }> } }).electronAPI;
+        if (eApi.triggerMainDump) {
+          void eApi.triggerMainDump().then(result => {
+            console.log(`[flight-recorder] Dump saved: ${result.filePath}`);
+            void api.clipboardWriteText(result.filePath);
+          });
+        }
+      } catch { /* flight recorder init — silent by design (dump request forwarded as event) */ }
+    } else if (hasBroadcastChannel) {
+      const ch = new BroadcastChannel('aitriad-flight-recorder');
+      ch.postMessage({ type: 'dump-request', origin: windowId });
+      ch.close();
+    }
+  };
+  _popupDumpHandler = popupDumpHandler;
+  (globalThis as unknown as { __triggerManualDump: () => Promise<void> | void }).__triggerManualDump = popupDumpHandler;
+}
+
+/**
+ * Initializes a popup shim recorder (IPC or BroadcastChannel forwarding to main).
+ * Returns the shim if the window has a forwarding transport, null otherwise.
+ */
+function initPopupRecorder(windowId: string): FlightRecorder | null {
+  const hasElectronIPC = typeof (window as unknown as { electronAPI?: { forwardFlightEvent?: unknown } }).electronAPI?.forwardFlightEvent === 'function';
+  const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
+
+  if (!hasElectronIPC && !hasBroadcastChannel) return null;
+
+  const shim = hasElectronIPC
+    ? createPopupShim(windowId)
+    : createWebPopupShim(windowId);
+  setGlobalRecorder(shim);
+
+  // Set up error boundary hook for popup — forward crash event to main window's recorder
+  // Forward the crash SYNCHRONOUSLY first (t/2297) so it reaches the main
+  // recorder before the user can click "Dump Log".
+  (globalThis as unknown as { __onErrorBoundaryCatch: (err: Error, stack?: string) => void }).__onErrorBoundaryCatch = (error, componentStack) => {
+    registerPopupErrorBoundary(shim, error, componentStack);
+  };
+
+  // Set up manual dump trigger for popup — request main window to dump.
+  // Stored in module-level _popupDumpHandler AND on globalThis so both the
+  // error-boundary hook (globalThis) and the "Dump Log" UI buttons (which
+  // import triggerManualDump directly) route through this IPC/BroadcastChannel
+  // forwarder instead of persisting the empty local shim buffer (t/2690).
+  registerPopupDumpHandler(shim, windowId, hasElectronIPC, hasBroadcastChannel);
+
+  return shim;
+}
+
+/** Registers all known dictionary entries into the recorder. */
+function registerDictionary(recorder: FlightRecorder): void {
   recorder.intern('component', 'debate-engine');
   recorder.intern('component', 'turn-pipeline');
   recorder.intern('component', 'qbaf');
@@ -515,8 +537,10 @@ export function initFlightRecorder(): FlightRecorder {
   recorder.intern('pov', 'accelerationist');
   recorder.intern('pov', 'safetyist');
   recorder.intern('pov', 'skeptic');
+}
 
-  // Wrap record() to stamp _origin on all events
+/** Wraps recorder.record to stamp _origin on all events from this window. */
+function wrapRecordWithOrigin(recorder: FlightRecorder, windowId: string): void {
   const originalRecord = recorder.record.bind(recorder);
   recorder.record = (input: RecordInput) => {
     originalRecord({
@@ -524,19 +548,21 @@ export function initFlightRecorder(): FlightRecorder {
       data: { ...input.data, _origin: input.data?._origin ?? windowId },
     });
   };
+}
 
-  // Compute load_generation: increments on each page load/HMR within the same window tab
+/** Reads/increments the sessionStorage load-generation counter. Returns the current generation. */
+function loadLoadGeneration(): number {
   let loadGeneration = 0;
   try {
     const prev = sessionStorage.getItem('flight-recorder-load-gen');
     loadGeneration = prev ? (parseInt(prev, 10) || 0) + 1 : 0;
     sessionStorage.setItem('flight-recorder-load-gen', String(loadGeneration));
   } catch { /* flight recorder init — silent by design (sessionStorage may be unavailable) */ }
+  return loadGeneration;
+}
 
-  // Set ambient window identity on all events
-  recorder.setEventContext({ window_id: windowId, load_generation: loadGeneration });
-
-  // Record startup event
+/** Records the lifecycle:initialized startup event. */
+function recordInitEvent(recorder: FlightRecorder, windowId: string, loadGeneration: number): void {
   recorder.record({
     type: 'lifecycle',
     component: recorder.intern('component', 'flight-recorder') as string | number,
@@ -544,124 +570,165 @@ export function initFlightRecorder(): FlightRecorder {
     message: 'Flight recorder initialized',
     data: { capacity: RECORDER_CAPACITY_DEFAULT, window: windowId, load_generation: loadGeneration },
   });
+}
 
-  // ── HMR lifecycle events (dev-only) ──
-  if (import.meta.hot) {
-    import.meta.hot.on('vite:beforeUpdate', (payload: { type: string; updates: Array<{ type: string; path: string; acceptedPath: string; timestamp: number }> }) => {
-      // Invalidate cached source maps for updated files so next resolution fetches fresh maps
-      for (const u of payload.updates) _smCache.delete(u.path.replace(/\?.*$/, ''));
-      recorder.record({
-        type: 'lifecycle',
-        component: 'hmr',
-        level: 'info',
-        message: `HMR update: ${payload.updates.map(u => u.path).join(', ')}`,
-        data: { update_count: payload.updates.length, paths: payload.updates.map(u => u.path), load_generation: loadGeneration },
-      });
+/** Wires HMR lifecycle events into the recorder (dev-only, no-op in prod). */
+function registerHmrListeners(recorder: FlightRecorder, loadGeneration: number): void {
+  if (!import.meta.hot) return;
+  import.meta.hot.on('vite:beforeUpdate', (payload: { type: string; updates: Array<{ type: string; path: string; acceptedPath: string; timestamp: number }> }) => {
+    // Invalidate cached source maps for updated files so next resolution fetches fresh maps
+    for (const u of payload.updates) _smCache.delete(u.path.replace(/\?.*$/, ''));
+    recorder.record({
+      type: 'lifecycle',
+      component: 'hmr',
+      level: 'info',
+      message: `HMR update: ${payload.updates.map(u => u.path).join(', ')}`,
+      data: { update_count: payload.updates.length, paths: payload.updates.map(u => u.path), load_generation: loadGeneration },
     });
+  });
 
-    import.meta.hot.on('vite:beforeFullReload', () => {
-      recorder.record({
-        type: 'lifecycle',
-        component: 'hmr',
-        level: 'warn',
-        message: 'Full page reload triggered by HMR',
-        data: { load_generation: loadGeneration },
-      });
+  import.meta.hot.on('vite:beforeFullReload', () => {
+    recorder.record({
+      type: 'lifecycle',
+      component: 'hmr',
+      level: 'warn',
+      message: 'Full page reload triggered by HMR',
+      data: { load_generation: loadGeneration },
     });
+  });
 
-    import.meta.hot.on('vite:error', (payload: { err: { message: string; stack: string } }) => {
-      recorder.record({
-        type: 'system.error',
-        component: 'hmr',
-        level: 'error',
-        message: `HMR error: ${payload.err.message}`,
-        error: { name: 'HMRError', message: payload.err.message, stack: payload.err.stack?.slice(0, 500) },
-        data: { load_generation: loadGeneration },
-      });
+  import.meta.hot.on('vite:error', (payload: { err: { message: string; stack: string } }) => {
+    recorder.record({
+      type: 'system.error',
+      component: 'hmr',
+      level: 'error',
+      message: `HMR error: ${payload.err.message}`,
+      error: { name: 'HMRError', message: payload.err.message, stack: payload.err.stack?.slice(0, 500) },
+      data: { load_generation: loadGeneration },
     });
-  }
+  });
+}
 
-  // ── Auth flow instrumentation (web only, main window only) ──
-  if (!isPopup && isWeb) {
-    // On init: detect if we just returned from an OAuth redirect
-    const tracking = getAuthTracking();
-    if (tracking) {
-      const elapsed = Date.now() - tracking.timestamp;
-      if (elapsed > 60_000) {
-        clearAuthTracking();
+/** Records the auth callback landing event for loop detection. */
+function recordAuthCallbackLanding(
+  recorder: FlightRecorder,
+  tracking: AuthRedirectTracking,
+  elapsed: number,
+): void {
+  // NOTE (t/2024, CodeQL js/user-controlled-bypass #5314 — dismissed as false
+  // positive, TL-approved p/56#192): this cookie read is DIAGNOSTIC ONLY. It
+  // populates the `has_session_cookie` telemetry field below and gates NO security
+  // decision — the auth-loop branch keys on redirectCount/elapsed, never on this
+  // value. Do not treat `hasSession` as an authorization signal.
+  const hasSession = document.cookie.includes('AppServiceAuthSession');
+  recorder.record({
+    type: 'auth.callback_landing',
+    component: 'auth',
+    level: 'info',
+    message: `OAuth callback: provider=${tracking.provider}, redirects=${tracking.redirectCount}`,
+    data: {
+      provider: tracking.provider,
+      principal: (_authState as { principalName?: string } | null)?.principalName ?? null,
+      has_session_cookie: hasSession,
+      redirect_count: tracking.redirectCount,
+      elapsed_ms: elapsed,
+    },
+  });
+}
+
+/** Handles an auth redirect loop: records the loop event and triggers a dump. */
+function handleAuthRedirectLoop(
+  recorder: FlightRecorder,
+  tracking: AuthRedirectTracking,
+  elapsed: number,
+): void {
+  recorder.record({
+    type: 'auth.loop_detected',
+    component: 'auth',
+    level: 'error',
+    message: `Auth redirect loop detected: ${tracking.redirectCount} redirects in ${elapsed}ms`,
+    data: {
+      provider: tracking.provider,
+      redirect_count: tracking.redirectCount,
+      elapsed_ms: elapsed,
+      threshold: AUTH_LOOP_THRESHOLD,
+      window_ms: AUTH_LOOP_WINDOW_MS,
+    },
+  });
+  clearAuthTracking();
+  void persistDump(recorder, 'explicit', undefined, { reason: 'auth_loop_detected', provider: tracking.provider });
+}
+
+/** Wires auth flow instrumentation (web main window only): redirect tracking + loop detection. */
+function initAuthInstrumentation(recorder: FlightRecorder): void {
+  // On init: detect if we just returned from an OAuth redirect
+  const tracking = getAuthTracking();
+  if (tracking) {
+    const elapsed = Date.now() - tracking.timestamp;
+    if (elapsed > 60_000) {
+      clearAuthTracking();
+    } else {
+      recordAuthCallbackLanding(recorder, tracking, elapsed);
+      if (tracking.redirectCount >= AUTH_LOOP_THRESHOLD && elapsed < AUTH_LOOP_WINDOW_MS) {
+        handleAuthRedirectLoop(recorder, tracking, elapsed);
       } else {
-        // NOTE (t/2024, CodeQL js/user-controlled-bypass #5314 — dismissed as false
-        // positive, TL-approved p/56#192): this cookie read is DIAGNOSTIC ONLY. It
-        // populates the `has_session_cookie` telemetry field below and gates NO security
-        // decision — the auth-loop branch keys on redirectCount/elapsed, never on this
-        // value. Do not treat `hasSession` as an authorization signal.
-        const hasSession = document.cookie.includes('AppServiceAuthSession');
-        recorder.record({
-          type: 'auth.callback_landing',
-          component: 'auth',
-          level: 'info',
-          message: `OAuth callback: provider=${tracking.provider}, redirects=${tracking.redirectCount}`,
-          data: {
-            provider: tracking.provider,
-            principal: (_authState as { principalName?: string } | null)?.principalName ?? null,
-            has_session_cookie: hasSession,
-            redirect_count: tracking.redirectCount,
-            elapsed_ms: elapsed,
-          },
-        });
-
-        if (tracking.redirectCount >= AUTH_LOOP_THRESHOLD && elapsed < AUTH_LOOP_WINDOW_MS) {
-          recorder.record({
-            type: 'auth.loop_detected',
-            component: 'auth',
-            level: 'error',
-            message: `Auth redirect loop detected: ${tracking.redirectCount} redirects in ${elapsed}ms`,
-            data: {
-              provider: tracking.provider,
-              redirect_count: tracking.redirectCount,
-              elapsed_ms: elapsed,
-              threshold: AUTH_LOOP_THRESHOLD,
-              window_ms: AUTH_LOOP_WINDOW_MS,
-            },
-          });
-          clearAuthTracking();
-          void persistDump(recorder, 'explicit', undefined, { reason: 'auth_loop_detected', provider: tracking.provider });
-        } else {
-          clearAuthTracking();
-        }
+        clearAuthTracking();
       }
     }
-
-    // Delegated click handler: capture auth login link clicks
-    document.addEventListener('click', (e) => {
-      const anchor = (e.target as HTMLElement).closest?.('a[href*="/api/auth/fresh-login/"]') as HTMLAnchorElement | null;
-      if (!anchor) return;
-      const href = anchor.getAttribute('href') ?? '';
-      const providerMatch = href.match(/\/api\/auth\/fresh-login\/([^/?#]+)/);
-      const provider = providerMatch?.[1] ?? 'unknown';
-
-      const existing = getAuthTracking();
-      const now = Date.now();
-      const count = (existing && existing.provider === provider && (now - existing.timestamp) < AUTH_LOOP_WINDOW_MS)
-        ? existing.redirectCount + 1
-        : 1;
-      setAuthTracking({ provider, timestamp: now, redirectCount: count });
-
-      recorder.record({
-        type: 'auth.login_attempt',
-        component: 'auth',
-        level: 'info',
-        message: `Auth login initiated: provider=${provider}`,
-        data: { provider, redirect_count: count, href },
-      });
-    }, true);
   }
 
-  // ── Context provider (full app state snapshot for dump) ──
-  // See operations/diagnostics/flight-recorder-context-spec.md for field descriptions.
-  // MUST be synchronous, handle uninitialized stores, no secrets, target <2KB.
+  // Delegated click handler: capture auth login link clicks
+  document.addEventListener('click', (e) => {
+    const anchor = (e.target as HTMLElement).closest?.('a[href*="/api/auth/fresh-login/"]') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    const href = anchor.getAttribute('href') ?? '';
+    const providerMatch = href.match(/\/api\/auth\/fresh-login\/([^/?#]+)/);
+    const provider = providerMatch?.[1] ?? 'unknown';
 
-  recorder.setContextProvider(() => {
+    const existing = getAuthTracking();
+    const now = Date.now();
+    const count = (existing && existing.provider === provider && (now - existing.timestamp) < AUTH_LOOP_WINDOW_MS)
+      ? existing.redirectCount + 1
+      : 1;
+    setAuthTracking({ provider, timestamp: now, redirectCount: count });
+
+    recorder.record({
+      type: 'auth.login_attempt',
+      component: 'auth',
+      level: 'info',
+      message: `Auth login initiated: provider=${provider}`,
+      data: { provider, redirect_count: count, href },
+    });
+  }, true);
+}
+
+/** Detects the device form factor from the user agent. */
+function detectDevicePlatform(): string {
+  if (/iPad|Macintosh.*Mobile/i.test(navigator.userAgent)) return 'ipad';
+  if (/iPhone/i.test(navigator.userAgent)) return 'iphone';
+  if (/Android/i.test(navigator.userAgent)) return 'android';
+  return 'desktop';
+}
+
+/** Builds the open-circuit snapshot for the network resilience context field. */
+function getOpenCircuits(): Record<string, { state: string; failures: number; recent?: string[] }> | undefined {
+  const rs = getResilienceState();
+  const out: Record<string, { state: string; failures: number; recent?: string[] }> = {};
+  for (const [cat, c] of Object.entries(rs.circuits)) {
+    if (c.state !== 'CLOSED' || c.consecutiveFailures > 0) {
+      out[cat] = { state: c.state, failures: c.consecutiveFailures, ...(c.recentFailures.length > 0 ? { recent: c.recentFailures } : {}) };
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Returns the context provider callback for recorder.setContextProvider.
+ * See operations/diagnostics/flight-recorder-context-spec.md for field descriptions.
+ * MUST be synchronous, handle uninitialized stores, no secrets, target <2KB.
+ */
+function buildContextProvider(recorder: FlightRecorder): () => Record<string, unknown> {
+  return () => {
     try {
       const stores = getStores();
       if (!stores) return {};
@@ -689,10 +756,7 @@ export function initFlightRecorder(): FlightRecorder {
           os_version: eApi?.osRelease ?? undefined,
         },
         device: {
-          platform: /iPad|Macintosh.*Mobile/i.test(navigator.userAgent) ? 'ipad'
-            : /iPhone/i.test(navigator.userAgent) ? 'iphone'
-            : /Android/i.test(navigator.userAgent) ? 'android'
-            : 'desktop',
+          platform: detectDevicePlatform(),
           touchPoints: navigator.maxTouchPoints,
           standalone: window.matchMedia('(display-mode: standalone)').matches,
         },
@@ -748,16 +812,7 @@ export function initFlightRecorder(): FlightRecorder {
         network: {
           online: navigator.onLine,
           deployment_mode: getDeploymentMode(),
-          resilience: (() => {
-            const rs = getResilienceState();
-            const out: Record<string, { state: string; failures: number; recent?: string[] }> = {};
-            for (const [cat, c] of Object.entries(rs.circuits)) {
-              if (c.state !== 'CLOSED' || c.consecutiveFailures > 0) {
-                out[cat] = { state: c.state, failures: c.consecutiveFailures, ...(c.recentFailures.length > 0 ? { recent: c.recentFailures } : {}) };
-              }
-            }
-            return Object.keys(out).length > 0 ? out : undefined;
-          })(),
+          resilience: getOpenCircuits(),
         },
         performance: {
           uptime_s: Math.round(performance.now() / 1000),
@@ -778,106 +833,115 @@ export function initFlightRecorder(): FlightRecorder {
       /* flight recorder init — silent by design (can't log to itself) */
       return {};
     }
-  });
+  };
+}
 
-  // ── Receive forwarded events from popup windows (main window only) ──
+/** Wires the main window to receive forwarded events from popup windows. */
+function initPopupForwarding(recorder: FlightRecorder): void {
+  // Electron: receive via IPC
+  const electronAPI = (window as unknown as { electronAPI?: { onFlightEventFromPopup?: (cb: (_e: unknown, payload: unknown) => void) => void } }).electronAPI;
+  if (electronAPI?.onFlightEventFromPopup) {
+    electronAPI.onFlightEventFromPopup((_e, payload) => {
+      const event = payload as RecordInput;
+      if (event.data?._dict_category && event.data?._dict_value) {
+        recorder.intern(event.data._dict_category as string, event.data._dict_value as string);
+      }
+      recorder.record(event);
+    });
+  }
 
-  if (!isPopup) {
-    // Electron: receive via IPC
-    const electronAPI = (window as unknown as { electronAPI?: { onFlightEventFromPopup?: (cb: (_e: unknown, payload: unknown) => void) => void } }).electronAPI;
-    if (electronAPI?.onFlightEventFromPopup) {
-      electronAPI.onFlightEventFromPopup((_e, payload) => {
-        const event = payload as RecordInput;
+  // Web: receive via BroadcastChannel (mirrors IPC path for web-container popups)
+  if (typeof BroadcastChannel !== 'undefined') {
+    const frChannel = new BroadcastChannel('aitriad-flight-recorder');
+    frChannel.onmessage = (msg: MessageEvent<{ type: string; payload?: RecordInput; origin?: string }>) => {
+      if (msg.data.type === 'event' && msg.data.payload) {
+        const event = msg.data.payload;
         if (event.data?._dict_category && event.data?._dict_value) {
           recorder.intern(event.data._dict_category as string, event.data._dict_value as string);
         }
         recorder.record(event);
-      });
-    }
-
-    // Web: receive via BroadcastChannel (mirrors IPC path for web-container popups)
-    if (typeof BroadcastChannel !== 'undefined') {
-      const frChannel = new BroadcastChannel('aitriad-flight-recorder');
-      frChannel.onmessage = (msg: MessageEvent<{ type: string; payload?: RecordInput; origin?: string }>) => {
-        if (msg.data.type === 'event' && msg.data.payload) {
-          const event = msg.data.payload;
-          if (event.data?._dict_category && event.data?._dict_value) {
-            recorder.intern(event.data._dict_category as string, event.data._dict_value as string);
-          }
-          recorder.record(event);
-        } else if (msg.data.type === 'dump-request') {
-          void persistDump(recorder, 'manual');
-        }
-      };
-      if (import.meta.hot) {
-        import.meta.hot.dispose(() => frChannel.close());
+      } else if (msg.data.type === 'dump-request') {
+        void persistDump(recorder, 'manual');
       }
+    };
+    if (import.meta.hot) {
+      import.meta.hot.dispose(() => frChannel.close());
     }
   }
+}
 
-  // ── HMR timestamp extraction (dev-only) ──
-  function extractHmrTimestamps(stack?: string): Record<string, number> | undefined {
-    if (!stack || !import.meta.env.DEV) return undefined;
-    const matches: Record<string, number> = {};
-    for (const m of stack.matchAll(/([^\s(]+)\?t=(\d+)/g)) {
-      matches[m[1]] = Number(m[2]);
-    }
-    return Object.keys(matches).length > 0 ? matches : undefined;
+/** Extracts HMR module timestamps from an error stack (dev-only). */
+function extractHmrTimestamps(stack?: string): Record<string, number> | undefined {
+  if (!stack || !import.meta.env.DEV) return undefined;
+  const matches: Record<string, number> = {};
+  for (const m of stack.matchAll(/([^\s(]+)\?t=(\d+)/g)) {
+    matches[m[1]] = Number(m[2]);
   }
+  return Object.keys(matches).length > 0 ? matches : undefined;
+}
 
-  // ── Auto-dump triggers ──
+/** Records and dumps an uncaught error event. */
+function handleUncaughtError(recorder: FlightRecorder, err: Error, loadGeneration: number): void {
+  const externalizedModule = extractExternalizedModule(err);
+  recorder.record({
+    type: 'system.error',
+    component: 'unknown',
+    level: 'fatal',
+    message: err.message,
+    error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) },
+    data: { hmr_timestamps: extractHmrTimestamps(err.stack), load_generation: loadGeneration, ...(externalizedModule ? { externalized_module: externalizedModule } : {}) },
+  });
+  if (canAutoDump()) {
+    recordDump();
+    void persistDump(recorder, 'uncaught_error', {
+      name: err.name, message: err.message, stack: err.stack?.slice(0, 500),
+    });
+  }
+  api.reportError(
+    { name: err.name, message: err.message, stack: err.stack?.slice(0, 2000) },
+    { trigger: 'uncaught_error', url: location.href, deploymentMode: getDeploymentMode() },
+  ).catch(() => { /* telemetry — silent by design: error reporting failures must not cascade */ });
+}
 
+/** Records and dumps an unhandled promise rejection event. */
+function handleUnhandledRejection(recorder: FlightRecorder, err: Error, loadGeneration: number): void {
+  recorder.record({
+    type: 'system.error',
+    component: 'unknown',
+    level: 'fatal',
+    message: err.message,
+    error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) },
+    data: { hmr_timestamps: extractHmrTimestamps(err.stack), load_generation: loadGeneration },
+  });
+  if (canAutoDump()) {
+    recordDump();
+    void persistDump(recorder, 'unhandled_rejection', {
+      name: err.name, message: err.message, stack: err.stack?.slice(0, 500),
+    });
+  }
+  api.reportError(
+    { name: err.name, message: err.message, stack: err.stack?.slice(0, 2000) },
+    { trigger: 'unhandled_rejection', url: location.href, deploymentMode: getDeploymentMode() },
+  ).catch(() => { /* telemetry — silent by design: error reporting failures must not cascade */ });
+}
+
+/** Registers window error, unhandledrejection, and keyboard dump-trigger listeners. */
+function initAutoDumpTriggers(recorder: FlightRecorder, loadGeneration: number): void {
   window.addEventListener('error', (event) => {
     const err = event.error instanceof Error ? event.error : new Error(String(event.error ?? event.message));
     // An externalized-builtin link failure can throw at module eval, before React
     // mounts — so it surfaces here rather than via the error boundary. Name the
     // module in the dump either way (t/2551 observability arm).
-    const externalizedModule = extractExternalizedModule(err);
-    recorder.record({
-      type: 'system.error',
-      component: 'unknown',
-      level: 'fatal',
-      message: err.message,
-      error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) },
-      data: { hmr_timestamps: extractHmrTimestamps(err.stack), load_generation: loadGeneration, ...(externalizedModule ? { externalized_module: externalizedModule } : {}) },
-    });
-    if (canAutoDump()) {
-      recordDump();
-      void persistDump(recorder, 'uncaught_error', {
-        name: err.name, message: err.message, stack: err.stack?.slice(0, 500),
-      });
-    }
-    api.reportError(
-      { name: err.name, message: err.message, stack: err.stack?.slice(0, 2000) },
-      { trigger: 'uncaught_error', url: location.href, deploymentMode: getDeploymentMode() },
-    ).catch(() => { /* telemetry — silent by design: error reporting failures must not cascade */ });
+    handleUncaughtError(recorder, err, loadGeneration);
   });
 
   window.addEventListener('unhandledrejection', (event) => {
     const err = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
-    recorder.record({
-      type: 'system.error',
-      component: 'unknown',
-      level: 'fatal',
-      message: err.message,
-      error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) },
-      data: { hmr_timestamps: extractHmrTimestamps(err.stack), load_generation: loadGeneration },
-    });
-    if (canAutoDump()) {
-      recordDump();
-      void persistDump(recorder, 'unhandled_rejection', {
-        name: err.name, message: err.message, stack: err.stack?.slice(0, 500),
-      });
-    }
-    api.reportError(
-      { name: err.name, message: err.message, stack: err.stack?.slice(0, 2000) },
-      { trigger: 'unhandled_rejection', url: location.href, deploymentMode: getDeploymentMode() },
-    ).catch(() => { /* telemetry — silent by design: error reporting failures must not cascade */ });
+    handleUnhandledRejection(recorder, err, loadGeneration);
   });
 
   // ── Keyboard shortcut: Ctrl+Alt+D for manual dump ──
   // (Ctrl+Shift+D is consumed by Chrome's "Bookmark all tabs")
-
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey && event.altKey && event.key === 'd') {
       event.preventDefault();
@@ -885,32 +949,84 @@ export function initFlightRecorder(): FlightRecorder {
       console.log('[flight-recorder] Manual dump triggered via Ctrl+Alt+D');
     }
   });
+}
+
+/** Wires the Electron IPC listener that lets popup windows trigger a main-window dump. */
+function initPopupDumpRelay(recorder: FlightRecorder): void {
+  const eApi = (window as unknown as { electronAPI?: { onTriggerDump?: (cb: () => void) => () => void; sendDumpResult?: (r: { filePath: string }) => void } }).electronAPI;
+  if (!eApi?.onTriggerDump || !eApi?.sendDumpResult) return;
+  eApi.onTriggerDump(() => {
+    const { ndjson } = recorder.buildDump('manual');
+    void api.dumpFlightRecorder(ndjson).then(result => {
+      eApi.sendDumpResult!({ filePath: result.filePath });
+      console.log(`[flight-recorder] Dump triggered by popup, saved: ${result.filePath}`);
+    }).catch(err => {
+      console.warn('[flight-recorder] Popup-triggered dump failed:', err);
+      eApi.sendDumpResult!({ filePath: '' });
+    });
+  });
+}
+
+// ── Public API ───────────────────────────────────────────────────────────
+
+export function initFlightRecorder(): FlightRecorder {
+  if (initialized) return getGlobalRecorder()!;
+  initialized = true;
+
+  const { isPopup, windowId } = resolveWindowId(window.location.hash);
+
+  // Popup windows use a thin shim — no local buffer, forward everything to main.
+  // Electron: IPC via electronAPI. Web: BroadcastChannel.
+  if (isPopup) {
+    const shim = initPopupRecorder(windowId);
+    if (shim) return shim;
+  }
+
+  const recorder = new FlightRecorder({ capacity: RECORDER_CAPACITY_DEFAULT, dumpOnError: true });
+  setGlobalRecorder(recorder);
+
+  registerDictionary(recorder);
+  wrapRecordWithOrigin(recorder, windowId);
+
+  // Compute load_generation: increments on each page load/HMR within the same window tab
+  const loadGeneration = loadLoadGeneration();
+
+  // Set ambient window identity on all events
+  recorder.setEventContext({ window_id: windowId, load_generation: loadGeneration });
+  recordInitEvent(recorder, windowId, loadGeneration);
+
+  // ── HMR lifecycle events (dev-only) ──
+  registerHmrListeners(recorder, loadGeneration);
+
+  // ── Auth flow instrumentation (web only, main window only) ──
+  // Use window.opener === null rather than the hash-derived isPopup: opener is a
+  // browser-controlled property and avoids a user-controlled-bypass lint finding.
+  if (isWeb && window.opener === null) {
+    initAuthInstrumentation(recorder);
+  }
+
+  // ── Context provider (full app state snapshot for dump) ──
+  recorder.setContextProvider(buildContextProvider(recorder));
+
+  // ── Receive forwarded events from popup windows (main window only) ──
+  if (!isPopup) {
+    initPopupForwarding(recorder);
+  }
+
+  // ── Auto-dump triggers ──
+  initAutoDumpTriggers(recorder, loadGeneration);
 
   // ── Dev console access ──
-
   (window as unknown as { __flightRecorder: FlightRecorder }).__flightRecorder = recorder;
 
   // ── ErrorBoundary hook (shared lib uses globalThis to avoid cross-app imports) ──
-
   (globalThis as unknown as { __onErrorBoundaryCatch: (err: Error, stack?: string) => void }).__onErrorBoundaryCatch = dumpOnReactError;
 
   // ── ErrorBoundary "Dump Log" button hook ──
   (globalThis as unknown as { __triggerManualDump: () => Promise<void> }).__triggerManualDump = triggerManualDump;
 
   // ── Listen for dump requests from popup windows (via main process relay) ──
-  const eApi = (window as unknown as { electronAPI?: { onTriggerDump?: (cb: () => void) => () => void; sendDumpResult?: (r: { filePath: string }) => void } }).electronAPI;
-  if (eApi?.onTriggerDump && eApi?.sendDumpResult) {
-    eApi.onTriggerDump(() => {
-      const { ndjson } = recorder.buildDump('manual');
-      void api.dumpFlightRecorder(ndjson).then(result => {
-        eApi.sendDumpResult!({ filePath: result.filePath });
-        console.log(`[flight-recorder] Dump triggered by popup, saved: ${result.filePath}`);
-      }).catch(err => {
-        console.warn('[flight-recorder] Popup-triggered dump failed:', err);
-        eApi.sendDumpResult!({ filePath: '' });
-      });
-    });
-  }
+  initPopupDumpRelay(recorder);
 
   return recorder;
 }
@@ -979,11 +1095,7 @@ function snapshotStoresForCrash(): Record<string, unknown> | undefined {
       dirty_files: [...((taxState.dirty as Set<string>) ?? [])],
       // t/2732: surface sessions with non-string titles so index-shape bugs name the
       // offending session IDs immediately rather than after reading the full call path.
-      debate_sessions_non_string_title_ids: (() => {
-        const sessions = debateState.sessions as Array<{ id: string; title: unknown }> | undefined;
-        const bad = (sessions ?? []).filter(s => typeof s.title !== 'string').map(s => s.id);
-        return bad.length > 0 ? bad : undefined;
-      })(),
+      debate_sessions_non_string_title_ids: badSessionTitleIds.length > 0 ? badSessionTitleIds : undefined,
     };
   } catch {
     /* flight recorder init — silent by design (store may be corrupted) */
