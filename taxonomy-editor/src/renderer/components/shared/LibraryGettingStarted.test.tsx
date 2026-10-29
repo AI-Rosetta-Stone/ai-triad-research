@@ -185,6 +185,21 @@ describe('LibraryGettingStarted (t/4561)', () => {
     expect(withoutFallbackDecls).not.toMatch(/var\(--lib-/);
   });
 
+  // Design review, t/4639#4 item 1 (BLOCKER): `.lib-getting-started-body { display: flex }`'s
+  // class-selector specificity beat the UA stylesheet's `[hidden] { display: none }`, so the
+  // body stayed visually visible even with the `hidden` ATTRIBUTE set — collapsing changed
+  // nothing in any of the four tools when actually rendered in a browser. Every
+  // `queryByRole(...)).not.toBeInTheDocument()` assertion elsewhere in this file passed anyway,
+  // because testing-library's own accessibility-tree computation treats the `hidden` attribute
+  // as authoritative regardless of CSS — jsdom never loads this stylesheet, so those assertions
+  // cannot see the cascade bug a real browser has. This test reads the CSS SOURCE directly (the
+  // only way a jsdom-based suite can catch this class of regression) and pins the override rule
+  // that makes the attribute actually take effect.
+  it('an explicit [hidden] override rule exists so collapsing visually hides the body (t/4639#4 item 1 regression guard)', () => {
+    const css = readFileSync(join(__dirname, 'LibraryGettingStarted.css'), 'utf-8');
+    expect(css).toMatch(/\.lib-getting-started-body\[hidden\]\s*\{\s*display:\s*none;?\s*\}/);
+  });
+
   // t/4633: examplePool + exampleCount — the random-subset path, additive and backward
   // compatible (legacy `chips` callers are covered by every test above, unchanged).
   describe('examplePool + exampleCount (t/4633)', () => {

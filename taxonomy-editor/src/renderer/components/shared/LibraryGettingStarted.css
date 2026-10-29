@@ -55,11 +55,18 @@
   border: none;
   cursor: pointer;
   text-align: left;
+  /* Design review, t/4639#4 item 2: a <button> doesn't inherit font-family from its ancestor
+     h2 by default (UA stylesheet sets its own), so the title rendered in the browser's button
+     font (Arial) instead of the page font. */
+  font: inherit;
+  color: inherit;
 }
 
 .lib-getting-started[data-expanded="true"] .lib-getting-started-toggle {
   padding: 0;
-  min-height: 0;
+  /* Design review, t/4639#4 item 4: 0 collapsed the hit area to the label's own line height
+     (17px), below the WCAG 2.5.8 24px minimum. */
+  min-height: 24px;
 }
 
 .lib-getting-started-toggle:focus-visible {
@@ -78,14 +85,18 @@
   align-items: center;
   gap: 4px;
   font-size: 13px;
+  font-weight: 400; /* t/4639#4 item 2: undo the inherited h2 bold weight from `font: inherit` above */
   color: var(--lgs-text-secondary);
   text-decoration: none;
   flex-shrink: 0;
 }
 
+/* Design review, t/4639#4 item 3: Design's own spec called for --lgs-accent here, but measured
+   contrast fails AA in light/dark/bkc (as low as 2.74:1). --lgs-text measures 9.37-16.12:1 across
+   all 4 themes. The focus ring stays accent-coloured — it's a non-text indicator. */
 .lib-getting-started-toggle:hover .lib-getting-started-toggle-label,
 .lib-getting-started-toggle:focus-visible .lib-getting-started-toggle-label {
-  color: var(--lgs-accent);
+  color: var(--lgs-text);
   text-decoration: underline;
 }
 
@@ -109,6 +120,16 @@
   align-items: flex-start;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* Design review, t/4639#4 item 1 (BLOCKER): the class rule above's `display: flex` has higher
+   specificity than the UA stylesheet's `[hidden] { display: none }`, and the app has no global
+   [hidden] rule — so collapsing changed nothing in any of the four tools (measured: body height
+   unchanged, panel lost only 5px of padding). jsdom doesn't load CSS, so a test asserting the
+   `hidden` ATTRIBUTE alone can't catch this — it was never a reliable proxy for "actually
+   invisible" here. This explicit override restores it. */
+.lib-getting-started-body[hidden] {
+  display: none;
 }
 
 .lib-getting-started-why {
