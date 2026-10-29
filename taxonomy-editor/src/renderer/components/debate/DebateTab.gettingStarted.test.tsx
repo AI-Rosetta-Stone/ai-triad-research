@@ -25,7 +25,9 @@ beforeAll(() => {
   });
 });
 
-vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => ({ anonymous: false }) }));
+// t/4643: LibraryListPage (which DebateTab renders through) now also calls useUserProfile via
+// useIsAdmin — not under test here, so a stub returning null (fails closed, matches no-profile).
+vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => ({ anonymous: false }), useUserProfile: () => null }));
 
 vi.mock('../../hooks/useDebateStore', () => ({
   useDebateStore: (selector: (s: Record<string, unknown>) => unknown) => selector({

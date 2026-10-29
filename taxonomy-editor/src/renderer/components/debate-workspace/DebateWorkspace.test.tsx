@@ -26,6 +26,8 @@ const mockStore: Record<string, any> = {
   setDiagPopoutOpen: vi.fn(),
   responseLength: 'detailed',
   setResponseLength: vi.fn(),
+  defaultDisplayTier: undefined,
+  setDefaultDisplayTier: vi.fn(),
   factCheckSelection: vi.fn(),
   reExtractClaims: vi.fn(),
   driverIsRemote: false,
@@ -313,19 +315,21 @@ describe('toolbar', () => {
     expect(screen.getByText('Comments (0)')).toBeInTheDocument();
   });
 
-  it('renders two-mode control with Text/Analysis mode group and text sub-options', () => {
+  it('renders the three-mode control: Text | Why | How (t/4625)', () => {
     render(<DebateWorkspace />);
     expect(screen.getByText('Text')).toBeInTheDocument();
-    expect(screen.getByText('Analysis')).toBeInTheDocument();
+    expect(screen.getByText('Why')).toBeInTheDocument();
+    expect(screen.getByText('How')).toBeInTheDocument();
+    expect(screen.queryByText('Analysis')).not.toBeInTheDocument();
     expect(screen.getByText('Brief')).toBeInTheDocument();
     expect(screen.getByText('Medium')).toBeInTheDocument();
     expect(screen.getByText('Detailed')).toBeInTheDocument();
   });
 
-  it('renders 2 mode segments + a value dropdown with the text-tier options (t/2274 §13)', () => {
+  it('renders 3 mode segments + a value dropdown with the text-tier options (t/2274 §13, t/4625)', () => {
     const { container } = render(<DebateWorkspace />);
-    // Mode toggle = 2 neutral segments; value selector is now a <select>, not pills.
-    expect(container.querySelectorAll('.debate-mode-seg').length).toBe(2);
+    // Mode toggle = 3 neutral segments; value selector is now a <select>, not pills.
+    expect(container.querySelectorAll('.debate-mode-seg').length).toBe(3);
     const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
     expect(select).toBeTruthy();
     const opts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
@@ -341,6 +345,32 @@ describe('toolbar', () => {
     expect(activeSegs[0].textContent).toBe('Text');
     const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
     expect(select.value).toBe('brief');
+  });
+
+  // t/4625: global Why mode.
+  it('clicking Why sets the global default tier to why', () => {
+    render(<DebateWorkspace />);
+    fireEvent.click(screen.getByText('Why'));
+    expect(mockStore.setDefaultDisplayTier).toHaveBeenCalledWith('why');
+  });
+
+  it('marks Why mode active and shows its single-option dropdown when defaultDisplayTier is why', () => {
+    mockStore.defaultDisplayTier = 'why';
+    const { container } = render(<DebateWorkspace />);
+    const activeSegs = container.querySelectorAll('.debate-mode-seg-active');
+    expect(activeSegs.length).toBe(1);
+    expect(activeSegs[0].textContent).toBe('Why');
+    const select = container.querySelector('select.debate-value-dropdown') as HTMLSelectElement;
+    expect(select.value).toBe('why');
+    const opts = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(opts).toEqual(['Why']);
+    mockStore.defaultDisplayTier = undefined; // don't leak into later tests in this block
+  });
+
+  it('clicking How (the renamed Analysis mode) still sets the reasoning tier', () => {
+    render(<DebateWorkspace />);
+    fireEvent.click(screen.getByText('How'));
+    expect(mockStore.setDefaultDisplayTier).toHaveBeenCalledWith('reasoning');
   });
 
   it('does not render Export button when onExport prop is not provided', () => {

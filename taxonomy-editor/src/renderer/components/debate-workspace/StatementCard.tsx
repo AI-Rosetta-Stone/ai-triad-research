@@ -15,7 +15,7 @@ import { getDebateMarkdownComponents, type VocabResolution } from '../../utils/v
 import {
   speakerLabel, speakerColor, pctFmt, focusMainWindowNode,
   fixMarkdownLinks, stripLeadingHeadings,
-  META_TIERS, TIER_LABELS,
+  META_TIERS, TIER_LABELS, modeOfTier,
 } from './utils';
 import { bandColor as computeBandColor } from '../../lib/bandColor';
 import type { BandEntry } from '../../lib/bandColor';
@@ -35,7 +35,8 @@ import { LineageTermsView, VocabTermsView } from './VocabularyPanel';
 import { CommentOverlay, useEntryCommentCount } from '../chat/CommentHighlights';
 import { useCommentStore } from '../../hooks/useCommentStore';
 import type { DetailTier } from '@lib/debate/comments';
-import { TaxonomyRefsSection } from './TaxonomyRefs';
+import { TaxonomyRefsSection, BdiGroundingView } from './TaxonomyRefs';
+import { StatementTierPills, type SetEntryDisplayTier } from './StatementTierPills';
 import { StatementSteelmans } from '../shared/Steelman';
 import { api } from '@bridge';
 
@@ -439,16 +440,11 @@ function resolveDisplayContent(entry: TranscriptEntry, activeTier: string, isSub
   return { displayContent: stripLeadingHeadings(entry.content), isTruncated: false };
 }
 
-const TIER_TITLES: Record<string, string> = {
-  brief: '2-3 sentences', medium: '1-2 paragraphs', detailed: 'Full response',
-  reasoning: 'Brief, plan & BDI (replaces text)', claims: 'Argument network claims',
-  terms: 'Vocabulary disambiguation', lineage: 'Intellectual lineage references',
-  convergence: 'Convergence diagnostics',
-};
+/** t/4625: 'why' renders a structured view too, same as META_TIERS, but isn't itself a member. */
+function isMetaViewTier(tier: string): boolean { return META_TIERS.has(tier) || tier === 'why'; }
 
 // ── Shared ref helpers (t/1911: keep TaxonomyRefsSection call-sites flat) ──
 type ActiveDebateT = ReturnType<typeof useDebateStore.getState>['activeDebate'];
-type SetEntryDisplayTier = ReturnType<typeof useDebateStore.getState>['setEntryDisplayTier'];
 type StageDiagnostics = { stage: string; raw_response: string; work_product: Record<string, unknown> }[] | undefined;
 
 function stageDiagnosticsFor(activeDebate: ActiveDebateT, entryId: string): StageDiagnostics {
@@ -472,123 +468,6 @@ function StatementModelBadge({ entry, activeDebate }: { entry: TranscriptEntry; 
   return (
     <span className="debate-model-badge" title={modelId}>
       {short}
-    </span>
-  );
-}
-
-type TextTier = 'brief' | 'medium' | 'detailed';
-type AnalysisTier = 'reasoning' | 'terms' | 'lineage' | 'claims' | 'convergence';
-const TEXT_TIERS: TextTier[] = ['brief', 'medium', 'detailed'];
-const MODE_IDS = [{ id: 'text', label: 'Text' }, { id: 'analysis', label: 'Analysis' }] as const;
-
-function StatementTierPills({ entry, activeTier, setEntryDisplayTier, vocabResolutions, hasLineageRefs }: {
-  entry: TranscriptEntry;
-  activeTier: string;
-  setEntryDisplayTier: SetEntryDisplayTier;
-  vocabResolutions: VocabResolution[] | undefined;
-  hasLineageRefs: boolean;
-}) {
-  const activeMode = META_TIERS.has(activeTier) ? 'analysis' : 'text';
-
-  const [lastText, setLastText] = useState<TextTier>(
-    activeMode === 'text' ? (activeTier as TextTier) : 'detailed'
-  );
-  const [lastAnalysis, setLastAnalysis] = useState<AnalysisTier>(
-    activeMode === 'analysis' ? (activeTier as AnalysisTier) : 'reasoning'
-  );
-
-  // Sync per-card memory when tier changes externally (global default reset, override clear).
-  useEffect(() => {
-    if (META_TIERS.has(activeTier)) setLastAnalysis(activeTier as AnalysisTier);
-    else setLastText(activeTier as TextTier);
-  }, [activeTier]);
-
-  const analysisOptions = useMemo<AnalysisTier[]>(
-    () => (['reasoning', 'terms', 'lineage', 'claims', 'convergence'] as AnalysisTier[]).filter(t => {
-      if (t === 'terms') return !!(vocabResolutions && vocabResolutions.length > 0);
-      if (t === 'lineage') return hasLineageRefs;
-      return true;
-    }),
-    [vocabResolutions, hasLineageRefs],
-  );
-
-  const subTiers = activeMode === 'text' ? TEXT_TIERS : analysisOptions;
-  const isOverridden = entry.display_tier != null;
-
-  const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  const handleModeSelect = useCallback((mode: 'text' | 'analysis') => {
-    if (mode === activeMode) return;
-    setEntryDisplayTier(entry.id, mode === 'text' ? lastText : lastAnalysis);
-  }, [activeMode, lastText, lastAnalysis, entry.id, setEntryDisplayTier]);
-
-  const handleSubSelect = useCallback((tier: string) => {
-    setEntryDisplayTier(entry.id, tier as TextTier | AnalysisTier);
-    if (activeMode === 'text') setLastText(tier as TextTier);
-    else setLastAnalysis(tier as AnalysisTier);
-  }, [activeMode, entry.id, setEntryDisplayTier]);
-
-  const handleModeKey = useCallback((e: { key: string; preventDefault(): void }, idx: number) => {
-    let next = idx;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % 2;
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + 2) % 2;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = 1;
-    else return;
-    e.preventDefault();
-    handleModeSelect(MODE_IDS[next].id);
-    requestAnimationFrame(() => modeRefs.current[next]?.focus());
-  }, [handleModeSelect]);
-
-  return (
-    <span className="debate-tier-pills">
-      <span role="radiogroup" aria-label="View mode" className="debate-mode-group">
-        {MODE_IDS.map(({ id, label }, i) => (
-          <button
-            key={id}
-            ref={el => { modeRefs.current[i] = el; }}
-            type="button"
-            role="radio"
-            aria-checked={activeMode === id}
-            tabIndex={activeMode === id ? 0 : -1}
-            className={`debate-mode-seg${activeMode === id ? ' debate-mode-seg-active' : ''}`}
-            onClick={(e) => { e.stopPropagation(); handleModeSelect(id); }}
-            onKeyDown={(e) => handleModeKey(e, i)}
-          >
-            {label}
-          </button>
-        ))}
-      </span>
-      {/* Value selector — native <select> styled as a dropdown button (t/2274 §13).
-          Native gives keyboard access for free (open/navigate/select, Esc closes,
-          focus returns). Override → dot on the button + "Match global default" item. */}
-      <span className="debate-value-dropdown-wrap">
-        <select
-          className="debate-detail-dropdown debate-value-dropdown"
-          aria-label={activeMode === 'text' ? 'Text detail level' : 'Analysis view'}
-          value={activeTier}
-          title={TIER_TITLES[activeTier]}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            const v = e.target.value;
-            if (v === '__match_global__') setEntryDisplayTier(entry.id, undefined);
-            else handleSubSelect(v);
-          }}
-        >
-          {subTiers.map(tier => (
-            <option key={tier} value={tier}>{TIER_LABELS[tier]}</option>
-          ))}
-          {isOverridden && <option value="__match_global__">Match global default</option>}
-        </select>
-        {isOverridden && (
-          <span
-            className="debate-value-override-dot"
-            title="Overrides global default"
-            aria-label="Overrides global default"
-          />
-        )}
-      </span>
     </span>
   );
 }
@@ -922,6 +801,14 @@ function StatementBody({
           stageDiagnostics={stageDiagnosticsFor(activeDebate, entry.id)}
           forceExpanded
         />
+      ) : displayedTier === 'why' ? (
+        <div className="debate-statement-content">
+          <BdiGroundingView
+            refs={entry.taxonomy_refs}
+            policyRefs={entry.policy_refs}
+            metaPolicyRefs={metaPolicyRefsOf(entry)}
+          />
+        </div>
       ) : (
         <>
           {/* Always render the markdown — never suppress it when a comment exists
@@ -1084,8 +971,12 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
 
     clearTimeout(midpointTimerRef.current);
 
-    const isTextToText = !META_TIERS.has(prevTier) && !META_TIERS.has(activeTier);
-    const isAnalysisToAnalysis = META_TIERS.has(prevTier) && META_TIERS.has(activeTier);
+    // t/4625: mode-based, so Text<->Why and Why<->How still flip; only a same-mode sub-tier
+    // change (e.g. Brief->Detailed) skips the animation.
+    const prevMode = modeOfTier(prevTier);
+    const curMode = modeOfTier(activeTier);
+    const isTextToText = prevMode === 'text' && curMode === 'text';
+    const isAnalysisToAnalysis = prevMode === 'analysis' && curMode === 'analysis';
     if (isTextToText || isAnalysisToAnalysis || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setDisplayedTier(activeTier);
       return;
@@ -1116,7 +1007,7 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
     if (bodyRef.current) bodyRef.current.style.height = '';
   }, []);
 
-  const isMetaView = META_TIERS.has(displayedTier);
+  const isMetaView = isMetaViewTier(displayedTier);
   const { displayContent, isTruncated } = resolveDisplayContent(entry, displayedTier, isSubstantive);
 
   // Collapsed cards show a word count so a long turn is still distinguishable
