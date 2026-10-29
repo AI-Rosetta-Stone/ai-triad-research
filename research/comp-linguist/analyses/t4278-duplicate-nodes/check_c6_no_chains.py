@@ -2,17 +2,21 @@
 `superseded_by` target is itself superseded -- i.e. the supersession graph has
 no chains, only direct node -> survivor edges.
 
-Reads ONLY frozen_list.json (never re-derives groups). Checks the MECHANICAL
-set (each group's `retire_mechanical` list against its `survivor`); items in
+Reads ONLY the given frozen-list file(s) (never re-derives groups). Accepts
+multiple files (e.g. frozen_list.json + a sibling addition like
+frozen_list_additions.json, t/4624) so a chain spanning both lists -- a
+survivor in one that's retired in the other -- is still caught; each list is
+also checked for self-contained chains as before. Checks the MECHANICAL set
+(each group's `retire_mechanical` list against its `survivor`); items in
 `totals.held_editorial` are excluded on purpose -- they are not yet assigned
 a survivor by this list; the PI's editorial pass covers them separately, and
 a re-run of this check against that outcome applies before that write too.
 
-Exit 0 and prints "C6 PASS" if the mechanical set has no chains. Exit 2 with
-a REFUSE line naming the violation otherwise.
+Exit 0 and prints "C6 PASS" if the combined mechanical set has no chains.
+Exit 2 with a REFUSE line naming the violation otherwise.
 
 Usage:
-    python check_c6_no_chains.py <frozen_list.json path>
+    python check_c6_no_chains.py <frozen_list.json path> [more frozen-list paths...]
 """
 import json
 import sys
@@ -27,21 +31,24 @@ def main():
     if not sys.argv[1:]:
         print(__doc__)
         sys.exit(1)
-    frozen = json.load(open(sys.argv[1], encoding="utf-8"))
 
     survivors = {}   # retired_id -> survivor_id
     all_survivors = set()
     all_retired = set()
+    all_held = []
 
-    for g in frozen["groups"]:
-        survivor = g["survivor"]
-        all_survivors.add(survivor)
-        for retired in g.get("retire_mechanical", []):
-            if retired in survivors:
-                fail(f"{retired} appears in retire_mechanical for more than one group "
-                     f"(already mapped to {survivors[retired]!r}, now also {survivor!r})")
-            survivors[retired] = survivor
-            all_retired.add(retired)
+    for path in sys.argv[1:]:
+        frozen = json.load(open(path, encoding="utf-8"))
+        for g in frozen["groups"]:
+            survivor = g["survivor"]
+            all_survivors.add(survivor)
+            for retired in g.get("retire_mechanical", []):
+                if retired in survivors:
+                    fail(f"{retired} appears in retire_mechanical for more than one group "
+                         f"(already mapped to {survivors[retired]!r}, now also {survivor!r})")
+                survivors[retired] = survivor
+                all_retired.add(retired)
+        all_held.extend(frozen.get("totals", {}).get("held_editorial", []))
 
     # C6a: no survivor is itself in the retired set (would make it superseded).
     chained_survivors = all_survivors & all_retired
@@ -56,11 +63,11 @@ def main():
             fail(f"{retired} -> {survivor}, but {survivor} is ALSO retired "
                  f"(into {survivors[survivor]!r}) -- chain, not a direct edge")
 
-    held = frozen.get("totals", {}).get("held_editorial", [])
-    print(f"C6 PASS: {len(survivors)} mechanical retire->survivor edges, 0 chains.")
+    print(f"C6 PASS: {len(survivors)} mechanical retire->survivor edges across "
+          f"{len(sys.argv[1:])} file(s), 0 chains.")
     print(f"  survivors: {sorted(all_survivors)}")
     print(f"  retired:   {sorted(all_retired)}")
-    print(f"  held_editorial (excluded from this check, PI pass pending): {held}")
+    print(f"  held_editorial (excluded from this check, PI pass pending): {all_held}")
 
 
 if __name__ == "__main__":

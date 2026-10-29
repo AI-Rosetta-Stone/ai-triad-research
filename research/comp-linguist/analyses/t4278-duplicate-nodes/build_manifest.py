@@ -6,13 +6,18 @@ each survivor it records exactly what a supersede-in-place write would ADD:
     already on the survivor;
   - edges (C3): each edge with a retired endpoint, re-pointed to the survivor, deduplicated by
     (source, target, type) against existing edges and against each other, with any edge that would
-    become a self-loop dropped.
+    become a self-loop dropped. Both endpoints are remapped through the GLOBAL retire->survivor map
+    (every group's, not just the edge's "owning" group) in one pass, so an edge between two nodes
+    retired in DIFFERENT groups (e.g. t/4624's G9/G10, where saf-intentions-256 and saf-beliefs-281
+    retire into different parents but point at each other) gets both ends remapped together, instead
+    of each group's independent pass only remapping its own endpoint and leaving a half-remapped edge.
 The originals are left in place for history. The undo is "remove superseded_by, then remove exactly
 these additions".
 
 Only groups with "mechanical": true are applied; editorial ones (G7, and 237 in G5) are listed but
-held. Usage:
-  python build_manifest.py --data <ai-triad-data root> --rev <rev> > reversal_manifest.json
+held. Reads frozen_list.json plus any --extra-frozen paths (e.g. frozen_list_additions.json, t/4624),
+merging their groups into one manifest -- a group id must be unique across all files given. Usage:
+  python build_manifest.py --data <ai-triad-data root> --rev <rev> [--extra-frozen <path> ...] > reversal_manifest.json
 """
 import argparse, json, os, subprocess, sys
 
@@ -40,10 +45,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
     ap.add_argument("--rev", required=True)
+    ap.add_argument("--extra-frozen", action="append", default=[])
     a = ap.parse_args()
-    frozen = json.load(open(os.path.join(HERE, "frozen_list.json"), encoding="utf-8"))
-    if frozen["data_revision"] != a.rev:
-        sys.stderr.write(f"WARN build_manifest: --rev {a.rev} differs from frozen data_revision {frozen['data_revision']}\n")
+    groups = []
+    for path in [os.path.join(HERE, "frozen_list.json")] + a.extra_frozen:
+        frozen = json.load(open(path, encoding="utf-8"))
+        if frozen["data_revision"] != a.rev:
+            sys.stderr.write(f"WARN build_manifest: --rev {a.rev} differs from {path}'s "
+                              f"data_revision {frozen['data_revision']}\n")
+        groups.extend(frozen["groups"])
+    seen_groups = set()
+    for g in groups:
+        if g["group"] in seen_groups:
+            raise SystemExit(f"duplicate group id {g['group']!r} across input files")
+        seen_groups.add(g["group"])
     edges = show(a.data, a.rev, "taxonomy/Origin/edges.json")["edges"]
     existing = {(e["source"], e["target"], e["type"]) for e in edges}
     nodes = {}
@@ -51,10 +66,41 @@ def main():
         for n in show(a.data, a.rev, f"taxonomy/Origin/{f}")["nodes"]:
             nodes[n["id"]] = n
 
-    out = {"data_revision": a.rev, "survivors": [], "held": []}
-    for g in frozen["groups"]:
-        surv = g["survivor"]
+    retire_of_group = {}   # group id -> retire list (mechanical)
+    sup_of = {}             # GLOBAL: retired id -> survivor id, across every group
+    group_of_retired = {}   # retired id -> owning group id
+    for g in groups:
         retire = g.get("retire_mechanical", g["retire"])
+        retire_of_group[g["group"]] = retire
+        for r in retire:
+            sup_of[r] = g["survivor"]
+            group_of_retired[r] = g["group"]
+
+    out = {"data_revision": a.rev, "survivors": [], "held": []}
+    add_edges_by_group = {g["group"]: [] for g in groups}
+    dropped_self_by_group = {g["group"]: 0 for g in groups}
+    existing_or_planned = set(existing)
+    for e in edges:
+        if e["source"] not in sup_of and e["target"] not in sup_of:
+            continue
+        src = sup_of.get(e["source"], e["source"])
+        tgt = sup_of.get(e["target"], e["target"])
+        owning_group = group_of_retired.get(e["source"], group_of_retired.get(e["target"]))
+        if src == tgt:
+            dropped_self_by_group[owning_group] += 1
+            continue
+        k = (src, tgt, e["type"])
+        if k in existing_or_planned:
+            continue
+        existing_or_planned.add(k)
+        ne = dict(e)
+        ne.update(source=src, target=tgt, rationale_source="t4278-supersede-copy",
+                  copied_from={"source": e["source"], "target": e["target"]})
+        add_edges_by_group[owning_group].append(ne)
+
+    for g in groups:
+        surv = g["survivor"]
+        retire = retire_of_group[g["group"]]
         held = [r for r in g["retire"] if r not in retire]
         if held:
             out["held"].append({"group": g["group"], "survivor": surv, "held_ids": held, "why": g.get("editorial_open", "editorial")})
@@ -69,27 +115,10 @@ def main():
                     if ref_key(x) not in have:
                         add_refs[f].append(x)
                         have.add(ref_key(x))
-        new_edges, dropped_self = [], 0
-        planned = set()
-        for e in edges:
-            if e["source"] not in retire and e["target"] not in retire:
-                continue
-            src = surv if e["source"] in retire else e["source"]
-            tgt = surv if e["target"] in retire else e["target"]
-            if src == tgt:
-                dropped_self += 1
-                continue
-            k = (src, tgt, e["type"])
-            if k in existing or k in planned:
-                continue
-            planned.add(k)
-            ne = dict(e)
-            ne.update(source=src, target=tgt, rationale_source="t4278-supersede-copy",
-                      copied_from={"source": e["source"], "target": e["target"]})
-            new_edges.append(ne)
         out["survivors"].append({"group": g["group"], "survivor": surv, "superseded": retire,
                                  "add_refs": {f: v for f, v in add_refs.items() if v},
-                                 "add_edges": new_edges, "dropped_self_loops": dropped_self})
+                                 "add_edges": add_edges_by_group[g["group"]],
+                                 "dropped_self_loops": dropped_self_by_group[g["group"]]})
     json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")
 

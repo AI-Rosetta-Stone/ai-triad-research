@@ -1,0 +1,52 @@
+{
+  "_comment": "t/4624 FROZEN addition to t/4278's supersede-in-place packet (TL ruling t/4624#2). Sibling list, same tooling as frozen_list.json (build_manifest.py / check_c6_no_chains.py / dryrun_apply_undo.py read both). Built read-only on 2026-10-29 against ai-triad-data origin/main 2abb64ef. Disposition: demote-to-parent, not a duplicate-of-another-node merge -- these two nodes are too implementation-specific to be valid Safetyist positions at all (editorial read: t/4624#1), not duplicates of each other or of their parents.",
+  "data_revision": "2abb64ef",
+  "groups": [
+    {
+      "group": "G9",
+      "pov": "safetyist",
+      "label": "Prefix-Safe Context Isolation",
+      "kind": "demote-to-parent: implementation detail of one system (Dream-RSI), not a generalizable AI-policy position",
+      "disposition": "demote-to-parent",
+      "survivor": "saf-intentions-140",
+      "retire": [
+        "saf-intentions-256"
+      ],
+      "edges": {
+        "saf-intentions-140": null,
+        "saf-intentions-256": 5
+      },
+      "note": "Parent 'Containing the Blast Radius of Autonomous AI' is a legitimate general position; -256 narrowed it to one paper's engineering mechanism (sidecar manifests, trace isolation) with 0 situation_refs. source_refs are deliberately NOT folded onto the parent (build_manifest.py's REF_FIELDS already excludes source_refs) -- the parent is a general-risk node, not a Dream-RSI-specific one, and inheriting a single-paper citation would misrepresent what it's about.",
+      "retire_mechanical": [
+        "saf-intentions-256"
+      ],
+      "survivor_basis": "editorial: -256 is an over-specific child of its own existing parent -140, not a duplicate of any sibling node"
+    },
+    {
+      "group": "G10",
+      "pov": "safetyist",
+      "label": "Prefix-Safe Historical Context Isolation",
+      "kind": "demote-to-parent: implementation detail of one system (Dream-RSI), not a generalizable AI-policy position",
+      "disposition": "demote-to-parent",
+      "survivor": "saf-beliefs-097",
+      "retire": [
+        "saf-beliefs-281"
+      ],
+      "edges": {
+        "saf-beliefs-097": null,
+        "saf-beliefs-281": 8
+      },
+      "note": "Parent 'AI's Architectural Complexity Generates Qualitatively New Security Risks' is a legitimate general position; -281 narrowed it to the same Dream-RSI engineering mechanism, with 0 situation_refs. source_refs deliberately NOT folded, same reasoning as G9. -281 and -256 (G9) are a legitimate BDI Belief/Intention pair about the same narrow technical detail -- not duplicates of EACH OTHER either; each is independently too narrow to be a valid position and is demoted to its OWN parent, not merged with its BDI counterpart.",
+      "retire_mechanical": [
+        "saf-beliefs-281"
+      ],
+      "survivor_basis": "editorial: -281 is an over-specific child of its own existing parent -097, not a duplicate of any sibling node"
+    }
+  ],
+  "totals": {
+    "groups": 2,
+    "nodes_retired_mechanical": 2,
+    "held_editorial": []
+  },
+  "so_review": "pending -- SO round requested on these two additions only (TL ruling t/4624#2), scoped to the editorial judgement (demote-to-parent, not duplicate-merge) and the edge folds. Not re-opening t/4278's original e/343#2 SO clearance of G1-G8."
+}
