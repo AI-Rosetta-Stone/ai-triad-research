@@ -6,7 +6,7 @@
 // reduced-motion, and focus move-on-open / restore-on-close, in the shared wrapper so Debate Why,
 // Chat replies and any other TaxNodeDetail consumer gets the fix for free.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TaxNodeDetail } from './TaxNodeDetail';
 
@@ -28,24 +28,24 @@ vi.mock('../taxonomy/TaxonomyRefDetail', () => ({
 
 describe('TaxNodeDetail — scroll + focus on open (t/4651)', () => {
   let scrollSpy: ReturnType<typeof vi.fn>;
-  let matchMediaSpy: ReturnType<typeof vi.spyOn>;
   let reducedMotion = false;
 
   beforeEach(() => {
     scrollSpy = vi.fn();
     Element.prototype.scrollIntoView = scrollSpy;
     reducedMotion = false;
-    matchMediaSpy = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
-      matches: query.includes('prefers-reduced-motion') && reducedMotion,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }) as unknown as MediaQueryList);
-  });
-
-  afterEach(() => {
-    matchMediaSpy.mockRestore();
+    // jsdom has no window.matchMedia — stub it directly (vi.spyOn requires an existing function).
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes('prefers-reduced-motion') && reducedMotion,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as unknown as MediaQueryList),
+    });
   });
 
   it('scrolls the detail into view and focuses it when it mounts', () => {
