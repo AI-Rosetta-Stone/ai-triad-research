@@ -104,7 +104,7 @@ export interface TranscriptEntry {
     medium: string;  // 1-2 paragraphs: main argument + key evidence
   };
   /** Which detail tier to display by default. Absent = show full content. */
-  display_tier?: 'claims' | 'brief' | 'medium' | 'detailed' | 'reasoning' | 'convergence' | 'terms' | 'lineage';
+  display_tier?: 'claims' | 'brief' | 'medium' | 'detailed' | 'reasoning' | 'convergence' | 'terms' | 'lineage' | 'why';
   /** Present when type === 'intervention'. Metadata about the moderator move. */
   intervention_metadata?: InterventionMetadata;
   /** Unresolved judge weaknesses from the final retry attempt — substantive limitations
