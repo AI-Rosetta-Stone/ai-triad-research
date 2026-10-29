@@ -12,7 +12,8 @@ import { useAuthStatus } from '../../hooks/useAuthStatus';
 import { countDanglingReferences, formatDanglingWarning } from '../../utils/danglingReferences';
 import { useLongPressContextMenu } from '../../hooks/useLongPressContextMenu';
 import { DeleteConfirmDialog } from '../shared/DeleteConfirmDialog';
-import { DescriptionSection, type DescriptionMention } from './NodeDescriptionSection';
+import { DescriptionSection, AdvancedDescriptionToolbar, type DescriptionMention } from './NodeDescriptionSection';
+import { triggerPovNodeRegeneration } from '../../utils/regeneratePlainDescription';
 import { TypeaheadSelect } from '../shared/TypeaheadSelect';
 import { FieldHelp } from '../shared/FieldHelp';
 import { TheoryLink } from '../shared/TheoryLink';
@@ -130,6 +131,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const nodeDetailMode = usePreferencesStore(state => state.nodeDetailModes[node.id] ?? 'simple');
   const [descMode, setDescMode] = useDescriptionMode('formal'); // t/4574 spec §2.4: Advanced defaults to Formal
   const [showDelete, setShowDelete] = useState(false);
+  const [isEditing, setIsEditing] = useState(false); // t/4641: description edit state, lifted from DescriptionSection
   const [activeTab, setActiveTab] = useState<NodeDetailTabId>('content');
   const [expandedLineage, setExpandedLineage] = useState<string | null>(null);
   // t/4532: both collapsed by default, and reset to collapsed whenever a different node opens
@@ -214,7 +216,7 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
 
   // Clear fact selection on node change
   useEffect(() => { setSelectedFact(null); }, [node.id]);
-  useEffect(() => { setSteelmanExpanded(false); setLineageExpanded(false); }, [node.id]); // t/4532
+  useEffect(() => { setSteelmanExpanded(false); setLineageExpanded(false); setIsEditing(false); }, [node.id]); // t/4532, t/4641
 
   const handleFactSplitMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -397,7 +399,6 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
           setAphorismDraft={setAphorismDraft}
           nodeDetailMode={nodeDetailMode}
         />
-        <div className="nd-accent-rule" />
         {showDtDrilldown && node.graph_attributes?.debate_tested && (
           <DebateTestedDrilldown
             record={node.graph_attributes.debate_tested}
@@ -414,6 +415,24 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         </div>
       )}
 
+      {/* Accent rule + toolbar row (t/4641) — rule alone in Simple, rule + toolbar in Advanced */}
+      <div className="nd-accent-description-row">
+        <div className="nd-accent-rule" />
+        {nodeDetailMode === 'advanced' && (
+          <AdvancedDescriptionToolbar
+            descMode={descMode}
+            setDescMode={setDescMode}
+            hasPlainDescription={!!node.plain_description}
+            showEdit={!readOnly && (node.description ? true : false)}
+            isEditing={isEditing}
+            onToggleEdit={() => setIsEditing(v => !v)}
+            showRegenerate={!readOnly}
+            regenerateDisabled={node.plain_description === null}
+            onRegenerate={() => triggerPovNodeRegeneration(pov, node.id, node.description, updatePovNode)}
+          />
+        )}
+      </div>
+
       {/* Description above tabs (t/4574) — shows in both Simple and Advanced views */}
       <DescriptionSection
         pov={pov}
@@ -427,6 +446,9 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
         updatePovNode={updatePovNode}
         descriptionMention={descriptionMention}
         plainDescriptionMention={plainDescriptionMention}
+        hideToolbar={nodeDetailMode === 'advanced'}
+        isEditing={isEditing}
+        setIsEditing={setIsEditing}
       />
 
       <NodeDetailTabBar
