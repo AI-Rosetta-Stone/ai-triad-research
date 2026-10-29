@@ -447,7 +447,7 @@ function Invoke-OrgStanceExtraction {
     $snapshotText = @{}; $notVerbatim = 0
     foreach ($c in @($newClaims)) {
         $sp = $snapshotBySource[[string]$c.source_id]
-        if ($sp -and -not $snapshotText.ContainsKey($sp)) { $snapshotText[$sp] = [System.IO.File]::ReadAllText($sp) }
+        if ($sp -and -not $snapshotText.ContainsKey($sp)) { $snapshotText[$sp] = Read-SnapshotForModel -Path $sp -CallerName 'Invoke-OrgStanceExtraction' }
         $isVerbatim = [bool]($sp -and (Test-StanceTextVerbatim -Text ([string]$c.text) -Snapshot $snapshotText[$sp]))
         $c | Add-Member -NotePropertyName 'text_verbatim' -NotePropertyValue $isVerbatim -Force
         if (-not $isVerbatim) {
