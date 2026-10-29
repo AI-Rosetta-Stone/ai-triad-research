@@ -1,4 +1,11 @@
 /* ── Tree hierarchy ────────────────────────────────── */
+/* t/4578: NodeTree.tsx itself no longer renders .node-tree-parent-* / .node-item-child (the L2
+   POV hierarchy is gone — every category is one flat list). These rules stay BECAUSE
+   SituationsTab.tsx / SituationListItem.tsx reuse these exact class names and define no CSS of
+   their own for them — this file's global rules are their only styling (t/4578 spec's own
+   escape clause: "If anything outside NodeTree turns out to depend on the parent-header DOM,
+   flag it here"). Confirmed still referenced: grep for node-tree-parent across src/renderer
+   before removing any of this again. */
 
 .node-tree-parent-group {
   margin-bottom: 2px;
@@ -82,7 +89,3 @@
 .node-tree[data-pov="accelerationist"] .node-item.selected { background: var(--tint-acc); }
 .node-tree[data-pov="safetyist"] .node-item.selected { background: var(--tint-saf); }
 .node-tree[data-pov="skeptic"] .node-item.selected { background: var(--tint-skp); }
-
-.node-tree[data-pov="accelerationist"] .node-tree-parent-header.selected { background: var(--tint-acc); }
-.node-tree[data-pov="safetyist"] .node-tree-parent-header.selected { background: var(--tint-saf); }
-.node-tree[data-pov="skeptic"] .node-tree-parent-header.selected { background: var(--tint-skp); }

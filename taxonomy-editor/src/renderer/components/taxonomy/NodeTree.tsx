@@ -300,8 +300,9 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
     );
   }
 
-  // Standard category view
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  // Standard category view — every category renders one flat, sorted list regardless of sort
+  // mode (t/4578: L2 parent/child hierarchy removed). Former parent nodes are ordinary
+  // selectable rows now, not headers; former children get no indentation.
   const grouped = new Map<Category, PovNode[]>();
   for (const cat of CATEGORY_ORDER) {
     grouped.set(cat, []);
@@ -312,9 +313,6 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
       list.push(node);
     }
   }
-
-  // Flat modes: 'id' and 'priority' — no parent/child hierarchy
-  const flatMode = sortMode === 'id' || sortMode === 'priority' || sortMode === 'debate_tested' || sortMode === 'debate_tested_desc';
 
   return (
     <div className="node-tree" data-pov={pov}>
@@ -332,7 +330,7 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
               <span className={`category-toggle ${isCollapsed ? 'collapsed' : ''}`}>&#9660;</span>
               {cat} <span className="category-count">({catNodes.length})</span>
             </div>
-            {!isCollapsed && flatMode && catNodes.map((node) => (
+            {!isCollapsed && catNodes.map((node) => (
               <NodeItem
                 key={node.id}
                 node={node}
@@ -345,82 +343,6 @@ export function NodeTree({ nodes, selectedNodeId, onSelect, pov, sortMode = 'id'
                 showDebateTestedChip={showDebateTestedChip}
               />
             ))}
-            {!isCollapsed && !flatMode && (() => {
-              // Hierarchical view for 'label' and 'similarity' modes
-              const catIdSet = new Set(catNodes.map(n => n.id));
-              const parentNodes = catNodes.filter(n => n.children && n.children.length > 0);
-              const topLeaves = catNodes.filter(n =>
-                (!n.children || n.children.length === 0) &&
-                (!n.parent_id || !catIdSet.has(n.parent_id)),
-              );
-              const hasHierarchy = parentNodes.length > 0;
-
-              if (!hasHierarchy) {
-                return catNodes.map((node) => (
-                  <NodeItem
-                    key={node.id}
-                    node={node}
-                    isSelected={selectedNodeId === node.id}
-                    onSelect={onSelect}
-                    score={similarScores?.get(node.id)}
-                    conflict={conflicts?.get(node.id)}
-                    resolveUrl={resolveUrl}
-                  />
-                ));
-              }
-
-              return (
-                <>
-                  {parentNodes.map((parent) => {
-                    const parentKey = `parent-${parent.id}`;
-                    const isParentCollapsed = collapsed.has(parentKey);
-                    const children = parent.children
-                      .map(id => nodeMap.get(id))
-                      .filter((n): n is PovNode => !!n && n.category === cat);
-
-                    return (
-                      <div key={parent.id} className="node-tree-parent-group">
-                        <div
-                          className={`node-tree-parent-header ${selectedNodeId === parent.id ? 'selected' : ''}`}
-                          data-cat={parent.category}
-                          onClick={() => onSelect(parent.id)}
-                        >
-                          <span
-                            className={`category-toggle ${isParentCollapsed ? 'collapsed' : ''}`}
-                            onClick={(e) => { e.stopPropagation(); toggleGroup(parentKey); }}
-                          >&#9660;</span>
-                          <span className="node-tree-parent-label">{parent.label || '(untitled)'}</span>
-                          <span className="node-tree-parent-count">{children.length}</span>
-                        </div>
-                        {!isParentCollapsed && children.map((child) => (
-                          <NodeItem
-                            key={child.id}
-                            node={child}
-                            isSelected={selectedNodeId === child.id}
-                            onSelect={onSelect}
-                            score={similarScores?.get(child.id)}
-                            indent
-                            conflict={conflicts?.get(child.id)}
-                            resolveUrl={resolveUrl}
-                          />
-                        ))}
-                      </div>
-                    );
-                  })}
-                  {topLeaves.map((node) => (
-                    <NodeItem
-                      key={node.id}
-                      node={node}
-                      isSelected={selectedNodeId === node.id}
-                      onSelect={onSelect}
-                      score={similarScores?.get(node.id)}
-                      conflict={conflicts?.get(node.id)}
-                      resolveUrl={resolveUrl}
-                    />
-                  ))}
-                </>
-              );
-            })()}
           </div>
         );
       })}
@@ -438,12 +360,11 @@ function getPriorityDisplay(node: PovNode): { label: string; value: number } | u
   return undefined;
 }
 
-function NodeItem({ node, isSelected, onSelect, score, indent, isMisfit, priorityValue, conflict, resolveUrl, showDebateTestedChip }: {
+function NodeItem({ node, isSelected, onSelect, score, isMisfit, priorityValue, conflict, resolveUrl, showDebateTestedChip }: {
   node: PovNode;
   isSelected: boolean;
   onSelect: (id: string) => void;
   score?: number;
-  indent?: boolean;
   isMisfit?: boolean;
   priorityValue?: { label: string; value: number };
   conflict?: NodeConflict;
@@ -467,7 +388,7 @@ function NodeItem({ node, isSelected, onSelect, score, indent, isMisfit, priorit
   return (
     <div
       ref={ref}
-      className={`node-item ${isSelected ? 'selected' : ''}${indent ? ' node-item-child' : ''}${isMisfit ? ' node-item-misfit' : ''}`}
+      className={`node-item ${isSelected ? 'selected' : ''}${isMisfit ? ' node-item-misfit' : ''}`}
       data-cat={node.category}
       tabIndex={-1}
       onClick={handleClick}

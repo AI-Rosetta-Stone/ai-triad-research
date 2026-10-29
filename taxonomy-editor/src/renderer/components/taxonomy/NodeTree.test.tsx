@@ -344,3 +344,73 @@ describe('t/4532: a preselected/restored node does not auto-expand its category 
     expect(screen.getByText('Maximize progress')).toBeDefined();
   });
 });
+
+// ── t/4578: L2 hierarchy removed — flat list under every BDI category in every sort mode ──
+
+describe('t/4578: POV tree renders flat, no L2 parent/child hierarchy', () => {
+  // A former-parent node with two former-children, mixed in with an ordinary leaf — exactly the
+  // shape that used to trigger the hierarchical branch for Label/Similarity sorts.
+  const HIERARCHY_NODES: PovNode[] = [
+    makeNode({ id: 'acc-B-010', category: 'Beliefs', label: 'Zeta parent belief', children: ['acc-B-011', 'acc-B-012'] }),
+    makeNode({ id: 'acc-B-011', category: 'Beliefs', label: 'Alpha child one', parent_id: 'acc-B-010' }),
+    makeNode({ id: 'acc-B-012', category: 'Beliefs', label: 'Beta child two', parent_id: 'acc-B-010' }),
+    makeNode({ id: 'acc-B-013', category: 'Beliefs', label: 'Mid ordinary leaf' }),
+  ];
+
+  beforeEach(() => {
+    mockSessionStorage.clear();
+    mockSessionStorage.setItem('taxonomy-editor-collapsed-categories', '[]');
+  });
+
+  it('renders every former-child and former-parent node as a plain row, with no parent header DOM', () => {
+    const { container } = render(<NodeTree nodes={HIERARCHY_NODES} selectedNodeId={null} onSelect={vi.fn()} sortMode="label" />);
+    expect(screen.getByText('Zeta parent belief')).toBeDefined();
+    expect(screen.getByText('Alpha child one')).toBeDefined();
+    expect(screen.getByText('Beta child two')).toBeDefined();
+    expect(screen.getByText('Mid ordinary leaf')).toBeDefined();
+    // No hierarchical DOM survives: no parent-header group, no count badge, no indentation.
+    expect(container.querySelector('.node-tree-parent-group')).toBeNull();
+    expect(container.querySelector('.node-tree-parent-header')).toBeNull();
+    expect(container.querySelector('.node-item-child')).toBeNull();
+  });
+
+  it('sorts the whole category alphabetically in Label sort, former parent/child distinction dropped', () => {
+    render(<NodeTree nodes={HIERARCHY_NODES} selectedNodeId={null} onSelect={vi.fn()} sortMode="label" />);
+    const rows = Array.from(document.querySelectorAll('.node-item')).map(el => el.textContent);
+    const beliefRows = rows.filter(t => /Alpha|Beta|Mid|Zeta/.test(t ?? ''));
+    expect(beliefRows).toEqual([
+      'Alpha child one',
+      'Beta child two',
+      'Mid ordinary leaf',
+      'Zeta parent belief',
+    ]);
+  });
+
+  it('a former-parent node is a normal selectable row (click fires onSelect with its own id, not a toggle)', () => {
+    const onSelect = vi.fn();
+    render(<NodeTree nodes={HIERARCHY_NODES} selectedNodeId={null} onSelect={onSelect} sortMode="label" />);
+    fireEvent.click(screen.getByText('Zeta parent belief').closest('.node-item')!);
+    expect(onSelect).toHaveBeenCalledWith('acc-B-010');
+  });
+
+  it('onVisibleIdsChange reports the same flat order the DOM renders, in Label sort', () => {
+    const onVisibleIdsChange = vi.fn();
+    render(
+      <NodeTree
+        nodes={HIERARCHY_NODES}
+        selectedNodeId={null}
+        onSelect={vi.fn()}
+        sortMode="label"
+        onVisibleIdsChange={onVisibleIdsChange}
+      />,
+    );
+    const lastCall = onVisibleIdsChange.mock.calls.at(-1)?.[0] as string[];
+    expect(lastCall).toEqual(['acc-B-011', 'acc-B-012', 'acc-B-013', 'acc-B-010']);
+  });
+
+  it('a category with no parent/child nodes at all still renders flat (no regression for ordinary data)', () => {
+    render(<NodeTree nodes={NODES} selectedNodeId={null} onSelect={vi.fn()} sortMode="label" />);
+    expect(screen.getByText('Open dev is safe')).toBeDefined();
+    expect(screen.getByText('Markets self-correct')).toBeDefined();
+  });
+});
