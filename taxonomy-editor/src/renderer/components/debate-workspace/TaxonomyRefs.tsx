@@ -12,8 +12,7 @@ import {
   buildExplainPrompt, buildSelectionExplainPrompt, fixMarkdownLinks, resolvePolRef, getPolicyAction,
 } from './utils';
 import type { PolicyRefEntry } from './utils';
-import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
-import { TaxonomyRefDetail, type TaxRefNode } from '../taxonomy/TaxonomyRefDetail';
+import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { TheoryLink } from '../shared/TheoryLink';
 import { SectionErrorBoundary } from './SectionErrorBoundary';
 import { ExplainPanel } from './ExplainPanel';
@@ -92,29 +91,6 @@ export function TaxonomyPill({ taxRef, onSelect, selected }: {
   );
 }
 
-
-// Inline POV detail for a clicked taxonomy anchor/ref (t/1724). Resolved entirely
-// from the client-side taxonomy store — no fetch. Shared by the PLAN and BDI views.
-function TaxNodeDetail({ nodeId, onClose }: { nodeId: string; onClose: () => void }) {
-  const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
-  const data = lookupPinnedData(nodeId);
-  // t/3401: pol-* ids resolve to a 'policy' PinnedData variant, not a POV/situations node.
-  const node = data && data.type !== 'conflict' && data.type !== 'policy'
-    ? (data.node as unknown as TaxRefNode)
-    : undefined;
-  const pov = data?.type === 'pov' ? data.pov
-    : data?.type === 'situations' ? 'situations' : '';
-  return (
-    <TaxonomyRefDetail
-      nodeId={nodeId}
-      node={node}
-      pov={pov}
-      onClose={onClose}
-      policy={data?.type === 'policy' ? data.policy : undefined}
-      policyReferencingNodes={data?.type === 'policy' ? data.referencingNodes : undefined}
-    />
-  );
-}
 
 function CaveatsBox({ caveats }: { caveats: string[] }) {
   const qualityCaveats = caveats.filter(c => !c.startsWith('[Ungrounded]'));
