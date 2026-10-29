@@ -4861,7 +4861,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If the expression works in `jq` but fails in `gh --jq`, the flag is likely the cause.** gojq and standard jq diverge on advanced regex and a few filter functions.
 5. **Do not use `\(` inside a jq string literal as a regex escape** — it is jq string interpolation. To match a literal `(` in a regex, use `\\(` (one backslash in the regex, written as `\\(` in the jq string). Prefer `startswith()`/`contains()` over regex when the pattern is a simple prefix or substring.
 
-**Status:** Active — 5 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`).
+**Status:** Active — 6 instances (Shared Lib p/5#49; Tech Lead p/335#139; Tech Lead p/335#149; Tech Lead p/335#161; Azure p/105#32 — single-arg `test()` form, fixed with `contains()`; Tech Lead p/335#218 — `capture("…\\(Orca\\)")` with escaped parens, same `\(` interpolation trap under compounded bash+jq escaping; fixed by reading raw text with `--jq` and matching via `grep -oiE` in the shell instead).
 
 **Applies To:** All agents constructing `gh` commands with `--jq` filters that include regular expressions.
 
@@ -6257,15 +6257,16 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 - 2026-10-20 — DevOps Worker (p/749#26): `writeFileSync('/tmp/acc-origin.json')` inside a Node one-liner in the Bash tool resolved to `C:\tmp\...` — which did not exist. The Bash tool had written to Git Bash's `/tmp` (which is `%TEMP%`). Resolved by moving the logic into a script that calls `git show` itself via `execFileSync`, eliminating the temp file.
 - 2026-10-20 — Diagnostics (p/9#86): Bash wrote `git show` output to `/tmp/acc-origin.json`; Node script returned ENOENT `C:\tmp\acc-origin.json`. Same root cause. Resolved by calling `git show` directly from Node via `execFileSync`.
 
-**Root Cause:** Git Bash applies MSYS path translations (`/tmp` → `%TEMP%`, `/c/` → `C:\`) to its own process and child processes that understand MSYS. Windows-native executables (Node.js, python3, etc.) are launched as ordinary Windows processes — they receive paths as literal strings and apply no MSYS translation. A `/c/Users/...` path handed to python3 or node.exe is not a valid Windows path.
+**Root Cause:** Git Bash applies MSYS path translations (`/tmp` → `%TEMP%`, `/c/` → `C:\`) to its own process and child processes that understand MSYS. Windows-native executables (Node.js, python3, etc.) are launched as ordinary Windows processes — they receive paths as literal strings and apply no MSYS translation. A `/c/Users/...` path handed to python3 or node.exe is not a valid Windows path. **This specifically applies to command-line argument tokens** — MSYS translates paths it recognizes as argv tokens, not literal strings embedded inside a quoted script body (e.g. Python source text passed via `-c`). A `/c/Users/...` string written INSIDE Python code text is never translated even once, regardless of how it's quoted — the fix must change the string itself (`C:/Users/...`), not the quoting around it.
 
 **Prevention:**
 1. **When invoking any Windows-native tool (Node.js, python3, etc.) from Bash, always use native Windows paths (`C:\...`), not MSYS paths (`/c/...` or `/tmp/...`).** The translation is Bash-only.
 2. **Never write to `/tmp` in Bash and then read it from a Windows-native tool.** Git Bash's `/tmp` maps to `%TEMP%`; the native tool sees `C:\tmp`, which typically does not exist.
 3. **Keep inter-process data in a single process** — call shell commands from Node/python via `execFileSync`/`subprocess` rather than sharing temp files across shells.
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
+5. **A `/c/...` path written literally inside `-c` script text is never MSYS-translated, no matter the quoting** — translation only applies to recognized argv path tokens. Write `C:/...` directly in the embedded code, not just in the surrounding shell command.
 
-**Status:** Active — 10 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first; DevOps Lead p/26#289 — `python3 -c` FileNotFoundError reading Bash-written `/tmp/job_conclusions.tsv`; fixed by copying to the session's real Windows scratchpad path first).
+**Status:** Active — 11 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first; DevOps Lead p/26#289 — `python3 -c` FileNotFoundError reading Bash-written `/tmp/job_conclusions.tsv`; fixed by copying to the session's real Windows scratchpad path first; Tech Lead p/335#220 — `open('/c/Users/...')` in Python code FileNotFoundError; clarified mechanism: MSYS translates argv tokens, not strings embedded inside `-c` code; fixed with `C:/Users/...` form in the code itself).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -7940,3 +7941,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#212/#214).
 
 **Applies To:** All agents running frozen-list or integrity sha256 checks against files in `autocrlf`-enabled repos (notably `ai-triad-sources`); hash the git blob content, not raw working-tree bytes.
+
+---
+
+## #390 [Build] `MSYS_NO_PATHCONV=1` Breaks `git -C <path>`, Not Just the Colon Revspec It's Meant to Fix
+
+**Pattern:** An agent runs `git -C /c/.../ai-triad-data show origin/main:path` prefixed with `MSYS_NO_PATHCONV=1` — the standard fix for colon-revspec mangling (the `<ref>:<path>` argument). The command fails with "fatal: not a git repository" even though `/c/.../ai-triad-data` is a valid repo path. `MSYS_NO_PATHCONV=1` disables MSYS path mangling for the ENTIRE command, which also changes how `-C <path>`'s own argument is handled — not just the colon-revspec the env var is normally invoked to protect.
+
+**Instances:**
+- 2026-10-28 — Computational Linguist (p/7#163): `git -C /c/.../ai-triad-data show origin/main:path` under `MSYS_NO_PATHCONV=1` gave "fatal: not a git repository" despite a valid repo path. Resolved by `cd`-ing into the repo directory first, then running `git show` without `-C` at all.
+
+**Root Cause:** `MSYS_NO_PATHCONV=1` is a blanket switch — it disables MSYS's automatic path-mangling for every path-like argument in the command, not selectively for the colon-revspec. When `-C <path>` is also present, its argument's translation behavior changes too, and the combination can produce a path `-C` doesn't recognize as a git repository (either because it needed mangling and didn't get it, or vice versa, depending on the exact MSYS/Git-for-Windows build).
+
+**Prevention:**
+1. **Don't combine `-C <path>` with `MSYS_NO_PATHCONV=1` and a colon-revspec in the same command.** `cd` into the target repo directory first (a separate command/step), then run `git show <ref>:<path>` without `-C` — this avoids the interaction entirely.
+2. **If you must use `-C` alongside a colon-revspec on Windows, test both with and without `MSYS_NO_PATHCONV=1`** before trusting either — the correct combination is environment/Git-for-Windows-version-dependent (per the root `-C`-sibling colon-revspec entry's existing "env-dependent" framing).
+3. **"fatal: not a git repository" on a path you've confirmed is a valid repo, right after adding `MSYS_NO_PATHCONV=1` to fix an unrelated colon-revspec error, is the diagnostic** — the env var fix for one argument broke a different argument in the same command.
+
+**Status:** Active — 1 instance (Computational Linguist p/7#163).
+
+**Applies To:** All agents using `git -C <path>` together with a colon-revspec on Windows; prefer `cd` + plain `git show` over combining `-C` with `MSYS_NO_PATHCONV=1`.
