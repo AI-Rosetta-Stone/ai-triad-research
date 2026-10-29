@@ -11,9 +11,6 @@ import { ChatGettingStarted, CHAT_STARTERS } from './ChatGettingStarted';
 
 const DISMISSED_KEY = 'taxonomy-editor-chat-intro-dismissed';
 
-// t/4635: content-rule checks on the pool itself. The panel still displays only the first 4
-// (see ChatGettingStarted.tsx) until the shared pickExamples wiring lands (blocked on t/4633) —
-// covered separately by the 'renders the card with its 4 starter chips' test below.
 describe('CHAT_STARTERS pool (t/4635)', () => {
   it('has 15 starters, each with a mode (AC1)', () => {
     expect(CHAT_STARTERS).toHaveLength(15);
@@ -27,7 +24,7 @@ describe('CHAT_STARTERS pool (t/4635)', () => {
     expect(modes).toEqual(new Set(['inform', 'brainstorm', 'decide']));
   });
 
-  it('has at least one non-inform starter (needed for mustInclude once wired, AC2)', () => {
+  it('has at least one non-inform starter (needed for mustInclude, AC2)', () => {
     expect(CHAT_STARTERS.some(s => s.mode !== 'inform')).toBe(true);
   });
 
@@ -44,28 +41,53 @@ describe('CHAT_STARTERS pool (t/4635)', () => {
   });
 });
 
-describe('ChatGettingStarted (t/4536 round 3)', () => {
+// Helper shared by the component tests below: the rendered chip buttons are whichever 4
+// CHAT_STARTERS pickExamples chose this mount — never hard-code a specific label, since the
+// selection is random (t/4635). `pickExamples` itself is exhaustively seeded-rng-tested in
+// shared/pickExamples.test.ts (AC4's "seeded rng" requirement, including mustInclude under 20
+// seeds) — these tests cover the component's wiring of it, not the algorithm.
+function starterButtons() {
+  return screen.getAllByRole('button').filter(b => CHAT_STARTERS.some(s => s.text === b.textContent));
+}
+
+describe('ChatGettingStarted (t/4536 round 3, t/4635)', () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it('renders the card with its 4 starter chips and the mode hint', () => {
+  it('renders the card with exactly 4 chips drawn from the pool, and the mode hint (AC1, AC2)', () => {
     render(<ChatGettingStarted hasNoChats={false} onPickStarter={vi.fn()} />);
     expect(screen.getByRole('region')).toBeInTheDocument();
     expect(screen.getByText(/Ask anything about AI policy/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'How would a Safetyist see compute caps?' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Strongest evidence for the Accelerationist case' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Brainstorm counterarguments to my position' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Work through a policy decision' })).toBeInTheDocument();
+    const buttons = starterButtons();
+    expect(buttons).toHaveLength(4);
+    expect(new Set(buttons.map(b => b.textContent)).size).toBe(4); // no repeats
     expect(screen.getByText(/Every chat has a mode/)).toBeInTheDocument();
   });
 
-  it('calls onPickStarter with the chip\'s mode and text', async () => {
+  it('always shows at least one non-inform starter among the 4 (AC2, mustInclude wiring)', () => {
+    render(<ChatGettingStarted hasNoChats={false} onPickStarter={vi.fn()} />);
+    const shownTexts = starterButtons().map(b => b.textContent);
+    const shownModes = CHAT_STARTERS.filter(s => shownTexts.includes(s.text)).map(s => s.mode);
+    expect(shownModes.some(m => m !== 'inform')).toBe(true);
+  });
+
+  it('shows the same 4 chips across a re-render of the same mount (no reshuffle)', () => {
+    const { rerender } = render(<ChatGettingStarted hasNoChats={false} onPickStarter={vi.fn()} />);
+    const first = starterButtons().map(b => b.textContent);
+    rerender(<ChatGettingStarted hasNoChats={true} onPickStarter={vi.fn()} />);
+    const second = starterButtons().map(b => b.textContent);
+    expect(second).toEqual(first);
+  });
+
+  it('calls onPickStarter with the clicked chip\'s mode and text', async () => {
     const onPickStarter = vi.fn();
     const user = userEvent.setup();
     render(<ChatGettingStarted hasNoChats={false} onPickStarter={onPickStarter} />);
-    await user.click(screen.getByRole('button', { name: 'Work through a policy decision' }));
-    expect(onPickStarter).toHaveBeenCalledWith('decide', 'Work through a policy decision');
+    const button = starterButtons()[0];
+    const starter = CHAT_STARTERS.find(s => s.text === button.textContent)!;
+    await user.click(button);
+    expect(onPickStarter).toHaveBeenCalledWith(starter.mode, starter.text);
   });
 
   // t/4639: the card is now an accordion — a single toggle collapses/expands the body in
@@ -80,7 +102,7 @@ describe('ChatGettingStarted (t/4536 round 3)', () => {
     await user.click(toggle);
 
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('button', { name: 'Work through a policy decision' })).not.toBeInTheDocument();
+    expect(starterButtons()).toHaveLength(0);
     expect(localStorage.getItem(DISMISSED_KEY)).toBe('1');
 
     unmount();
@@ -95,7 +117,7 @@ describe('ChatGettingStarted (t/4536 round 3)', () => {
     await user.click(screen.getByRole('button', { name: /Show examples/ }));
 
     expect(screen.getByRole('button', { name: /Hide examples/ })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: 'Work through a policy decision' })).toBeInTheDocument();
+    expect(starterButtons()).toHaveLength(4);
     expect(localStorage.getItem(DISMISSED_KEY)).toBeNull();
   });
 
@@ -104,7 +126,7 @@ describe('ChatGettingStarted (t/4536 round 3)', () => {
     const user = userEvent.setup();
     render(<ChatGettingStarted hasNoChats={true} onPickStarter={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: /Hide examples/ }));
-    expect(screen.queryByRole('button', { name: 'Work through a policy decision' })).not.toBeInTheDocument();
+    expect(starterButtons()).toHaveLength(0);
   });
 
   it('shows the card expanded by default when the user has no chats yet and never dismissed', () => {
