@@ -7,9 +7,42 @@ import userEvent from '@testing-library/user-event';
 
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
-import { ChatGettingStarted } from './ChatGettingStarted';
+import { ChatGettingStarted, CHAT_STARTERS } from './ChatGettingStarted';
 
 const DISMISSED_KEY = 'taxonomy-editor-chat-intro-dismissed';
+
+// t/4635: content-rule checks on the pool itself. The panel still displays only the first 4
+// (see ChatGettingStarted.tsx) until the shared pickExamples wiring lands (blocked on t/4633) —
+// covered separately by the 'renders the card with its 4 starter chips' test below.
+describe('CHAT_STARTERS pool (t/4635)', () => {
+  it('has 15 starters, each with a mode (AC1)', () => {
+    expect(CHAT_STARTERS).toHaveLength(15);
+    for (const s of CHAT_STARTERS) {
+      expect(['inform', 'brainstorm', 'decide']).toContain(s.mode);
+    }
+  });
+
+  it('represents all three modes (AC1)', () => {
+    const modes = new Set(CHAT_STARTERS.map(s => s.mode));
+    expect(modes).toEqual(new Set(['inform', 'brainstorm', 'decide']));
+  });
+
+  it('has at least one non-inform starter (needed for mustInclude once wired, AC2)', () => {
+    expect(CHAT_STARTERS.some(s => s.mode !== 'inform')).toBe(true);
+  });
+
+  it('no label is longer than the pre-t/4635 baseline (AC3)', () => {
+    const BASELINE_MAX = 'Strongest evidence for the Accelerationist case'.length;
+    for (const s of CHAT_STARTERS) {
+      expect(s.text.length).toBeLessThanOrEqual(BASELINE_MAX);
+    }
+  });
+
+  it('has no duplicate labels', () => {
+    const texts = CHAT_STARTERS.map(s => s.text);
+    expect(new Set(texts).size).toBe(texts.length);
+  });
+});
 
 describe('ChatGettingStarted (t/4536 round 3)', () => {
   beforeEach(() => {
