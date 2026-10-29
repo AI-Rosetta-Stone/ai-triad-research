@@ -160,8 +160,8 @@ function AdvancedDescriptionToolbar({ descMode, setDescMode, hasPlainDescription
 export function DescriptionSection({ pov, node, readOnly, err, nodeDetailMode, descMode, setDescMode, update, updatePovNode, descriptionMention, plainDescriptionMention, hideToolbar, isEditing: externalIsEditing, setIsEditing: externalSetIsEditing }: DescriptionSectionProps) {
   const { findQuery, findMode, findCaseSensitive } = useTaxonomyStore();
   const [localIsEditing, setLocalIsEditing] = useState(false);
-  const isEditing = externalIsEditing ?? localIsEditing;
-  const setIsEditing: (value: boolean | ((v: boolean) => boolean)) => void = externalSetIsEditing ?? setLocalIsEditing;
+  const isEditing = externalIsEditing !== undefined ? externalIsEditing : localIsEditing;
+  const setIsEditing: (value: boolean | ((v: boolean) => boolean)) => void = externalSetIsEditing || setLocalIsEditing;
   useEffect(() => { if (externalIsEditing === undefined) setLocalIsEditing(false); }, [node.id, externalIsEditing]);
   // A validation error on description must stay reachable for the existing scroll+focus
   // recovery flow (NodeDetail's hasErrors effect), so force edit mode open when one is set.
