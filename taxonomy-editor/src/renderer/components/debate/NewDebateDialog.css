@@ -716,7 +716,7 @@
 .ndd-adder-btn {
   background: none;
   border: none;
-  color: var(--focus-ring, #3b82f6);
+  color: var(--link-color, #3b82f6); /* t/4646#4: --focus-ring failed AA (light 3.52, bkc 3.39) */
   cursor: pointer;
   font-size: var(--text-sm);
   min-height: 44px; /* touch target */
@@ -724,6 +724,15 @@
   text-align: left;
 }
 .ndd-adder-btn:hover { text-decoration: underline; }
+
+/* t/4646: compact "Attach a document" / "Use a URL" links under the Topic input. */
+.ndd-source-links { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--sp-4); row-gap: 0; margin-top: var(--sp-1); }
+.ndd-source-links-hint { font-size: var(--text-sm); color: var(--text-secondary); }
+.ndd-source-link { background: none; border: none; padding: 0; font-size: var(--text-sm); color: var(--link-color, #3b82f6); cursor: pointer; min-height: 32px; }
+.ndd-source-link:hover:not([aria-disabled]) { text-decoration: underline; }
+.ndd-source-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+.ndd-source-link[aria-disabled] { color: var(--text-muted); cursor: default; }
+.ndd-source-links-note { font-size: var(--text-xs); color: var(--text-secondary); } /* t/4646#4: --text-muted failed AA (harvard 3.33, bkc 3.19) */
 
 .ndd-adder-content {
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
@@ -1242,6 +1251,15 @@
   .ndd-footer-right {
     flex: 1 1 100%;
     margin-left: 0;
+  }
+
+  /* t/4646: hint on its own line, links get 44px touch targets. */
+  .ndd-source-links-hint {
+    flex-basis: 100%;
+  }
+
+  .ndd-source-link {
+    min-height: 44px;
   }
 
   .ndd-start-group {
