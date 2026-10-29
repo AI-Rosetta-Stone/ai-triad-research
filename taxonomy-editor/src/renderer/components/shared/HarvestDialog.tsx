@@ -34,12 +34,681 @@ import type {
 } from '../../utils/harvestUtils';
 import './HarvestDialog.css';
 
+// --- Module-level types (moved from inline HarvestDialog scope) ---
+
+interface TaxonomyProposal {
+  id: string;
+  label: string;
+  description: string;
+  pov: string;
+  category: string;
+  rationale: string;
+  sourceClaims: string[];
+  checked: boolean;
+}
+
+interface TaxonomyModification {
+  id: string;
+  nodeId: string;
+  nodeLabel: string;
+  modificationType: string;
+  suggestedChange: string;
+  rationale: string;
+  sourceClaims: string[];
+  checked: boolean;
+}
+
+interface ConcessionUpdate {
+  id: string;
+  nodeId: string;
+  nodeLabel: string;
+  nodeDescription: string;
+  updateType: 'qualify' | 'weaken' | 'retire';
+  bdiLayer: string;
+  weightedScore: number;
+  distinctDebates: number;
+  concessions: {
+    text: string;
+    speaker: string;
+    concededTo: string;
+    debateId: string;
+    type: 'full' | 'conditional' | 'tactical';
+  }[];
+  checked: boolean;
+}
+
+// --- Constants ---
+
+const CONCESSION_THRESHOLD = 3.0;
+const CONCESSION_MIN_DEBATES = 2;
+const CONCESSION_WEIGHTS: Record<string, number> = { full: 1.0, conditional: 0.5, tactical: 0.0 };
+const HARVEST_STRENGTH_THRESHOLD = 0.7;
+
+// --- Pure helpers ---
+
+type TaxState = ReturnType<typeof useTaxonomyStore.getState>;
+
+function buildConcessionCandidates(taxState: TaxState): ConcessionUpdate[] {
+  const candidates: ConcessionUpdate[] = [];
+  for (const pov of POV_KEYS) {
+    const file = taxState[pov];
+    if (!file?.nodes) continue;
+    for (const node of file.nodes) {
+      const history = node.concession_history;
+      if (!Array.isArray(history) || history.length === 0) continue;
+      const weightedScore = history.reduce(
+        (sum, r) => sum + (CONCESSION_WEIGHTS[r.concession_type] ?? 0),
+        0,
+      );
+      const distinctDebates = new Set(history.map(r => r.debate_id)).size;
+      if (weightedScore >= CONCESSION_THRESHOLD && distinctDebates >= CONCESSION_MIN_DEBATES) {
+        const primaryBdi = history.reduce((counts, r) => {
+          counts[r.bdi_impact] = (counts[r.bdi_impact] ?? 0) + 1;
+          return counts;
+        }, {} as Record<string, number>);
+        const topBdi = Object.entries(primaryBdi).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'belief';
+        candidates.push({
+          id: `hc-${candidates.length}`,
+          nodeId: node.id,
+          nodeLabel: node.label,
+          nodeDescription: node.description,
+          updateType: weightedScore >= 6.0 ? 'retire' : weightedScore >= 4.5 ? 'weaken' : 'qualify',
+          bdiLayer: topBdi,
+          weightedScore,
+          distinctDebates,
+          concessions: history.map(r => ({
+            text: r.text,
+            speaker: r.speaker,
+            concededTo: r.conceded_to,
+            debateId: r.debate_id,
+            type: r.concession_type,
+          })),
+          checked: true,
+        });
+      }
+    }
+  }
+  return candidates;
+}
+
+function parseSynthesisMetadata(
+  synthMeta: Record<string, unknown>,
+  getNodeLabel: (id: string) => string | null,
+): { proposals: TaxonomyProposal[]; modifications: TaxonomyModification[] } {
+  type RawProposal = { label: string; description: string; pov: string; category: string; rationale: string; source_claims?: string[] };
+  type RawMod = { node_id: string; modification_type: string; suggested_change: string; rationale: string; source_claims?: string[] };
+
+  const rawProposals = synthMeta.taxonomy_proposals as RawProposal[] | undefined;
+  const proposals: TaxonomyProposal[] = Array.isArray(rawProposals)
+    ? rawProposals.map((p, i) => ({
+        id: `hp-${i}`,
+        label: p.label ?? '',
+        description: p.description ?? '',
+        pov: p.pov ?? 'situations',
+        category: p.category ?? 'Intentions',
+        rationale: p.rationale ?? '',
+        sourceClaims: p.source_claims ?? [],
+        checked: true,
+      }))
+    : [];
+
+  const rawMods = synthMeta.taxonomy_modifications as RawMod[] | undefined;
+  const modifications: TaxonomyModification[] = Array.isArray(rawMods)
+    ? rawMods.map((m, i) => ({
+        id: `hm-${i}`,
+        nodeId: m.node_id ?? '',
+        nodeLabel: getNodeLabel(m.node_id) || m.node_id,
+        modificationType: m.modification_type ?? 'refine_description',
+        suggestedChange: m.suggested_change ?? '',
+        rationale: m.rationale ?? '',
+        sourceClaims: m.source_claims ?? [],
+        checked: true,
+      }))
+    : [];
+
+  return { proposals, modifications };
+}
+
+function applyQbafPreuncheck(
+  conflicts: HarvestConflictItem[],
+  anNodes: ArgumentNetworkNode[],
+): void {
+  for (const item of conflicts) {
+    const relatedNodes = anNodes.filter(n =>
+      item.linkedNodes.some(ln => n.taxonomy_refs.includes(ln)),
+    );
+    const avgStrength = relatedNodes.length > 0
+      ? relatedNodes.reduce((sum, n) => sum + (n.computed_strength ?? 0.5), 0) / relatedNodes.length
+      : 0.5;
+    if (avgStrength < HARVEST_STRENGTH_THRESHOLD) {
+      item.checked = false;
+    }
+  }
+}
+
+function resolveVerdictPrevails(
+  prevails: string,
+  activeDebate: { transcript: { type: string; metadata?: Record<string, unknown> }[] } | null,
+): string {
+  if (!/^C\d+$/.test(prevails)) return prevails;
+  const synthEntry = activeDebate?.transcript.find(e => e.type === 'concluding');
+  type ArgMap = { claim_id: string; claim: string; claimant: string }[];
+  const argMap = (synthEntry?.metadata?.synthesis as { argument_map?: ArgMap } | undefined)?.argument_map;
+  const claim = argMap?.find(c => c.claim_id === prevails);
+  return claim ? `${claim.claimant}: "${claim.claim}"` : prevails;
+}
+
+// --- Apply helpers ---
+
+type ApplyResult = { manifest: HarvestManifestItem; success: boolean };
+
+async function applyConflictItem(
+  item: HarvestConflictItem,
+  debateId: string,
+): Promise<ApplyResult> {
+  if (!item.checked) {
+    return { manifest: { type: 'conflict', action: 'created', id: item.id, status: 'rejected' }, success: false };
+  }
+  const faithfulText = item.verbatim || item.point;
+  const conflictId = generateConflictSlug(item.generatedLabel || faithfulText, debateId);
+  try {
+    await api.harvestCreateConflict({
+      claim_id: conflictId,
+      claim_label: item.generatedLabel || faithfulText.slice(0, 60),
+      description: item.generatedDescription || faithfulText,
+      status: 'open',
+      linked_taxonomy_nodes: item.linkedNodes,
+      instances: item.positions.map(p => ({
+        doc_id: `debate:${debateId}`,
+        stance: p.pover === item.positions[0]?.pover ? 'supports' : 'disputes',
+        assertion: p.stance,
+        date_flagged: new Date().toISOString().slice(0, 10),
+      })),
+      source: 'debate-harvest',
+      source_debate_id: debateId,
+    });
+    return { manifest: { type: 'conflict', action: 'created', id: conflictId, status: 'applied' }, success: true };
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'harvest-dialog', level: 'error',
+      message: `Failed to create conflict ${conflictId}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { manifest: { type: 'conflict', action: 'created', id: conflictId, status: 'rejected' }, success: false };
+  }
+}
+
+async function applySteelmanItem(
+  item: HarvestSteelmanItem,
+  debateId: string,
+): Promise<ApplyResult> {
+  if (!item.checked || !item.proposedSteelman) {
+    return { manifest: { type: 'steelman', action: 'updated', id: item.targetNodeId, status: 'rejected' }, success: false };
+  }
+  try {
+    await api.harvestUpdateSteelman(item.targetNodeId, item.attackerPov, item.proposedSteelman);
+    return { manifest: { type: 'steelman', action: 'updated', id: `${item.targetNodeId}:from_${item.attackerPov}`, status: 'applied' }, success: true };
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'harvest-dialog', level: 'error',
+      message: `Failed to update steelman for ${item.targetNodeId}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { manifest: { type: 'steelman', action: 'updated', id: item.targetNodeId, status: 'rejected' }, success: false };
+  }
+}
+
+async function applyDebateRefItem(
+  item: HarvestDebateRefItem,
+  debateId: string,
+): Promise<ApplyResult> {
+  if (!item.checked) {
+    return { manifest: { type: 'debate_ref', action: 'added', id: item.nodeId, status: 'rejected' }, success: false };
+  }
+  try {
+    await api.harvestAddDebateRef(item.nodeId, debateId);
+    return { manifest: { type: 'debate_ref', action: 'added', id: item.nodeId, status: 'applied' }, success: true };
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'harvest-dialog', level: 'error',
+      message: `Failed to add debate ref for ${item.nodeId}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { manifest: { type: 'debate_ref', action: 'added', id: item.nodeId, status: 'rejected' }, success: false };
+  }
+}
+
+async function applyVerdictItem(
+  item: HarvestVerdictItem,
+  debateId: string,
+): Promise<ApplyResult> {
+  if (!item.checked) {
+    return { manifest: { type: 'verdict', action: 'updated', id: item.id, status: 'rejected' }, success: false };
+  }
+  const conflictSlug = item.targetConflictId || generateConflictSlug(item.conflict, debateId);
+  try {
+    await api.harvestAddVerdict(conflictSlug, {
+      prevails: item.prevails,
+      criterion: item.criterion,
+      rationale: item.rationale,
+      what_would_change_this: item.whatWouldChange,
+      source_debate_id: debateId,
+      harvested_at: new Date().toISOString(),
+    });
+    return { manifest: { type: 'verdict', action: 'updated', id: conflictSlug, status: 'applied' }, success: true };
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'harvest-dialog', level: 'error',
+      message: `Failed to add verdict for ${conflictSlug}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { manifest: { type: 'verdict', action: 'updated', id: conflictSlug, status: 'rejected' }, success: false };
+  }
+}
+
+async function applyConceptItem(
+  item: HarvestConceptItem,
+  debateId: string,
+): Promise<ApplyResult> {
+  if (!item.checked || !item.suggestedLabel) {
+    const status = item.checked ? 'rejected' : 'rejected';
+    return { manifest: { type: 'concept', action: 'queued', id: item.id, status }, success: false };
+  }
+  try {
+    await api.harvestQueueConcept({
+      label: item.suggestedLabel,
+      description: item.suggestedDescription,
+      suggested_pov: item.suggestedPov,
+      suggested_category: item.suggestedCategory,
+      source_debate_id: debateId,
+      evidence: item.text,
+    });
+    return { manifest: { type: 'concept', action: 'queued', id: item.suggestedLabel, status: 'applied' }, success: true };
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'harvest-dialog', level: 'error',
+      message: `Failed to queue concept ${item.id}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return { manifest: { type: 'concept', action: 'queued', id: item.id, status: 'rejected' }, success: false };
+  }
+}
+
+async function applyModificationItem(
+  item: TaxonomyModification,
+  debateId: string,
+): Promise<ApplyResult> {
+  const rejected: ApplyResult = { manifest: { type: 'modification', action: 'updated', id: item.nodeId, status: 'rejected' }, success: false };
+  if (!item.checked || !item.suggestedChange) return rejected;
+  if (item.modificationType !== 'refine_description') return rejected;
+  try {
+    const store = useTaxonomyStore.getState();
+    let appliedPov: Pov | null = null;
+    for (const pov of POV_KEYS) {
+      const node = store[pov]?.nodes?.find(n => n.id === item.nodeId);
+      if (node) {
+        store.updatePovNode(pov, item.nodeId, { description: item.suggestedChange }, { source: 'debate_reflection', debateId, reason: item.rationale });
+        appliedPov = pov;
+        break;
+      }
+    }
+    if (appliedPov) {
+      triggerPovNodeRegeneration(appliedPov, item.nodeId, item.suggestedChange, store.updatePovNode);
+    }
+    return { manifest: { type: 'modification', action: 'updated', id: item.nodeId, status: 'applied' }, success: true };
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'harvest-dialog', level: 'error',
+      message: `Failed to apply modification to ${item.nodeId}`,
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return rejected;
+  }
+}
+
+// --- Section components ---
+
+interface ConflictSectionProps {
+  conflicts: HarvestConflictItem[];
+  setConflicts: React.Dispatch<React.SetStateAction<HarvestConflictItem[]>>;
+}
+function ConflictSection({ conflicts, setConflicts }: ConflictSectionProps) {
+  if (conflicts.length === 0) return null;
+  const toggleConflict = (id: string) =>
+    setConflicts(prev => prev.map(c => c.id === id ? { ...c, checked: !c.checked } : c));
+  return (
+    <div className="harvest-section">
+      <h3>Conflicts ({conflicts.filter(c => c.checked).length}/{conflicts.length})</h3>
+      {conflicts.map(item => (
+        <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
+          <label className="harvest-item-header">
+            <input type="checkbox" checked={item.checked} onChange={() => toggleConflict(item.id)} />
+            <span className="harvest-item-title">{item.point}</span>
+            {item.bdiLayer && <span className="harvest-badge">{item.bdiLayer}</span>}
+            {item.resolvability && <span className="harvest-badge harvest-badge-muted">{item.resolvability.replace(/_/g, ' ')}</span>}
+          </label>
+          {item.checked && (
+            <div className="harvest-item-body">
+              {item.positions.map((p, i) => (
+                <div key={i} className="harvest-position">
+                  <strong>{p.pover}:</strong> {p.stance}
+                </div>
+              ))}
+              {item.generatedLabel && (
+                <div className="harvest-generated">
+                  <label>Label: <input
+                    value={item.generatedLabel}
+                    onChange={e => setConflicts(prev => prev.map(c => c.id === item.id ? { ...c, generatedLabel: e.target.value } : c))}
+                  /></label>
+                  <label>Description: <textarea
+                    value={item.generatedDescription || ''}
+                    onChange={e => setConflicts(prev => prev.map(c => c.id === item.id ? { ...c, generatedDescription: e.target.value } : c))}
+                    rows={5}
+                  /></label>
+                </div>
+              )}
+              {item.warnings.length > 0 && (
+                <div className="harvest-warnings">
+                  {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface SteelmanSectionProps {
+  steelmans: HarvestSteelmanItem[];
+  setSteelmans: React.Dispatch<React.SetStateAction<HarvestSteelmanItem[]>>;
+}
+function SteelmanSection({ steelmans, setSteelmans }: SteelmanSectionProps) {
+  if (steelmans.length === 0) return null;
+  const toggleSteelman = (id: string) =>
+    setSteelmans(prev => prev.map(s => s.id === id ? { ...s, checked: !s.checked } : s));
+  return (
+    <div className="harvest-section">
+      <h3>Steelman Refinements ({steelmans.filter(s => s.checked).length}/{steelmans.length})</h3>
+      {steelmans.map(item => (
+        <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
+          <label className="harvest-item-header">
+            <input type="checkbox" checked={item.checked} onChange={() => toggleSteelman(item.id)} />
+            <span className="harvest-item-title">{item.targetNodeLabel}</span>
+            <span className="harvest-badge">from {item.attackerPov}</span>
+          </label>
+          {item.checked && (
+            <div className="harvest-item-body">
+              {item.currentSteelman && (
+                <div className="harvest-steelman-current">
+                  <strong>Current:</strong> {item.currentSteelman}
+                </div>
+              )}
+              {item.proposedSteelman ? (
+                <div className="harvest-steelman-proposed">
+                  <strong>Proposed:</strong>
+                  <textarea
+                    value={item.proposedSteelman}
+                    onChange={e => setSteelmans(prev => prev.map(s => s.id === item.id ? { ...s, proposedSteelman: e.target.value } : s))}
+                    rows={2}
+                  />
+                </div>
+              ) : (
+                <div className="harvest-steelman-source">
+                  <strong>Source:</strong> {item.sourceExcerpt}
+                </div>
+              )}
+              {item.warnings.length > 0 && (
+                <div className="harvest-warnings">
+                  {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface VerdictSectionProps {
+  verdicts: HarvestVerdictItem[];
+  setVerdicts: React.Dispatch<React.SetStateAction<HarvestVerdictItem[]>>;
+  activeDebate: { transcript: { type: string; metadata?: Record<string, unknown> }[] } | null;
+}
+function VerdictSection({ verdicts, setVerdicts, activeDebate }: VerdictSectionProps) {
+  if (verdicts.length === 0) return null;
+  const toggleVerdict = (id: string) =>
+    setVerdicts(prev => prev.map(v => v.id === id ? { ...v, checked: !v.checked } : v));
+  return (
+    <div className="harvest-section">
+      <h3>Preference Verdicts ({verdicts.filter(v => v.checked).length}/{verdicts.length})</h3>
+      {verdicts.map(item => (
+        <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
+          <label className="harvest-item-header">
+            <input type="checkbox" checked={item.checked} onChange={() => toggleVerdict(item.id)} />
+            <span className="harvest-item-title">{item.conflict}</span>
+            <span className="harvest-badge">{item.criterion?.replace(/_/g, ' ')}</span>
+          </label>
+          {item.checked && (
+            <div className="harvest-item-body">
+              <div><strong>Prevails:</strong> {resolveVerdictPrevails(item.prevails, activeDebate)}</div>
+              <div><strong>Rationale:</strong> {item.rationale}</div>
+              {item.whatWouldChange && (
+                <div><strong>Would change if:</strong> {item.whatWouldChange}</div>
+              )}
+              {item.warnings.length > 0 && (
+                <div className="harvest-warnings">
+                  {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface ConceptSectionProps {
+  concepts: HarvestConceptItem[];
+  setConcepts: React.Dispatch<React.SetStateAction<HarvestConceptItem[]>>;
+}
+function ConceptSection({ concepts, setConcepts }: ConceptSectionProps) {
+  if (concepts.length === 0) return null;
+  const toggleConcept = (id: string) =>
+    setConcepts(prev => prev.map(c => c.id === id ? { ...c, checked: !c.checked } : c));
+  return (
+    <div className="harvest-section">
+      <h3>New Concepts ({concepts.filter(c => c.checked).length}/{concepts.length})</h3>
+      {concepts.map(item => (
+        <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
+          <label className="harvest-item-header">
+            <input type="checkbox" checked={item.checked} onChange={() => toggleConcept(item.id)} />
+            <span className="harvest-item-title">{item.text.slice(0, 100)}{item.text.length > 100 ? '...' : ''}</span>
+            <span className="harvest-badge">{item.speaker}</span>
+          </label>
+          {item.checked && (
+            <div className="harvest-item-body">
+              {item.suggestedLabel ? (
+                <div className="harvest-generated">
+                  <label>Label: <input
+                    value={item.suggestedLabel}
+                    onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedLabel: e.target.value } : c))}
+                  /></label>
+                  <label>Perspective:
+                    <select value={item.suggestedPov} onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedPov: e.target.value } : c))}>
+                      <option value="accelerationist">Accelerationist</option>
+                      <option value="safetyist">Safetyist</option>
+                      <option value="skeptic">Skeptic</option>
+                      <option value="situations">Situations</option>
+                    </select>
+                  </label>
+                  <label>Category:
+                    <select value={item.suggestedCategory} onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedCategory: e.target.value } : c))}>
+                      <option value="Desires">Desires</option>
+                      <option value="Beliefs">Beliefs</option>
+                      <option value="Intentions">Intentions</option>
+                    </select>
+                  </label>
+                  <label>Description: <textarea
+                    value={item.suggestedDescription}
+                    onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedDescription: e.target.value } : c))}
+                    rows={3}
+                  /></label>
+                </div>
+              ) : (
+                <div className="harvest-steelman-source"><strong>Source claim:</strong> {item.text}</div>
+              )}
+              {item.warnings.length > 0 && (
+                <div className="harvest-warnings">
+                  {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface ProposalSectionProps {
+  proposals: TaxonomyProposal[];
+  setProposals: React.Dispatch<React.SetStateAction<TaxonomyProposal[]>>;
+}
+function ProposalSection({ proposals, setProposals }: ProposalSectionProps) {
+  if (proposals.length === 0) return null;
+  return (
+    <div className="harvest-section">
+      <h3>New Node Proposals ({proposals.filter(p => p.checked).length}/{proposals.length})</h3>
+      {proposals.map((item, i) => (
+        <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
+          <label className="harvest-item-header">
+            <input type="checkbox" checked={item.checked} onChange={() => setProposals(prev => prev.map((p, j) => j === i ? { ...p, checked: !p.checked } : p))} />
+            <span className="harvest-item-title">{item.label || '(untitled)'}</span>
+            <span className="harvest-badge">{item.pov}</span>
+            <span className="harvest-badge">{item.category}</span>
+          </label>
+          {item.checked && (
+            <div className="harvest-item-body">
+              <div className="harvest-proposal-desc">{item.description}</div>
+              <div className="harvest-proposal-rationale"><strong>Rationale:</strong> {item.rationale}</div>
+              {item.sourceClaims.length > 0 && (
+                <div className="harvest-proposal-claims">Source claims: {item.sourceClaims.join(', ')}</div>
+              )}
+              <div className="harvest-proposal-edit">
+                <label>Label: <input value={item.label} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, label: e.target.value } : p))} /></label>
+                <label>Description: <textarea value={item.description} rows={3} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, description: e.target.value } : p))} /></label>
+                <label>Perspective: <select value={item.pov} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, pov: e.target.value } : p))}>
+                  <option value="accelerationist">Accelerationist</option>
+                  <option value="safetyist">Safetyist</option>
+                  <option value="skeptic">Skeptic</option>
+                  <option value="situations">Situations</option>
+                </select></label>
+                <label>Category: <select value={item.category} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, category: e.target.value } : p))}>
+                  <option value="Beliefs">Beliefs</option>
+                  <option value="Desires">Desires</option>
+                  <option value="Intentions">Intentions</option>
+                </select></label>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface ModificationSectionProps {
+  modifications: TaxonomyModification[];
+  setModifications: React.Dispatch<React.SetStateAction<TaxonomyModification[]>>;
+}
+function ModificationSection({ modifications, setModifications }: ModificationSectionProps) {
+  if (modifications.length === 0) return null;
+  return (
+    <div className="harvest-section">
+      <h3>Node Modifications ({modifications.filter(m => m.checked).length}/{modifications.length})</h3>
+      {modifications.map((item, i) => (
+        <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
+          <label className="harvest-item-header">
+            <input type="checkbox" checked={item.checked} onChange={() => setModifications(prev => prev.map((m, j) => j === i ? { ...m, checked: !m.checked } : m))} />
+            <span className="harvest-item-title">{item.nodeLabel}</span>
+            <span className="harvest-badge">{item.modificationType.replace(/_/g, ' ')}</span>
+          </label>
+          {item.checked && (
+            <div className="harvest-item-body">
+              <div><strong>Node:</strong> <code>{item.nodeId}</code></div>
+              <div><strong>Suggested change:</strong> {item.suggestedChange}</div>
+              <div><strong>Rationale:</strong> {item.rationale}</div>
+              {item.sourceClaims.length > 0 && (
+                <div className="harvest-proposal-claims">Source claims: {item.sourceClaims.join(', ')}</div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface ConcessionSectionProps {
+  concessionUpdates: ConcessionUpdate[];
+  setConcessionUpdates: React.Dispatch<React.SetStateAction<ConcessionUpdate[]>>;
+}
+function ConcessionSection({ concessionUpdates, setConcessionUpdates }: ConcessionSectionProps) {
+  if (concessionUpdates.length === 0) return null;
+  return (
+    <div className="harvest-section">
+      <h3>Concession-Driven Updates ({concessionUpdates.filter(c => c.checked).length}/{concessionUpdates.length})</h3>
+      {concessionUpdates.map((item, i) => (
+        <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
+          <label className="harvest-item-header">
+            <input type="checkbox" checked={item.checked} onChange={() => setConcessionUpdates(prev => prev.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))} />
+            <span className="harvest-item-title">{item.nodeLabel}</span>
+            <span className={`harvest-badge harvest-badge-${item.updateType}`}>{item.updateType}</span>
+            <span className="harvest-badge">{item.bdiLayer}</span>
+          </label>
+          {item.checked && (
+            <div className="harvest-item-body">
+              <div className="harvest-concession-node">
+                <code>{item.nodeId}</code>: {item.nodeDescription.slice(0, 150)}{item.nodeDescription.length > 150 ? '...' : ''}
+              </div>
+              <div className="harvest-concession-score">
+                Weighted score: {item.weightedScore.toFixed(1)} / {CONCESSION_THRESHOLD} across {item.distinctDebates} debate{item.distinctDebates !== 1 ? 's' : ''}
+              </div>
+              <div className="harvest-concession-evidence">
+                <strong>Concession evidence:</strong>
+                {item.concessions.map((c, ci) => (
+                  <div key={ci} className="harvest-concession-entry">
+                    <span className={`harvest-concession-type harvest-concession-type-${c.type}`}>{c.type}</span>
+                    <span className="harvest-concession-speaker">{c.speaker} → {c.concededTo}</span>
+                    <span className="harvest-concession-text">"{c.text.slice(0, 120)}{c.text.length > 120 ? '...' : ''}"</span>
+                  </div>
+                ))}
+              </div>
+              {item.updateType === 'retire' && (
+                <div className="harvest-concession-warning">
+                  Retiring this node will archive it. References from summaries, conflicts, and edges will be preserved but marked as referencing a retired node.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- HarvestDialog interface ---
+
 interface HarvestDialogProps {
   onClose: () => void;
   fileData?: Record<string, unknown>;
 }
 
-const CONCESSION_THRESHOLD = 3.0;
+// --- Main component ---
 
 export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
   const activeDebate = useDebateStore(s => s.activeDebate);
@@ -50,16 +719,6 @@ export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
   const [debateRefs, setDebateRefs] = useState<HarvestDebateRefItem[]>([]);
   const [verdicts, setVerdicts] = useState<HarvestVerdictItem[]>([]);
   const [concepts, setConcepts] = useState<HarvestConceptItem[]>([]);
-  // Taxonomy proposals + modifications from synthesis (new harvest types)
-  interface TaxonomyProposal { id: string; label: string; description: string; pov: string; category: string; rationale: string; sourceClaims: string[]; checked: boolean }
-  interface TaxonomyModification { id: string; nodeId: string; nodeLabel: string; modificationType: string; suggestedChange: string; rationale: string; sourceClaims: string[]; checked: boolean }
-  interface ConcessionUpdate {
-    id: string; nodeId: string; nodeLabel: string; nodeDescription: string;
-    updateType: 'qualify' | 'weaken' | 'retire'; bdiLayer: string;
-    weightedScore: number; distinctDebates: number;
-    concessions: { text: string; speaker: string; concededTo: string; debateId: string; type: 'full' | 'conditional' | 'tactical' }[];
-    checked: boolean;
-  }
   const [proposals, setProposals] = useState<TaxonomyProposal[]>([]);
   const [modifications, setModifications] = useState<TaxonomyModification[]>([]);
   const [concessionUpdates, setConcessionUpdates] = useState<ConcessionUpdate[]>([]);
@@ -97,27 +756,16 @@ export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
       return;
     }
     if (!activeDebate) return;
+
     // Q-15: Pre-uncheck low-strength items when QBAF is enabled
     const qbafEnabled = useFeatureFlagStore.getState().flags['release-qbaf-analysis'] ?? false;
     const anNodes: ArgumentNetworkNode[] = activeDebate.argument_network?.nodes ?? [];
-    const HARVEST_STRENGTH_THRESHOLD = 0.7;
-
-    const conflicts = extractConflictCandidates(activeDebate);
+    const candidateConflicts = extractConflictCandidates(activeDebate);
     if (qbafEnabled && anNodes.some(n => n.computed_strength != null)) {
-      // Pre-uncheck conflict items where related AN claims have low strength
-      for (const item of conflicts) {
-        const relatedNodes = anNodes.filter(n =>
-          item.linkedNodes.some(ln => n.taxonomy_refs.includes(ln))
-        );
-        const avgStrength = relatedNodes.length > 0
-          ? relatedNodes.reduce((sum, n) => sum + (n.computed_strength ?? 0.5), 0) / relatedNodes.length
-          : 0.5;
-        if (avgStrength < HARVEST_STRENGTH_THRESHOLD) {
-          item.checked = false;
-        }
-      }
+      applyQbafPreuncheck(candidateConflicts, anNodes);
     }
-    setConflicts(conflicts);
+    setConflicts(candidateConflicts);
+
     // A steelman is written onto its node; a superseded target is read-only history, so write to the survivor (t/4355).
     setSteelmans(extractSteelmanCandidates(activeDebate, getNodeLabel).map(s => {
       const survivor = resolveNodeId(taxState, s.targetNodeId);
@@ -125,75 +773,14 @@ export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
     }));
     setVerdicts(extractVerdictCandidates(activeDebate));
     setConcepts(extractConceptCandidates(activeDebate, allNodeIds));
+    setConcessionUpdates(buildConcessionCandidates(taxState));
 
-    // Extract concession updates — nodes whose concession_history crosses threshold
-    const CONCESSION_MIN_DEBATES = 2;
-    const CONCESSION_WEIGHTS: Record<string, number> = { full: 1.0, conditional: 0.5, tactical: 0.0 };
-    const concessionCandidates: ConcessionUpdate[] = [];
-    for (const pov of POV_KEYS) {
-      const file = taxState[pov];
-      if (!file?.nodes) continue;
-      for (const node of file.nodes) {
-        const history = node.concession_history;
-        if (!Array.isArray(history) || history.length === 0) continue;
-        const weightedScore = history.reduce((sum, r) => sum + (CONCESSION_WEIGHTS[r.concession_type] ?? 0), 0);
-        const distinctDebates = new Set(history.map(r => r.debate_id)).size;
-        if (weightedScore >= CONCESSION_THRESHOLD && distinctDebates >= CONCESSION_MIN_DEBATES) {
-          const primaryBdi = history.reduce((counts, r) => {
-            counts[r.bdi_impact] = (counts[r.bdi_impact] ?? 0) + 1;
-            return counts;
-          }, {} as Record<string, number>);
-          const topBdi = Object.entries(primaryBdi).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'belief';
-          concessionCandidates.push({
-            id: `hc-${concessionCandidates.length}`,
-            nodeId: node.id,
-            nodeLabel: node.label,
-            nodeDescription: node.description,
-            updateType: weightedScore >= 6.0 ? 'retire' : weightedScore >= 4.5 ? 'weaken' : 'qualify',
-            bdiLayer: topBdi,
-            weightedScore,
-            distinctDebates,
-            concessions: history.map(r => ({
-              text: r.text, speaker: r.speaker, concededTo: r.conceded_to,
-              debateId: r.debate_id, type: r.concession_type,
-            })),
-            checked: true,
-          });
-        }
-      }
-    }
-    setConcessionUpdates(concessionCandidates);
-
-    // Extract taxonomy proposals + modifications from synthesis metadata
     const synthEntry = activeDebate.transcript.find(e => e.type === 'concluding');
     const synthMeta = (synthEntry?.metadata as Record<string, unknown>)?.synthesis as Record<string, unknown> | undefined;
     if (synthMeta) {
-      const rawProposals = synthMeta.taxonomy_proposals as { label: string; description: string; pov: string; category: string; rationale: string; source_claims?: string[] }[] | undefined;
-      if (Array.isArray(rawProposals)) {
-        setProposals(rawProposals.map((p, i) => ({
-          id: `hp-${i}`,
-          label: p.label ?? '',
-          description: p.description ?? '',
-          pov: p.pov ?? 'situations',
-          category: p.category ?? 'Intentions',
-          rationale: p.rationale ?? '',
-          sourceClaims: p.source_claims ?? [],
-          checked: true,
-        })));
-      }
-      const rawMods = synthMeta.taxonomy_modifications as { node_id: string; modification_type: string; suggested_change: string; rationale: string; source_claims?: string[] }[] | undefined;
-      if (Array.isArray(rawMods)) {
-        setModifications(rawMods.map((m, i) => ({
-          id: `hm-${i}`,
-          nodeId: m.node_id ?? '',
-          nodeLabel: getNodeLabel(m.node_id) || m.node_id,
-          modificationType: m.modification_type ?? 'refine_description',
-          suggestedChange: m.suggested_change ?? '',
-          rationale: m.rationale ?? '',
-          sourceClaims: m.source_claims ?? [],
-          checked: true,
-        })));
-      }
+      const { proposals: p, modifications: m } = parseSynthesisMetadata(synthMeta, getNodeLabel);
+      setProposals(p);
+      setModifications(m);
     }
   }, [activeDebate?.id, fileData]);
 
@@ -212,17 +799,6 @@ export function HarvestDialog({ onClose, fileData }: HarvestDialogProps) {
       return s;
     }));
   }, [steelmans.length]);
-
-  const toggleConflict = (id: string) => setConflicts(prev =>
-    prev.map(c => c.id === id ? { ...c, checked: !c.checked } : c));
-  const toggleSteelman = (id: string) => setSteelmans(prev =>
-    prev.map(s => s.id === id ? { ...s, checked: !s.checked } : s));
-  const toggleDebateRef = (nodeId: string) => setDebateRefs(prev =>
-    prev.map(r => r.nodeId === nodeId ? { ...r, checked: !r.checked } : r));
-  const toggleVerdict = (id: string) => setVerdicts(prev =>
-    prev.map(v => v.id === id ? { ...v, checked: !v.checked } : v));
-  const toggleConcept = (id: string) => setConcepts(prev =>
-    prev.map(c => c.id === id ? { ...c, checked: !c.checked } : c));
 
   const existingLabels = new Set<string>();
   for (const pov of POV_KEYS) {
@@ -398,194 +974,48 @@ Return ONLY JSON (no markdown):
   const handleApply = async () => {
     if (!activeDebate) return;
     setApplying(true);
-    getGlobalRecorder()?.record({ type: 'lifecycle', component: 'harvest', level: 'info', message: 'harvest.start', data: { debate_id: activeDebate.id, conflicts: conflicts.filter(c => c.checked).length, steelmans: steelmans.filter(s => s.checked).length, debate_refs: debateRefs.filter(r => r.checked).length, verdicts: verdicts.filter(v => v.checked).length, concepts: concepts.filter(c => c.checked).length } });
+    getGlobalRecorder()?.record({
+      type: 'lifecycle', component: 'harvest', level: 'info', message: 'harvest.start',
+      data: { debate_id: activeDebate.id, conflicts: conflicts.filter(c => c.checked).length, steelmans: steelmans.filter(s => s.checked).length, debate_refs: debateRefs.filter(r => r.checked).length, verdicts: verdicts.filter(v => v.checked).length, concepts: concepts.filter(c => c.checked).length },
+    });
+
     const manifest: HarvestManifestItem[] = [];
-    let applied = 0, failed = 0;
+    const successes: boolean[] = [];
 
-    // Apply conflicts
     for (const item of conflicts) {
-      if (!item.checked) {
-        manifest.push({ type: 'conflict', action: 'created', id: item.id, status: 'rejected' });
-        continue;
-      }
-      const faithfulText = item.verbatim || item.point;
-      const conflictId = generateConflictSlug(item.generatedLabel || faithfulText, activeDebate.id);
-      try {
-        await api.harvestCreateConflict({
-          claim_id: conflictId,
-          claim_label: item.generatedLabel || faithfulText.slice(0, 60),
-          description: item.generatedDescription || faithfulText,
-          status: 'open',
-          linked_taxonomy_nodes: item.linkedNodes,
-          instances: item.positions.map(p => ({
-            doc_id: `debate:${activeDebate.id}`,
-            stance: p.pover === item.positions[0]?.pover ? 'supports' : 'disputes',
-            assertion: p.stance,
-            date_flagged: new Date().toISOString().slice(0, 10),
-          })),
-          source: 'debate-harvest',
-          source_debate_id: activeDebate.id,
-        });
-        manifest.push({ type: 'conflict', action: 'created', id: conflictId, status: 'applied' });
-        applied++;
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          component: 'harvest-dialog',
-          level: 'error',
-          message: `Failed to create conflict ${conflictId}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        manifest.push({ type: 'conflict', action: 'created', id: conflictId, status: 'rejected' });
-        failed++;
-      }
+      const r = await applyConflictItem(item, activeDebate.id);
+      manifest.push(r.manifest);
+      successes.push(r.success);
     }
-
-    // Apply steelmans
     for (const item of steelmans) {
-      if (!item.checked || !item.proposedSteelman) {
-        manifest.push({ type: 'steelman', action: 'updated', id: item.targetNodeId, status: 'rejected' });
-        continue;
-      }
-      try {
-        await api.harvestUpdateSteelman(item.targetNodeId, item.attackerPov, item.proposedSteelman);
-        manifest.push({ type: 'steelman', action: 'updated', id: `${item.targetNodeId}:from_${item.attackerPov}`, status: 'applied' });
-        applied++;
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          component: 'harvest-dialog',
-          level: 'error',
-          message: `Failed to update steelman for ${item.targetNodeId}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        manifest.push({ type: 'steelman', action: 'updated', id: item.targetNodeId, status: 'rejected' });
-        failed++;
-      }
+      const r = await applySteelmanItem(item, activeDebate.id);
+      manifest.push(r.manifest);
+      successes.push(r.success);
     }
-
-    // Apply debate refs
     for (const item of debateRefs) {
-      if (!item.checked) continue;
-      try {
-        await api.harvestAddDebateRef(item.nodeId, activeDebate.id);
-        manifest.push({ type: 'debate_ref', action: 'added', id: item.nodeId, status: 'applied' });
-        applied++;
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          component: 'harvest-dialog',
-          level: 'error',
-          message: `Failed to add debate ref for ${item.nodeId}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        manifest.push({ type: 'debate_ref', action: 'added', id: item.nodeId, status: 'rejected' });
-        failed++;
-      }
+      const r = await applyDebateRefItem(item, activeDebate.id);
+      manifest.push(r.manifest);
+      successes.push(r.success);
     }
-
-    // Apply verdicts — attach to existing conflicts or create with conflict
     for (const item of verdicts) {
-      if (!item.checked) {
-        manifest.push({ type: 'verdict', action: 'updated', id: item.id, status: 'rejected' });
-        continue;
-      }
-      // If this verdict corresponds to a conflict we just created, attach to it
-      const conflictSlug = item.targetConflictId || generateConflictSlug(item.conflict, activeDebate.id);
-      try {
-        await api.harvestAddVerdict(conflictSlug, {
-          prevails: item.prevails,
-          criterion: item.criterion,
-          rationale: item.rationale,
-          what_would_change_this: item.whatWouldChange,
-          source_debate_id: activeDebate.id,
-          harvested_at: new Date().toISOString(),
-        });
-        manifest.push({ type: 'verdict', action: 'updated', id: conflictSlug, status: 'applied' });
-        applied++;
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          component: 'harvest-dialog',
-          level: 'error',
-          message: `Failed to add verdict for ${conflictSlug}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        manifest.push({ type: 'verdict', action: 'updated', id: conflictSlug, status: 'rejected' });
-        failed++;
-      }
+      const r = await applyVerdictItem(item, activeDebate.id);
+      manifest.push(r.manifest);
+      successes.push(r.success);
     }
-
-    // Apply concepts — queue for taxonomy proposal
     for (const item of concepts) {
-      if (!item.checked || !item.suggestedLabel) {
-        if (item.checked) manifest.push({ type: 'concept', action: 'queued', id: item.id, status: 'rejected' });
-        continue;
-      }
-      try {
-        await api.harvestQueueConcept({
-          label: item.suggestedLabel,
-          description: item.suggestedDescription,
-          suggested_pov: item.suggestedPov,
-          suggested_category: item.suggestedCategory,
-          source_debate_id: activeDebate.id,
-          evidence: item.text,
-        });
-        manifest.push({ type: 'concept', action: 'queued', id: item.suggestedLabel, status: 'applied' });
-        applied++;
-      } catch (err) {
-        getGlobalRecorder()?.record({
-          type: 'system.error',
-          component: 'harvest-dialog',
-          level: 'error',
-          message: `Failed to queue concept ${item.id}`,
-          error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-        });
-        manifest.push({ type: 'concept', action: 'queued', id: item.id, status: 'rejected' });
-        failed++;
-      }
+      const r = await applyConceptItem(item, activeDebate.id);
+      manifest.push(r.manifest);
+      successes.push(r.success);
     }
-
-    // Apply modifications — update existing node descriptions atomically
     for (const item of modifications) {
-      if (!item.checked || !item.suggestedChange) {
-        manifest.push({ type: 'modification', action: 'updated', id: item.nodeId, status: 'rejected' });
-        continue;
-      }
-      if (item.modificationType === 'refine_description') {
-        try {
-          const store = useTaxonomyStore.getState();
-          let appliedPov: Pov | null = null;
-          for (const pov of POV_KEYS) {
-            const node = store[pov]?.nodes?.find(n => n.id === item.nodeId);
-            if (node) {
-              store.updatePovNode(pov, item.nodeId, { description: item.suggestedChange }, { source: 'debate_reflection', debateId: activeDebate.id, reason: item.rationale });
-              appliedPov = pov;
-              break;
-            }
-          }
-          if (appliedPov) {
-            triggerPovNodeRegeneration(appliedPov, item.nodeId, item.suggestedChange, store.updatePovNode);
-          }
-          manifest.push({ type: 'modification', action: 'updated', id: item.nodeId, status: 'applied' });
-          applied++;
-        } catch (err) {
-          getGlobalRecorder()?.record({
-            type: 'system.error',
-            component: 'harvest-dialog',
-            level: 'error',
-            message: `Failed to apply modification to ${item.nodeId}`,
-            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-          });
-          manifest.push({ type: 'modification', action: 'updated', id: item.nodeId, status: 'rejected' });
-          failed++;
-        }
-      } else {
-        manifest.push({ type: 'modification', action: 'updated', id: item.nodeId, status: 'rejected' });
-      }
+      const r = await applyModificationItem(item, activeDebate.id);
+      manifest.push(r.manifest);
+      successes.push(r.success);
     }
 
-    // Save manifest
+    const applied = successes.filter(Boolean).length;
+    const failed = successes.length - applied;
+
     await api.harvestSaveManifest({
       debate_id: activeDebate.id,
       debate_title: activeDebate.title,
@@ -594,7 +1024,10 @@ Return ONLY JSON (no markdown):
     });
 
     setResult({ applied, failed });
-    getGlobalRecorder()?.record({ type: 'lifecycle', component: 'harvest', level: applied > 0 ? 'info' : 'warn', message: 'harvest.complete', data: { debate_id: activeDebate.id, applied, failed, manifest_items: manifest.length } });
+    getGlobalRecorder()?.record({
+      type: 'lifecycle', component: 'harvest', level: applied > 0 ? 'info' : 'warn', message: 'harvest.complete',
+      data: { debate_id: activeDebate.id, applied, failed, manifest_items: manifest.length },
+    });
     setApplying(false);
   };
 
@@ -610,8 +1043,10 @@ Return ONLY JSON (no markdown):
 
   if (!activeDebate && !fileData) return null;
 
-  // In file mode, render without the overlay
   const isFileMode = !!fileData;
+  const isEmpty = conflicts.length === 0 && steelmans.length === 0 && verdicts.length === 0
+    && concepts.length === 0 && proposals.length === 0 && modifications.length === 0
+    && concessionUpdates.length === 0;
 
   return (
     <div className={isFileMode ? '' : 'dialog-overlay'} onClick={isFileMode ? undefined : onClose}>
@@ -630,298 +1065,15 @@ Return ONLY JSON (no markdown):
           </div>
         ) : (
           <>
-            {/* Section 1: Conflicts */}
-            {conflicts.length > 0 && (
-              <div className="harvest-section">
-                <h3>Conflicts ({conflicts.filter(c => c.checked).length}/{conflicts.length})</h3>
-                {conflicts.map(item => (
-                  <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
-                    <label className="harvest-item-header">
-                      <input type="checkbox" checked={item.checked} onChange={() => toggleConflict(item.id)} />
-                      <span className="harvest-item-title">{item.point}</span>
-                      {item.bdiLayer && <span className="harvest-badge">{item.bdiLayer}</span>}
-                      {item.resolvability && <span className="harvest-badge harvest-badge-muted">{item.resolvability.replace(/_/g, ' ')}</span>}
-                    </label>
-                    {item.checked && (
-                      <div className="harvest-item-body">
-                        {item.positions.map((p, i) => (
-                          <div key={i} className="harvest-position">
-                            <strong>{p.pover}:</strong> {p.stance}
-                          </div>
-                        ))}
-                        {item.generatedLabel && (
-                          <div className="harvest-generated">
-                            <label>Label: <input
-                              value={item.generatedLabel}
-                              onChange={e => setConflicts(prev => prev.map(c => c.id === item.id ? { ...c, generatedLabel: e.target.value } : c))}
-                            /></label>
-                            <label>Description: <textarea
-                              value={item.generatedDescription || ''}
-                              onChange={e => setConflicts(prev => prev.map(c => c.id === item.id ? { ...c, generatedDescription: e.target.value } : c))}
-                              rows={5}
-                            /></label>
-                          </div>
-                        )}
-                        {item.warnings.length > 0 && (
-                          <div className="harvest-warnings">
-                            {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <ConflictSection conflicts={conflicts} setConflicts={setConflicts} />
+            <SteelmanSection steelmans={steelmans} setSteelmans={setSteelmans} />
+            <VerdictSection verdicts={verdicts} setVerdicts={setVerdicts} activeDebate={activeDebate} />
+            <ConceptSection concepts={concepts} setConcepts={setConcepts} />
+            <ProposalSection proposals={proposals} setProposals={setProposals} />
+            <ModificationSection modifications={modifications} setModifications={setModifications} />
+            <ConcessionSection concessionUpdates={concessionUpdates} setConcessionUpdates={setConcessionUpdates} />
 
-            {/* Section 2: Steelman Refinements */}
-            {steelmans.length > 0 && (
-              <div className="harvest-section">
-                <h3>Steelman Refinements ({steelmans.filter(s => s.checked).length}/{steelmans.length})</h3>
-                {steelmans.map(item => (
-                  <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
-                    <label className="harvest-item-header">
-                      <input type="checkbox" checked={item.checked} onChange={() => toggleSteelman(item.id)} />
-                      <span className="harvest-item-title">{item.targetNodeLabel}</span>
-                      <span className="harvest-badge">from {item.attackerPov}</span>
-                    </label>
-                    {item.checked && (
-                      <div className="harvest-item-body">
-                        {item.currentSteelman && (
-                          <div className="harvest-steelman-current">
-                            <strong>Current:</strong> {item.currentSteelman}
-                          </div>
-                        )}
-                        {item.proposedSteelman ? (
-                          <div className="harvest-steelman-proposed">
-                            <strong>Proposed:</strong>
-                            <textarea
-                              value={item.proposedSteelman}
-                              onChange={e => setSteelmans(prev => prev.map(s => s.id === item.id ? { ...s, proposedSteelman: e.target.value } : s))}
-                              rows={2}
-                            />
-                          </div>
-                        ) : (
-                          <div className="harvest-steelman-source">
-                            <strong>Source:</strong> {item.sourceExcerpt}
-                          </div>
-                        )}
-                        {item.warnings.length > 0 && (
-                          <div className="harvest-warnings">
-                            {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Section 3: Preference Verdicts */}
-            {verdicts.length > 0 && (
-              <div className="harvest-section">
-                <h3>Preference Verdicts ({verdicts.filter(v => v.checked).length}/{verdicts.length})</h3>
-                {verdicts.map(item => (
-                  <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
-                    <label className="harvest-item-header">
-                      <input type="checkbox" checked={item.checked} onChange={() => toggleVerdict(item.id)} />
-                      <span className="harvest-item-title">{item.conflict}</span>
-                      <span className="harvest-badge">{item.criterion?.replace(/_/g, ' ')}</span>
-                    </label>
-                    {item.checked && (
-                      <div className="harvest-item-body">
-                        <div><strong>Prevails:</strong> {(() => {
-                          // Resolve claim ID to text from argument_map
-                          if (/^C\d+$/.test(item.prevails)) {
-                            const synthEntry = activeDebate?.transcript.find(e => e.type === 'concluding');
-                            const argMap = (synthEntry?.metadata?.synthesis as { argument_map?: { claim_id: string; claim: string; claimant: string }[] })?.argument_map;
-                            const claim = argMap?.find(c => c.claim_id === item.prevails);
-                            if (claim) return `${claim.claimant}: "${claim.claim}"`;
-                          }
-                          return item.prevails;
-                        })()}</div>
-                        <div><strong>Rationale:</strong> {item.rationale}</div>
-                        {item.whatWouldChange && (
-                          <div><strong>Would change if:</strong> {item.whatWouldChange}</div>
-                        )}
-                        {item.warnings.length > 0 && (
-                          <div className="harvest-warnings">
-                            {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Section 5: New Concepts */}
-            {concepts.length > 0 && (
-              <div className="harvest-section">
-                <h3>New Concepts ({concepts.filter(c => c.checked).length}/{concepts.length})</h3>
-                {concepts.map(item => (
-                  <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
-                    <label className="harvest-item-header">
-                      <input type="checkbox" checked={item.checked} onChange={() => toggleConcept(item.id)} />
-                      <span className="harvest-item-title">{item.text.slice(0, 100)}{item.text.length > 100 ? '...' : ''}</span>
-                      <span className="harvest-badge">{item.speaker}</span>
-                    </label>
-                    {item.checked && (
-                      <div className="harvest-item-body">
-                        {item.suggestedLabel ? (
-                          <div className="harvest-generated">
-                            <label>Label: <input
-                              value={item.suggestedLabel}
-                              onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedLabel: e.target.value } : c))}
-                            /></label>
-                            <label>Perspective:
-                              <select value={item.suggestedPov} onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedPov: e.target.value } : c))}>
-                                <option value="accelerationist">Accelerationist</option>
-                                <option value="safetyist">Safetyist</option>
-                                <option value="skeptic">Skeptic</option>
-                                <option value="situations">Situations</option>
-                              </select>
-                            </label>
-                            <label>Category:
-                              <select value={item.suggestedCategory} onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedCategory: e.target.value } : c))}>
-                                <option value="Desires">Desires</option>
-                                <option value="Beliefs">Beliefs</option>
-                                <option value="Intentions">Intentions</option>
-                              </select>
-                            </label>
-                            <label>Description: <textarea
-                              value={item.suggestedDescription}
-                              onChange={e => setConcepts(prev => prev.map(c => c.id === item.id ? { ...c, suggestedDescription: e.target.value } : c))}
-                              rows={3}
-                            /></label>
-                          </div>
-                        ) : (
-                          <div className="harvest-steelman-source"><strong>Source claim:</strong> {item.text}</div>
-                        )}
-                        {item.warnings.length > 0 && (
-                          <div className="harvest-warnings">
-                            {item.warnings.map((w, i) => <div key={i} className="harvest-warning">{w}</div>)}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Section 6: Taxonomy Proposals (new nodes from debate) */}
-            {proposals.length > 0 && (
-              <div className="harvest-section">
-                <h3>New Node Proposals ({proposals.filter(p => p.checked).length}/{proposals.length})</h3>
-                {proposals.map((item, i) => (
-                  <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
-                    <label className="harvest-item-header">
-                      <input type="checkbox" checked={item.checked} onChange={() => setProposals(prev => prev.map((p, j) => j === i ? { ...p, checked: !p.checked } : p))} />
-                      <span className="harvest-item-title">{item.label || '(untitled)'}</span>
-                      <span className="harvest-badge">{item.pov}</span>
-                      <span className="harvest-badge">{item.category}</span>
-                    </label>
-                    {item.checked && (
-                      <div className="harvest-item-body">
-                        <div className="harvest-proposal-desc">{item.description}</div>
-                        <div className="harvest-proposal-rationale"><strong>Rationale:</strong> {item.rationale}</div>
-                        {item.sourceClaims.length > 0 && (
-                          <div className="harvest-proposal-claims">Source claims: {item.sourceClaims.join(', ')}</div>
-                        )}
-                        <div className="harvest-proposal-edit">
-                          <label>Label: <input value={item.label} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, label: e.target.value } : p))} /></label>
-                          <label>Description: <textarea value={item.description} rows={3} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, description: e.target.value } : p))} /></label>
-                          <label>Perspective: <select value={item.pov} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, pov: e.target.value } : p))}>
-                            <option value="accelerationist">Accelerationist</option>
-                            <option value="safetyist">Safetyist</option>
-                            <option value="skeptic">Skeptic</option>
-                            <option value="situations">Situations</option>
-                          </select></label>
-                          <label>Category: <select value={item.category} onChange={e => setProposals(prev => prev.map((p, j) => j === i ? { ...p, category: e.target.value } : p))}>
-                            <option value="Beliefs">Beliefs</option>
-                            <option value="Desires">Desires</option>
-                            <option value="Intentions">Intentions</option>
-                          </select></label>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Section 7: Taxonomy Modifications (changes to existing nodes) */}
-            {modifications.length > 0 && (
-              <div className="harvest-section">
-                <h3>Node Modifications ({modifications.filter(m => m.checked).length}/{modifications.length})</h3>
-                {modifications.map((item, i) => (
-                  <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
-                    <label className="harvest-item-header">
-                      <input type="checkbox" checked={item.checked} onChange={() => setModifications(prev => prev.map((m, j) => j === i ? { ...m, checked: !m.checked } : m))} />
-                      <span className="harvest-item-title">{item.nodeLabel}</span>
-                      <span className="harvest-badge">{item.modificationType.replace(/_/g, ' ')}</span>
-                    </label>
-                    {item.checked && (
-                      <div className="harvest-item-body">
-                        <div><strong>Node:</strong> <code>{item.nodeId}</code></div>
-                        <div><strong>Suggested change:</strong> {item.suggestedChange}</div>
-                        <div><strong>Rationale:</strong> {item.rationale}</div>
-                        {item.sourceClaims.length > 0 && (
-                          <div className="harvest-proposal-claims">Source claims: {item.sourceClaims.join(', ')}</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Section 8: Concession Updates */}
-            {concessionUpdates.length > 0 && (
-              <div className="harvest-section">
-                <h3>Concession-Driven Updates ({concessionUpdates.filter(c => c.checked).length}/{concessionUpdates.length})</h3>
-                {concessionUpdates.map((item, i) => (
-                  <div key={item.id} className={`harvest-item ${item.checked ? 'harvest-item-checked' : ''}`}>
-                    <label className="harvest-item-header">
-                      <input type="checkbox" checked={item.checked} onChange={() => setConcessionUpdates(prev => prev.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))} />
-                      <span className="harvest-item-title">{item.nodeLabel}</span>
-                      <span className={`harvest-badge harvest-badge-${item.updateType}`}>{item.updateType}</span>
-                      <span className="harvest-badge">{item.bdiLayer}</span>
-                    </label>
-                    {item.checked && (
-                      <div className="harvest-item-body">
-                        <div className="harvest-concession-node">
-                          <code>{item.nodeId}</code>: {item.nodeDescription.slice(0, 150)}{item.nodeDescription.length > 150 ? '...' : ''}
-                        </div>
-                        <div className="harvest-concession-score">
-                          Weighted score: {item.weightedScore.toFixed(1)} / {CONCESSION_THRESHOLD} across {item.distinctDebates} debate{item.distinctDebates !== 1 ? 's' : ''}
-                        </div>
-                        <div className="harvest-concession-evidence">
-                          <strong>Concession evidence:</strong>
-                          {item.concessions.map((c, ci) => (
-                            <div key={ci} className="harvest-concession-entry">
-                              <span className={`harvest-concession-type harvest-concession-type-${c.type}`}>{c.type}</span>
-                              <span className="harvest-concession-speaker">{c.speaker} → {c.concededTo}</span>
-                              <span className="harvest-concession-text">"{c.text.slice(0, 120)}{c.text.length > 120 ? '...' : ''}"</span>
-                            </div>
-                          ))}
-                        </div>
-                        {item.updateType === 'retire' && (
-                          <div className="harvest-concession-warning">
-                            Retiring this node will archive it. References from summaries, conflicts, and edges will be preserved but marked as referencing a retired node.
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {conflicts.length === 0 && steelmans.length === 0 && verdicts.length === 0 && concepts.length === 0 && proposals.length === 0 && modifications.length === 0 && concessionUpdates.length === 0 && (
+            {isEmpty && (
               <div className="harvest-empty">No harvestable findings in this debate. Run a synthesis first.</div>
             )}
 
