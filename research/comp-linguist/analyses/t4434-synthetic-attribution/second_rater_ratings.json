@@ -1,0 +1,33 @@
+{
+  "rater": "agent rater (fresh sub-agent, no taxonomy context)",
+  "method": "Blind: rater saw only X/Y text and the claim, not pairs_key.json or any other rater's picks, until all 25 were rated.",
+  "criterion": "Which of X/Y better grounds a debater on THIS claim as a node reference inside a debate prompt: specific/concrete and on-topic for the claim beats generic taxonomic scope-setting (Encompasses/Excludes framing reads as documentation, not a usable debate reference).",
+  "n": 25,
+  "ratings": [
+    {"pair_id": "p00", "picked": "X", "why": "X states the displacement/unemployment argument concretely; Y is Encompasses/Excludes documentation about the node, not usable claim text."},
+    {"pair_id": "p01", "picked": "Y", "why": "Y makes a concrete counter-claim about automation limits and task restructuring; X is pure Encompasses/Excludes scope-setting."},
+    {"pair_id": "p02", "picked": "Y", "why": "Y is a specific, concrete argument about the velocity of AI wealth concentration matching the claim; X is generic scope description."},
+    {"pair_id": "p03", "picked": "X", "why": "X gives concrete institutional precedent (research labs, public broadcasting) supporting collective/democratic oversight; Y is scope-setting."},
+    {"pair_id": "p04", "picked": "Y", "why": "Y concretely argues profits are measurable and taxable now, directly supporting the funding claim; X is Encompasses/Excludes."},
+    {"pair_id": "p05", "picked": "X", "why": "X specifically describes 'audit washing' and strategic exploitation matching the claim; Y is generic scope-setting."},
+    {"pair_id": "p06", "picked": "Y", "why": "Y is a pointed, specific question about ignored job-loss data matching the claim's statistic; X is scope-setting."},
+    {"pair_id": "p07", "picked": "Y", "why": "Y gives a concrete economic argument (winner-take-all dynamics) matching the claim; X is generic scope description."},
+    {"pair_id": "p08", "picked": "X", "why": "X gives a concrete structural mechanism (occupational segregation, exposure differential) matching the claim; Y is scope-setting."},
+    {"pair_id": "p09", "picked": "X", "why": "X gives concrete figures on undercounted water/carbon costs directly matching the claim's water-table reference; Y is scope-setting."},
+    {"pair_id": "p10", "picked": "X", "why": "X makes a specific legal argument about extending product liability precedent, matching the claim; Y is scope-setting."},
+    {"pair_id": "p11", "picked": "Y", "why": "Y proposes a concrete remedy (punitive damages for non-disclosure) matching the claim about deliberate opacity; X is brief scope-setting."},
+    {"pair_id": "p12", "picked": "Y", "why": "Y gives a specific economic-theory argument for domain-calibrated liability matching the claim; X lists agencies as Encompasses/Excludes scope."},
+    {"pair_id": "p13", "picked": "X", "why": "X concretely names the market-failure/moral-hazard mechanism matching the claim; Y is dense scope-setting about measurement axes."},
+    {"pair_id": "p14", "picked": "Y", "why": "Y is a concrete substantive claim about pre- and post-deployment mechanisms reinforcing each other, more usable than X's Encompasses/Excludes list."},
+    {"pair_id": "p15", "picked": "X", "why": "X concretely calls for an independent enforcement body with teeth, matching the claim about compliance infection; Y is scope-setting."},
+    {"pair_id": "p16", "picked": "Y", "why": "Y concretely argues for mandatory pre-release and post-deployment monitoring beyond self-attestation, directly matching the claim; X is scope-setting."},
+    {"pair_id": "p17", "picked": "Y", "why": "Y gives concrete numeric thresholds (1.25 disparity ratio, 15% adversarial rate) matching the claim about detection speed; X is a long Encompasses/Excludes list."},
+    {"pair_id": "p18", "picked": "Y", "why": "Y concretely argues for a funding mechanism against automation disruption, matching the claim's taxation proposal; X is scope-setting."},
+    {"pair_id": "p19", "picked": "Y", "why": "Y directly restates the claim's logic (regulatory friction/liability frameworks as the real bottleneck) concretely; X is scope-setting."},
+    {"pair_id": "p20", "picked": "Y", "why": "Y concretely argues the adaptive safety framework provides a recoverable intervention window, directly matching the claim; X is dense scope-setting."},
+    {"pair_id": "p21", "picked": "Y", "why": "Y concretely proposes the telemetry-based liability framework with audits for high-stakes deployments, matching the claim; X is scope-setting."},
+    {"pair_id": "p22", "picked": "X", "why": "X uses the concrete Agile/iteration framing that directly matches the claim's 'two adaptive iterations' language; Y is scope-setting."},
+    {"pair_id": "p23", "picked": "Y", "why": "Y concretely argues oversight can scale without creating bottlenecks, directly matching the claim about speed; X is scope-setting (despite some concrete detail, framed as Encompasses/Excludes)."},
+    {"pair_id": "p24", "picked": "X", "why": "X concretely names regulatory capture by incumbent firms as the true beneficiary, directly matching the claim; Y is scope-setting."}
+  ]
+}
