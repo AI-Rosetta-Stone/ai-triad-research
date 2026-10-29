@@ -10,6 +10,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useAuthStatus } from '../../hooks/useAuthStatus';
+import { useIsAdmin } from '../../hooks/useIsAdmin';
 import type {
   LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
 } from './LibraryListPage.types';
@@ -39,6 +40,13 @@ function initialListView(hideMyTab: boolean, defaultCommunityOnWeb: boolean, isW
   if (hideMyTab) return 'community';
   if (defaultCommunityOnWeb && isWeb) return 'community';
   return 'my';
+}
+
+// t/4643: Edit is admin-only on the Community tab. Pulled out of LibraryListPage's body (rather
+// than inlined as a boolean expression) to keep that function's cyclomatic complexity under the
+// repo's per-file budget — see eslint.config.mjs's local/complexity-budget rule.
+function canShowEditFor(showEdit: boolean, listView: LibraryVariant, isAdmin: boolean): boolean {
+  return showEdit && (listView !== 'community' || isAdmin);
 }
 
 function warnMissingComparator(columnKey: string): void {
@@ -312,19 +320,22 @@ function HeaderCell({
 // ── Header row 1: title + Edit/bulk-actions + New (extracted to keep the shell's complexity down) ──
 
 function HeaderRow1<TMy extends { id: string }, TCommunity extends { id: string }>({
-  config, editModeActive,
+  config, editModeActive, canShowEdit,
 }: {
   config: LibraryListPageProps<TMy, TCommunity>['config'];
   editModeActive: boolean;
+  /** t/4643: config.showEdit narrowed by (listView !== 'community' || isAdmin) — computed by
+   *  the parent, since this component doesn't know the active tab or admin status itself. */
+  canShowEdit: boolean;
 }) {
   return (
     <div className="lib-header-row1">
       <h2 className="lib-title">{config.title}</h2>
       <div className="lib-header-actions">
-        {config.showEdit && !editModeActive && (
+        {canShowEdit && !editModeActive && (
           <button type="button" className="lib-btn-secondary" onClick={config.editMode?.onEnter}>Edit</button>
         )}
-        {config.showEdit && editModeActive && config.editMode && (
+        {canShowEdit && editModeActive && config.editMode && (
           <div className="lib-editmode-actions">
             {config.editMode.actions.map(a => (
               <button
@@ -493,6 +504,11 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   // optional, so a page can't silently inherit a wrong default either.
   const auth = useAuthStatus();
   const hideMyTab = !!auth?.anonymous && !config.anonymousHasMyContent;
+  // t/4643: Edit is admin-only on the Community tab (UX, not security — the server-side guard
+  // is the actual enforcement). useIsAdmin() already fails closed to false while admin status
+  // is loading and is unconditionally true in Electron, so there's no separate "loading" state
+  // to plumb through here (AC4).
+  const isAdmin = useIsAdmin();
 
   // t/4561: web-only initial-view default, opt-in per page via defaultCommunityOnWeb.
   // VITE_TARGET is a build-time constant (same convention as HelpDialog.tsx/App.tsx), so this
@@ -516,6 +532,15 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   useEffect(() => {
     if (hideMyTab && listView === 'my') setListView('community');
   }, [hideMyTab, listView]);
+
+  // t/4643 AC3: a non-admin who switches to Community while in edit mode must not be left with
+  // a stranded bulk-action bar — exit edit mode. Guarded on .active so it never fires onExit()
+  // spuriously (e.g. on every admin-status refresh while already on Community, not editing).
+  useEffect(() => {
+    if (listView === 'community' && !isAdmin && config.editMode?.active) {
+      config.editMode.onExit();
+    }
+  }, [listView, isAdmin, config.editMode?.active]);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -545,6 +570,9 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   }, [config.columns]);
 
   const editModeActive = !!config.editMode?.active;
+  // t/4643: Edit is admin-only on Community. "The shell gates this once" per the ticket — any
+  // tool that turns on config.showEdit later inherits the rule automatically.
+  const canShowEdit = canShowEditFor(!!config.showEdit, listView, isAdmin);
   const gridCols = [
     editModeActive ? CHECKBOX_COL_WIDTH : null,
     '1fr',
@@ -557,7 +585,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
 
   return (
     <div className="library-list-page" data-action-visibility={actionVisibility}>
-      <HeaderRow1 config={config} editModeActive={editModeActive} />
+      <HeaderRow1 config={config} editModeActive={editModeActive} canShowEdit={canShowEdit} />
 
       {intro}
 
