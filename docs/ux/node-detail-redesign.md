@@ -50,14 +50,14 @@ This is the core change. The node detail panel gets its **own** Simple/Advanced 
 - **`⋯` menu:** keeps today's overflow entries (AI Analysis, Move to…, Delete, and Pin in Advanced). It also absorbs the panel-level icon buttons the mockup drops: **Search taxonomy, BDI grounding, Copy public link, Find similar**. These go at the top of the menu, in that order, with a separator before the existing entries. Nothing is removed; only its location changes.
 
 ### 2.3 Title and aphorism (both views)
-- **Title:** the large serif display (the existing title face, about 40px / `--text-3xl`, line-height 1.15), wrapping freely, max-width about 760px.
-- **Aphorism:** serif italic, about 20px, muted color, in curly quotes. Inline edit (✎) is unchanged, but the pencil appears **on hover/focus only**, so it doesn't sit in the mockup's clean line.
-- A **48px × 2px accent rule** sits below the aphorism, with `var(--sp-6)` above and below it.
+- **Title:** serif display (the existing title face), **28px**, line-height 1.2, wrapping freely, max-width about 760px. (t/4641: reduced from 40px at the PI's request, to reclaim vertical space.)
+- **Aphorism:** serif italic, **17px**, muted color, in curly quotes. Inline edit (✎) is unchanged, but the pencil appears **on hover/focus only**, so it doesn't sit in the mockup's clean line.
+- A **48px × 2px accent rule** sits below the aphorism, with `var(--sp-3)` above and below it (t/4641: was `--sp-6`). In Advanced, the rule shares its row with the description toolbar (§2.4); in Simple, it stands alone.
 
 ### 2.4 Description
 The description moves **out of the Content tab** and up into the body, above the tabs.
 - **Simple:** shows the **plain** description (`plain_description`, falling back to `description`). Serif, about 17px, line-height 1.7, max-width about 700px (65–75ch). No toolbar.
-- **Advanced:** a toolbar sits on the accent rule's row, **right-aligned**: `[Formal | Plain]` `✎ Edit` `↻ Regenerate`.
+- **Advanced:** a toolbar sits on the accent rule's row, **right-aligned**: `[Formal | Plain]` `✎ Edit` `↻ Regenerate`. The rule and toolbar are one flex row (`justify-content: space-between`, `align-items: center`); the toolbar never gets its own row on desktop. The description starts `var(--sp-3)` below that row.
   - **Formal | Plain** is a segmented control; the selected segment is a dark fill with white text, as in the mockup. Default is **Formal** in Advanced.
   - **Edit** and **Regenerate** are text buttons with icons (existing behavior). Hide them when `readOnly`.
   - **Formal rendering** (genus-differentia): the lead sentence as body text, then a two-column definition list:
@@ -85,15 +85,15 @@ The description moves **out of the Content tab** and up into the body, above the
 | Element | Size | Notes |
 |---|---|---|
 | Meta line | `--text-xs` | Category uppercase, accent; id monospace |
-| Title | ~40px serif | line-height 1.15 |
-| Aphorism | ~20px serif italic | muted, curly quotes |
-| Accent rule | 48 × 2px | theme accent; `--sp-6` above and below |
+| Title | 28px serif | line-height 1.2 |
+| Aphorism | 17px serif italic | muted, curly quotes |
+| Accent rule | 48 × 2px | theme accent; `--sp-3` above and below; shares its row with the Advanced toolbar |
 | Description | ~17px serif, lh 1.7 | max-width ~700px |
 | Formal labels | `--text-xs` uppercase | green (Encompasses) / red (Excludes) |
 | Tabs | `--text-sm` | count pills `--text-xs` |
 | Footer | `--text-xs` | muted |
 
-Panel padding is `var(--sp-6)` on desktop and `var(--sp-4)` at the 767px phone breakpoint, where the title steps down to about 30px.
+Panel padding is `var(--sp-6)` on desktop and `var(--sp-4)` at the 767px phone breakpoint, where the title steps down to 22px.
 
 ## 4. Phone (≤767px)
 - The header actions wrap below the meta line, right-aligned. The row itself wraps (`flex-wrap: wrap`, `max-width: 100%`) and never overflows the panel. The toggle and `⋯` must never clip.
