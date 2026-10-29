@@ -743,8 +743,9 @@ async function deliverOpeningResult(
 ): Promise<{ statement: string }> {
   const knownNodeIds = getAllKnownNodeIds();
   const { statement, taxonomyRefs, meta } = assembleOpeningPipelineResult(pipelineResult, knownNodeIds);
-  if (!statement || statement.trim().length < 50) {
-    throw new Error(`Opening statement was empty or too short (${statement.trim().length} chars). The AI may have returned only structural metadata without prose content.`);
+  const trimmedLen = statement?.trim().length ?? 0;
+  if (!statement || trimmedLen < 50) {
+    throw new Error(`Opening statement was empty or too short (${trimmedLen} chars). The AI may have returned only structural metadata without prose content.`);
   }
   recordNarrativeCheck(get, set, poverId as any, pipelineResult.draft as unknown as Record<string, unknown>);
   meta.policy_refs = enrichPolicyRefs(meta.policy_refs, pipelineResult.draft as unknown as Record<string, unknown>);
@@ -1465,7 +1466,13 @@ export const createClarificationSlice: StateCreator<DebateStore, [], [], Clarifi
     releaseDebateDriver();
     set({ debateGenerating: null });
 
-    await finalizeOpeningStatements(get, set, addTranscriptEntry, saveDebate, activeDebate, aiPovers, openingStartedAt, lastRetryReason, lease);
+    // Skip finalization when the run was superseded (lease invalid) or hit a daily limit —
+    // the superseding run handles its own finalization, and the daily limit handler already
+    // set debateError/dailyLimitPaused. Original code relied on inline `return` statements
+    // for these paths; extracting to runOpeningRetryLoop removed that implicit guard.
+    if (isStillValid() && !get().dailyLimitPaused) {
+      await finalizeOpeningStatements(get, set, addTranscriptEntry, saveDebate, activeDebate, aiPovers, openingStartedAt, lastRetryReason, lease);
+    }
   },
 
   submitUserOpening: async (statement: string) => {
