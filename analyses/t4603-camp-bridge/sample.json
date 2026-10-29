@@ -1,0 +1,126 @@
+{
+ "population": 57,
+ "seed": 4473,
+ "sample": [
+  {
+   "doc": "future-online-expression-innovation-depends-robust-section-2026",
+   "tag": "accelerationist",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 4
+  },
+  {
+   "doc": "labor-as-capital-ai-ownership-expertise-2026",
+   "tag": "skeptic",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 6
+  },
+  {
+   "doc": "do-ai-risks-require-extraordinary-government-intervention-2026",
+   "tag": "skeptic",
+   "model": "gemini-3.5-flash-lite",
+   "temperature": 0.1,
+   "chunked": false,
+   "chunk_count": null
+  },
+  {
+   "doc": "end-foundation-model-era-open-weight-models-sovereign-ai-2026",
+   "tag": "accelerationist",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 6
+  },
+  {
+   "doc": "maintaincoder-maintainable-code-generation-under-dynamic-2026",
+   "tag": "accelerationist",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 4
+  },
+  {
+   "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026-2",
+   "tag": "accelerationist",
+   "model": "gemini-3.5-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 5
+  },
+  {
+   "doc": "generative-design-bacteriophages-genome-language-models-2026",
+   "tag": "accelerationist",
+   "model": "gemini-3.5-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 4
+  },
+  {
+   "doc": "crisis-risk-communication-or-propaganda-disinformation-2026",
+   "tag": "skeptic",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 6
+  },
+  {
+   "doc": "gender-shades-intersectional-accuracy-disparities-2026",
+   "tag": "skeptic",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 4
+  },
+  {
+   "doc": "final-frontier-why-privacy-means-protecting-workers-rights-2026",
+   "tag": "skeptic",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 7
+  },
+  {
+   "doc": "limits-self-correction-llms-information-theoretic-analysis-2026",
+   "tag": "safetyist",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 3
+  },
+  {
+   "doc": "zero-trust-ai-systems-reference-architecture-assurance-2026",
+   "tag": "safetyist",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 6
+  },
+  {
+   "doc": "pluralistic-what-kind-bubble-is-ai-2026",
+   "tag": "skeptic",
+   "model": "gemini-3.5-flash-lite",
+   "temperature": 0.1,
+   "chunked": false,
+   "chunk_count": null
+  },
+  {
+   "doc": "detection-mitigation-mythos-class-frontier-model-2026",
+   "tag": "safetyist",
+   "model": "gemini-3.1-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 7
+  },
+  {
+   "doc": "evolving-procedural-memory-from-user-traffic-agentic-2026",
+   "tag": "accelerationist",
+   "model": "gemini-3.5-flash-lite",
+   "temperature": 0.1,
+   "chunked": true,
+   "chunk_count": 5
+  }
+ ]
+}
