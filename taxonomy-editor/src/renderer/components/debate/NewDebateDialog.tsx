@@ -2,7 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
-import type { TextareaHTMLAttributes, RefObject, Dispatch, SetStateAction, ReactNode } from 'react';
+import type { TextareaHTMLAttributes, Dispatch, SetStateAction, ReactNode } from 'react';
+import { useFocusTrap, useMediaQuery } from './NewDebateDialog.hooks';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTaxonomyStore, AI_BACKENDS, MODELS_BY_BACKEND, DEBATE_TIERS, FALLBACK_CHAINS, backendForModelWithFallback, initAIModels, type AIBackend } from '../../hooks/useTaxonomyStore';
@@ -194,42 +195,6 @@ function countSettingsDiff(
   return diff;
 }
 
-function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean) {
-  useEffect(() => {
-    if (!active || !ref.current) return;
-    const el = ref.current;
-    const getFocusable = () => Array.from(
-      el.querySelectorAll<HTMLElement>(
-        'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
-      ),
-    );
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      const focusable = getFocusable();
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    el.addEventListener('keydown', onKeyDown);
-    return () => el.removeEventListener('keydown', onKeyDown);
-  }, [active, ref]);
-}
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, [query]);
-  return matches;
-}
 
 function AutoGrowTextarea({
   value,
