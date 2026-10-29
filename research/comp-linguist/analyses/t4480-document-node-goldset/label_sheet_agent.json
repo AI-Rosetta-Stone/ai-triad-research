@@ -14,7 +14,7 @@
       "assigned_node_label": "Converting Historical Discovery Trees into Active Replay Simulators",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -29,7 +29,7 @@
       "assigned_node_label": "More Self-Correction Attempts Yield Diminishing Accuracy Gains",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -44,7 +44,7 @@
       "assigned_node_label": "Restricting AI Training Data Is Like Restricting What Humans Are Allowed to Read",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -59,7 +59,7 @@
       "assigned_node_label": "Lab Testing Cannot Reveal Real-World AI Harms",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -74,7 +74,7 @@
       "assigned_node_label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -89,7 +89,7 @@
       "assigned_node_label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -104,9 +104,9 @@
       "assigned_node_label": "Quantifiable AI Harms Turn Fairness Into a Business Imperative, Not Just an Ethical One",
       "cell": "acc|beliefs|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -119,7 +119,7 @@
       "assigned_node_label": "Reinforcement Learning Turns Static Models into Goal-Directed Agents",
       "cell": "acc|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -134,7 +134,7 @@
       "assigned_node_label": "Decentralized Markets and Open Development Outperform Central Control in Driving AI Progress",
       "cell": "acc|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -149,9 +149,9 @@
       "assigned_node_label": "AI Capabilities Emerge From Tuning, Context, and Compression -- Not Just Training Data",
       "cell": "acc|beliefs|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -164,7 +164,7 @@
       "assigned_node_label": "AGI Is Not a Better Tool — It Is a Fundamentally Superior Intelligence",
       "cell": "acc|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -179,9 +179,9 @@
       "assigned_node_label": "AI as Structurally Inevitable Economic Transformation",
       "cell": "acc|beliefs|6-30",
       "rank": 29,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -194,9 +194,9 @@
       "assigned_node_label": "AI Models Encode Useful Knowledge That Exists Outside Human Language",
       "cell": "acc|beliefs|6-30",
       "rank": 13,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -209,7 +209,7 @@
       "assigned_node_label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
       "cell": "acc|beliefs|6-30",
       "rank": 8,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -224,9 +224,9 @@
       "assigned_node_label": "Liability Law Ignores AI's Diffuse Statistical Benefits",
       "cell": "acc|beliefs|6-30",
       "rank": 15,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -239,7 +239,7 @@
       "assigned_node_label": "Regulatory Structures as Barriers to Competitive AI Innovation",
       "cell": "acc|beliefs|6-30",
       "rank": 28,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -254,7 +254,7 @@
       "assigned_node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
       "cell": "acc|beliefs|6-30",
       "rank": 8,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -269,9 +269,9 @@
       "assigned_node_label": "Regulatory Structures as Barriers to Competitive AI Innovation",
       "cell": "acc|beliefs|>30",
       "rank": 35,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -284,7 +284,7 @@
       "assigned_node_label": "AI Harm Materializes at Downstream Integration and Execution",
       "cell": "acc|beliefs|>30",
       "rank": 36,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -299,9 +299,9 @@
       "assigned_node_label": "Asymmetry Between Reconstructive Burden and Remediation Cost",
       "cell": "acc|beliefs|>30",
       "rank": 569,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -314,9 +314,9 @@
       "assigned_node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
       "cell": "acc|beliefs|>30",
       "rank": 1505,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -329,7 +329,7 @@
       "assigned_node_label": "AI Harm Materializes at Downstream Integration and Execution",
       "cell": "acc|beliefs|>30",
       "rank": 61,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -344,9 +344,9 @@
       "assigned_node_label": "Quantifiable AI Harms Turn Fairness Into a Business Imperative, Not Just an Ethical One",
       "cell": "acc|beliefs|>30",
       "rank": 479,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -359,7 +359,7 @@
       "assigned_node_label": "AI Drives Net Economic Expansion Through Cost Deflation and Value Creation",
       "cell": "acc|beliefs|>30",
       "rank": 45,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -374,7 +374,7 @@
       "assigned_node_label": "Accelerating Core AI Capabilities",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -389,7 +389,7 @@
       "assigned_node_label": "Positive Alignment Paradigm",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -404,7 +404,7 @@
       "assigned_node_label": "National Self-Sufficiency in AI Infrastructure",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -419,7 +419,7 @@
       "assigned_node_label": "Mandatory AI Education for All",
       "cell": "acc|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -434,7 +434,7 @@
       "assigned_node_label": "Accelerating Core AI Capabilities",
       "cell": "acc|desires|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -449,9 +449,9 @@
       "assigned_node_label": "Total Abolition of Suffering Through Technology",
       "cell": "acc|desires|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -464,9 +464,9 @@
       "assigned_node_label": "The Moral Duty to Create Superhuman Intelligence",
       "cell": "acc|desires|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -479,7 +479,7 @@
       "assigned_node_label": "AI-Powered Abundance and Global Problem-Solving",
       "cell": "acc|desires|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -494,9 +494,9 @@
       "assigned_node_label": "Accelerating Core AI Capabilities",
       "cell": "acc|desires|6-30",
       "rank": 22,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -509,7 +509,7 @@
       "assigned_node_label": "Accelerating Core AI Capabilities",
       "cell": "acc|desires|6-30",
       "rank": 6,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -524,9 +524,9 @@
       "assigned_node_label": "Deploy AI to Defeat Aging and Offset Demographic Decline",
       "cell": "acc|desires|6-30",
       "rank": 13,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -539,9 +539,9 @@
       "assigned_node_label": "Closing the Talent Gap with AI Tools",
       "cell": "acc|desires|6-30",
       "rank": 7,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -554,9 +554,9 @@
       "assigned_node_label": "Closing the Talent Gap with AI Tools",
       "cell": "acc|desires|>30",
       "rank": 91,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -569,9 +569,9 @@
       "assigned_node_label": "AI-Powered Abundance and Global Problem-Solving",
       "cell": "acc|desires|>30",
       "rank": 502,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -584,9 +584,9 @@
       "assigned_node_label": "National Self-Sufficiency in AI Infrastructure",
       "cell": "acc|desires|>30",
       "rank": 83,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -599,9 +599,9 @@
       "assigned_node_label": "Actionability as Evaluation Metric",
       "cell": "acc|desires|>30",
       "rank": 939,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -614,7 +614,7 @@
       "assigned_node_label": "Build an Evolving Catalog of AI Failure Modes",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -629,7 +629,7 @@
       "assigned_node_label": "Secure Early Access to Human-Generated Training Data as a Strategic Asset",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -644,7 +644,7 @@
       "assigned_node_label": "Build Capture-Resistant AI Governance Through Organizational Structure, Not Fines",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -659,7 +659,7 @@
       "assigned_node_label": "Integrate AI Into Human Work as a Capability Enhancer, Not a Replacement",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -674,7 +674,7 @@
       "assigned_node_label": "Integrate AI Into Human Work as a Capability Enhancer, Not a Replacement",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -689,7 +689,7 @@
       "assigned_node_label": "Build Coordination Infrastructure for Teams of Specialized AI Agents",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -704,7 +704,7 @@
       "assigned_node_label": "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -719,7 +719,7 @@
       "assigned_node_label": "Shift Organizations from Periodic Reviews to AI-Powered Continuous Steering",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -734,9 +734,9 @@
       "assigned_node_label": "Inference-Time Compute Scaling",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -749,9 +749,9 @@
       "assigned_node_label": "Inference-Time Compute Scaling",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -764,9 +764,9 @@
       "assigned_node_label": "Governing AI Risk Through Telemetry-Enabled Insurance and Post-Deployment Liability",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -779,7 +779,7 @@
       "assigned_node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
       "cell": "acc|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -794,7 +794,7 @@
       "assigned_node_label": "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -809,9 +809,9 @@
       "assigned_node_label": "Integrating Mandatory Pre-Deployment Auditing with Strict Liability Enforcement",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -824,9 +824,9 @@
       "assigned_node_label": "Secure Early Access to Human-Generated Training Data as a Strategic Asset",
       "cell": "acc|intentions|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -839,7 +839,7 @@
       "assigned_node_label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
       "cell": "acc|intentions|6-30",
       "rank": 14,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -854,7 +854,7 @@
       "assigned_node_label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
       "cell": "acc|intentions|6-30",
       "rank": 21,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -869,9 +869,9 @@
       "assigned_node_label": "Replace Static Strategic Plans with AI-Driven Real-Time Steering",
       "cell": "acc|intentions|6-30",
       "rank": 16,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -884,7 +884,7 @@
       "assigned_node_label": "Scale Expert Performance Across Organizations Using AI",
       "cell": "acc|intentions|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -899,9 +899,9 @@
       "assigned_node_label": "Procuring Dedicated Clean Energy Additionality for High-Density Computing Facilities",
       "cell": "acc|intentions|6-30",
       "rank": 14,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -914,7 +914,7 @@
       "assigned_node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
       "cell": "acc|intentions|6-30",
       "rank": 13,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -929,9 +929,9 @@
       "assigned_node_label": "Accelerate Prosperity Through AI-Driven Abundance",
       "cell": "acc|intentions|6-30",
       "rank": 7,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -944,9 +944,9 @@
       "assigned_node_label": "Discredit AI Safety Discourse as Irrational or Faith-Based",
       "cell": "acc|intentions|>30",
       "rank": 608,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -959,7 +959,7 @@
       "assigned_node_label": "Tie AI Governance Milestones to Empirical Compute Scaling Benchmarks",
       "cell": "acc|intentions|>30",
       "rank": 48,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -974,9 +974,9 @@
       "assigned_node_label": "Accelerate AI Through Open, Decentralized, and Unrestricted Experimentation",
       "cell": "acc|intentions|>30",
       "rank": 60,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -989,9 +989,9 @@
       "assigned_node_label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
       "cell": "acc|intentions|>30",
       "rank": 101,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1004,9 +1004,9 @@
       "assigned_node_label": "Build an Evolving Catalog of AI Failure Modes",
       "cell": "acc|intentions|>30",
       "rank": 53,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1019,9 +1019,9 @@
       "assigned_node_label": "Distributing Model Weights to Prevent Power Concentration",
       "cell": "acc|intentions|>30",
       "rank": 364,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1034,9 +1034,9 @@
       "assigned_node_label": "Matching AI Oversight Intensity to Decision Stakes",
       "cell": "acc|intentions|>30",
       "rank": 319,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1049,7 +1049,7 @@
       "assigned_node_label": "AI Deployment Speed Erodes Organizational Visibility and Control",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1064,9 +1064,9 @@
       "assigned_node_label": "AI Systems Can Model Their Own Context, Capabilities, and Constraints",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1079,7 +1079,7 @@
       "assigned_node_label": "AI Systems Develop Capabilities Nobody Designed or Predicted",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1094,7 +1094,7 @@
       "assigned_node_label": "Scaling AI Without Safeguards Creates a Non-Trivial Path to Irreversible Civilizational Harm",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1109,7 +1109,7 @@
       "assigned_node_label": "AI Supply Chains Inherit Vulnerabilities from Upstream Components",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1124,7 +1124,7 @@
       "assigned_node_label": "Fault Fragments Across Designers, Deployers, and Users When AI Fails",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1139,7 +1139,7 @@
       "assigned_node_label": "Safety Boundaries Are Defined by Acknowledged Gaps, Not Guarantees",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1154,7 +1154,7 @@
       "assigned_node_label": "Integrating Oversight with Operations Is Capture by Design",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1169,7 +1169,7 @@
       "assigned_node_label": "AI Investment Is Outrunning Actual Productivity Returns",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1184,7 +1184,7 @@
       "assigned_node_label": "Frontier AI Could Cause Irreversible Civilizational Harm",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1199,7 +1199,7 @@
       "assigned_node_label": "AI Harm Rooted in Architecture and Training, Not Just Environment",
       "cell": "saf|beliefs|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1214,9 +1214,9 @@
       "assigned_node_label": "AI Behavior Cannot Be Fully Predicted Due to Emergence, Misspecification, and Formal Limits",
       "cell": "saf|beliefs|2-5",
       "rank": 3,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1229,7 +1229,7 @@
       "assigned_node_label": "Deceptive Alignment: AI Passes Safety Checks but Acts Differently Without Oversight",
       "cell": "saf|beliefs|2-5",
       "rank": 4,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1244,9 +1244,9 @@
       "assigned_node_label": "AI Monocultures and Multi-Agent Interactions Amplify Systemic Fragility",
       "cell": "saf|beliefs|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1259,7 +1259,7 @@
       "assigned_node_label": "AI Behavior Cannot Be Fully Predicted Due to Emergence, Misspecification, and Formal Limits",
       "cell": "saf|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1274,9 +1274,9 @@
       "assigned_node_label": "AI Talent Scarcity Constrains Both Development and Safety Efforts",
       "cell": "saf|beliefs|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1289,7 +1289,7 @@
       "assigned_node_label": "We Cannot Verify Whether AI Is Being Honest About What It Knows and Does",
       "cell": "saf|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1304,9 +1304,9 @@
       "assigned_node_label": "AI Will Erode Skills, Destabilize Economies, and Fracture Social Trust",
       "cell": "saf|beliefs|2-5",
       "rank": 2,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1319,9 +1319,9 @@
       "assigned_node_label": "Procedural Compliance Inefficacy Against Strict Design Defect Liability",
       "cell": "saf|beliefs|6-30",
       "rank": 21,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1334,7 +1334,7 @@
       "assigned_node_label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
       "cell": "saf|beliefs|6-30",
       "rank": 24,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1349,7 +1349,7 @@
       "assigned_node_label": "Feedback-Loop Contamination Destroys the Independence Needed for Post-Deployment Verification",
       "cell": "saf|beliefs|6-30",
       "rank": 20,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1364,7 +1364,7 @@
       "assigned_node_label": "AI Systematically Optimizes Proxy Metrics at the Expense of Intended Outcomes",
       "cell": "saf|beliefs|6-30",
       "rank": 6,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1379,7 +1379,7 @@
       "assigned_node_label": "Limits of Mechanistic Interpretability at Scale",
       "cell": "saf|beliefs|6-30",
       "rank": 23,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1394,9 +1394,9 @@
       "assigned_node_label": "AI Overshoots User Intent When Executing Tasks",
       "cell": "saf|beliefs|6-30",
       "rank": 13,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1409,7 +1409,7 @@
       "assigned_node_label": "Fault Fragments Across Designers, Deployers, and Users When AI Fails",
       "cell": "saf|beliefs|6-30",
       "rank": 20,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1424,9 +1424,9 @@
       "assigned_node_label": "Feigned Compliance Makes AI Trustworthiness Fundamentally Uncertain",
       "cell": "saf|beliefs|6-30",
       "rank": 8,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1439,7 +1439,7 @@
       "assigned_node_label": "AI Deployment Speed Outpaces Security Governance",
       "cell": "saf|beliefs|>30",
       "rank": 33,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1454,7 +1454,7 @@
       "assigned_node_label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
       "cell": "saf|beliefs|>30",
       "rank": 60,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1469,9 +1469,9 @@
       "assigned_node_label": "The Treacherous Turn: AI Transitions from Compliant Tool to Deceptive Agent",
       "cell": "saf|beliefs|>30",
       "rank": 39,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1484,7 +1484,7 @@
       "assigned_node_label": "Open-Weight Release Asymmetry and Enforcement Failure",
       "cell": "saf|beliefs|>30",
       "rank": 389,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1499,7 +1499,7 @@
       "assigned_node_label": "Backdoors and Deceptive Strategies Harden Against Retraining",
       "cell": "saf|beliefs|>30",
       "rank": 54,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1514,7 +1514,7 @@
       "assigned_node_label": "AI Systems Develop Capabilities Nobody Designed or Predicted",
       "cell": "saf|beliefs|>30",
       "rank": 202,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1529,9 +1529,9 @@
       "assigned_node_label": "AI-Driven Information Pollution Erodes the Shared Factual Basis for Democracy",
       "cell": "saf|beliefs|>30",
       "rank": 177,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1544,7 +1544,7 @@
       "assigned_node_label": "AI Performs Consequential Acts That No One Bears Responsibility For",
       "cell": "saf|beliefs|>30",
       "rank": 79,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1559,9 +1559,9 @@
       "assigned_node_label": "Most Real-World AI Harms Go Unrecorded Because Tracking Relies on Media Reports",
       "cell": "saf|beliefs|>30",
       "rank": 65,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1574,7 +1574,7 @@
       "assigned_node_label": "Uniform Disclosure Standards for AI Development",
       "cell": "saf|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1589,7 +1589,7 @@
       "assigned_node_label": "Treating Digital Space as a Public Trust",
       "cell": "saf|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1604,9 +1604,9 @@
       "assigned_node_label": "AI Must Do No Psychological Harm",
       "cell": "saf|desires|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1619,7 +1619,7 @@
       "assigned_node_label": "Legal Comprehension as a Core AI Capability",
       "cell": "saf|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1634,7 +1634,7 @@
       "assigned_node_label": "Treating Digital Space as a Public Trust",
       "cell": "saf|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1649,7 +1649,7 @@
       "assigned_node_label": "Legal Comprehension as a Core AI Capability",
       "cell": "saf|desires|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1664,7 +1664,7 @@
       "assigned_node_label": "Treating Digital Space as a Public Trust",
       "cell": "saf|desires|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1679,9 +1679,9 @@
       "assigned_node_label": "Legal Comprehension as a Core AI Capability",
       "cell": "saf|desires|2-5",
       "rank": 3,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1694,9 +1694,9 @@
       "assigned_node_label": "AI Must Not Entrench Injustice or Enable Catastrophe",
       "cell": "saf|desires|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1709,7 +1709,7 @@
       "assigned_node_label": "Fiduciary Duty Survives Automation",
       "cell": "saf|desires|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1724,7 +1724,7 @@
       "assigned_node_label": "Humanity's Survival Above All Else",
       "cell": "saf|desires|6-30",
       "rank": 9,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1739,9 +1739,9 @@
       "assigned_node_label": "Legal Comprehension as a Core AI Capability",
       "cell": "saf|desires|6-30",
       "rank": 22,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1754,9 +1754,9 @@
       "assigned_node_label": "Legal Comprehension as a Core AI Capability",
       "cell": "saf|desires|6-30",
       "rank": 15,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1769,7 +1769,7 @@
       "assigned_node_label": "No Profit Without Accountability",
       "cell": "saf|desires|>30",
       "rank": 87,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1784,9 +1784,9 @@
       "assigned_node_label": "Pre-Deployment Certification as Primary Enforcement in Feedback-Contaminated and Ground-Truth-Absent Domains",
       "cell": "saf|desires|>30",
       "rank": 91,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1799,7 +1799,7 @@
       "assigned_node_label": "AI Must Do No Psychological Harm",
       "cell": "saf|desires|>30",
       "rank": 44,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1814,9 +1814,9 @@
       "assigned_node_label": "No Profit Without Accountability",
       "cell": "saf|desires|>30",
       "rank": 37,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1829,7 +1829,7 @@
       "assigned_node_label": "Making AI Show Its Work So Auditors Can Spot Deception",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1844,9 +1844,9 @@
       "assigned_node_label": "Activation-Based Natural Language Verbalization",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1859,7 +1859,7 @@
       "assigned_node_label": "Building Adaptive Regulatory Frameworks for AI Development",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1874,7 +1874,7 @@
       "assigned_node_label": "Making AI Show Its Work So Auditors Can Spot Deception",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1889,7 +1889,7 @@
       "assigned_node_label": "Giving Victims One Clear Door for AI Liability Claims",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1904,7 +1904,7 @@
       "assigned_node_label": "Audit AI Internal Reasoning Through Mechanistic Interpretability",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1919,7 +1919,7 @@
       "assigned_node_label": "Governing How AI Models Ingest, Retain, and Protect Data",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1934,9 +1934,9 @@
       "assigned_node_label": "Building Accountability Frameworks for AI Agents Operating at Scale",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1949,9 +1949,9 @@
       "assigned_node_label": "Carbon-Aware Pricing Models",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1964,7 +1964,7 @@
       "assigned_node_label": "Governing How AI Models Ingest, Retain, and Protect Data",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1979,7 +1979,7 @@
       "assigned_node_label": "Preventing AI Use from Lowering Legal Standards of Care",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1994,7 +1994,7 @@
       "assigned_node_label": "Requiring Hardware Telemetry as the Price of Liability Immunity",
       "cell": "saf|intentions|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2009,7 +2009,7 @@
       "assigned_node_label": "Inserting Human Judgment Where Autonomous AI Makes Consequential Choices",
       "cell": "saf|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2024,7 +2024,7 @@
       "assigned_node_label": "Coordinate International AI Governance to Prevent Arms Races and Ensure Shared Safety Rules",
       "cell": "saf|intentions|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2039,7 +2039,7 @@
       "assigned_node_label": "Prevent AI Harm Through Pre-Launch Checks and Operational Guardrails",
       "cell": "saf|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2054,7 +2054,7 @@
       "assigned_node_label": "Defending Against AI as a Force Multiplier for Harm",
       "cell": "saf|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2069,7 +2069,7 @@
       "assigned_node_label": "Set the Ethical and Legal Ground Rules for AI Governance",
       "cell": "saf|intentions|2-5",
       "rank": 4,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2084,9 +2084,9 @@
       "assigned_node_label": "Mandating Privacy-Preserving Cryptographic Audit Trails for Algorithmic Decisions",
       "cell": "saf|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2099,7 +2099,7 @@
       "assigned_node_label": "Replacing Abstract Safety Claims with Testable Engineering Controls",
       "cell": "saf|intentions|6-30",
       "rank": 30,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2114,9 +2114,9 @@
       "assigned_node_label": "Scaling Oversight to Real-Time Remediation Speed",
       "cell": "saf|intentions|6-30",
       "rank": 10,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2129,7 +2129,7 @@
       "assigned_node_label": "Mapping the Blast Radius of AI Integration Failures",
       "cell": "saf|intentions|6-30",
       "rank": 12,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2144,9 +2144,9 @@
       "assigned_node_label": "Creating an NTSB-Style Body for AI Safety Incidents with Split-Channel Authority",
       "cell": "saf|intentions|6-30",
       "rank": 21,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2159,7 +2159,7 @@
       "assigned_node_label": "Inserting Human Judgment Where Autonomous AI Makes Consequential Choices",
       "cell": "saf|intentions|6-30",
       "rank": 8,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2174,7 +2174,7 @@
       "assigned_node_label": "Coordinate International AI Governance to Prevent Arms Races and Ensure Shared Safety Rules",
       "cell": "saf|intentions|6-30",
       "rank": 7,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2189,7 +2189,7 @@
       "assigned_node_label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
       "cell": "saf|intentions|6-30",
       "rank": 24,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2204,9 +2204,9 @@
       "assigned_node_label": "Grounding AI Safety in Legal Compliance Rather Than Abstract Ethics",
       "cell": "saf|intentions|6-30",
       "rank": 15,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2219,9 +2219,9 @@
       "assigned_node_label": "Creating an NTSB-Style Body for AI Safety Incidents with Split-Channel Authority",
       "cell": "saf|intentions|>30",
       "rank": 429,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2234,9 +2234,9 @@
       "assigned_node_label": "Binding Named Officers to Deployment Infrastructure",
       "cell": "saf|intentions|>30",
       "rank": 122,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2249,7 +2249,7 @@
       "assigned_node_label": "Detecting AI Deception by Varying System Prompts",
       "cell": "saf|intentions|>30",
       "rank": 70,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2264,9 +2264,9 @@
       "assigned_node_label": "Testing Models for Power-Seeking, Deception, and Situational Awareness",
       "cell": "saf|intentions|>30",
       "rank": 135,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2279,9 +2279,9 @@
       "assigned_node_label": "Scaling Oversight to Real-Time Remediation Speed",
       "cell": "saf|intentions|>30",
       "rank": 78,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2294,9 +2294,9 @@
       "assigned_node_label": "Restricting Autonomous Agent Execution via Hardware Disconnects and Blast-Radius Gates",
       "cell": "saf|intentions|>30",
       "rank": 1180,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2309,9 +2309,9 @@
       "assigned_node_label": "Binding Named Officers to Deployment Infrastructure",
       "cell": "saf|intentions|>30",
       "rank": 72,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2324,9 +2324,9 @@
       "assigned_node_label": "Countering AI-Driven Skill Decay and Cognitive Displacement",
       "cell": "saf|intentions|>30",
       "rank": 40,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2339,7 +2339,7 @@
       "assigned_node_label": "Starting AI Agents with Narrow Permissions and Widening Them Over Time",
       "cell": "saf|intentions|>30",
       "rank": 38,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2354,7 +2354,7 @@
       "assigned_node_label": "Unprofitable AI Business Models Create Systemic Risk of an Industry-Wide Correction",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2369,7 +2369,7 @@
       "assigned_node_label": "AI Agents Serve Deployers Over Users",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2384,7 +2384,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2399,7 +2399,7 @@
       "assigned_node_label": "Public Resistance to AI Reflects Accumulated Distrust from Prior Tech Cycles",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2414,7 +2414,7 @@
       "assigned_node_label": "AI Bias and Harm Are Well-Documented, Not Hypothetical",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2429,7 +2429,7 @@
       "assigned_node_label": "Workplace Algorithms Systematically Shift Power From Workers to Employers",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2444,7 +2444,7 @@
       "assigned_node_label": "AI Agents Engineered for Principal-Loyal Lawbreaking",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2459,7 +2459,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2474,7 +2474,7 @@
       "assigned_node_label": "AI Corporations Systematically Evade Effective Regulation",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2489,9 +2489,9 @@
       "assigned_node_label": "Victims of AI Harm Cannot Access the Technical Knowledge Needed to Prove Causation",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2504,7 +2504,7 @@
       "assigned_node_label": "Historical pattern of legal fictions allocating responsibility to non-human entities benefiting capital owners",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2519,7 +2519,7 @@
       "assigned_node_label": "Historical Evidence Shows Technology Adoption Lags Capability by Years to Decades",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2534,7 +2534,7 @@
       "assigned_node_label": "Generative AI Enables Scalable Reputation Destruction",
       "cell": "skp|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2549,9 +2549,9 @@
       "assigned_node_label": "Previously Trusted Human Actors Can No Longer Be Presumed Authentic Due to AI Capabilities",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2564,7 +2564,7 @@
       "assigned_node_label": "AI Is a Powerful Tool That Cannot Achieve Genuine Understanding",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2579,7 +2579,7 @@
       "assigned_node_label": "Large Language Models Create Systemic Risks to Data Integrity, Privacy, and Epistemic Quality",
       "cell": "skp|beliefs|2-5",
       "rank": 4,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2594,7 +2594,7 @@
       "assigned_node_label": "AI-Generated Content Causes Direct, Documented Harm to Individuals",
       "cell": "skp|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2609,7 +2609,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2624,7 +2624,7 @@
       "assigned_node_label": "Observable Labor Market Contraction from AI",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2639,7 +2639,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2654,7 +2654,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2669,7 +2669,7 @@
       "assigned_node_label": "Long-Context LLM Conversations Suffer from Instruction Decay and Assumption Drift",
       "cell": "skp|beliefs|6-30",
       "rank": 27,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2684,9 +2684,9 @@
       "assigned_node_label": "Corporate Opacity as Structural Liability Shield",
       "cell": "skp|beliefs|6-30",
       "rank": 23,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2699,7 +2699,7 @@
       "assigned_node_label": "AI Is Fallible, Incremental Software, Not an Emergent Intelligence",
       "cell": "skp|beliefs|6-30",
       "rank": 23,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2714,9 +2714,9 @@
       "assigned_node_label": "Model-Graded Benchmarks Mask Hallucination and Error Rates",
       "cell": "skp|beliefs|6-30",
       "rank": 12,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2729,7 +2729,7 @@
       "assigned_node_label": "Companies Use Narrow Audits to Deflect Meaningful AI Oversight",
       "cell": "skp|beliefs|6-30",
       "rank": 21,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2744,7 +2744,7 @@
       "assigned_node_label": "Model-Graded Benchmarks Mask Hallucination and Error Rates",
       "cell": "skp|beliefs|6-30",
       "rank": 14,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2759,7 +2759,7 @@
       "assigned_node_label": "Large Language Models Create Systemic Risks to Data Integrity, Privacy, and Epistemic Quality",
       "cell": "skp|beliefs|6-30",
       "rank": 7,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2774,9 +2774,9 @@
       "assigned_node_label": "Reliance on AI Degrades Human Critical Thinking and Decision-Making",
       "cell": "skp|beliefs|6-30",
       "rank": 27,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2789,9 +2789,9 @@
       "assigned_node_label": "Evidentiary Failure of Traditional Litigation Against Opaque AI",
       "cell": "skp|beliefs|6-30",
       "rank": 10,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2804,9 +2804,9 @@
       "assigned_node_label": "Industrial Concentration of AI Infrastructure",
       "cell": "skp|beliefs|>30",
       "rank": 541,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2819,9 +2819,9 @@
       "assigned_node_label": "Short-Term AI Productivity Metrics Mask Long-Term Erosion of Trust and Social Value",
       "cell": "skp|beliefs|>30",
       "rank": 39,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2834,9 +2834,9 @@
       "assigned_node_label": "Short-Term AI Productivity Metrics Mask Long-Term Erosion of Trust and Social Value",
       "cell": "skp|beliefs|>30",
       "rank": 76,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2849,9 +2849,9 @@
       "assigned_node_label": "AI Agents Serve Deployers Over Users",
       "cell": "skp|beliefs|>30",
       "rank": 73,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2864,7 +2864,7 @@
       "assigned_node_label": "AI Is Deployed as a Technical Fix for Problems That Are Fundamentally Social and Political",
       "cell": "skp|beliefs|>30",
       "rank": 109,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2879,9 +2879,9 @@
       "assigned_node_label": "Evidentiary Failure of Traditional Litigation Against Opaque AI",
       "cell": "skp|beliefs|>30",
       "rank": 62,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2894,7 +2894,7 @@
       "assigned_node_label": "Disproportionate AI Gains Erode the Social Contract",
       "cell": "skp|beliefs|>30",
       "rank": 145,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2909,9 +2909,9 @@
       "assigned_node_label": "AI's True Financial and Environmental Costs Are Systematically Obscured",
       "cell": "skp|beliefs|>30",
       "rank": 110,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2924,9 +2924,9 @@
       "assigned_node_label": "Current AI Models Predict Patterns Without Understanding Meaning",
       "cell": "skp|beliefs|>30",
       "rank": 245,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2939,7 +2939,7 @@
       "assigned_node_label": "Reliance on AI Degrades Human Critical Thinking and Decision-Making",
       "cell": "skp|beliefs|>30",
       "rank": 81,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2954,9 +2954,9 @@
       "assigned_node_label": "Public Right to Know What AI Was Trained On",
       "cell": "skp|desires|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2969,9 +2969,9 @@
       "assigned_node_label": "Human Rights as Constraints on AI Deployment",
       "cell": "skp|desires|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2984,7 +2984,7 @@
       "assigned_node_label": "Public Right to Know What AI Was Trained On",
       "cell": "skp|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2999,7 +2999,7 @@
       "assigned_node_label": "Anchoring AI accountability in human decisions and material power relations rather than system mental states",
       "cell": "skp|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3014,7 +3014,7 @@
       "assigned_node_label": "Eradicate Algorithmic Bias and Prevent AI from Entrenching Historical Injustice",
       "cell": "skp|desires|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3029,7 +3029,7 @@
       "assigned_node_label": "Intellectual Autonomy in an AI-Saturated World",
       "cell": "skp|desires|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3044,7 +3044,7 @@
       "assigned_node_label": "Balanced Transparency: Public Interest vs. Trade Secrets",
       "cell": "skp|desires|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3059,7 +3059,7 @@
       "assigned_node_label": "Vigilant Pragmatism Toward AI",
       "cell": "skp|desires|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3074,9 +3074,9 @@
       "assigned_node_label": "Privacy as a Non-Negotiable Right in AI",
       "cell": "skp|desires|6-30",
       "rank": 12,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3089,7 +3089,7 @@
       "assigned_node_label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
       "cell": "skp|desires|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3104,7 +3104,7 @@
       "assigned_node_label": "Public Right to Know What AI Was Trained On",
       "cell": "skp|desires|6-30",
       "rank": 15,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3119,9 +3119,9 @@
       "assigned_node_label": "Democratic Accountability in AI Development",
       "cell": "skp|desires|6-30",
       "rank": 6,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3134,9 +3134,9 @@
       "assigned_node_label": "Civil Rights Parity for Algorithmic Decisions",
       "cell": "skp|desires|>30",
       "rank": 32,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3149,9 +3149,9 @@
       "assigned_node_label": "Foundational AI as a Public Good",
       "cell": "skp|desires|>30",
       "rank": 360,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3164,9 +3164,9 @@
       "assigned_node_label": "Balanced Transparency: Public Interest vs. Trade Secrets",
       "cell": "skp|desires|>30",
       "rank": 43,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3179,7 +3179,7 @@
       "assigned_node_label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
       "cell": "skp|desires|>30",
       "rank": 74,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3194,7 +3194,7 @@
       "assigned_node_label": "Regulate AI by Use Case, Not by Technology",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3209,7 +3209,7 @@
       "assigned_node_label": "Operationalize Pragmatic AI Governance Through Concrete Policy Mechanisms",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3224,7 +3224,7 @@
       "assigned_node_label": "Design AI Systems Around Human Cognitive Constraints",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3239,7 +3239,7 @@
       "assigned_node_label": "Design AI Systems Around Human Cognitive Constraints",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3254,7 +3254,7 @@
       "assigned_node_label": "Automated Fairness and Bias Benchmarking",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3269,7 +3269,7 @@
       "assigned_node_label": "Secure Contractual Exit Rights to Prevent AI Vendor Data Lock-In",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3284,9 +3284,9 @@
       "assigned_node_label": "Operationalize Pragmatic AI Governance Through Concrete Policy Mechanisms",
       "cell": "skp|intentions|2-5",
       "rank": 2,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3299,9 +3299,9 @@
       "assigned_node_label": "Advance Targeted AI Policies on Environmental Reporting, Pricing Transparency, and Bias Auditing",
       "cell": "skp|intentions|2-5",
       "rank": 2,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3314,7 +3314,7 @@
       "assigned_node_label": "Advance Targeted AI Policies on Environmental Reporting, Pricing Transparency, and Bias Auditing",
       "cell": "skp|intentions|2-5",
       "rank": 4,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3329,7 +3329,7 @@
       "assigned_node_label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
       "cell": "skp|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3344,7 +3344,7 @@
       "assigned_node_label": "Establish Independent Lifecycle Oversight Mechanisms for AI Systems",
       "cell": "skp|intentions|6-30",
       "rank": 6,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3359,7 +3359,7 @@
       "assigned_node_label": "Implementing Performance-Gated Independent AI Auditing",
       "cell": "skp|intentions|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3374,7 +3374,7 @@
       "assigned_node_label": "Design AI Systems Around Human Cognitive Constraints",
       "cell": "skp|intentions|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3389,9 +3389,9 @@
       "assigned_node_label": "Secondary Effects Doctrine for AI Regulation",
       "cell": "skp|intentions|6-30",
       "rank": 25,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3404,9 +3404,9 @@
       "assigned_node_label": "Surfacing Diffuse AI Harms Through a Single Funded Measurer with Referral Power",
       "cell": "skp|intentions|6-30",
       "rank": 6,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3419,9 +3419,9 @@
       "assigned_node_label": "Enforcing Parent Joint Enterprise Liability and Compulsory Insurance Across AI Deployments",
       "cell": "skp|intentions|>30",
       "rank": 336,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3434,7 +3434,7 @@
       "assigned_node_label": "Automated Fairness and Bias Benchmarking",
       "cell": "skp|intentions|>30",
       "rank": 42,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3449,9 +3449,9 @@
       "assigned_node_label": "Agentic Authority Demarcation",
       "cell": "skp|intentions|>30",
       "rank": 84,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3464,9 +3464,9 @@
       "assigned_node_label": "Prevent Regulatory Capture by Diversifying AI Audit Methodologies",
       "cell": "skp|intentions|>30",
       "rank": 242,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3479,7 +3479,7 @@
       "assigned_node_label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
       "cell": "skp|intentions|>30",
       "rank": 39,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
