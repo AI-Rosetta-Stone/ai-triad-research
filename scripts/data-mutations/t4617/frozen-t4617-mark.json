@@ -1,0 +1,29 @@
+{
+  "ticket": "t/4617",
+  "scope": "mark scaling-laws-differentially-private-language-models-2026-1 duplicate_of -2026 (CL decision at t/4605#1); a single-target write riding on the t4337 tool's DryRun/Apply validation, NOT a Freeze re-scan of the corpus -- -2026-2 is already correctly marked via t/4405 and is left untouched",
+  "frozen_at": "2026-10-29T07:10:00.0000000Z",
+  "sources_commit": "af7cf1552f3e6e264df9dec5d60ec001161bc629",
+  "counts": {
+    "marks": 1,
+    "marks_without_metadata": 0
+  },
+  "marks": [
+    {
+      "id": "scaling-laws-differentially-private-language-models-2026-1",
+      "duplicate_of": "scaling-laws-differentially-private-language-models-2026",
+      "duplicate_of_ref": "t4605-cl-decision-2026-10#1",
+      "group": "scaling-laws-differentially-private-language-models-2026"
+    }
+  ],
+  "marks_without_metadata": [],
+  "files": {
+    "scaling-laws-differentially-private-language-models-2026-1": {
+      "pre_sha256": "b4ba35ce72de7acd6cb9501394f81b88f1b730864ba3c9f5eca24d3a61011856"
+    }
+  },
+  "group_input": {
+    "scaling-laws-differentially-private-language-models-2026": "48433748c505ee0761e30542c56a440ebe85798a3e4c203cfd23445683805efd",
+    "scaling-laws-differentially-private-language-models-2026-1": "6c16b7455865c142af9860743bda7cb4d988d42ef73d75e6a21daedd812aaa6b",
+    "scaling-laws-differentially-private-language-models-2026-2": "1b66235be7458caf7689c0c80a12dfbec9deb9e7c167faa9aa8bc74fa8d38eaa"
+  }
+}
