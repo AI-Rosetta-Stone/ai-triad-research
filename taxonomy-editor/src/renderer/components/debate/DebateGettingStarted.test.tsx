@@ -18,8 +18,8 @@ describe('DebateGettingStarted (t/4563)', () => {
 
   it('renders the card with its 4 starter chips and the hint', () => {
     render(<DebateGettingStarted hasNoDebates={false} onPickStarter={vi.fn()} />);
-    expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Argue it out across three perspectives/ })).toBeInTheDocument();
+    expect(screen.getByRole('region')).toBeInTheDocument();
+    expect(screen.getByText(/Argue it out across three perspectives/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Should frontier AI development be paused for six months?' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Accelerationist vs Safetyist/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Safetyist vs Skeptic/ })).toBeInTheDocument();
@@ -46,22 +46,37 @@ describe('DebateGettingStarted (t/4563)', () => {
     );
   });
 
-  it('Hide replaces the card with a "Show debate tips" link, and remembers the dismissal', async () => {
+  // t/4639: the card is now an accordion — a single toggle collapses/expands the body in
+  // place, instead of unmounting for a separate "Show tips" link. The toggle's accessible
+  // name aggregates the heading text plus the fixed "Hide examples"/"Show examples" label
+  // (Design's spec structure), so queries use a regex rather than an exact match.
+  it('the toggle collapses the body and remembers the dismissal, across a remount', async () => {
     const user = userEvent.setup();
     const { unmount } = render(<DebateGettingStarted hasNoDebates={false} onPickStarter={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: 'Hide debate introduction' }));
-    expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Show debate tips' })).toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: /Hide examples/ });
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'Should frontier AI development be paused for six months?' })).not.toBeInTheDocument();
     expect(localStorage.getItem(DISMISSED_KEY)).toBe('1');
 
     unmount();
     render(<DebateGettingStarted hasNoDebates={false} onPickStarter={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Show debate tips' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Show examples/ })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('shows the card even when dismissed, if the user has no debates yet', () => {
-    localStorage.setItem(DISMISSED_KEY, '1');
+  // t/4639 regression: hasNoDebates no longer overrides an explicit collapse (was the bug).
+  it('hasNoDebates=true: an explicit toggle still collapses the card', async () => {
+    const user = userEvent.setup();
     render(<DebateGettingStarted hasNoDebates={true} onPickStarter={vi.fn()} />);
-    expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Hide examples/ }));
+    expect(screen.queryByRole('button', { name: 'Should frontier AI development be paused for six months?' })).not.toBeInTheDocument();
+  });
+
+  it('shows the card expanded by default when the user has no debates yet and never dismissed', () => {
+    render(<DebateGettingStarted hasNoDebates={true} onPickStarter={vi.fn()} />);
+    expect(screen.getByRole('region')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Hide examples/ })).toHaveAttribute('aria-expanded', 'true');
   });
 });

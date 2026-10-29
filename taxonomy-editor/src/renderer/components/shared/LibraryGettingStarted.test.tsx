@@ -4,7 +4,13 @@
 // t/4561: shared getting-started card, generalized from Chat's ChatGettingStarted (t/4536
 // round 3). ChatGettingStarted.test.tsx covers the Chat-specific wiring and stays unmodified as
 // the parity proof; this file covers the shared mechanics directly (render, chip → callback,
-// Hide persistence, per-tool storage-key isolation).
+// collapse/expand persistence, per-tool storage-key isolation).
+//
+// t/4639: the card became an accordion (Design's t/4639#1 spec) — the toggle button lives
+// inside the heading <h2>, so its computed accessible name aggregates BOTH the title text and
+// the "Hide examples"/"Show examples" label (per Design's literal structure). Tests below query
+// with that in mind: getByText for plain title-text checks, name regexes (not exact match) for
+// the toggle button.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -31,8 +37,6 @@ function renderCard(overrides: Partial<React.ComponentProps<typeof LibraryGettin
       why="One line explaining why."
       chips={chips}
       onSelectChip={vi.fn()}
-      hasNoItems={false}
-      hideAriaLabel="Hide introduction"
       {...overrides}
     />,
   );
@@ -43,13 +47,14 @@ describe('LibraryGettingStarted (t/4561)', () => {
     localStorage.clear();
   });
 
-  it('renders the heading, why line, and every chip', () => {
+  it('renders the heading, why line, and every chip, expanded by default (nothing stored)', () => {
     renderCard();
-    expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Try the tool' })).toBeInTheDocument();
+    expect(screen.getByRole('region')).toBeInTheDocument();
+    expect(screen.getByText('Try the tool')).toBeInTheDocument();
     expect(screen.getByText('One line explaining why.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'First starter' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Second starter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Hide examples/ })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('omits the hint paragraph when none is supplied', () => {
@@ -72,37 +77,90 @@ describe('LibraryGettingStarted (t/4561)', () => {
     expect(onSelectChip).toHaveBeenCalledWith('second');
   });
 
-  it('Hide replaces the card with the configured show-link label, and persists the dismissal under storageKey', async () => {
+  // ── t/4639: accordion collapse/expand (replaces the old Hide/"Show tips"-link tests) ──
+
+  it('an explicit collapse hides the body but keeps the heading strip visible, and persists', async () => {
     const user = userEvent.setup();
-    const { unmount } = renderCard({ showLinkLabel: 'Show tool tips' });
-    await user.click(screen.getByRole('button', { name: 'Hide introduction' }));
-    expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Show tool tips' })).toBeInTheDocument();
+    const { unmount } = renderCard();
+    const toggle = screen.getByRole('button', { name: /Hide examples/ });
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Try the tool')).toBeInTheDocument(); // heading strip stays
+    expect(screen.queryByRole('button', { name: 'First starter' })).not.toBeInTheDocument(); // body hidden
     expect(localStorage.getItem(STORAGE_KEY)).toBe('1');
 
     unmount();
-    renderCard({ showLinkLabel: 'Show tool tips' });
-    expect(screen.getByRole('button', { name: 'Show tool tips' })).toBeInTheDocument();
+    renderCard();
+    // Reopening the SAME mount: the stored collapse state carries over.
+    expect(screen.getByRole('button', { name: /Show examples/ })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('defaults the show-link label to "Show tips" when none is supplied', async () => {
+  it('clicking the toggle again re-expands and removes the stored collapse key', async () => {
     const user = userEvent.setup();
     renderCard();
-    await user.click(screen.getByRole('button', { name: 'Hide introduction' }));
-    expect(screen.getByRole('button', { name: 'Show tips' })).toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: /Hide examples/ });
+
+    await user.click(toggle); // collapse
+    await user.click(screen.getByRole('button', { name: /Show examples/ })); // expand again
+
+    expect(screen.getByRole('button', { name: /Hide examples/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'First starter' })).toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it('a different storageKey keeps dismissal state isolated per tool', () => {
+  // t/4639 AC4 (regression arms from the ticket, hasNoItems no longer overrides anything):
+
+  it('hasNoItems=true, Hide clicked: the panel collapses (regression for the old override bug)', async () => {
+    const user = userEvent.setup();
+    renderCard({ hasNoItems: true });
+    await user.click(screen.getByRole('button', { name: /Hide examples/ }));
+    expect(screen.queryByRole('button', { name: 'First starter' })).not.toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('1');
+  });
+
+  it('hasNoItems=true, never dismissed: the panel is expanded', () => {
+    renderCard({ hasNoItems: true });
+    expect(screen.getByRole('button', { name: 'First starter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Hide examples/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('hasNoItems=false, Hide clicked: collapses (same as hasNoItems=true — no longer distinguishes)', async () => {
+    const user = userEvent.setup();
+    renderCard({ hasNoItems: false });
+    await user.click(screen.getByRole('button', { name: /Hide examples/ }));
+    expect(screen.queryByRole('button', { name: 'First starter' })).not.toBeInTheDocument();
+  });
+
+  it('after a reload (remount), the collapsed state persists regardless of hasNoItems', () => {
+    localStorage.setItem(STORAGE_KEY, '1');
+    const { unmount } = renderCard({ hasNoItems: true });
+    expect(screen.getByRole('button', { name: /Show examples/ })).toHaveAttribute('aria-expanded', 'false');
+    unmount();
+
+    renderCard({ hasNoItems: true });
+    expect(screen.getByRole('button', { name: /Show examples/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('a different storageKey keeps collapse state isolated per tool', () => {
     localStorage.setItem(STORAGE_KEY, '1');
     renderCard({ storageKey: 'taxonomy-editor-other-tool-intro-dismissed' });
-    // The OTHER tool's key was never set, so its card still shows (not the dismissed link).
-    expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
+    // The OTHER tool's key was never set, so its card is still expanded.
+    expect(screen.getByRole('button', { name: /Hide examples/ })).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('hasNoItems shows the card even when dismissed', () => {
-    localStorage.setItem(STORAGE_KEY, '1');
-    renderCard({ hasNoItems: true });
-    expect(screen.getByRole('region', { name: 'Getting started' })).toBeInTheDocument();
+  it('Enter and Space on the toggle both collapse/expand', async () => {
+    const user = userEvent.setup();
+    renderCard();
+    const toggle = screen.getByRole('button', { name: /Hide examples/ });
+    toggle.focus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: /Show examples/ })).toHaveAttribute('aria-expanded', 'false');
+
+    await user.keyboard(' ');
+    expect(screen.getByRole('button', { name: /Hide examples/ })).toHaveAttribute('aria-expanded', 'true');
   });
 
   // t/4565 round 2: Chat's phone layout (MyChatsList) mounts this card outside
@@ -141,8 +199,6 @@ describe('LibraryGettingStarted (t/4561)', () => {
           examplePool={pool}
           exampleCount={3}
           onSelectChip={vi.fn()}
-          hasNoItems={false}
-          hideAriaLabel="Hide introduction"
         />,
       );
       const buttons = screen.getAllByRole('button').filter((b) => b.className.includes('lib-getting-started-chip'));
@@ -158,8 +214,6 @@ describe('LibraryGettingStarted (t/4561)', () => {
           examplePool={pool}
           exampleCount={5}
           onSelectChip={vi.fn()}
-          hasNoItems={false}
-          hideAriaLabel="Hide introduction"
         />,
       );
       const firstPass = screen.getAllByRole('button')
@@ -175,14 +229,37 @@ describe('LibraryGettingStarted (t/4561)', () => {
           examplePool={pool}
           exampleCount={5}
           onSelectChip={vi.fn()}
-          hasNoItems={false}
-          hideAriaLabel="Hide introduction"
         />,
       );
       const secondPass = screen.getAllByRole('button')
         .filter((b) => b.className.includes('lib-getting-started-chip'))
         .map((b) => b.textContent);
 
+      expect(secondPass).toEqual(firstPass);
+    });
+
+    it('does not reshuffle across a collapse/expand toggle of the same mount', async () => {
+      const user = userEvent.setup();
+      render(
+        <LibraryGettingStarted
+          storageKey={STORAGE_KEY}
+          heading="Try the tool"
+          why="One line."
+          examplePool={pool}
+          exampleCount={5}
+          onSelectChip={vi.fn()}
+        />,
+      );
+      const firstPass = screen.getAllByRole('button')
+        .filter((b) => b.className.includes('lib-getting-started-chip'))
+        .map((b) => b.textContent);
+
+      await user.click(screen.getByRole('button', { name: /Hide examples/ }));
+      await user.click(screen.getByRole('button', { name: /Show examples/ }));
+
+      const secondPass = screen.getAllByRole('button')
+        .filter((b) => b.className.includes('lib-getting-started-chip'))
+        .map((b) => b.textContent);
       expect(secondPass).toEqual(firstPass);
     });
 
@@ -196,8 +273,6 @@ describe('LibraryGettingStarted (t/4561)', () => {
           examplePool={small}
           exampleCount={5}
           onSelectChip={vi.fn()}
-          hasNoItems={false}
-          hideAriaLabel="Hide introduction"
         />,
       );
       expect(screen.getByRole('button', { name: 'Example 0' })).toBeInTheDocument();
@@ -215,8 +290,6 @@ describe('LibraryGettingStarted (t/4561)', () => {
           examplePool={pool}
           exampleCount={3}
           onSelectChip={onSelectChip}
-          hasNoItems={false}
-          hideAriaLabel="Hide introduction"
         />,
       );
       const chipButtons = screen.getAllByRole('button').filter((b) => b.className.includes('lib-getting-started-chip'));
@@ -235,8 +308,6 @@ describe('LibraryGettingStarted (t/4561)', () => {
           examplePool={pool}
           exampleCount={3}
           onSelectChip={vi.fn()}
-          hasNoItems={false}
-          hideAriaLabel="Hide introduction"
         />,
       );
       expect(screen.queryByRole('button', { name: 'First starter' })).not.toBeInTheDocument();
