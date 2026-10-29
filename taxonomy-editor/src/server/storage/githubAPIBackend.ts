@@ -190,8 +190,14 @@ type NullReadReason = 'not_found' | 'rate_limited' | 'circuit_open' | 'no_creds'
  *  (429/5xx/network/timeout) AND a raw 404 for a path the tree says exists
  *  (TL condition 1: the exact t/4584 failure class — a read failure must
  *  never silently collapse to "absent"). Only a 404 for a path NOT in the
- *  tree is `not_found`. */
-type RawFallbackReason = 'raw_404_but_in_tree' | 'status=429' | `status=${number}` | 'network_error';
+ *  tree is `not_found` — unless the manifest itself is stale (t/4615, TL
+ *  edge case on t/4585#6): a file added to main after the manifest's
+ *  `lastCommitSha` is "not in tree" by construction until the next poll,
+ *  so a stale manifest can't vouch for a path's absence either. `disabled`
+ *  is the rawDisabled early-return's own reason (t/4615 — previously
+ *  reused `status=503`, conflating with genuine 503 fallbacks in the
+ *  stats). */
+type RawFallbackReason = 'raw_404_but_in_tree' | 'raw_404_manifest_stale' | 'status=429' | `status=${number}` | 'network_error' | 'disabled';
 
 type RawFetchResult =
   | { kind: 'hit'; content: string; sha: string }
@@ -2772,6 +2778,19 @@ export class GitHubAPIBackend implements StorageBackend {
     return this.repoTree.has(repoPath);
   }
 
+  /** t/4615 (TL edge case, t/4585#6): a file added to main after the
+   *  manifest's `lastCommitSha` is "not in tree" by construction — the
+   *  in-memory tree and raw's pinned commit SHA both predate it — until the
+   *  next poll cycle refreshes the manifest. A stale manifest can't vouch
+   *  for a path's absence, so once it's older than the poll interval, "not
+   *  in tree" stops being trusted as a genuine `not_found` (see the 404
+   *  branch in `fetchFileFromRaw`). No manifest timestamp at all (a
+   *  cold-cold boot) is treated as stale too — nothing to vouch with. */
+  private isManifestStale(): boolean {
+    if (!this.manifest?.lastUpdated) return true;
+    return Date.now() - new Date(this.manifest.lastUpdated).getTime() > this.pollIntervalMs;
+  }
+
   /** TL condition 3: bounds raw's own concurrency (8 in flight) so a cold
    *  boot's ~1,000 near-simultaneous reads don't fire that many
    *  unauthenticated requests at raw.githubusercontent.com at once. */
@@ -2797,9 +2816,15 @@ export class GitHubAPIBackend implements StorageBackend {
    *  raw endpoint (repo turned private, CDN outage) doesn't pay a raw miss
    *  on every single subsequent read. Also tallies `rawFallbackCounts` by
    *  reason (unconditionally, even after disable) so staging measurement
-   *  can see 429s separately from other causes (TL condition 3). */
+   *  can see 429s separately from other causes (TL condition 3).
+   *  t/4615 (Quality follow-up): once `rawDisabled` is already tripped, the
+   *  window/threshold check below is moot — the decision is permanent for
+   *  this process. Still tallying `rawFallbackCounts['disabled']` (same
+   *  never-reset convention as `coldCacheMissCount`), but skipping the
+   *  window bookkeeping stops it growing forever for no purpose. */
   private recordRawFallback(reason: RawFallbackReason): void {
     this.rawFallbackCounts[reason] = (this.rawFallbackCounts[reason] ?? 0) + 1;
+    if (this.rawDisabled) return;
 
     const now = Date.now();
     if (now - this.rawFallbackWindowStart > 60_000) {
@@ -2807,7 +2832,9 @@ export class GitHubAPIBackend implements StorageBackend {
       this.rawFallbackWindowCount = 0;
     }
     this.rawFallbackWindowCount++;
-    if (!this.rawDisabled && this.rawFallbackWindowCount > GitHubAPIBackend.RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE) {
+    // this.rawDisabled is always false here — the early return above skips
+    // this whole block once it's true.
+    if (this.rawFallbackWindowCount > GitHubAPIBackend.RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE) {
       this.rawDisabled = true;
       log.github.error({ counts: { ...this.rawFallbackCounts } },
         `fetchFileFromRaw: disabling raw reads for the rest of this process — more than ${GitHubAPIBackend.RAW_FALLBACK_DISABLE_THRESHOLD_PER_MINUTE} fallbacks in the last minute`);
@@ -2826,7 +2853,7 @@ export class GitHubAPIBackend implements StorageBackend {
    *  host/CDN, unaffected by GitHub REST's own circuit state). Never throws;
    *  any failure becomes `fallback` for the caller to retry via REST. */
   private async fetchFileFromRaw(repoPath: string, commitSha: string): Promise<RawFetchResult> {
-    if (this.rawDisabled) return { kind: 'fallback', reason: 'status=503' };
+    if (this.rawDisabled) return { kind: 'fallback', reason: 'disabled' };
 
     const creds = await this.getCredsCached();
     if (!creds) return { kind: 'fallback', reason: 'network_error' };
@@ -2849,11 +2876,18 @@ export class GitHubAPIBackend implements StorageBackend {
       if (res.status === 404) {
         // TL condition 1: a tree-known path 404ing on raw is never trusted
         // as a genuine absence — could be a renamed/moved CDN edge case, a
-        // repo-visibility change, or raw misbehaving. Only an UNKNOWN path
+        // repo-visibility change, or raw misbehaving.
+        if (this.isPathKnownInTree(repoPath)) {
+          return { kind: 'fallback', reason: 'raw_404_but_in_tree' };
+        }
+        // t/4615: an unknown path still isn't trustworthy as genuinely
+        // absent if the manifest itself predates it (a just-added file,
+        // not yet seen by the next poll) — only a FRESH manifest's silence
         // gets the fast, quiet "absent" answer.
-        return this.isPathKnownInTree(repoPath)
-          ? { kind: 'fallback', reason: 'raw_404_but_in_tree' }
-          : { kind: 'not_found' };
+        if (this.isManifestStale()) {
+          return { kind: 'fallback', reason: 'raw_404_manifest_stale' };
+        }
+        return { kind: 'not_found' };
       }
       if (!res.ok) {
         return { kind: 'fallback', reason: res.status === 429 ? 'status=429' : `status=${res.status}` };

@@ -138,11 +138,11 @@ function makeFetchMock(opts: {
   }) as unknown as typeof fetch;
 }
 
-async function createBackend() {
+async function createBackend(opts: { pollIntervalMs?: number } = {}) {
   const { GitHubAPIBackend } = await import('../storage/githubAPIBackend');
   const backend = new GitHubAPIBackend({
     cacheDir: '/var/cache/taxonomy-test-t4585',
-    pollIntervalMs: 999_999_999,
+    pollIntervalMs: opts.pollIntervalMs ?? 999_999_999,
     coherencyProbeRate: 0,
   });
   await backend.initialize();
@@ -226,6 +226,46 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend main-pinned reads via raw.git
     expect(content).toBe('real content'); // REST fallback actually served it
     expect(calls.some(c => c.url.includes('/contents/taxonomy/node.json'))).toBe(true);
     expect(backend.getRawFallbackStats().counts['raw_404_but_in_tree']).toBe(1);
+    backend.shutdown();
+  });
+
+  it('raw 404 for a path NOT in the tree, but the manifest is stale: falls back to REST (t/4615, TL edge case) — a just-added file must not read as absent', async () => {
+    const calls: FetchCall[] = [];
+    globalThis.fetch = makeFetchMock({
+      treeFiles: [], // the file was added to main after this manifest was built — genuinely absent from the tree
+      rawHandler: () => jsonResponse(404, { message: 'Not Found' }), // raw is pinned to the old commit SHA too
+      contentsHandler: () => jsonResponse(200, {
+        content: Buffer.from('just added to main').toString('base64'), encoding: 'base64', sha: 'new-sha', type: 'file',
+      }),
+      calls,
+    });
+
+    // A tiny poll interval so the manifest reads as stale almost immediately.
+    const backend = await createBackend({ pollIntervalMs: 1 });
+    await new Promise(r => setTimeout(r, 25)); // comfortably past the 1ms interval
+
+    const content = await backend.readFile('/taxonomy/just-added.json');
+
+    expect(content).toBe('just added to main'); // REST fallback found it — not a false "absent"
+    expect(calls.some(c => c.url.includes('/contents/taxonomy/just-added.json'))).toBe(true);
+    expect(backend.getRawFallbackStats().counts['raw_404_manifest_stale']).toBe(1);
+    backend.shutdown();
+  });
+
+  it('raw 404 for a path NOT in the tree, with a FRESH manifest: still a genuine not_found (no regression)', async () => {
+    const calls: FetchCall[] = [];
+    globalThis.fetch = makeFetchMock({
+      treeFiles: [],
+      rawHandler: () => jsonResponse(404, { message: 'Not Found' }),
+      calls,
+    });
+
+    // Default createBackend() leaves the manifest freshly built (age ~0ms).
+    const backend = await createBackend();
+    const content = await backend.readFile('/taxonomy/genuinely-missing.json');
+
+    expect(content).toBeNull();
+    expect(calls.some(c => c.url.includes('/contents/'))).toBe(false); // no REST fallback — still the fast, quiet absent answer
     backend.shutdown();
   });
 
@@ -313,6 +353,20 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend main-pinned reads via raw.git
     // Further reads must not attempt raw at all once disabled.
     await backend.readFile('/taxonomy/node-after-disable.json');
     expect(rawAttempts).toBe(attemptsAtDisable);
+
+    // t/4615: the disabled early-return gets its own reason, never
+    // conflated with a genuine status=503 fallback.
+    const stats = backend.getRawFallbackStats();
+    expect(stats.counts['disabled']).toBeGreaterThanOrEqual(1);
+
+    // t/4615: more reads after disable keep tallying 'disabled' (cheap,
+    // never-reset counter, same convention as coldCacheMissCount) without
+    // re-running the window/threshold bookkeeping or re-tripping anything.
+    const disabledCountBefore = stats.counts['disabled'];
+    await backend.readFile('/taxonomy/node-after-disable-2.json');
+    await backend.readFile('/taxonomy/node-after-disable-3.json');
+    expect(backend.getRawFallbackStats().counts['disabled']).toBe(disabledCountBefore + 2);
+    expect(backend.getRawFallbackStats().disabled).toBe(true); // still tripped, not re-evaluated
     backend.shutdown();
   });
 
