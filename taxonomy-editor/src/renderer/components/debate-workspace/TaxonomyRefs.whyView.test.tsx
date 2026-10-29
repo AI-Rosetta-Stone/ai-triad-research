@@ -9,6 +9,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
+// t/4651: TaxNodeDetail (rendered unmocked here) now calls scrollIntoView on open — jsdom
+// doesn't implement it.
+Element.prototype.scrollIntoView = vi.fn();
+
 vi.mock('react-markdown', () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
 }));

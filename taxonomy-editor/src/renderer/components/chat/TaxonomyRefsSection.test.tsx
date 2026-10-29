@@ -11,6 +11,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { TaxonomyRef } from '../../types/debate';
 
+// t/4651: TaxNodeDetail (rendered unmocked here) now calls scrollIntoView on open — jsdom
+// doesn't implement it.
+Element.prototype.scrollIntoView = vi.fn();
+
 const lookupPinnedData = vi.fn((id: string) => {
   if (id === 'unknown-node-999') return undefined;
   return {
