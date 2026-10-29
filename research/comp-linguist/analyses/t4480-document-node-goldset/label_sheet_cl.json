@@ -929,7 +929,7 @@
       "assigned_node_label": "Accelerate Prosperity Through AI-Driven Abundance",
       "cell": "acc|intentions|6-30",
       "rank": 7,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -944,9 +944,9 @@
       "assigned_node_label": "Discredit AI Safety Discourse as Irrational or Faith-Based",
       "cell": "acc|intentions|>30",
       "rank": 608,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -959,7 +959,7 @@
       "assigned_node_label": "Tie AI Governance Milestones to Empirical Compute Scaling Benchmarks",
       "cell": "acc|intentions|>30",
       "rank": 48,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -974,9 +974,9 @@
       "assigned_node_label": "Accelerate AI Through Open, Decentralized, and Unrestricted Experimentation",
       "cell": "acc|intentions|>30",
       "rank": 60,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -989,9 +989,9 @@
       "assigned_node_label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
       "cell": "acc|intentions|>30",
       "rank": 101,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1004,9 +1004,9 @@
       "assigned_node_label": "Build an Evolving Catalog of AI Failure Modes",
       "cell": "acc|intentions|>30",
       "rank": 53,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1019,9 +1019,9 @@
       "assigned_node_label": "Distributing Model Weights to Prevent Power Concentration",
       "cell": "acc|intentions|>30",
       "rank": 364,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1034,9 +1034,9 @@
       "assigned_node_label": "Matching AI Oversight Intensity to Decision Stakes",
       "cell": "acc|intentions|>30",
       "rank": 319,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1049,7 +1049,7 @@
       "assigned_node_label": "AI Deployment Speed Erodes Organizational Visibility and Control",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1064,9 +1064,9 @@
       "assigned_node_label": "AI Systems Can Model Their Own Context, Capabilities, and Constraints",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1079,7 +1079,7 @@
       "assigned_node_label": "AI Systems Develop Capabilities Nobody Designed or Predicted",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1094,7 +1094,7 @@
       "assigned_node_label": "Scaling AI Without Safeguards Creates a Non-Trivial Path to Irreversible Civilizational Harm",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1109,7 +1109,7 @@
       "assigned_node_label": "AI Supply Chains Inherit Vulnerabilities from Upstream Components",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1124,7 +1124,7 @@
       "assigned_node_label": "Fault Fragments Across Designers, Deployers, and Users When AI Fails",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1139,7 +1139,7 @@
       "assigned_node_label": "Safety Boundaries Are Defined by Acknowledged Gaps, Not Guarantees",
       "cell": "saf|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
