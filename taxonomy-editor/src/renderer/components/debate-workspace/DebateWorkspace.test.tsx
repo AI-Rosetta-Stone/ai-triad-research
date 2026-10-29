@@ -866,7 +866,8 @@ describe('selection context menu', () => {
       expect(container.querySelector('.debate-context-menu')).toBeNull(); // menu closes either way
     });
 
-    it('falls back to the Gemini escape hatch when no inline panel is registered for the entry', async () => {
+    it('falls back to the Gemini escape hatch — copies, shows a visible confirmation, then opens Gemini', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       mockRequestExplainForSelection.mockReturnValue(false);
       mockSelection('hello world');
       const { container } = render(<DebateWorkspace />);
@@ -875,8 +876,16 @@ describe('selection context menu', () => {
 
       expect(mockRequestExplainForSelection).toHaveBeenCalledWith('', 'hello world');
       expect(api.clipboardWriteText).toHaveBeenCalledWith('EXPLAIN: hello world');
-      // t/4645: routed through copyPromptForGemini — opens only after the copy resolves.
-      await waitFor(() => expect(api.openExternal).toHaveBeenCalledWith('https://gemini.google.com/app'));
+
+      // t/4645: routed through copyPromptForGemini, same sequence as ExplainPanel's button —
+      // a visible, aria-live confirmation appears before Gemini opens, not immediately on copy.
+      await vi.waitFor(() => expect(screen.getByText('Prompt copied. Paste it into Gemini.')).toBeInTheDocument());
+      expect(screen.getByText('Prompt copied. Paste it into Gemini.').closest('[aria-live="polite"]')).toBeTruthy();
+      expect(api.openExternal).not.toHaveBeenCalled();
+
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(api.openExternal).toHaveBeenCalledWith('https://gemini.google.com/app');
+      vi.useRealTimers();
     });
 
     it('does not open Gemini when the clipboard write fails in the fallback path', async () => {
@@ -888,7 +897,8 @@ describe('selection context menu', () => {
       fireEvent.click(screen.getByText('Explain…'));
 
       expect(api.clipboardWriteText).toHaveBeenCalledWith('EXPLAIN: hello world');
-      await waitFor(() => expect(api.clipboardWriteText).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      expect(screen.getByRole('status').textContent).toMatch(/couldn't copy/i);
       expect(api.openExternal).not.toHaveBeenCalled();
     });
   });

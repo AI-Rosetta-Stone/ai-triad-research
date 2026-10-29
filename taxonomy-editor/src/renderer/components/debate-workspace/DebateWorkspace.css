@@ -936,3 +936,21 @@
 span.debate-tier-pills {
   gap: 8px;
 }
+
+/* t/4645: visible confirmation for the right-click "Explain…" Gemini fallback — the
+   context menu it's triggered from closes immediately, so this renders as a fixed toast
+   instead of inline, mirroring ExplainPanel's "Prompt copied" confirmation. */
+.debate-gemini-fallback-toast {
+  position: fixed;
+  bottom: var(--sp-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
