@@ -18,40 +18,118 @@
   --lgs-text-secondary: var(--lib-text-secondary, #5d554f);
   --lgs-accent: var(--lib-accent, #9e2236);
 
-  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   text-align: left;
-  gap: 8px;
-  /* t/4536#8: --lib-bg IS the page background — use --lib-row-hover so the card has a
-     visible fill, and give the chips --lib-bg so they still stand out against the card. */
-  background: var(--lgs-bg);
-  border: 1px solid var(--lgs-border);
   border-radius: 6px;
-  padding: 16px;
   margin-top: 12px;
 }
 
-.lib-getting-started-hide {
-  position: absolute;
-  top: 10px;
-  right: 14px;
-  background: none;
-  border: none;
-  color: var(--lgs-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
+/* t/4639: collapsed — a recessed strip, no fill, so it recedes against the page. */
+.lib-getting-started {
+  border: 1px solid var(--lgs-border);
+  background: transparent;
+}
+
+/* t/4639: expanded — the filled card look, same as before the accordion change. */
+.lib-getting-started[data-expanded="true"] {
+  background: var(--lgs-bg);
+  border: 1px solid var(--lgs-border);
+  padding: 16px;
 }
 
 .lib-getting-started-heading {
+  margin: 0;
+}
+
+.lib-getting-started-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  /* Design review, t/4639#4 item 2: a <button> doesn't inherit font-family from its ancestor
+     h2 by default (UA stylesheet sets its own), so the title rendered in the browser's button
+     font (Arial) instead of the page font. */
+  font: inherit;
+  color: inherit;
+}
+
+.lib-getting-started[data-expanded="true"] .lib-getting-started-toggle {
+  padding: 0;
+  /* Design review, t/4639#4 item 4: 0 collapsed the hit area to the label's own line height
+     (17px), below the WCAG 2.5.8 24px minimum. */
+  min-height: 24px;
+}
+
+.lib-getting-started-toggle:focus-visible {
+  outline: 2px solid var(--lgs-accent);
+  outline-offset: 2px;
+}
+
+.lib-getting-started-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--lgs-text);
-  margin: 0;
-  padding-right: 48px; /* room for Hide */
+}
+
+.lib-getting-started-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 400; /* t/4639#4 item 2: undo the inherited h2 bold weight from `font: inherit` above */
+  color: var(--lgs-text-secondary);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+/* Design review, t/4639#4 item 3: Design's own spec called for --lgs-accent here, but measured
+   contrast fails AA in light/dark/bkc (as low as 2.74:1). --lgs-text measures 9.37-16.12:1 across
+   all 4 themes. The focus ring stays accent-coloured — it's a non-text indicator. */
+.lib-getting-started-toggle:hover .lib-getting-started-toggle-label,
+.lib-getting-started-toggle:focus-visible .lib-getting-started-toggle-label {
+  color: var(--lgs-text);
+  text-decoration: underline;
+}
+
+.lib-getting-started-chevron {
+  transition: transform 120ms;
+}
+
+.lib-getting-started[data-expanded="true"] .lib-getting-started-chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lib-getting-started-chevron {
+    transition: none;
+  }
+}
+
+.lib-getting-started-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Design review, t/4639#4 item 1 (BLOCKER): the class rule above's `display: flex` has higher
+   specificity than the UA stylesheet's `[hidden] { display: none }`, and the app has no global
+   [hidden] rule — so collapsing changed nothing in any of the four tools (measured: body height
+   unchanged, panel lost only 5px of padding). jsdom doesn't load CSS, so a test asserting the
+   `hidden` ATTRIBUTE alone can't catch this — it was never a reliable proxy for "actually
+   invisible" here. This explicit override restores it. */
+.lib-getting-started-body[hidden] {
+  display: none;
 }
 
 .lib-getting-started-why {
@@ -94,14 +172,3 @@
   margin: 0;
 }
 
-.lib-getting-started-show-link {
-  display: inline-block;
-  margin-top: 12px;
-  background: none;
-  border: none;
-  color: var(--lgs-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-}
