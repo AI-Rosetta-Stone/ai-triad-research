@@ -905,10 +905,16 @@ function DebateModals({
 
       {/* t/4645: visible confirmation for the right-click "Explain…" Gemini fallback — the
           context menu above closes immediately on click, so this lives in DebateModals (which
-          stays mounted) rather than in the menu itself, mirroring ExplainPanel's confirmation. */}
-      {geminiToast && (
-        <div className="debate-gemini-fallback-toast" role="status" aria-live="polite">{geminiToast}</div>
-      )}
+          stays mounted) rather than in the menu itself, mirroring ExplainPanel's confirmation.
+          The region itself stays mounted always (only its text and visible styling toggle) —
+          NVDA/JAWS often don't announce text in a live region that's inserted already filled. */}
+      <div
+        className={geminiToast ? 'debate-gemini-fallback-toast' : 'sr-only'}
+        role="status"
+        aria-live="polite"
+      >
+        {geminiToast}
+      </div>
 
       {/* Comment creation popover */}
       {commentPopover && (
@@ -1225,6 +1231,9 @@ function useDebateSelectionMenu(activeDebate: DWStore['activeDebate'], defaultTi
   useEffect(() => () => { if (geminiToastTimerRef.current) clearTimeout(geminiToastTimerRef.current); }, []);
 
   const requestGeminiFallback = useCallback((prompt: string) => {
+    // t/4645 (Design a11y re-check): a double trigger within the window must not open Gemini
+    // twice — clear any pending timer from an earlier call before scheduling a new one.
+    if (geminiToastTimerRef.current) clearTimeout(geminiToastTimerRef.current);
     void copyPromptForGemini(prompt).then((ok) => {
       if (!ok) {
         setGeminiToast("Couldn't copy the prompt to your clipboard — Gemini not opened.");

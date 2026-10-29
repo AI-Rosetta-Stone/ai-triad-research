@@ -931,6 +931,49 @@ describe('selection context menu', () => {
       expect(screen.getByRole('status').textContent).toMatch(/couldn't copy/i);
       expect(api.openExternal).not.toHaveBeenCalled();
     });
+
+    it('keeps the fallback status region mounted across the toast appearing and clearing (t/4645 a11y)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      mockRequestExplainForSelection.mockReturnValue(false);
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+
+      // Present before the fallback ever runs — SR tools need the region to already exist,
+      // not appear already filled, or they often miss the announcement.
+      const region = screen.getByRole('status');
+      expect(region).toBeInTheDocument();
+      expect(region.textContent).toBe('');
+
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+      await vi.waitFor(() => expect(screen.getByRole('status').textContent).toBe('Prompt copied. Paste it into Gemini.'));
+      expect(screen.getByRole('status')).toBe(region); // same node — only text/class toggled
+
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(screen.getByRole('status')).toBe(region);
+      expect(screen.getByRole('status').textContent).toBe('');
+      vi.useRealTimers();
+    });
+
+    it('a double trigger within the confirmation window opens Gemini only once (t/4645)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      mockRequestExplainForSelection.mockReturnValue(false);
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+      await vi.waitFor(() => expect(api.clipboardWriteText).toHaveBeenCalledTimes(1));
+
+      act(() => { vi.advanceTimersByTime(1000); }); // still within the confirmation window
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+      await vi.waitFor(() => expect(api.clipboardWriteText).toHaveBeenCalledTimes(2));
+
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(api.openExternal).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
   });
 });
 
