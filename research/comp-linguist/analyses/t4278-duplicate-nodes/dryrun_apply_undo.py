@@ -18,13 +18,24 @@ Checks:
      add_edges. Every other node is deep-equal, and node counts and order are unchanged.
   2. Undo: remove superseded_by, the manifest's add_refs and the manifest's add_edges. The result must be
      byte-identical to the original.
+  3. POST-APPLY real-writer round-trip (TL, t/4623#2 -- the SO's C7 point 3 condition, moved from t/4623's
+     advance normalisation into the apply itself): for each POV file, run the POST-APPLY content through
+     the REAL production serializer, scripts/json-canonical.mjs (via Node -- the same script
+     Write-PovTaxonomyFile delegates to), and confirm it reproduces this script's own post-apply
+     serialization byte-for-byte. This is what proves the apply's diff will contain only the manifest's
+     insertions -- a future ordinary editor save won't reformat the whole file on top of the semantic
+     change. Requires `node` on PATH; prints a WARN (does not fail the run) if Node is unavailable, same
+     fail-open posture as Write-PovTaxonomyFile's own missing-Node error, but surfaced as a check you
+     must not skip at real apply time.
 Usage:
   python dryrun_apply_undo.py --data <ai-triad-data root> --rev <rev>
 Exit 0 means all checks passed.
 """
-import argparse, collections, copy, json, os, subprocess, sys
+import argparse, collections, copy, json, os, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
+CANON_SCRIPT = os.path.join(REPO_ROOT, "scripts", "json-canonical.mjs")
 POV_FILES = ("skeptic.json", "safetyist.json", "accelerationist.json")
 EDGES_PATH = "taxonomy/Origin/edges.json"
 
@@ -144,6 +155,49 @@ def main():
         same = ser_for(p, work[p]) == ser_for(p, orig[p])
         print(f"[2] undo byte-identical {p}: {'OK' if same else 'FAIL'}")
         ok &= same
+
+    # 3. Post-apply real-writer round-trip (TL, t/4623#2). work[p] still holds the POST-apply
+    # content from step 1 (undo re-ran on a snapshot of `work`'s lists, but node-identity in `work`
+    # dicts was mutated in place for undo, so recompute the post-apply state fresh here instead of
+    # relying on `work`, which now holds the UNDONE content).
+    node_cmd = ["node"] if not os.environ.get("AITRIAD_NODE_PATH") else [os.environ["AITRIAD_NODE_PATH"]]
+    try:
+        subprocess.run(node_cmd + ["--version"], capture_output=True, check=True)
+        node_ok = True
+    except Exception:
+        node_ok = False
+    if not node_ok:
+        print("[3] WARN: node not on PATH -- cannot verify the post-apply real-writer round-trip. "
+              "This check is REQUIRED at actual apply time (TL, t/4623#2); do not skip it there.")
+    elif not os.path.exists(CANON_SCRIPT):
+        print(f"[3] WARN: {CANON_SCRIPT} not found -- cannot verify. Run from a full checkout.")
+    else:
+        post_apply = copy.deepcopy(orig)
+        for p in (k for k in post_apply if k != e_path):
+            for n in post_apply[p]["nodes"]:
+                if n["id"] in sup_of:
+                    n["superseded_by"] = sup_of[n["id"]]
+                if n["id"] in surv:
+                    for f, vals in surv[n["id"]]["add_refs"].items():
+                        n[f] = list(n.get(f) or []) + vals
+        for p in (k for k in post_apply if k != e_path):
+            expected = ser_for(p, post_apply[p])
+            tmp_dir = tempfile.mkdtemp()
+            carrier = os.path.join(tmp_dir, "carrier.json")
+            out_dir = os.path.join(tmp_dir, "taxonomy", "Origin")
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, os.path.basename(p))
+            with open(carrier, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(post_apply[p], ensure_ascii=False))
+            r = subprocess.run(node_cmd + [CANON_SCRIPT, "--in", carrier, "--out", out_path], capture_output=True)
+            if r.returncode != 0:
+                print(f"[3] FAIL {p}: json-canonical.mjs exited {r.returncode}: {r.stderr.decode()}")
+                ok = False
+                continue
+            real_output = open(out_path, "rb").read().decode("utf-8")
+            same = real_output == expected
+            print(f"[3] post-apply real-writer round-trip {p}: {'OK' if same else 'MISMATCH -- the apply would NOT satisfy C7 point 3'}")
+            ok &= same
     print("ALL CHECKS PASS" if ok else "CHECKS FAILED")
     sys.exit(0 if ok else 1)
 
