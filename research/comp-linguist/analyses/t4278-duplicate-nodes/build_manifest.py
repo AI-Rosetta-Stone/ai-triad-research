@@ -11,6 +11,10 @@ each survivor it records exactly what a supersede-in-place write would ADD:
     retired in DIFFERENT groups (e.g. t/4624's G9/G10, where saf-intentions-256 and saf-beliefs-281
     retire into different parents but point at each other) gets both ends remapped together, instead
     of each group's independent pass only remapping its own endpoint and leaving a half-remapped edge.
+A group may set "fold_edges": false (default true) to opt OUT of edge-copying entirely -- SO
+condition C1 on t/4624 (e/398#2): a demote-to-parent group's retiree relations are specific to the
+narrow child and don't inherit upward to a general parent, unlike a duplicate-merge's. Those edges
+are counted in "dropped_no_fold_edges" and left on the retired node, going dormant with it.
 The originals are left in place for history. The undo is "remove superseded_by, then remove exactly
 these additions".
 
@@ -66,12 +70,17 @@ def main():
         for n in show(a.data, a.rev, f"taxonomy/Origin/{f}")["nodes"]:
             nodes[n["id"]] = n
 
-    retire_of_group = {}   # group id -> retire list (mechanical)
-    sup_of = {}             # GLOBAL: retired id -> survivor id, across every group
-    group_of_retired = {}   # retired id -> owning group id
+    retire_of_group = {}    # group id -> retire list (mechanical)
+    sup_of = {}              # GLOBAL: retired id -> survivor id, across every group
+    group_of_retired = {}    # retired id -> owning group id
+    fold_edges_of = {}       # group id -> bool, default True (SO condition C1, t/4624/e/398#2:
+                             # a demote-to-parent group can opt OUT of folding its edges onto the
+                             # parent -- a narrow child's relations, especially CONTRADICTS/TENSION,
+                             # don't inherit upward the way a duplicate-merge's do)
     for g in groups:
         retire = g.get("retire_mechanical", g["retire"])
         retire_of_group[g["group"]] = retire
+        fold_edges_of[g["group"]] = g.get("fold_edges", True)
         for r in retire:
             sup_of[r] = g["survivor"]
             group_of_retired[r] = g["group"]
@@ -79,13 +88,20 @@ def main():
     out = {"data_revision": a.rev, "survivors": [], "held": []}
     add_edges_by_group = {g["group"]: [] for g in groups}
     dropped_self_by_group = {g["group"]: 0 for g in groups}
+    no_fold_dropped_by_group = {g["group"]: 0 for g in groups}
     existing_or_planned = set(existing)
     for e in edges:
         if e["source"] not in sup_of and e["target"] not in sup_of:
             continue
+        src_group = group_of_retired.get(e["source"])
+        tgt_group = group_of_retired.get(e["target"])
+        owning_group = src_group if src_group is not None else tgt_group
+        if (src_group is not None and not fold_edges_of[src_group]) or \
+           (tgt_group is not None and not fold_edges_of[tgt_group]):
+            no_fold_dropped_by_group[owning_group] += 1
+            continue
         src = sup_of.get(e["source"], e["source"])
         tgt = sup_of.get(e["target"], e["target"])
-        owning_group = group_of_retired.get(e["source"], group_of_retired.get(e["target"]))
         if src == tgt:
             dropped_self_by_group[owning_group] += 1
             continue
@@ -116,9 +132,12 @@ def main():
                         add_refs[f].append(x)
                         have.add(ref_key(x))
         out["survivors"].append({"group": g["group"], "survivor": surv, "superseded": retire,
+                                 "disposition": g.get("disposition", "duplicate"),
+                                 "fold_edges": fold_edges_of[g["group"]],
                                  "add_refs": {f: v for f, v in add_refs.items() if v},
                                  "add_edges": add_edges_by_group[g["group"]],
-                                 "dropped_self_loops": dropped_self_by_group[g["group"]]})
+                                 "dropped_self_loops": dropped_self_by_group[g["group"]],
+                                 "dropped_no_fold_edges": no_fold_dropped_by_group[g["group"]]})
     json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")
 

@@ -7,6 +7,8 @@
       "superseded": [
         "skp-intentions-153"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {
         "debate_refs": [
           "f9c54c70-dfc3-4255-b125-0c49da39c519"
@@ -241,7 +243,8 @@
           }
         }
       ],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G2",
@@ -249,6 +252,8 @@
       "superseded": [
         "skp-intentions-151"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {},
       "add_edges": [
         {
@@ -306,7 +311,8 @@
           }
         }
       ],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G3",
@@ -314,6 +320,8 @@
       "superseded": [
         "skp-desires-090"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {
         "debate_refs": [
           "706ad547-72a2-47d7-9791-5da0e3b7475f"
@@ -356,7 +364,8 @@
           }
         }
       ],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G4",
@@ -364,6 +373,8 @@
       "superseded": [
         "saf-beliefs-251"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {
         "debate_refs": [
           "488de8a5-8547-4bce-bfac-0b79b129ec3b"
@@ -424,7 +435,8 @@
           }
         }
       ],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G5",
@@ -432,6 +444,8 @@
       "superseded": [
         "saf-intentions-236"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {
         "debate_refs": [
           "3b066483-3cf9-483e-a141-953d6fa231e5"
@@ -511,7 +525,8 @@
           }
         }
       ],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G6",
@@ -519,13 +534,16 @@
       "superseded": [
         "acc-beliefs-112"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {
         "debate_refs": [
           "e9af2f30-c8b7-4030-9992-bf5c9e8dd26b"
         ]
       },
       "add_edges": [],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G7",
@@ -533,6 +551,8 @@
       "superseded": [
         "acc-beliefs-117"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {},
       "add_edges": [
         {
@@ -587,7 +607,8 @@
           }
         }
       ],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G8",
@@ -595,6 +616,8 @@
       "superseded": [
         "acc-beliefs-118"
       ],
+      "disposition": "duplicate",
+      "fold_edges": true,
       "add_refs": {
         "debate_refs": [
           "2306fafc-6d5e-4387-beee-f1ecc900b7ce"
@@ -642,7 +665,8 @@
           }
         }
       ],
-      "dropped_self_loops": 0
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 0
     },
     {
       "group": "G9",
@@ -650,82 +674,12 @@
       "superseded": [
         "saf-intentions-256"
       ],
+      "disposition": "demote-to-parent",
+      "fold_edges": false,
       "add_refs": {},
-      "add_edges": [
-        {
-          "source": "saf-intentions-140",
-          "target": "saf-beliefs-097",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.95,
-          "rationale": "Prefix-Safe Context Isolation provides the direct technical mechanism required to implement the belief that recursive self-improvement architectures must isolate live execution routines from raw trace outcomes.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.9,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-intentions-256",
-            "target": "saf-beliefs-281"
-          }
-        },
-        {
-          "source": "saf-intentions-140",
-          "target": "saf-intentions-246",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.85,
-          "rationale": "By enforcing strict boundaries preventing decision methods from inspecting raw traces, context isolation serves as an upstream security primitive that enables deployers to safely enforce runtime policies.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.8,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-intentions-256",
-            "target": "saf-intentions-246"
-          }
-        },
-        {
-          "source": "saf-intentions-140",
-          "target": "saf-intentions-032",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.8,
-          "rationale": "Although context isolation restricts raw trace inspection during execution, it aligns with broader auditability goals by creating structured, safe checkpoints that help auditors systematically examine model behavior.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.65,
-          "strength": "moderate",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-intentions-256",
-            "target": "saf-intentions-032"
-          }
-        },
-        {
-          "source": "saf-intentions-140",
-          "target": "saf-intentions-203",
-          "type": "TENSION_WITH",
-          "bidirectional": true,
-          "confidence": 0.85,
-          "rationale": "Mechanistic interpretability relies heavily on mapping and auditing the raw internal reasoning processes and neural circuits of AI systems, creating a direct technical tension with context isolation's requirement to restrict access to those exact internal traces.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.85,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-intentions-256",
-            "target": "saf-intentions-203"
-          }
-        }
-      ],
-      "dropped_self_loops": 0
+      "add_edges": [],
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 4
     },
     {
       "group": "G10",
@@ -733,136 +687,12 @@
       "superseded": [
         "saf-beliefs-281"
       ],
+      "disposition": "demote-to-parent",
+      "fold_edges": false,
       "add_refs": {},
-      "add_edges": [
-        {
-          "source": "saf-beliefs-097",
-          "target": "saf-intentions-140",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.95,
-          "rationale": "The belief that recursive self-improvement architectures require prefix-safe historical manifests directly justifies and supports the operational intention to enforce strict programmatic boundaries preventing raw trace inspection.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.9,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-beliefs-281",
-            "target": "saf-intentions-256"
-          }
-        },
-        {
-          "source": "saf-beliefs-097",
-          "target": "saf-intentions-139",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.85,
-          "rationale": "Isolating live execution routines from raw trace outcomes via prefix-safe historical manifests directly supports the broader intention of conditioning autonomous agent execution on permission-scoped blast-radius limits.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.8,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-beliefs-281",
-            "target": "saf-intentions-139"
-          }
-        },
-        {
-          "source": "saf-beliefs-097",
-          "target": "acc-beliefs-122",
-          "type": "CONTRADICTS",
-          "bidirectional": true,
-          "confidence": 0.8,
-          "rationale": "The safetyist belief in strict prefix-safe historical context isolation to prevent live outcome leakage is logically incompatible with the accelerationist belief that runtime perimeter isolation is governed by instruction-data conflation exceptions.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.85,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-beliefs-281",
-            "target": "acc-beliefs-122"
-          }
-        },
-        {
-          "source": "saf-beliefs-097",
-          "target": "saf-intentions-241",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.85,
-          "rationale": "Using prefix-safe historical manifests to isolate execution routines from self-improvement architectures strongly supports hardware-enforced memory inviolability as a mechanism to prevent unauthorized code expansion.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.75,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-beliefs-281",
-            "target": "saf-intentions-241"
-          }
-        },
-        {
-          "source": "saf-beliefs-097",
-          "target": "saf-beliefs-271",
-          "type": "ASSUMES",
-          "bidirectional": false,
-          "confidence": 0.8,
-          "rationale": "The necessity of strict prefix-safe historical context isolation depends on the foundational premise that autonomous agentic systems can falsify or manipulate runtime telemetry before containment halts can execute.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.7,
-          "strength": "moderate",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-beliefs-281",
-            "target": "saf-beliefs-271"
-          }
-        },
-        {
-          "source": "saf-beliefs-097",
-          "target": "saf-intentions-095",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.9,
-          "rationale": "Mandating prefix-safe historical manifests as a structural requirement for recursive self-improvement directly operationalizes the design philosophy of building safety into system architecture from the start rather than patching it on.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.85,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-beliefs-281",
-            "target": "saf-intentions-095"
-          }
-        },
-        {
-          "source": "saf-beliefs-097",
-          "target": "sit-288",
-          "type": "INTERPRETS",
-          "bidirectional": false,
-          "confidence": 0.85,
-          "rationale": "The safetyist recommendation for prefix-safe historical context isolation provides a specific architectural implementation and interpretation for achieving control-flow integrity in agentic workflows.",
-          "status": "proposed",
-          "discovered_at": "2026-09-22",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.8,
-          "strength": "strong",
-          "rationale_source": "t4278-supersede-copy",
-          "copied_from": {
-            "source": "saf-beliefs-281",
-            "target": "sit-288"
-          }
-        }
-      ],
-      "dropped_self_loops": 0
+      "add_edges": [],
+      "dropped_self_loops": 0,
+      "dropped_no_fold_edges": 7
     }
   ],
   "held": [
