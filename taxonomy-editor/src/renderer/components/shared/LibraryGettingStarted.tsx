@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { pickExamples } from './pickExamples';
 import './LibraryGettingStarted.css';
 
 function readDismissed(storageKey: string): boolean {
@@ -55,7 +56,17 @@ export interface LibraryGettingStartedProps<T> {
   heading: string;
   /** One-line why — what this tool does and where its answers come from. */
   why: string;
-  chips: LibraryGettingStartedChip<T>[];
+  /** The chips to show, already picked by the caller. Mutually exclusive with examplePool —
+   *  when examplePool is given, chips is ignored. Kept for callers that haven't migrated to
+   *  the random-subset pool yet (t/4633 adds examplePool without breaking this). */
+  chips?: LibraryGettingStartedChip<T>[];
+  /** t/4633: the full candidate pool (e.g. 15 starters). When given (together with
+   *  exampleCount), the card picks a random, non-repeating subset via pickExamples ONCE per
+   *  mount — re-renders don't reshuffle what the user is reading. */
+  examplePool?: LibraryGettingStartedChip<T>[];
+  /** How many chips to show when using examplePool. Required together with examplePool;
+   *  ignored otherwise. */
+  exampleCount?: number;
   /** The host opens its own New dialog prefilled with the chip's value. */
   onSelectChip: (value: T) => void;
   /** Optional hint line below the chips (Chat's mode legend is bolded inline text, hence ReactNode). */
@@ -73,9 +84,17 @@ export interface LibraryGettingStartedProps<T> {
  *  LibraryListPage's `intro` slot, between the header row and the My/Community tabs. No entrance
  *  animation — nothing here to gate behind reduced-motion. */
 export function LibraryGettingStarted<T>({
-  storageKey, heading, why, chips, onSelectChip, hint, hasNoItems, hideAriaLabel, showLinkLabel = 'Show tips',
+  storageKey, heading, why, chips, examplePool, exampleCount, onSelectChip, hint, hasNoItems, hideAriaLabel, showLinkLabel = 'Show tips',
 }: LibraryGettingStartedProps<T>) {
   const [dismissed, setDismissed] = useLibraryIntroDismissed(storageKey);
+  // t/4633: computed once per mount (lazy useState initializer, not useMemo — no dependency
+  // array to accidentally re-trigger on) so re-renders never reshuffle what's on screen. Only
+  // consulted when the caller supplies examplePool+exampleCount; legacy callers passing `chips`
+  // directly are untouched below (chips is re-read fresh every render, exactly as before).
+  const [pickedChips] = useState<LibraryGettingStartedChip<T>[] | null>(() =>
+    examplePool && exampleCount != null ? pickExamples(examplePool, exampleCount) : null,
+  );
+  const visibleChips = pickedChips ?? chips ?? [];
   const showLinkRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   // t/4536#8 (non-blocking fold): focus follows the state change instead of dropping to BODY.
@@ -117,7 +136,7 @@ export function LibraryGettingStarted<T>({
       </button>
       <p className="lib-getting-started-why">{why}</p>
       <div className="lib-getting-started-chips">
-        {chips.map(({ label, value }) => (
+        {visibleChips.map(({ label, value }) => (
           <button
             key={label}
             type="button"

@@ -126,4 +126,122 @@ describe('LibraryGettingStarted (t/4561)', () => {
     const withoutFallbackDecls = withoutComments.replace(/--lgs-[a-z-]+:\s*var\([^)]*\);/g, '');
     expect(withoutFallbackDecls).not.toMatch(/var\(--lib-/);
   });
+
+  // t/4633: examplePool + exampleCount — the random-subset path, additive and backward
+  // compatible (legacy `chips` callers are covered by every test above, unchanged).
+  describe('examplePool + exampleCount (t/4633)', () => {
+    const pool = Array.from({ length: 15 }, (_, i) => ({ label: `Example ${i}`, value: `v${i}` }));
+
+    it('renders exactly exampleCount chips, not the whole pool', () => {
+      render(
+        <LibraryGettingStarted
+          storageKey={STORAGE_KEY}
+          heading="Try the tool"
+          why="One line."
+          examplePool={pool}
+          exampleCount={3}
+          onSelectChip={vi.fn()}
+          hasNoItems={false}
+          hideAriaLabel="Hide introduction"
+        />,
+      );
+      const buttons = screen.getAllByRole('button').filter((b) => b.className.includes('lib-getting-started-chip'));
+      expect(buttons).toHaveLength(3);
+    });
+
+    it('does not reshuffle the picked chips across re-renders of the same mount (AC2)', () => {
+      const { rerender } = render(
+        <LibraryGettingStarted
+          storageKey={STORAGE_KEY}
+          heading="Try the tool"
+          why="One line."
+          examplePool={pool}
+          exampleCount={5}
+          onSelectChip={vi.fn()}
+          hasNoItems={false}
+          hideAriaLabel="Hide introduction"
+        />,
+      );
+      const firstPass = screen.getAllByRole('button')
+        .filter((b) => b.className.includes('lib-getting-started-chip'))
+        .map((b) => b.textContent);
+
+      // Force a re-render of the SAME mount (prop identity changes, component doesn't remount).
+      rerender(
+        <LibraryGettingStarted
+          storageKey={STORAGE_KEY}
+          heading="Try the tool — updated"
+          why="One line."
+          examplePool={pool}
+          exampleCount={5}
+          onSelectChip={vi.fn()}
+          hasNoItems={false}
+          hideAriaLabel="Hide introduction"
+        />,
+      );
+      const secondPass = screen.getAllByRole('button')
+        .filter((b) => b.className.includes('lib-getting-started-chip'))
+        .map((b) => b.textContent);
+
+      expect(secondPass).toEqual(firstPass);
+    });
+
+    it('a pool at or under exampleCount shows every item (pickExamples\' own no-op path)', () => {
+      const small = pool.slice(0, 2);
+      render(
+        <LibraryGettingStarted
+          storageKey={STORAGE_KEY}
+          heading="Try the tool"
+          why="One line."
+          examplePool={small}
+          exampleCount={5}
+          onSelectChip={vi.fn()}
+          hasNoItems={false}
+          hideAriaLabel="Hide introduction"
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'Example 0' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Example 1' })).toBeInTheDocument();
+    });
+
+    it('clicking a picked chip still calls onSelectChip with its own value', async () => {
+      const onSelectChip = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <LibraryGettingStarted
+          storageKey={STORAGE_KEY}
+          heading="Try the tool"
+          why="One line."
+          examplePool={pool}
+          exampleCount={3}
+          onSelectChip={onSelectChip}
+          hasNoItems={false}
+          hideAriaLabel="Hide introduction"
+        />,
+      );
+      const chipButtons = screen.getAllByRole('button').filter((b) => b.className.includes('lib-getting-started-chip'));
+      await user.click(chipButtons[0]);
+      expect(onSelectChip).toHaveBeenCalledTimes(1);
+      expect(onSelectChip.mock.calls[0][0]).toMatch(/^v\d+$/);
+    });
+
+    it('examplePool takes priority over chips when both are given', () => {
+      render(
+        <LibraryGettingStarted
+          storageKey={STORAGE_KEY}
+          heading="Try the tool"
+          why="One line."
+          chips={chips}
+          examplePool={pool}
+          exampleCount={3}
+          onSelectChip={vi.fn()}
+          hasNoItems={false}
+          hideAriaLabel="Hide introduction"
+        />,
+      );
+      expect(screen.queryByRole('button', { name: 'First starter' })).not.toBeInTheDocument();
+      const buttons = screen.getAllByRole('button').filter((b) => b.className.includes('lib-getting-started-chip'));
+      expect(buttons).toHaveLength(3);
+    });
+  });
 });
