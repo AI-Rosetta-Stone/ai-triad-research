@@ -16,6 +16,10 @@ vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ recor
 let mockAuth: { anonymous?: boolean } | null = { anonymous: false };
 vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => mockAuth }));
 
+// t/4643: defaults to non-admin, matching useIsAdmin()'s own fail-closed-while-loading default.
+let mockIsAdmin = false;
+vi.mock('../../hooks/useIsAdmin', () => ({ useIsAdmin: () => mockIsAdmin }));
+
 interface Row { id: string; title: string; date: string; }
 
 const MY_ROWS: Row[] = [
@@ -328,6 +332,107 @@ describe('LibraryListPage — edit mode', () => {
   it('renders header-row bulk actions from descriptors, not markup', () => {
     renderPage(editConfig());
     expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument();
+  });
+});
+
+// t/4643: Edit is admin-only on the Community tab, gated once in the shell. Covers AC1/AC2/AC3/AC4.
+describe('LibraryListPage — Edit hidden on Community for non-admins (t/4643)', () => {
+  beforeEach(() => { mockIsAdmin = false; });
+
+  it('AC1: non-admin on My sees Edit', () => {
+    renderPage({ showEdit: true });
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it('AC1: non-admin on Community does NOT see Edit', () => {
+    renderPage({ showEdit: true });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('AC2: admin on Community sees Edit', () => {
+    mockIsAdmin = true;
+    renderPage({ showEdit: true });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it('AC2: admin on My sees Edit too', () => {
+    mockIsAdmin = true;
+    renderPage({ showEdit: true });
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it('AC3: a non-admin in edit mode on My who switches to Community exits edit mode', () => {
+    const onExit = vi.fn();
+    const cfg: Partial<LibraryListPageConfig<Row, Row>> = {
+      showEdit: true,
+      editMode: {
+        active: true,
+        onEnter: vi.fn(),
+        onExit,
+        actions: [{ label: 'Done', onClick: vi.fn() }],
+        selectedIds: new Set<string>(),
+        onToggleSelect: vi.fn(),
+        rowActions: () => [],
+      },
+    };
+    renderPage(cfg);
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC3 (negative): an admin in edit mode who switches to Community does NOT get exited', () => {
+    mockIsAdmin = true;
+    const onExit = vi.fn();
+    const cfg: Partial<LibraryListPageConfig<Row, Row>> = {
+      showEdit: true,
+      editMode: {
+        active: true,
+        onEnter: vi.fn(),
+        onExit,
+        actions: [{ label: 'Done', onClick: vi.fn() }],
+        selectedIds: new Set<string>(),
+        onToggleSelect: vi.fn(),
+        rowActions: () => [],
+      },
+    };
+    renderPage(cfg);
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('AC3 (negative): switching to Community while NOT in edit mode never fires onExit spuriously', () => {
+    const onExit = vi.fn();
+    const cfg: Partial<LibraryListPageConfig<Row, Row>> = {
+      showEdit: true,
+      editMode: {
+        active: false,
+        onEnter: vi.fn(),
+        onExit,
+        actions: [{ label: 'Done', onClick: vi.fn() }],
+        selectedIds: new Set<string>(),
+        onToggleSelect: vi.fn(),
+        rowActions: () => [],
+      },
+    };
+    renderPage(cfg);
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('AC4: defaults to hidden (non-admin) while admin status is loading — mockIsAdmin starts false, matching useIsAdmin()\'s own fail-closed default', () => {
+    renderPage({ showEdit: true });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('a tool with showEdit=false never shows Edit on either tab, admin or not', () => {
+    mockIsAdmin = true;
+    renderPage({ showEdit: false });
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   });
 });
 
