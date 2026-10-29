@@ -77,12 +77,12 @@ function buildOpEdMarkdown(set: OpEdSet): string {
     lines.push('');
     lines.push(m.body);
     if (m.grounding.length > 0) {
-      lines.push('\n---\n\n## Taxonomy grounding\n');
-      lines.push('| Element | Node ID | Type | Relevance | Reflected in the op-ed |');
-      lines.push('|---|---|---|---|---|');
+      lines.push('\n---\n\n## Why\n');
+      lines.push('| ID | Element | Type | Reflected in the op-ed |');
+      lines.push('|---|---|---|---|');
       for (const g of m.grounding) {
         const type = g.node_id.startsWith('sit-') ? 'Situation' : 'BDI';
-        lines.push(`| ${g.label || g.node_id} | ${g.node_id} | ${type} | ${g.relevance || '—'} | ${g.how_reflected || '(not reported)'} |`);
+        lines.push(`| ${g.node_id} | ${g.label || '—'} | ${type} | ${g.how_reflected || '(not reported)'} |`);
       }
     }
     if (m.rhetorical_meta) {
