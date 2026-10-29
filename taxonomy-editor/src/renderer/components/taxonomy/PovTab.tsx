@@ -70,6 +70,130 @@ const MAX_FAILURES = 3;
 const PIPELINE_TIMEOUT_MS = 30_000;
 const COLD_START_THRESHOLD_MS = 3_000;
 
+interface PipelineCtx {
+  sig: AbortSignal;
+  diagLines: string[];
+  updateStep: (idx: number, patch: Partial<RecoveryStep>) => void;
+  setActiveStep: (idx: number) => void;
+  setDiagnostics: (d: string) => void;
+  setFailures: (v: number | ((f: number) => number)) => void;
+}
+
+async function runHealthStep(ctx: PipelineCtx, setColdStart: (v: boolean) => void): Promise<boolean> {
+  ctx.setActiveStep(0);
+  ctx.updateStep(0, { status: 'running', detail: 'Checking...' });
+  try {
+    const healthStart = Date.now();
+    const res = await fetch('/health', { signal: ctx.sig });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const healthMs = Date.now() - healthStart;
+    if (healthMs > COLD_START_THRESHOLD_MS) setColdStart(true);
+    const data = await res.json() as { status?: string; storage?: { cacheFileCount?: number }; uptime?: number };
+    const parts: string[] = [data.status ?? 'ok'];
+    if (data.storage?.cacheFileCount != null) parts.push(`${data.storage.cacheFileCount} cached`);
+    if (data.uptime) parts.push(`uptime ${Math.round(data.uptime)}s`);
+    ctx.updateStep(0, { status: 'ok', detail: parts.join(' · ') });
+    ctx.diagLines.push(`health: ${JSON.stringify(data)} (${healthMs}ms)`);
+    return true;
+  } catch (err) {
+    if (ctx.sig.aborted) return false;
+    const msg = String((err as Error).message);
+    ctx.updateStep(0, { status: 'error', detail: 'Server unreachable', error: msg });
+    ctx.diagLines.push(`health: FAILED — ${msg}`);
+    ctx.setDiagnostics(ctx.diagLines.join('\n'));
+    ctx.setFailures(f => f + 1);
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Health check failed', error: { name: 'HealthCheckError', message: msg, stack: (err as Error).stack } });
+    return false;
+  }
+}
+
+async function runDataAvailStep(ctx: PipelineCtx, setColdStart: (v: boolean) => void): Promise<boolean> {
+  ctx.setActiveStep(1);
+  ctx.updateStep(1, { status: 'running', detail: 'Checking...' });
+  try {
+    let available = false;
+    let pollCount = 0;
+    const availStart = Date.now();
+    while (!available && !ctx.sig.aborted) {
+      const res = await fetch('/api/data/available', { signal: ctx.sig });
+      available = await res.json() as boolean;
+      if (available) break;
+      pollCount++;
+      if (pollCount === 1 && Date.now() - availStart > COLD_START_THRESHOLD_MS) setColdStart(true);
+      ctx.updateStep(1, { status: 'polling', detail: `Server syncing data from GitHub (poll ${pollCount})...` });
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    }
+    if (ctx.sig.aborted) return false;
+    ctx.updateStep(1, { status: 'ok', detail: 'Data available' });
+    ctx.diagLines.push(`data-available: true (polls: ${pollCount})`);
+    return true;
+  } catch (err) {
+    if (ctx.sig.aborted) return false;
+    const msg = String((err as Error).message);
+    ctx.updateStep(1, { status: 'error', detail: 'Cannot verify data', error: msg });
+    ctx.diagLines.push(`data-available: FAILED — ${msg}`);
+    ctx.setDiagnostics(ctx.diagLines.join('\n'));
+    ctx.setFailures(f => f + 1);
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Data availability check failed', error: { name: 'DataAvailError', message: msg, stack: (err as Error).stack }});
+    return false;
+  }
+}
+
+async function runAuthStep(ctx: PipelineCtx): Promise<boolean> {
+  ctx.setActiveStep(2);
+  ctx.updateStep(2, { status: 'running', detail: 'Checking...' });
+  try {
+    const res = await fetch('/api/auth/me', { signal: ctx.sig });
+    const data = await res.json() as { anonymous?: boolean; user?: string; idp?: string };
+    const userLabel = data.anonymous ? 'anonymous' : `${data.user} (${data.idp || 'local'})`;
+    ctx.updateStep(2, { status: 'ok', detail: userLabel });
+    ctx.diagLines.push(`auth: ${JSON.stringify(data)}`);
+    return true;
+  } catch (err) {
+    if (ctx.sig.aborted) return false;
+    const msg = String((err as Error).message);
+    ctx.updateStep(2, { status: 'error', detail: 'Auth check failed', error: msg });
+    ctx.diagLines.push(`auth: FAILED — ${msg}`);
+    ctx.setDiagnostics(ctx.diagLines.join('\n'));
+    ctx.setFailures(f => f + 1);
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Auth check failed', error: { name: 'AuthCheckError', message: msg, stack: (err as Error).stack }});
+    return false;
+  }
+}
+
+async function runLoadStep(ctx: PipelineCtx, pov: string, loadAll: () => Promise<void>): Promise<boolean> {
+  ctx.setActiveStep(3);
+  ctx.updateStep(3, { status: 'running', detail: `Loading ${pov}...` });
+  try {
+    await loadAll();
+    ctx.updateStep(3, { status: 'ok', detail: 'Loaded' });
+    ctx.diagLines.push('loadAll: ok');
+    return true;
+  } catch (err) {
+    if (ctx.sig.aborted) return false;
+    const msg = String((err as Error).message);
+    ctx.updateStep(3, { status: 'error', detail: 'Load failed', error: msg });
+    ctx.diagLines.push(`loadAll: FAILED — ${msg}`);
+    ctx.setDiagnostics(ctx.diagLines.join('\n'));
+    ctx.setFailures(f => f + 1);
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Taxonomy load failed', error: { name: 'LoadError', message: msg, stack: (err as Error).stack }});
+    return false;
+  }
+}
+
+async function runPipelineSteps(
+  startFrom: number,
+  ctx: PipelineCtx,
+  setColdStart: (v: boolean) => void,
+  pov: string,
+  loadAll: () => Promise<void>,
+): Promise<boolean> {
+  if (startFrom <= 0 && !await runHealthStep(ctx, setColdStart)) return false;
+  if (startFrom <= 1 && !await runDataAvailStep(ctx, setColdStart)) return false;
+  if (startFrom <= 2 && !await runAuthStep(ctx)) return false;
+  return runLoadStep(ctx, pov, loadAll);
+}
+
 function DataRecovery({ pov }: { pov: string }) {
   const { loadAll, loadError } = useTaxonomyStore();
   const [steps, setSteps] = useState<RecoveryStep[]>(
@@ -118,118 +242,17 @@ function DataRecovery({ pov }: { pov: string }) {
     setSteps(prev => prev.map((s, i) => i < startFrom ? s : { ...s, status: 'pending', detail: '', error: undefined }));
     setActiveStep(startFrom);
 
+    const ctx: PipelineCtx = { sig, diagLines, updateStep, setActiveStep, setDiagnostics, setFailures };
+
     try {
-      // Step 0: Server health (web mode only)
-      if (startFrom <= 0) {
-        updateStep(0, { status: 'running', detail: 'Checking...' });
-        const healthStart = Date.now();
-        try {
-          const res = await fetch('/health', { signal: sig });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const healthMs = Date.now() - healthStart;
-          if (healthMs > COLD_START_THRESHOLD_MS) setColdStart(true);
-          const data = await res.json();
-          const parts: string[] = [data.status ?? 'ok'];
-          if (data.storage?.cacheFileCount != null) parts.push(`${data.storage.cacheFileCount} cached`);
-          if (data.uptime) parts.push(`uptime ${Math.round(data.uptime)}s`);
-          updateStep(0, { status: 'ok', detail: parts.join(' · ') });
-          diagLines.push(`health: ${JSON.stringify(data)} (${healthMs}ms)`);
-        } catch (err) {
-          if (sig.aborted) { clearTimeout(timeoutId); return; }
-          const msg = String((err as Error).message);
-          updateStep(0, { status: 'error', detail: 'Server unreachable', error: msg });
-          diagLines.push(`health: FAILED — ${msg}`);
-          setDiagnostics(diagLines.join('\n'));
-          setFailures(f => f + 1);
-          getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Health check failed', error: { name: 'HealthCheckError', message: msg } });
-          clearTimeout(timeoutId);
-          return;
-        }
-      }
-      if (sig.aborted) { clearTimeout(timeoutId); return; }
-
-      // Step 1: Data availability (may poll)
-      if (startFrom <= 1) {
-        setActiveStep(1);
-        updateStep(1, { status: 'running', detail: 'Checking...' });
-        try {
-          let available = false;
-          let pollCount = 0;
-          const availStart = Date.now();
-          while (!available && !sig.aborted) {
-            const res = await fetch('/api/data/available', { signal: sig });
-            available = await res.json();
-            if (available) break;
-            pollCount++;
-            if (pollCount === 1 && Date.now() - availStart > COLD_START_THRESHOLD_MS) setColdStart(true);
-            updateStep(1, { status: 'polling', detail: `Server syncing data from GitHub (poll ${pollCount})...` });
-            await new Promise(r => setTimeout(r, POLL_INTERVAL));
-          }
-          if (sig.aborted) { clearTimeout(timeoutId); return; }
-          updateStep(1, { status: 'ok', detail: 'Data available' });
-          diagLines.push(`data-available: true (polls: ${pollCount})`);
-        } catch (err) {
-          if (sig.aborted) { clearTimeout(timeoutId); return; }
-          const msg = String((err as Error).message);
-          updateStep(1, { status: 'error', detail: 'Cannot verify data', error: msg });
-          diagLines.push(`data-available: FAILED — ${msg}`);
-          setDiagnostics(diagLines.join('\n'));
-          setFailures(f => f + 1);
-          getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Data availability check failed', error: { name: 'DataAvailError', message: msg } });
-          clearTimeout(timeoutId);
-          return;
-        }
-      }
-      if (sig.aborted) { clearTimeout(timeoutId); return; }
-
-      // Step 2: Authentication
-      if (startFrom <= 2) {
-        setActiveStep(2);
-        updateStep(2, { status: 'running', detail: 'Checking...' });
-        try {
-          const res = await fetch('/api/auth/me', { signal: sig });
-          const data = await res.json();
-          const userLabel = data.anonymous ? 'anonymous' : `${data.user} (${data.idp || 'local'})`;
-          updateStep(2, { status: 'ok', detail: userLabel });
-          diagLines.push(`auth: ${JSON.stringify(data)}`);
-        } catch (err) {
-          if (sig.aborted) { clearTimeout(timeoutId); return; }
-          const msg = String((err as Error).message);
-          updateStep(2, { status: 'error', detail: 'Auth check failed', error: msg });
-          diagLines.push(`auth: FAILED — ${msg}`);
-          setDiagnostics(diagLines.join('\n'));
-          setFailures(f => f + 1);
-          getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Auth check failed', error: { name: 'AuthCheckError', message: msg } });
-          clearTimeout(timeoutId);
-          return;
-        }
-      }
-      if (sig.aborted) { clearTimeout(timeoutId); return; }
-
-      // Step 3: Load taxonomy data
-      setActiveStep(3);
-      updateStep(3, { status: 'running', detail: `Loading ${pov}...` });
-      try {
-        await loadAll();
-        updateStep(3, { status: 'ok', detail: 'Loaded' });
-        diagLines.push('loadAll: ok');
-      } catch (err) {
-        if (sig.aborted) { clearTimeout(timeoutId); return; }
-        const msg = String((err as Error).message);
-        updateStep(3, { status: 'error', detail: 'Load failed', error: msg });
-        diagLines.push(`loadAll: FAILED — ${msg}`);
+      const allOk = await runPipelineSteps(startFrom, ctx, setColdStart, pov, loadAll);
+      if (allOk) {
         setDiagnostics(diagLines.join('\n'));
-        setFailures(f => f + 1);
-        getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Taxonomy load failed', error: { name: 'LoadError', message: msg } });
-        clearTimeout(timeoutId);
-        return;
+        setFailures(0);
       }
-
-      setDiagnostics(diagLines.join('\n'));
-      setFailures(0);
     } catch (err) {
       if (!sig.aborted) {
-        getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Recovery pipeline error', error: { name: (err as Error).name ?? 'Error', message: String(err) } });
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'data-recovery', level: 'error', message: 'Recovery pipeline error', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       }
     } finally {
       clearTimeout(timeoutId);
@@ -711,135 +734,139 @@ export function PovTab({ pov }: PovTabProps) {
     return <DataRecovery pov={pov} />;
   }
 
-  return (
-    <div className={`two-column${isPhone ? ' phone-mode' : ''}${isPhone && selectedNode && !hasToolbarPane ? ' has-selection' : ''}${mobileListOpen ? ' phone-list-open' : ''}`}>
-      {/* Pane 1: Node list OR promoted toolbar panel */}
-      {isFullWidthPanel(toolbarPanel, promptInspectorActive) ? (
+  const renderPane1 = () => {
+    if (isFullWidthPanel(toolbarPanel, promptInspectorActive)) {
+      return (
         <div className="list-panel list-panel-full">
-            {isPhone && <PhoneToolClose />}
-          <ToolbarPaneRenderer
-            panel={toolbarPanel}
-            onSelectResult={setSearchPreviewId}
-            onAnalyze={handleAnalyze}
-            onSelectLineageValue={setLineagePreviewValue}
-            onSelectFallacy={handleSelectFallacy}
-            onSelectPrompt={handleSelectPrompt}
-            onInspectorToggle={setPromptInspectorActive}
-          />
+          {isPhone && <PhoneToolClose />}
+          <ToolbarPaneRenderer panel={toolbarPanel} onSelectResult={setSearchPreviewId} onAnalyze={handleAnalyze} onSelectLineageValue={setLineagePreviewValue} onSelectFallacy={handleSelectFallacy} onSelectPrompt={handleSelectPrompt} onInspectorToggle={setPromptInspectorActive} />
         </div>
-      ) : hasToolbarPane ? (
+      );
+    }
+    if (hasToolbarPane) {
+      return (
         // eslint-disable-next-line local/no-inline-style -- width is a user-resized panel size from useResizablePanel
         <div className="list-panel" style={{ width }}>
-            {isPhone && <PhoneToolClose />}
-          <ToolbarPaneRenderer
-            panel={toolbarPanel}
-            onSelectResult={setSearchPreviewId}
-            onAnalyze={handleAnalyze}
-            onSelectLineageValue={setLineagePreviewValue}
-            onSelectFallacy={handleSelectFallacy}
-            onSelectPrompt={handleSelectPrompt}
-            onInspectorToggle={setPromptInspectorActive}
-          />
+          {isPhone && <PhoneToolClose />}
+          <ToolbarPaneRenderer panel={toolbarPanel} onSelectResult={setSearchPreviewId} onAnalyze={handleAnalyze} onSelectLineageValue={setLineagePreviewValue} onSelectFallacy={handleSelectFallacy} onSelectPrompt={handleSelectPrompt} onInspectorToggle={setPromptInspectorActive} />
         </div>
-      ) : listCollapsed && !isPhone ? (
+      );
+    }
+    if (listCollapsed && !isPhone) {
+      return (
         <div className="pane-collapsed pane-collapsed-list" onClick={() => setListCollapsed(false)} title="Expand list">
           <span className="pane-collapsed-label">{pov}</span>
         </div>
-      ) : (
-        // eslint-disable-next-line local/no-inline-style -- width is a user-resized panel size from useResizablePanel
-        <div className="list-panel" ref={listPanelRef} style={{ width }}>
-          <div className="list-panel-header">
-            {/* t/2827: the Soul-document control moved into the POV detail header icon row
-                (NodeDetail nd-header-meta, right of the soul-doc icon). Title kept for layout. */}
-            <div className="list-panel-header-title"></div>
-            <div className="list-panel-header-actions">
-              {/* t/2813: Search entry point relocated from the nav rail into the Taxonomy panel header. */}
-              <button className="btn btn-sm btn-ghost" onClick={() => setToolbarPanel('search')} title="Search taxonomy" aria-label="Search taxonomy">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      );
+    }
+    return (
+      // eslint-disable-next-line local/no-inline-style -- width is a user-resized panel size from useResizablePanel
+      <div className="list-panel" ref={listPanelRef} style={{ width }}>
+        <div className="list-panel-header">
+          {/* t/2827: the Soul-document control moved into the POV detail header icon row
+              (NodeDetail nd-header-meta, right of the soul-doc icon). Title kept for layout. */}
+          <div className="list-panel-header-title"></div>
+          <div className="list-panel-header-actions">
+            {/* t/2813: Search entry point relocated from the nav rail into the Taxonomy panel header. */}
+            <button className="btn btn-sm btn-ghost" onClick={() => setToolbarPanel('search')} title="Search taxonomy" aria-label="Search taxonomy">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
+            <select className="sort-select" value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} title="Sort nodes">
+              <option value="id">Sort: ID</option>
+              <option value="label">Sort: Label</option>
+              <option value="priority">Sort: Priority</option>
+              <option value="similarity">Sort: Similarity</option>
+              <option value="debate_tested">Sort: Debate-Tested (least)</option>
+              <option value="debate_tested_desc">Sort: Debate-Tested (most)</option>
+            </select>
+            <PovTagFilterSelect options={tagFilterOptions} value={tagFilter} onChange={setTagFilter} />
+            <PovTagProposalButton pov={pov} />
+            <button className="pane-collapse-btn" onClick={() => setListCollapsed(true)} title="Collapse">&lsaquo;</button>
+          </div>
+        </div>
+        {soulDoc && <SoulDocDialog pov={pov} nodeTags={soulDoc.nodeTags} onClose={() => setSoulDoc(null)} />}
+        {isDtSort && (
+          <div className="dt-filter-bar">
+            <select className="sort-select" value={dtTierFilter} onChange={(e) => setDtTierFilter(e.target.value as DebateTestedTier | 'all')} title="Filter by tier">
+              <option value="all">Show: All tiers</option>
+              {(Object.keys(DEBATE_TESTED_TIER_LABELS) as DebateTestedTier[]).map(t => (
+                <option key={t} value={t}>Show: {DEBATE_TESTED_TIER_LABELS[t]}</option>
+              ))}
+            </select>
+            <label className="dt-stale-toggle" title="Show only nodes whose description changed since last test">
+              <input type="checkbox" checked={dtStaleOnly} onChange={(e) => setDtStaleOnly(e.target.checked)} />
+              Stale only
+            </label>
+          </div>
+        )}
+        <div className="list-panel-items">
+          <NodeTree nodes={filteredNodes} selectedNodeId={selectedNodeId} onSelect={(id: string) => { nav.push({ view: 'detail', id }); setSelectedNodeId(id); }} pov={pov} sortMode={sortMode} similarScores={similarScoresMap} clusters={clusterGroups} clusterLoading={clusterLoading} misfits={clusterMisfits} onVisibleIdsChange={setVisibleIds} conflicts={nodeConflicts.conflicts} resolveUrl={syncStatus.pr_url} showDebateTestedChip={isDtSort} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderNormalDetail = () => {
+    if (detailCollapsed && !isPhone) {
+      return (
+        <div className="pane-collapsed pane-collapsed-detail" onClick={() => setDetailCollapsed(false)} title="Expand detail">
+          <span className="pane-collapsed-label">Detail</span>
+        </div>
+      );
+    }
+    return (
+      <div className="detail-panel" ref={detailPanelRef} data-cat={selectedNode?.category}>
+        {isPhone && selectedNode ? (
+          <div className="phone-detail-header">
+            <button className="phone-detail-back" onClick={() => { const entry = nav.pop(); setSelectedNodeId(entry.view === 'detail' && entry.id ? entry.id : null); }} title="Back to list">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              Back
+            </button>
+            <div className="phone-detail-header-actions">
+              {/* doc-link book kept on phone too — collapse-row isn't rendered here (t/2412, Design t/2412#2) */}
+              <TheoryLink docPath="research/comp-linguist/analyses/epistemic-infrastructure-framing.md" label="Help: epistemic infrastructure framing" size={14} />
+              <button className="phone-detail-list-toggle" onClick={() => setMobileListOpen(true)} title="Show node list">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
               </button>
-              <select
-                className="sort-select"
-                value={sortMode}
-                onChange={(e) => setSortMode(e.target.value as SortMode)}
-                title="Sort nodes"
-              >
-                <option value="id">Sort: ID</option>
-                <option value="label">Sort: Label</option>
-                <option value="priority">Sort: Priority</option>
-                <option value="similarity">Sort: Similarity</option>
-                <option value="debate_tested">Sort: Debate-Tested (least)</option>
-                <option value="debate_tested_desc">Sort: Debate-Tested (most)</option>
-              </select>
-              <PovTagFilterSelect options={tagFilterOptions} value={tagFilter} onChange={setTagFilter} />
-              <PovTagProposalButton pov={pov} />
-              <button className="pane-collapse-btn" onClick={() => setListCollapsed(true)} title="Collapse">&lsaquo;</button>
             </div>
           </div>
-          {soulDoc && <SoulDocDialog pov={pov} nodeTags={soulDoc.nodeTags} onClose={() => setSoulDoc(null)} />}
-          {isDtSort && (
-            <div className="dt-filter-bar">
-              <select
-                className="sort-select"
-                value={dtTierFilter}
-                onChange={(e) => setDtTierFilter(e.target.value as DebateTestedTier | 'all')}
-                title="Filter by tier"
-              >
-                <option value="all">Show: All tiers</option>
-                {(Object.keys(DEBATE_TESTED_TIER_LABELS) as DebateTestedTier[]).map(t => (
-                  <option key={t} value={t}>Show: {DEBATE_TESTED_TIER_LABELS[t]}</option>
-                ))}
-              </select>
-              <label className="dt-stale-toggle" title="Show only nodes whose description changed since last test">
-                <input type="checkbox" checked={dtStaleOnly} onChange={(e) => setDtStaleOnly(e.target.checked)} />
-                Stale only
-              </label>
-            </div>
-          )}
-          <div className="list-panel-items">
-            <NodeTree
-              nodes={filteredNodes}
-              selectedNodeId={selectedNodeId}
-              onSelect={(id: string) => { nav.push({ view: 'detail', id }); setSelectedNodeId(id); }}
-              pov={pov}
-              sortMode={sortMode}
-              similarScores={similarScoresMap}
-              clusters={clusterGroups}
-              clusterLoading={clusterLoading}
-              misfits={clusterMisfits}
-              onVisibleIdsChange={setVisibleIds}
-              conflicts={nodeConflicts.conflicts}
-              resolveUrl={syncStatus.pr_url}
-              showDebateTestedChip={isDtSort}
-            />
+        ) : (
+          <div className="detail-panel-collapse-row">
+            {/* doc-link book grouped left of the collapse chevron (t/2412, Design t/2412#2) */}
+            <TheoryLink docPath="research/comp-linguist/analyses/epistemic-infrastructure-framing.md" label="Help: epistemic infrastructure framing" size={14} />
+            <button className="pane-collapse-btn" onClick={() => setDetailCollapsed(true)} title="Collapse">&lsaquo;</button>
           </div>
-        </div>
-      )}
-      {!isFullWidthPanel(toolbarPanel, promptInspectorActive) && (
-        <div className="resize-handle" onMouseDown={onMouseDown} onTouchStart={onTouchStart} />
-      )}
-      {/* Pane 2: Detail (search preview, lineage, or normal detail) */}
-      {toolbarPanel === 'search' ? (
+        )}
+        {selectedNode ? (
+          <><SupersededBanner node={selectedNode} />
+          <NodeDetail pov={pov} node={selectedNode} readOnly={isSupersededNode(selectedNode)} onPin={handlePin} onSimilarSearch={handleSimilarSearch} onRelated={handleRelated} onOpenSoulDoc={(nodeTags) => setSoulDoc({ nodeTags })} conflict={nodeConflicts.conflicts.get(selectedNode.id)} resolveUrl={syncStatus.pr_url} /></>
+        ) : (
+          <div className="detail-panel-empty">Select a node to edit</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderDetailPane = () => {
+    if (toolbarPanel === 'search') {
+      return <div className="detail-panel"><SearchPreview searchPreviewId={searchPreviewId} onClear={() => setSearchPreviewId(null)} /></div>;
+    }
+    if (toolbarPanel === 'related') {
+      return (
         <div className="detail-panel">
-          <SearchPreview searchPreviewId={searchPreviewId} onClear={() => setSearchPreviewId(null)} />
+          {showEdgeDetail ? <EdgeDetailPanel width={0} /> : <div className="detail-panel-empty">Select an edge to view details</div>}
         </div>
-      ) : toolbarPanel === 'related' ? (
-        <div className="detail-panel">
-          {showEdgeDetail ? (
-            <EdgeDetailPanel width={0} />
-          ) : (
-            <div className="detail-panel-empty">Select an edge to view details</div>
-          )}
-        </div>
-      ) : isFullWidthPanel(toolbarPanel, promptInspectorActive) ? null
-      : (toolbarPanel === 'prompts' && !promptInspectorActive) ? (
-        <div className="detail-panel">
-          <PromptDetailPanel entry={selectedPromptEntry} />
-        </div>
-      ) : toolbarPanel === 'fallacy' ? (
-        <div className="detail-panel">
-          <FallacyDetailPanel fallacyKey={selectedFallacyKey} onSelectNode={handleFallacyNodeSelect} />
-        </div>
-      ) : toolbarPanel === 'lineage' ? (
+      );
+    }
+    if (isFullWidthPanel(toolbarPanel, promptInspectorActive)) return null;
+    if (toolbarPanel === 'prompts' && !promptInspectorActive) {
+      return <div className="detail-panel"><PromptDetailPanel entry={selectedPromptEntry} /></div>;
+    }
+    if (toolbarPanel === 'fallacy') {
+      return <div className="detail-panel"><FallacyDetailPanel fallacyKey={selectedFallacyKey} onSelectNode={handleFallacyNodeSelect} /></div>;
+    }
+    if (toolbarPanel === 'lineage') {
+      return (
         <>
           <div className="detail-panel">
             <LineageDetailView value={lineagePreviewValue} onSelectValue={setLineagePreviewValue} onOpenLink={setLineageLinkUrl} />
@@ -857,46 +884,32 @@ export function PovTab({ pov }: PovTabProps) {
             </>
           )}
         </>
-      ) : (
-        <>
-          {detailCollapsed && !isPhone ? (
-            <div className="pane-collapsed pane-collapsed-detail" onClick={() => setDetailCollapsed(false)} title="Expand detail">
-              <span className="pane-collapsed-label">Detail</span>
-            </div>
-          ) : (
-            <div className="detail-panel" ref={detailPanelRef} data-cat={selectedNode?.category}>
-              {isPhone && selectedNode ? (
-                <div className="phone-detail-header">
-                  <button className="phone-detail-back" onClick={() => { const entry = nav.pop(); setSelectedNodeId(entry.view === 'detail' && entry.id ? entry.id : null); }} title="Back to list">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-                    Back
-                  </button>
-                  <div className="phone-detail-header-actions">
-                    {/* doc-link book kept on phone too — collapse-row isn't rendered here (t/2412, Design t/2412#2) */}
-                    <TheoryLink docPath="research/comp-linguist/analyses/epistemic-infrastructure-framing.md" label="Help: epistemic infrastructure framing" size={14} />
-                    <button className="phone-detail-list-toggle" onClick={() => setMobileListOpen(true)} title="Show node list">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="detail-panel-collapse-row">
-                  {/* doc-link book grouped left of the collapse chevron (t/2412, Design t/2412#2) */}
-                  <TheoryLink docPath="research/comp-linguist/analyses/epistemic-infrastructure-framing.md" label="Help: epistemic infrastructure framing" size={14} />
-                  <button className="pane-collapse-btn" onClick={() => setDetailCollapsed(true)} title="Collapse">&lsaquo;</button>
-                </div>
-              )}
-              {selectedNode ? (
-                <><SupersededBanner node={selectedNode} />
-                <NodeDetail pov={pov} node={selectedNode} readOnly={isSupersededNode(selectedNode)} onPin={handlePin} onSimilarSearch={handleSimilarSearch} onRelated={handleRelated} onOpenSoulDoc={(nodeTags) => setSoulDoc({ nodeTags })} conflict={nodeConflicts.conflicts.get(selectedNode.id)} resolveUrl={syncStatus.pr_url} /></>
-              ) : (
-                <div className="detail-panel-empty">Select a node to edit</div>
-              )}
-            </div>
-          )}
-          {pinnedStack.length > 0 && !hasToolbarPane && <PinnedPanel />}
-        </>
+      );
+    }
+    return (
+      <>
+        {renderNormalDetail()}
+        {pinnedStack.length > 0 && !hasToolbarPane && <PinnedPanel />}
+      </>
+    );
+  };
+
+  const containerClass = [
+    'two-column',
+    isPhone && 'phone-mode',
+    isPhone && selectedNode && !hasToolbarPane && 'has-selection',
+    mobileListOpen && 'phone-list-open',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <div className={containerClass}>
+      {/* Pane 1: Node list OR promoted toolbar panel */}
+      {renderPane1()}
+      {!isFullWidthPanel(toolbarPanel, promptInspectorActive) && (
+        <div className="resize-handle" onMouseDown={onMouseDown} onTouchStart={onTouchStart} />
       )}
+      {/* Pane 2: Detail (search preview, lineage, or normal detail) */}
+      {renderDetailPane()}
       {showAnalysisPanel && (
         <>
           <div className="resize-handle" onMouseDown={onPane3Resize} />
@@ -912,10 +925,7 @@ export function PovTab({ pov }: PovTabProps) {
               <span>Crux Detail</span>
               <button className="pane3-close-btn" onClick={() => showCruxDetail(null)} title="Close">✕</button>
             </div>
-            <CruxDetail
-              crux={selectedCrux}
-              onDebateClick={() => {}}
-            />
+            <CruxDetail crux={selectedCrux} onDebateClick={() => {}} />
           </div>
         </>
       )}
