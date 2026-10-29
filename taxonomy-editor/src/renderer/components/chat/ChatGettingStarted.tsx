@@ -6,14 +6,35 @@ import {
   LibraryGettingStarted, useLibraryIntroDismissed,
 } from '../shared/LibraryGettingStarted';
 
-/** Starter chips (t/4536 round 3, t/4536#4): each opens NewChatDialog prefilled with its mode +
- *  topic rather than a composer — a chat's mode/POVer/topic are chosen before a conversation
- *  exists, not during one. */
+/**
+ * Starter pool (t/4536 round 3, t/4536#4; grown to 15 and spread across the three modes and
+ * camps at t/4635, PI request via parent t/4633 — "15 examples per tool, random subset shown
+ * per visit"). Each opens NewChatDialog prefilled with its mode + topic rather than a composer —
+ * a chat's mode/POVer/topic are chosen before a conversation exists, not during one.
+ *
+ * t/4635 content rules: balanced across the three camps, no leading wording, no label longer
+ * than the pre-t/4635 baseline (47 chars, "Strongest evidence for the Accelerationist case"),
+ * no real private individuals, short and specific (never "Tell me about AI").
+ *
+ * Wiring to shared/LibraryGettingStarted's pickExamples (random 4 of 15 per mount, with
+ * mustInclude requiring a non-inform mode) is blocked on t/4633 landing — tracked there.
+ */
 export const CHAT_STARTERS: readonly { text: string; mode: ChatMode }[] = [
   { text: 'How would a Safetyist see compute caps?', mode: 'inform' },
   { text: 'Strongest evidence for the Accelerationist case', mode: 'inform' },
   { text: 'Brainstorm counterarguments to my position', mode: 'brainstorm' },
   { text: 'Work through a policy decision', mode: 'decide' },
+  { text: 'How would a Skeptic read AI benchmark claims?', mode: 'inform' },
+  { text: 'Brainstorm how to falsify an AI risk claim', mode: 'brainstorm' },
+  { text: 'Decide: open-source or closed frontier models?', mode: 'decide' },
+  { text: 'How would an Accelerationist weigh AI risk?', mode: 'inform' },
+  { text: 'Brainstorm a case for slowing deployment', mode: 'brainstorm' },
+  { text: 'Decide: regulate frontier models now or wait?', mode: 'decide' },
+  { text: 'What proof would satisfy a Skeptic?', mode: 'inform' },
+  { text: 'Brainstorm an Accelerationist pitch for open AI', mode: 'brainstorm' },
+  { text: 'Decide: fund safety or capability research?', mode: 'decide' },
+  { text: 'How would a Safetyist assess open-source risk?', mode: 'inform' },
+  { text: 'Brainstorm how a Skeptic tests AI safety claims', mode: 'brainstorm' },
 ];
 
 const DISMISSED_KEY = 'taxonomy-editor-chat-intro-dismissed';
@@ -41,7 +62,10 @@ export function ChatGettingStarted({ hasNoChats, onPickStarter }: ChatGettingSta
       storageKey={DISMISSED_KEY}
       heading="Ask anything about AI policy & safety"
       why="Pick a perspective (Accelerationist, Safetyist or Skeptic) and talk it through. Answers draw on this project’s research, its claims, debates and sources, not the open web."
-      chips={CHAT_STARTERS.map((starter) => ({ label: starter.text, value: starter }))}
+      // t/4635: CHAT_STARTERS is the full 15-item pool now; the random-4-of-15 pickExamples
+      // selection is blocked on the shared helper landing (t/4633) — slice to the original 4
+      // in the meantime so the panel stays at today's size and content, per the TL's phasing.
+      chips={CHAT_STARTERS.slice(0, 4).map((starter) => ({ label: starter.text, value: starter }))}
       onSelectChip={(starter) => onPickStarter(starter.mode, starter.text)}
       hint={
         <>
