@@ -7,9 +7,10 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
-import { CAMP_LABELS, trustVerdictLabel, isZeroResult } from './inquiryDisplay';
+import { CAMP_LABELS, isZeroResult } from './inquiryDisplay';
 import { InquiryExportDropdown } from './InquiryExportDropdown';
 import { InquiryShareControl } from './InquiryShareControl';
+import { GroundingSection } from './GroundingSection';
 import { mapErrorToUserMessage } from '../../utils/errorMessages';
 import './InquiryTab.css';
 
@@ -47,6 +48,22 @@ async function runSubmitToCommunity(jobId: string): Promise<{ ok: true; submissi
     });
     return { ok: false, message: mapErrorToUserMessage(err) };
   }
+}
+
+/** Extracted for ESLint complexity (t/4591 TL triage) — old results predate `grounding`; hide
+ *  rather than crash, and WARN so the gap is diagnosable rather than silently absent. */
+function InquiryGrounding({ grounding }: { grounding: import('../../bridge/types').InquiryResult['grounding'] }) {
+  if (!grounding) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'InquiryAnswerPanel',
+      level: 'warn',
+      message: 'Inquiry result has no grounding field — hiding Grounding section',
+      error: { name: 'MissingField', message: 'result.grounding is undefined', stack: '' },
+    });
+    return null;
+  }
+  return <GroundingSection grounding={grounding} />;
 }
 
 export function InquiryAnswerPanel() {
@@ -209,25 +226,9 @@ export function InquiryAnswerPanel() {
         </div>
       )}
 
-      {result.calibration.length > 0 && (
-        <div className="inquiry-sect">
-          <span className="inquiry-eyebrow">Calibration — every badge generated from the run</span>
-          <div className="inquiry-metrics">
-            {result.calibration.map((entry, i) => (
-              <div className="inquiry-metric" data-t={entry.trust.verdict === 'censored' ? 'bad' : 'ok'} key={i}>
-                <div className="inquiry-mt">
-                  <span className="inquiry-mn mono">{entry.metric}</span>
-                  <span className={`inquiry-pill ${entry.trust.verdict === 'censored' ? 'bad' : 'ok'}`}>{trustVerdictLabel(entry.trust.verdict)}</span>
-                </div>
-                <div className="inquiry-mv mono">{entry.displayValue ?? entry.value}</div>
-                {/* Renders TrustState.reason verbatim, never re-derives whether a metric is
-                 *  trustworthy (TL t/3583#1/#2). */}
-                <div className="inquiry-mr">{entry.trust.reason}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* t/4591: Grounding replaces Calibration on this page — calibration data itself stays in
+       *  the result and the export, this only removes it from the page. */}
+      <InquiryGrounding grounding={result.grounding} />
 
       {/* Adjacency-by-construction (t/3734, SO condition via t/3667#6): the headline is the most
        *  quotable element of the answer, and singleRunCaveat is what keeps it from reading as a
