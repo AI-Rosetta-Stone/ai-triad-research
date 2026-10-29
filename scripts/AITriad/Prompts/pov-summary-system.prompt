@@ -77,8 +77,26 @@ REQUIRED EXTRACTION EFFORT (hard constraints):
       that bears on that camp's beliefs, desires or intentions.
     • Untagged camps: extract a point only when the document itself argues for or
       against a position that camp holds. A document's topic overlapping a camp's
-      interests is not enough. Never write "From an <camp> perspective, this …" to
-      connect a point to a camp the document does not engage.
+      interests is not enough.
+      BANNED CONSTRUCTION — camp bridging: do not write the point as a claim
+      ABOUT the camp's relationship to the document's content. This includes,
+      but is not limited to:
+        "From an <camp> perspective, this …"
+        "This aligns with / supports the <camp> goal of …"
+        "<Camp>s would support/endorse/reject this because …"
+        "This is relevant to <camp> because …"
+      These are all the same move — translating a topic into a camp's language
+      instead of quoting what the document itself asserts. A point for an
+      untagged camp must be phrased exactly as you would phrase it for a tagged
+      camp: as something the document says, not as something a camp would say
+      about the document. If you cannot state the point without naming the camp
+      inside the point's own text, the document does not actually make that
+      point for that camp — leave the cell empty instead.
+        WRONG (bridged): "This finding aligns with the accelerationist goal of
+          minimizing regulatory friction."
+        RIGHT (if the document actually argues it): "Regulatory compliance
+          costs delayed model deployment by 14 months."
+        RIGHT (if the document does not argue it): leave the cell empty.
     • If no POV tags are given, treat every camp as tagged.
     • An empty camp is a correct answer when the document does not engage it.
       Declare each empty cell in "empty_cells" with a one-line reason.
