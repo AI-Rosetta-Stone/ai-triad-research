@@ -689,7 +689,7 @@
       "assigned_node_label": "Build Coordination Infrastructure for Teams of Specialized AI Agents",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -704,7 +704,7 @@
       "assigned_node_label": "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -719,9 +719,9 @@
       "assigned_node_label": "Shift Organizations from Periodic Reviews to AI-Powered Continuous Steering",
       "cell": "acc|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -734,9 +734,9 @@
       "assigned_node_label": "Inference-Time Compute Scaling",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -749,7 +749,7 @@
       "assigned_node_label": "Inference-Time Compute Scaling",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -764,9 +764,9 @@
       "assigned_node_label": "Governing AI Risk Through Telemetry-Enabled Insurance and Post-Deployment Liability",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -779,7 +779,7 @@
       "assigned_node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
       "cell": "acc|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -794,7 +794,7 @@
       "assigned_node_label": "Argue That AI Requires Entirely New Laws, Not Adapted Old Ones",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -809,9 +809,9 @@
       "assigned_node_label": "Integrating Mandatory Pre-Deployment Auditing with Strict Liability Enforcement",
       "cell": "acc|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -824,9 +824,9 @@
       "assigned_node_label": "Secure Early Access to Human-Generated Training Data as a Strategic Asset",
       "cell": "acc|intentions|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -839,7 +839,7 @@
       "assigned_node_label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
       "cell": "acc|intentions|6-30",
       "rank": 14,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -854,9 +854,9 @@
       "assigned_node_label": "Building AI Tools That Amplify Rather Than Replace Human Expertise",
       "cell": "acc|intentions|6-30",
       "rank": 21,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -869,9 +869,9 @@
       "assigned_node_label": "Replace Static Strategic Plans with AI-Driven Real-Time Steering",
       "cell": "acc|intentions|6-30",
       "rank": 16,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -884,7 +884,7 @@
       "assigned_node_label": "Scale Expert Performance Across Organizations Using AI",
       "cell": "acc|intentions|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -899,9 +899,9 @@
       "assigned_node_label": "Procuring Dedicated Clean Energy Additionality for High-Density Computing Facilities",
       "cell": "acc|intentions|6-30",
       "rank": 14,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -914,7 +914,7 @@
       "assigned_node_label": "Discredit Precautionary AI Regulation as Progress-Blocking",
       "cell": "acc|intentions|6-30",
       "rank": 13,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
