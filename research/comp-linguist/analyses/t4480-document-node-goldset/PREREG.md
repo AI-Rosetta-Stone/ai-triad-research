@@ -31,6 +31,7 @@ Within each cell, items are drawn by a seeded random sample (seed 4480) over the
 ## Rater protocol
 
 - **Two raters.** CL plus one other. Per t/2294, **at least ⅓ of the n=232 ratings** come from someone unfamiliar with the taxonomy — **not yet assigned** (t/4480#1); this PREREG can be filed without them, but labelling can't start until they're identified. Routed as a separate ask, not blocking this document.
+- **DEVIATION (recorded post-hoc, PI decision p/548#334, relayed p/349#672):** the second rater is a blind AI agent (a fresh sub-agent with no taxonomy context, seeing only the label sheet and this protocol), not a human, and rates all 232 items rather than a ⅓ share. This satisfies the "unfamiliar with the taxonomy" intent of the original design more strongly than a human third-party would (zero prior exposure, not just unfamiliarity), but is a different instrument than originally envisioned (two independent humans). **Disclosure required:** any citation of this gold set's inter-rater agreement outside the project must state that the second rater was an AI agent, not a human.
 - **Both raters label every item independently** (not split), since the acceptance criterion is inter-rater agreement — a split design can't produce that.
 - **Labels per item:**
   - `correct` / `borderline` / `misfire` (matches t/2341's existing vocabulary, for comparability);
