@@ -1,0 +1,18 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+   Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4647: a component's own `display:` rule can out-specificity the UA stylesheet's
+   `[hidden] { display: none; }`, leaving an element visibly shown while its state says
+   hidden — the exact bug Design caught in t/4639#4 (LibraryGettingStarted's body stayed
+   visible after collapse because `.lib-getting-started-body { display: flex; }` beat the
+   UA rule). jsdom-based tests can't catch this class of bug: jsdom never loads CSS, so
+   testing-library's accessibility-tree checks the `hidden` attribute directly and pass
+   even when the real browser cascade would keep the element visible.
+   `!important` makes `hidden` win globally, matching the HTML spec's intent that the
+   attribute overrides ordinary display rules. New styles belong in co-located
+   `<Component>.css` files (styles.css is frozen), but this reset applies renderer-wide and
+   isn't scoped to one component, so it lives here instead — loaded in index.tsx alongside
+   LibraryTheme.css, before styles.css. */
+[hidden] {
+  display: none !important;
+}

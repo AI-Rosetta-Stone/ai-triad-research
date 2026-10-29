@@ -1,10 +1,10 @@
 # Failure-Class Taxonomy — Prospective Review Checklist
 
-**Last updated:** 2026-09-25
+**Last updated:** 2026-10-29
 **Owner:** Diagnostics (source analysis) / Tech Lead (review checklist)
-**Source:** e/84 systemic quality analysis of the 2026-08-09 Azure production bug sweep; Class 6 added from the 2026-08-15 dual-build / staging-prod-isolation sweep (t/2669); Class 7 added from the 2026-08-27 embeddings-cache incident (t/3085); Class 8 from the 2026-09-07 silent-inert run-gate audit (t/3396); Class 9 from the 2026-09-25 model-resolution and merge-guard consults (t/3664, t/3687).
+**Source:** e/84 systemic quality analysis of the 2026-08-09 Azure production bug sweep; Class 6 added from the 2026-08-15 dual-build / staging-prod-isolation sweep (t/2669); Class 7 added from the 2026-08-27 embeddings-cache incident (t/3085); Class 8 from the 2026-09-07 silent-inert run-gate audit (t/3396); Class 9 from the 2026-09-25 model-resolution and merge-guard consults (t/3664, t/3687); Class 10 from the 2026-10-29 getting-started-panel Hide regression (t/4639).
 
-Purpose: turn post-incident hindsight into foresight. Before landing a change — especially at a producer/consumer seam, on a deploy path, or touching config — ask **"which of these classes could this change introduce?"** and require the corresponding test or gate. Each incident maps to one of nine structural classes.
+Purpose: turn post-incident hindsight into foresight. Before landing a change — especially at a producer/consumer seam, on a deploy path, or touching config — ask **"which of these classes could this change introduce?"** and require the corresponding test or gate. Each incident maps to one of ten structural classes.
 
 ## The Core Gap
 
@@ -100,6 +100,16 @@ Two generators:
   - **t/3688** — `required-contexts.json` records `CodeQL` with `workflow: null`, so `workflow-lint.py` skips it. R1 — the rule that mechanizes the anti-strand property — therefore never opens `codeql.yml`, the one file whose comment names that risk. The lint's green was silent about a file it never read. *Partial evaluation.*
 - **Prevention (the closing check for this class):** before approving any gate, **write a one-sentence answer to: "What does this gate's green assert, and is that what the system does?"** It must be *written*, not considered — the failure mode is that the answer feels obvious, and wrong answers only become visible on the page. Nobody reviewing t/3664 would have claimed the gate asserted the alias binding; nobody wrote down which binding it asserted either. Where the sentence is hard to write, that difficulty *is* the finding.
 - **Tickets:** t/3664 (the live defect), t/3687 (three wrong boundaries), t/3688 (unread-file green), t/3690 (this entry). SO framing: e/210#4, e/212#30.
+
+## Class 10 — UI state assertion a test can't observe (no-CSS blind spot)
+
+A component's visible state is asserted via an HTML attribute (`hidden`, `aria-expanded`, `data-*`) whose *rendered effect* depends on CSS the test environment never loads. jsdom builds a DOM and an accessibility tree from attributes directly — it does not download, parse, or apply stylesheets. A component's own `display`/`visibility` rule can out-specificity a reset or a conditional style the component sets elsewhere, so the real browser cascade keeps an element visible while every attribute-level check says it's hidden. The test is green; the UI is broken.
+
+- **Examples (2026-10-29):** `LibraryGettingStarted.tsx` set `hidden={!expanded}` on its body; `.lib-getting-started-body { display: flex; ... }` in the same component's own CSS out-specificities the UA stylesheet's `[hidden] { display: none; }`. Collapsing the panel left `hidden` correctly set in the DOM, and testing-library's `toBeVisible()`/role-query assertions (which read the attribute and computed ARIA state, not a real layout pass) passed — but the panel stayed visually open in every one of the four tools it shipped to, because jsdom never loaded the component's CSS file at all. Caught only by Design's manual click-through (t/4639#4), not by any of the existing unit tests.
+- **Prevention (two coupled countermeasures):**
+  1. **A renderer-wide `[hidden] { display: none !important; }` reset** (t/4647, `BaseReset.css`) closes the specific defeat mechanism — no component rule can out-specificity an `!important` global — but this is a vector fix, not a class fix: a component could still defeat a *different* visibility mechanism (e.g., `aria-hidden` plus its own `visibility: visible`) the same way.
+  2. **A CSS-source regression test** for any component whose visibility hinges on an attribute the test suite can't see applied — read the `.css` file's text directly (as `BaseReset.test.ts` and `LibraryGettingStarted.test.tsx` do) and assert the overriding/defining rule is present, rather than asserting only on rendered DOM. This is the generalizable pattern: whenever a unit test's claim ("the panel is hidden") depends on a CSS rule actually applying, and the test harness doesn't load CSS, add a source-text assertion alongside the DOM assertion — the DOM assertion alone cannot distinguish "styled correctly" from "the governing rule was deleted."
+- **Tickets:** t/4639 (the live defect + component-level fix), t/4647 (the global reset + this entry).
 
 ## How to use this
 
