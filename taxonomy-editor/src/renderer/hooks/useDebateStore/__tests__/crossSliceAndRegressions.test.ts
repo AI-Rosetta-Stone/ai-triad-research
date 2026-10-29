@@ -534,3 +534,69 @@ describe('daily token limit stops debate gracefully (t/963)', () => {
     expect(state.debateError).toBeNull();
   });
 });
+
+// ── Regressions: clarificationSlice CC refactor (t/4086) ───
+
+describe('clarificationSlice CC-refactor regressions', () => {
+  it('undefined statement from pipeline sets debateError without TypeError (t/4086)', async () => {
+    // Regression: deliverOpeningResult crashed when assembleOpeningPipelineResult returned
+    // statement: undefined — the error-message template called .trim() on undefined even
+    // though the !statement guard short-circuited the condition.
+    const { runOpeningPipelineWithRepair, assembleOpeningPipelineResult } = await import('@lib/debate/turnPipeline');
+    vi.mocked(runOpeningPipelineWithRepair).mockResolvedValueOnce({ stage_diagnostics: [] });
+    vi.mocked(assembleOpeningPipelineResult).mockReturnValueOnce({
+      statement: undefined as any,
+      taxonomyRefs: [],
+      meta: { key_assumptions: [], my_claims: [], turn_symbols: [], policy_refs: [] },
+    } as any);
+
+    const session = makeSession({
+      phase: 'opening',
+      active_povers: ['accelerationist'],
+      topic: { original: 'Test', refined: null, final: 'Test topic' },
+    });
+    useDebateStore.setState({ activeDebate: session as any, debateModel: 'gemini-2.0-flash' });
+
+    // Must not throw a TypeError — must resolve with a controlled debateError.
+    // The "empty or too short" error propagates through generateSingleSpeakerOpening's
+    // catch as a terminal_error; finalizeOpeningStatements sets "Opening statements failed".
+    await expect(useDebateStore.getState().runOpeningStatements()).resolves.toBeUndefined();
+
+    const state = useDebateStore.getState();
+    expect(state.debateError).toBeTruthy();
+    expect(state.debateError).toMatch(/Opening statements failed/);
+    expect(state.debateGenerating).toBeNull();
+
+    vi.mocked(runOpeningPipelineWithRepair).mockResolvedValue({});
+    vi.mocked(assembleOpeningPipelineResult).mockReturnValue({} as any);
+  });
+
+  it('daily-limit during opening preserves DAILY_LIMIT_MESSAGE — not overwritten by finalizeOpeningStatements (t/4086)', async () => {
+    // Regression: runOpeningRetryLoop returned 'non_retryable' for daily_limit, and
+    // finalizeOpeningStatements would overwrite debateError with a generic failure message.
+    // The guard (isStillValid() && !get().dailyLimitPaused) prevents that overwrite.
+    const { runOpeningPipelineWithRepair } = await import('@lib/debate/turnPipeline');
+    const dailyLimitError = Object.assign(
+      new Error('Daily AI usage limit reached'),
+      { httpStatus: 429, limitType: 'tokens_per_day' },
+    );
+    vi.mocked(runOpeningPipelineWithRepair).mockRejectedValue(dailyLimitError);
+
+    const session = makeSession({
+      phase: 'opening',
+      active_povers: ['accelerationist', 'safetyist'],
+      topic: { original: 'Test', refined: null, final: 'Test topic' },
+    });
+    useDebateStore.setState({ activeDebate: session as any, debateModel: 'gemini-2.0-flash' });
+
+    await useDebateStore.getState().runOpeningStatements();
+
+    const state = useDebateStore.getState();
+    expect(state.dailyLimitPaused).toBe(true);
+    // Must still contain "Daily" — must NOT be overwritten with "Opening statements failed for …"
+    expect(state.debateError).toMatch(/Daily/i);
+    expect(state.debateError).not.toMatch(/Opening statements failed/);
+
+    vi.mocked(runOpeningPipelineWithRepair).mockResolvedValue({});
+  });
+});
