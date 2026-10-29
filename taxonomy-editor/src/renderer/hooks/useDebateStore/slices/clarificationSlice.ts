@@ -143,6 +143,20 @@ async function extractTopicScope(get: () => DebateStore, set: (partial: any) => 
     }
 }
 
+async function processOneOpeningEmbedding(
+  entry: TranscriptEntry,
+  get: () => DebateStore,
+  openingEmbeddings: Record<string, number[]>,
+): Promise<void> {
+  if (entry.type !== 'opening' || entry.speaker === 'system') return;
+  try {
+    const result = await api.computeQueryEmbedding(entry.content.slice(0, 1000));
+    openingEmbeddings[entry.speaker] = result.vector;
+  } catch (e) {
+    getGlobalRecorder()?.record({ type: 'system.error', debate_id: get().activeDebate?.id, component: 'debate-store', level: 'warn', message: 'Opening embedding computation failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } });
+  }
+}
+
 async function cacheOpeningEmbeddings(get: () => DebateStore, set: (partial: any) => void): Promise<void> {
     // Cache opening embeddings for position drift detection (non-blocking)
     try {
@@ -150,11 +164,7 @@ async function cacheOpeningEmbeddings(get: () => DebateStore, set: (partial: any
       if (currentDebate) {
         const openingEmbeddings: Record<string, number[]> = {};
         for (const entry of currentDebate.transcript) {
-          if (entry.type !== 'opening' || entry.speaker === 'system') continue;
-          try {
-            const result = await api.computeQueryEmbedding(entry.content.slice(0, 1000));
-            openingEmbeddings[entry.speaker] = result.vector;
-          } catch (e) { getGlobalRecorder()?.record({ type: 'system.error', debate_id: get().activeDebate?.id, component: 'debate-store', level: 'warn', message: 'Opening embedding computation failed', error: { name: (e as Error).name ?? 'Error', message: String(e), stack: (e as Error).stack } }); }
+          await processOneOpeningEmbedding(entry, get, openingEmbeddings);
         }
         // Store on session metadata for cross-respond access
         if (Object.keys(openingEmbeddings).length > 0) {
@@ -217,6 +227,14 @@ async function compressIfDue(get: () => DebateStore, lease: RunLease): Promise<v
   await get().compressOldTranscript();
 }
 
+function recordAdaptiveConfigAtStart(
+  resolvedDebate: DebateSession | null | undefined,
+  adaptive: DebateSession['adaptive_staging'],
+  initialCrossRespondRounds: number,
+): void {
+  getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'info', debate_id: resolvedDebate?.id, message: 'Resolved adaptive config at debate start', data: { enabled: !!adaptive?.enabled, pacing: adaptive?.pacing ?? null, initial_cross_respond_rounds: initialCrossRespondRounds } });
+}
+
 /** Runs under the caller's run lease (t/3917): every turn is passed `lease`, and the loop
  *  exits `lease_lost` the moment the lease is superseded or lost to another window. */
 async function runInitialCrossRespondRounds(get: () => DebateStore, set: (partial: any) => void, activeDebate: DebateSession, lease: RunLease): Promise<void> {
@@ -233,7 +251,7 @@ async function runInitialCrossRespondRounds(get: () => DebateStore, set: (partia
 
     const resolvedDebate = get().activeDebate;
     const adaptive = resolvedDebate?.adaptive_staging;
-    getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'info', debate_id: resolvedDebate?.id, message: 'Resolved adaptive config at debate start', data: { enabled: !!adaptive?.enabled, pacing: adaptive?.pacing ?? null, initial_cross_respond_rounds: initialCrossRespondRounds } });
+    recordAdaptiveConfigAtStart(resolvedDebate, adaptive, initialCrossRespondRounds);
 
     if (adaptive?.enabled) {
       await runAdaptiveLoop(get, set, lease, adaptive, resolvedDebate);
@@ -321,6 +339,51 @@ async function scoreRefinedTopicCandidate(
 
 type RefinementResult = { bestTopic: string | null; bestScore: number; bestCritique: ReturnType<typeof parseTopicCritique> | null; aborted: boolean };
 
+type RefinementAttemptOutcome =
+  | { kind: 'aborted' }
+  | { kind: 'accepted'; candidate: string; score: number; critique: ReturnType<typeof parseTopicCritique> }
+  | { kind: 'use_candidate'; candidate: string }
+  | { kind: 'next' }
+  | { kind: 'break' };
+
+async function scoreTopicRefinementAttempt(
+  attempt: number,
+  prompt: string,
+  model: string,
+  label: string,
+  baselineCritique: ReturnType<typeof parseTopicCritique> | null,
+  baselineScore: number,
+  isStillValid: () => boolean,
+  set: (partial: any) => void,
+  debateId: string | undefined,
+): Promise<RefinementAttemptOutcome> {
+  try {
+    const { text } = await generateTextWithProgress(prompt, model, label, set);
+    if (!isStillValid()) {
+      getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'warn', debate_id: debateId, message: 'submitAnswersAndSynthesize aborted: guard failed after topic refinement' });
+      return { kind: 'aborted' };
+    }
+    const parsed = parseAIJson<{ refined_topic?: string }>(text);
+    const candidate = parsed?.refined_topic || text.trim();
+    if (baselineCritique) {
+      const outcome = await scoreRefinedTopicCandidate(model, candidate, baselineCritique, baselineScore, isStillValid, set, debateId);
+      if (outcome.kind === 'aborted') return { kind: 'aborted' };
+      if (outcome.kind === 'accepted') return { kind: 'accepted', candidate, score: outcome.score, critique: outcome.critique };
+      if (outcome.kind === 'failed') return { kind: 'use_candidate', candidate };
+      return { kind: 'next' };
+    }
+    return { kind: 'use_candidate', candidate };
+  } catch (genErr) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', debate_id: debateId, component: 'debate-store', level: 'error',
+      message: `Topic refinement attempt ${attempt + 1} generation failed`,
+      error: { name: (genErr as Error).name ?? 'Error', message: String(genErr), stack: (genErr as Error).stack },
+    });
+    console.warn(`[TopicRefinement] Attempt ${attempt + 1} generation failed:`, genErr);
+    return { kind: 'break' };
+  }
+}
+
 async function runTopicRefinementLoop(
   model: string,
   activeDebate: DebateSession,
@@ -334,40 +397,19 @@ async function runTopicRefinementLoop(
   let bestTopic: string | null = null;
   let bestScore = baselineScore;
   let bestCritique: ReturnType<typeof parseTopicCritique> | null = null;
+  const debateId = activeDebate?.id;
 
   for (let attempt = 0; attempt < MAX_REFINEMENT_ATTEMPTS; attempt++) {
     const prompt = buildSynthesisPrompt(activeDebate.topic.original, clarifications, activeDebate.audience, baselineCritique);
     const label = attempt === 0
       ? `Synthesizing refined topic (${model})`
       : `Refining topic, attempt ${attempt + 1}/${MAX_REFINEMENT_ATTEMPTS} (${model})`;
-    try {
-      const { text } = await generateTextWithProgress(prompt, model, label, set);
-      if (!isStillValid()) {
-        getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'warn', debate_id: activeDebate?.id, message: 'submitAnswersAndSynthesize aborted: guard failed after topic refinement' });
-        return { bestTopic, bestScore, bestCritique, aborted: true };
-      }
-      const parsed = parseAIJson<{ refined_topic?: string }>(text);
-      const candidate = parsed?.refined_topic || text.trim();
-
-      if (baselineCritique) {
-        const outcome = await scoreRefinedTopicCandidate(model, candidate, baselineCritique, baselineScore, isStillValid, set, activeDebate?.id);
-        if (outcome.kind === 'aborted') return { bestTopic, bestScore, bestCritique, aborted: true };
-        if (outcome.kind === 'accepted') { bestTopic = candidate; bestScore = outcome.score; bestCritique = outcome.critique; break; }
-        if (outcome.kind === 'failed') { bestTopic = candidate; break; }
-        // rejected — continue to next attempt
-      } else {
-        bestTopic = candidate;
-        break;
-      }
-    } catch (genErr) {
-      getGlobalRecorder()?.record({
-        type: 'system.error', debate_id: activeDebate?.id, component: 'debate-store', level: 'error',
-        message: `Topic refinement attempt ${attempt + 1} generation failed`,
-        error: { name: (genErr as Error).name ?? 'Error', message: String(genErr), stack: (genErr as Error).stack },
-      });
-      console.warn(`[TopicRefinement] Attempt ${attempt + 1} generation failed:`, genErr);
-      break;
-    }
+    const result = await scoreTopicRefinementAttempt(attempt, prompt, model, label, baselineCritique, baselineScore, isStillValid, set, debateId);
+    if (result.kind === 'aborted') return { bestTopic, bestScore, bestCritique, aborted: true };
+    if (result.kind === 'accepted') { bestTopic = result.candidate; bestScore = result.score; bestCritique = result.critique; break; }
+    if (result.kind === 'use_candidate') { bestTopic = result.candidate; break; }
+    if (result.kind === 'break') break;
+    // 'next' — continue to next attempt
   }
   return { bestTopic, bestScore, bestCritique, aborted: false };
 }
@@ -402,6 +444,32 @@ async function extractAndStoreTopicClauses(
   }
 }
 
+async function embedSingleClause(
+  clause: string,
+  clauseVectors: number[][],
+  debateId: string | undefined,
+): Promise<void> {
+  try {
+    const { vector: cv } = await api.computeQueryEmbedding(clause.slice(0, 500));
+    if (cv?.length) clauseVectors.push(cv);
+  } catch (cvErr) {
+    getGlobalRecorder()?.record({ type: 'system.error', debate_id: debateId, component: 'debate-store', level: 'debug', message: 'Clause embedding failed', error: { name: (cvErr as Error).name ?? 'Error', message: String(cvErr), stack: (cvErr as Error).stack } });
+  }
+}
+
+async function embedAndStoreClauses(
+  currentClauses: string[],
+  isStillValid: () => boolean,
+  debateId: string | undefined,
+  get: () => DebateStore,
+): Promise<void> {
+  const clauseVectors: number[][] = [];
+  for (const clause of currentClauses) {
+    await embedSingleClause(clause, clauseVectors, debateId);
+  }
+  if (clauseVectors.length === currentClauses.length && isStillValid()) get().updateTopic({ clause_embeddings: clauseVectors });
+}
+
 async function embedTopicResolution(
   get: () => DebateStore,
   set: (partial: any) => void,
@@ -415,16 +483,7 @@ async function embedTopicResolution(
     if (vector?.length && isStillValid()) get().updateTopic({ embedding: vector });
     const currentClauses = get().activeDebate?.topic.clauses;
     if (currentClauses?.length && isStillValid()) {
-      const clauseVectors: number[][] = [];
-      for (const clause of currentClauses) {
-        try {
-          const { vector: cv } = await api.computeQueryEmbedding(clause.slice(0, 500));
-          if (cv?.length) clauseVectors.push(cv);
-        } catch (cvErr) {
-          getGlobalRecorder()?.record({ type: 'system.error', debate_id: get().activeDebate?.id, component: 'debate-store', level: 'debug', message: `Clause embedding failed for clause ${currentClauses.indexOf(clause)}`, error: { name: (cvErr as Error).name ?? 'Error', message: String(cvErr), stack: (cvErr as Error).stack } });
-        }
-      }
-      if (clauseVectors.length === currentClauses.length && isStillValid()) get().updateTopic({ clause_embeddings: clauseVectors });
+      await embedAndStoreClauses(currentClauses, isStillValid, debateId, get);
     }
   } catch (embedErr) {
     getGlobalRecorder()?.record({
@@ -637,6 +696,35 @@ async function buildOpeningContextForSpeaker(
   return { input, taxonomyBlock, commitBlock, ctx, resolvedBriefModel, stageGenerate };
 }
 
+function buildOpeningDiagnosticRecord(
+  draftDiag: { prompt?: string; raw_response?: string } | undefined,
+  pipelineResult: Awaited<ReturnType<typeof runOpeningPipelineWithRepair>>,
+  model: string,
+  taxonomyBlock: string,
+  commitBlock: string,
+  get: () => DebateStore,
+) {
+  const topicAlignDiag = pipelineResult.topicAlignmentResult
+    ? {
+        topic_aligned: pipelineResult.topicAlignmentResult.topic_aligned,
+        repaired: pipelineResult.topicAlignmentResult.repaired || undefined,
+        draft_attempt: pipelineResult.topicAlignmentResult.draft_attempt,
+        scope_used: get().activeDebate?.topic?.scope ?? null,
+      }
+    : undefined;
+  return {
+    prompt: draftDiag?.prompt ?? '',
+    raw_response: draftDiag?.raw_response ?? '',
+    model,
+    response_time_ms: pipelineResult.total_time_ms,
+    taxonomy_context: taxonomyBlock,
+    commitment_context: commitBlock || undefined,
+    stage_diagnostics: pipelineResult.stage_diagnostics,
+    topic_alignment: topicAlignDiag,
+    quality_gate: pipelineResult.qualityGateResult,
+  };
+}
+
 async function deliverOpeningResult(
   get: () => DebateStore,
   set: (partial: any) => void,
@@ -680,10 +768,7 @@ async function deliverOpeningResult(
   const lastEntry = get().activeDebate?.transcript.find(e => e.id === slotId);
   if (lastEntry) {
     const draftDiag = pipelineResult.stage_diagnostics.find(s => s.stage === 'draft');
-    const topicAlignDiag = pipelineResult.topicAlignmentResult
-      ? { topic_aligned: pipelineResult.topicAlignmentResult.topic_aligned, repaired: pipelineResult.topicAlignmentResult.repaired || undefined, draft_attempt: pipelineResult.topicAlignmentResult.draft_attempt, scope_used: get().activeDebate?.topic?.scope ?? null }
-      : undefined;
-    recordDiagnostic(get, set, lastEntry.id, { prompt: draftDiag?.prompt ?? '', raw_response: draftDiag?.raw_response ?? '', model, response_time_ms: pipelineResult.total_time_ms, taxonomy_context: taxonomyBlock, commitment_context: commitBlock || undefined, stage_diagnostics: pipelineResult.stage_diagnostics, topic_alignment: topicAlignDiag, quality_gate: pipelineResult.qualityGateResult });
+    recordDiagnostic(get, set, lastEntry.id, buildOpeningDiagnosticRecord(draftDiag, pipelineResult, model, taxonomyBlock, commitBlock, get));
     await summarizeTranscriptEntry(lastEntry.id, statement, info.label, model, get, set);
     await saveDebate('runOpeningStatements:perStatement');
     void extractClaimsAndUpdateAN(statement, poverId as SpeakerId, lastEntry.id, taxonomyRefs.map(r => r.node_id), get, set, meta.my_claims);
@@ -991,6 +1076,34 @@ async function runWatchOnlyLoop(
   }
 }
 
+async function runClarificationCore(
+  get: () => DebateStore,
+  set: (partial: any) => void,
+  activeDebate: DebateSession,
+  addTranscriptEntry: (entry: Omit<TranscriptEntry, 'id' | 'timestamp'>) => string,
+  isStillValid: () => boolean,
+  model: string,
+  prompt: string,
+  isSituation: boolean,
+): Promise<void> {
+  if (isSituation) getGlobalRecorder()?.record({ type: 'situation_debate.generation_trigger', component: 'debate-store', level: 'info', debate_id: activeDebate.id, message: 'situation_debate.generation_trigger', data: { model, phase: 'clarification' } });
+  const { text } = await generateTextWithProgress(prompt, model, `Generating clarifying questions (${model})`, set);
+  if (!isStillValid()) {
+    getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'warn', debate_id: activeDebate?.id, message: 'runClarification aborted: guard failed after question generation' });
+    return;
+  }
+  const questions = parseClarificationResponse(text);
+  if (questions.length > 0) {
+    addTranscriptEntry({
+      type: 'clarification',
+      speaker: 'system',
+      content: questions.map((q, i) => `${i + 1}. ${q}`).join('\n'),
+      taxonomy_refs: [],
+      metadata: { questions },
+    });
+  }
+}
+
 export const createClarificationSlice: StateCreator<DebateStore, [], [], ClarificationSlice> = (set, get) => ({
   runClarification: async () => {
     const { activeDebate, addTranscriptEntry, saveDebate, debateGenerating } = get();
@@ -1017,21 +1130,8 @@ export const createClarificationSlice: StateCreator<DebateStore, [], [], Clarifi
     const lineageCtx = buildLineageContext() ?? '';
     const prompt = selectClarificationPrompt(activeDebate, lineageCtx);
     try {
-      // t/3032: the clarification trigger point — emitted immediately before the first AI call
-      // dispatches, so a dump shows the trigger fired (vs. never firing → absent ai.request).
-      if (isSituation) getGlobalRecorder()?.record({ type: 'situation_debate.generation_trigger', component: 'debate-store', level: 'info', debate_id: activeDebate.id, message: 'situation_debate.generation_trigger', data: { model, phase: 'clarification' } });
-      const { text } = await generateTextWithProgress(prompt, model, `Generating clarifying questions (${model})`, set);
-      if (!isStillValid()) { getGlobalRecorder()?.record({ type: 'debate.lifecycle', component: 'debate-store', level: 'warn', debate_id: activeDebate?.id, message: 'runClarification aborted: guard failed after question generation' }); return; }
-      const questions = parseClarificationResponse(text);
-      if (questions.length > 0) {
-        addTranscriptEntry({
-          type: 'clarification',
-          speaker: 'system',
-          content: questions.map((q, i) => `${i + 1}. ${q}`).join('\n'),
-          taxonomy_refs: [],
-          metadata: { questions },
-        });
-      }
+      // t/3032: the clarification trigger point and question generation.
+      await runClarificationCore(get, set, activeDebate, addTranscriptEntry, isStillValid, model, prompt, isSituation);
     } catch (err) {
       // User cancel / model switch (t/2508) — bail quietly, no toast (helper logged info).
       if (isCancellationError(err)) { set({ debateGenerating: null, debateActivity: null }); return; }
