@@ -51,6 +51,10 @@ $stderr = [System.IO.Path]::GetTempFileName()
 
 $quotedPaths = ($Path | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','
 $pesterCommand = "Invoke-Pester -Path @($quotedPaths) -Output $OutputLevel"
+# Timed with a Stopwatch, not $proc.StartTime: StartTime is unreliable for a just-launched
+# process on some platforms (observed: Linux CI throws "Cannot find an overload for
+# op_Subtraction" when it's read back for the elapsed-time calculation below).
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $proc = Start-Process -FilePath 'pwsh' `
     -ArgumentList @('-NoProfile', '-Command', $pesterCommand) `
     -WorkingDirectory $repoRoot `
@@ -90,7 +94,8 @@ finally {
     if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
 }
 
-$elapsed = [int]((Get-Date) - $proc.StartTime).TotalSeconds
+$stopwatch.Stop()
+$elapsed = [int]$stopwatch.Elapsed.TotalSeconds
 $output = @()
 if (Test-Path -LiteralPath $stdout) { $output += (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue) }
 if (Test-Path -LiteralPath $stderr) { $output += (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue) }
