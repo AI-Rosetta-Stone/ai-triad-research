@@ -29,6 +29,7 @@ import { CampGlyph, povToCamp } from '../shared/CampGlyph';
 import { SpeakerIdentity } from '../shared/SpeakerIdentity';
 import { EmptyState } from '../shared/EmptyState';
 import { ThinkingIndicator, MessageBubble, StreamingBubble } from '../shared/ChatBubble';
+import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
 import './ChatWorkspace.css';
@@ -90,69 +91,37 @@ function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; sele
   );
 }
 
-function TaxonomyRefsSection({ refs, selectedRef, onSelectRef }: { refs: TaxonomyRef[]; selectedRef: EntityRef | null; onSelectRef: (ref: EntityRef | null) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const [showReasoning, setShowReasoning] = useState(false);
+/**
+ * t/4627: always-visible per-reply BDI grounding list. Each item is clickable; clicking opens
+ * that node's detail inline below the list (one open per reply, click again to hide, clicking a
+ * different item switches). This state is local to the reply — separate from the chat-wide
+ * `selectedRef`/`onSelectRef` that still drives `ChatDetailPane` for in-text ref links
+ * (`makeRefLinkSpan`), which this component does not touch. pol-* and sit-* ids flow through the
+ * same `TaxNodeDetail` unchanged — it already resolves policy/situation PinnedData variants.
+ */
+export function TaxonomyRefsSection({ refs }: { refs: TaxonomyRef[] }) {
+  const [selectedBdiNodeId, setSelectedBdiNodeId] = useState<string | null>(null);
+  const toggleBdiNode = (nodeId: string) => setSelectedBdiNodeId(prev => prev === nodeId ? null : nodeId);
 
   if (!refs || refs.length === 0) return null;
 
-  if (!expanded) {
-    return (
-      <div className="chat-taxonomy-refs">
-        <button className="chat-refs-collapsed" onClick={() => setExpanded(true)}>
-          {refs.length} {refs.length === 1 ? 'reference' : 'references'}
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="chat-taxonomy-refs">
-      <div className="chat-taxonomy-pills">
-        {refs.map((r) => {
-          const ref = parseEntityRef(r.node_id);
-          const isSel = !!ref && ref.id === selectedRef?.id;
-          return (
+      <div className="chat-taxonomy-reasoning">
+        {refs.map((r) => (
+          <div key={r.node_id} className="chat-taxonomy-reasoning-item">
             <TaxonomyPill
-              key={r.node_id}
               taxRef={r}
-              selected={isSel}
-              onClick={() => onSelectRef(isSel ? null : ref)}
+              selected={selectedBdiNodeId === r.node_id}
+              onClick={() => toggleBdiNode(r.node_id)}
             />
-          );
-        })}
-        <button
-          className="chat-taxonomy-toggle"
-          onClick={() => setShowReasoning(!showReasoning)}
-        >
-          {showReasoning ? 'Hide reasoning' : 'Show reasoning'}
-        </button>
-        <button
-          className="chat-taxonomy-toggle"
-          onClick={() => { setExpanded(false); setShowReasoning(false); }}
-        >
-          Collapse
-        </button>
+            {r.label && <span className="chat-reasoning-label">{r.label}</span>}
+            {r.relevance && <span className="chat-reasoning-text">{r.relevance}</span>}
+          </div>
+        ))}
       </div>
-      {showReasoning && (
-        <div className="chat-taxonomy-reasoning">
-          {refs.map((r) => {
-            const ref = parseEntityRef(r.node_id);
-            const isSel = !!ref && ref.id === selectedRef?.id;
-            return (
-              <div key={r.node_id} className="chat-taxonomy-reasoning-item">
-                <span
-                  className={`taxonomy-pill tab-${nodeIdToTab(r.node_id)}${isSel ? ' selected' : ''}`}
-                  data-clickable=""
-                  onClick={() => onSelectRef(isSel ? null : ref)}
-                >
-                  {r.node_id}
-                </span>
-                <span className="chat-reasoning-text">{r.relevance}</span>
-              </div>
-            );
-          })}
-        </div>
+      {selectedBdiNodeId && (
+        <TaxNodeDetail nodeId={selectedBdiNodeId} onClose={() => setSelectedBdiNodeId(null)} />
       )}
     </div>
   );
@@ -160,7 +129,7 @@ function TaxonomyRefsSection({ refs, selectedRef, onSelectRef }: { refs: Taxonom
 
 // ── Chat message ─────────────────────────────────────────
 
-function ChatMessage({ entry, selectedRef, onSelectRef }: { entry: ChatEntry; selectedRef: EntityRef | null; onSelectRef: (ref: EntityRef | null) => void }) {
+function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (ref: EntityRef | null) => void }) {
   const isUser = entry.speaker === 'user';
   const camp = povToCamp(entry.speaker);
   const mdComponents = useMemo(() => ({ span: makeRefLinkSpan(onSelectRef) }), [onSelectRef]);
@@ -184,7 +153,7 @@ function ChatMessage({ entry, selectedRef, onSelectRef }: { entry: ChatEntry; se
         <MessageBubble role={isUser ? 'user' : 'assistant'} className="chat-message-content markdown-body prose">
           <Markdown remarkPlugins={[remarkGfm, remarkColorizePov, remarkLinkifyRefs]} components={mdComponents}>{entry.content}</Markdown>
         </MessageBubble>
-        <TaxonomyRefsSection refs={entry.taxonomy_refs} selectedRef={selectedRef} onSelectRef={onSelectRef} />
+        <TaxonomyRefsSection refs={entry.taxonomy_refs} />
         {!isUser && entry.url_context_metadata && (
           <UrlContextChip metadata={entry.url_context_metadata} />
         )}
@@ -424,11 +393,10 @@ function ShareResult({ shareState, shareError, onDismiss }: {
   );
 }
 
-function ChatTranscript({ activeChat, chatGenerating, chatActivity, selectedRef, onSelectRef, transcriptEndRef }: {
+function ChatTranscript({ activeChat, chatGenerating, chatActivity, onSelectRef, transcriptEndRef }: {
   activeChat: ActiveChat;
   chatGenerating: boolean;
   chatActivity: string | null;
-  selectedRef: EntityRef | null;
   onSelectRef: (ref: EntityRef | null) => void;
   transcriptEndRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -445,7 +413,7 @@ function ChatTranscript({ activeChat, chatGenerating, chatActivity, selectedRef,
       ) : (
         <>
           {activeChat.transcript.map((entry) => (
-            <ChatMessage key={entry.id} entry={entry} selectedRef={selectedRef} onSelectRef={onSelectRef} />
+            <ChatMessage key={entry.id} entry={entry} onSelectRef={onSelectRef} />
           ))}
           {chatStreamingText != null ? (
             <div className="chat-message">
@@ -646,7 +614,6 @@ export function ChatWorkspace() {
           activeChat={activeChat}
           chatGenerating={chatGenerating}
           chatActivity={chatActivity}
-          selectedRef={selectedRef}
           onSelectRef={setSelectedRef}
           transcriptEndRef={transcriptEndRef}
         />
