@@ -105,7 +105,7 @@ describe('OpEdReader — single voice', () => {
     render(<OpEdReader set={makeSet([member({
       grounding: [{ node_id: 'saf-belief-014', label: 'A belief', category: 'Belief', pov: 'safetyist', relevance: '0.82', how_reflected: 'Grounds the claim', document_claims: ['Safety incidents doubled last year', 'Only 3 labs share proactively'] }],
     })])} />);
-    fireEvent.click(screen.getByRole('button', { name: 'A belief' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show A belief' }));
     expect(screen.getByText('Addresses these source claims:')).toBeTruthy();
     expect(screen.getByText('Safety incidents doubled last year')).toBeTruthy();
     expect(screen.getByText('Only 3 labs share proactively')).toBeTruthy();
@@ -115,7 +115,7 @@ describe('OpEdReader — single voice', () => {
     render(<OpEdReader set={makeSet([member({
       grounding: [{ node_id: 'saf-belief-014', label: 'A belief', category: 'Belief', pov: 'safetyist', relevance: '0.82', how_reflected: 'Grounds the claim' }],
     })])} />);
-    fireEvent.click(screen.getByRole('button', { name: 'A belief' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show A belief' }));
     expect(screen.queryByText('Addresses these source claims:')).toBeNull();
   });
 });
