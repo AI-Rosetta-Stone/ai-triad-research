@@ -1,10 +1,12 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { useState } from 'react';
 import type { ChatMode } from '../../types/chat';
 import {
   LibraryGettingStarted, useLibraryIntroDismissed,
 } from '../shared/LibraryGettingStarted';
+import { pickExamples } from '../shared/pickExamples';
 
 /**
  * Starter pool (t/4536 round 3, t/4536#4; grown to 15 and spread across the three modes and
@@ -15,9 +17,6 @@ import {
  * t/4635 content rules: balanced across the three camps, no leading wording, no label longer
  * than the pre-t/4635 baseline (47 chars, "Strongest evidence for the Accelerationist case"),
  * no real private individuals, short and specific (never "Tell me about AI").
- *
- * Wiring to shared/LibraryGettingStarted's pickExamples (random 4 of 15 per mount, with
- * mustInclude requiring a non-inform mode) is blocked on t/4633 landing — tracked there.
  */
 export const CHAT_STARTERS: readonly { text: string; mode: ChatMode }[] = [
   { text: 'How would a Safetyist see compute caps?', mode: 'inform' },
@@ -57,15 +56,21 @@ interface ChatGettingStartedProps {
  *  My/Community tabs. Thin wrapper over the shared LibraryGettingStarted (t/4561) — Chat's exact
  *  copy/chips/hint, generalized mechanics. */
 export function ChatGettingStarted({ hasNoChats, onPickStarter }: ChatGettingStartedProps) {
+  // t/4635: random 4-of-15 per mount, guaranteeing at least one non-inform starter (AC2) — the
+  // hint line explains all three modes, so a rotation that happened to land all-inform would
+  // silently waste it. LibraryGettingStartedProps has no mustInclude passthrough yet (t/4633
+  // didn't need one for Ask-a-Question/Op-Ed's mode-less pools), so this calls the same
+  // pickExamples helper directly rather than through examplePool/exampleCount, and passes the
+  // already-picked result via the legacy `chips` prop. useState (not useMemo) keeps the pick
+  // stable across re-renders of this mount, same guarantee LibraryGettingStarted's own internal
+  // examplePool path provides.
+  const [pickedStarters] = useState(() => pickExamples(CHAT_STARTERS, 4, Math.random, s => s.mode !== 'inform'));
   return (
     <LibraryGettingStarted
       storageKey={DISMISSED_KEY}
       heading="Ask anything about AI policy & safety"
       why="Pick a perspective (Accelerationist, Safetyist or Skeptic) and talk it through. Answers draw on this project’s research, its claims, debates and sources, not the open web."
-      // t/4635: CHAT_STARTERS is the full 15-item pool now; the random-4-of-15 pickExamples
-      // selection is blocked on the shared helper landing (t/4633) — slice to the original 4
-      // in the meantime so the panel stays at today's size and content, per the TL's phasing.
-      chips={CHAT_STARTERS.slice(0, 4).map((starter) => ({ label: starter.text, value: starter }))}
+      chips={pickedStarters.map((starter) => ({ label: starter.text, value: starter }))}
       onSelectChip={(starter) => onPickStarter(starter.mode, starter.text)}
       hint={
         <>
