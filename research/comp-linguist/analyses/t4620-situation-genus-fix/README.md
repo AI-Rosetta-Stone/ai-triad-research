@@ -2,6 +2,8 @@
 
 **Anchor:** t/4620 (2026-10-29 session-start DOLCE audit). **Tier:** T2, a corpus write to `ai-triad-data` (`taxonomy/Origin/situations.json`). **Status:** prepared, NOT applied. Nothing written.
 
+**Re-frozen per SO conditions C1/C2 (e/395#2) — superseding the first version.** C1: `sit-493`'s rewrite had drifted to "collective data retention", narrower than the original "collective data realities" and unsupported by the node's evidence — reverted to the original wording verbatim. C2: the frozen list's approval hash is now computed LF-normalised, so it binds to content rather than a checkout's line-ending setting (the first version's hash was CRLF-specific and would only have matched on this machine's dirty working copy).
+
 ## What changes
 
 Two targeted single-line description replacements within one 5.5MB taxonomy file, both validated by exact-string-count (each `old` text occurs exactly once) plus a full structural re-parse proving every other node, and every other field on the two touched nodes, is byte-for-byte unchanged.
@@ -27,4 +29,6 @@ Two targeted single-line description replacements within one 5.5MB taxonomy file
 
 ## Next
 
-Same sequence as the prior metadata fixes: SO round (T2, corpus write), approval, second-agent pre-hash recount at apply time, apply with `--approved-sha256`, post-write check (exactly one file changed, post-hash matches). The broader-corpus genus-mismatch scan (t/4620's second AC) is separate, no-spend, bounded follow-up work — not done here.
+SO clearance on the re-frozen hash (`eac68252…93de6`, LF-normalised), TL approval, second-agent pre-hash recount at apply time (C3), apply with `--approved-sha256` from the cleared commit, post-write check (exactly one file changed, post-hash matches). **C4 (same window): re-embed `sit-493` and `sit-484` through `embed_taxonomy.py` after applying**, and confirm no other node's vector changed beyond float noise — their `description` changed, and `embeddings.json` encodes it at weight 1.0 plus `exclusion_vector` from `Excludes:`.
+
+**The broader-corpus genus-mismatch scan is done, separately, at t/4621: 8 more situations carry the same defect** (not just sit-493). That's its own fix, sequenced after this one.

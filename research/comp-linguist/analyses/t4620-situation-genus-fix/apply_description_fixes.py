@@ -11,6 +11,8 @@ default; --apply writes. Per target it refuses (exit 2, nothing written) unless:
 
 --apply additionally REQUIRES --approved-sha256 <hash>, matched against the frozen
 file's own sha256 before anything else runs (same C1 discipline as t/4495/t/4604/t/4614).
+The frozen list's hash is computed LF-normalised (SO condition C2, e/395#2), so the
+approval binds to the file's content, not to a checkout's line-ending setting.
 
 Usage:
     python apply_description_fixes.py <data_root> [--apply --approved-sha256 <hash>]
@@ -39,8 +41,8 @@ def main():
     frozen_path = f"{here}/frozen_description_fixes.json"
     frozen_bytes = open(frozen_path, "rb").read()
     frozen = json.loads(frozen_bytes)
-    frozen_hash = sha(frozen_bytes)
-    print(f"frozen list sha256 {frozen_hash}  mode={'APPLY' if apply_ else 'dry-run'}")
+    frozen_hash = sha(frozen_bytes.replace(b"\r\n", b"\n"))
+    print(f"frozen list sha256 (LF-normalised) {frozen_hash}  mode={'APPLY' if apply_ else 'dry-run'}")
 
     if apply_:
         if "--approved-sha256" not in args:

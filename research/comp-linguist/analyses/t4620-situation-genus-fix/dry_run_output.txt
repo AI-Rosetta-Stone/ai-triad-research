@@ -1,3 +1,3 @@
-frozen list sha256 49b51e1d2bdec3a57a75cd0505f0a9c33050c15ee08af7ca40464265c8a144d7  mode=dry-run
-  OK taxonomy/Origin/situations.json: 2 description(s) replaced, 459 nodes unchanged in order/other-fields, post_sha256 b9e5f662cb742b9dd679a6e02805ac7285eb66d038f542d86ab54214df504bef
+frozen list sha256 (LF-normalised) eac682525ea62898ea9e5c8e72810bc1d50941e43afc493759f581f6a7933de6  mode=dry-run
+  OK taxonomy/Origin/situations.json: 2 description(s) replaced, 459 nodes unchanged in order/other-fields, post_sha256 7d62b6a7e9c8a432794883143b0c2fca923442a075736dcbd04bec9ebc168095
 dry-run: all targets pass all checks; nothing written
