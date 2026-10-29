@@ -1,0 +1,21 @@
+{
+  "PORT": "platform-provided (ACA ingress sets this automatically)",
+  "CONTAINER_APP_NAME": "ACA-injected system variable, never set via Bicep baseEnv",
+  "CONTAINER_APP_REPLICA_NAME": "ACA-injected system variable, never set via Bicep baseEnv",
+  "CONTAINER_APP_REVISION": "ACA-injected system variable, never set via Bicep baseEnv",
+  "CONTAINER_APP_ENV_DNS_SUFFIX": "ACA-injected system variable, never set via Bicep baseEnv",
+  "WEBSITES_CONTAINER_START_TIME": "ACA-injected system variable, never set via Bicep baseEnv",
+  "BUILD_SHA": "Docker build-arg baked into the image at container.yml build time (BUILD_SHA=${{ inputs.sha || github.sha }}), not Bicep-wired",
+  "BUILD_DATE": "Docker build-arg baked into the image at container.yml build time, same pattern as BUILD_SHA",
+  "BUILD_COMMIT": "Docker build-arg baked into the image at container.yml build time, same pattern as BUILD_SHA",
+  "DEPLOY_SHA": "set by deploy-azure.yml at deploy time via --set-env-vars, not static Bicep (rollbackStatus.ts docblock: 'env vars the deploy workflow sets'); code treats it as optional (|| null)",
+  "DEPLOY_TAG": "set by deploy-azure.yml at deploy time, same pattern as DEPLOY_SHA; optional (|| null)",
+  "DEPLOY_TIMESTAMP": "set by deploy-azure.yml at deploy time, same pattern as DEPLOY_SHA; optional (|| null)",
+  "DEPLOY_IMAGE": "set by deploy-azure.yml at deploy time, same pattern as DEPLOY_SHA; optional (|| null)",
+  "PREVIOUS_REVISION": "set by deploy-azure.yml at deploy time, same pattern as DEPLOY_SHA; optional (|| null)",
+  "KNOWN_GOOD_TAG": "set by deploy-azure.yml at deploy time, same pattern as DEPLOY_SHA; optional fallback (|| null), primary source is the GHCR tags API",
+  "GHCR_PACKAGE": "optional override (|| default) for the public GHCR package path used by rollbackStatus.ts; not Bicep-wired by design",
+  "FREE_TIER_GEMINI_KEY": "wired in main.bicep via conditional concat (freeTierSecretName, main.bicep:669/747) outside the static `var baseEnv = [...]` array that Get-BicepBaseEnv.ps1 parses -- confirmed present in deployed Bicep, not actually missing",
+  "GEMINI_PAID_KEY": "wired in main.bicep via conditional concat (paidTierSecretName, main.bicep:672/750), same reason as FREE_TIER_GEMINI_KEY",
+  "GITHUB_WEBHOOK_SECRET": "wired in main.bicep via conditional concat outside the static baseEnv array, same reason as FREE_TIER_GEMINI_KEY -- confirmed 2 occurrences (prod+staging) in main.bicep"
+}

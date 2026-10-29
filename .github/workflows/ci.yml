@@ -169,6 +169,7 @@ jobs:
       lockfile-sync: ${{ steps.filter.outputs.lockfile-sync }}
       bicep-env: ${{ steps.filter.outputs.bicep-env }}
       bicep-resources: ${{ steps.filter.outputs.bicep-resources }}
+      env-bicep-wiring: ${{ steps.filter.outputs.env-bicep-wiring }}
       schema-drift: ${{ steps.filter.outputs.schema-drift }}
       verify-config: ${{ steps.filter.outputs.verify-config }}
       citation-link-ci: ${{ steps.filter.outputs.citation-link-ci }}
@@ -346,6 +347,18 @@ jobs:
             bicep-resources:
               - 'deploy/azure/main.bicep'
               - 'operations/devops/Test-BicepAcaResourcePairs.ps1'
+              - '.github/workflows/ci.yml'
+            # 'env-bicep-wiring' gates env-bicep-wiring (t/4506, Class 5 prevention).
+            # Triggers on a server-code change (new process.env read), main.bicep
+            # change (new/removed Bicep wiring), the scanner script, or the allowlist
+            # (Quality note 3, t/4506#2: an allowlist edit alone must still re-check
+            # against current server code, or a removed entry's regression goes unseen).
+            env-bicep-wiring:
+              - 'taxonomy-editor/src/server/**'
+              - 'deploy/azure/main.bicep'
+              - 'operations/devops/Get-BicepBaseEnv.ps1'
+              - 'operations/devops/Test-EnvBicepWiring.ps1'
+              - 'operations/devops/env-var-allowlist.json'
               - '.github/workflows/ci.yml'
             # 'schema-drift' gates the warn-only drift gate (t/3469, t/3447 Phase-1).
             # Triggers on schema-of-record changes, Zod validator changes, or the runner
@@ -2401,6 +2414,27 @@ jobs:
       - name: Bicep baseEnv ↔ ExpectedEnvVars drift check
         shell: pwsh
         run: ./operations/devops/Test-BicepEnvDrift.ps1
+
+  # ── env-bicep-wiring: every server process.env read is Bicep-wired or allowlisted
+  # (t/4506, Class 5 prevention) ──
+  # bicep-env-drift (above) compares DEPLOYED Bicep vs ExpectedEnvVars; it says
+  # nothing about whether the SERVER CODE reads a var Bicep never provides at all.
+  # That's the t/4504 failure class: #3691 added a process.env.IDENTITY_MAP read,
+  # the Bicep wiring landed separately in #3744, and a deploy shipped the first
+  # without the second. Warn-only (T1) first; promotion to blocking is a separate
+  # T2 with Gate Verification (t/4506's own AC).
+  env-bicep-wiring:
+    needs: [changes]
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.env-bicep-wiring == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Server process.env reads wired in Bicep or allowlisted
+        shell: pwsh
+        run: ./operations/devops/Test-EnvBicepWiring.ps1
 
   # ── bicep-aca-resources: ACA cpu:memory allowed-pair validation (t/3212) ──
   # Parses cpu:memory pairs from deploy/azure/main.bicep and validates each
