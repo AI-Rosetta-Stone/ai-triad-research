@@ -1460,6 +1460,7 @@ export async function extractClaimsAndUpdateAN(
     // Broadcast updated state to popout
     broadcastDiagnosticsState(get);
   } catch (err) {
+    getGlobalRecorder()?.record({ type: 'system.error', debate_id: debate.id, component: 'debate-store', level: 'error', message: 'Claim extraction failed', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     handleExtractionFailure(err, extractionTrace, commitTrace, debate, entryId, speaker, sketchCount, extractStartedAt, get, set);
   }
 }
