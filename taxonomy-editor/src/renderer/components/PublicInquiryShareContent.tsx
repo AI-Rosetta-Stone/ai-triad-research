@@ -125,7 +125,7 @@ export function PublicInquiryShareContent({ doc }: { doc: PublicInquiryShare }) 
                 {doc.calibration.map((entry, i) => (
                   <p className="pov-inquiry-trust-note" key={i}>
                     <span className="pov-inquiry-trust-verdict">{trustVerdictLabel(entry.trust.verdict)}</span>
-                    {' — '}{entry.trust.reason}
+                    {' — '}<span className="pov-inquiry-trust-reason">{entry.trust.reason}</span>
                   </p>
                 ))}
               </div>
