@@ -16,9 +16,10 @@ import { computeCoverageMap, computeStrengthWeightedCoverage } from '@lib/debate
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import {
   speakerLabel, speakerColor, nodeIdToTab, focusMainWindowNode, countOccurrences, renderedOffsetOf,
-  TIER_LABELS, modeOfTier, type DisplayMode,
+  TIER_LABELS, modeOfTier, type DisplayMode, copyPromptForGemini,
 } from './utils';
 import type { AdaptivePhase } from './utils';
+import { TOAST_DURATION_FEEDBACK } from '../../constants';
 import { CommentCreationPopover } from '../chat/CommentCreationPopover';
 import type { CommentPopoverState } from '../chat/CommentCreationPopover';
 import { CommentSidebar } from '../chat/CommentSidebar';
@@ -281,11 +282,13 @@ function DebateContextMenu({
   onClose,
   onSimilarPovSearch,
   onComment,
+  onGeminiFallback,
 }: {
   menu: ContextMenuState;
   onClose: () => void;
   onSimilarPovSearch: (query: string) => void;
   onComment: () => void;
+  onGeminiFallback: (prompt: string) => void;
 }) {
   const { factCheckSelection, debateGenerating } = useDebateStore(
     useShallow(s => ({ factCheckSelection: s.factCheckSelection, debateGenerating: s.debateGenerating }))
@@ -352,10 +355,11 @@ function DebateContextMenu({
       <button className="debate-context-menu-item" onClick={() => {
         // t/4514: open the same inline in-app panel the card's "Explain" button uses, scoped to
         // this selection, via the entry's registered handler. No handler registered (panel not
-        // mounted for this entry) falls back to the old clipboard+browser escape hatch.
+        // mounted for this entry) falls back to the same copy-confirm-open flow as ExplainPanel's
+        // "Copy prompt & open Gemini" button (t/4645) — via onGeminiFallback, which outlives this
+        // menu (it closes immediately below) so the confirmation can still render.
         if (!requestExplainForSelection(menu.entryId, menu.selectedText)) {
-          void api.clipboardWriteText(`EXPLAIN: ${menu.selectedText}`);
-          void api.openExternal('https://gemini.google.com/app');
+          onGeminiFallback(`EXPLAIN: ${menu.selectedText}`);
         }
         onClose();
       }}>
@@ -863,7 +867,7 @@ function DebateActionRegion({
 
 function DebateModals({
   contextMenu, setContextMenu, commentPopover, setCommentPopover,
-  onSimilarPovSearch, commentSidebarOpen, commentsFile,
+  onSimilarPovSearch, commentSidebarOpen, commentsFile, geminiToast, onGeminiFallback,
 }: {
   contextMenu: ContextMenuState | null;
   setContextMenu: React.Dispatch<React.SetStateAction<ContextMenuState | null>>;
@@ -872,6 +876,8 @@ function DebateModals({
   onSimilarPovSearch: (query: string) => void;
   commentSidebarOpen: boolean;
   commentsFile: CommentStoreState['commentsFile'];
+  geminiToast: string | null;
+  onGeminiFallback: (prompt: string) => void;
 }) {
   return (
     <>
@@ -881,6 +887,7 @@ function DebateModals({
           menu={contextMenu}
           onClose={() => setContextMenu(null)}
           onSimilarPovSearch={onSimilarPovSearch}
+          onGeminiFallback={onGeminiFallback}
           onComment={() => {
             setCommentPopover({
               x: contextMenu.x,
@@ -894,6 +901,13 @@ function DebateModals({
             setContextMenu(null);
           }}
         />
+      )}
+
+      {/* t/4645: visible confirmation for the right-click "Explain…" Gemini fallback — the
+          context menu above closes immediately on click, so this lives in DebateModals (which
+          stays mounted) rather than in the menu itself, mirroring ExplainPanel's confirmation. */}
+      {geminiToast && (
+        <div className="debate-gemini-fallback-toast" role="status" aria-live="polite">{geminiToast}</div>
       )}
 
       {/* Comment creation popover */}
@@ -1203,6 +1217,28 @@ function useDebateSelectionMenu(activeDebate: DWStore['activeDebate'], defaultTi
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [commentPopover, setCommentPopover] = useState<CommentPopoverState | null>(null);
 
+  // t/4645: the right-click "Explain…" Gemini fallback — same copy→confirm→open sequence as
+  // ExplainPanel's "Copy prompt & open Gemini" button. Lives here (outlives the context menu,
+  // which closes immediately on click) so the confirmation still has somewhere to render.
+  const [geminiToast, setGeminiToast] = useState<string | null>(null);
+  const geminiToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (geminiToastTimerRef.current) clearTimeout(geminiToastTimerRef.current); }, []);
+
+  const requestGeminiFallback = useCallback((prompt: string) => {
+    void copyPromptForGemini(prompt).then((ok) => {
+      if (!ok) {
+        setGeminiToast("Couldn't copy the prompt to your clipboard — Gemini not opened.");
+        geminiToastTimerRef.current = setTimeout(() => setGeminiToast(null), TOAST_DURATION_FEEDBACK);
+        return;
+      }
+      setGeminiToast('Prompt copied. Paste it into Gemini.');
+      geminiToastTimerRef.current = setTimeout(() => {
+        void api.openExternal('https://gemini.google.com/app');
+        setGeminiToast(null);
+      }, TOAST_DURATION_FEEDBACK);
+    });
+  }, []);
+
   const buildMenuState = useCallback((container: EventTarget | null, x: number, y: number): ContextMenuState | null => {
     const selection = window.getSelection();
     const selectedText = selection?.toString().trim() || '';
@@ -1231,7 +1267,10 @@ function useDebateSelectionMenu(activeDebate: DWStore['activeDebate'], defaultTi
   const { onContextMenu: handleContextMenu, onTouchEnd: handleTouchEnd } =
     useLongPressSelectionMenu(buildMenuState, setContextMenu);
 
-  return { contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd };
+  return {
+    contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd,
+    geminiToast, requestGeminiFallback,
+  };
 }
 
 // ── Main component ───────────────────────────────────────
@@ -1296,7 +1335,10 @@ export function DebateWorkspace({ onExport, exportStatus }: {
 
   const { findVisible, findQuery, setFindQuery, findCurrentIndex, findTotal, findOffsets, findNext, findPrev, closeFind } = useDebateFind(activeDebate);
   const { coverageMap, strengthWeighted } = useDebateCoverage(activeDebate);
-  const { contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd } = useDebateSelectionMenu(activeDebate, defaultTier);
+  const {
+    contextMenu, setContextMenu, commentPopover, setCommentPopover, handleContextMenu, handleTouchEnd,
+    geminiToast, requestGeminiFallback,
+  } = useDebateSelectionMenu(activeDebate, defaultTier);
 
   // useFlag is a hook — hoist above the early returns below (rules-of-hooks, t/2299).
   const chatRedesign = useFlag('DEBATE_CHAT_REDESIGN');
@@ -1415,6 +1457,8 @@ export function DebateWorkspace({ onExport, exportStatus }: {
         onSimilarPovSearch={handleSimilarPovSearch}
         commentSidebarOpen={commentSidebarOpen}
         commentsFile={commentsFile}
+        geminiToast={geminiToast}
+        onGeminiFallback={requestGeminiFallback}
       />
     </div>
     <DebateSideRail

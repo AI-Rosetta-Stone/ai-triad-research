@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, within, act, waitFor } from '@testing-library/react';
 import { DebateWorkspace } from './DebateWorkspace';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { api } from '@bridge';
@@ -896,7 +896,8 @@ describe('selection context menu', () => {
       expect(container.querySelector('.debate-context-menu')).toBeNull(); // menu closes either way
     });
 
-    it('falls back to the Gemini escape hatch when no inline panel is registered for the entry', () => {
+    it('falls back to the Gemini escape hatch — copies, shows a visible confirmation, then opens Gemini', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       mockRequestExplainForSelection.mockReturnValue(false);
       mockSelection('hello world');
       const { container } = render(<DebateWorkspace />);
@@ -905,7 +906,30 @@ describe('selection context menu', () => {
 
       expect(mockRequestExplainForSelection).toHaveBeenCalledWith('', 'hello world');
       expect(api.clipboardWriteText).toHaveBeenCalledWith('EXPLAIN: hello world');
+
+      // t/4645: routed through copyPromptForGemini, same sequence as ExplainPanel's button —
+      // a visible, aria-live confirmation appears before Gemini opens, not immediately on copy.
+      await vi.waitFor(() => expect(screen.getByText('Prompt copied. Paste it into Gemini.')).toBeInTheDocument());
+      expect(screen.getByText('Prompt copied. Paste it into Gemini.').closest('[aria-live="polite"]')).toBeTruthy();
+      expect(api.openExternal).not.toHaveBeenCalled();
+
+      act(() => { vi.advanceTimersByTime(3000); });
       expect(api.openExternal).toHaveBeenCalledWith('https://gemini.google.com/app');
+      vi.useRealTimers();
+    });
+
+    it('does not open Gemini when the clipboard write fails in the fallback path', async () => {
+      mockRequestExplainForSelection.mockReturnValue(false);
+      (api.clipboardWriteText as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('denied'));
+      mockSelection('hello world');
+      const { container } = render(<DebateWorkspace />);
+      fireEvent.contextMenu(container.querySelector('.debate-scroll-content')!);
+      fireEvent.click(screen.getByText('Explain…'));
+
+      expect(api.clipboardWriteText).toHaveBeenCalledWith('EXPLAIN: hello world');
+      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+      expect(screen.getByRole('status').textContent).toMatch(/couldn't copy/i);
+      expect(api.openExternal).not.toHaveBeenCalled();
     });
   });
 });

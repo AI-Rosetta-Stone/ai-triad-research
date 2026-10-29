@@ -6,6 +6,7 @@ import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { allNodesById } from '../../hooks/useTaxonomyStore/superseded';
 import { speakerLabel } from './speakerHelpers';
 import { api } from '@bridge';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import type { TabId } from '../../types/taxonomy';
 
@@ -130,24 +131,36 @@ export function buildExplainPrompt(entry: TranscriptEntry): string {
   return prompt;
 }
 
-export function handleExplainEntry(entry: TranscriptEntry) {
-  const prompt = buildExplainPrompt(entry);
-  void api.clipboardWriteText(prompt);
-  void api.openExternal('https://gemini.google.com/app');
-}
-
 /** t/4514: the right-click "Explain…" prompt for a selection, scoped to that excerpt only
  *  (not the whole entry) — kept separate from buildExplainPrompt's whole-entry scoping. */
 export function buildSelectionExplainPrompt(selectedText: string): string {
   return `Explain this excerpt from a debate between the Accelerationist, the Safetyist, and the Skeptic:\n\n${selectedText}\n`;
 }
 
-/** t/4514: copy a prompt to the clipboard and open Gemini — the "Open in Gemini" escape hatch,
- *  now secondary to the inline in-app answer. Prompt-agnostic so it serves both the card's
- *  whole-entry prompt and the right-click selection prompt. */
-export function openPromptInGemini(prompt: string): void {
-  void api.clipboardWriteText(prompt);
-  void api.openExternal('https://gemini.google.com/app');
+/**
+ * t/4645: the copy half of "Copy prompt & open Gemini" — the escape hatch secondary to the
+ * inline in-app answer. Awaited and reported, so a caller can guarantee Gemini never opens on a
+ * failed copy (a plain click must not silently jump the user to Gemini with nothing on their
+ * clipboard) and can decide its own timing for opening Gemini relative to showing a confirmation.
+ * Opening Gemini itself is the caller's job (`api.openExternal('https://gemini.google.com/app')`)
+ * — deliberately not bundled here, since ExplainPanel opens it only after a visible confirmation
+ * interstitial, while the right-click fallback (no persistent UI surface to show one on) opens
+ * immediately on success.
+ */
+export async function copyPromptForGemini(prompt: string): Promise<boolean> {
+  try {
+    await api.clipboardWriteText(prompt);
+    return true;
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'debate-workspace',
+      level: 'warn',
+      message: 'Copy-prompt-for-Gemini clipboard write failed — not opening Gemini',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return false;
+  }
 }
 
 // ── Markdown helpers ─────────────────────────────────────

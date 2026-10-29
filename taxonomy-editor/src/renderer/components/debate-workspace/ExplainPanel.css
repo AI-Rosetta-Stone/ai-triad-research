@@ -39,6 +39,43 @@
   color: var(--text-secondary);
 }
 
+.debate-explain-gemini-link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.debate-explain-gemini-area {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.debate-explain-gemini-status {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.debate-explain-gemini-error {
+  margin-bottom: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.debate-explain-gemini-prompt-text {
+  margin: var(--sp-1) 0;
+  padding: var(--sp-2);
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: var(--text-xs);
+}
+
 .debate-explain-loading {
   display: flex;
   align-items: center;
