@@ -31,6 +31,7 @@ import {
   deriveModelsByBackend,
   deriveBackends,
   resolveStoredModel,
+  resolveStoredBackend,
   MODELS_BY_BACKEND,
   AI_BACKENDS,
   getStoredModel,
@@ -225,6 +226,39 @@ describe('resolveStoredModel — graceful-empty guard, both arms (t/3286, TL t/3
 
   it('a bogus stored id is rejected, then the backend default resolves', () => {
     expect(resolveStoredModel('bogus-id', 'good' as AIBackend, DEFAULTS, ALL, GLOBAL)).toBe('real-model');
+  });
+
+  // t/4628: isAnonymousWeb is an explicit input (never a hidden global read inside the function).
+  it('t/4628: isAnonymousWeb=true ignores a VALID stored id and resolves the backend default', () => {
+    expect(resolveStoredModel('other-model', 'good' as AIBackend, DEFAULTS, ALL, GLOBAL, true)).toBe('real-model');
+  });
+
+  it('t/4628: isAnonymousWeb=false (the default) is unaffected — existing callers keep today\'s behavior', () => {
+    expect(resolveStoredModel('other-model', 'good' as AIBackend, DEFAULTS, ALL, GLOBAL)).toBe('other-model');
+  });
+
+  it('t/4628: isAnonymousWeb=true still falls through to the global default on a misconfigured backend', () => {
+    expect(resolveStoredModel('other-model', 'empty' as AIBackend, DEFAULTS, ALL, GLOBAL, true)).toBe('global-default');
+  });
+});
+
+describe('resolveStoredBackend — anonymous arm (t/4628, mirrors resolveStoredModel\'s shape)', () => {
+  const KNOWN = new Set<AIBackend>(['gemini', 'claude']);
+
+  it('a known stored backend wins when not anonymous', () => {
+    expect(resolveStoredBackend('claude', KNOWN)).toBe('claude');
+  });
+
+  it('an unknown stored backend falls back to gemini when not anonymous', () => {
+    expect(resolveStoredBackend('bogus-backend', KNOWN)).toBe('gemini');
+  });
+
+  it('null (nothing stored) falls back to gemini when not anonymous', () => {
+    expect(resolveStoredBackend(null, KNOWN)).toBe('gemini');
+  });
+
+  it('t/4628: isAnonymousWeb=true ignores a VALID stored backend and resolves to gemini', () => {
+    expect(resolveStoredBackend('claude', KNOWN, true)).toBe('gemini');
   });
 });
 

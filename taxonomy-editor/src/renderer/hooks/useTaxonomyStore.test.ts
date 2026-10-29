@@ -304,6 +304,91 @@ describe('useTaxonomyStore', () => {
       });
     });
 
+    // t/4628: anonymous hosted users always start on the default model/backend, ignoring any
+    // stored selection, without deleting what's stored (AC1/AC2/AC4).
+    describe('applyAnonymousSessionDefaults (t/4628)', () => {
+      it('AC1: overrides a stored non-default model/backend to the gemini default when anonymous', () => {
+        storage.set('taxonomy-editor-gemini-model', 'claude-sonnet-4-6');
+        storage.set('taxonomy-editor-ai-backend', 'claude');
+
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(true);
+
+        const state = useTaxonomyStore.getState();
+        expect(state.geminiModel).toBe('gemini-3.5-flash-lite');
+        expect(state.aiBackend).toBe('gemini');
+      });
+
+      it('condition 3: leaves the stored values in localStorage untouched (ignored, not deleted)', () => {
+        storage.set('taxonomy-editor-gemini-model', 'claude-sonnet-4-6');
+        storage.set('taxonomy-editor-ai-backend', 'claude');
+
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(true);
+
+        expect(storage.get('taxonomy-editor-gemini-model')).toBe('claude-sonnet-4-6');
+        expect(storage.get('taxonomy-editor-ai-backend')).toBe('claude');
+      });
+
+      it('condition 4: logs a WARN naming the overridden values when a stored value is actually ignored', () => {
+        storage.set('taxonomy-editor-gemini-model', 'claude-sonnet-4-6');
+        storage.set('taxonomy-editor-ai-backend', 'claude');
+
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(true);
+
+        const warnCall = mockRecord.mock.calls.find(([entry]) => entry.message?.includes('Anonymous session: ignoring stored AI selection'));
+        expect(warnCall).toBeDefined();
+        expect(warnCall![0].level).toBe('warn');
+        expect(warnCall![0].message).toContain('claude-sonnet-4-6');
+        expect(warnCall![0].message).toContain('claude');
+      });
+
+      it('condition 4: does NOT warn when nothing was stored (first-ever anonymous visit)', () => {
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(true);
+
+        const warnCall = mockRecord.mock.calls.find(([entry]) => entry.message?.includes('Anonymous session: ignoring stored AI selection'));
+        expect(warnCall).toBeUndefined();
+      });
+
+      it('AC2: a signed-in session (isAnonymous=false) is a no-op — current model/backend untouched', () => {
+        useTaxonomyStore.getState().setAIBackend('claude'); // also sets geminiModel to claude's default
+
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(false);
+
+        const state = useTaxonomyStore.getState();
+        expect(state.geminiModel).toBe('claude-sonnet-4-6');
+        expect(state.aiBackend).toBe('claude');
+      });
+
+      it('wanted #2: an anonymous in-visit model switch updates state but does not persist', () => {
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(true);
+        storage.clear(); // isolate: only the switch below should (not) write
+
+        useTaxonomyStore.getState().setGeminiModel('gemini-2.5-pro');
+
+        expect(useTaxonomyStore.getState().geminiModel).toBe('gemini-2.5-pro');
+        expect(storage.get('taxonomy-editor-gemini-model')).toBeUndefined();
+      });
+
+      it('wanted #2: an anonymous in-visit backend switch updates state but does not persist', () => {
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(true);
+        storage.clear();
+
+        useTaxonomyStore.getState().setAIBackend('claude');
+
+        const state = useTaxonomyStore.getState();
+        expect(state.aiBackend).toBe('claude');
+        expect(storage.get('taxonomy-editor-ai-backend')).toBeUndefined();
+      });
+
+      it('condition 2: a later signed-in session (flag reset to false) persists normally again', () => {
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(true);
+        useTaxonomyStore.getState().applyAnonymousSessionDefaults(false); // simulates the post-reload re-init
+
+        useTaxonomyStore.getState().setGeminiModel('gemini-2.5-pro');
+
+        expect(storage.get('taxonomy-editor-gemini-model')).toBe('gemini-2.5-pro');
+      });
+    });
+
     describe('paneSpacing', () => {
       it('defaults to normal', () => {
         expect(useTaxonomyStore.getState().paneSpacing).toBe('normal');

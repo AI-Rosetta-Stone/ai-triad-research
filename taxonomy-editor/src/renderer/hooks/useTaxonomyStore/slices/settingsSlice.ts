@@ -94,14 +94,42 @@ export function isKnownBackend(id: string): id is AIBackend {
   return (KNOWN_BACKENDS as ReadonlySet<string>).has(id);
 }
 
+// t/4628: set once per session by the anonymous-session check (App.tsx's bootstrapAfterModelsLoaded
+// → applyAnonymousSessionDefaults), never read until then (initial state is unaffected — see
+// resolveStoredModel/resolveStoredBackend's isAnonymousWeb default below). Suppresses setGeminiModel/
+// setAIBackend's localStorage writes for the rest of an anonymous session (ticket's "wanted" #2:
+// an in-visit change still works, but doesn't persist across visits) without deleting what's
+// already stored (condition t/4628#2 item 3). Resets to false on reload, which sign-in always
+// triggers — every sign-in entry point (AnonymousBanner, HamburgerMenu, Toolbar, NewDebateDialog,
+// PovTab) is a plain `<a href="/api/auth/fresh-login/...">`, a full browser navigation, never an
+// SPA-internal route (confirmed by repo-wide grep before relying on this).
+let sessionIsAnonymousWeb = false;
+
+/**
+ * t/3286: PURE backend-resolution guard, mirroring resolveStoredModel's shape (same extract-don't-
+ * seam discipline, t/2971). t/4628 added the isAnonymousWeb arm as an explicit input — never a
+ * hidden global read inside this function — so both arms stay unit-testable without mocking
+ * module state.
+ */
+export function resolveStoredBackend(
+  storedBackend: string | null,
+  knownBackends: ReadonlySet<AIBackend>,
+  isAnonymousWeb = false,
+): AIBackend {
+  if (!isAnonymousWeb && storedBackend && (knownBackends as ReadonlySet<string>).has(storedBackend)) {
+    return storedBackend as AIBackend;
+  }
+  return 'gemini';
+}
+
 function getStoredBackend(): AIBackend {
+  let stored: string | null = null;
   try {
-    const stored = localStorage.getItem('taxonomy-editor-ai-backend');
-    if (stored && isKnownBackend(stored)) return stored;
+    stored = localStorage.getItem('taxonomy-editor-ai-backend');
   } catch (err) {
     getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to read stored AI backend from localStorage', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
   }
-  return 'gemini';
+  return resolveStoredBackend(stored, KNOWN_BACKENDS);
 }
 
 /**
@@ -110,6 +138,11 @@ function getStoredBackend(): AIBackend {
  * else the backend's default IF it is a real model; else the always-present global default. The final
  * branch is the graceful-empty guard — an empty/misconfigured backend whose default isn't a real id
  * must never strand the UI on a non-model string.
+ *
+ * t/4628: isAnonymousWeb is an explicit input, defaulting to false so every EXISTING call site
+ * (getStoredModel's own synchronous initial read, which can't know anonymity yet) is unaffected.
+ * When true, the stored-id branch is skipped entirely — anonymous hosted sessions always resolve
+ * to the backend's default (gemini-3.5-flash-lite per #4103), never a stored id.
  */
 export function resolveStoredModel(
   storedId: string | null,
@@ -117,8 +150,9 @@ export function resolveStoredModel(
   defaultModels: Record<AIBackend, AIModel>,
   allModelIds: ReadonlySet<string>,
   globalDefault: AIModel,
+  isAnonymousWeb = false,
 ): AIModel {
-  if (storedId && allModelIds.has(storedId)) return storedId as AIModel;
+  if (!isAnonymousWeb && storedId && allModelIds.has(storedId)) return storedId as AIModel;
   const fallback = defaultModels[backend];
   return allModelIds.has(fallback) ? fallback : globalDefault;
 }
@@ -270,6 +304,10 @@ export interface SettingsSlice {
   setAIBackend: (backend: AIBackend) => void;
   geminiModel: AIModel;
   setGeminiModel: (model: AIModel) => void;
+  /** t/4628: called once after initAIModels() + the anonymous-session check resolve. Pass the
+   *  resolved anonymity; the action stays synchronous so it's trivially testable without mocking
+   *  the bridge. No-op (and no WARN) when `isAnonymous` is false. */
+  applyAnonymousSessionDefaults: (isAnonymous: boolean) => void;
 
   colorScheme: ColorScheme;
   setColorScheme: (scheme: ColorScheme) => void;
@@ -291,21 +329,58 @@ export interface SettingsSlice {
 export const createSettingsSlice: StateCreator<TaxonomyStore, [], [], SettingsSlice> = (set, get) => ({
   aiBackend: getStoredBackend(),
   setAIBackend: (backend) => {
-    try { localStorage.setItem('taxonomy-editor-ai-backend', backend); } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to persist AI backend to localStorage', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
-    }
     const newModel = DEFAULT_MODELS[backend];
-    try { localStorage.setItem('taxonomy-editor-gemini-model', newModel); } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to persist AI model to localStorage', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    // t/4628: an anonymous session's in-visit switch still works (the set() below always runs)
+    // but must not persist across visits — skip the writes, don't touch what's already stored.
+    if (!sessionIsAnonymousWeb) {
+      try { localStorage.setItem('taxonomy-editor-ai-backend', backend); } catch (err) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to persist AI backend to localStorage', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      }
+      try { localStorage.setItem('taxonomy-editor-gemini-model', newModel); } catch (err) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to persist AI model to localStorage', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      }
     }
     set({ aiBackend: backend, geminiModel: newModel });
   },
   geminiModel: getStoredModel(),
   setGeminiModel: (model) => {
-    try { localStorage.setItem('taxonomy-editor-gemini-model', model); } catch (err) {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to persist AI model selection to localStorage', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    if (!sessionIsAnonymousWeb) {
+      try { localStorage.setItem('taxonomy-editor-gemini-model', model); } catch (err) {
+        getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to persist AI model selection to localStorage', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+      }
     }
     set({ geminiModel: model });
+  },
+  applyAnonymousSessionDefaults: (isAnonymous) => {
+    sessionIsAnonymousWeb = isAnonymous;
+    if (!isAnonymous) return;
+
+    let storedModel: string | null = null;
+    let storedBackendRaw: string | null = null;
+    try { storedModel = localStorage.getItem('taxonomy-editor-gemini-model'); } catch (err) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to read stored AI model while applying anonymous-session defaults', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    }
+    try { storedBackendRaw = localStorage.getItem('taxonomy-editor-ai-backend'); } catch (err) {
+      getGlobalRecorder()?.record({ type: 'system.error', component: 'taxonomy-store', level: 'warn', message: 'Failed to read stored AI backend while applying anonymous-session defaults', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    }
+
+    // t/4628: condition 3 — don't delete what's stored, just ignore it for this session.
+    const targetBackend = resolveStoredBackend(storedBackendRaw, KNOWN_BACKENDS, true);
+    const targetModel = resolveStoredModel(storedModel, targetBackend, DEFAULT_MODELS, ALL_MODEL_IDS, DEFAULT_MODEL, true);
+
+    // t/4628 condition 4: WARN only when a stored value is actually being overridden, not on
+    // every anonymous load (a first-ever visit with nothing stored fires nothing here).
+    const ignoredModel = storedModel && storedModel !== targetModel ? storedModel : null;
+    const ignoredBackend = storedBackendRaw && storedBackendRaw !== targetBackend ? storedBackendRaw : null;
+    if (ignoredModel || ignoredBackend) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'taxonomy-store', level: 'warn',
+        message: `Anonymous session: ignoring stored AI selection (model='${ignoredModel ?? 'unchanged'}', backend='${ignoredBackend ?? 'unchanged'}') — using session default`,
+        error: { name: 'AnonymousModelOverride', message: 'stored AI selection overridden for an anonymous session', stack: '' },
+      });
+    }
+
+    set({ geminiModel: targetModel, aiBackend: targetBackend });
   },
 
   colorScheme: getStoredTheme(),

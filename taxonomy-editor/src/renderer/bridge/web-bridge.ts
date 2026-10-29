@@ -192,6 +192,31 @@ async function isAnonymous(): Promise<boolean> {
   return _authAnonymous;
 }
 
+/** t/4628: model/backend selection needs the opposite fail-safe from isAnonymous()'s other
+ *  callers. isAnonymous() caches `true` on a non-OK response or a network error — a reasonable
+ *  restrictive default for the things it already gates, but wrong here: if a signed-in user's
+ *  /api/auth/me check fails on a flaky load, treating them as anonymous would strip their saved
+ *  model AND stop persisting their in-visit choice. So this resolves `false` (signed-in
+ *  behavior) on any failure, with its own WARN, and only shares the memoized `_authAnonymous`
+ *  cache on a successful response (never writes `true` to it on failure — that cache's other
+ *  callers keep their own existing fail-safe untouched). TL condition, t/4628#2 item 1. */
+async function checkAnonymousSessionForModelSelection(): Promise<boolean> {
+  if (_authAnonymous !== null) return _authAnonymous;
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.ok) {
+      const data = await res.json();
+      _authAnonymous = !!data.anonymous;
+      return _authAnonymous;
+    }
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'web-bridge', level: 'warn', message: `Auth check returned ${res.status}; treating session as signed-in for model selection`, error: { name: 'AuthCheckNonOk', message: `status ${res.status}`, stack: '' } });
+    return false;
+  } catch (err) {
+    getGlobalRecorder()?.record({ type: 'system.error', component: 'web-bridge', level: 'warn', message: 'Auth check failed; treating session as signed-in for model selection', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
+    return false;
+  }
+}
+
 // ── HTTP helpers ──
 
 async function get<T = unknown>(path: string, opts?: FetchOptions): Promise<T> {
@@ -821,6 +846,10 @@ const rawApi: AppAPI = {
 
   // AI models & keys
   loadAIModels: () => get('/api/models'),
+  // t/4628: renderer-only signal for model/backend selection — reuses /api/auth/me (ServerAPI
+  // unchanged) but, unlike isAnonymous()'s other callers, fails closed to "signed-in" rather
+  // than "anonymous" (t/4628#2 condition 1).
+  checkAnonymousSession: () => checkAnonymousSessionForModelSelection(),
   // t/4031: opts travel as the POST body; a plain refresh still sends none. Not retried (a mutation).
   refreshAIModels: (opts) => post<RefreshModelsResponse>('/api/models/refresh', opts),
   validateApiKey: (key, backend) => post('/api/keys/validate', { key, backend }),

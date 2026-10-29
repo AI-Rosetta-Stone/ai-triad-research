@@ -460,6 +460,11 @@ export interface AppAPI {
 
   // --- AI models & keys ---
   loadAIModels: () => Promise<unknown>;
+  /** t/4628: renderer-only anonymity signal for model/backend default selection. Web: reuses
+   *  /api/auth/me, fails closed to `false` (signed-in) on any error — the opposite fail-safe
+   *  from other anonymity checks, since treating a signed-in user as anonymous here would strip
+   *  their saved model. Electron: always `false` (no anonymous-session concept). */
+  checkAnonymousSession: () => Promise<boolean>;
   /** t/4031: `opts` asks for a dry run or accepts a proposal; omit it for a plain refresh. */
   refreshAIModels: (opts?: RefreshModelsRequest) => Promise<RefreshModelsResponse>;
   validateApiKey: (key: string, backend: string) => Promise<{ valid: boolean; error?: string }>;
