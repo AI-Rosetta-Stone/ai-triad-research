@@ -166,14 +166,14 @@ function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]
 
   return (
     <details className="oped-grounding" open>
-      <summary className="oped-grounding-summary">Taxonomy grounding ({grounding.length} element{grounding.length !== 1 ? 's' : ''})</summary>
+      <summary className="oped-grounding-summary">Why ({grounding.length} element{grounding.length !== 1 ? 's' : ''})</summary>
       <div className="oped-grounding-table-wrap">
         <table className="oped-grounding-table">
-          <caption className="sr-only">Taxonomy grounding for this op-ed</caption>
+          <caption className="sr-only">Why this op-ed says what it says — taxonomy elements it draws on</caption>
           <thead>
             <tr>
+              <th scope="col">ID</th>
               <th scope="col">Element</th>
-              <th scope="col">Relevance</th>
               <th scope="col">Reflected in the op-ed</th>
             </tr>
           </thead>
@@ -183,17 +183,20 @@ function GroundingSection({ grounding, claims }: { grounding: OpEdGroundingRef[]
               return (
                 <tr key={g.node_id} className={isOpen ? 'oped-grounding-row-active' : ''}>
                   <td>
-                    <button
-                      type="button"
-                      className="oped-grounding-id-btn"
-                      aria-expanded={isOpen}
-                      title={g.node_id}
-                      onClick={() => setExpandedId(isOpen ? null : g.node_id)}
-                    >
-                      {g.label || g.node_id}
-                    </button>
+                    {g.node_id ? (
+                      <button
+                        type="button"
+                        className="oped-grounding-id-btn"
+                        aria-expanded={isOpen}
+                        aria-label={`Show ${g.label || g.node_id}`}
+                        title={g.node_id}
+                        onClick={() => setExpandedId(isOpen ? null : g.node_id)}
+                      >
+                        {g.node_id}
+                      </button>
+                    ) : '—'}
                   </td>
-                  <td>{g.relevance || '—'}</td>
+                  <td>{g.label || '—'}</td>
                   <td>{g.how_reflected || '(not reported)'}</td>
                 </tr>
               );
