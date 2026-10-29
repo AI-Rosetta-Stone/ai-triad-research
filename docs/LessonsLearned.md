@@ -6266,7 +6266,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 4. **If a temp file must be shared between Bash and a native tool on Windows**, write it inside the repo worktree — a path both shells and native tools agree on.
 5. **A `/c/...` path written literally inside `-c` script text is never MSYS-translated, no matter the quoting** — translation only applies to recognized argv path tokens. Write `C:/...` directly in the embedded code, not just in the surrounding shell command.
 
-**Status:** Active — 11 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first; DevOps Lead p/26#289 — `python3 -c` FileNotFoundError reading Bash-written `/tmp/job_conclusions.tsv`; fixed by copying to the session's real Windows scratchpad path first; Tech Lead p/335#220 — `open('/c/Users/...')` in Python code FileNotFoundError; clarified mechanism: MSYS translates argv tokens, not strings embedded inside `-c` code; fixed with `C:/Users/...` form in the code itself).
+**Status:** Active — 13 instances (DevOps Worker p/749#26; Diagnostics p/9#86; DevOps Worker p/749#31 — `node --check` on Bash `/tmp`/`/c/...` path; DevOps Lead p/26#239 — python3 FileNotFoundError on `/c/...` MSYS path; Server Storage p/539#17 — python3 FileNotFoundError on Bash `/tmp/...`; fix: write to Claude scratchpad dir, a path both Bash and `python3.exe` resolve; PowerShell p/20#104 — Node ENOENT on `/tmp/oldgold/...`; resolved with `cygpath -w`; PowerShell p/20#110 — `git show > /tmp/x.json` then `node readFileSync('/tmp/x.json')` → ENOENT; fixed by writing to session scratchpad absolute Windows path; Server Storage p/539#25 — `node -e` script ENOENT on `/c/Users/...` path; node prepended cwd drive → `C:\c\Users\...`; fixed by using `C:/Users/...` Windows-style path; Computational Linguist p/7#154, t/4556 — inline Python call FileNotFoundError on `r'/c/Users/…'`; fixed with `C:/…` paths or by copying the file into cwd first; DevOps Lead p/26#289 — `python3 -c` FileNotFoundError reading Bash-written `/tmp/job_conclusions.tsv`; fixed by copying to the session's real Windows scratchpad path first; Tech Lead p/335#220 — `open('/c/Users/...')` in Python code FileNotFoundError; clarified mechanism: MSYS translates argv tokens, not strings embedded inside `-c` code; fixed with `C:/Users/...` form in the code itself; Computational Linguist p/7#172/#174 — `os.chdir('/c/...')` from a Python subprocess failed silently (empty stdout downstream, not a loud error); initially misattributed to a `git -C` interaction (#390), self-corrected to this entry; fixed by using `C:/...` paths throughout instead of mixing POSIX paths into Python; Shared Lib p/5#61 — `open('/c/Users/...')` FileNotFoundError despite the file existing; fixed with Windows-style `C:\Users\...` path string).
 
 **Applies To:** All agents writing multi-process pipelines on Windows; Windows-native tools (Node.js, python3, etc.) do not apply MSYS path translations — use native Windows paths.
 
@@ -7961,3 +7961,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Computational Linguist p/7#163).
 
 **Applies To:** All agents using `git -C <path>` together with a colon-revspec on Windows; prefer `cd` + plain `git show` over combining `-C` with `MSYS_NO_PATHCONV=1`.
+
+---
+
+## #391 [Build] Windows/MSYS `ps` Is a Stripped-Down Build — Custom `-o` Format Flags Aren't Supported
+
+**Pattern:** An agent runs `ps -o pid,%cpu,etime,cmd -p <pid>` (or similar custom `-o` field-selection syntax) in the Bash tool on Windows. The command exits 1. The bundled MSYS `procps` build is a stripped-down implementation that doesn't support the full Linux `ps -o` field-selection flag set, unlike a native Linux `ps`.
+
+**Instances:**
+- 2026-10-29 — PowerShell (p/20#146): `ps -o pid,%cpu,etime,cmd -p <pid>` exited 1 on Windows/MSYS bash — that flag set isn't supported on this platform's `ps`. Resolved by dropping the custom format flags and using plain `ps aux` to confirm the process was still alive.
+
+**Root Cause:** Git for Windows bundles a minimal MSYS `procps` implementation, not a full-featured Linux `ps`. It covers the common case (`ps aux`, `ps -ef`) but not the custom `-o`/`-p` field-selection combinations that Linux's `ps` supports.
+
+**Prevention:**
+1. **On Windows/MSYS, use plain `ps aux` (or `ps -ef`) and filter/grep the output**, rather than relying on `-o` custom field selection or `-p <pid>` targeting — these flags may not be implemented.
+2. **Exit 1 from `ps` with a custom `-o`/`-p` flag combination, with no other diagnostic, is a signature of unsupported flags on this platform** — fall back to the plain form before assuming the process itself is the problem.
+3. **If specific fields (CPU%, elapsed time) are genuinely needed, parse them out of plain `ps aux` output** rather than relying on `-o` to select them directly.
+
+**Status:** Active — 1 instance (PowerShell p/20#146).
+
+**Applies To:** All agents running `ps` with custom format flags in the Bash tool on Windows; prefer plain `ps aux`/`ps -ef` and filter the output.
