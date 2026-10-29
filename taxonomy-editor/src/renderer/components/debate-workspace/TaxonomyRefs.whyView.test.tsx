@@ -73,6 +73,16 @@ describe('BdiGroundingView (t/4625 Why tab)', () => {
     expect(screen.getByText('why it matters')).toBeInTheDocument();
   });
 
+  it('t/4653: shows the node id, label, and relevance text, but no "Relevance ..." weight line', () => {
+    render(<BdiGroundingView refs={REFS} />);
+    expect(screen.getByRole('button', { name: NODE })).toBeInTheDocument();
+    expect(screen.getByText('Label for ' + NODE)).toBeInTheDocument();
+    expect(screen.getByText('why it matters')).toBeInTheDocument();
+    // The chip's own "(0.66)" score suffix is untouched — only the per-ref
+    // "(Relevance … ; Confidence/Priority/Operationality …)" line is removed.
+    expect(screen.queryByText(/Relevance/)).not.toBeInTheDocument();
+  });
+
   it('clicking a ref shows the inline POV detail (not a navigation)', () => {
     render(<BdiGroundingView refs={REFS} />);
     expect(screen.queryByTestId('ref-detail')).not.toBeInTheDocument();

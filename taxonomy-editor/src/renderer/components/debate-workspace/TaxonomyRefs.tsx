@@ -8,7 +8,7 @@ import type { TaxonomyRef, TranscriptEntry } from '../../types/debate';
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import { humanizeSpeakerIds } from '../../utils/humanizeSpeakers';
 import {
-  nodeIdToTab, getNodeLabel, getNodeWeight, focusMainWindowNode,
+  nodeIdToTab, getNodeLabel, focusMainWindowNode,
   buildExplainPrompt, buildSelectionExplainPrompt, fixMarkdownLinks, resolvePolRef, getPolicyAction,
 } from './utils';
 import type { PolicyRefEntry } from './utils';
@@ -383,13 +383,6 @@ function PlanSection({ planStage, selectedPlanNodeId, setSelectedPlanNodeId }: {
   );
 }
 
-function bdiWeight(tw: ReturnType<typeof getNodeWeight>): { label: string | null; value: number | undefined } {
-  if (tw?.category === 'Beliefs') return { label: 'Confidence', value: tw.confidence };
-  if (tw?.category === 'Desires') return { label: 'Priority', value: tw.priority };
-  if (tw?.category === 'Intentions') return { label: 'Operationality', value: tw.operationality };
-  return { label: null, value: undefined };
-}
-
 function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
   taxRef: TaxonomyRef;
   selectedBdiNodeId: string | null;
@@ -397,7 +390,6 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
 }) {
   const label = getNodeLabel(taxRef.node_id);
   const { colorVar } = nodeIdToTab(taxRef.node_id);
-  const { label: weightLabel, value: weightValue } = bdiWeight(getNodeWeight(taxRef.node_id));
   return (
     <div className="debate-reasoning-item">
       <button
@@ -410,11 +402,6 @@ function BdiRefItem({ taxRef, selectedBdiNodeId, toggleBdiNode }: {
         {taxRef.node_id}
       </button>
       <span className="debate-reasoning-label">{label}</span>
-      <span className="debate-reasoning-weight taxrefs-anchor-label">
-        ({taxRef.relevance_score != null && <>Relevance {taxRef.relevance_score.toFixed(2)}</>}
-        {taxRef.relevance_score != null && weightLabel && weightValue != null && ' ; '}
-        {weightLabel && weightValue != null && <>{weightLabel} {weightLabel === 'Confidence' ? weightValue.toFixed(2) : `${weightValue}/5`}</>})
-      </span>
       <span className="debate-reasoning-text">{taxRef.relevance}</span>
     </div>
   );
