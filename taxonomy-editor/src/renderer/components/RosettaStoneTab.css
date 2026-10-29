@@ -15,16 +15,17 @@
   box-sizing: border-box;
 }
 
-.rosetta-tab-eyebrow {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted, #94a3b8);
-  margin-bottom: 10px;
+/* t/4632: title + tagline share one row; the eyebrow above them is gone. */
+.rosetta-tab-hero {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
 }
 
 .rosetta-tab-title {
-  margin: 0 0 16px;
+  margin: 0;
   font-size: 40px;
   line-height: 1.1;
   font-weight: 700;
@@ -32,10 +33,12 @@
 }
 
 .rosetta-tab-tagline {
-  margin: 0 0 28px;
+  margin: 0;
   font-size: 16px;
   line-height: 1.5;
   color: var(--text-secondary);
+  padding-left: 24px;
+  border-left: 1px solid var(--border-color);
 }
 
 .rosetta-tab-tagline span {
@@ -89,6 +92,16 @@
 .rosetta-tab-voice-line {
   font-size: 13.5px;
   color: var(--text-secondary);
+}
+
+/* t/4632: closing line below the Skeptic row. */
+.rosetta-tab-specimen-coda {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+  font-size: 15px;
+  font-style: italic;
+  color: var(--text-primary);
 }
 
 .rosetta-tab-section-heading {

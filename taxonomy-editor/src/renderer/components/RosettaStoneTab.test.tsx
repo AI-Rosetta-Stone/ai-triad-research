@@ -39,6 +39,30 @@ describe('RosettaStoneTab (t/4543)', () => {
     expect(screen.getByText('Skeptic')).toBeInTheDocument();
   });
 
+  // t/4632: PI asked to remove the eyebrow, move the tagline beside the title, and add a
+  // closing line below the Skeptic row. Title/tagline text itself is unchanged.
+  it('t/4632: has no eyebrow, keeps the title and tagline text, and shows the specimen coda', () => {
+    render(<RosettaStoneTab />);
+    expect(screen.queryByText('AI Triad Research · Berkman Klein Center')).not.toBeInTheDocument();
+    expect(screen.getByText('AI Rosetta Stone')).toBeInTheDocument();
+    expect(screen.getByText('The goal is NOT to PROVIDE ANSWERS.')).toBeInTheDocument();
+    expect(screen.getByText('The goal is to PROVOKE THINKING.')).toBeInTheDocument();
+    expect(screen.getByText('The issue isn’t what was said, but why.')).toBeInTheDocument();
+  });
+
+  it('t/4632: the coda renders after the Skeptic row, inside the specimen card', () => {
+    render(<RosettaStoneTab />);
+    const skeptic = screen.getByText('Skeptic').closest('li');
+    const specimen = skeptic!.closest('.rosetta-tab-specimen');
+    const coda = screen.getByText('The issue isn’t what was said, but why.');
+    expect(specimen).toContainElement(coda);
+    const children = Array.from(specimen!.children);
+    const voicesList = skeptic!.closest('ul');
+    // coda is itself a direct child of specimen (not wrapped), so compare it directly —
+    // not coda.parentElement, which is specimen and therefore never a child of itself.
+    expect(children.indexOf(voicesList!)).toBeLessThan(children.indexOf(coda));
+  });
+
   it('renders the Who it’s for section above What you can do here (t/4542 follow-up)', () => {
     render(<RosettaStoneTab />);
     const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent);

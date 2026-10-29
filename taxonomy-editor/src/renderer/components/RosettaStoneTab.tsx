@@ -7,7 +7,7 @@
 
 import { POV_META } from '@lib/electron-shared/povMeta';
 import {
-  INTRO_EYEBROW, INTRO_TITLE, INTRO_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES,
+  INTRO_TITLE, INTRO_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES, INTRO_CODA,
 } from '@lib/electron-shared/introCopy';
 import { useTaxonomyStore } from '../hooks/useTaxonomyStore';
 import { useSettingsDialog } from '../hooks/useSettingsDialog';
@@ -87,11 +87,12 @@ export function RosettaStoneTab() {
   return (
     <div className="rosetta-tab">
       <div className="rosetta-tab-inner">
-        <div className="rosetta-tab-eyebrow">{INTRO_EYEBROW}</div>
-        <h1 className="rosetta-tab-title">{INTRO_TITLE}</h1>
-        <p className="rosetta-tab-tagline">
-          {INTRO_TAGLINE_LINES.map((line, i) => <span key={i}>{line}</span>)}
-        </p>
+        <div className="rosetta-tab-hero">
+          <h1 className="rosetta-tab-title">{INTRO_TITLE}</h1>
+          <p className="rosetta-tab-tagline">
+            {INTRO_TAGLINE_LINES.map((line, i) => <span key={i}>{line}</span>)}
+          </p>
+        </div>
 
         <div className="rosetta-tab-specimen">
           <p className="rosetta-tab-question">&ldquo;{INTRO_QUESTION}&rdquo;</p>
@@ -108,6 +109,7 @@ export function RosettaStoneTab() {
               );
             })}
           </ul>
+          <p className="rosetta-tab-specimen-coda">{INTRO_CODA}</p>
         </div>
 
         <h2 className="rosetta-tab-section-heading">Who it&rsquo;s for</h2>
