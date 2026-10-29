@@ -1,5 +1,5 @@
 {
-  "data_revision": "2abb64ef",
+  "data_revision": "171836725ae58de3a20be8e2665382d6d4d97a06",
   "survivors": [
     {
       "group": "G1",
@@ -416,23 +416,6 @@
             "source": "saf-beliefs-251",
             "target": "skp-beliefs-290"
           }
-        },
-        {
-          "source": "saf-intentions-237",
-          "target": "saf-beliefs-250",
-          "type": "SUPPORTS",
-          "bidirectional": false,
-          "confidence": 0.95,
-          "rationale": "The source intention of mandating hardware-level data governance directly operationalizes the core argument of the belief node that current regulations suffer from a hardware sensor stack governance gap.",
-          "rationale_source": "t4278-supersede-copy",
-          "status": "proposed",
-          "discovered_at": "2026-07-24",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.9,
-          "copied_from": {
-            "source": "saf-intentions-237",
-            "target": "saf-beliefs-251"
-          }
         }
       ],
       "dropped_self_loops": 0,
@@ -442,13 +425,62 @@
       "group": "G5",
       "survivor": "saf-intentions-235",
       "superseded": [
-        "saf-intentions-236"
+        "saf-intentions-236",
+        "saf-intentions-237"
       ],
       "disposition": "duplicate",
       "fold_edges": true,
       "add_refs": {
         "debate_refs": [
-          "3b066483-3cf9-483e-a141-953d6fa231e5"
+          "3b066483-3cf9-483e-a141-953d6fa231e5",
+          "706ad547-72a2-47d7-9791-5da0e3b7475f"
+        ],
+        "situation_refs": [
+          "sit-277"
+        ],
+        "concept_refs": [
+          {
+            "ref": "term:accountability_market",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.567,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:ambient_surveillance",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5508,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:capabilities_hazard",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5661,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:governance_oversight",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5791,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:regulation_adaptive",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5641,
+            "status": "proposed"
+          },
+          {
+            "ref": "term:regulation_precautionary",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.6355,
+            "status": "proposed"
+          }
         ]
       },
       "add_edges": [
@@ -523,6 +555,40 @@
             "source": "saf-intentions-236",
             "target": "sit-046"
           }
+        },
+        {
+          "source": "saf-intentions-235",
+          "target": "sit-451",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.9,
+          "rationale": "The intention to regulate the hardware sensor stack provides a specific normative prescription directly addressing the situation where physical sensor infrastructure governance is required.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.85,
+          "copied_from": {
+            "source": "saf-intentions-237",
+            "target": "sit-451"
+          }
+        },
+        {
+          "source": "saf-intentions-235",
+          "target": "sit-450",
+          "type": "SUPPORTS",
+          "bidirectional": false,
+          "confidence": 0.9,
+          "rationale": "The source node proposes a concrete regulatory intervention to solve the specific policy gap identified in the target situation node regarding ambient surveillance risks from always-on hardware.",
+          "rationale_source": "t4278-supersede-copy",
+          "status": "proposed",
+          "discovered_at": "2026-07-24",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.85,
+          "copied_from": {
+            "source": "saf-intentions-237",
+            "target": "sit-450"
+          }
         }
       ],
       "dropped_self_loops": 0,
@@ -547,50 +613,68 @@
     },
     {
       "group": "G7",
-      "survivor": "acc-beliefs-116",
+      "survivor": "acc-beliefs-115",
       "superseded": [
+        "acc-beliefs-116",
         "acc-beliefs-117"
       ],
       "disposition": "duplicate",
       "fold_edges": true,
-      "add_refs": {},
+      "add_refs": {
+        "situation_refs": [
+          "sit-340",
+          "sit-368",
+          "sit-390",
+          "sit-409",
+          "sit-475"
+        ],
+        "concept_refs": [
+          {
+            "ref": "term:accountability_market",
+            "surface": "",
+            "method": "embedding",
+            "link_confidence": 0.5539,
+            "status": "proposed"
+          }
+        ]
+      },
       "add_edges": [
         {
-          "source": "acc-beliefs-116",
-          "target": "sit-409",
-          "type": "INTERPRETS",
+          "source": "saf-beliefs-268",
+          "target": "acc-beliefs-115",
+          "type": "WEAKENS",
           "bidirectional": false,
-          "confidence": 0.9,
+          "confidence": 0.8,
           "status": "proposed",
-          "discovered_at": "2026-08-08",
-          "model": "gemini-3.5-flash-lite",
-          "weight": 0.85,
-          "rationale": "The accelerationist belief analyzes how automated compliance monitoring metrics fail when turned into optimization targets, diagnosing a fundamental flaw in the target's algorithmic approach to regulation.",
+          "discovered_at": "2026-08-08T18:30:38.879Z",
+          "model": "gemini-2.5-flash",
+          "strength": "moderate",
+          "rationale": "Judicial assessment of good-faith technical mitigations introduces qualitative, context-dependent evaluation of developer intent. This dynamic flexibility undermines the premise that static behavioral compliance thresholds can be gameably optimized into uselessness, as the courts look past the letter of the metric.",
           "rationale_source": "t4278-supersede-copy",
           "copied_from": {
-            "source": "acc-beliefs-117",
-            "target": "sit-409"
+            "source": "saf-beliefs-268",
+            "target": "acc-beliefs-116"
           }
         },
         {
-          "source": "acc-beliefs-116",
-          "target": "saf-intentions-002",
+          "source": "saf-beliefs-264",
+          "target": "acc-beliefs-115",
           "type": "TENSION_WITH",
           "bidirectional": false,
           "confidence": 0.85,
           "status": "proposed",
           "discovered_at": "2026-08-08",
           "model": "gemini-3.5-flash-lite",
-          "weight": 0.8,
-          "rationale": "The accelerationist source argues that static compliance thresholds inevitably become gamed optimization targets, directly undermining the safetyist target's reliance on dynamic metrics to govern remediation speed.",
+          "weight": 0.85,
+          "rationale": "Empirical falsifiability as a legitimacy condition relies on the assumption that verifiable, fixed metrics can meaningfully govern AI, whereas the target belief posits that any such static metrics inevitably collapse into gameable optimization targets, undermining the very enforcement the source demands.",
           "rationale_source": "t4278-supersede-copy",
           "copied_from": {
-            "source": "acc-beliefs-117",
-            "target": "saf-intentions-002"
+            "source": "saf-beliefs-264",
+            "target": "acc-beliefs-116"
           }
         },
         {
-          "source": "acc-beliefs-116",
+          "source": "acc-beliefs-115",
           "target": "sit-139",
           "type": "INTERPRETS",
           "bidirectional": false,
@@ -604,6 +688,23 @@
           "copied_from": {
             "source": "acc-beliefs-117",
             "target": "sit-139"
+          }
+        },
+        {
+          "source": "acc-beliefs-115",
+          "target": "skp-intentions-146",
+          "type": "TENSION_WITH",
+          "bidirectional": false,
+          "confidence": 0.85,
+          "status": "proposed",
+          "discovered_at": "2026-08-08",
+          "model": "gemini-3.5-flash-lite",
+          "weight": 0.8,
+          "rationale": "The source posits that any fixed regulatory threshold is inevitably corrupted as an optimization target by developers, which directly undermines the target's foundational premise that objective metrics can successfully power anti-gaming, performance-gated independent audits.",
+          "rationale_source": "t4278-supersede-copy",
+          "copied_from": {
+            "source": "acc-beliefs-116",
+            "target": "skp-intentions-146"
           }
         }
       ],
@@ -695,14 +796,5 @@
       "dropped_no_fold_edges": 7
     }
   ],
-  "held": [
-    {
-      "group": "G5",
-      "survivor": "saf-intentions-235",
-      "held_ids": [
-        "saf-intentions-237"
-      ],
-      "why": "saf-intentions-237 is held for the editorial pass with G7 (SO Q3). CL check: 235 is the better survivor text (it names microphone, camera and network, and states the contrast with the language model); 237 is the vaguer restatement with the same Encompasses/Excludes. Recommend retiring 237 into 235; the PI confirms."
-    }
-  ]
+  "held": []
 }
