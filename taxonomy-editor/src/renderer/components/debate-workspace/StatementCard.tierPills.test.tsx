@@ -128,9 +128,10 @@ describe('StatementCard view-mode toggle — Text | Why | How (t/4625)', () => {
   });
 
   it('when display_tier is why, marks Why active and renders BdiGroundingView in the body (AC2)', () => {
-    // Note: the footer's TaxonomyRefsSection (Explain button + collapsible BDI-in-Plan) still
-    // renders alongside it — unlike 'reasoning', 'why' doesn't suppress the footer, since its
-    // simplified body view has no Explain/caveats affordance of its own.
+    // Note: the footer's TaxonomyRefsSection (Explain button + caveats) still renders alongside
+    // it — unlike 'reasoning', 'why' doesn't suppress the footer, since its simplified body view
+    // has no Explain/caveats affordance of its own. (The footer's own BDI section was removed as
+    // redundant with this always-visible Why tab, t/4625#10.)
     render(<StatementCard entry={makeEntry({ display_tier: 'why' })} />);
     expect(screen.getByRole('radio', { name: 'Why' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByTestId('bdi-grounding-view')).toBeInTheDocument();
