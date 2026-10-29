@@ -84,8 +84,17 @@ vi.mock('../shared/LineageDetailView', () => ({ LineageDetailView: () => null })
 vi.mock('../analysis/ParameterHistoryPanel', () => ({ ParameterHistoryPanel: () => null }));
 
 import { DebateTab } from './DebateTab';
+import { DEBATE_STARTERS } from './DebateGettingStarted';
 
-const PAIRING_CHIP = /Accelerationist vs Safetyist/;
+// t/4636: only a random 4-of-15 starters render per mount (mustInclude guarantees at least one
+// two-sided), so this can't hardcode a chip label — it finds whichever two-sided chip is shown.
+function findRenderedPairingChip(): { button: HTMLElement; starter: typeof DEBATE_STARTERS[number] } {
+  for (const button of screen.getAllByRole('button')) {
+    const starter = DEBATE_STARTERS.find(s => s.label === button.textContent);
+    if (starter?.povers) return { button, starter };
+  }
+  throw new Error('No two-sided starter chip rendered — mustInclude should guarantee one');
+}
 
 describe('DebateTab — getting-started chip prefill reaches NewDebateDialog (t/4563)', () => {
   beforeEach(() => {
@@ -96,18 +105,20 @@ describe('DebateTab — getting-started chip prefill reaches NewDebateDialog (t/
   it('a camp-pairing chip opens NewDebateDialog prefilled with the topic and povers', async () => {
     mockGetDebateQuotaStatus.mockResolvedValue({ allowed: true, current: 0, limit: 5 });
     render(<DebateTab />);
-    fireEvent.click(screen.getByRole('button', { name: PAIRING_CHIP }));
+    const { button, starter } = findRenderedPairingChip();
+    fireEvent.click(button);
 
     await vi.waitFor(() => expect(mockNewDebateDialog).toHaveBeenCalled());
     const props = mockNewDebateDialog.mock.calls.at(-1)?.[0] as { initialTopic?: string; initialPovers?: string[] };
-    expect(props.initialTopic).toBe('Should AI labs self-regulate, or face binding government rules?');
-    expect(props.initialPovers).toEqual(['accelerationist', 'safetyist']);
+    expect(props.initialTopic).toBe(starter.topic);
+    expect(props.initialPovers).toEqual(starter.povers);
   });
 
   it('a quota-exceeded chip click does not open NewDebateDialog, and surfaces the quota error', async () => {
     mockGetDebateQuotaStatus.mockResolvedValue({ allowed: false, current: 5, limit: 5 });
     render(<DebateTab />);
-    fireEvent.click(screen.getByRole('button', { name: PAIRING_CHIP }));
+    const { button } = findRenderedPairingChip();
+    fireEvent.click(button);
 
     expect(await screen.findByText(/Debate limit reached \(5\/5\)/)).toBeInTheDocument();
     expect(mockNewDebateDialog).not.toHaveBeenCalled();
