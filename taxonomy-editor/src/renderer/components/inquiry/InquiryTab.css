@@ -80,6 +80,54 @@
 }
 .new-question-actions-right { display: flex; gap: 8px; }
 
+/* ── Options disclosure (t/4667 phase 2) — same pattern as t/4639's accordion (toggle button,
+   aria-expanded, hidden body), not persisted: collapsed fresh every dialog open. ── */
+.inquiry-options { margin-top: 14px; }
+.inquiry-options-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
+}
+.inquiry-options[data-expanded="true"] .inquiry-options-toggle { min-height: 24px; }
+.inquiry-options-toggle:focus-visible { outline: 2px solid var(--focus-ring, #1a73e8); outline-offset: 2px; }
+.inquiry-options-title { font-size: 14px; font-weight: 600; }
+.inquiry-options-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: var(--focus-ring, #1a73e8);
+  color: #fff;
+  font-size: var(--text-2xs, 10px);
+  font-weight: 600;
+}
+.inquiry-options-summary {
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.inquiry-options-summary span { white-space: nowrap; }
+.inquiry-options-seg-warning, span.inquiry-options-seg-warning { color: var(--warning); }
+.inquiry-options-chevron { margin-left: auto; flex-shrink: 0; transition: transform 120ms; }
+.inquiry-options[data-expanded="true"] .inquiry-options-chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .inquiry-options-chevron { transition: none; } }
+.inquiry-options-body { display: flex; flex-direction: column; }
+
 /* ── ask ── */
 .inquiry-asklab { display: block; font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: 8px; }
 .inquiry-qfield {
