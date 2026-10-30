@@ -527,13 +527,15 @@ export interface DebateSession {
   qbaf_runs_oscillated?: number;
   /** Per-crux resolution tracking — state machine tracking crux lifecycle. Absent in pre-crux-resolution debates. */
   crux_tracker?: TrackedCrux[];
-  /** How this debate was created: 'cli' (headless runner), 'gui' (Electron app), or absent (pre-origin debates). */
+  /** How this debate was created: 'cli' (headless runner), 'gui' (Electron app), 'inquiry' (Ask a Question), or absent (pre-origin debates). */
   origin?: {
-    mode: 'cli' | 'gui';
+    mode: 'cli' | 'gui' | 'inquiry';
     /** CLI-only: the command line and arguments used to launch the debate. */
     command?: string;
     /** CLI-only: the resolved config values. */
     config_summary?: Record<string, unknown>;
+    /** inquiry-only: the inquiry job/result id — back-link from My Debates to the question (t/4678). */
+    inquiry_id?: string;
   };
   /** Perturbation testing result — present only for evaluation/benchmark debates with perturbation injection. */
   perturbation_result?: PerturbationResult;
@@ -575,6 +577,39 @@ export interface DebateSession {
    * falls back to config-supplied docMeta (or leaves source_authority null).
    */
   doc_meta?: DocMetaMap;
+}
+
+// ── Origin normalisation (t/4678, t/4679) ───────────────────
+
+/**
+ * Normalise a persisted session's `origin` field to the current shape.
+ *
+ * Web persisted inquiry debates with a legacy flat shape — `{ ...session, origin: 'inquiry',
+ * inquiryJobId: jobId }` (`inquiryPipelineDeps.ts`) — a plain string, with the job id as a
+ * SIBLING top-level field, not nested under `origin`. Both inputs are needed to reconstruct
+ * the current `{ mode: 'inquiry', inquiry_id }` shape.
+ *
+ * Every other already-typed origin (`{mode: 'cli'|'gui'|'inquiry', ...}`) passes through
+ * unchanged. `undefined`/unrecognized input returns `undefined` — pre-origin debates stay
+ * unlabeled rather than being miscast into a mode they were never given.
+ *
+ * Call this at every read site that displays or branches on `origin` (list summaries, the
+ * debate viewer's origin label), not just at write time — it's the single place the legacy
+ * shape gets reconciled, so a debate is never mislabeled "GUI (Electron app)" (t/4678's audit).
+ */
+export function normalizeDebateOrigin(
+  rawOrigin: unknown,
+  legacyInquiryJobId?: unknown,
+): DebateSession['origin'] {
+  if (rawOrigin === 'inquiry') {
+    return typeof legacyInquiryJobId === 'string' && legacyInquiryJobId.length > 0
+      ? { mode: 'inquiry', inquiry_id: legacyInquiryJobId }
+      : { mode: 'inquiry' };
+  }
+  if (rawOrigin && typeof rawOrigin === 'object' && 'mode' in rawOrigin) {
+    return rawOrigin as DebateSession['origin'];
+  }
+  return undefined;
 }
 
 // ── Drift telemetry entry (t/3603) ──────────────────────────
