@@ -33,6 +33,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { initDebatePopoutCloseHandler, isDebatePopoutWindow } from '../../hooks/useDebateStore/shared/guards';
 import { RemoteDriverOverlay } from './RemoteDriverOverlay';
 import { requestExplainForSelection } from './explainRequestBus';
+import { useDiagnoseEntry } from './useDiagnoseEntry';
 import { useCommunityStore } from '../../hooks/useCommunityStore';
 import { useUserProfile } from '../../hooks/useAuthStatus';
 import { CommunityShareBanner } from '../shared/CommunityShareBanner';
@@ -616,7 +617,7 @@ function computeTranscriptHairline(entry: ActiveTranscriptEntry, idx: number, tr
 
 function TranscriptEntryRow({
   entry, idx, activeDebate, findOffsets, findQuery, findCurrentIndex,
-  diagnosticsEnabled, selectedDiagEntry, selectDiagEntry,
+  diagnosticsEnabled, selectedDiagEntry,
 }: {
   entry: ActiveTranscriptEntry;
   idx: number;
@@ -626,8 +627,11 @@ function TranscriptEntryRow({
   findCurrentIndex: number;
   diagnosticsEnabled: boolean;
   selectedDiagEntry: DWStore['selectedDiagEntry'];
-  selectDiagEntry: DWStore['selectDiagEntry'];
 }) {
+  // t/4642: same diagnose-and-focus behavior as StatementCard's Diagnose button — clicking
+  // a row while diagnostics is already on must also bring the open tab/window to the front,
+  // not just broadcast the selection.
+  const { diagnose, notice } = useDiagnoseEntry();
   const matchOffset = findOffsets.get(entry.id) ?? 0;
   // Statement ID — stable human-readable label for this transcript position.
   // Matches ClaimExtractionTrace.round (transcript index + 1) so cross-panel
@@ -686,18 +690,19 @@ function TranscriptEntryRow({
       <div
         id={`debate-entry-${entry.id}`}
         className={`debate-entry-wrapper${diagnosticsEnabled && selectedDiagEntry === entry.id ? ' diag-selected' : ''}`}
-        onClick={diagnosticsEnabled ? () => selectDiagEntry(entry.id) : undefined}
+        onClick={diagnosticsEnabled ? () => diagnose(entry.id) : undefined}
       >
         {card}
         {!isStatement && <EntryDeleteControls entry={entry} totalEntries={activeDebate.transcript.length} entryIndex={idx} />}
       </div>
+      {notice}
     </Fragment>
   );
 }
 
 function DebateTranscriptColumn({
   activeDebate, debateGenerating, findOffsets, findQuery, findCurrentIndex,
-  diagnosticsEnabled, selectedDiagEntry, selectDiagEntry, transcriptEndRef,
+  diagnosticsEnabled, selectedDiagEntry, transcriptEndRef,
 }: {
   activeDebate: ActiveDebateSession;
   debateGenerating: DWStore['debateGenerating'];
@@ -706,7 +711,6 @@ function DebateTranscriptColumn({
   findCurrentIndex: number;
   diagnosticsEnabled: boolean;
   selectedDiagEntry: DWStore['selectedDiagEntry'];
-  selectDiagEntry: DWStore['selectDiagEntry'];
   transcriptEndRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
@@ -730,7 +734,6 @@ function DebateTranscriptColumn({
           findCurrentIndex={findCurrentIndex}
           diagnosticsEnabled={diagnosticsEnabled}
           selectedDiagEntry={selectedDiagEntry}
-          selectDiagEntry={selectDiagEntry}
         />
       ))}
       </div>
@@ -1291,7 +1294,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
   const {
     activeDebate, debateLoading, debateError, debateGenerating,
     runClarification, runOpeningStatements, saveDebate, compressOldTranscript,
-    diagnosticsEnabled, toggleDiagnostics, selectedDiagEntry, selectDiagEntry,
+    diagnosticsEnabled, toggleDiagnostics, selectedDiagEntry,
     diagPopoutOpen, setDiagPopoutOpen, defaultTier, setDefaultTier,
     driverIsRemote,
     selectedRef, setSelectedRef,
@@ -1301,7 +1304,7 @@ export function DebateWorkspace({ onExport, exportStatus }: {
     useShallow(s => ({
       activeDebate: s.activeDebate, debateLoading: s.debateLoading, debateError: s.debateError, debateGenerating: s.debateGenerating,
       runClarification: s.runClarification, runOpeningStatements: s.runOpeningStatements, saveDebate: s.saveDebate, compressOldTranscript: s.compressOldTranscript,
-      diagnosticsEnabled: s.diagnosticsEnabled, toggleDiagnostics: s.toggleDiagnostics, selectedDiagEntry: s.selectedDiagEntry, selectDiagEntry: s.selectDiagEntry,
+      diagnosticsEnabled: s.diagnosticsEnabled, toggleDiagnostics: s.toggleDiagnostics, selectedDiagEntry: s.selectedDiagEntry,
       diagPopoutOpen: s.diagPopoutOpen, setDiagPopoutOpen: s.setDiagPopoutOpen,
       // Header Text/Analysis control + statement display fallback bind to the
       // display tier (defaultDisplayTier, default Medium), NOT responseLength
@@ -1429,7 +1432,6 @@ export function DebateWorkspace({ onExport, exportStatus }: {
           findCurrentIndex={findCurrentIndex}
           diagnosticsEnabled={diagnosticsEnabled}
           selectedDiagEntry={selectedDiagEntry}
-          selectDiagEntry={selectDiagEntry}
           transcriptEndRef={transcriptEndRef}
         />
         <DebateScrollPanels

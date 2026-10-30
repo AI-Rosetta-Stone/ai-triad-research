@@ -38,6 +38,7 @@ import type { DetailTier } from '@lib/debate/comments';
 import { TaxonomyRefsSection, BdiGroundingView } from './TaxonomyRefs';
 import { StatementTierPills, type SetEntryDisplayTier } from './StatementTierPills';
 import { StatementSteelmans } from '../shared/Steelman';
+import { useDiagnoseEntry } from './useDiagnoseEntry';
 import { api } from '@bridge';
 
 /** Remark pipeline for debate transcript text: GFM + POV colorization + ID-token ref links (t/1776). */
@@ -527,7 +528,7 @@ function StatementCollapseToggle({ collapsed, onToggle, entryId }: {
 function StatementCardHeader({
   entry, statementId, camp, color, activeDebate, anNodeId,
   showTierPills, activeTier, setEntryDisplayTier, vocabResolutions, hasLineageRefs,
-  qbafEnabled, netDelta, isPover, diagnosticsEnabled, toggleDiagnostics, selectDiagEntry,
+  qbafEnabled, netDelta, isPover, diagnose,
   entryIndex, totalEntries, deleteConfirm, setDeleteConfirm,
   collapsible, collapsed, onToggleCollapse, collapsedSummary,
 }: {
@@ -545,9 +546,7 @@ function StatementCardHeader({
   qbafEnabled: boolean;
   netDelta: number | undefined;
   isPover: boolean;
-  diagnosticsEnabled: boolean;
-  toggleDiagnostics: () => void;
-  selectDiagEntry: ReturnType<typeof useDebateStore.getState>['selectDiagEntry'];
+  diagnose: (entryId: string) => void;
   entryIndex?: number;
   totalEntries?: number;
   deleteConfirm: 'single' | 'after' | null;
@@ -590,9 +589,7 @@ function StatementCardHeader({
           qbafEnabled={qbafEnabled}
           netDelta={netDelta}
           isPover={isPover}
-          diagnosticsEnabled={diagnosticsEnabled}
-          toggleDiagnostics={toggleDiagnostics}
-          selectDiagEntry={selectDiagEntry}
+          diagnose={diagnose}
           entryIndex={entryIndex}
           totalEntries={totalEntries}
           deleteConfirm={deleteConfirm}
@@ -612,7 +609,7 @@ function StatementCardHeader({
 function StatementCardHeaderDetail({
   entry, activeDebate, anNodeId, showTierPills, activeTier, setEntryDisplayTier,
   vocabResolutions, hasLineageRefs, qbafEnabled, netDelta, isPover,
-  diagnosticsEnabled, toggleDiagnostics, selectDiagEntry,
+  diagnose,
   entryIndex, totalEntries, deleteConfirm, setDeleteConfirm,
 }: {
   entry: TranscriptEntry;
@@ -626,9 +623,7 @@ function StatementCardHeaderDetail({
   qbafEnabled: boolean;
   netDelta: number | undefined;
   isPover: boolean;
-  diagnosticsEnabled: boolean;
-  toggleDiagnostics: () => void;
-  selectDiagEntry: ReturnType<typeof useDebateStore.getState>['selectDiagEntry'];
+  diagnose: (entryId: string) => void;
   entryIndex?: number;
   totalEntries?: number;
   deleteConfirm: 'single' | 'after' | null;
@@ -663,8 +658,7 @@ function StatementCardHeaderDetail({
           className="debate-diagnose-btn"
           onClick={(e) => {
             e.stopPropagation();
-            if (!diagnosticsEnabled) toggleDiagnostics();
-            setTimeout(() => selectDiagEntry(entry.id, true), diagnosticsEnabled ? 0 : 1200);
+            diagnose(entry.id);
           }}
           title="Open diagnostics for this turn"
         >
@@ -922,9 +916,7 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
   const setEntryDisplayTier = useDebateStore(s => s.setEntryDisplayTier);
   const askQuestion = useDebateStore(s => s.askQuestion);
   const debateGenerating = useDebateStore(s => s.debateGenerating);
-  const diagnosticsEnabled = useDebateStore(s => s.diagnosticsEnabled);
-  const toggleDiagnostics = useDebateStore(s => s.toggleDiagnostics);
-  const selectDiagEntry = useDebateStore(s => s.selectDiagEntry);
+  const { diagnose, notice: diagnoseNotice } = useDiagnoseEntry();
   const deleteTranscriptEntries = useDebateStore(s => s.deleteTranscriptEntries);
   const qbafEnabled = useFlag('release-qbaf-analysis');
   // Gates the collapse toggle (t/2241) and doubles as the scoping hook for
@@ -1057,9 +1049,7 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
         qbafEnabled={qbafEnabled}
         netDelta={netDelta}
         isPover={isPover}
-        diagnosticsEnabled={diagnosticsEnabled}
-        toggleDiagnostics={toggleDiagnostics}
-        selectDiagEntry={selectDiagEntry}
+        diagnose={diagnose}
         entryIndex={entryIndex}
         totalEntries={totalEntries}
         deleteConfirm={deleteConfirm}
@@ -1069,6 +1059,7 @@ export function StatementCard({ entry, statementId, findQuery = '', matchOffset 
         onToggleCollapse={toggleCollapsed}
         collapsedSummary={collapsedSummary}
       />
+      {diagnoseNotice}
       {!isCollapsed && (
         <>
           <StatementDeleteConfirm
