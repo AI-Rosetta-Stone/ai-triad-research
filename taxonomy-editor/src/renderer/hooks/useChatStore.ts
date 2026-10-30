@@ -186,6 +186,12 @@ export function parseChatResponse(text: string, model?: string): { response: str
   try {
     const parsed = JSON.parse(stripCodeFences(stripped));
     const response = parsed.response || stripped;
+    // t/4675: the model sometimes returns a label-slugged id (e.g. "sit-153-ensuring-ai-
+    // alignment-and-control" instead of "sit-153") that passes the string-shape check below but
+    // never resolves in the taxonomy lookup, so the ref permanently shows "not found" to the
+    // user. Mirror lib/debate/inquirySynthesis.ts's resolveNodeRefs: exact-match against the
+    // known ids and drop+WARN on mismatch, rather than passing an unresolvable id downstream.
+    const getLabelForId = useTaxonomyStore.getState().getLabelForId;
     const taxonomyRefs: TaxonomyRef[] = Array.isArray(parsed.taxonomy_refs)
       ? parsed.taxonomy_refs
         .filter((r: Record<string, unknown>) => r.node_id && typeof r.node_id === 'string')
@@ -193,6 +199,18 @@ export function parseChatResponse(text: string, model?: string): { response: str
           node_id: r.node_id as string,
           relevance: (r.relevance as string) || '',
         }))
+        .filter((ref) => {
+          const resolves = getLabelForId(ref.node_id) !== '';
+          if (!resolves) {
+            getGlobalRecorder()?.record({
+              type: 'system.error',
+              component: 'chat-store',
+              level: 'warn',
+              message: `Chat response cited an unresolvable taxonomy id, dropped: '${ref.node_id}'`,
+            });
+          }
+          return resolves;
+        })
       : [];
     return { response, taxonomyRefs };
   } catch (err) {
