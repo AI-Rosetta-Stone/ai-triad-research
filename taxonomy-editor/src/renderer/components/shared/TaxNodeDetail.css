@@ -1,6 +1,14 @@
 /* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
    Licensed under the MIT License. See LICENSE file in the project root. */
 
+/* t/4651#3 (Design AC5 fix): the wrapper is tabIndex={-1} — programmatically focused, never
+   tab-reachable — so a real mouse click's native :focus-visible outline (a 2px box around the
+   whole detail) is pure noise here, not a keyboard-navigation cue. Suppressing it is WCAG-safe
+   for exactly that reason: nothing is hidden from keyboard focus, since this never receives it. */
+.tax-node-detail-wrapper {
+  outline: none;
+}
+
 /* t/4654: NodeDetail/SituationDetail have no close control of their own (they're normally
    docked in the Taxonomy tool, never dismissed) — this wrapper's close row covers that arm.
    The policy/unresolved arm keeps TaxonomyRefDetail's own .taxref-close-btn unchanged. */

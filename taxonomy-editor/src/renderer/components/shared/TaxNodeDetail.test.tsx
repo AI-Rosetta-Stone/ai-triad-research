@@ -67,6 +67,13 @@ describe('TaxNodeDetail — scroll + focus on open (t/4651)', () => {
     expect(screen.getByTestId('node-detail').closest('[tabindex="-1"]')).toHaveFocus();
   });
 
+  // t/4651#3 (Design AC5 fix): the landing region needs a name, since focus moves here
+  // programmatically rather than via a heading the user just activated.
+  it('names the landing region for screen readers', () => {
+    render(<TaxNodeDetail nodeId="acc-beliefs-001" onClose={vi.fn()} />);
+    expect(screen.getByRole('region', { name: 'Test Node' })).toBeInTheDocument();
+  });
+
   it('uses behavior: auto under prefers-reduced-motion', () => {
     reducedMotion = true;
     render(<TaxNodeDetail nodeId="acc-beliefs-001" onClose={vi.fn()} />);
@@ -131,12 +138,13 @@ describe('TaxNodeDetail — NodeDetail/SituationDetail swap (t/4654)', () => {
     expect(screen.queryByTestId('ref-detail')).not.toBeInTheDocument();
   });
 
-  it('AC2: a policy (pol-*) id still renders TaxonomyRefDetail', () => {
+  it('AC2: a policy (pol-*) id still renders TaxonomyRefDetail, named for screen readers', () => {
     pinnedData = { type: 'policy', policy: { id: 'pol-001', action: 'Do the thing', source_povs: [], member_count: 0 }, referencingNodes: [] };
     render(<TaxNodeDetail nodeId="pol-001" onClose={vi.fn()} />);
     expect(screen.getByTestId('ref-detail')).toBeInTheDocument();
     expect(screen.queryByTestId('node-detail')).not.toBeInTheDocument();
     expect(screen.queryByTestId('situation-detail')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Do the thing' })).toBeInTheDocument();
   });
 
   it('AC2: an unresolved id still renders TaxonomyRefDetail', () => {

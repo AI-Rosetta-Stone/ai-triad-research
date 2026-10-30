@@ -49,9 +49,15 @@ export function TaxNodeDetail({ nodeId, onClose }: { nodeId: string; onClose: ()
     containerRef.current?.focus();
   }, [nodeId]);
 
+  // t/4651#3 (Design AC5 fix): name the landing region for screen readers, since focus moves
+  // here programmatically rather than via a visible heading the user just activated.
+  const detailLabel = data?.type === 'pov' || data?.type === 'situations' ? data.node.label
+    : data?.type === 'policy' ? data.policy.action
+    : nodeId;
+
   if (data?.type === 'pov' || data?.type === 'situations') {
     return (
-      <div ref={containerRef} tabIndex={-1}>
+      <div ref={containerRef} tabIndex={-1} className="tax-node-detail-wrapper" role="region" aria-label={detailLabel}>
         <div className="tax-node-detail-close-row">
           <button type="button" className="tax-node-detail-close-btn" onClick={onClose} title="Close detail panel">Close</button>
         </div>
@@ -64,7 +70,7 @@ export function TaxNodeDetail({ nodeId, onClose }: { nodeId: string; onClose: ()
 
   // Policy (pol-*) and unresolved ids: no NodeDetail/SituationDetail equivalent.
   return (
-    <div ref={containerRef} tabIndex={-1}>
+    <div ref={containerRef} tabIndex={-1} className="tax-node-detail-wrapper" role="region" aria-label={detailLabel}>
       <TaxonomyRefDetail
         nodeId={nodeId}
         node={undefined}
