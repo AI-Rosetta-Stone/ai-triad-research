@@ -8,11 +8,13 @@ import { GroundingSection } from './GroundingSection';
 import type { GroundingEnvelope } from '@lib/inquiry';
 
 const KNOWN_NODE_IDS = new Set(['acc-beliefs-001', 'saf-beliefs-001', 'skp-beliefs-001']);
+const KNOWN_SITUATION_LABELS: Record<string, string> = { 'cc-situations-live': 'Live Situation Label' };
 
 vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: (selector: (s: { lookupPinnedData: (id: string) => unknown }) => unknown) =>
+  useTaxonomyStore: (selector: (s: { lookupPinnedData: (id: string) => unknown; getLabelForId: (id: string) => string }) => unknown) =>
     selector({
       lookupPinnedData: (id: string) => (KNOWN_NODE_IDS.has(id) ? { type: 'pov', pov: 'accelerationist', node: { id, label: 'resolved' } } : null),
+      getLabelForId: (id: string) => KNOWN_SITUATION_LABELS[id] ?? '',
     }),
 }));
 vi.mock('../shared/LinkedNodePreview', () => ({
@@ -70,7 +72,7 @@ describe('GroundingSection (t/4591)', () => {
     expect(screen.getByRole('tab', { name: 'Situation' })).toBeInTheDocument();
   });
 
-  it('falls back to the anchor situation when situationNodes is absent', async () => {
+  it('falls back to anchorSummary when the anchor situation id does not resolve (t/4674)', async () => {
     const user = userEvent.setup();
     const groundingWithAnchorOnly: GroundingEnvelope = {
       nodesByCamp: {},
@@ -81,6 +83,20 @@ describe('GroundingSection (t/4591)', () => {
     render(<GroundingSection grounding={groundingWithAnchorOnly} />);
     await user.click(screen.getByRole('tab', { name: 'Situation' }));
     expect(screen.getByText('Anchor situation summary')).toBeInTheDocument();
+  });
+
+  it('shows the resolved situation label instead of anchorSummary when the id resolves (t/4674)', async () => {
+    const user = userEvent.setup();
+    const groundingWithResolvableAnchor: GroundingEnvelope = {
+      nodesByCamp: {},
+      anchorSituationId: 'cc-situations-live',
+      anchorSummary: 'A long paraphrased summary that should be overridden by the label',
+    };
+
+    render(<GroundingSection grounding={groundingWithResolvableAnchor} />);
+    await user.click(screen.getByRole('tab', { name: 'Situation' }));
+    expect(screen.getByText('Live Situation Label')).toBeInTheDocument();
+    expect(screen.queryByText('A long paraphrased summary that should be overridden by the label')).not.toBeInTheDocument();
   });
 
   it('limits situation tab to top 3 nodes', async () => {
