@@ -108,11 +108,11 @@ describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {
   });
 
   it('clicking the overlay calls onClose, but clicking inside the dialog does not', async () => {
-    const { onClose } = renderDialog();
+    const { onClose, container } = renderDialog();
     await userEvent.click(screen.getByRole('heading', { name: 'New question' }));
     expect(onClose).not.toHaveBeenCalled();
-    // eslint-disable-next-line testing-library/no-node-access -- the overlay itself has no accessible role
-    await userEvent.click(screen.getByRole('dialog').parentElement!);
+    const overlay = container.querySelector('.dialog-overlay') as HTMLElement;
+    await userEvent.click(overlay);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
