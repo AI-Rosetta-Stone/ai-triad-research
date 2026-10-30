@@ -71,6 +71,70 @@ function Get-DataWriteGuardMode {
     return 'Warn'
 }
 
+function Get-DataWriteLogPath {
+    <#
+    .SYNOPSIS
+        Absolute path to data-writes.jsonl under the resolved data root (t/4455).
+    .DESCRIPTION
+        Same resolver as Get-AICallLogPath (AICallLog.ps1): Get-DataRoot, not a second
+        path-resolution path. Not guaranteed to exist — the writer creates the parent dir
+        on first append.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return (Join-Path (Get-DataRoot) 'data-writes.jsonl')
+}
+
+function Write-DataWriteLogEntry {
+    <#
+    .SYNOPSIS
+        Appends one JSONL record of an Assert-DataWriteAllowed decision (t/4455).
+    .DESCRIPTION
+        t/4453's unintended write was found only by chance -- nothing recorded which process
+        or caller wrote it. Logs every write this guard actually reasons about (i.e. under the
+        data root), both allowed and refused, so an unexpected writer is diagnosable from the
+        log afterward. Fail-safe: a logging error is WARNed and swallowed, same convention as
+        Write-AICallLogEntry -- the audit log must never break the write it audits.
+    .PARAMETER CallerFrame
+        The immediate caller's call-stack frame, captured by Assert-DataWriteAllowed itself
+        (Get-PSCallStack()[1] at ITS call site -- capturing it here instead would be one frame
+        off, since this function would then be [0]). May be inaccurate through an intermediate
+        wrapper (e.g. a thin pass-through helper); -FullStack carries the complete chain for
+        that case.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][bool]$Allowed,
+        [Parameter(Mandatory)][string]$Reason,
+        [System.Management.Automation.CallStackFrame]$CallerFrame,
+        [string[]]$FullStack = @()
+    )
+    try {
+        $logPath = Get-DataWriteLogPath
+        $dir = Split-Path -Parent $logPath
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $record = [ordered]@{
+            timestamp  = [DateTime]::UtcNow.ToString('o')
+            path       = $Path
+            allowed    = $Allowed
+            reason     = $Reason
+            caller     = if ($CallerFrame) { $CallerFrame.FunctionName } else { '' }
+            full_stack = $FullStack
+            process_id = $PID
+        }
+        $line = $record | ConvertTo-Json -Compress -Depth 4
+        Add-Content -LiteralPath $logPath -Value $line -Encoding utf8NoBOM
+    }
+    catch {
+        Write-Warning "Write-DataWriteLogEntry: failed to append to the data-write log ($($_.Exception.Message)); continuing (audit log is non-fatal)."
+    }
+}
+
 function Test-IsUnderDataRoot {
     <#
     .SYNOPSIS
@@ -133,6 +197,19 @@ function Assert-DataWriteAllowed {
 
         [switch]$SurgicalWrite
     )
+    # t/4455: captured ONCE, here, so every logging call below sees the same frame/stack
+    # regardless of which exit path runs. Get-PSCallStack()[1] from THIS function's own frame
+    # is the immediate caller of Assert-DataWriteAllowed -- capturing it inside a nested logging
+    # helper instead would be one frame off, since the helper itself would then be [0].  It can
+    # still be inaccurate through an intermediate thin pass-through wrapper; -FullStack (the
+    # complete chain) is kept alongside it for exactly that case.
+    $CallerFrame = (Get-PSCallStack)[1]
+    $FullStack = @((Get-PSCallStack) | ForEach-Object { "$($_.FunctionName) ($($_.ScriptName):$($_.ScriptLineNumber))" })
+    $UnderRoot = Test-IsUnderDataRoot -Path $Path
+    # t/4455 scope is "every allowed write UNDER THE DATA ROOT" -- a path outside it was never a
+    # data-of-record write the guard reasons about, so it's not logged at all, below or here.
+    $Log = { param($Allowed, $Reason) if ($UnderRoot) { Write-DataWriteLogEntry -Path $Path -Allowed $Allowed -Reason $Reason -CallerFrame $CallerFrame -FullStack $FullStack } }
+
     # t/4454: a write to the protected (real) data root from inside a Pester run is reported first, before
     # every exemption below: -SurgicalWrite / -AllowDirty / mode Off don't apply to test runs (TL t/4454#3
     # condition 5). It refuses (throws) after logging DATA-ROOT-TEST-WRITE (Phase 2).
@@ -143,17 +220,24 @@ function Assert-DataWriteAllowed {
     # dirty-tree check is N/A: return BEFORE consulting the tier or the tree. This is the
     # one write that is SAFE on a dirty BLOCK-tier file; blocking it would defeat t/2916.
     # Kept distinct from -AllowDirty (blanket override) so the audit trail stays honest.
-    if ($SurgicalWrite) { return }
-    if ($AllowDirty) { return }
+    if ($SurgicalWrite) { & $Log $true 'surgical-write-exempt'; return }
+    if ($AllowDirty) { & $Log $true 'allow-dirty-override'; return }
     $mode = Get-DataWriteGuardMode -Path $Path   # per-target tier (t/2909)
-    if ($mode -eq 'Off') { return }
-    if (-not (Test-IsUnderDataRoot -Path $Path)) { return }
+    if ($mode -eq 'Off') { & $Log $true 'guard-mode-off'; return }
+    if (-not $UnderRoot) { return }
 
     if ($mode -eq 'Block') {
-        Assert-CleanDataTree -Path $Path            # dirty data-target -> throw
+        try {
+            Assert-CleanDataTree -Path $Path            # dirty data-target -> throw
+        } catch {
+            & $Log $false 'block-dirty-refused'
+            throw
+        }
+        & $Log $true 'block-clean'
     }
     else {
         # Warn: dirty -> warn, proceed
         Assert-CleanDataTree -Path $Path -Force -ForceReason 'data-write guard is in Warn mode for this target; it will block once promoted'
+        & $Log $true 'warn-mode'
     }
 }
