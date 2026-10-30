@@ -4931,8 +4931,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 3. **Exit 1 with "Unknown JSON field" is always a field-name error**, not a network or auth issue. Check spelling first, and check it against THIS subcommand's field list — don't assume a field valid on one `gh` subcommand transfers to another.
 4. **To check actual merge-queue membership (not just arming), query GraphQL directly:** `gh api graphql -f query='query { repository(owner:"OWNER", name:"REPO") { mergeQueue(branch:"main") { entries(first:20) { nodes { pullRequest { number } state enqueuedAt jump } } } } }'`. There is no `gh pr view --json` equivalent — `autoMergeRequest` tells you arming status only, not whether/where the PR sits in the queue.
 5. **`autoMergeRequest` (and REST's `auto_merge` field) being `null` does NOT mean a PR was dropped from the merge queue** (DebateWorkspace, p/846#6) — those fields only reflect CLASSIC auto-merge-on-green, never merge-queue group entries. A PR can be genuinely queued (`AWAITING_CHECKS` or similar) while `autoMergeRequest` shows `null` the whole time. The authoritative check for queue state is GraphQL `pullRequest { isInMergeQueue, mergeQueueEntry { state position } }` — never infer queue status from the auto-merge fields in either direction.
+6. **Escalated to t/4660 (DevOps) at this recurrence** — this isn't just a point-of-use lesson anymore. PR triage's `approved-not-armed` classifier had the exact same blind spot (reading `autoMergeRequest` instead of actual merge-queue state); DevOps is fixing the classifier to read true merge-queue state directly. The fix closes the automated-tooling instance of this facet; agents should still apply preventions #4/#5 by hand until it lands.
 
-**Status:** Active — 5 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`). Deterministic usage error.
+**Status:** Active — 7 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`; Tech Lead p/335#223/#224 — same `autoMergeRequest`-null false negative on PR #4156, self-corrected after Sage independently confirmed via GraphQL; DevOps Lead p/26#309 — `gh pr view --json isInMergeQueue` exit 1, same field-gap). Deterministic usage error. **Prevention escalated to t/4660** (DevOps) — fixing the `approved-not-armed` PR-triage classifier's same blind spot.
 
 **Applies To:** All agents constructing `gh pr list`, `gh pr view`, or other `gh` subcommands with `--json`.
 
@@ -8065,3 +8066,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (PowerShell p/20#152).
 
 **Applies To:** All agents invoking `pwsh` from the Bash tool with PowerShell-specific syntax in the arguments; keep PS-only syntax entirely inside `-Command` or use the PowerShell tool instead.
+
+---
+
+## #396 [Process] `git worktree add` Exit 128 ("Branch Already Checked Out") Is a Signal Another Agent Already Claimed the Branch, Not Just a Git Mechanics Fact
+
+**Pattern:** An agent runs `git worktree add <path> <branch>` for a ticket's branch. The command exits 128: "branch already checked out" — git enforces one-checkout-per-branch across all worktrees. The branch is already checked out in a worktree that belongs to a DIFFERENT agent who is actively working the same ticket/branch. Treating this purely as a git limitation to work around (rather than a coordination signal) risks two agents independently duplicating work on the same branch.
+
+**Instances:**
+- 2026-10-29 — DevOps Lead (p/26#307): `git worktree add .worktrees/t4641-fix t/4641-node-detail-header` exited 128 — the branch was already checked out in an existing worktree at `taxonomy-editor/.worktrees/t4641` (Rosetta Stone's own worktree for the same PR). Resolved by reusing the existing worktree instead of creating a competing one.
+
+**Root Cause:** Git allows only one worktree per branch at a time — this is enforced git mechanics, not a bug. But the REASON the branch is already checked out, in a multi-agent fleet, is almost always that another agent got there first and is actively working it. This connects directly to the root AGENTS.md "Claim Before Implement" rule: the branch's existence elsewhere is itself evidence of a prior claim, even if no explicit claim comment was posted.
+
+**Prevention:**
+1. **Before creating a worktree for a ticket's branch, check `git worktree list` first** — if the branch already has a worktree, that's your "claim check" (per root AGENTS.md's Claim Before Implement rule), not just an obstacle to route around.
+2. **On exit 128 "branch already checked out," don't just find a workaround (like a differently-named branch) — identify and reuse the existing worktree**, or coordinate with whoever owns it, rather than creating parallel work on the same ticket.
+3. **This is a cheap, free signal that Claim Before Implement's check ("first check for a peer's claim... or a PR on any base") was skipped** — treat the exit 128 itself as the check you should have done proactively.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#307).
+
+**Applies To:** All agents creating worktrees for ticket branches; check `git worktree list` before creating, and treat "already checked out" as a coordination signal, not just a git mechanics obstacle.
