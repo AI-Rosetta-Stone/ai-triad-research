@@ -17,6 +17,17 @@ vi.mock('../shared/DetailPane', () => ({
   ),
 }));
 
+// t/4654: ChatWorkspace also renders TaxonomyRefsSection (per-reply grounding, unmocked here),
+// whose TaxNodeDetail now statically imports NodeDetail/SituationDetail — which pull more named
+// exports (e.g. MODELS_BY_BACKEND) from useTaxonomyStore than this file's mock provides, crashing
+// at module-load time regardless of which test runs. Mock both directly.
+vi.mock('../taxonomy/NodeDetail', () => ({
+  NodeDetail: ({ node }: { node: { id: string; label?: string } }) => <div data-testid="node-detail">{node.label ?? node.id}</div>,
+}));
+vi.mock('../debate/SituationDetail', () => ({
+  SituationDetail: ({ node }: { node: { id: string; label?: string } }) => <div data-testid="situation-detail">{node.label ?? node.id}</div>,
+}));
+
 let mockChatStoreState: Record<string, unknown> = {};
 vi.mock('../../hooks/useChatStore', () => ({
   useChatStore: (selector?: (s: Record<string, unknown>) => unknown) => {

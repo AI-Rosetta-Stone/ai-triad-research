@@ -44,6 +44,11 @@ vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
 }));
 
+// t/4654: a pov fixture now renders NodeDetail (via TaxNodeDetail's own wrapper), not
+// TaxonomyRefDetail — kept mocked too for the policy/unresolved arm.
+vi.mock('../taxonomy/NodeDetail', () => ({
+  NodeDetail: ({ node }: { node: { id: string } }) => <div data-testid="ref-detail" data-node={node.id} />,
+}));
 vi.mock('../taxonomy/TaxonomyRefDetail', () => ({
   TaxonomyRefDetail: ({ nodeId, onClose }: { nodeId: string; onClose: () => void }) => (
     <div data-testid="ref-detail" data-node={nodeId}>

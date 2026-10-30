@@ -45,6 +45,16 @@ vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
 }));
 
+// t/4654: TaxonomyRefs.tsx -> TaxNodeDetail.tsx now statically imports NodeDetail/
+// SituationDetail, which pull more named exports (e.g. MODELS_BY_BACKEND) from
+// useTaxonomyStore than this file's mock provides — crashes at module-load time even
+// though this file's one test never opens the detail. Mock both directly.
+vi.mock('../taxonomy/NodeDetail', () => ({
+  NodeDetail: () => <div data-testid="ref-detail" />,
+}));
+vi.mock('../debate/SituationDetail', () => ({
+  SituationDetail: () => <div data-testid="ref-detail" />,
+}));
 vi.mock('../taxonomy/TaxonomyRefDetail', () => ({
   TaxonomyRefDetail: ({ nodeId, onClose }: { nodeId: string; onClose: () => void }) => (
     <div data-testid="ref-detail" data-node={nodeId}>
