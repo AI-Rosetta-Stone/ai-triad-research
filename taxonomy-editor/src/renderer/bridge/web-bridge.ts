@@ -1305,9 +1305,11 @@ const rawApi: AppAPI = {
 
   // Diagnostics — in web mode, communicate cross-tab via BroadcastChannel
   openDiagnosticsWindow: async () => {
-    if (isDiagnosticsInline()) { window.dispatchEvent(new CustomEvent('open-diagnostics-drawer')); return; }
-    if (isMobilePlatform()) { window.location.hash = 'diagnostics-window'; return; }
+    if (isDiagnosticsInline()) { window.dispatchEvent(new CustomEvent('open-diagnostics-drawer')); return 'inline'; }
+    // t/4648: mobile's in-place hash nav has no separate window either — report 'inline' too.
+    if (isMobilePlatform()) { window.location.hash = 'diagnostics-window'; return 'inline'; }
     diagWindowRef = window.open(`${location.origin}/#diagnostics-window`, 'aitriad-diagnostics');
+    return 'popout';
   },
   focusDiagnosticsWindow: async () => {
     if (isDiagnosticsInline()) return 'inline';

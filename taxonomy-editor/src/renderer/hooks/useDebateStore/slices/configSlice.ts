@@ -209,8 +209,10 @@ export const createConfigSlice: StateCreator<DebateStore, [], [], ConfigSlice> =
       set({ activeDebate: updated });
     }
     if (enabled) {
-      void api.openDiagnosticsWindow().then(() => {
-        set({ diagPopoutOpen: true });
+      void api.openDiagnosticsWindow().then((result) => {
+        // t/4648: only a real popout/tab sets diagPopoutOpen — the narrow-window drawer (or
+        // mobile's in-place nav) resolves 'inline', which isn't a window to track as "open".
+        set({ diagPopoutOpen: result === 'popout' });
         setTimeout(() => {
           api.sendDiagnosticsState({ debate: get().activeDebate, selectedEntry: get().selectedDiagEntry });
         }, 1000);

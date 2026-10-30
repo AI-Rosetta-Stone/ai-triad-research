@@ -752,7 +752,10 @@ export interface AppAPI {
   getCalibrationLog: () => Promise<{ entries: unknown[]; validationReport: unknown }>;
 
   // --- Diagnostics ---
-  openDiagnosticsWindow: () => Promise<void>;
+  /** t/4648: reports which path was actually taken, so callers (configSlice's
+   *  toggleDiagnostics) can track whether a real popout is open without the
+   *  narrow-window drawer being conflated with it. */
+  openDiagnosticsWindow: () => Promise<'popout' | 'inline'>;
   openPovProgressionWindow: () => Promise<void>;
   closeDiagnosticsWindow: () => Promise<void>;
   sendDiagnosticsState: (state: unknown) => void;
