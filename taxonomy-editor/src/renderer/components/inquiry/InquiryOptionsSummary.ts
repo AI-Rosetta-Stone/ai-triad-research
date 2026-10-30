@@ -8,6 +8,7 @@ import type { Fidelity } from '@lib/inquiry';
 import type { TagSelection } from '@lib/schema/povTags';
 import { FIDELITY_LABELS } from './inquiryDisplay';
 import { tagSummaryLabel } from './InquiryTagPicker';
+import { DEFAULT_FIDELITY } from '../../hooks/useInquiryStore';
 
 const TRUNCATE_AT = 32;
 
@@ -41,13 +42,8 @@ export function fidelitySummarySegment(fidelity: Fidelity): string {
   return FIDELITY_LABELS[fidelity];
 }
 
-/** The store's own default (`useInquiryStore.ts`'s initial state) — not "Quick". Design's
- *  original spec named Quick (p/29#186 fix 1: its own error), which badged every fresh open as
- *  "1 changed". */
-const DEFAULT_FIDELITY: Fidelity = 'standard';
-
-/** Count of settings that differ from their defaults (fidelity Standard, no model overrides, no
- *  tag) — drives the change badge, mirroring New Debate's `diffCount`. */
+/** Count of settings that differ from their defaults (fidelity DEFAULT_FIDELITY, no model
+ *  overrides, no tag) — drives the change badge, mirroring New Debate's `diffCount`. */
 export function optionsChangeCount(
   fidelity: Fidelity, debaterModel: string | undefined, evaluatorModel: string | undefined, tagSelection: TagSelection | undefined,
 ): number {

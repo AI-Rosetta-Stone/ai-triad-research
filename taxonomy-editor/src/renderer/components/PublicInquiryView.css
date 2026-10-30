@@ -122,11 +122,12 @@
   margin-bottom: 0.75rem;
 }
 .pov-grounding-tab {
+  font: inherit;
   padding: 0.4rem 0.75rem;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -139,7 +140,7 @@
 .pov-grounding-panel { padding: 0.5rem 0; }
 .pov-grounding-empty {
   padding: 0.9rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 0.85rem;
   text-align: center;
   background: var(--bg-primary, transparent);
