@@ -63,31 +63,42 @@ describe('web-bridge focusDiagnosticsWindow', () => {
 
 describe('electron-bridge focusDiagnosticsWindow', () => {
   let innerWidthSpy: ReturnType<typeof vi.spyOn>;
+  const focusDiagnosticsWindowMock = vi.fn();
 
   beforeEach(() => {
     vi.resetModules();
     window.location.hash = '';
     innerWidthSpy = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1920);
+    focusDiagnosticsWindowMock.mockReset().mockResolvedValue('focused');
+    (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
+      focusDiagnosticsWindow: focusDiagnosticsWindowMock,
+    };
   });
 
   afterEach(() => {
     innerWidthSpy.mockRestore();
     window.location.hash = '';
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
   });
 
-  // t/4642: ElectronMain's 'focus-diagnostics-window' IPC handler + preload exposure haven't
-  // landed yet (see the comment on focusDiagnosticsWindow in electron-bridge.ts), so this side
-  // always resolves 'not-open' on a wide window today — accurate, since no handler exists to
-  // delegate to. Once ElectronMain's PR adds window.electronAPI.focusDiagnosticsWindow, this
-  // method delegates to it and this test gets a 'focused'/real-not-open arm added alongside.
-  it('resolves not-open on a wide window pending ElectronMain\'s IPC handler', async () => {
+  // t/4642/t/4663: delegates to the real 'focus-diagnostics-window' IPC handler now that
+  // ElectronMain's handler + preload exposure have landed.
+  it('delegates to window.electronAPI.focusDiagnosticsWindow on a wide window, and returns its result', async () => {
+    const { api } = await import('./electron-bridge');
+    expect(await api.focusDiagnosticsWindow()).toBe('focused');
+    expect(focusDiagnosticsWindowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates not-open from the IPC call unchanged', async () => {
+    focusDiagnosticsWindowMock.mockResolvedValue('not-open');
     const { api } = await import('./electron-bridge');
     expect(await api.focusDiagnosticsWindow()).toBe('not-open');
   });
 
-  it('returns inline on a narrow main window', async () => {
+  it('returns inline on a narrow main window without calling the IPC handler', async () => {
     innerWidthSpy.mockReturnValue(800);
     const { api } = await import('./electron-bridge');
     expect(await api.focusDiagnosticsWindow()).toBe('inline');
+    expect(focusDiagnosticsWindowMock).not.toHaveBeenCalled();
   });
 });

@@ -485,6 +485,19 @@ void app.whenReady().then(() => {
     }
   });
 
+  // t/4642/t/4663: bring an already-open diagnostics popout to the front on a repeat card
+  // click (open-diagnostics-window's show/focus lines, without the create-if-absent branch —
+  // the 'inline' arm for narrow windows is decided in electron-bridge.ts before this ever fires).
+  ipcMain.handle('focus-diagnostics-window', (): 'focused' | 'not-open' => {
+    if (diagWindow && !diagWindow.isDestroyed()) {
+      if (diagWindow.isMinimized()) diagWindow.restore();
+      diagWindow.show();
+      diagWindow.focus();
+      return 'focused';
+    }
+    return 'not-open';
+  });
+
   registerChatWindowHandlers(path.join(__dirname, 'preload.cjs'), () => mainWindow, hardenWindow);
 
   // Prompt Diff popout window

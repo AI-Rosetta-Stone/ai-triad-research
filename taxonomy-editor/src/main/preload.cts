@@ -363,6 +363,8 @@ function buildElectronApi() {
   openDiagnosticsWindow: (): Promise<void> => ipcRenderer.invoke('open-diagnostics-window'),
   openPovProgressionWindow: (): Promise<void> => ipcRenderer.invoke('open-pov-progression-window'),
   closeDiagnosticsWindow: (): Promise<void> => ipcRenderer.invoke('close-diagnostics-window'),
+  // t/4642/t/4663: bring an already-open diagnostics popout to the front on a repeat card click.
+  focusDiagnosticsWindow: (): Promise<'focused' | 'not-open'> => ipcRenderer.invoke('focus-diagnostics-window'),
 
   // Chat popout window
   openChatWindow: (chatId: string, source?: 'my' | 'community'): Promise<{ atCap: true } | void> => ipcRenderer.invoke('open-chat-window', chatId, source),

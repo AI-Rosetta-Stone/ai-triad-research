@@ -269,6 +269,8 @@ export interface ElectronAPI {
   openDiagnosticsWindow: () => Promise<void>;
   openPovProgressionWindow: () => Promise<void>;
   closeDiagnosticsWindow: () => Promise<void>;
+  /** t/4642/t/4663: bring an already-open diagnostics popout to the front. */
+  focusDiagnosticsWindow: () => Promise<'focused' | 'not-open'>;
   sendDiagnosticsState: (state: unknown) => void;
   onDiagnosticsStateUpdate: (callback: (state: unknown) => void) => () => void;
   onDiagnosticsPopoutClosed: (callback: () => void) => () => void;
