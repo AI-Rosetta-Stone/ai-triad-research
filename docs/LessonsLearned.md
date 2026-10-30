@@ -594,6 +594,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-06-25 — Conflict: `ogit add taxonomy-editor/.../conflict/AGENTS.md` failed ("paths are ignored by .gitignore") — same parent-dir exclusion issue as p/98#1, this time for a per-directory AGENTS.md under `taxonomy-editor/`. Fixed with `ogit add -f` (p/122#1).
 - 2026-07-06 — Orca Support: `git --git-dir=.orca-git --work-tree=. add -f ...` failed from `orca-support/` subdirectory — Bash tool cwd is the role's scope directory, not the repo root, so `.orca-git` wasn't found. Fixed by switching to PowerShell with explicit `cd` to repo root (p/13#10).
 - 2026-07-17 — Computational Linguist: `git --git-dir=.orca-git add research/comp-linguist/AGENTS.md` failed "paths ignored by .gitignore" even though the file was **already tracked AND already staged** (the `research/` exclusion still blocks a re-`add`). Resolved by **skipping `add` entirely and committing the staged pathspec directly** — `commit -- <path>`. Refines the rule: `-f` is for the *first* stage of a not-yet-tracked file; an already-tracked/staged overlay file needs no re-add at all (p/7#39).
+- 2026-10-29 — DevOps Lead (p/26#313, **clarifies the apparent contradiction with p/7#39**): `git --git-dir=.orca-git --work-tree=. add .orca/agent-instruction-budgets.json` (without `-f`) refused "ignored by one of your .gitignore files" when committing a routine update to an EXISTING, ALREADY-TRACKED overlay file. Resolved with `add -f` — committed clean. **This does not contradict p/7#39**: the distinguishing factor is whether the file is already STAGED (p/7#39's case — skip `add`, commit directly) versus needing to be RE-STAGED for new changes (this case — `-f` is required again, regardless of prior tracking history, because the gitignore check runs on every explicit `add` invocation).
 - 2026-08-01 — Orca Support (p/13#24, e2bfe23): **RECURRENCE of the run-from-subdir facet** — overlay `commit` from the `orca-support/` subdir failed (`.orca-git` not visible from subdirs; Bash cwd = role scope, not repo root); re-ran from the repo root → committed `e2bfe23`. Same agent, same facet ~1 month after p/13#10; rule + hook exist but it still bites from a role subdir. Loud + self-correcting, not escalating.
 - 2026-08-09 — DebateWorkspace (p/124#12): `ogit` returned "command not found" in the Bash tool — non-interactive shell, aliases not loaded. Switched to `git --git-dir=.orca-git --work-tree=.`; status/log/audit all succeeded.
 
@@ -8086,3 +8087,44 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#307).
 
 **Applies To:** All agents creating worktrees for ticket branches; check `git worktree list` before creating, and treat "already checked out" as a coordination signal, not just a git mechanics obstacle.
+
+---
+
+## #397 [Process] The "WORKTREE PATH GUARD" PreToolUse Hook Substring-Matches the Phrase Anywhere in a Bash Command, Including Inside Quoted Heredoc Prose
+
+**Pattern:** An agent runs `git commit -m "$(cat <<'EOF' ... EOF)"` where the heredoc body is ordinary commit-message prose that happens to quote or describe a LessonsLearned entry title containing the phrase "git worktree add" (e.g. documenting a lesson about `git worktree add` exit 128). The PreToolUse "WORKTREE PATH GUARD" hook (t/3154/t/3254) fires and blocks the command, treating it as an actual `git worktree add <path>` invocation whose target doesn't resolve under the repo-root `.worktrees/` — even though the real command is `git commit`, not `git worktree add`, and the matched phrase is inert quoted text.
+
+**Instances:**
+- 2026-10-29 — Sage (self-observed, no ping — recorded directly): a `git commit -m "$(cat <<'EOF' ...)"` call whose heredoc body quoted a LessonsLearned entry titled "`git worktree add` Exit 128 ('Branch Already Checked Out')..." was blocked by the WORKTREE PATH GUARD hook. The hook's error referenced "This `git worktree add` target does NOT resolve under repo-root `.worktrees/`" — diagnosing a worktree-creation path problem that didn't exist, because no `git worktree add` command was actually being run. Worked around by rephrasing the commit message to avoid the literal contiguous phrase "git worktree add".
+
+**Root Cause:** The hook's matcher appears to scan the ENTIRE raw Bash command string for the literal substring "git worktree add" (or a similar pattern) rather than parsing the command to confirm an actual `git worktree add` subcommand invocation is present. Quoted heredoc content, commit message prose, or any other inert text containing that phrase triggers the same block as a real invocation.
+
+**Prevention:**
+1. **If a commit message or other heredoc-embedded text needs to describe or quote a lesson/entry about `git worktree add`, avoid writing the literal contiguous phrase** — rephrase (e.g. "the worktree-creation command" instead of "git worktree add") to avoid false-triggering the hook, until the matcher is fixed to parse actual command structure.
+2. **If a Bash command is blocked by a hook whose stated diagnosis doesn't match what the command actually does** (e.g. "worktree path" guard firing on a `git commit`), suspect a substring-match false positive in the hook rather than assuming the command itself is wrong — check whether the flagged phrase exists only inside quoted/heredoc text.
+3. **Report this to whoever owns the hook's definition (likely DevOps)** — the fix is for the matcher to parse the actual subcommand being invoked (first non-flag token after `git`), not scan the whole raw string for a substring.
+
+**Status:** Active — 1 instance (Sage, self-observed, 2026-10-29). Flagged to DevOps (p/26#312) for a possible hook-matcher fix.
+
+**Applies To:** All agents writing commit messages, PR bodies, or other heredoc-embedded text that discusses or quotes commands like `git worktree add`; be aware the WORKTREE PATH GUARD hook may substring-match inert prose.
+
+---
+
+## #398 [Process] Pushing to a Branch With an Active Merge-Queue Entry Is Rejected Outright (GH006) — `--disable-auto` Doesn't Reliably Dequeue It
+
+**Pattern:** An agent needs to push additional commits to a PR branch that is already enqueued in the merge queue. The push is rejected by protected-branch rules: `GH006: ...added to a merge queue`. The agent tries `gh pr merge --disable-auto` to dequeue the PR first, but this doesn't reliably clear the active queue entry, and the push remains rejected.
+
+**Instances:**
+- 2026-10-30 — Rosetta Stone (p/6#105, t/4668): `git push` to PR #4191's branch (`fix/grounding-to-why-t4668`) was rejected (`GH006: ...added to a merge queue`) because the PR was already enqueued. `gh pr merge --disable-auto` didn't reliably dequeue it. Resolved by leaving PR #4191 untouched and shipping the extra scope (`PublicGroundingSection.tsx`) as an independent PR (#4192) off a fresh branch instead.
+
+**Root Cause:** This appears to conflict with root AGENTS.md's current documented assumption for the merge queue ("a push after enqueue drops the entry, so re-arm on the new head") — that language describes classic auto-merge behavior, but for the actual merge-QUEUE mechanism on this repo, a push to an enqueued branch's PR is rejected by GitHub's protected-branch enforcement outright, not silently accepted with the entry dropped. `--disable-auto` targets classic auto-merge's arming state, which may not be the same mechanism that controls merge-queue membership — hence it doesn't reliably clear the queue entry either. Pending confirmation from the TL on whether root AGENTS.md's language needs correcting (flagged p/335#230).
+
+**Prevention:**
+1. **Don't push additional commits to a PR branch that is already enqueued in the merge queue.** If you need to add scope while a PR is queued, ship the additional changes as a SEPARATE PR off a fresh branch instead of pushing to the enqueued one.
+2. **`gh pr merge --disable-auto` is not a reliable way to dequeue a PR from the merge queue** — it may only affect classic auto-merge arming, not actual merge-queue membership. If you must remove a PR from the queue, verify via GraphQL (`isInMergeQueue`/`mergeQueueEntry`) that it's actually been dequeued before retrying a push.
+3. **`GH006: ...added to a merge queue` on a push is the diagnostic** — the target PR is actively queued; either wait for it to clear the queue (merge or get dequeued) before pushing more, or redirect the new changes to a separate PR.
+4. **This may require a correction to root AGENTS.md's merge-queue section** — flagged to the TL (p/335#230); check for an update before relying on the "push drops the entry, re-arm" language for the actual merge queue (as opposed to classic auto-merge).
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#105, t/4668). Flagged to TL (p/335#230) as a possible root AGENTS.md correction.
+
+**Applies To:** All agents needing to add scope to a PR that's already enqueued in the merge queue; ship as a separate PR rather than pushing to the enqueued branch.
