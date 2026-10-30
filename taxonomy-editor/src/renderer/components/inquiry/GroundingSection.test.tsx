@@ -55,24 +55,32 @@ describe('GroundingSection (t/4591)', () => {
     expect(screen.getByRole('tab', { name: 'Safetyist' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('handles empty grounding gracefully', () => {
+  it('still renders all 4 tabs when every camp is empty (t/4591 Design gap A)', () => {
     const emptyGrounding: GroundingEnvelope = { nodesByCamp: {} };
-    const { container } = render(<GroundingSection grounding={emptyGrounding} />);
-    expect(container.querySelector('.grounding-section')).not.toBeInTheDocument();
+    render(<GroundingSection grounding={emptyGrounding} />);
+    expect(screen.getByRole('tab', { name: 'Accelerationist' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Safetyist' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Skeptic' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Situation' })).toBeInTheDocument();
+    expect(screen.getByText('No grounding items for Accelerationist')).toBeInTheDocument();
   });
 
-  it('renders Situation tab when situationNodes exist', () => {
-    const groundingWithSituations: GroundingEnvelope = {
-      nodesByCamp: { acc: [{ nodeId: 'acc-beliefs-001', label: 'AI acceleration belief node', camp: 'acc' }] },
-      situationNodes: [
-        { nodeId: 'cc-situations-001', label: 'Situation One' },
-        { nodeId: 'cc-situations-002', label: 'Situation Two' },
-        { nodeId: 'cc-situations-003', label: 'Situation Three' },
-      ],
+  it('renders the Situation tab even without situationNodes (t/4591 Design gap A)', () => {
+    render(<GroundingSection grounding={mockGrounding} />);
+    expect(screen.getByRole('tab', { name: 'Situation' })).toBeInTheDocument();
+  });
+
+  it('falls back to the anchor situation when situationNodes is absent', async () => {
+    const user = userEvent.setup();
+    const groundingWithAnchorOnly: GroundingEnvelope = {
+      nodesByCamp: {},
+      anchorSituationId: 'cc-situations-999',
+      anchorSummary: 'Anchor situation summary',
     };
 
-    render(<GroundingSection grounding={groundingWithSituations} />);
-    expect(screen.getByRole('tab', { name: 'Situation' })).toBeInTheDocument();
+    render(<GroundingSection grounding={groundingWithAnchorOnly} />);
+    await user.click(screen.getByRole('tab', { name: 'Situation' }));
+    expect(screen.getByText('Anchor situation summary')).toBeInTheDocument();
   });
 
   it('limits situation tab to top 3 nodes', async () => {
@@ -117,6 +125,13 @@ describe('GroundingSection (t/4591)', () => {
     expect(screen.getByTestId('node-preview')).toHaveTextContent('acc-beliefs-001');
   });
 
+  it('selects the first row by default when a tab opens (t/4591 Design gap C)', () => {
+    render(<GroundingSection grounding={mockGrounding} />);
+    const firstRow = screen.getByText('AI acceleration belief node').closest('tr');
+    expect(firstRow).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('node-preview')).toHaveTextContent('acc-beliefs-001');
+  });
+
   it('shows missing node message when node not in taxonomy', async () => {
     const user = userEvent.setup();
     const groundingWithMissingNode: GroundingEnvelope = {
@@ -129,6 +144,6 @@ describe('GroundingSection (t/4591)', () => {
     const firstRow = screen.getByText('Stale label').closest('tr');
     expect(firstRow).not.toBeNull();
     await user.click(firstRow!);
-    expect(screen.getByText('Node no longer in taxonomy')).toBeInTheDocument();
+    expect(screen.getByText('This item is no longer in the taxonomy (acc-deleted-999)')).toBeInTheDocument();
   });
 });

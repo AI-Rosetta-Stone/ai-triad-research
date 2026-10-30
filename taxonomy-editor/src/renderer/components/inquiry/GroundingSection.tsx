@@ -27,10 +27,6 @@ export function GroundingSection({ grounding }: GroundingSectionProps) {
   const [activeTab, setActiveTab] = useState<TabId>('acc');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-  const hasAnyCampNodes = CAMP_TABS.some(camp => (grounding.nodesByCamp[camp]?.length ?? 0) > 0);
-  const hasSituationNodes = (grounding.situationNodes?.length ?? 0) > 0;
-  const shouldShowSituationTab = hasSituationNodes;
-
   const handleTabChange = (tab: TabId) => {
     setActiveTab(tab);
     setSelectedRowId(null);
@@ -42,21 +38,32 @@ export function GroundingSection({ grounding }: GroundingSectionProps) {
   const getCampRows = (camp: CampTab) =>
     (grounding.nodesByCamp[camp] ?? []).map(node => ({ id: node.nodeId, label: node.label }));
 
-  const getSituationRows = () =>
-    (grounding.situationNodes ?? []).slice(0, 3).map(node => ({ id: node.nodeId, label: node.label }));
+  // Falls back to the single anchor situation (always present once a situation was tagged)
+  // when the child ticket's ranked situationNodes list (t/4592) isn't populated — the tab must
+  // never be empty just because the richer field is missing from an older/simpler result.
+  const getSituationRows = () => {
+    if (grounding.situationNodes && grounding.situationNodes.length > 0) {
+      return grounding.situationNodes.slice(0, 3).map(node => ({ id: node.nodeId, label: node.label }));
+    }
+    if (grounding.anchorSituationId) {
+      return [{ id: grounding.anchorSituationId, label: grounding.anchorSummary ?? grounding.anchorSituationId }];
+    }
+    return [];
+  };
 
   const currentRows = useMemo(() => {
     if (activeTab === 'situation') return getSituationRows();
     return getCampRows(activeTab);
   }, [activeTab, grounding]);
 
-  const selectedNodeMissing = selectedRowId !== null && lookupPinnedData(selectedRowId) === null;
+  // Design (t/4591#6): the first row is selected by default when a tab opens.
+  const effectiveSelectedRowId = selectedRowId ?? currentRows[0]?.id ?? null;
 
-  if (!hasAnyCampNodes && !shouldShowSituationTab) return null;
+  const selectedNodeMissing = effectiveSelectedRowId !== null && lookupPinnedData(effectiveSelectedRowId) === null;
 
   return (
     <div className="grounding-section">
-      <span className="grounding-eyebrow">Why</span>
+      <span className="inquiry-eyebrow">Why</span>
 
       <div className="grounding-tabs" role="tablist">
         {CAMP_TABS.map(camp => (
@@ -71,17 +78,15 @@ export function GroundingSection({ grounding }: GroundingSectionProps) {
             {CAMP_LABELS[camp]}
           </button>
         ))}
-        {shouldShowSituationTab && (
-          <button
-            role="tab"
-            aria-selected={activeTab === 'situation'}
-            aria-controls="grounding-panel-situation"
-            className={`grounding-tab ${activeTab === 'situation' ? 'active' : ''}`}
-            onClick={() => handleTabChange('situation')}
-          >
-            Situation
-          </button>
-        )}
+        <button
+          role="tab"
+          aria-selected={activeTab === 'situation'}
+          aria-controls="grounding-panel-situation"
+          className={`grounding-tab ${activeTab === 'situation' ? 'active' : ''}`}
+          onClick={() => handleTabChange('situation')}
+        >
+          Situation
+        </button>
       </div>
 
       <div
@@ -93,25 +98,24 @@ export function GroundingSection({ grounding }: GroundingSectionProps) {
           <div className="grounding-empty">
             {activeTab === 'situation'
               ? 'No situation nodes available'
-              : `No grounding nodes for ${CAMP_LABELS[activeTab]}`}
+              : `No grounding items for ${CAMP_LABELS[activeTab]}`}
           </div>
         ) : (
           <div className="grounding-content">
-            <table className="grounding-table" role="grid" aria-label={`${activeTab === 'situation' ? 'Situation' : CAMP_LABELS[activeTab]} grounding nodes`}>
+            <table className="grounding-table" aria-label={`${activeTab === 'situation' ? 'Situation' : CAMP_LABELS[activeTab]} grounding nodes`}>
               <thead>
                 <tr>
-                  <th scope="col">Node ID</th>
-                  <th scope="col">Label</th>
+                  <th scope="col">ID</th>
+                  <th scope="col">Title</th>
                 </tr>
               </thead>
               <tbody>
                 {currentRows.map((row) => (
                   <tr
                     key={row.id}
-                    className={`grounding-row ${selectedRowId === row.id ? 'selected' : ''}`}
+                    className={`grounding-row ${effectiveSelectedRowId === row.id ? 'selected' : ''}`}
                     onClick={() => setSelectedRowId(row.id)}
-                    role="row"
-                    aria-selected={selectedRowId === row.id}
+                    aria-selected={effectiveSelectedRowId === row.id}
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -127,12 +131,12 @@ export function GroundingSection({ grounding }: GroundingSectionProps) {
               </tbody>
             </table>
 
-            {selectedRowId && (
+            {effectiveSelectedRowId && (
               <div className="grounding-detail">
-                <LinkedNodePreview nodeId={selectedRowId} />
+                <LinkedNodePreview nodeId={effectiveSelectedRowId} />
                 {selectedNodeMissing && (
                   <div className="grounding-detail-missing">
-                    Node no longer in taxonomy
+                    This item is no longer in the taxonomy ({effectiveSelectedRowId})
                   </div>
                 )}
               </div>
