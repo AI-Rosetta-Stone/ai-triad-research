@@ -148,6 +148,88 @@ Describe 'Assert-DataWriteAllowed — centralized data-write guard (t/2902)' -Ta
     }
 }
 
+Describe 'Assert-DataWriteAllowed — data-write observability log (t/4455)' -Tag 'summary' {
+
+    BeforeAll {
+        function Get-LoggedRecords([string]$Repo) {
+            $logPath = Join-Path $Repo 'data-writes.jsonl'
+            if (-not (Test-Path -LiteralPath $logPath)) { return @() }
+            @(Get-Content -LiteralPath $logPath | ForEach-Object { $_ | ConvertFrom-Json })
+        }
+    }
+
+    AfterEach {
+        if ($null -eq $script:OrigDataRoot) { Remove-Item Env:\AI_TRIAD_DATA_ROOT -ErrorAction SilentlyContinue }
+        else { $env:AI_TRIAD_DATA_ROOT = $script:OrigDataRoot }
+        if ($null -eq $script:OrigGuardMode) { Remove-Item Env:\AI_TRIAD_DATA_WRITE_GUARD -ErrorAction SilentlyContinue }
+        else { $env:AI_TRIAD_DATA_WRITE_GUARD = $script:OrigGuardMode }
+    }
+
+    It 'an allowed write (clean target, Block mode) logs a record naming the caller and path' {
+        $repo = Join-Path $TestDrive 'obs-allowed'
+        $file = New-DataRepo -Root $repo
+        $env:AI_TRIAD_DATA_ROOT = $repo
+        $env:AI_TRIAD_DATA_WRITE_GUARD = 'Block'
+        InModuleScope AITriad -Parameters @{ F = $file } {
+            param($F)
+            function Invoke-TestCaller { Assert-DataWriteAllowed -Path $F }
+            Invoke-TestCaller 3>$null
+        }
+        $records = Get-LoggedRecords -Repo $repo
+        $records.Count | Should -Be 1
+        $records[0].allowed | Should -Be $true
+        $records[0].path | Should -Be $file
+        $records[0].caller | Should -Be 'Invoke-TestCaller'
+        $records[0].reason | Should -Be 'block-clean'
+    }
+
+    It 'a refused write (Block mode, dirty) still throws AND logs allowed=false' {
+        $repo = Join-Path $TestDrive 'obs-refused'
+        $file = New-DataRepo -Root $repo
+        'mutated' | Set-Content -Path $file -Encoding utf8NoBOM
+        $env:AI_TRIAD_DATA_ROOT = $repo
+        $env:AI_TRIAD_DATA_WRITE_GUARD = 'Block'
+        InModuleScope AITriad -Parameters @{ F = $file } {
+            param($F)
+            { Assert-DataWriteAllowed -Path $F } | Should -Throw
+        }
+        $records = Get-LoggedRecords -Repo $repo
+        $records.Count | Should -Be 1
+        $records[0].allowed | Should -Be $false
+        $records[0].reason | Should -Be 'block-dirty-refused'
+    }
+
+    It '-AllowDirty bypass logs allowed=true with reason allow-dirty-override' {
+        $repo = Join-Path $TestDrive 'obs-allowdirty'
+        $file = New-DataRepo -Root $repo
+        'mutated' | Set-Content -Path $file -Encoding utf8NoBOM
+        $env:AI_TRIAD_DATA_ROOT = $repo
+        $env:AI_TRIAD_DATA_WRITE_GUARD = 'Block'
+        InModuleScope AITriad -Parameters @{ F = $file } {
+            param($F)
+            Assert-DataWriteAllowed -Path $F -AllowDirty
+        }
+        $records = Get-LoggedRecords -Repo $repo
+        $records.Count | Should -Be 1
+        $records[0].allowed | Should -Be $true
+        $records[0].reason | Should -Be 'allow-dirty-override'
+    }
+
+    It 'a target outside the data root is not logged at all' {
+        $repo = Join-Path $TestDrive 'obs-scope-repo'
+        $null = New-DataRepo -Root $repo
+        $other = Join-Path $TestDrive 'obs-other'
+        $outsideFile = New-DataRepo -Root $other
+        $env:AI_TRIAD_DATA_ROOT = $repo
+        $env:AI_TRIAD_DATA_WRITE_GUARD = 'Block'
+        InModuleScope AITriad -Parameters @{ F = $outsideFile } {
+            param($F)
+            Assert-DataWriteAllowed -Path $F
+        }
+        (Get-LoggedRecords -Repo $repo).Count | Should -Be 0
+    }
+}
+
 Describe 'Write-Utf8NoBom Build-Module contract (t/2902 regression)' -Tag 'summary' {
     # Build-Module.ps1 dot-sources Private/Write-Utf8NoBom.ps1 STANDALONE (without the
     # guard chain) to write .aitriad.json. The centralized guard must therefore be
