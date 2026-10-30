@@ -165,9 +165,12 @@
   margin-right: 3px;
 }
 
+/* t/4656 follow-up: reading prose matched to the Text pane's statement body size (--text-md),
+   overriding the inherited .claims-node-row size — per Design's measured gap (t/4656#3). */
 .claims-node-text {
   padding-left: 18px;
   margin-top: 2px;
+  font-size: var(--text-md);
 }
 
 .claims-edges {
