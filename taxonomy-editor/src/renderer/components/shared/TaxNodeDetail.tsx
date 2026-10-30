@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import type { PinnedData } from '../../hooks/useTaxonomyStore/slices/taxonomyDataSlice';
 import { TaxonomyRefDetail } from '../taxonomy/TaxonomyRefDetail';
 import { NodeDetail } from '../taxonomy/NodeDetail';
 import { SituationDetail } from '../debate/SituationDetail';
@@ -15,6 +16,15 @@ function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// t/4651#3 (Design AC5 fix): names the landing region for screen readers. Pulled out of
+// TaxNodeDetail's own body — a pure lookup, no JSX/effects — to stay under the per-file
+// local/complexity-budget rule rather than baselining the file.
+function detailLabelFor(data: PinnedData | null | undefined, nodeId: string): string {
+  if (data?.type === 'pov' || data?.type === 'situations') return data.node.label;
+  if (data?.type === 'policy') return data.policy.action;
+  return nodeId;
 }
 
 // Inline POV detail for a clicked taxonomy anchor/ref (t/1724). Resolved entirely
@@ -49,11 +59,7 @@ export function TaxNodeDetail({ nodeId, onClose }: { nodeId: string; onClose: ()
     containerRef.current?.focus();
   }, [nodeId]);
 
-  // t/4651#3 (Design AC5 fix): name the landing region for screen readers, since focus moves
-  // here programmatically rather than via a visible heading the user just activated.
-  const detailLabel = data?.type === 'pov' || data?.type === 'situations' ? data.node.label
-    : data?.type === 'policy' ? data.policy.action
-    : nodeId;
+  const detailLabel = detailLabelFor(data, nodeId);
 
   if (data?.type === 'pov' || data?.type === 'situations') {
     return (
