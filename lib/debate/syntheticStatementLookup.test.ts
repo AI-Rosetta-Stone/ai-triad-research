@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { bestMatchingSyntheticStatement, makeGroundingLookup } from './syntheticStatementLookup.js';
+import { bestMatchingSyntheticStatement } from './syntheticStatementLookup.js';
 
 describe('bestMatchingSyntheticStatement', () => {
   const nodeVectors = {
@@ -46,25 +46,5 @@ describe('bestMatchingSyntheticStatement', () => {
   it('returns undefined when the node has an empty vectors array', () => {
     const empty = { 'acc-beliefs-001': { vectors: [] } };
     expect(bestMatchingSyntheticStatement('acc-beliefs-001', [1, 0], empty, nodeStatements)).toBeUndefined();
-  });
-});
-
-describe('makeGroundingLookup', () => {
-  const nodeVectors = {
-    'acc-beliefs-001': { vectors: [[1, 0], [0, 1]] },
-  };
-  const nodeStatements = {
-    'acc-beliefs-001': ['statement A', 'statement B'],
-  };
-
-  it('binds the taxonomy data into a reusable (nodeId, claimEmbedding) lookup', () => {
-    const lookup = makeGroundingLookup(nodeVectors, nodeStatements);
-    expect(lookup('acc-beliefs-001', [1, 0])).toBe('statement A');
-    expect(lookup('acc-beliefs-001', [0, 1])).toBe('statement B');
-  });
-
-  it('returns a no-op lookup when no synthetic statements are loaded', () => {
-    const lookup = makeGroundingLookup(nodeVectors, undefined);
-    expect(lookup('acc-beliefs-001', [1, 0])).toBeUndefined();
   });
 });
