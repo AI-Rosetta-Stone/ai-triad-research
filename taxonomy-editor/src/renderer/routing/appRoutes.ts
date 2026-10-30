@@ -45,7 +45,9 @@ export const OPED_ROUTE: AppRoute = {
 
 export const APP_ROUTES: AppRoute[] = [OPED_ROUTE];
 
-export function findRoute(pathname: string): { route: AppRoute; params: Record<string, string> } | null {
+export function findRoute(url: string): { route: AppRoute; params: Record<string, string> } | null {
+  // Strip query string before matching (e.g., /opeds/set-1?pov=acc → /opeds/set-1)
+  const pathname = url.split('?')[0];
   for (const route of APP_ROUTES) {
     const params = route.match(pathname);
     if (params) return { route, params };
