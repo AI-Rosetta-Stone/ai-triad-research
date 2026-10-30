@@ -358,6 +358,29 @@ function HeaderRow1<TMy extends { id: string }, TCommunity extends { id: string 
   );
 }
 
+// ── Header row 1.5: sort select (phone only, t/4571) ──
+
+function PhoneSortBar({
+  sort, onSort, config,
+}: {
+  sort: SortState;
+  onSort: (key: string) => void;
+  config: LibraryListPageProps<any, any>['config'];
+}) {
+  return (
+    <div className="lib-phone-sort-bar">
+      <label htmlFor="lib-phone-sort-select" className="lib-phone-sort-label">Sort:</label>
+      <SortSelect
+        sortKey={sort.key}
+        sortDir={sort.dir}
+        onSort={onSort}
+        columns={config.columns}
+        titleSortable={config.titleSortable}
+      />
+    </div>
+  );
+}
+
 // ── Header row 2: tabs + search ──
 
 function HeaderRow2({
@@ -486,6 +509,139 @@ function EmptyStateRow({
   return null;
 }
 
+// ── Phone layout: sort select (t/4571) ──
+
+function SortSelect({
+  sortKey, sortDir, onSort, columns, titleSortable,
+}: {
+  sortKey: string | null;
+  sortDir: SortDir;
+  onSort: (key: string) => void;
+  columns: LibraryColumn<any, any>[];
+  titleSortable?: boolean;
+}) {
+  const options = [
+    { key: TITLE_SORT_KEY, label: 'Title' },
+    ...columns.map(c => ({ key: c.key, label: c.header })),
+  ].filter(o => (o.key === TITLE_SORT_KEY ? titleSortable : columns.find(c => c.key === o.key)?.sortable));
+
+  if (options.length === 0) return null;
+
+  return (
+    <select
+      className="lib-phone-sort"
+      value={sortKey ?? TITLE_SORT_KEY}
+      onChange={e => onSort(e.target.value)}
+      aria-label="Sort by"
+    >
+      {options.map(opt => (
+        <option key={opt.key} value={opt.key}>{opt.label}</option>
+      ))}
+    </select>
+  );
+}
+
+// ── Phone layout: list item (t/4571) ──
+
+function PhoneListRow<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, listView, config, editModeActive, openRow, showToast,
+}: {
+  row: TMy | TCommunity;
+  listView: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  editModeActive: boolean;
+  openRow: (id: string) => void;
+  showToast: (msg: string) => void;
+}) {
+  const metaColumns = config.columns.filter(c => c.phone === 'meta');
+  const metaParts = metaColumns.map(c => c.render(row, listView));
+
+  return (
+    <div
+      className="lib-phone-item"
+      role="listitem"
+      tabIndex={0}
+      onClick={() => { if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id); }}
+      onKeyDown={e => {
+        if (e.key !== 'Enter' || editModeActive) return;
+        e.preventDefault();
+        openRow(row.id);
+      }}
+    >
+      {editModeActive && (
+        <input
+          type="checkbox"
+          className="lib-phone-checkbox"
+          aria-label={`Select ${config.getTitle(row, listView)}`}
+          checked={config.editMode!.selectedIds.has(row.id)}
+          onChange={() => config.editMode!.onToggleSelect(row.id)}
+          onClick={e => e.stopPropagation()}
+        />
+      )}
+      <div className="lib-phone-title-row">
+        <span className="lib-phone-title">
+          <TitleCell row={row} variant={listView} config={config} />
+        </span>
+      </div>
+      {metaParts.length > 0 && (
+        <div className="lib-phone-meta-row">
+          {metaParts.map((part, i) => (
+            <span key={i} className={`lib-phone-meta-part${i < metaParts.length - 1 ? ' lib-phone-meta-sep' : ''}`}>
+              {part}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="lib-phone-actions" onClick={e => e.stopPropagation()}>
+        <ActionsCell row={row} variant={listView} config={config} toast={showToast} editModeActive={editModeActive} />
+      </div>
+    </div>
+  );
+}
+
+// ── Phone layout: list wrapper (t/4571) ──
+
+function PhoneListView<TMy extends { id: string }, TCommunity extends { id: string }>({
+  sortedRows, listView, config, editModeActive, openRow, showToast, loading, hasRows, hasQuery,
+}: {
+  sortedRows: (TMy | TCommunity)[];
+  listView: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  editModeActive: boolean;
+  openRow: (id: string) => void;
+  showToast: (msg: string) => void;
+  loading: boolean;
+  hasRows: boolean;
+  hasQuery: boolean;
+}) {
+  const emptyLabel = listView === 'my' ? config.searchPlaceholderMy.replace(/^Search /, '').replace(/…$/, '') : config.title.toLowerCase();
+  const hasSortedRows = sortedRows.length > 0;
+
+  return (
+    <div className="lib-phone-list" role="list">
+      <EmptyStateRow
+        loading={loading}
+        hasSortedRows={hasSortedRows}
+        hasRows={hasRows}
+        hasQuery={!!hasQuery}
+        query=""
+        emptyLabel={emptyLabel}
+      />
+      {sortedRows.map(row => (
+        <PhoneListRow
+          key={row.id}
+          row={row}
+          listView={listView}
+          config={config}
+          editModeActive={editModeActive}
+          openRow={openRow}
+          showToast={showToast}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ── Component ──
 
 export function LibraryListPage<TMy extends { id: string }, TCommunity extends { id: string }>(
@@ -601,6 +757,10 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
         hideMyTab={hideMyTab}
       />
 
+      {/* Phone layout: sort select (t/4571) */}
+      <PhoneSortBar sort={sort} onSort={onSort} config={config} />
+
+      {/* Desktop grid (hidden on phone) */}
       <div className="lib-table-wrap">
         {/* eslint-disable-next-line local/no-inline-style -- per-page grid-template-columns, not a static class */}
         <div className="lib-grid" role="table" aria-label={`${config.title} ${listView === 'my' ? 'My' : 'Community'} table`} style={{ '--lib-cols': gridCols } as React.CSSProperties}>
@@ -613,6 +773,19 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
           ))}
         </div>
       </div>
+
+      {/* Phone layout: list view (t/4571, hidden on desktop) */}
+      <PhoneListView
+        sortedRows={sortedRows}
+        listView={listView}
+        config={config}
+        editModeActive={editModeActive}
+        openRow={openRow}
+        showToast={showToast}
+        loading={loading}
+        hasRows={rows.length > 0}
+        hasQuery={!!q}
+      />
 
       {toastMsg && <div className="lib-toast" role="status">{toastMsg}</div>}
     </div>
