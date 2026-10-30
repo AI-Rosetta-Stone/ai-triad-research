@@ -4,6 +4,91 @@
 import type { PlaceInfo } from './types';
 import type { TaxonomyStore } from '../hooks/useTaxonomyStore';
 
+type PlaceResolver = (nodeId: string | null) => PlaceInfo;
+
+const POV_MAP: Record<string, string> = {
+  'accelerationist': 'acc',
+  'safetyist': 'saf',
+  'skeptic': 'skp',
+  'situations': 'sit',
+};
+
+const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
+  'rosetta-stone': () => ({
+    path: '/',
+    placeKey: 'rosetta-stone',
+    label: 'Rosetta Stone',
+  }),
+
+  'chat': (nodeId) => ({
+    path: nodeId ? `/chat/${nodeId}` : '/chat',
+    placeKey: `chat:${nodeId ?? 'none'}`,
+    label: nodeId ? `Chat: ${nodeId}` : 'Chat',
+  }),
+
+  'opeds': (nodeId) => ({
+    path: nodeId ? `/opeds/${nodeId}` : '/opeds',
+    placeKey: `opeds:${nodeId ?? 'none'}`,
+    label: nodeId ? `Op-Ed: ${nodeId}` : 'Op-Ed Studies',
+  }),
+
+  'inquiry': (nodeId) => ({
+    path: nodeId ? `/inquiry/${nodeId}` : '/inquiry',
+    placeKey: `inquiry:${nodeId ?? 'none'}`,
+    label: nodeId ? `Inquiry: ${nodeId}` : 'Ask a Question',
+  }),
+
+  'debate': (nodeId) => ({
+    path: nodeId ? `/debate/${nodeId}` : '/debate',
+    placeKey: `debate:${nodeId ?? 'none'}`,
+    label: nodeId ? `Debate: ${nodeId}` : 'Debate',
+  }),
+
+  'accelerationist': (nodeId) => resolveTaxonomy('accelerationist', nodeId),
+  'safetyist': (nodeId) => resolveTaxonomy('safetyist', nodeId),
+  'skeptic': (nodeId) => resolveTaxonomy('skeptic', nodeId),
+  'situations': (nodeId) => resolveTaxonomy('situations', nodeId),
+
+  'conflicts': (nodeId) => ({
+    path: nodeId ? `/conflicts?claim=${nodeId}` : '/conflicts',
+    placeKey: `conflicts:${nodeId ?? 'none'}`,
+    label: nodeId ? `Conflict: ${nodeId}` : 'Conflicts',
+  }),
+
+  'cruxes': () => ({
+    path: '/cruxes',
+    placeKey: 'cruxes:none',
+    label: 'Cruxes',
+  }),
+
+  'summaries': () => ({
+    path: '/summaries',
+    placeKey: 'summaries:none',
+    label: 'Summaries',
+  }),
+
+  'validation': () => ({
+    path: '/validation',
+    placeKey: 'validation:none',
+    label: 'Validation',
+  }),
+
+  'organizations': () => ({
+    path: '/organizations',
+    placeKey: 'organizations:none',
+    label: 'Organizations',
+  }),
+};
+
+function resolveTaxonomy(tab: string, nodeId: string | null): PlaceInfo {
+  const pov = POV_MAP[tab];
+  return {
+    path: nodeId ? `/taxonomy/${pov}?node=${nodeId}` : `/taxonomy/${pov}`,
+    placeKey: `taxonomy:${nodeId ?? 'none'}`,
+    label: nodeId ? `Taxonomy: ${nodeId}` : `Taxonomy (${tab})`,
+  };
+}
+
 /**
  * Serializes the current app state into a "place" — a unique location in the app
  * that the user would recognize as "I am on X". Returns path, placeKey, and label.
@@ -12,105 +97,6 @@ import type { TaxonomyStore } from '../hooks/useTaxonomyStore';
  * Different placeKeys always push history; same placeKey with different path replaces.
  */
 export function placeOf(state: TaxonomyStore): PlaceInfo {
-  const tab = state.activeTab;
-  const nodeId = state.selectedNodeId;
-
-  // Rail tabs and other places — map activeTab to route + placeKey
-  switch (tab) {
-    case 'rosetta-stone':
-      return {
-        path: '/',
-        placeKey: 'rosetta-stone',
-        label: 'Rosetta Stone',
-      };
-
-    case 'chat':
-      return {
-        path: nodeId ? `/chat/${nodeId}` : '/chat',
-        placeKey: `chat:${nodeId ?? 'none'}`,
-        label: nodeId ? `Chat: ${nodeId}` : 'Chat',
-      };
-
-    case 'opeds':
-      return {
-        path: nodeId ? `/opeds/${nodeId}` : '/opeds',
-        placeKey: `opeds:${nodeId ?? 'none'}`,
-        label: nodeId ? `Op-Ed: ${nodeId}` : 'Op-Ed Studies',
-      };
-
-    case 'inquiry':
-      return {
-        path: nodeId ? `/inquiry/${nodeId}` : '/inquiry',
-        placeKey: `inquiry:${nodeId ?? 'none'}`,
-        label: nodeId ? `Inquiry: ${nodeId}` : 'Ask a Question',
-      };
-
-    case 'debate':
-      return {
-        path: nodeId ? `/debate/${nodeId}` : '/debate',
-        placeKey: `debate:${nodeId ?? 'none'}`,
-        label: nodeId ? `Debate: ${nodeId}` : 'Debate',
-      };
-
-    case 'accelerationist':
-    case 'safetyist':
-    case 'skeptic':
-    case 'situations':
-      // All taxonomy POV tabs are one place; POV is a view
-      const povMap: Record<string, string> = {
-        'accelerationist': 'acc',
-        'safetyist': 'saf',
-        'skeptic': 'skp',
-        'situations': 'sit',
-      };
-      const pov = povMap[tab];
-      return {
-        path: nodeId ? `/taxonomy/${pov}?node=${nodeId}` : `/taxonomy/${pov}`,
-        placeKey: `taxonomy:${nodeId ?? 'none'}`,
-        label: nodeId ? `Taxonomy: ${nodeId}` : `Taxonomy (${tab})`,
-      };
-
-    case 'conflicts':
-      return {
-        path: nodeId ? `/conflicts?claim=${nodeId}` : '/conflicts',
-        placeKey: `conflicts:${nodeId ?? 'none'}`,
-        label: nodeId ? `Conflict: ${nodeId}` : 'Conflicts',
-      };
-
-    case 'cruxes':
-      return {
-        path: '/cruxes',
-        placeKey: 'cruxes:none',
-        label: 'Cruxes',
-      };
-
-    case 'summaries':
-      return {
-        path: '/summaries',
-        placeKey: 'summaries:none',
-        label: 'Summaries',
-      };
-
-    case 'validation':
-      return {
-        path: '/validation',
-        placeKey: 'validation:none',
-        label: 'Validation',
-      };
-
-    case 'organizations':
-      return {
-        path: '/organizations',
-        placeKey: 'organizations:none',
-        label: 'Organizations',
-      };
-
-    default:
-      // Unknown tab — fall back to landing
-      return {
-        path: '/',
-        placeKey: 'rosetta-stone',
-        label: 'Rosetta Stone',
-      };
-  }
+  const resolver = PLACE_RESOLVERS[state.activeTab];
+  return resolver ? resolver(state.selectedNodeId) : PLACE_RESOLVERS['rosetta-stone'](null);
 }

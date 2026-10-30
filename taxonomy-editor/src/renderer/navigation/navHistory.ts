@@ -104,7 +104,7 @@ export class WebHistory implements NavHistory {
       labels[idx] = label;
       sessionStorage.setItem('nav_labels', JSON.stringify(labels));
     } catch {
-      // Silently fail if sessionStorage is unavailable (e.g., private mode)
+      /* telemetry — silent by design */
     }
   }
 }
