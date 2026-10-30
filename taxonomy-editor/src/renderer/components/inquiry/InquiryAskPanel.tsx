@@ -94,9 +94,6 @@ function OptionsToggleSummary({
           {truncateLabel(tagSegment)}
         </span>
       </span>
-      {/* p/29#186 fix 3: Ask's aria-describedby points here — the full, untruncated reason —
-          not at the visible (possibly truncated) copy above. */}
-      <span id="inquiry-options-tag-reason" className="inquiry-sr-only">{tagSegment}</span>
     </>
   );
 }
@@ -207,6 +204,10 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
                 <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
+            {/* p/29#187: outside the toggle button, not inside — a descendant inside the button
+                would double into its accessible name (and be read twice for a blocked reason).
+                aria-describedby works on an element anywhere in the document. */}
+            <span id="inquiry-options-tag-reason" className="inquiry-sr-only">{tagSegment}</span>
             <div id="inquiry-options-body" className="inquiry-options-body" hidden={!optionsExpanded}>
               <FidelityCards fidelity={fidelity} onChange={setFidelity} />
 

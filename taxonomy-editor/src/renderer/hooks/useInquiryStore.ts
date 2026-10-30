@@ -24,6 +24,10 @@ const POLL_CEILING_MS = 60 * 60_000; // 1 hour — comfortably above Deep fideli
 
 export type InquiryScreen = 'ask' | 'running' | 'answer' | 'list';
 
+/** t/4667 (Design, p/29#187): the store's own default, so the Options change-badge compares
+ *  against this instead of a hard-coded guess. */
+export const DEFAULT_FIDELITY: Fidelity = 'standard';
+
 interface InquiryStoreState {
   question: string;
   fidelity: Fidelity;
@@ -191,7 +195,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
   return {
     question: '',
-    fidelity: 'standard',
+    fidelity: DEFAULT_FIDELITY,
     debaterModel: undefined,
     evaluatorModel: undefined,
     tagSelection: undefined,
