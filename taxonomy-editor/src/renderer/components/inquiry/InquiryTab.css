@@ -40,14 +40,6 @@
   background: oklch(0.52 0.11 70);
 }
 
-/* t/4562 (Design review): heading between the back button and the form — var(--sp-4) separates
-   it from the "← My Questions" row above (was 0px) and from the Research question label below. */
-.inquiry-ask-heading {
-  margin: var(--sp-4) 0 var(--sp-2);
-  font-size: 18px;
-  font-weight: 600;
-}
-
 /* t/4562: flash()'d failure messages (export/share/copy) above the library page's own list —
    mirrors OpEdTab's oped-status-inline. */
 .inquiry-status-inline {
@@ -67,8 +59,29 @@
   margin-bottom: 8px;
 }
 
+/* ── New question dialog (t/4666 phase 1) — width/phone behaviour mirror NewChatDialog;
+   header/footer fixed, body scrolls, mirroring NewOpEdDialog's flex-column shell. ── */
+.new-question-dialog {
+  width: 480px;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 3rem);
+  display: flex;
+  flex-direction: column;
+}
+.new-question-dialog h2 { margin: 0 0 14px; font-size: 1.05rem; font-weight: 600; }
+.new-question-body { overflow-y: auto; padding-right: 2px; }
+.new-question-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+.new-question-actions-right { display: flex; gap: 8px; }
+
 /* ── ask ── */
-.inquiry-asklab { display: block; font-size: var(--text-sm); color: var(--text-muted); margin-bottom: 8px; }
+.inquiry-asklab { display: block; font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: 8px; }
 .inquiry-qfield {
   width: 100%;
   border: 1.5px solid var(--border-color);
@@ -95,24 +108,18 @@
 .inquiry-fcard h4 { margin: 0 0 4px; font-size: 15px; display: flex; align-items: center; gap: 7px; }
 .inquiry-tick { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--border-color); flex: none; }
 .inquiry-fcard[data-sel="1"] .inquiry-tick { border-color: var(--focus-ring, #1a73e8); background: var(--focus-ring, #1a73e8); }
-.inquiry-fcard p { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+.inquiry-fcard p { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.45; }
 
 .inquiry-models {
   margin-top: 18px; border: 1px solid var(--border-color); border-radius: var(--radius-md);
   padding: 14px 16px; background: var(--bg-secondary); display: flex; flex-direction: column; gap: 10px;
 }
 .inquiry-mrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.inquiry-mlab { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); min-width: 74px; }
+.inquiry-mlab { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); min-width: 74px; }
 .inquiry-msel { flex: 1; min-width: 220px; font-size: 13px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 6px 9px; }
 .inquiry-mnote { margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.45; }
 
-.inquiry-actions { display: flex; align-items: center; gap: 14px; margin-top: 22px; flex-wrap: wrap; }
-.inquiry-btn {
-  appearance: none; border: 0; border-radius: var(--radius-md); background: var(--focus-ring, #1a73e8);
-  color: #fff; font-size: 14.5px; font-weight: 600; padding: 10px 20px; cursor: pointer;
-}
-.inquiry-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.inquiry-costnote { font-size: 12.5px; color: var(--text-muted); }
+.inquiry-costnote { font-size: 12.5px; color: var(--text-secondary); }
 .inquiry-error { color: var(--danger); font-size: 13px; margin-top: 10px; }
 
 /* ── running ── */
