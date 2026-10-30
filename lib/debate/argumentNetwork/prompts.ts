@@ -354,18 +354,16 @@ export function formatArgumentNetworkContext(
   return lines.join('\n');
 }
 
-/** t/4644: appends the attributed node's synthetic-statement grounding line, if available.
+/** t/4644/t/4692: appends the attributed node's synthetic-statement grounding line, if the
+ *  claim's attribution carries one (computed once at attribution time, not re-derived here).
  *  Extracted out of formatEstablishedPoints/formatConcessionCandidatesHint to keep the branch
  *  out of their already-high complexity. */
 export function appendGroundingLine(
   lines: string[],
-  primaryRef: string | undefined,
-  embedding: number[] | undefined,
-  groundingLookup: ((nodeId: string, claimEmbedding: number[] | undefined) => string | undefined) | undefined,
+  attribution: { primary_ref?: string; grounding_statement?: string } | undefined,
 ): void {
-  if (!primaryRef || !groundingLookup) return;
-  const grounding = groundingLookup(primaryRef, embedding);
-  if (grounding) lines.push(`  Taxonomy grounding [${primaryRef}]: "${grounding}"`);
+  if (!attribution?.primary_ref || !attribution.grounding_statement) return;
+  lines.push(`  Taxonomy grounding [${attribution.primary_ref}]: "${attribution.grounding_statement}"`);
 }
 
 /** Format claims from other debaters, prioritized by response-relevance.
@@ -373,12 +371,10 @@ export function appendGroundingLine(
  *  Tier 2: Unaddressed claims targeting this agent.
  *  Tier 3: Recency (fallback). */
 export function formatEstablishedPoints(
-  allNodes: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; embedding?: number[]; claim_taxonomy_attribution?: { primary_ref?: string } }[],
+  allNodes: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; claim_taxonomy_attribution?: { primary_ref?: string; grounding_statement?: string } }[],
   currentSpeaker: string,
   maxPoints: number = 10,
   edges?: { source: string; target: string; type: 'supports' | 'attacks' }[],
-  /** t/4644: looks up the attributed node's best-matching synthetic statement for a claim. */
-  groundingLookup?: (nodeId: string, claimEmbedding: number[] | undefined) => string | undefined,
 ): string {
   if (allNodes.length === 0) return '';
 
@@ -418,7 +414,7 @@ export function formatEstablishedPoints(
   }
 
   // Build prioritized list
-  const result: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; embedding?: number[]; claim_taxonomy_attribution?: { primary_ref?: string }; tag: string }[] = [];
+  const result: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; claim_taxonomy_attribution?: { primary_ref?: string; grounding_statement?: string }; tag: string }[] = [];
 
   for (const c of otherClaims) {
     if (tier1.has(c.id)) {
@@ -487,7 +483,7 @@ export function formatEstablishedPoints(
         factTag = normalized === 'false' ? ` [FACT-CHECKED FALSE${ev}]` : ` [FACT-CHECKED DISPUTED${ev}]`;
       }
       lines.push(`- ${c.id} (${campLabel}):${tag}${factTag} ${c.text}`);
-      appendGroundingLine(lines, c.claim_taxonomy_attribution?.primary_ref, c.embedding, groundingLookup);
+      appendGroundingLine(lines, c.claim_taxonomy_attribution);
     }
   }
 

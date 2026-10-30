@@ -73,7 +73,7 @@
     "countOver": 1
   },
   "debate/argumentNetwork/attribution.ts": {
-    "max": 24,
+    "max": 26,
     "countOver": 1
   },
   "debate/argumentNetwork/processClaims.ts": {
@@ -117,7 +117,7 @@
     "countOver": 2
   },
   "debate/claimExtractionPipeline/extract.ts": {
-    "max": 186,
+    "max": 187,
     "countOver": 1
   },
   "debate/claimExtractionPipeline/gapAndDrift.ts": {

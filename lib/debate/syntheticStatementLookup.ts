@@ -1,15 +1,17 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// ── Synthetic-statement grounding (t/4644, AC4 of t/4434) ──────────────
+// ── Synthetic-statement grounding (t/4644/t/4692, AC4 of t/4434) ───────
 //
-// Given a claim already attributed to a taxonomy node (claim_taxonomy_attribution.primary_ref),
-// finds that node's synthetic statement with the highest cosine similarity to the claim's own
-// embedding — a better live-debate reference than the node's DOLCE description (t/4434#7/#8
-// paired-preference result). Attribution/ranking itself stays on the description vector; this
-// only picks reference TEXT for an already-selected node.
+// Given a claim already attributed to a taxonomy node, finds that node's synthetic statement
+// with the highest cosine similarity to the claim's own embedding — a better reference than
+// the node's DOLCE description (t/4434#7/#8 paired-preference result). Attribution/ranking
+// itself stays on the description vector; this only picks reference TEXT for an already-
+// selected node. Called once per successful attribution (argumentNetwork/attribution.ts),
+// stored on claim_taxonomy_attribution.grounding_statement — not recomputed per prompt render
+// or per UI hover (t/4676's TL decision: the engine computes it once, everything else reads it).
 //
-// Zero per-render I/O: `nodeVectors`/`nodeStatements` are the taxonomy's already-loaded
+// Zero extra I/O at call time: `nodeVectors`/`nodeStatements` are the taxonomy's already-loaded
 // embeddings.vectors (taxonomyLoader.ts, from Export-SyntheticEmbeddings' .npy) and the corpus
 // statement texts loaded once at taxonomy-load time (same row alignment as generate_corpus.py's
 // export: non-pruned entries, grouped by node, original file order preserved).
@@ -54,13 +56,4 @@ export function bestMatchingSyntheticStatement(
     if (sim > bestSim) { bestSim = sim; bestIdx = i; }
   }
   return statements[bestIdx];
-}
-
-/** Bind a taxonomy's embeddings + synthetic statements into a reusable per-claim lookup. */
-export function makeGroundingLookup(
-  nodeVectors: Record<string, { vectors?: number[][] }>,
-  nodeStatements: Record<string, string[]> | undefined,
-): (nodeId: string, claimEmbedding: number[] | undefined) => string | undefined {
-  if (!nodeStatements) return () => undefined;
-  return (nodeId, claimEmbedding) => bestMatchingSyntheticStatement(nodeId, claimEmbedding, nodeVectors, nodeStatements);
 }
