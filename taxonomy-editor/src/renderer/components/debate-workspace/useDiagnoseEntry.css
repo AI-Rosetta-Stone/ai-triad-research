@@ -1,0 +1,37 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved. */
+/* Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4642: fallback notice when the Diagnostics tab/window can't be focused — mirrors
+   shared/PrecacheToast's fixed-bottom-center pattern (components/debate-workspace/
+   DebateWorkspace.css's debate-gemini-fallback-toast, t/4645, uses the same shape). */
+.diagnose-notice {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.diagnose-notice-btn {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.diagnose-notice-btn:hover {
+  background: var(--bg-hover);
+}
