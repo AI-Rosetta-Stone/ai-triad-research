@@ -523,9 +523,28 @@ jobs:
               }
             }
 
+            // t/4660: a PR already in the merge queue (directly enqueued, or auto-merge enqueued
+            // it) has REST auto_merge === null, which the classifier used to read as "not armed"
+            // -- the exact false negative this fetch exists to close. GraphQL-only field, no REST
+            // equivalent. Fail-safe default is isInMergeQueue: false (NOT "assume queued") --
+            // falling back to the already-reviewed pre-t/4660 behavior on a transient query error
+            // is safer than silently suppressing a genuine approved-not-armed finding.
+            const mergeQueueQuery = `query($owner:String!,$repo:String!,$number:Int!){
+              repository(owner:$owner,name:$repo){ pullRequest(number:$number){
+                isInMergeQueue mergeQueueEntry { state position enqueuedAt } } } }`;
+            async function fetchMergeQueueState(number) {
+              try {
+                const r = await github.graphql(mergeQueueQuery, { owner, repo, number });
+                return r.repository.pullRequest ?? { isInMergeQueue: false, mergeQueueEntry: null };
+              } catch {
+                return { isInMergeQueue: false, mergeQueueEntry: null };
+              }
+            }
+
             const blockerFindings = [];
             for (const pr of openPRs) {
               const { data: full } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
+              const mergeQueue = await fetchMergeQueueState(pr.number);
               const runsResp = await github.rest.actions.listWorkflowRunsForRepo({
                 owner, repo, head_sha: pr.head.sha, per_page: 100,
               }).catch(() => ({ data: { workflow_runs: [] } }));
@@ -576,7 +595,9 @@ jobs:
               // seconds after a PR is genuinely mergeable. Only re-fetch for a PR that already
               // looks like armed-but-blocked on this first read -- a second GET, done once per
               // genuine candidate, not for every PR this loop sees.
-              const looksArmedButBlocked = !!full.auto_merge && full.mergeable_state === 'blocked'
+              // t/4660: same blind spot as the classifier's own armed-but-blocked check -- a
+              // queued PR has auto_merge === null even though it's already armed.
+              const looksArmedButBlocked = (!!full.auto_merge || mergeQueue.isInMergeQueue) && full.mergeable_state === 'blocked'
                 && REQUIRED_CONTEXTS.every((name) => {
                   const run = byPath.get(REQUIRED_CONTEXT_PATHS[name]);
                   return run && run.status === 'completed' && run.conclusion === 'success';
@@ -605,6 +626,8 @@ jobs:
                 // actually implemented.
                 isConflicting: full.mergeable === false || full.mergeable_state === 'dirty',
                 autoMergeEnabled: !!full.auto_merge,
+                inMergeQueue: !!mergeQueue.isInMergeQueue,
+                mergeQueueEnqueuedAt: mergeQueue.mergeQueueEntry?.enqueuedAt ?? null,
                 labels,
                 runs: [...byPath.values()],
                 mergeRefusalText: full.mergeable_state === 'blocked'

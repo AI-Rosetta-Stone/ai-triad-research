@@ -10,7 +10,7 @@ import {
   classifyBlocker, escalationLevel, detectSweepSignature, classifySweepHits, ARM_EVENT_RE,
   REQUIRED_CONTEXTS, REQUIRED_CONTEXT_PATHS, QUEUED_STUCK_MINUTES, IN_PROGRESS_STUCK_MINUTES,
   OWNER_SLA_HOURS, TL_SLA_HOURS, SWEEP_WINDOW_SECONDS, SWEEP_BURST_SECONDS,
-  MERGE_EQUIVALENT_WINDOW_SECONDS, SO_TIMEBOX_HOURS,
+  MERGE_EQUIVALENT_WINDOW_SECONDS, SO_TIMEBOX_HOURS, MERGE_QUEUE_STUCK_MINUTES,
 } from './stuck-pr-classifier.mjs';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -281,6 +281,40 @@ test('NOT approved-not-armed: approved and unarmed, but a required context is NO
     runs: allGreenRuns({ 'ci-gate': { status: 'completed', conclusion: 'failure' } }),
   });
   assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+
+// ── merge-queue awareness (t/4660): a directly-enqueued PR has autoMergeEnabled === false/null
+//    even though it's already armed. ──
+test('NOT approved-not-armed: unarmed by REST but already in the merge queue -> falls through (it IS armed)', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, inMergeQueue: true, lastActivityAt: hoursAgo(5) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+test('approved-not-armed still fires: unarmed by REST and NOT in the queue -> unchanged, existing arm keeps firing', () => {
+  const pr = basePr({ hasApproval: true, autoMergeEnabled: false, inMergeQueue: false, lastActivityAt: hoursAgo(5) });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'approved-not-armed');
+});
+test('queued-stuck: in the merge queue past MERGE_QUEUE_STUCK_MINUTES -> fires, names the queue state, never "arm it"', () => {
+  const pr = basePr({ autoMergeEnabled: false, inMergeQueue: true, mergeQueueEnqueuedAt: minsAgo(MERGE_QUEUE_STUCK_MINUTES + 1) });
+  const v = classifyBlocker(pr, NOW);
+  assert.equal(v.class, 'queued-stuck');
+  assert.match(v.detail.remedy, /queue/i);
+  assert.doesNotMatch(v.detail.remedy, /^arm it/i);
+});
+test('NOT queued-stuck: in the queue but under the threshold -> falls through (normal batch wait)', () => {
+  const pr = basePr({ autoMergeEnabled: false, inMergeQueue: true, mergeQueueEnqueuedAt: minsAgo(MERGE_QUEUE_STUCK_MINUTES - 1) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'queued-stuck');
+});
+test('NOT queued-stuck: inMergeQueue true but no enqueuedAt (mergeQueueEntry null) -> never ages into this class (Quality review, p/432#58: missing evidence is not evidence of stuck)', () => {
+  const pr = basePr({ autoMergeEnabled: false, inMergeQueue: true, mergeQueueEnqueuedAt: null, lastActivityAt: hoursAgo(5) });
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'queued-stuck');
+  assert.notEqual(classifyBlocker(pr, NOW)?.class, 'approved-not-armed'); // still armed via inMergeQueue alone
+});
+test('armed-but-blocked still reachable via inMergeQueue (not just autoMergeEnabled)', () => {
+  const pr = basePr({
+    autoMergeEnabled: false, inMergeQueue: true,
+    mergeableState: 'blocked', mergeableStateRecheck: 'blocked',
+  });
+  assert.equal(classifyBlocker(pr, NOW)?.class, 'armed-but-blocked');
 });
 
 // ── CI still in flight is NOT stuck (t/4557, the #3934 false-alarm shape) ──

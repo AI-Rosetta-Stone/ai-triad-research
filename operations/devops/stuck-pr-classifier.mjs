@@ -73,6 +73,10 @@ export const SWEEP_BURST_SECONDS = 120;  // 2+ PRs showing the signature within 
 // longer than an arm-event write.
 export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
 
+// t/4660: twice the max observed merge-queue batch time (15-30min, t/4567) -- a queue entry
+// older than this is genuinely stuck, not just waiting its normal turn.
+export const MERGE_QUEUE_STUCK_MINUTES = 60;
+
 /**
  * PURE. Classifies one open, non-draft PR's blocker, or null if it has none.
  *
@@ -110,6 +114,14 @@ export const MERGE_EQUIVALENT_WINDOW_SECONDS = 60;
  *   SO_CLEARED_RE (t/4533, reusing fleet-delivery-metrics.mjs's own detector) -- an SO has
  *   replied (cleared, or explicitly "did not review"), so the time-box question is already
  *   answered and this is ordinary `held` (waiting on PI/TL), never `consult-hold-aged`.
+ * @param {boolean} [pr.inMergeQueue] - true if the PR is currently in the merge queue
+ *   (GraphQL `isInMergeQueue`, t/4660). A queued PR has `auto_merge` (REST)/`autoMergeEnabled`
+ *   null even though it is, in every sense that matters here, already armed -- treated as
+ *   `autoMergeEnabled` for the `armed-but-blocked`/`approved-not-armed` checks below.
+ * @param {string|null} [pr.mergeQueueEnqueuedAt] - ISO timestamp the PR entered the queue
+ *   (GraphQL `mergeQueueEntry.enqueuedAt`, t/4660). Only meaningful when `inMergeQueue` is true;
+ *   null/missing (e.g. `mergeQueueEntry` itself null) never ages into `queued-stuck` -- no
+ *   timestamp means no evidence of how long it's been stuck, not evidence that it's fine.
  * @param {boolean} [pr.hasApproval] - true if any PR review is in APPROVED state (t/4557).
  *   Combined with every required context green and NOT autoMergeEnabled, this is
  *   `approved-not-armed`, not generic `idle` -- a ready-to-merge PR nobody armed yet.
@@ -214,13 +226,36 @@ export function classifyBlocker(pr, nowMs) {
   // or a recheck the caller never performed (undefined), does NOT escalate this pass -- the next
   // scheduled run re-observes it, so a genuinely stuck PR is still caught, just not on a transient
   // single read.
-  if (pr.autoMergeEnabled) {
+  // t/4660: a directly-enqueued (or auto-merge-enqueued) PR has autoMergeEnabled === null/false
+  // even though it is already armed in every sense this check cares about -- treat inMergeQueue
+  // as equally "armed" so a queued PR isn't mistaken for armed-but-blocked's opposite case either.
+  const isArmed = pr.autoMergeEnabled || pr.inMergeQueue;
+  if (isArmed) {
     const allGreen = REQUIRED_CONTEXTS.every((name) => {
       const run = runFor(name);
       return run && run.status === 'completed' && run.conclusion === 'success';
     });
     if (allGreen && pr.mergeableState === 'blocked' && pr.mergeableStateRecheck === 'blocked') {
       return { class: 'armed-but-blocked', detail: { mergeRefusalText: pr.mergeRefusalText ?? '(not captured)' } };
+    }
+  }
+
+  // 5.5 queued-stuck (t/4660): in the merge queue past its own stuck threshold. Checked here,
+  // between armed-but-blocked and approved-not-armed, so a genuinely stuck queue entry gets this
+  // class instead of falling through to approved-not-armed (now suppressed for queued PRs) or
+  // generic idle. No mergeQueueEnqueuedAt (e.g. mergeQueueEntry itself null) never ages into this
+  // -- missing evidence of how long it's been queued is not evidence it's stuck (Quality review,
+  // p/432#58: this is a deliberate no-alert fall-through, not a gap).
+  if (pr.inMergeQueue && pr.mergeQueueEnqueuedAt) {
+    const queueAgeMin = (nowMs - Date.parse(pr.mergeQueueEnqueuedAt)) / 60000;
+    if (queueAgeMin > MERGE_QUEUE_STUCK_MINUTES) {
+      return {
+        class: 'queued-stuck',
+        detail: {
+          queueAgeMinutes: Math.round(queueAgeMin),
+          remedy: 'PR has been in the merge queue past the normal batch window -- check the queue state (gh api .../merge-group or the Merge Queue UI); it is already armed, do not re-arm it.',
+        },
+      };
     }
   }
 
@@ -236,7 +271,7 @@ export function classifyBlocker(pr, nowMs) {
   //    PR #3926, a green T0 doc PR with zero reviews that the TL still flagged as this exact
   //    shape). A T1/T2 PR that's green but genuinely still awaiting approval does NOT fire
   //    here -- it correctly isn't "ready" yet.
-  if (!pr.autoMergeEnabled) {
+  if (!isArmed) {
     const allGreen = REQUIRED_CONTEXTS.every((name) => {
       const run = runFor(name);
       return run && run.status === 'completed' && run.conclusion === 'success';
