@@ -33,9 +33,19 @@ describe('web-bridge focusDiagnosticsWindow', () => {
     const focusFn = vi.fn();
     openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false, focus: focusFn }) as unknown as Window);
     const { api } = await import('./web-bridge');
-    await api.openDiagnosticsWindow();
+    expect(await api.openDiagnosticsWindow()).toBe('popout'); // t/4648
     expect(await api.focusDiagnosticsWindow()).toBe('focused');
     expect(focusFn).toHaveBeenCalledTimes(1);
+  });
+
+  // t/4648: diagPopoutOpen conflated a real popout with the narrow-window drawer, since
+  // openDiagnosticsWindow resolved void either way. It now reports which path it took.
+  it('t/4648: openDiagnosticsWindow resolves inline on a narrow window, without opening anything', async () => {
+    innerWidthSpy.mockReturnValue(800);
+    openSpy = vi.spyOn(window, 'open');
+    const { api } = await import('./web-bridge');
+    expect(await api.openDiagnosticsWindow()).toBe('inline');
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it('returns not-open when the kept reference points at a closed window (t/4642 motivating case)', async () => {
@@ -89,5 +99,12 @@ describe('electron-bridge focusDiagnosticsWindow', () => {
     innerWidthSpy.mockReturnValue(800);
     const { api } = await import('./electron-bridge');
     expect(await api.focusDiagnosticsWindow()).toBe('inline');
+  });
+
+  // t/4648: same report-which-path-was-taken fix as the web bridge.
+  it('t/4648: openDiagnosticsWindow resolves inline on a narrow window, without an IPC call', async () => {
+    innerWidthSpy.mockReturnValue(800);
+    const { api } = await import('./electron-bridge');
+    expect(await api.openDiagnosticsWindow()).toBe('inline');
   });
 });

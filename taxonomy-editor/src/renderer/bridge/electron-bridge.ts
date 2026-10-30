@@ -534,10 +534,12 @@ export const api: AppAPI = {
     if (isDiagnosticsInline()) {
       console.log('[diagnostics] Using drawer path (narrow main window)');
       window.dispatchEvent(new CustomEvent('open-diagnostics-drawer'));
-      return Promise.resolve();
+      return Promise.resolve('inline' as const);
     }
     console.log('[diagnostics] Using IPC path (popout or wide window)');
-    return window.electronAPI.openDiagnosticsWindow();
+    // t/4648: this bridge already knows the path taken (the IPC call only ever happens here, on
+    // the real-popout arm) — report it, rather than passing window.electronAPI's void through.
+    return window.electronAPI.openDiagnosticsWindow().then(() => 'popout' as const);
   },
   // t/4642: ElectronMain's 'focus-diagnostics-window' IPC handler + preload.cts exposure +
   // ElectronAPI.focusDiagnosticsWindow type haven't landed yet (preloadElectronApiContract's
