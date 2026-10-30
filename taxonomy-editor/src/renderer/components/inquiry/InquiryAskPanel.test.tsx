@@ -64,6 +64,19 @@ describe('InquiryAskPanel focus (t/4562)', () => {
     expect(field.selectionStart).toBe(store.question.length);
     expect(field.selectionEnd).toBe(store.question.length);
   });
+
+  // p/29#178 fix 1: the trigger must be captured before the question-steals-focus effect runs,
+  // or this restores focus to the textarea instead of the "+ New Question" button/chip.
+  it('restores focus to the trigger (not the question field) on unmount', () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const { unmount } = renderDialog();
+    expect(screen.getByLabelText('Research question')).toHaveFocus();
+    unmount();
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
 });
 
 describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {

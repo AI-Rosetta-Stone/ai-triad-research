@@ -36,6 +36,15 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
 
   useFocusTrap(dialogRef, true);
 
+  // t/4666 (Design spec, p/29#178 fix 1): must run BEFORE the question-focus effect below —
+  // effects run in declaration order, so capturing the trigger here first means
+  // document.activeElement is still the "+ New Question" button / chip, not the textarea the
+  // next effect is about to focus. Focus returns to it on close.
+  useEffect(() => {
+    const trigger = document.activeElement as HTMLElement | null;
+    return () => trigger?.focus();
+  }, []);
+
   // t/4562 (Design review): focus drops to BODY on this screen otherwise — matches Op-Ed/Debates'
   // own create-dialog behavior, and a chip-prefilled question needs the cursor visibly placed,
   // not just a populated field. Cursor at the END (not a full select) so typing continues the
@@ -47,13 +56,6 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
     el.setSelectionRange(el.value.length, el.value.length);
     // Only on mount — the dialog remounts fresh each time it opens, so there is no "re-run on
     // every question change" risk to re-litigate.
-  }, []);
-
-  // t/4666 (Design spec): focus returns to the trigger (the "+ New Question" button, or the
-  // chip that opened the dialog) on close.
-  useEffect(() => {
-    const trigger = document.activeElement as HTMLElement | null;
-    return () => trigger?.focus();
   }, []);
 
   useEffect(() => {

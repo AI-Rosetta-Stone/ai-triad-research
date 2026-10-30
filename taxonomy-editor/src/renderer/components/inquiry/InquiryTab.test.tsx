@@ -98,6 +98,13 @@ describe('InquiryTab (t/4562, t/4666)', () => {
     expect(mockReset).toHaveBeenCalled();
   });
 
+  // p/29#178 fix 2: a previous draft question must not resurface on a fresh "+ New Question".
+  it('"+ New Question" clears any previous draft question', () => {
+    render(<InquiryTab />);
+    capturedOnNew?.();
+    expect(mockSetQuestion).toHaveBeenCalledWith('');
+  });
+
   it('opening the dialog renders it over the list, not instead of it', () => {
     const { rerender } = render(<InquiryTab />);
     capturedOnNew?.();

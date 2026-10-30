@@ -97,9 +97,10 @@ export function InquiryTab() {
   }, []);
 
   const handleOpenNew = useCallback(() => {
+    setQuestion('');
     reset();
     openAskDialog();
-  }, [reset, openAskDialog]);
+  }, [setQuestion, reset, openAskDialog]);
 
   const handlePickStarter = useCallback((question: string) => {
     setQuestion(question);
