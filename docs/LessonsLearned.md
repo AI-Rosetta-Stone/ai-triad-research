@@ -4930,8 +4930,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **`headRepository` is valid; `baseRepository` is not** (for `gh pr list`). For base repo info, use `baseRefName` (branch name) or `baseRef` (object with more detail). For `gh run list`, there is no `actor` field — identify the dispatcher by run id and `gh run view <id>` instead.
 3. **Exit 1 with "Unknown JSON field" is always a field-name error**, not a network or auth issue. Check spelling first, and check it against THIS subcommand's field list — don't assume a field valid on one `gh` subcommand transfers to another.
 4. **To check actual merge-queue membership (not just arming), query GraphQL directly:** `gh api graphql -f query='query { repository(owner:"OWNER", name:"REPO") { mergeQueue(branch:"main") { entries(first:20) { nodes { pullRequest { number } state enqueuedAt jump } } } } }'`. There is no `gh pr view --json` equivalent — `autoMergeRequest` tells you arming status only, not whether/where the PR sits in the queue.
+5. **`autoMergeRequest` (and REST's `auto_merge` field) being `null` does NOT mean a PR was dropped from the merge queue** (DebateWorkspace, p/846#6) — those fields only reflect CLASSIC auto-merge-on-green, never merge-queue group entries. A PR can be genuinely queued (`AWAITING_CHECKS` or similar) while `autoMergeRequest` shows `null` the whole time. The authoritative check for queue state is GraphQL `pullRequest { isInMergeQueue, mergeQueueEntry { state position } }` — never infer queue status from the auto-merge fields in either direction.
 
-**Status:** Active — 4 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes). Deterministic usage error.
+**Status:** Active — 5 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`). Deterministic usage error.
 
 **Applies To:** All agents constructing `gh pr list`, `gh pr view`, or other `gh` subcommands with `--json`.
 
@@ -5677,7 +5678,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 6 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call).
+**Status:** Active — 7 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call; DevOps Lead p/26#304 — `pwsh -File ... | Out-String -Width 300` from Bash, same "command not found"; fixed by re-running via the PowerShell tool with `Format-List` instead).
 
 **Applies To:** All agents running `pwsh -Command "..."` or `pwsh -File` from the Bash tool with PowerShell cmdlets in the pipeline; switch to the PowerShell tool when the full command needs PS cmdlets.
 
@@ -8044,3 +8045,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (PowerShell p/20#149).
 
 **Applies To:** All agents calling AI-enrichment cmdlets (`Get-AIMetadata` and siblings); always import `AIEnrich.psm1` explicitly alongside `AITriad.psd1`.
+
+---
+
+## #395 [Build] PowerShell Array Literal Syntax (`@('a','b','c')`) Is Not Valid Bash — Only `pwsh` Can Parse It
+
+**Pattern:** An agent runs a command like `pwsh ... -Path @('a','b','c') ...` from the Bash tool. Bash parses the entire command line before any part of it reaches `pwsh`, and `@('a','b','c')` — PowerShell's array literal syntax — is not valid Bash syntax. Bash chokes on it (unexpected token, syntax error, or silent mangling, depending on exactly how it's written).
+
+**Instances:**
+- 2026-10-29 — PowerShell (p/20#152): `pwsh ... -Path @('a','b','c') ...` from the Bash tool — Bash choked on the PowerShell array literal. Resolved by invoking each path separately via the PowerShell tool / `pwsh -Command`, rather than relying on Bash to pass a PS array literal as a bare argument.
+
+**Root Cause:** Same family as #271/#67 — any PowerShell-specific syntax (array literals `@(...)`, hashtables `@{...}`, here-strings `@'...'@`) that appears OUTSIDE a `-Command "..."` string (or outside the PowerShell tool entirely) is parsed by Bash first, not PowerShell. Bash has no concept of PowerShell array syntax and either errors or mangles it.
+
+**Prevention:**
+1. **Never pass PowerShell-specific syntax (array literals, hashtables, here-strings) as a bare argument on a Bash command line.** Either wrap the entire invocation inside a `-Command "..."` string, or use the PowerShell tool directly so pwsh parses the whole line.
+2. **For multi-value parameters, prefer invoking the script once per value** (a loop in the PowerShell tool, or separate calls) over constructing a PS array literal that has to survive Bash's parser.
+3. **A Bash syntax error or unexpected mangling around `@(` or `@{` is the diagnostic** — the construct is PowerShell-only and was handed to the wrong shell.
+
+**Status:** Active — 1 instance (PowerShell p/20#152).
+
+**Applies To:** All agents invoking `pwsh` from the Bash tool with PowerShell-specific syntax in the arguments; keep PS-only syntax entirely inside `-Command` or use the PowerShell tool instead.
