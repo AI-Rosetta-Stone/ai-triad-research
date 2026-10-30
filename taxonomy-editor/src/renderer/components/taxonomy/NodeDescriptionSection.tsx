@@ -38,6 +38,11 @@ export interface DescriptionSectionProps {
   descriptionMention?: DescriptionMention;
   /** t/2811: mention segments for the plain_description read-only highlight path; undefined = no links. */
   plainDescriptionMention?: DescriptionMention;
+  /** t/4641: when true, don't render the Advanced toolbar (parent renders it separately). */
+  hideToolbar?: boolean;
+  /** t/4641: description edit mode state, lifted from NodeDetail for shared toolbar rendering. */
+  isEditing?: boolean;
+  setIsEditing?: (value: boolean | ((v: boolean) => boolean)) => void;
 }
 
 interface FormalParts {
@@ -152,10 +157,12 @@ function AdvancedDescriptionToolbar({ descMode, setDescMode, hasPlainDescription
   );
 }
 
-export function DescriptionSection({ pov, node, readOnly, err, nodeDetailMode, descMode, setDescMode, update, updatePovNode, descriptionMention, plainDescriptionMention }: DescriptionSectionProps) {
+export function DescriptionSection({ pov, node, readOnly, err, nodeDetailMode, descMode, setDescMode, update, updatePovNode, descriptionMention, plainDescriptionMention, hideToolbar, isEditing: externalIsEditing, setIsEditing: externalSetIsEditing }: DescriptionSectionProps) {
   const { findQuery, findMode, findCaseSensitive } = useTaxonomyStore();
-  const [isEditing, setIsEditing] = useState(false);
-  useEffect(() => { setIsEditing(false); }, [node.id]);
+  const [localIsEditing, setLocalIsEditing] = useState(false);
+  const isEditing = externalIsEditing !== undefined ? externalIsEditing : localIsEditing;
+  const setIsEditing: (value: boolean | ((v: boolean) => boolean)) => void = externalSetIsEditing || setLocalIsEditing;
+  useEffect(() => { if (externalIsEditing === undefined) setLocalIsEditing(false); }, [node.id, externalIsEditing]);
   // A validation error on description must stay reachable for the existing scroll+focus
   // recovery flow (NodeDetail's hasErrors effect), so force edit mode open when one is set.
   const descError = err('description');
@@ -180,17 +187,19 @@ export function DescriptionSection({ pov, node, readOnly, err, nodeDetailMode, d
 
   return (
     <div className={`nd-description nd-description-advanced ${descError ? 'has-error' : ''}`}>
-      <AdvancedDescriptionToolbar
-        descMode={descMode}
-        setDescMode={setDescMode}
-        hasPlainDescription={!!node.plain_description}
-        showEdit={!readOnly && effectiveDescMode === 'formal'}
-        isEditing={isEditing}
-        onToggleEdit={() => setIsEditing(v => !v)}
-        showRegenerate={!readOnly}
-        regenerateDisabled={node.plain_description === null}
-        onRegenerate={() => triggerPovNodeRegeneration(pov, node.id, node.description, updatePovNode)}
-      />
+      {!hideToolbar && (
+        <AdvancedDescriptionToolbar
+          descMode={descMode}
+          setDescMode={setDescMode}
+          hasPlainDescription={!!node.plain_description}
+          showEdit={!readOnly && effectiveDescMode === 'formal'}
+          isEditing={isEditing}
+          onToggleEdit={() => setIsEditing(v => !v)}
+          showRegenerate={!readOnly}
+          regenerateDisabled={node.plain_description === null}
+          onRegenerate={() => triggerPovNodeRegeneration(pov, node.id, node.description, updatePovNode)}
+        />
+      )}
 
       {isEditingFormal ? (
         <div className="prose">
@@ -211,3 +220,5 @@ export function DescriptionSection({ pov, node, readOnly, err, nodeDetailMode, d
     </div>
   );
 }
+
+export { AdvancedDescriptionToolbar };
