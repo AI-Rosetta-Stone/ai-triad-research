@@ -2534,9 +2534,9 @@
       "assigned_node_label": "Generative AI Enables Scalable Reputation Destruction",
       "cell": "skp|beliefs|2-5",
       "rank": 3,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2549,9 +2549,9 @@
       "assigned_node_label": "Previously Trusted Human Actors Can No Longer Be Presumed Authentic Due to AI Capabilities",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2564,7 +2564,7 @@
       "assigned_node_label": "AI Is a Powerful Tool That Cannot Achieve Genuine Understanding",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2579,9 +2579,9 @@
       "assigned_node_label": "Large Language Models Create Systemic Risks to Data Integrity, Privacy, and Epistemic Quality",
       "cell": "skp|beliefs|2-5",
       "rank": 4,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2594,7 +2594,7 @@
       "assigned_node_label": "AI-Generated Content Causes Direct, Documented Harm to Individuals",
       "cell": "skp|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2609,7 +2609,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2624,7 +2624,7 @@
       "assigned_node_label": "Observable Labor Market Contraction from AI",
       "cell": "skp|beliefs|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2639,7 +2639,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2654,7 +2654,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2669,7 +2669,7 @@
       "assigned_node_label": "Long-Context LLM Conversations Suffer from Instruction Decay and Assumption Drift",
       "cell": "skp|beliefs|6-30",
       "rank": 27,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2684,9 +2684,9 @@
       "assigned_node_label": "Corporate Opacity as Structural Liability Shield",
       "cell": "skp|beliefs|6-30",
       "rank": 23,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2699,7 +2699,7 @@
       "assigned_node_label": "AI Is Fallible, Incremental Software, Not an Emergent Intelligence",
       "cell": "skp|beliefs|6-30",
       "rank": 23,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2714,9 +2714,9 @@
       "assigned_node_label": "Model-Graded Benchmarks Mask Hallucination and Error Rates",
       "cell": "skp|beliefs|6-30",
       "rank": 12,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2729,7 +2729,7 @@
       "assigned_node_label": "Companies Use Narrow Audits to Deflect Meaningful AI Oversight",
       "cell": "skp|beliefs|6-30",
       "rank": 21,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2744,7 +2744,7 @@
       "assigned_node_label": "Model-Graded Benchmarks Mask Hallucination and Error Rates",
       "cell": "skp|beliefs|6-30",
       "rank": 14,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
