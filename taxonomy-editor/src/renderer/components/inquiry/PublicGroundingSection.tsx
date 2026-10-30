@@ -47,7 +47,7 @@ export function PublicGroundingSection({ grounding }: PublicGroundingSectionProp
 
   return (
     <section className="pov-inquiry-sect">
-      <span className="pov-inquiry-eyebrow">Grounding</span>
+      <span className="pov-inquiry-eyebrow">Why</span>
 
       <div className="pov-grounding-tabs" role="tablist">
         {CAMP_TABS.map(camp => (
