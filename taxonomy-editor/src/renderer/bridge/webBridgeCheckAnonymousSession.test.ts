@@ -11,7 +11,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockRecord = vi.fn();
-vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord }) }));
+// intern() is required by instrumentBridge.ts, which wraps every api.* call (including
+// checkAnonymousSession) — same shape as instrumentBridge.test.ts's own mock.
+vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: mockRecord, intern: (_ns: string, v: string) => v }) }));
 
 describe('web-bridge checkAnonymousSession (t/4628)', () => {
   beforeEach(() => {
