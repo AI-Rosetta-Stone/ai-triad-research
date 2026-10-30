@@ -6,14 +6,6 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.grounding-eyebrow {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 .grounding-tabs {
   display: flex;
   gap: var(--sp-2);
@@ -21,12 +13,13 @@
 }
 
 .grounding-tab {
+  font: inherit;
   padding: var(--sp-2) var(--sp-3);
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -53,7 +46,7 @@
 .grounding-empty {
   padding: var(--sp-4);
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: var(--text-sm);
   text-align: center;
   background: var(--bg-secondary);
   border-radius: 4px;
@@ -61,11 +54,17 @@
 
 .grounding-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-sm);
+}
+
+.grounding-table th:first-child,
+.grounding-table td:first-child {
+  width: 38%;
 }
 
 .grounding-table thead {
@@ -106,10 +105,10 @@
 }
 
 .grounding-cell-id {
-  font-family: monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   color: var(--text-secondary);
-  max-width: 200px;
+  overflow-wrap: anywhere;
 }
 
 .grounding-cell-label {
@@ -124,9 +123,6 @@
 
 .grounding-detail {
   padding: var(--sp-3);
-  background: var(--bg-secondary);
-  border-radius: 4px;
-  border: 1px solid var(--border-subtle);
 }
 
 .grounding-detail-missing {
@@ -134,7 +130,7 @@
   color: var(--text-secondary);
   font-style: italic;
   text-align: center;
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   border-radius: 4px;
 }
 
@@ -152,20 +148,16 @@
 
   .grounding-tab {
     padding: var(--sp-2);
-    font-size: 13px;
+    font-size: var(--text-sm);
     flex-shrink: 0;
   }
 
   .grounding-table {
-    font-size: 12px;
+    font-size: var(--text-xs);
   }
 
   .grounding-cell-id,
   .grounding-cell-label {
     padding: var(--sp-2);
-  }
-
-  .grounding-cell-id {
-    max-width: 120px;
   }
 }
