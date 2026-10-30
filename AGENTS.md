@@ -53,13 +53,13 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 ### Pre-Self-Merge Verification
 
 - **Land code through a PR to `main`.** The required contexts are `ci-gate`, `CodeQL Analysis`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on. (t/4567: the native `CodeQL` alert-gating check never reports on a merge-group ref; alert-gating is enforced by the merge queue's `code_scanning` ruleset rule instead.)
-- **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. Enqueue pinned: `gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`; a push after enqueue drops the entry, so re-arm on the new head. Never a bare manual merge. Ref §3.
+- **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. Enqueue pinned: `gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`. **Never push to a queued PR:** GitHub may reject it (`GH006`), and `--disable-auto` doesn't dequeue. Use a separate PR, or dequeue, push and re-enqueue pinned. Never a bare manual merge. Ref §3.
 - **Incident hotfix (jump the queue):** only the TL, or DevOps Lead with the TL's recorded go, for a PR fixing an active incident with an anchor ticket. Enqueue with `jump`, head pinned; every required check still runs. Never for `consult-hold` or `joint-gv` PRs; a T2 fix still needs its SO clearance and approval. Log each jump on the incident ticket. Bypassing branch protection stays PI-only.
 
 ### PR-Flow Practice Rules
 
 - **Batch sequential same-feature work** into one PR, unless the diff is over ~400 lines or mixes concerns. Merge promptly on green, or record why not.
-- **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247: #3343 and #3364 merged before review). Arming means "done", so disarm before pushing more.
+- **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247). Arming means "done", so disarm (and dequeue, if queued) before pushing more.
   - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
 - **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
   - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
