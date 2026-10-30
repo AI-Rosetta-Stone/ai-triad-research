@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event';
 
 const mockSetActiveTab = vi.fn();
 const mockOpenSettings = vi.fn();
+const mockOpenExternal = vi.fn();
 
 vi.mock('../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: (selector: (s: { setActiveTab: typeof mockSetActiveTab }) => unknown) =>
@@ -22,12 +23,15 @@ vi.mock('../hooks/useSettingsDialog', () => ({
     selector({ open: mockOpenSettings }),
 }));
 
+vi.mock('@bridge', () => ({ api: { openExternal: mockOpenExternal } }));
+
 import { RosettaStoneTab } from './RosettaStoneTab';
 
 describe('RosettaStoneTab (t/4543)', () => {
   beforeEach(() => {
     mockSetActiveTab.mockClear();
     mockOpenSettings.mockClear();
+    mockOpenExternal.mockClear();
   });
 
   it('renders the hero title and the specimen question with all three POV voices', () => {
@@ -83,7 +87,7 @@ describe('RosettaStoneTab (t/4543)', () => {
     expect(screen.getByText('Grant-makers / philanthropy program officers')).toBeInTheDocument();
   });
 
-  it('renders the 6 feature cards in rail order ending with Bring Your Own AI Key', () => {
+  it('renders the 7 feature cards in rail order, Download Dataset before Bring Your Own AI Key', () => {
     const { container } = render(<RosettaStoneTab />);
     const cardsSection = container.querySelector('.rosetta-tab-cards');
     expect(cardsSection).not.toBeNull();
@@ -91,8 +95,15 @@ describe('RosettaStoneTab (t/4543)', () => {
       .getAllByRole('heading', { level: 3 }).map(h => h.textContent);
     expect(headings).toEqual([
       'Chat with Perspectives', 'Op-Ed Studies', 'Ask a Question',
-      'Run AI Debates', 'Explore the Taxonomy', 'Bring Your Own AI Key',
+      'Run AI Debates', 'Explore the Taxonomy', 'Download Dataset', 'Bring Your Own AI Key',
     ]);
+  });
+
+  it('routes the Download Dataset card to the ai-triad-data GitHub repo via openExternal', async () => {
+    render(<RosettaStoneTab />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open GitHub' }));
+    expect(mockOpenExternal).toHaveBeenCalledWith('https://github.com/AI-Rosetta-Stone/ai-triad-data');
+    expect(mockSetActiveTab).not.toHaveBeenCalled();
   });
 
   it('routes the Chat card to the chat tab', async () => {
