@@ -2069,7 +2069,7 @@
       "assigned_node_label": "Set the Ethical and Legal Ground Rules for AI Governance",
       "cell": "saf|intentions|2-5",
       "rank": 4,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2084,9 +2084,9 @@
       "assigned_node_label": "Mandating Privacy-Preserving Cryptographic Audit Trails for Algorithmic Decisions",
       "cell": "saf|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2099,7 +2099,7 @@
       "assigned_node_label": "Replacing Abstract Safety Claims with Testable Engineering Controls",
       "cell": "saf|intentions|6-30",
       "rank": 30,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2114,9 +2114,9 @@
       "assigned_node_label": "Scaling Oversight to Real-Time Remediation Speed",
       "cell": "saf|intentions|6-30",
       "rank": 10,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2129,7 +2129,7 @@
       "assigned_node_label": "Mapping the Blast Radius of AI Integration Failures",
       "cell": "saf|intentions|6-30",
       "rank": 12,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2144,7 +2144,7 @@
       "assigned_node_label": "Creating an NTSB-Style Body for AI Safety Incidents with Split-Channel Authority",
       "cell": "saf|intentions|6-30",
       "rank": 21,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2159,9 +2159,9 @@
       "assigned_node_label": "Inserting Human Judgment Where Autonomous AI Makes Consequential Choices",
       "cell": "saf|intentions|6-30",
       "rank": 8,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2174,7 +2174,7 @@
       "assigned_node_label": "Coordinate International AI Governance to Prevent Arms Races and Ensure Shared Safety Rules",
       "cell": "saf|intentions|6-30",
       "rank": 7,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2189,7 +2189,7 @@
       "assigned_node_label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
       "cell": "saf|intentions|6-30",
       "rank": 24,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2204,9 +2204,9 @@
       "assigned_node_label": "Grounding AI Safety in Legal Compliance Rather Than Abstract Ethics",
       "cell": "saf|intentions|6-30",
       "rank": 15,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2219,9 +2219,9 @@
       "assigned_node_label": "Creating an NTSB-Style Body for AI Safety Incidents with Split-Channel Authority",
       "cell": "saf|intentions|>30",
       "rank": 429,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2234,9 +2234,9 @@
       "assigned_node_label": "Binding Named Officers to Deployment Infrastructure",
       "cell": "saf|intentions|>30",
       "rank": 122,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2249,7 +2249,7 @@
       "assigned_node_label": "Detecting AI Deception by Varying System Prompts",
       "cell": "saf|intentions|>30",
       "rank": 70,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2264,9 +2264,9 @@
       "assigned_node_label": "Testing Models for Power-Seeking, Deception, and Situational Awareness",
       "cell": "saf|intentions|>30",
       "rank": 135,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2279,9 +2279,9 @@
       "assigned_node_label": "Scaling Oversight to Real-Time Remediation Speed",
       "cell": "saf|intentions|>30",
       "rank": 78,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
