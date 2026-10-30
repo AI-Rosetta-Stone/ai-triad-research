@@ -2984,9 +2984,9 @@
       "assigned_node_label": "Public Right to Know What AI Was Trained On",
       "cell": "skp|desires|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2999,7 +2999,7 @@
       "assigned_node_label": "Anchoring AI accountability in human decisions and material power relations rather than system mental states",
       "cell": "skp|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3014,7 +3014,7 @@
       "assigned_node_label": "Eradicate Algorithmic Bias and Prevent AI from Entrenching Historical Injustice",
       "cell": "skp|desires|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3029,7 +3029,7 @@
       "assigned_node_label": "Intellectual Autonomy in an AI-Saturated World",
       "cell": "skp|desires|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3044,7 +3044,7 @@
       "assigned_node_label": "Balanced Transparency: Public Interest vs. Trade Secrets",
       "cell": "skp|desires|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3059,7 +3059,7 @@
       "assigned_node_label": "Vigilant Pragmatism Toward AI",
       "cell": "skp|desires|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3074,9 +3074,9 @@
       "assigned_node_label": "Privacy as a Non-Negotiable Right in AI",
       "cell": "skp|desires|6-30",
       "rank": 12,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -3089,9 +3089,9 @@
       "assigned_node_label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
       "cell": "skp|desires|6-30",
       "rank": 11,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -3104,7 +3104,7 @@
       "assigned_node_label": "Public Right to Know What AI Was Trained On",
       "cell": "skp|desires|6-30",
       "rank": 15,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3119,7 +3119,7 @@
       "assigned_node_label": "Democratic Accountability in AI Development",
       "cell": "skp|desires|6-30",
       "rank": 6,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3134,9 +3134,9 @@
       "assigned_node_label": "Civil Rights Parity for Algorithmic Decisions",
       "cell": "skp|desires|>30",
       "rank": 32,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3149,9 +3149,9 @@
       "assigned_node_label": "Foundational AI as a Public Good",
       "cell": "skp|desires|>30",
       "rank": 360,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3164,9 +3164,9 @@
       "assigned_node_label": "Balanced Transparency: Public Interest vs. Trade Secrets",
       "cell": "skp|desires|>30",
       "rank": 43,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3179,7 +3179,7 @@
       "assigned_node_label": "Restructure Economic and Social Systems to Prevent AI from Deepening Inequality",
       "cell": "skp|desires|>30",
       "rank": 74,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3194,7 +3194,7 @@
       "assigned_node_label": "Regulate AI by Use Case, Not by Technology",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3209,7 +3209,7 @@
       "assigned_node_label": "Operationalize Pragmatic AI Governance Through Concrete Policy Mechanisms",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3224,7 +3224,7 @@
       "assigned_node_label": "Design AI Systems Around Human Cognitive Constraints",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3239,7 +3239,7 @@
       "assigned_node_label": "Design AI Systems Around Human Cognitive Constraints",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3254,7 +3254,7 @@
       "assigned_node_label": "Automated Fairness and Bias Benchmarking",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3269,7 +3269,7 @@
       "assigned_node_label": "Secure Contractual Exit Rights to Prevent AI Vendor Data Lock-In",
       "cell": "skp|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3284,7 +3284,7 @@
       "assigned_node_label": "Operationalize Pragmatic AI Governance Through Concrete Policy Mechanisms",
       "cell": "skp|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3299,9 +3299,9 @@
       "assigned_node_label": "Advance Targeted AI Policies on Environmental Reporting, Pricing Transparency, and Bias Auditing",
       "cell": "skp|intentions|2-5",
       "rank": 2,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3314,7 +3314,7 @@
       "assigned_node_label": "Advance Targeted AI Policies on Environmental Reporting, Pricing Transparency, and Bias Auditing",
       "cell": "skp|intentions|2-5",
       "rank": 4,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3329,7 +3329,7 @@
       "assigned_node_label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
       "cell": "skp|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3344,7 +3344,7 @@
       "assigned_node_label": "Establish Independent Lifecycle Oversight Mechanisms for AI Systems",
       "cell": "skp|intentions|6-30",
       "rank": 6,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3359,7 +3359,7 @@
       "assigned_node_label": "Implementing Performance-Gated Independent AI Auditing",
       "cell": "skp|intentions|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3374,7 +3374,7 @@
       "assigned_node_label": "Design AI Systems Around Human Cognitive Constraints",
       "cell": "skp|intentions|6-30",
       "rank": 11,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3389,9 +3389,9 @@
       "assigned_node_label": "Secondary Effects Doctrine for AI Regulation",
       "cell": "skp|intentions|6-30",
       "rank": 25,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3404,9 +3404,9 @@
       "assigned_node_label": "Surfacing Diffuse AI Harms Through a Single Funded Measurer with Referral Power",
       "cell": "skp|intentions|6-30",
       "rank": 6,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3419,9 +3419,9 @@
       "assigned_node_label": "Enforcing Parent Joint Enterprise Liability and Compulsory Insurance Across AI Deployments",
       "cell": "skp|intentions|>30",
       "rank": 336,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3434,7 +3434,7 @@
       "assigned_node_label": "Automated Fairness and Bias Benchmarking",
       "cell": "skp|intentions|>30",
       "rank": 42,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -3449,9 +3449,9 @@
       "assigned_node_label": "Agentic Authority Demarcation",
       "cell": "skp|intentions|>30",
       "rank": 84,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3464,9 +3464,9 @@
       "assigned_node_label": "Prevent Regulatory Capture by Diversifying AI Audit Methodologies",
       "cell": "skp|intentions|>30",
       "rank": 242,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -3479,7 +3479,7 @@
       "assigned_node_label": "Operationalize AI Risk Mitigation Through Concrete Technical Practices",
       "cell": "skp|intentions|>30",
       "rank": 39,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
