@@ -6,6 +6,9 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('./InquiryTagPicker', () => ({
   tagSummaryLabel: (sel: { tag: string }) => (sel.tag === 'critical' ? 'Critical' : sel.tag),
 }));
+// Avoids pulling in the real store's heavy dependency graph (@bridge, ai-models.json, …) just
+// for this one constant.
+vi.mock('../../hooks/useInquiryStore', () => ({ DEFAULT_FIDELITY: 'standard' }));
 
 const {
   truncateLabel, modelLabel, modelSummarySegment, tagSummarySegment, fidelitySummarySegment, optionsChangeCount,

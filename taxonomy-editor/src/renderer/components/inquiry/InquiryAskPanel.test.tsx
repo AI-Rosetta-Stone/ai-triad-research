@@ -17,7 +17,7 @@ const store = vi.hoisted(() => ({
   resolvedModels: () => ({ debaters: 'd', evaluator: 'e', callBudget: 10 }), startInquiry: async () => {}, openList: () => {},
 }));
 const useInquiryStoreMock = Object.assign(() => store, { getState: () => store });
-vi.mock('../../hooks/useInquiryStore', () => ({ useInquiryStore: useInquiryStoreMock }));
+vi.mock('../../hooks/useInquiryStore', () => ({ useInquiryStore: useInquiryStoreMock, DEFAULT_FIDELITY: 'standard' }));
 vi.mock('../../hooks/useTaxonomyStore/slices/settingsSlice', () => ({ MODELS_BY_BACKEND: {} }));
 vi.mock('./InquiryTagPicker', () => ({
   InquiryTagPicker: () => <div>tag-picker</div>,
