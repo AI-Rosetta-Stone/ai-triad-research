@@ -57,6 +57,18 @@ export function useDiagnoseEntry() {
     }
     selectDiagEntry(entryId, true);
     void api.focusDiagnosticsWindow().then((result) => {
+      // t/4642#13: DebateDiagnostics saw the notice never appear live, despite unit tests
+      // passing and a direct bridge call resolving 'not-open' correctly in the same session.
+      // Logging the actual resolved value here (rather than just the boolean branch taken)
+      // lets the next live repro's flight-recorder dump show exactly what diagnose() itself
+      // observed, instead of relying on a second, separate manual bridge call as a proxy.
+      getGlobalRecorder()?.record({
+        type: 'lifecycle',
+        component: 'debate-workspace',
+        level: 'info',
+        message: 'diagnose.focusDiagnosticsWindow.resolved',
+        data: { entryId, result },
+      });
       if (result === 'not-open') showNotice();
     }).catch((err: unknown) => {
       getGlobalRecorder()?.record({
