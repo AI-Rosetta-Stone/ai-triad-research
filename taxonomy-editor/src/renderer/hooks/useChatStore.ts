@@ -199,7 +199,7 @@ export function parseChatResponse(text: string, model?: string): { response: str
           node_id: r.node_id as string,
           relevance: (r.relevance as string) || '',
         }))
-        .filter((ref) => {
+        .filter((ref: TaxonomyRef) => {
           const resolves = getLabelForId(ref.node_id) !== '';
           if (!resolves) {
             getGlobalRecorder()?.record({
