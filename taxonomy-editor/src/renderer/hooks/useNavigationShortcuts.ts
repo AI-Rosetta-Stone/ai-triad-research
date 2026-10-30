@@ -44,15 +44,13 @@ export function useNavigationShortcuts() {
         return;
       }
 
-      // Button 3 = back, Button 4 = forward (in some browsers)
-      // Button 4 = back, Button 5 = forward (in others)
-      // We'll handle both conventions
-      if (e.button === 3 || e.button === 4) {
+      // Button 3 = back, Button 4 = forward
+      if (e.button === 3) {
         e.preventDefault();
         if (navHistory.canGoBack()) {
           navHistory.back();
         }
-      } else if (e.button === 4 || e.button === 5) {
+      } else if (e.button === 4) {
         e.preventDefault();
         if (navHistory.canGoForward()) {
           navHistory.forward();
