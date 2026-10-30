@@ -1,0 +1,26 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+   Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4654: NodeDetail/SituationDetail have no close control of their own (they're normally
+   docked in the Taxonomy tool, never dismissed) — this wrapper's close row covers that arm.
+   The policy/unresolved arm keeps TaxonomyRefDetail's own .taxref-close-btn unchanged. */
+.tax-node-detail-close-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.tax-node-detail-close-btn {
+  font-size: var(--text-2xs);
+  padding: 2px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tax-node-detail-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

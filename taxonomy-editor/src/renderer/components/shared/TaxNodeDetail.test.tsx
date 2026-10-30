@@ -7,21 +7,29 @@
 // Chat replies and any other TaxNodeDetail consumer gets the fix for free.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TaxNodeDetail } from './TaxNodeDetail';
 
-const lookupPinnedData = vi.fn((id: string) => ({
+let pinnedData: Record<string, unknown> | undefined = {
   type: 'pov' as const,
   pov: 'skeptic' as const,
-  node: { id, label: 'Test Node', category: 'Beliefs', description: 'A description' },
-}));
+  node: { id: 'acc-beliefs-001', label: 'Test Node', category: 'Beliefs', description: 'A description' },
+};
+const lookupPinnedData = vi.fn((id: string) => pinnedData && { ...pinnedData, node: { ...(pinnedData.node as object), id } });
 
 vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
 }));
 
-// Stub the reused detail panel so the test targets the wrapper's scroll/focus wiring, not the
-// panel's own internals.
+// Stub the three detail panels so tests target the wrapper's branching/scroll/focus wiring,
+// not any panel's own internals (t/4654: pov/situations now render NodeDetail/SituationDetail
+// instead of the legacy TaxonomyRefDetail card; policy/unresolved still use TaxonomyRefDetail).
+vi.mock('../taxonomy/NodeDetail', () => ({
+  NodeDetail: ({ node }: { node: { id: string } }) => <div data-testid="node-detail">{node.id}</div>,
+}));
+vi.mock('../debate/SituationDetail', () => ({
+  SituationDetail: ({ node }: { node: { id: string } }) => <div data-testid="situation-detail">{node.id}</div>,
+}));
 vi.mock('../taxonomy/TaxonomyRefDetail', () => ({
   TaxonomyRefDetail: ({ nodeId }: { nodeId: string }) => <div data-testid="ref-detail">{nodeId}</div>,
 }));
@@ -31,6 +39,11 @@ describe('TaxNodeDetail — scroll + focus on open (t/4651)', () => {
   let reducedMotion = false;
 
   beforeEach(() => {
+    pinnedData = {
+      type: 'pov' as const,
+      pov: 'skeptic' as const,
+      node: { id: 'acc-beliefs-001', label: 'Test Node', category: 'Beliefs', description: 'A description' },
+    };
     scrollSpy = vi.fn();
     Element.prototype.scrollIntoView = scrollSpy;
     reducedMotion = false;
@@ -51,7 +64,7 @@ describe('TaxNodeDetail — scroll + focus on open (t/4651)', () => {
   it('scrolls the detail into view and focuses it when it mounts', () => {
     render(<TaxNodeDetail nodeId="acc-beliefs-001" onClose={vi.fn()} />);
     expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
-    expect(screen.getByTestId('ref-detail').closest('[tabindex="-1"]')).toHaveFocus();
+    expect(screen.getByTestId('node-detail').closest('[tabindex="-1"]')).toHaveFocus();
   });
 
   it('uses behavior: auto under prefers-reduced-motion', () => {
@@ -94,5 +107,49 @@ describe('TaxNodeDetail — scroll + focus on open (t/4651)', () => {
     unmount();
     expect(button).toHaveFocus();
     document.body.removeChild(button);
+  });
+});
+
+describe('TaxNodeDetail — NodeDetail/SituationDetail swap (t/4654)', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('AC1: a pov node renders the Taxonomy tool\'s NodeDetail, read-only', () => {
+    pinnedData = { type: 'pov', pov: 'skeptic', node: { id: 'skp-beliefs-001', label: 'Test Node', category: 'Beliefs', description: 'A description' } };
+    render(<TaxNodeDetail nodeId="skp-beliefs-001" onClose={vi.fn()} />);
+    expect(screen.getByTestId('node-detail')).toBeInTheDocument();
+    expect(screen.queryByTestId('situation-detail')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ref-detail')).not.toBeInTheDocument();
+  });
+
+  it('AC1: a situation node renders SituationDetail, read-only', () => {
+    pinnedData = { type: 'situations', node: { id: 'sit-001', label: 'Test Situation' } };
+    render(<TaxNodeDetail nodeId="sit-001" onClose={vi.fn()} />);
+    expect(screen.getByTestId('situation-detail')).toBeInTheDocument();
+    expect(screen.queryByTestId('node-detail')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ref-detail')).not.toBeInTheDocument();
+  });
+
+  it('AC2: a policy (pol-*) id still renders TaxonomyRefDetail', () => {
+    pinnedData = { type: 'policy', policy: { id: 'pol-001', action: 'Do the thing', source_povs: [], member_count: 0 }, referencingNodes: [] };
+    render(<TaxNodeDetail nodeId="pol-001" onClose={vi.fn()} />);
+    expect(screen.getByTestId('ref-detail')).toBeInTheDocument();
+    expect(screen.queryByTestId('node-detail')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('situation-detail')).not.toBeInTheDocument();
+  });
+
+  it('AC2: an unresolved id still renders TaxonomyRefDetail', () => {
+    pinnedData = undefined;
+    render(<TaxNodeDetail nodeId="unknown-999" onClose={vi.fn()} />);
+    expect(screen.getByTestId('ref-detail')).toBeInTheDocument();
+  });
+
+  it('AC2: Close works on the NodeDetail arm (no close control of its own)', async () => {
+    pinnedData = { type: 'pov', pov: 'skeptic', node: { id: 'skp-beliefs-001', label: 'Test Node', category: 'Beliefs', description: 'A description' } };
+    const onClose = vi.fn();
+    render(<TaxNodeDetail nodeId="skp-beliefs-001" onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

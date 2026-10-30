@@ -6,7 +6,10 @@
 
 import { useEffect, useRef } from 'react';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
-import { TaxonomyRefDetail, type TaxRefNode } from '../taxonomy/TaxonomyRefDetail';
+import { TaxonomyRefDetail } from '../taxonomy/TaxonomyRefDetail';
+import { NodeDetail } from '../taxonomy/NodeDetail';
+import { SituationDetail } from '../debate/SituationDetail';
+import './TaxNodeDetail.css';
 
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
@@ -16,15 +19,16 @@ function prefersReducedMotion(): boolean {
 
 // Inline POV detail for a clicked taxonomy anchor/ref (t/1724). Resolved entirely
 // from the client-side taxonomy store — no fetch. Shared by the PLAN and BDI views.
+//
+// t/4654: pov/situations render the Taxonomy tool's own NodeDetail/SituationDetail
+// (read-only) — the same view Op-Ed Why uses (OpEdReader.tsx:51-58) — so Debate Why and Chat
+// replies match the Taxonomy tool instead of the legacy TaxonomyRefDetail card. Policy
+// (pol-*) and unresolved ids have no NodeDetail/SituationDetail equivalent, so they keep
+// TaxonomyRefDetail unchanged. Diagnostics renders TaxonomyRefDetail directly and is
+// untouched by this.
 export function TaxNodeDetail({ nodeId, onClose }: { nodeId: string; onClose: () => void }) {
   const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
   const data = lookupPinnedData(nodeId);
-  // t/3401: pol-* ids resolve to a 'policy' PinnedData variant, not a POV/situations node.
-  const node = data && data.type !== 'conflict' && data.type !== 'policy'
-    ? (data.node as unknown as TaxRefNode)
-    : undefined;
-  const pov = data?.type === 'pov' ? data.pov
-    : data?.type === 'situations' ? 'situations' : '';
 
   // t/4651: clicking a ref opens this below the ref list, often off-screen — scroll it into
   // view and move focus to it on open, then return focus to whatever opened it on close. The
@@ -45,12 +49,26 @@ export function TaxNodeDetail({ nodeId, onClose }: { nodeId: string; onClose: ()
     containerRef.current?.focus();
   }, [nodeId]);
 
+  if (data?.type === 'pov' || data?.type === 'situations') {
+    return (
+      <div ref={containerRef} tabIndex={-1}>
+        <div className="tax-node-detail-close-row">
+          <button type="button" className="tax-node-detail-close-btn" onClick={onClose} title="Close detail panel">Close</button>
+        </div>
+        {data.type === 'pov'
+          ? <NodeDetail pov={data.pov} node={data.node} readOnly chipDepth={0} />
+          : <SituationDetail node={data.node} readOnly chipDepth={0} />}
+      </div>
+    );
+  }
+
+  // Policy (pol-*) and unresolved ids: no NodeDetail/SituationDetail equivalent.
   return (
     <div ref={containerRef} tabIndex={-1}>
       <TaxonomyRefDetail
         nodeId={nodeId}
-        node={node}
-        pov={pov}
+        node={undefined}
+        pov=""
         onClose={onClose}
         policy={data?.type === 'policy' ? data.policy : undefined}
         policyReferencingNodes={data?.type === 'policy' ? data.referencingNodes : undefined}

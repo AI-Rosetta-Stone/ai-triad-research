@@ -34,9 +34,11 @@ vi.mock('@lib/debate/nodeIdUtils', () => ({
 // ChatWorkspace.tsx -> DetailPane -> NodeDetail -> (transitively) PovTab -> PromptsPanel ->
 // PromptInspector, which reads MODELS_BY_BACKEND from this same mocked useTaxonomyStore module.
 // Stub NodeDetail to cut that chain before it reaches an export this test doesn't provide
-// (mirrors ChatWorkspace.test.tsx's mock for the same reason).
+// (mirrors ChatWorkspace.test.tsx's mock for the same reason). t/4654: this same mocked module
+// now also backs TaxNodeDetail's pov arm (the per-reply grounding detail under test below), so
+// the stub renders the node's label — the same text the pre-t/4654 TaxonomyRefDetail path did.
 vi.mock('../taxonomy/NodeDetail', () => ({
-  NodeDetail: () => <div data-testid="node-detail" />,
+  NodeDetail: ({ node }: { node: { id: string; label?: string } }) => <div data-testid="node-detail">{node.label ?? node.id}</div>,
 }));
 
 import { TaxonomyRefsSection } from './ChatWorkspace';

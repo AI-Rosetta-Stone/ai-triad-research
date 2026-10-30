@@ -44,8 +44,13 @@ vi.mock('../../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ lookupPinnedData }),
 }));
 
-// Stub the reused detail panel so the test targets TaxonomyRefs' wiring, not the
-// panel's internals (which pull DescriptionToggle + store hooks of their own).
+// Stub the reused detail panels so the test targets TaxonomyRefs' wiring, not the panels'
+// internals (which pull DescriptionToggle + store hooks of their own). t/4654: a pov fixture
+// now renders NodeDetail (via TaxNodeDetail's own wrapper, which supplies the Close button),
+// not TaxonomyRefDetail — TaxonomyRefDetail is kept mocked too for the policy/unresolved arm.
+vi.mock('../taxonomy/NodeDetail', () => ({
+  NodeDetail: ({ node }: { node: { id: string } }) => <div data-testid="ref-detail" data-node={node.id} />,
+}));
 vi.mock('../taxonomy/TaxonomyRefDetail', () => ({
   TaxonomyRefDetail: ({ nodeId, onClose }: { nodeId: string; onClose: () => void }) => (
     <div data-testid="ref-detail" data-node={nodeId}>
@@ -108,7 +113,8 @@ describe('TaxonomyRefsSection — PLAN anchor → inline POV detail (t/1724)', (
   it('the detail Close control dismisses the panel', () => {
     renderPlan();
     fireEvent.click(screen.getByRole('button', { name: ANCHOR }));
-    fireEvent.click(screen.getByText('close-detail'));
+    // t/4654: the Close button now comes from TaxNodeDetail's own wrapper (NodeDetail has none).
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByTestId('ref-detail')).toBeNull();
   });
 });
