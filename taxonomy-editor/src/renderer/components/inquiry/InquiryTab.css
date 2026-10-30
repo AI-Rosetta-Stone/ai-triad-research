@@ -83,6 +83,17 @@
 /* ── Options disclosure (t/4667 phase 2) — same pattern as t/4639's accordion (toggle button,
    aria-expanded, hidden body), not persisted: collapsed fresh every dialog open. ── */
 .inquiry-options { margin-top: 14px; }
+/* p/29#186 fix 3: Ask's aria-describedby must reach the full blocked-tag reason, not the
+   truncated, visible copy — this scoped class is this file's own (no global .sr-only exists yet). */
+.inquiry-sr-only {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 .inquiry-options-toggle {
   display: flex;
   align-items: center;
@@ -108,8 +119,10 @@
   height: 16px;
   padding: 0 4px;
   border-radius: 9999px;
-  background: var(--focus-ring, #1a73e8);
-  color: #fff;
+  /* Design review, p/29#186 fix 2: --focus-ring/#fff measured 3.68:1 (light) / 2.54:1 (dark),
+     below AA. --text-primary/--bg-primary passes in every theme. */
+  background: var(--text-primary);
+  color: var(--bg-primary);
   font-size: var(--text-2xs, 10px);
   font-weight: 600;
 }
@@ -122,6 +135,13 @@
   min-width: 0;
 }
 .inquiry-options-summary span { white-space: nowrap; }
+/* Design review, p/29#186 fix 4: the global .dialog 400px min-width overflows a 390px phone
+   screen; let the toggle's summary wrap instead of forcing horizontal overflow. */
+@media (max-width: 767px) {
+  .new-question-dialog { min-width: 0; }
+  .inquiry-options-summary { white-space: normal; text-overflow: clip; }
+  .inquiry-options-summary span { white-space: normal; }
+}
 .inquiry-options-seg-warning, span.inquiry-options-seg-warning { color: var(--warning); }
 .inquiry-options-chevron { margin-left: auto; flex-shrink: 0; transition: transform 120ms; }
 .inquiry-options[data-expanded="true"] .inquiry-options-chevron { transform: rotate(180deg); }

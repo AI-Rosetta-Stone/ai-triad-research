@@ -90,10 +90,13 @@ function OptionsToggleSummary({
         {' · '}
         <span title={modelSegment}>{truncateLabel(modelSegment)}</span>
         {' · '}
-        <span id="inquiry-options-tag-reason" className={tagBlocked ? 'inquiry-options-seg-warning' : undefined} title={tagSegment}>
+        <span className={tagBlocked ? 'inquiry-options-seg-warning' : undefined} title={tagSegment}>
           {truncateLabel(tagSegment)}
         </span>
       </span>
+      {/* p/29#186 fix 3: Ask's aria-describedby points here — the full, untruncated reason —
+          not at the visible (possibly truncated) copy above. */}
+      <span id="inquiry-options-tag-reason" className="inquiry-sr-only">{tagSegment}</span>
     </>
   );
 }

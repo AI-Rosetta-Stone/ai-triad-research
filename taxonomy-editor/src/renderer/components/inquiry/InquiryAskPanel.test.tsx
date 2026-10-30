@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 
 const gate = vi.hoisted(() => ({ blocked: undefined as string | undefined }));
 const store = vi.hoisted(() => ({
-  question: 'Is AI hype outrunning evidence?', fidelity: 'quick', debaterModel: undefined, evaluatorModel: undefined, error: null,
+  question: 'Is AI hype outrunning evidence?', fidelity: 'quick' as 'quick' | 'standard' | 'deep', debaterModel: undefined, evaluatorModel: undefined, error: null,
   jobId: null as string | null, status: null as string | null,
   tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' },
   setQuestion: () => {}, setFidelity: vi.fn(), setDebaterModel: () => {}, setEvaluatorModel: () => {}, setTagSelection: () => {},
@@ -185,10 +185,14 @@ describe('InquiryAskPanel Options disclosure (t/4667 phase 2)', () => {
   });
 
   it('shows the change badge when the tag is set (a non-default), not when everything is default', () => {
+    // p/29#186 fix 1: the store's default fidelity is Standard, not Quick — use the real default
+    // here so this test actually exercises "everything is default", not a false positive.
     store.tagSelection = undefined;
+    store.fidelity = 'standard';
     renderDialog();
     expect(screen.queryByLabelText(/setting.*changed/)).not.toBeInTheDocument();
     store.tagSelection = { pov: 'skeptic', tag: 'critical', mode: 'scope' };
+    store.fidelity = 'quick';
   });
 
   it('a blocked tag auto-expands Options and shows the reason on the toggle', () => {
@@ -196,8 +200,10 @@ describe('InquiryAskPanel Options disclosure (t/4667 phase 2)', () => {
     renderDialog();
     expect(optionsToggle()).toHaveAttribute('aria-expanded', 'true');
     expect(optionsBody()).not.toHaveAttribute('hidden');
+    // p/29#186 fix 3: the full (untruncated) reason lives in the sr-only element aria-describedby
+    // targets, not in a `title` on the (possibly-truncated) visible copy.
     const reasonEl = document.getElementById('inquiry-options-tag-reason');
-    expect(reasonEl).toHaveAttribute('title', 'POV tag: 3 in scope — below the minimum (5)');
+    expect(reasonEl).toHaveTextContent('POV tag: 3 in scope — below the minimum (5)');
   });
 
   it('Ask is described by the blocked-tag reason when blocked', () => {

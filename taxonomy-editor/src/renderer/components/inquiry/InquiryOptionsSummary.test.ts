@@ -75,20 +75,22 @@ describe('fidelitySummarySegment', () => {
 });
 
 describe('optionsChangeCount', () => {
+  // p/29#186 fix 1: the store's default fidelity is Standard, not Quick (Design's own spec error).
   it('is 0 at every default', () => {
-    expect(optionsChangeCount('quick', undefined, undefined, undefined)).toBe(0);
+    expect(optionsChangeCount('standard', undefined, undefined, undefined)).toBe(0);
   });
 
   it('counts a non-default fidelity', () => {
     expect(optionsChangeCount('deep', undefined, undefined, undefined)).toBe(1);
+    expect(optionsChangeCount('quick', undefined, undefined, undefined)).toBe(1);
   });
 
   it('counts each model override separately', () => {
-    expect(optionsChangeCount('quick', 'claude-sonnet-5', 'gemini-3.5-flash-lite', undefined)).toBe(2);
+    expect(optionsChangeCount('standard', 'claude-sonnet-5', 'gemini-3.5-flash-lite', undefined)).toBe(2);
   });
 
   it('counts a tag selection', () => {
-    expect(optionsChangeCount('quick', undefined, undefined, { pov: 'skeptic', tag: 'critical', mode: 'scope' })).toBe(1);
+    expect(optionsChangeCount('standard', undefined, undefined, { pov: 'skeptic', tag: 'critical', mode: 'scope' })).toBe(1);
   });
 
   it('sums all four when everything differs', () => {

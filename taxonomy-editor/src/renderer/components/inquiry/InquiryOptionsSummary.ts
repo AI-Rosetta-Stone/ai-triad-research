@@ -41,13 +41,18 @@ export function fidelitySummarySegment(fidelity: Fidelity): string {
   return FIDELITY_LABELS[fidelity];
 }
 
-/** Count of settings that differ from their defaults (fidelity Quick, no model overrides, no
+/** The store's own default (`useInquiryStore.ts`'s initial state) — not "Quick". Design's
+ *  original spec named Quick (p/29#186 fix 1: its own error), which badged every fresh open as
+ *  "1 changed". */
+const DEFAULT_FIDELITY: Fidelity = 'standard';
+
+/** Count of settings that differ from their defaults (fidelity Standard, no model overrides, no
  *  tag) — drives the change badge, mirroring New Debate's `diffCount`. */
 export function optionsChangeCount(
   fidelity: Fidelity, debaterModel: string | undefined, evaluatorModel: string | undefined, tagSelection: TagSelection | undefined,
 ): number {
   let n = 0;
-  if (fidelity !== 'quick') n++;
+  if (fidelity !== DEFAULT_FIDELITY) n++;
   if (debaterModel) n++;
   if (evaluatorModel) n++;
   if (tagSelection) n++;
