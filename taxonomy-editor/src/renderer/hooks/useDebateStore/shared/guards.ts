@@ -212,7 +212,8 @@ const _beforeUnloadHandler = (e: BeforeUnloadEvent) => {
 
   // Check for unsaved debate work (t/4640: existing guard)
   const debateState = useDebateStore.getState();
-  if (debateState.activeDebateId && debateState.sessions[debateState.activeDebateId]?.isRunning) {
+  const activeId = debateState.activeDebateId;
+  if (activeId && debateState.sessions[activeId as keyof typeof debateState.sessions]?.isRunning) {
     e.preventDefault();
     e.returnValue = '';
     return;
@@ -228,7 +229,14 @@ const _beforeUnloadHandler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     }
-  } catch {
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'beforeunload-guard',
+      level: 'warn',
+      message: 'Failed to check unsaved taxonomy edits in beforeunload',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
     /* beforeunload guard safety fallback — if import fails, allow navigation */
   }
 };
