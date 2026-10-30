@@ -135,16 +135,21 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
       expect(screen.getByText('Label for skp-beliefs-001')).toBeInTheDocument();
     });
 
-    // KNOWN BUG, not introduced or fixable by this PR (flagged separately, t/4651 comment to
-    // Rosetta Stone): closing via TaxNodeDetail's own "Close" button leaves focus on <body>
-    // instead of restoring it to the trigger, even with a focusable pill. Reproduced both here
-    // (jsdom) and live in Electron (electron-mcp). Closing by re-clicking the pill (next test)
-    // works correctly — the bug is specific to the Close-button path in the shared
-    // components/shared/TaxNodeDetail.tsx capture/restore effect, not to this component's pill.
-    it.skip('closing via the detail\'s Close button returns focus to the pill that opened it (BLOCKED: shared TaxNodeDetail restore bug, see t/4651 comment)', async () => {
+    // t/4651#7 (Design): confirmed NOT a component bug — verified live on both TaxNodeDetail
+    // branches (acc-intentions-115 via NodeDetail, sit-153/sit-341 via the fallback) with real
+    // clicks; Close correctly returns focus to the pill every time. Design's suggested test fix
+    // (focus the pill explicitly before clicking, or use userEvent.click) was tried here — this
+    // test already used userEvent.click, and adding an explicit pill.focus() first still didn't
+    // make jsdom reproduce the real behavior. So this is a jsdom-specific limitation in how it
+    // models focus moving to <body> when the currently-focused Close button unmounts, not
+    // something reachable from this test file. Left skipped (not deleted, not asserting the
+    // wrong thing) rather than shipping a red/flaky assertion for environment behavior the real
+    // app doesn't have — re-verified correct live, see t/4651#7.
+    it.skip('closing via the detail\'s Close button returns focus to the pill that opened it (jsdom limitation, confirmed correct live — t/4651#7)', async () => {
       const user = userEvent.setup();
       render(<TaxonomyRefsSection refs={[NODE_A]} />);
       const pill = screen.getByRole('button', { name: /skp-beliefs-001/ });
+      pill.focus();
       await user.click(pill);
       await user.click(screen.getByRole('button', { name: 'Close' }));
       expect(pill).toHaveFocus();
