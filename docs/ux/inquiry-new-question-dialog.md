@@ -65,7 +65,8 @@ Inside the dialog body, under the question, the run settings collapse into **one
 
 **Aligned with New Debate's settings pattern:**
 - The defaults run without opening anything, and the extra settings sit behind one control. That's New Debate's "Advanced settings".
-- When any setting differs from its default, the toggle shows **New Debate's change badge** (the `ndd-change-badge` style, as a shared class), with `aria-label="{n} setting(s) changed"`. The defaults are fidelity Quick, both models derived from the fidelity, and no tag.
+- When any setting differs from its default, the toggle shows a **change badge** like New Debate's, with `aria-label="{n} setting(s) changed"`. The defaults are **the store's default fidelity (`'standard'`, `useInquiryStore`)**, both models derived from the fidelity, and no tag. Compare against the store's exported default, not a hard-coded value. (Corrected in t/4666#13: this line first said Quick.)
+- **Badge colours:** an inverse pill, `background: var(--text-primary); color: var(--bg-primary)` (12.76:1 or better in all four themes). Don't copy `.ndd-change-badge`'s white on `--focus-ring`, which fails AA in light (3.68) and dark (2.54).
 
 **Where Ask differs, and why:** New Debate opens a second modal (`DebateSettingsDialog`, with five sections, Apply and presets). Ask keeps its settings inline because:
 1. **That would put a modal on top of a modal.** Ask is now a dialog itself.
