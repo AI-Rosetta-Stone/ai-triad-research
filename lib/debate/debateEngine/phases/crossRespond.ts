@@ -32,6 +32,7 @@ import { resolveStageModel, resolveModelForSpeaker, recordRateLimit, clearRateLi
 import { _rescoreSituations, buildSignalContext, recordSignalHistory, updatePeakTracker, accumulateContextManifest } from '../adaptiveStaging.js';
 import { enrichTaxonomyRefs, getRelevantTaxonomyContext, formatDebaterEdgeContext, formatModeratorEdgeContext, routeTurnValidatorHints } from '../taxonomyContext.js';
 import { getCommitmentContext, getEstablishedPointsContext } from '../context.js';
+import { makeGroundingLookup } from '../../syntheticStatementLookup.js';
 import {
   MIDPOINT_NEUTRAL_EVAL_ROUND_CAP,
   COMPRESSION_TRIGGER_TRANSCRIPT_LENGTH,
@@ -502,8 +503,9 @@ export async function runCrossRespondRound(engine: DebateEngineInternals, round:
   // that blocks consecutive CONCEDE openings.
   const concessionAN = engine.session.argument_network;
   const priorConceded = engine.session.commitments?.[responder]?.conceded ?? [];
+  const groundingLookup = makeGroundingLookup(engine.taxonomy.embeddings, engine.taxonomy.syntheticStatements);
   const concessionHint = concessionAN
-    ? formatConcessionCandidatesHint(concessionAN.nodes, concessionAN.edges, responder, priorConceded)
+    ? formatConcessionCandidatesHint(concessionAN.nodes, concessionAN.edges, responder, priorConceded, undefined, undefined, groundingLookup)
     : '';
   const concessionCandidateIds = concessionHint
     ? (concessionAN!.nodes
