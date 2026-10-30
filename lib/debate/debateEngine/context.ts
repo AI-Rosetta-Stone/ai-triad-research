@@ -5,6 +5,7 @@ import type { DebateEngineInternals } from './internals.js';
 import { type SpeakerId } from '../types.js';
 import { formatCommitments, formatEstablishedPoints } from '../argumentNetwork.js';
 import { ESTABLISHED_POINTS_LIMIT } from '../debateConfig.js';
+import { makeGroundingLookup } from '../syntheticStatementLookup.js';
 
 // ── Commitment context ─────────────────────────────────────
 
@@ -32,7 +33,11 @@ export function getEstablishedPointsContext(engine: DebateEngineInternals, pover
     steelman_of: n.steelman_of,
     verification_status: n.verification_status,
     verification_evidence: n.verification_evidence,
+    embedding: n.embedding,
+    claim_taxonomy_attribution: n.claim_taxonomy_attribution,
   }));
 
-  return formatEstablishedPoints(allNodes, poverId, ESTABLISHED_POINTS_LIMIT, an.edges.filter(e => e.type !== 'revoice_of') as { source: string; target: string; type: 'supports' | 'attacks' }[]);
+  const groundingLookup = makeGroundingLookup(engine.taxonomy.embeddings, engine.taxonomy.syntheticStatements);
+
+  return formatEstablishedPoints(allNodes, poverId, ESTABLISHED_POINTS_LIMIT, an.edges.filter(e => e.type !== 'revoice_of') as { source: string; target: string; type: 'supports' | 'attacks' }[], groundingLookup);
 }
