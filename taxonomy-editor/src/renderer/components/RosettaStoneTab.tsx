@@ -11,6 +11,7 @@ import {
 } from '@lib/electron-shared/introCopy';
 import { useTaxonomyStore } from '../hooks/useTaxonomyStore';
 import { useSettingsDialog } from '../hooks/useSettingsDialog';
+import { api } from '@bridge';
 import './RosettaStoneTab.css';
 
 interface FeatureCard {
@@ -75,6 +76,14 @@ export function RosettaStoneTab() {
       onOpen: () => setActiveTab('accelerationist'),
     },
     {
+      id: 'dataset',
+      heading: 'Download Dataset',
+      body: 'Everything behind this site, including the taxonomy, source summaries, debates and embeddings, is public on GitHub. Clone or download the dataset to run your own analyses, check our work, or build on it.',
+      cta: 'Open GitHub',
+      image: { src: publicAsset('onboarding/onboarding-dataset.png'), alt: 'GitHub repository page for AI-Rosetta-Stone / ai-triad-data' },
+      onOpen: () => { void api.openExternal('https://github.com/AI-Rosetta-Stone/ai-triad-data'); },
+    },
+    {
       id: 'settings',
       heading: 'Bring Your Own AI Key',
       body: 'AI features work out of the box on a shared, rate-limited key. Add your own in Settings to choose your model, switch backends, and remove the limits.',
@@ -128,7 +137,10 @@ export function RosettaStoneTab() {
           </div>
           <div className="rosetta-tab-whofor-item">
             <h3>Academic researchers (AI safety/governance)</h3>
-            <p>Explore how different schools of thought (accelerationist, safetyist, skeptic) would respond to a specific claim or paper, and trace claims back to source documents via the taxonomy.</p>
+            <p>
+              Trace claims across perspectives (accelerationist, safetyist, skeptic) back to source documents using the taxonomy.<br />
+              Download raw datasets directly for independent research and analysis.
+            </p>
           </div>
           <div className="rosetta-tab-whofor-item">
             <h3>Think tank analysts</h3>
