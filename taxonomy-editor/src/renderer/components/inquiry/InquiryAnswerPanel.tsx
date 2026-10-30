@@ -50,6 +50,61 @@ async function runSubmitToCommunity(jobId: string): Promise<{ ok: true; submissi
   }
 }
 
+/** "View raw run" not-found detection (t/4684): web and Electron signal a missing debate
+ *  differently, so both shapes are checked.
+ *  - Web: web-bridge's get() throws an ActionableError with .httpStatus = 404 (throwHttpError),
+ *    the same pattern useInquiryStore.ts uses for inquiry-job 404s.
+ *  - Electron: debateIO.loadDebateSession throws a plain Error('Debate session not found: <id>').
+ *    ipcRenderer.invoke strips structured error types crossing the main/renderer boundary — only
+ *    the message string survives as a generic Error — so detect it by message instead.
+ */
+function isDebateNotFoundError(err: unknown): boolean {
+  const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus;
+  if (httpStatus === 404) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /not found/i.test(message);
+}
+
+/** Extracted from the component (ESLint complexity) — probes existence before "View raw run"
+ *  switches to the Debate tab (t/4684): the shared loadDebate (sessionSlice.ts) swallows load
+ *  failures into debateError rather than rethrowing, so a deleted debate would otherwise navigate
+ *  away with no session and no clear notice here. Non-404 errors (network, etc.) are reported as
+ *  'ok' so the caller falls through to loadDebate's own debateError handling, unchanged. */
+async function probeRawRunDebate(debateId: string): Promise<'ok' | 'deleted'> {
+  try {
+    await api.loadDebateSession(debateId);
+    return 'ok';
+  } catch (err) {
+    if (!isDebateNotFoundError(err)) return 'ok';
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'InquiryAnswerPanel',
+      level: 'warn',
+      message: 'View raw run: debate not found (likely deleted from My Debates)',
+      error: { name: err instanceof Error ? err.name : 'Error', message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined },
+    });
+    return 'deleted';
+  }
+}
+
+/** Extracted from the component (ESLint complexity) — the deleted-vs-open branch for "View raw
+ *  run" (t/4684) lives outside InquiryAnswerPanel's own complexity count, same rationale as
+ *  probeRawRunDebate above. */
+async function runViewRawRun(debateId: string, loadDebate: (id: string) => Promise<void>, setActiveTab: (tab: 'debate') => void): Promise<{ deleted: boolean }> {
+  const outcome = await probeRawRunDebate(debateId);
+  if (outcome === 'deleted') return { deleted: true };
+  await loadDebate(debateId);
+  setActiveTab('debate');
+  return { deleted: false };
+}
+
+/** Extracted so the two render sites (zero-result and main) don't each add a branch to
+ *  InquiryAnswerPanel's own complexity count (t/4684) — same rationale as InquiryGrounding below. */
+function RawRunDeletedNotice({ deleted }: { deleted: boolean }) {
+  if (!deleted) return null;
+  return <p className="inquiry-error" role="alert">The debate behind this answer was deleted.</p>;
+}
+
 /** Extracted for ESLint complexity (t/4591 TL triage) — old results predate `grounding`; hide
  *  rather than crash, and WARN so the gap is diagnosable rather than silently absent. */
 function InquiryGrounding({ grounding }: { grounding: import('../../bridge/types').InquiryResult['grounding'] }) {
@@ -70,12 +125,14 @@ export function InquiryAnswerPanel() {
   const { status, result, error, terminationReason, jobId, reset, openList } = useInquiryStore();
   const [exportError, setExportError] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [rawRunDeleted, setRawRunDeleted] = useState(false);
   const loadDebate = useDebateStore(s => s.loadDebate);
   const setActiveTab = useTaxonomyStore(s => s.setActiveTab);
 
   const handleViewRawRun = async (debateId: string) => {
-    await loadDebate(debateId);
-    setActiveTab('debate');
+    setRawRunDeleted(false);
+    const { deleted } = await runViewRawRun(debateId, loadDebate, setActiveTab);
+    setRawRunDeleted(deleted);
   };
 
   const handleExport = async (format: ExportFormat) => {
@@ -144,6 +201,7 @@ export function InquiryAnswerPanel() {
         </div>
         {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
         {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}
+        <RawRunDeletedNotice deleted={rawRunDeleted} />
       </div>
     );
   }
@@ -249,6 +307,7 @@ export function InquiryAnswerPanel() {
       </div>
       {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
       {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}
+      <RawRunDeletedNotice deleted={rawRunDeleted} />
     </div>
   );
 }
