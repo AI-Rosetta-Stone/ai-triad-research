@@ -1844,7 +1844,7 @@
       "assigned_node_label": "Activation-Based Natural Language Verbalization",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1859,7 +1859,7 @@
       "assigned_node_label": "Building Adaptive Regulatory Frameworks for AI Development",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1874,7 +1874,7 @@
       "assigned_node_label": "Making AI Show Its Work So Auditors Can Spot Deception",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1889,7 +1889,7 @@
       "assigned_node_label": "Giving Victims One Clear Door for AI Liability Claims",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1904,7 +1904,7 @@
       "assigned_node_label": "Audit AI Internal Reasoning Through Mechanistic Interpretability",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1919,7 +1919,7 @@
       "assigned_node_label": "Governing How AI Models Ingest, Retain, and Protect Data",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1934,9 +1934,9 @@
       "assigned_node_label": "Building Accountability Frameworks for AI Agents Operating at Scale",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1949,9 +1949,9 @@
       "assigned_node_label": "Carbon-Aware Pricing Models",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1964,7 +1964,7 @@
       "assigned_node_label": "Governing How AI Models Ingest, Retain, and Protect Data",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1979,7 +1979,7 @@
       "assigned_node_label": "Preventing AI Use from Lowering Legal Standards of Care",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1994,7 +1994,7 @@
       "assigned_node_label": "Requiring Hardware Telemetry as the Price of Liability Immunity",
       "cell": "saf|intentions|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2009,7 +2009,7 @@
       "assigned_node_label": "Inserting Human Judgment Where Autonomous AI Makes Consequential Choices",
       "cell": "saf|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2024,7 +2024,7 @@
       "assigned_node_label": "Coordinate International AI Governance to Prevent Arms Races and Ensure Shared Safety Rules",
       "cell": "saf|intentions|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2039,7 +2039,7 @@
       "assigned_node_label": "Prevent AI Harm Through Pre-Launch Checks and Operational Guardrails",
       "cell": "saf|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2054,7 +2054,7 @@
       "assigned_node_label": "Defending Against AI as a Force Multiplier for Harm",
       "cell": "saf|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2069,7 +2069,7 @@
       "assigned_node_label": "Set the Ethical and Legal Ground Rules for AI Governance",
       "cell": "saf|intentions|2-5",
       "rank": 4,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2084,9 +2084,9 @@
       "assigned_node_label": "Mandating Privacy-Preserving Cryptographic Audit Trails for Algorithmic Decisions",
       "cell": "saf|intentions|2-5",
       "rank": 5,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2099,7 +2099,7 @@
       "assigned_node_label": "Replacing Abstract Safety Claims with Testable Engineering Controls",
       "cell": "saf|intentions|6-30",
       "rank": 30,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2114,9 +2114,9 @@
       "assigned_node_label": "Scaling Oversight to Real-Time Remediation Speed",
       "cell": "saf|intentions|6-30",
       "rank": 10,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2129,7 +2129,7 @@
       "assigned_node_label": "Mapping the Blast Radius of AI Integration Failures",
       "cell": "saf|intentions|6-30",
       "rank": 12,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2144,7 +2144,7 @@
       "assigned_node_label": "Creating an NTSB-Style Body for AI Safety Incidents with Split-Channel Authority",
       "cell": "saf|intentions|6-30",
       "rank": 21,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2159,9 +2159,9 @@
       "assigned_node_label": "Inserting Human Judgment Where Autonomous AI Makes Consequential Choices",
       "cell": "saf|intentions|6-30",
       "rank": 8,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2174,7 +2174,7 @@
       "assigned_node_label": "Coordinate International AI Governance to Prevent Arms Races and Ensure Shared Safety Rules",
       "cell": "saf|intentions|6-30",
       "rank": 7,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2189,7 +2189,7 @@
       "assigned_node_label": "Requiring AI Impact Studies Modeled on Environmental Impact Reports",
       "cell": "saf|intentions|6-30",
       "rank": 24,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2204,9 +2204,9 @@
       "assigned_node_label": "Grounding AI Safety in Legal Compliance Rather Than Abstract Ethics",
       "cell": "saf|intentions|6-30",
       "rank": 15,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2219,9 +2219,9 @@
       "assigned_node_label": "Creating an NTSB-Style Body for AI Safety Incidents with Split-Channel Authority",
       "cell": "saf|intentions|>30",
       "rank": 429,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2234,9 +2234,9 @@
       "assigned_node_label": "Binding Named Officers to Deployment Infrastructure",
       "cell": "saf|intentions|>30",
       "rank": 122,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2249,7 +2249,7 @@
       "assigned_node_label": "Detecting AI Deception by Varying System Prompts",
       "cell": "saf|intentions|>30",
       "rank": 70,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2264,9 +2264,9 @@
       "assigned_node_label": "Testing Models for Power-Seeking, Deception, and Situational Awareness",
       "cell": "saf|intentions|>30",
       "rank": 135,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2279,9 +2279,9 @@
       "assigned_node_label": "Scaling Oversight to Real-Time Remediation Speed",
       "cell": "saf|intentions|>30",
       "rank": 78,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2294,9 +2294,9 @@
       "assigned_node_label": "Restricting Autonomous Agent Execution via Hardware Disconnects and Blast-Radius Gates",
       "cell": "saf|intentions|>30",
       "rank": 1180,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2309,7 +2309,7 @@
       "assigned_node_label": "Binding Named Officers to Deployment Infrastructure",
       "cell": "saf|intentions|>30",
       "rank": 72,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2324,9 +2324,9 @@
       "assigned_node_label": "Countering AI-Driven Skill Decay and Cognitive Displacement",
       "cell": "saf|intentions|>30",
       "rank": 40,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -2339,7 +2339,7 @@
       "assigned_node_label": "Starting AI Agents with Narrow Permissions and Widening Them Over Time",
       "cell": "saf|intentions|>30",
       "rank": 38,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2354,7 +2354,7 @@
       "assigned_node_label": "Unprofitable AI Business Models Create Systemic Risk of an Industry-Wide Correction",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2369,7 +2369,7 @@
       "assigned_node_label": "AI Agents Serve Deployers Over Users",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2384,7 +2384,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2399,7 +2399,7 @@
       "assigned_node_label": "Public Resistance to AI Reflects Accumulated Distrust from Prior Tech Cycles",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2414,7 +2414,7 @@
       "assigned_node_label": "AI Bias and Harm Are Well-Documented, Not Hypothetical",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2429,7 +2429,7 @@
       "assigned_node_label": "Workplace Algorithms Systematically Shift Power From Workers to Employers",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2444,7 +2444,7 @@
       "assigned_node_label": "AI Agents Engineered for Principal-Loyal Lawbreaking",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2459,7 +2459,7 @@
       "assigned_node_label": "AI Systems Expose Fundamental Gaps in Legal Accountability Frameworks",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2474,7 +2474,7 @@
       "assigned_node_label": "AI Corporations Systematically Evade Effective Regulation",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2489,9 +2489,9 @@
       "assigned_node_label": "Victims of AI Harm Cannot Access the Technical Knowledge Needed to Prove Causation",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "borderline",
+      "better_node": "none found",
+      "cause": "taxonomy-structure",
       "family_scored": false
     },
     {
@@ -2504,7 +2504,7 @@
       "assigned_node_label": "Historical pattern of legal fictions allocating responsibility to non-human entities benefiting capital owners",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2519,7 +2519,7 @@
       "assigned_node_label": "Historical Evidence Shows Technology Adoption Lags Capability by Years to Decades",
       "cell": "skp|beliefs|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
