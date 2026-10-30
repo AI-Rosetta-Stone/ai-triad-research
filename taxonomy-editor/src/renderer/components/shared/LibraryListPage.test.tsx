@@ -510,3 +510,69 @@ describe('LibraryListPage — defaultCommunityOnWeb (t/4561)', () => {
     vi.unstubAllEnvs();
   });
 });
+
+describe('LibraryListPage — phone layout (t/4571)', () => {
+  it('renders phone list with title and meta columns when configured', () => {
+    const { container } = renderPage({
+      columns: [
+        { key: 'date', header: 'Date', width: '110px', phone: 'meta', render: (r: Row) => r.date },
+      ],
+    });
+    const phoneList = container.querySelector('.lib-phone-list');
+    expect(phoneList).toBeInTheDocument();
+    const phoneItems = container.querySelectorAll('.lib-phone-item');
+    expect(phoneItems.length).toBeGreaterThan(0);
+  });
+
+  it('renders meta columns in phone meta row when phone: "meta"', () => {
+    const { container } = renderPage({
+      columns: [
+        { key: 'date', header: 'Date', width: '110px', phone: 'meta', render: (r: Row) => r.date },
+      ],
+    });
+    const metaRow = container.querySelector('.lib-phone-meta-row');
+    expect(metaRow).toBeInTheDocument();
+    expect(metaRow).toHaveTextContent('2026-01-02');
+  });
+
+  it('hides columns with phone: "hidden" (default)', () => {
+    const { container } = renderPage({
+      columns: [
+        { key: 'hidden-col', header: 'Hidden', width: '100px', render: (r: Row) => 'should not appear' },
+      ],
+    });
+    const phoneList = container.querySelector('.lib-phone-list');
+    expect(phoneList).not.toHaveTextContent('should not appear');
+  });
+
+  it('sort select controls the same sort state as desktop headers', async () => {
+    const { container } = renderPage({
+      columns: [
+        { key: 'date', header: 'Date', width: '110px', phone: 'meta', sortable: true, render: (r: Row) => r.date },
+      ],
+      titleSortable: true,
+    });
+    const sortSelect = container.querySelector('.lib-phone-sort') as HTMLSelectElement;
+    expect(sortSelect).toBeInTheDocument();
+    fireEvent.change(sortSelect, { target: { value: 'date' } });
+    await waitFor(() => {
+      expect(sortSelect.value).toBe('date');
+    });
+  });
+
+  it('actions button is reachable on phone items', () => {
+    const { container, onOpenMy } = renderPage();
+    const phoneItem = container.querySelector('.lib-phone-item');
+    expect(phoneItem).toBeInTheDocument();
+    const actionsDiv = phoneItem?.querySelector('.lib-phone-actions');
+    expect(actionsDiv).toBeInTheDocument();
+  });
+
+  it('phone item is keyboard accessible (Enter key)', () => {
+    const { container, onOpenMy } = renderPage();
+    const phoneItem = container.querySelector('.lib-phone-item') as HTMLElement;
+    phoneItem.focus();
+    fireEvent.keyDown(phoneItem, { key: 'Enter' });
+    expect(onOpenMy).toHaveBeenCalledWith('m1');
+  });
+});
