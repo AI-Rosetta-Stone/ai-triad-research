@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import './NavController.css';
-import { navHistory } from '../../navigation/navHistory';
+import { navHistory } from '../../navigation';
 
 export function NavController() {
   const [canGoBack, setCanGoBack] = useState(false);

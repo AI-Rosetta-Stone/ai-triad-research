@@ -221,10 +221,10 @@ const _beforeUnloadHandler = (e: BeforeUnloadEvent) => {
   // Check for unsaved taxonomy edits (t/4640: extend guard to prevent navigation loss)
   try {
     // Import deferred to avoid circular dependency at module init time
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
-    const { useTaxonomyStore: getTaxonomyStore } = require('../../useTaxonomyStore');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require, @typescript-eslint/no-unsafe-member-access
+    const getTaxonomyStore = (require('../../useTaxonomyStore') as Record<string, unknown>).useTaxonomyStore as { getState: () => { dirty?: Set<string> } };
     const taxonomyState = getTaxonomyStore.getState();
-    if (taxonomyState.dirty?.size > 0) {
+    if (taxonomyState.dirty && taxonomyState.dirty.size > 0) {
       e.preventDefault();
       e.returnValue = '';
     }
