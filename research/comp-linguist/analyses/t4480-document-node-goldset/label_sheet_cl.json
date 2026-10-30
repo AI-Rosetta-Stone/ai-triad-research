@@ -1379,7 +1379,7 @@
       "assigned_node_label": "Limits of Mechanistic Interpretability at Scale",
       "cell": "saf|beliefs|6-30",
       "rank": 23,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1394,9 +1394,9 @@
       "assigned_node_label": "AI Overshoots User Intent When Executing Tasks",
       "cell": "saf|beliefs|6-30",
       "rank": 13,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1409,7 +1409,7 @@
       "assigned_node_label": "Fault Fragments Across Designers, Deployers, and Users When AI Fails",
       "cell": "saf|beliefs|6-30",
       "rank": 20,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1424,9 +1424,9 @@
       "assigned_node_label": "Feigned Compliance Makes AI Trustworthiness Fundamentally Uncertain",
       "cell": "saf|beliefs|6-30",
       "rank": 8,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1439,7 +1439,7 @@
       "assigned_node_label": "AI Deployment Speed Outpaces Security Governance",
       "cell": "saf|beliefs|>30",
       "rank": 33,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1454,9 +1454,9 @@
       "assigned_node_label": "Society Cannot Absorb AI Capability Shocks at the Pace They Arrive",
       "cell": "saf|beliefs|>30",
       "rank": 60,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "saf-beliefs-155",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1469,7 +1469,7 @@
       "assigned_node_label": "The Treacherous Turn: AI Transitions from Compliant Tool to Deceptive Agent",
       "cell": "saf|beliefs|>30",
       "rank": 39,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1484,7 +1484,7 @@
       "assigned_node_label": "Open-Weight Release Asymmetry and Enforcement Failure",
       "cell": "saf|beliefs|>30",
       "rank": 389,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1499,7 +1499,7 @@
       "assigned_node_label": "Backdoors and Deceptive Strategies Harden Against Retraining",
       "cell": "saf|beliefs|>30",
       "rank": 54,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1514,9 +1514,9 @@
       "assigned_node_label": "AI Systems Develop Capabilities Nobody Designed or Predicted",
       "cell": "saf|beliefs|>30",
       "rank": 202,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1529,9 +1529,9 @@
       "assigned_node_label": "AI-Driven Information Pollution Erodes the Shared Factual Basis for Democracy",
       "cell": "saf|beliefs|>30",
       "rank": 177,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1544,7 +1544,7 @@
       "assigned_node_label": "AI Performs Consequential Acts That No One Bears Responsibility For",
       "cell": "saf|beliefs|>30",
       "rank": 79,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1559,9 +1559,9 @@
       "assigned_node_label": "Most Real-World AI Harms Go Unrecorded Because Tracking Relies on Media Reports",
       "cell": "saf|beliefs|>30",
       "rank": 65,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1574,7 +1574,7 @@
       "assigned_node_label": "Uniform Disclosure Standards for AI Development",
       "cell": "saf|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1589,7 +1589,7 @@
       "assigned_node_label": "Treating Digital Space as a Public Trust",
       "cell": "saf|desires|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
