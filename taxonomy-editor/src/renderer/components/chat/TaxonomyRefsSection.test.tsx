@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { TaxonomyRef } from '../../types/debate';
 
 // t/4651: TaxNodeDetail (rendered unmocked here) now calls scrollIntoView on open — jsdom
@@ -109,5 +110,54 @@ describe('TaxonomyRefsSection — per-reply BDI grounding (t/4627)', () => {
   it('renders nothing when there are no refs', () => {
     const { container } = render(<TaxonomyRefsSection refs={[]} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  // t/4651 (Design's a11y pass, t/4651#3): the pill was a <span onClick> — unreachable by
+  // keyboard/screen reader (WCAG 2.1.1), and with nothing focusable to return to, closing the
+  // detail dropped focus to <body>. These tests exercise the real (unmocked) TaxNodeDetail, so
+  // the focus-restore assertions cover the actual fix, not a mock's approximation of it.
+  describe('keyboard accessibility (t/4651)', () => {
+    it('the ref pill is a real button with aria-expanded, not a span', () => {
+      render(<TaxonomyRefsSection refs={[NODE_A]} />);
+      const pill = screen.getByRole('button', { name: /skp-beliefs-001/ });
+      expect(pill.tagName).toBe('BUTTON');
+      expect(pill).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(pill);
+      expect(pill).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('Tab + Enter opens the detail (keyboard-only activation)', async () => {
+      const user = userEvent.setup();
+      render(<TaxonomyRefsSection refs={[NODE_A]} />);
+      await user.tab();
+      expect(screen.getByRole('button', { name: /skp-beliefs-001/ })).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(screen.getByText('Label for skp-beliefs-001')).toBeInTheDocument();
+    });
+
+    // KNOWN BUG, not introduced or fixable by this PR (flagged separately, t/4651 comment to
+    // Rosetta Stone): closing via TaxNodeDetail's own "Close" button leaves focus on <body>
+    // instead of restoring it to the trigger, even with a focusable pill. Reproduced both here
+    // (jsdom) and live in Electron (electron-mcp). Closing by re-clicking the pill (next test)
+    // works correctly — the bug is specific to the Close-button path in the shared
+    // components/shared/TaxNodeDetail.tsx capture/restore effect, not to this component's pill.
+    it.skip('closing via the detail\'s Close button returns focus to the pill that opened it (BLOCKED: shared TaxNodeDetail restore bug, see t/4651 comment)', async () => {
+      const user = userEvent.setup();
+      render(<TaxonomyRefsSection refs={[NODE_A]} />);
+      const pill = screen.getByRole('button', { name: /skp-beliefs-001/ });
+      await user.click(pill);
+      await user.click(screen.getByRole('button', { name: 'Close' }));
+      expect(pill).toHaveFocus();
+    });
+
+    it('closing by re-clicking the pill leaves focus on the pill (never <body>)', async () => {
+      const user = userEvent.setup();
+      render(<TaxonomyRefsSection refs={[NODE_A]} />);
+      const pill = screen.getByRole('button', { name: /skp-beliefs-001/ });
+      await user.click(pill);
+      await user.click(pill);
+      expect(document.body).not.toHaveFocus();
+      expect(pill).toHaveFocus();
+    });
   });
 });
