@@ -4,8 +4,9 @@
 // Ask a Question tab (t/3583; library-page adoption t/4562). The persistent Ask/My/Community
 // strip (t/3678) is gone — the My/Community list is now the tab's default landing view via
 // LibraryListPage, matching Op-Eds/Chats/Debates (t/4536/t/4561). "+ New Question" (or a
-// getting-started chip) opens the existing Ask screen; Running/Answer each carry their own way
-// back to the list (openList) since the persistent strip no longer provides one.
+// getting-started chip) now opens the New question dialog (t/4666) over the list, matching
+// New Chat / New Op-Ed, instead of the retired full-page Ask screen. Running/Answer each carry
+// their own way back to the list (openList) since the persistent strip no longer provides one.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -52,13 +53,24 @@ function recordError(component: string, message: string, err: unknown): void {
   });
 }
 
+// t/4666 — mirrors Chat's useNewChatDialog: local open state for the New question dialog, kept
+// separate from the InquiryTab's own complexity (local/complexity-budget). Inquiry's draft
+// question already lives in the store (unlike Chat's topic), so there's no local prefill field —
+// a starter chip just writes straight to the store before opening, as it always has.
+function useNewQuestionDialog() {
+  const [show, setShow] = useState(false);
+  const open = useCallback(() => setShow(true), []);
+  const close = useCallback(() => setShow(false), []);
+  return { show, open, close };
+}
+
 export function InquiryTab() {
   const {
-    history, historyLoading, stopPolling, openFromHistory, openCommunityResult, reset, setQuestion, fetchHistory,
+    history, historyLoading, stopPolling, openFromHistory, openCommunityResult, reset, setQuestion, fetchHistory, openList,
   } = useInquiryStore(useShallow(s => ({
     history: s.history, historyLoading: s.historyLoading, stopPolling: s._stopPolling,
     openFromHistory: s.openFromHistory, openCommunityResult: s.openCommunityResult, reset: s.reset,
-    setQuestion: s.setQuestion, fetchHistory: s.fetchHistory,
+    setQuestion: s.setQuestion, fetchHistory: s.fetchHistory, openList: s.openList,
   })));
   const screen = useInquiryStore(s => s.screen());
   const { inquiries, communityLoading, fetchInquiries, copyItem } = useCommunityStore(useShallow(s => ({
@@ -66,6 +78,7 @@ export function InquiryTab() {
   })));
 
   const [status, setStatus] = useState<string | null>(null);
+  const { show: showAskDialog, open: openAskDialog, close: closeAskDialog } = useNewQuestionDialog();
 
   // Poll-loop bounds (TL t/3583#4 point 3): unmount cleanup so navigating away from this tab
   // doesn't leave a dangling setTimeout chain polling forever.
@@ -83,10 +96,24 @@ export function InquiryTab() {
     setTimeout(() => setStatus(null), 4000);
   }, []);
 
+  const handleOpenNew = useCallback(() => {
+    setQuestion('');
+    reset();
+    openAskDialog();
+  }, [setQuestion, reset, openAskDialog]);
+
   const handlePickStarter = useCallback((question: string) => {
     setQuestion(question);
     reset();
-  }, [setQuestion, reset]);
+    openAskDialog();
+  }, [setQuestion, reset, openAskDialog]);
+
+  // Cancel / Esc / overlay click: back to the list, same destination the removed "← My
+  // Questions" button went to.
+  const handleCloseAskDialog = useCallback(() => {
+    openList();
+    closeAskDialog();
+  }, [openList, closeAskDialog]);
 
   const handleExportMy = useCallback((row: InquiryMyLibRow, format: string) => {
     api.getInquiry(row.jobId).then(view => {
@@ -126,7 +153,7 @@ export function InquiryTab() {
   const libConfig: LibraryListPageConfig<InquiryMyLibRow, InquiryCommunityLibRow> = useMemo(() => ({
     title: 'Ask a Question',
     newLabel: '+ New Question',
-    onNew: reset,
+    onNew: handleOpenNew,
     showEdit: false,
     // No anonymous-session special-casing exists for inquiries today (unlike Debates) — My
     // content is per-session the same way it is for everyone else.
@@ -168,9 +195,14 @@ export function InquiryTab() {
     onExportCommunity: handleExportCommunity,
     onShare: handleShare,
     onCopy: handleCopy,
-  }), [reset, handleExportMy, handleExportCommunity, handleShare, handleCopy]);
+  }), [handleOpenNew, handleExportMy, handleExportCommunity, handleShare, handleCopy]);
 
-  if (screen === 'list') {
+  // t/4666: the New question dialog opens OVER the list rather than replacing it — the list
+  // page stays rendered behind it (Design spec), so it shows whenever the store says 'list' OR
+  // the dialog is open. The dialog's own open-time reset() flips viewingList false (so
+  // screen() no longer reads 'list'); showAskDialog keeps the list rendered through that window
+  // regardless, since there is no 'ask' case in the branch below anymore.
+  if (screen === 'list' || showAskDialog) {
     return (
       <>
         {status && <div className="inquiry-status-inline" role="status">{status}</div>}
@@ -185,13 +217,13 @@ export function InquiryTab() {
           intro={<InquiryGettingStarted hasNoQuestions={myLibRows.length === 0} onPickStarter={handlePickStarter} />}
           defaultCommunityOnWeb
         />
+        {showAskDialog && <InquiryAskPanel onClose={handleCloseAskDialog} onStarted={closeAskDialog} />}
       </>
     );
   }
 
   return (
     <div className="inquiry-tab">
-      {screen === 'ask' && <InquiryAskPanel />}
       {screen === 'running' && <InquiryRunningPanel />}
       {screen === 'answer' && <InquiryAnswerPanel />}
     </div>

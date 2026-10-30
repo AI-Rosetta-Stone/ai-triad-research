@@ -2,18 +2,22 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // t/4246: a tag selection whose scope is too small disables Run, with the picker rendered in the panel.
+// t/4666 phase 1: "New question" is now a dialog, matching New Chat / New Op-Ed.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const gate = vi.hoisted(() => ({ blocked: undefined as string | undefined }));
 const store = vi.hoisted(() => ({
   question: 'Is AI hype outrunning evidence?', fidelity: 'quick', debaterModel: undefined, evaluatorModel: undefined, error: null,
+  jobId: null as string | null, status: null as string | null,
   tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' },
   setQuestion: () => {}, setFidelity: () => {}, setDebaterModel: () => {}, setEvaluatorModel: () => {}, setTagSelection: () => {},
   resolvedModels: () => ({ debaters: 'd', evaluator: 'e', callBudget: 10 }), startInquiry: async () => {}, openList: () => {},
 }));
-vi.mock('../../hooks/useInquiryStore', () => ({ useInquiryStore: () => store }));
+const useInquiryStoreMock = Object.assign(() => store, { getState: () => store });
+vi.mock('../../hooks/useInquiryStore', () => ({ useInquiryStore: useInquiryStoreMock }));
 vi.mock('../../hooks/useTaxonomyStore/slices/settingsSlice', () => ({ MODELS_BY_BACKEND: {} }));
 vi.mock('./InquiryTagPicker', () => ({
   InquiryTagPicker: () => <div>tag-picker</div>,
@@ -22,22 +26,30 @@ vi.mock('./InquiryTagPicker', () => ({
 
 const { InquiryAskPanel } = await import('./InquiryAskPanel');
 
-beforeEach(() => { gate.blocked = undefined; });
+function renderDialog(onClose = vi.fn(), onStarted = vi.fn()) {
+  return { onClose, onStarted, ...render(<InquiryAskPanel onClose={onClose} onStarted={onStarted} />) };
+}
+
+beforeEach(() => {
+  gate.blocked = undefined;
+  store.jobId = null;
+  store.status = null;
+});
 
 describe('InquiryAskPanel POV tag (t/4246)', () => {
   it('renders the tag picker', () => {
-    render(<InquiryAskPanel />);
+    renderDialog();
     expect(screen.getByText('tag-picker')).toBeInTheDocument();
   });
 
   it('Run is enabled when the tag is fine', () => {
-    render(<InquiryAskPanel />);
+    renderDialog();
     expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled();
   });
 
   it('Run is disabled when the tag scope is below the floor', () => {
     gate.blocked = '3 in scope — below the minimum (5)';
-    render(<InquiryAskPanel />);
+    renderDialog();
     expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
   });
 });
@@ -46,16 +58,95 @@ describe('InquiryAskPanel POV tag (t/4246)', () => {
 // manual entry alike need the cursor visibly in the field, matching Op-Ed/Debates' own dialogs.
 describe('InquiryAskPanel focus (t/4562)', () => {
   it('focuses the question textarea on mount, with the cursor at the end of any prefilled text', () => {
-    render(<InquiryAskPanel />);
+    renderDialog();
     const field = screen.getByLabelText('Research question') as HTMLTextAreaElement;
     expect(field).toHaveFocus();
     expect(field.selectionStart).toBe(store.question.length);
     expect(field.selectionEnd).toBe(store.question.length);
   });
 
-  it('renders the "New question" heading and a "← My Questions" back link', () => {
-    render(<InquiryAskPanel />);
+  // p/29#178 fix 1: the trigger must be captured before the question-steals-focus effect runs,
+  // or this restores focus to the textarea instead of the "+ New Question" button/chip.
+  it('restores focus to the trigger (not the question field) on unmount', () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const { unmount } = renderDialog();
+    expect(screen.getByLabelText('Research question')).toHaveFocus();
+    unmount();
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
+});
+
+describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {
+  it('renders as a labelled dialog titled "New question"', () => {
+    renderDialog();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal');
     expect(screen.getByRole('heading', { name: 'New question' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '← My Questions' })).toBeInTheDocument();
+    expect(dialog).toHaveAccessibleName('New question');
+  });
+
+  it('shows the budget and Cancel/Ask in the footer', () => {
+    renderDialog();
+    expect(screen.getByText(/Budget:/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeInTheDocument();
+  });
+
+  it('Cancel calls onClose', async () => {
+    const { onClose } = renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Esc calls onClose', () => {
+    const { onClose } = renderDialog();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('clicking the overlay calls onClose, but clicking inside the dialog does not', async () => {
+    const { onClose, container } = renderDialog();
+    await userEvent.click(screen.getByRole('heading', { name: 'New question' }));
+    expect(onClose).not.toHaveBeenCalled();
+    const overlay = container.querySelector('.dialog-overlay') as HTMLElement;
+    await userEvent.click(overlay);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onStarted once startInquiry resolves with a job id', async () => {
+    store.startInquiry = async () => { store.jobId = 'job-1'; store.status = 'queued'; };
+    const { onStarted, onClose } = renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(onStarted).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps the dialog open (does not call onStarted) when startInquiry fails', async () => {
+    store.startInquiry = async () => { store.jobId = null; store.status = 'failed'; };
+    const { onStarted } = renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(onStarted).not.toHaveBeenCalled();
+  });
+
+  it('shows the store error inside the dialog, in an alert', () => {
+    store.error = 'Could not reach the server.';
+    renderDialog();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not reach the server.');
+    store.error = null;
+  });
+
+  it('disables Cancel and ignores Esc while submitting', async () => {
+    let resolveStart: () => void = () => {};
+    store.startInquiry = () => new Promise<void>(resolve => { resolveStart = resolve; });
+    const { onClose } = renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(screen.getByRole('button', { name: 'Starting…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    resolveStart();
   });
 });
