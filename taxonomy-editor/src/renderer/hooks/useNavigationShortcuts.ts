@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useEffect } from 'react';
-import { navHistory } from '../navigation/navHistory';
+import { navHistory } from '../navigation';
 
 export function useNavigationShortcuts() {
   useEffect(() => {
