@@ -42,7 +42,7 @@ export interface DescriptionSectionProps {
   hideToolbar?: boolean;
   /** t/4641: description edit mode state, lifted from NodeDetail for shared toolbar rendering. */
   isEditing?: boolean;
-  setIsEditing?: (value: boolean) => void;
+  setIsEditing?: (value: boolean | ((v: boolean) => boolean)) => void;
 }
 
 interface FormalParts {
