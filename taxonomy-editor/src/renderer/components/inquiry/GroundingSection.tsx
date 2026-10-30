@@ -23,6 +23,7 @@ interface GroundingSectionProps {
 
 export function GroundingSection({ grounding }: GroundingSectionProps) {
   const lookupPinnedData = useTaxonomyStore(s => s.lookupPinnedData);
+  const getLabelForId = useTaxonomyStore(s => s.getLabelForId);
 
   const [activeTab, setActiveTab] = useState<TabId>('acc');
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
@@ -46,7 +47,14 @@ export function GroundingSection({ grounding }: GroundingSectionProps) {
       return grounding.situationNodes.slice(0, 3).map(node => ({ id: node.nodeId, label: node.label }));
     }
     if (grounding.anchorSituationId) {
-      return [{ id: grounding.anchorSituationId, label: grounding.anchorSummary ?? grounding.anchorSituationId }];
+      // t/4674: the camp rows show node labels, so the anchor row should too — resolve the
+      // situation's own label live (same source as the row-detail lookup), falling back to
+      // anchorSummary (or the raw id) only when the situation no longer resolves.
+      const liveLabel = getLabelForId(grounding.anchorSituationId);
+      return [{
+        id: grounding.anchorSituationId,
+        label: liveLabel || grounding.anchorSummary || grounding.anchorSituationId,
+      }];
     }
     return [];
   };

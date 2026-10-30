@@ -144,6 +144,11 @@
     gap: var(--sp-1);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .grounding-tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .grounding-tab {
@@ -154,6 +159,11 @@
 
   .grounding-table {
     font-size: var(--text-xs);
+  }
+
+  .grounding-table th:first-child,
+  .grounding-table td:first-child {
+    width: 42%;
   }
 
   .grounding-cell-id,
