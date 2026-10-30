@@ -47,6 +47,13 @@ export interface LoadedTaxonomy {
   allEdges: EdgesFile | null;
   /** Embeddings for selectable nodes only. Superseded node embeddings are excluded. */
   embeddings: Record<string, NodeEmbedding>;
+  /**
+   * Synthetic statement texts per node (t/4644), row-aligned with embeddings[nodeId].vectors —
+   * non-pruned corpus_<pov>.json entries, same grouping order as generate_corpus.py's export.
+   * Absent (undefined) when no synthetic corpus is present; callers must treat that as "no
+   * synthetic grounding available" rather than an error.
+   */
+  syntheticStatements?: Record<string, string[]>;
   policyRegistry: PolicyRef[];
   /** Lineage category data (L1 + L2 cluster mapping). Absent if file not found. */
   lineageCategories?: LineageCategoryData;
@@ -273,6 +280,27 @@ function loadSyntheticEmbeddings(synDir: string, embeddings: Record<string, Node
   }
 }
 
+/**
+ * Load synthetic statement texts per node (t/4644) — non-pruned corpus_<pov>.json entries,
+ * grouped by node_id in file order. This is the SAME grouping generate_corpus.py's
+ * export-embeddings uses to build embeddings_<pov>.npy, so index i of a node's statement list
+ * here corresponds to row i of embeddings[nodeId].vectors (set by loadSyntheticEmbeddings above).
+ */
+function loadSyntheticStatementTexts(synDir: string): Record<string, string[]> {
+  const statements: Record<string, string[]> = {};
+  for (const pov of ['acc', 'saf', 'skp']) {
+    const corpusPath = path.join(synDir, `corpus_${pov}.json`);
+    const corpus = loadJsonSafe<{ entries?: { node_id: string; statement: string; pruned?: boolean }[] }>(
+      corpusPath, {},
+    );
+    for (const entry of corpus.entries ?? []) {
+      if (entry.pruned) continue;
+      (statements[entry.node_id] ??= []).push(entry.statement);
+    }
+  }
+  return statements;
+}
+
 /** Normalise the lineage mapping: support both old flat-string and new {l1, l2} value formats. */
 function normalizeLineageMapping(
   raw: Record<string, string | { l1: string; l2: string }>,
@@ -305,6 +333,7 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
   // Synthetic multi-vector embeddings (optional — produced by Export-SyntheticEmbeddings)
   const synDir = path.join(taxonomyDir, 'synthetic');
   loadSyntheticEmbeddings(synDir, embeddings);
+  const syntheticStatements = loadSyntheticStatementTexts(synDir);
 
   // Policy registry
   const policyRaw = loadJsonSafe<{ policies?: { id: string; action: string; source_povs?: string[] }[] }>(
@@ -363,6 +392,7 @@ export function loadTaxonomy(repoRoot: string): LoadedTaxonomy {
     edges,
     allEdges,
     embeddings: selectableEmbeddings,
+    syntheticStatements,
     policyRegistry,
     lineageCategories,
     allNodesById,
