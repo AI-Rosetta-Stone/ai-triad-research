@@ -9,6 +9,8 @@ import ErrorBoundary from '../../../lib/electron-shared/components/ErrorBoundary
 import { useTaxonomyStore, initAIModels } from './hooks/useTaxonomyStore';
 import { initDebateSessions } from './hooks/useDebateStore';
 import { useAppRoute } from './routing/useAppRoute';
+import { installNavSubscriber } from './navigation/subscriber';
+import { navHistory } from './navigation';
 import { Toolbar } from './components/shared/Toolbar';
 import { TabBar } from './components/shared/TabBar';
 import { SaveBar } from './components/sync/SaveBar';
@@ -31,7 +33,9 @@ import { initAnalyticsSession } from './lib/initAnalyticsSession';
 import { useBreakpoint } from './hooks/useBreakpoint';
 import { useIsTouchDevice } from './hooks/useIsTouchDevice';
 import { BottomNav } from './components/shared/BottomNav';
+import { NavController } from './components/shared/NavController';
 import { HamburgerMenu } from './components/shared/HamburgerMenu';
+import { useNavigationShortcuts } from './hooks/useNavigationShortcuts';
 import { GitProgressBanner } from './components/sync/GitProgressBanner';
 import { AnonymousBanner } from './components/community/AnonymousBanner';
 import { ResilienceBanner } from './components/shared/ResilienceBanner';
@@ -182,6 +186,8 @@ async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>)
   void loadAllFn();
   initAnalyticsSession();
   initDebateSessions();
+  // t/4640: install navigation subscriber to maintain history stack (buttons/shortcuts)
+  installNavSubscriber(useTaxonomyStore, navHistory);
 }
 
 export function App() {
@@ -306,6 +312,7 @@ function AppRouter() {
 function MainApp() {
   const { activeTab, loading, backgroundLoading, loadingProgress, loadAll, colorScheme, paneSpacing, zoomLevel, zoomIn, zoomOut, zoomReset, toolbarPanel } = useTaxonomyStore();
   useAppRoute(); // t/3486: restore a deep-linked in-app view (e.g. /opeds/:setId) at boot + popstate.
+  useNavigationShortcuts(); // t/4640: Alt+←/→ (Cmd+[/] on macOS) and mouse buttons 4/5 for back/forward
   const summariesFlag = useFlag('env-electron-summaries');
   // OR both build flags — mirrors the navConfig Op-Eds gate (anyFlag: electron||web). Gates
   // BOTH the tab render below and must stay in sync with the nav gate, else the button shows
@@ -742,6 +749,7 @@ function MainApp() {
         <span className="mobile-header-title">Taxonomy Editor</span>
       </div>
       <div className="app-body">
+        <NavController />
         <Toolbar />
         <div className="tab-content">
           {showPovHeader ? (
