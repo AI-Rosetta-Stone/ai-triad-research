@@ -56,7 +56,7 @@ export function GroundingSection({ grounding }: GroundingSectionProps) {
 
   return (
     <div className="grounding-section">
-      <span className="grounding-eyebrow">Grounding</span>
+      <span className="grounding-eyebrow">Why</span>
 
       <div className="grounding-tabs" role="tablist">
         {CAMP_TABS.map(camp => (
