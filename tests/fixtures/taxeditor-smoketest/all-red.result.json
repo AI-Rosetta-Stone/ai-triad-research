@@ -29,12 +29,7 @@
     {
       "Category": "Community",
       "Pass": 0,
-      "Fail": 1
-    },
-    {
-      "Category": "Core",
-      "Pass": 0,
-      "Fail": 1
+      "Fail": 2
     },
     {
       "Category": "DataPresence",
@@ -50,12 +45,12 @@
   "FailedEndpoints": [
     {
       "Endpoint": "/api/models",
-      "Category": "Core",
+      "Category": "Community",
       "Description": "stub",
       "Status": 500,
       "Pass": false,
       "Ms": 42,
-      "NodeCount": 12,
+      "NodeCount": 0,
       "Error": "HTTP 500"
     },
     {

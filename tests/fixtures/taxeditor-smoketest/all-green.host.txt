@@ -4,7 +4,7 @@ Smoke testing: https://stub
   [PASS] /healthz (liveness) — 11ms
 
 === Endpoint Tests ===
-  [PASS] /api/models — 200 42ms (12 nodes)
+  [PASS] /api/models — 200 42ms
 
 === Anon Community Endpoints ===
   [PASS] [anon] /api/models — 200 42ms
