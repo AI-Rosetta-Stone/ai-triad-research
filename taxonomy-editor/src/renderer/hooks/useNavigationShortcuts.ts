@@ -64,7 +64,8 @@ export function useNavigationShortcuts() {
 }
 
 function isInTextInput(target: HTMLElement): boolean {
-  if (!target) return false;
+  // Events dispatched on window/document have a non-element target with no tagName.
+  if (!target || typeof target.tagName !== 'string') return false;
   const tagName = target.tagName.toLowerCase();
   if (tagName === 'input' || tagName === 'textarea') return true;
   if (target.contentEditable === 'true') return true;

@@ -22,11 +22,11 @@
 }
 
 .nav-button:hover:not(:disabled) {
-  background: var(--hover-bg);
+  background: var(--bg-hover);
 }
 
 .nav-button:active:not(:disabled) {
-  background: var(--active-bg);
+  background: var(--bg-selected);
 }
 
 .nav-button:disabled {
