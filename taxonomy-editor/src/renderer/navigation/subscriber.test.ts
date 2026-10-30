@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { installNavSubscriber, setRestoringFlag } from './subscriber';
 import { MemoryHistory } from './navHistory';
+import { useTaxonomyStore } from '../hooks/useTaxonomyStore';
 import type { PlaceInfo } from './types';
 import type { TaxonomyStore } from '../hooks/useTaxonomyStore';
 
@@ -82,5 +83,40 @@ describe('installNavSubscriber blockers', () => {
     expect(history.current()?.placeKey).toBe('chat:conv-1');
     expect(history.canGoBack()).toBe(true);
     expect(history.canGoForward()).toBe(false);
+  });
+});
+
+describe('installNavSubscriber real store integration (t/4640 AC7)', () => {
+  it('setActiveTab pushes history entry with real store', () => {
+    const history = new MemoryHistory();
+
+    // Install subscriber with real store
+    installNavSubscriber(useTaxonomyStore, history);
+
+    // Initial state should create one entry with no back/forward
+    expect(history.canGoBack()).toBe(false);
+    expect(history.canGoForward()).toBe(false);
+
+    // Change activeTab (simulating user navigation)
+    useTaxonomyStore.getState().setActiveTab('chat');
+
+    // Should have pushed a new entry
+    expect(history.canGoBack()).toBe(true);
+    expect(history.current()?.placeKey).toContain('chat');
+
+    // Change to another tab
+    useTaxonomyStore.getState().setActiveTab('opeds');
+
+    // Should have pushed again
+    expect(history.canGoBack()).toBe(true);
+    expect(history.current()?.placeKey).toContain('opeds');
+
+    // Go back
+    history.back();
+
+    // Should be at chat
+    expect(history.current()?.placeKey).toContain('chat');
+    expect(history.canGoBack()).toBe(true);
+    expect(history.canGoForward()).toBe(true);
   });
 });
