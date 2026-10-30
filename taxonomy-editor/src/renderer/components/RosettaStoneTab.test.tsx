@@ -11,7 +11,10 @@ import userEvent from '@testing-library/user-event';
 
 const mockSetActiveTab = vi.fn();
 const mockOpenSettings = vi.fn();
-const mockOpenExternal = vi.fn();
+// vi.mock's factory below runs hoisted above this file's other const declarations, so a plain
+// `const mockOpenExternal = vi.fn()` referenced directly inside it (not behind a closure, unlike
+// the two selectors above) hits the TDZ — vi.hoisted() initializes it before the mock runs.
+const { mockOpenExternal } = vi.hoisted(() => ({ mockOpenExternal: vi.fn() }));
 
 vi.mock('../hooks/useTaxonomyStore', () => ({
   useTaxonomyStore: (selector: (s: { setActiveTab: typeof mockSetActiveTab }) => unknown) =>
