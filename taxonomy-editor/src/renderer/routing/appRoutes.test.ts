@@ -59,6 +59,16 @@ describe('findRoute', () => {
     expect(match?.route.id).toBe('opeds');
     expect(match?.params).toEqual({ setId: 'set-1' });
   });
+  it('strips query strings before matching', () => {
+    const match = findRoute('/opeds/set-1?pov=acc');
+    expect(match?.route.id).toBe('opeds');
+    expect(match?.params).toEqual({ setId: 'set-1' });
+  });
+  it('strips query strings with multiple params', () => {
+    const match = findRoute('/opeds/set-1?pov=acc&tab=overview');
+    expect(match?.route.id).toBe('opeds');
+    expect(match?.params).toEqual({ setId: 'set-1' });
+  });
   it('returns null for an unregistered path', () => {
     expect(findRoute('/debates/anything')).toBeNull();
   });
