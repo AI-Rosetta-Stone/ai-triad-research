@@ -541,15 +541,12 @@ export const api: AppAPI = {
     // the real-popout arm) — report it, rather than passing window.electronAPI's void through.
     return window.electronAPI.openDiagnosticsWindow().then(() => 'popout' as const);
   },
-  // t/4642: ElectronMain's 'focus-diagnostics-window' IPC handler + preload.cts exposure +
-  // ElectronAPI.focusDiagnosticsWindow type haven't landed yet (preloadElectronApiContract's
-  // t/3529 typecheck pairs preload.cjs and electron.d.ts, so this side can't declare the type
-  // without them). Until then, resolving 'not-open' here is accurate, not a stand-in — there is
-  // no BrowserWindow-focusing handler to delegate to. ElectronMain's PR adds the real delegation
-  // once window.electronAPI.focusDiagnosticsWindow exists.
+  // t/4642/t/4663: 'inline' is decided here (the narrow-window drawer has no BrowserWindow to
+  // focus); otherwise delegates to the real 'focus-diagnostics-window' IPC handler, which
+  // returns 'focused'/'not-open' depending on whether the diagnostics popout is still open.
   focusDiagnosticsWindow: () => {
     if (isDiagnosticsInline()) return Promise.resolve('inline' as const);
-    return Promise.resolve('not-open' as const);
+    return window.electronAPI.focusDiagnosticsWindow();
   },
   openPovProgressionWindow: () => window.electronAPI.openPovProgressionWindow(),
   closeDiagnosticsWindow: () => window.electronAPI.closeDiagnosticsWindow(),
