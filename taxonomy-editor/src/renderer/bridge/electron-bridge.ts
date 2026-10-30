@@ -199,6 +199,9 @@ export const api: AppAPI = {
 
   // AI models & keys
   loadAIModels: () => window.electronAPI.loadAIModels(),
+  // t/4628: Electron has no anonymous-session concept — always signed-in-equivalent for model
+  // selection, so the t/4628 anonymous-default override never fires here (AC3).
+  checkAnonymousSession: async () => false,
   // t/4031: forward opts only when given, so a plain refresh sends the same IPC call as before.
   refreshAIModels: (opts) => (opts ? window.electronAPI.refreshAIModels(opts) : window.electronAPI.refreshAIModels()),
   validateApiKey: (key, backend) => window.electronAPI.validateApiKey?.(key, backend) ?? Promise.resolve({ valid: false, error: 'Key validation not available in this version' }),

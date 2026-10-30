@@ -20,6 +20,7 @@ import { resilientFetch, categorizeEndpoint, registerConnectionPoolProvider, typ
 import { nextStepsForStatus } from './httpErrorSteps';
 import { computeEmbeddingsChunked } from './embeddingsBatch';
 import { runChatStream, chatStreamBus } from './chatStream';
+import { checkAnonymousSessionForModelSelection } from './anonymousSessionCheck';
 import { runOpEdCreate, cancelActiveOpEdRun, opedProgressBus } from './opedStream';
 import { readByokKeys, maskByokKey } from './byokKeys';
 import { onQuotaMilestone } from '../hooks/useQuotaWarning';
@@ -160,11 +161,7 @@ function isHtmlLoginPage(res: Response): boolean {
   return (res.headers.get('content-type') ?? '').includes('text/html');
 }
 
-async function fetchWithSessionRecovery(
-  path: string,
-  init: RequestInit,
-  opts: import('./resilience').ResilientFetchOptions,
-): Promise<Response> {
+async function fetchWithSessionRecovery(path: string, init: RequestInit, opts: import('./resilience').ResilientFetchOptions): Promise<Response> {
   let res = await resilientFetch(path, init, opts);
   if (await isNoSessionResponse(res) || isHtmlLoginPage(res)) {
     const recovered = await recoverAnonymousSession();
@@ -823,6 +820,7 @@ const rawApi: AppAPI = {
 
   // AI models & keys
   loadAIModels: () => get('/api/models'),
+  checkAnonymousSession: () => checkAnonymousSessionForModelSelection(() => _authAnonymous, (v) => { _authAnonymous = v; }), // t/4628: see anonymousSessionCheck.ts
   // t/4031: opts travel as the POST body; a plain refresh still sends none. Not retried (a mutation).
   refreshAIModels: (opts) => post<RefreshModelsResponse>('/api/models/refresh', opts),
   validateApiKey: (key, backend) => post('/api/keys/validate', { key, backend }),

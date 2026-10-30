@@ -172,6 +172,18 @@ function FileViewerApp() {
   </div>;
 }
 
+/** t/4628: runs once `initAIModels()` has resolved (so the anonymous-default target reflects the
+ *  LIVE ai-models.json defaults, not the bundled pre-load snapshot), applies the anonymous-session
+ *  model/backend override if needed, then proceeds with the rest of app bootstrap. Shared by all
+ *  four `initAIModels().then(...)` call sites so none of them can drift from the others. */
+async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>): Promise<void> {
+  const isAnonymous = await api.checkAnonymousSession();
+  useTaxonomyStore.getState().applyAnonymousSessionDefaults(isAnonymous);
+  void loadAllFn();
+  initAnalyticsSession();
+  initDebateSessions();
+}
+
 export function App() {
   const [hash, setHash] = useState(window.location.hash);
   const analyticsFlag = useFlag('env-web-analytics-dashboard');
@@ -332,7 +344,7 @@ function MainApp() {
       if (!available) {
         setShowFirstRun(true);
       } else {
-        void initAIModels().then(() => { void useTaxonomyStore.getState().loadAll(); initAnalyticsSession(); initDebateSessions(); });
+        void initAIModels().then(() => bootstrapAfterModelsLoaded(() => useTaxonomyStore.getState().loadAll()));
       }
     });
   }, []);
@@ -354,7 +366,7 @@ function MainApp() {
             if (available) {
               setShowFirstRun(false);
               setCopyStatus(null);
-              void initAIModels().then(() => { void useTaxonomyStore.getState().loadAll(); initAnalyticsSession(); initDebateSessions(); });
+              void initAIModels().then(() => bootstrapAfterModelsLoaded(() => useTaxonomyStore.getState().loadAll()));
             }
             // If still not available after copy complete, DeploymentErrorScreen will show
           });
@@ -549,12 +561,12 @@ function MainApp() {
 
   const handleFirstRunComplete = () => {
     setShowFirstRun(false);
-    void initAIModels().then(() => { void loadAll(); initAnalyticsSession(); initDebateSessions(); });
+    void initAIModels().then(() => bootstrapAfterModelsLoaded(loadAll));
   };
 
   const handleFirstRunSkip = () => {
     setShowFirstRun(false);
-    void initAIModels().then(() => { void loadAll(); initAnalyticsSession(); initDebateSessions(); });
+    void initAIModels().then(() => bootstrapAfterModelsLoaded(loadAll));
   };
 
   if (showFirstRun) {
