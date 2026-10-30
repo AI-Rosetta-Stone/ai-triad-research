@@ -2436,6 +2436,36 @@ jobs:
         shell: pwsh
         run: ./operations/devops/Test-EnvBicepWiring.ps1
 
+  # ── code-root-allowlist: code/test files must sit under a root that exists on main
+  # (t/4665 prevention) ──
+  # #4167 added 8 TS files under a stray top-level `src/` that no vite/vitest config,
+  # tsconfig or CI job reads -- nothing built or tested them, and CI still went green.
+  # Unconditional (not path-filtered via `changes`): a file landing under ANY unexpected
+  # top-level name is exactly the shape this catches, so it isn't scoped to one file-type
+  # filter group. Warn-only (T1) first; promotion to blocking is a separate T2 step, per
+  # the ticket's own tier note. fetch-depth:0 -- the check needs origin/main's full tree
+  # (git ls-tree) and a diff against it, not just the PR's own shallow history.
+  code-root-allowlist:
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        with:
+          fetch-depth: 0
+
+      - name: code-root-allowlist unit tests (t/4665)
+        run: node --test operations/devops/code-root-allowlist-predicate.test.mjs
+
+      - name: Code/test files sit under a root that exists on main (WARN-ONLY, t/4665)
+        env:
+          # Anti-self-narrowing posture (same as tier-check/cl-path-check/ci-shared-input-
+          # coverage): on a pull_request event, pin to the PR's OWN recorded base SHA rather
+          # than re-resolving origin/main live, so a PR can't widen its own allowlist by
+          # racing a concurrent merge to main. Other events (push/merge_group/schedule/
+          # dispatch) leave BASE_SHA unset; the script resolves a fresh origin/main itself.
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: node operations/devops/check-code-root-allowlist.mjs
+
   # ── bicep-aca-resources: ACA cpu:memory allowed-pair validation (t/3212) ──
   # Parses cpu:memory pairs from deploy/azure/main.bicep and validates each
   # against the ACA Consumption fixed allowed-pairs table (co-located in the
