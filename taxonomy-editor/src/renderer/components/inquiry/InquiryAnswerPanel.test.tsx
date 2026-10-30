@@ -7,15 +7,20 @@
 // which is exactly the failure this ticket exists to prevent.
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { InquiryResult } from '../../bridge/types';
 
-const { mockUseInquiryStore } = vi.hoisted(() => ({ mockUseInquiryStore: vi.fn() }));
+const { mockUseInquiryStore, mockLoadDebate, mockSetActiveTab, mockApi } = vi.hoisted(() => ({
+  mockUseInquiryStore: vi.fn(),
+  mockLoadDebate: vi.fn(),
+  mockSetActiveTab: vi.fn(),
+  mockApi: { loadDebateSession: vi.fn() },
+}));
 vi.mock('../../hooks/useInquiryStore', () => ({ useInquiryStore: mockUseInquiryStore }));
-vi.mock('../../hooks/useDebateStore', () => ({ useDebateStore: (sel: (s: { loadDebate: () => void }) => unknown) => sel({ loadDebate: vi.fn() }) }));
-vi.mock('../../hooks/useTaxonomyStore', () => ({ useTaxonomyStore: (sel: (s: { setActiveTab: () => void }) => unknown) => sel({ setActiveTab: vi.fn() }) }));
+vi.mock('../../hooks/useDebateStore', () => ({ useDebateStore: (sel: (s: { loadDebate: () => void }) => unknown) => sel({ loadDebate: mockLoadDebate }) }));
+vi.mock('../../hooks/useTaxonomyStore', () => ({ useTaxonomyStore: (sel: (s: { setActiveTab: () => void }) => unknown) => sel({ setActiveTab: mockSetActiveTab }) }));
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
-vi.mock('@bridge', () => ({ api: {}, isElectronMode: () => false }));
+vi.mock('@bridge', () => ({ api: mockApi, isElectronMode: () => false }));
 
 const { InquiryAnswerPanel } = await import('./InquiryAnswerPanel');
 
@@ -32,6 +37,7 @@ const BASE_RESULT = {
   derivation: { models: { debaters: 'claude-sonnet-5', evaluator: 'claude-opus-5' }, rounds: 4, callBudget: 150 },
   grounding: { nodesByCamp: {} },
   singleRunCaveat: 'This is one run of a stochastic process, not a repeated-measures finding.',
+  debateId: 'debate-1',
 } as unknown as InquiryResult;
 
 function setResult(result: InquiryResult): void {
@@ -59,5 +65,63 @@ describe('InquiryAnswerPanel headline/caveat adjacency (t/3734)', () => {
 
     const caveat = screen.getByText(BASE_RESULT.singleRunCaveat, { exact: false });
     expect(caveat.previousElementSibling).toBeNull();
+  });
+});
+
+describe('InquiryAnswerPanel "View raw run" deleted-debate notice (t/4684)', () => {
+  it('shows the deleted notice on a web 404 and does not switch to the Debate tab', async () => {
+    mockApi.loadDebateSession.mockRejectedValueOnce(Object.assign(new Error('GET /api/debates/debate-1 failed with HTTP 404: not found'), { httpStatus: 404 }));
+    setResult(BASE_RESULT);
+    render(<InquiryAnswerPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'View raw run' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('The debate behind this answer was deleted.')).toBeInTheDocument();
+    });
+    expect(mockLoadDebate).not.toHaveBeenCalled();
+    expect(mockSetActiveTab).not.toHaveBeenCalled();
+  });
+
+  it('shows the deleted notice on an Electron "not found" message (IPC strips the structured error)', async () => {
+    mockApi.loadDebateSession.mockRejectedValueOnce(new Error('Debate session not found: debate-1'));
+    setResult(BASE_RESULT);
+    render(<InquiryAnswerPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'View raw run' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('The debate behind this answer was deleted.')).toBeInTheDocument();
+    });
+    expect(mockLoadDebate).not.toHaveBeenCalled();
+    expect(mockSetActiveTab).not.toHaveBeenCalled();
+  });
+
+  it('still opens the Debate tab when the probe succeeds', async () => {
+    mockApi.loadDebateSession.mockResolvedValueOnce({ id: 'debate-1' });
+    setResult(BASE_RESULT);
+    render(<InquiryAnswerPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'View raw run' }));
+
+    await waitFor(() => {
+      expect(mockLoadDebate).toHaveBeenCalledWith('debate-1');
+    });
+    expect(mockSetActiveTab).toHaveBeenCalledWith('debate');
+    expect(screen.queryByText('The debate behind this answer was deleted.')).not.toBeInTheDocument();
+  });
+
+  it('falls through to the existing debate-tab path on a non-404 error (network failure)', async () => {
+    mockApi.loadDebateSession.mockRejectedValueOnce(new Error('network error'));
+    setResult(BASE_RESULT);
+    render(<InquiryAnswerPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'View raw run' }));
+
+    await waitFor(() => {
+      expect(mockLoadDebate).toHaveBeenCalledWith('debate-1');
+    });
+    expect(mockSetActiveTab).toHaveBeenCalledWith('debate');
+    expect(screen.queryByText('The debate behind this answer was deleted.')).not.toBeInTheDocument();
   });
 });
