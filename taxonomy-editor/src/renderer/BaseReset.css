@@ -16,3 +16,13 @@
 [hidden] {
   display: none !important;
 }
+
+/* t/4670: the UA stylesheet gives <button> its own font (Arial), not the page font — every
+   button lacking a component-level `font: inherit` renders off-brand. Found repeatedly in
+   Design review (t/4669#4, t/4591#6, t/4666#8, t/4639#4) with 62 existing per-component patches
+   for the same cause. Scoped to button only: inputs/selects/textareas carry their own
+   intentional fonts (e.g. the monospace .inquiry-qfield), and a class rule still outranks this
+   element selector, so the existing patches stay correct (now redundant, not wrong). */
+button {
+  font: inherit;
+}
