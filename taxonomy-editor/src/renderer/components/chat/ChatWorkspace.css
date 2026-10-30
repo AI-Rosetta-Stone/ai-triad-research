@@ -198,6 +198,10 @@
 }
 
 .taxonomy-pill {
+  /* t/4651: native <button> reset — margin/line-height vary by UA default stylesheet; everything
+     else here (background/border/padding/font) already overrides the button chrome. */
+  margin: 0;
+  line-height: normal;
   display: inline-block;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
@@ -214,6 +218,11 @@
 .taxonomy-pill:hover {
   background: var(--bg-hover);
   border-color: var(--text-muted);
+}
+
+.taxonomy-pill:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .taxonomy-pill.selected {

@@ -79,15 +79,22 @@ function makeRefLinkSpan(onSelectRef: (ref: EntityRef) => void) {
 
 function TaxonomyPill({ taxRef, selected, onClick }: { taxRef: TaxonomyRef; selected?: boolean; onClick?: () => void }) {
   const tab = nodeIdToTab(taxRef.node_id);
+  // t/4651 (Design's a11y pass, t/4651#3): was a <span onClick> — no role, no tabIndex, no key
+  // handler, so keyboard/screen-reader users couldn't open a ref's detail at all (WCAG 2.1.1),
+  // and closing the detail had no focusable trigger to return to (fell back to <body>). A real
+  // button fixes both for free — focus return is TaxNodeDetail's existing restore-to-opener
+  // logic (t/4651), which needs document.activeElement to be an actual element, not a span.
   return (
-    <span
+    <button
+      type="button"
       className={`taxonomy-pill tab-${tab}${selected ? ' selected' : ''}`}
       title={taxRef.relevance || taxRef.node_id}
       onClick={onClick}
+      aria-expanded={onClick ? selected === true : undefined}
       data-clickable={onClick ? '' : undefined}
     >
       {taxRef.node_id}
-    </span>
+    </button>
   );
 }
 
