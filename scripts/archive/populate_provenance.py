@@ -99,6 +99,20 @@ ACADEMIC_DOMAINS = {
     'rand.org': 'url',
 }
 
+# t/4658 issue 2: Tavily Pass 3 had no host filtering, so a social/aggregator URL could be
+# written as a source's resolved provenance with no signal it wasn't a publisher/academic host.
+# Soft-flag rather than reject (Quality design review, p/678#216): legitimate social-sourced
+# docs may exist, so a flagged match is still written, just marked for human review.
+SOCIAL_AGGREGATOR_HOSTS = {
+    'linkedin.com', 'x.com', 'medium.com', 'substack.com',
+    'reddit.com', 'facebook.com', 'instagram.com', 'tiktok.com',
+}
+
+
+def is_social_aggregator_host(url: str) -> bool:
+    """True when url's host is a known social/aggregator domain (soft-flag, not a hard reject)."""
+    return any(host in url for host in SOCIAL_AGGREGATOR_HOSTS)
+
 
 def tavily_search(title: str, first_author: str) -> Optional[list]:
     """Search Tavily for a source by title + author. Returns list of result dicts or None."""
@@ -169,7 +183,11 @@ def match_academic_url(results: list) -> Optional[dict]:
     # No academic match — return best URL as fallback
     best = results[0].get('url', '')
     if best:
-        return {'scheme': 'url', 'id': best, 'url': best}
+        match = {'scheme': 'url', 'id': best, 'url': best}
+        if is_social_aggregator_host(best):
+            match['flagged_host'] = True
+            print(f'    WARN: Tavily fallback match is a social/aggregator host, soft-flagging: {best}', file=sys.stderr)
+        return match
     return None
 
 
@@ -328,11 +346,14 @@ def process_source(dir_name: str) -> dict:
                     match['confidence'] = 'search'
 
                 if not any(e['scheme'] == match['scheme'] and e['id'] == match['id'] for e in new_provenance):
-                    new_provenance.append({
+                    new_entry = {
                         'scheme': match['scheme'],
                         'id': match['id'],
                         'confidence': match.get('confidence', 'search'),
-                    })
+                    }
+                    if match.get('flagged_host'):
+                        new_entry['flagged_host'] = True
+                    new_provenance.append(new_entry)
         time.sleep(1)  # polite rate limiting for Tavily
 
     # ── Sort provenance: strongest scheme first ──
