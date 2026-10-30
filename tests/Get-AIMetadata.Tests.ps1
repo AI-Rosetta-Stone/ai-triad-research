@@ -204,6 +204,71 @@ Describe 'Get-AIMetadata title/one_liner length limits (gap 2.2)' -Tag 'ingestio
     }
 }
 
+Describe 'Get-AIMetadata whole-document sampling (t/4655)' -Tag 'ingestion' {
+
+    BeforeAll {
+        # A >6000-word document with a unique marker sentence placed well past word 6000, inside a
+        # late section Split-RagQueryWindows would keep -- proves the classifier sees past the old
+        # flat-prefix cutoff, not just that a WARN fired.
+        $script:LongDocMarker = 'MARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX appears only near the end.'
+        $filler = (1..6500 | ForEach-Object { "word$_" }) -join ' '
+        $script:LongDoc = "## Introduction`n`n$filler`n`n## Conclusion`n`n$($script:LongDocMarker) The document concludes here."
+    }
+
+    It 'samples across the whole document and WARNs with word/window counts' {
+        $mockResponse = [PSCustomObject]@{
+            Text    = '{"title":"T","authors":[],"date_published":"2024","pov_tags":["accelerationist"],"topic_tags":[],"one_liner":"O"}'
+            Backend = 'gemini'
+            Model   = 'gemini-2.5-flash-lite'
+            Truncated = $false
+            Usage   = $null
+            RawResponse = @{}
+        }
+        $script:capturedPrompt = $null
+        Mock Invoke-AIApi -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Prompt
+            $mockResponse
+        }
+        Mock Invoke-AIByUsage -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Values.prompt
+            $mockResponse
+        }
+
+        $warnings = $null
+        $null = Get-AIMetadata -MarkdownText $script:LongDoc -WarningVariable warnings -WarningAction SilentlyContinue 6>$null
+
+        $script:capturedPrompt | Should -Match 'MARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX'
+        ($warnings -join '|') | Should -Match 'sampled \d+ words from a \d+-word document across \d+ windows'
+    }
+
+    It 'does not sample or WARN for a document at or under the 6000-word budget' {
+        $mockResponse = [PSCustomObject]@{
+            Text    = '{"title":"T","authors":[],"date_published":"2024","pov_tags":[],"topic_tags":[],"one_liner":"O"}'
+            Backend = 'gemini'
+            Model   = 'gemini-2.5-flash-lite'
+            Truncated = $false
+            Usage   = $null
+            RawResponse = @{}
+        }
+        $script:capturedPrompt = $null
+        Mock Invoke-AIApi -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Prompt
+            $mockResponse
+        }
+        Mock Invoke-AIByUsage -ModuleName AIEnrich -MockWith {
+            $script:capturedPrompt = $Values.prompt
+            $mockResponse
+        }
+        $shortDoc = "## Doc`n`nMARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX is right here, well under budget."
+
+        $warnings = $null
+        $null = Get-AIMetadata -MarkdownText $shortDoc -WarningVariable warnings -WarningAction SilentlyContinue 6>$null
+
+        $script:capturedPrompt | Should -Match 'MARKER-SENTENCE-UNIQUE-TOKEN-ZZYZX'
+        ($warnings -join '|') | Should -Not -Match 'sampled \d+ words'
+    }
+}
+
 Describe 'Get-AIMetadata author deduplication (gap 2.3)' -Tag 'ingestion' {
 
     It 'Removes exact duplicates' {
