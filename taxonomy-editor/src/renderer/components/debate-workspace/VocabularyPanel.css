@@ -155,10 +155,13 @@ a.vocab-term,
   padding: 4px 8px;
 }
 
+/* t/4656 follow-up: reading prose matched to the Text pane's statement body size (--text-md),
+   per Design's measured gap (t/4656#3). Meta (vocab-ambiguous-header, badges, camp/link labels)
+   stays at its existing small size. */
 .vocab-source-sentence {
   margin-left: 12px;
   margin-top: 2px;
-  font-size: 0.72rem;
+  font-size: var(--text-md);
   color: var(--text-muted);
   font-style: italic;
   line-height: 1.4;
@@ -213,7 +216,7 @@ a.vocab-term,
 
 .vocab-def-when {
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--text-md);
 }
 
 .vocab-def-camp {
@@ -223,7 +226,7 @@ a.vocab-term,
 }
 
 .vocab-def-text {
-  font-size: 0.72rem;
+  font-size: var(--text-md);
   margin-top: 2px;
   line-height: 1.4;
   color: var(--text-muted);
@@ -244,7 +247,7 @@ a.vocab-term,
 .vocab-ambiguous-when {
   margin-left: 16px;
   margin-top: 3px;
-  font-size: 0.72rem;
+  font-size: var(--text-md);
   font-style: italic;
   color: var(--text-muted);
 }

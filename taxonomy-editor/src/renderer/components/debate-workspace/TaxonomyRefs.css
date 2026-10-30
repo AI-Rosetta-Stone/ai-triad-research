@@ -190,9 +190,24 @@
   color: #a855f7;
 }
 
+/* t/4656 follow-up: reading prose in How -> Plan/Terms/Claims/Conv matched to the Text pane's
+   statement body size (--text-md), per Design's measured gap (t/4656#3). Meta (section labels,
+   ids, taxrefs-detail-2xs, inline labels) stays at its existing small size. */
+.taxrefs-brief-text,
+.taxrefs-goal-box,
+.taxrefs-thesis-box,
+.taxrefs-framing-why,
+.taxrefs-arg-point {
+  font-size: var(--text-md);
+}
+
+.taxrefs-framing-why,
+.taxrefs-arg-point {
+  line-height: 1.4;
+}
+
 .taxrefs-brief-text {
   margin: 4px 0;
-  font-size: 0.78rem;
 }
 
 .taxrefs-brief-empty {
@@ -240,7 +255,6 @@
   margin: 4px 0;
   border-left: 3px solid rgba(168, 85, 247, 0.4);
   background: rgba(168, 85, 247, 0.05);
-  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -249,7 +263,6 @@
   margin: 4px 0;
   border-left: 3px solid rgba(168, 85, 247, 0.4);
   background: rgba(168, 85, 247, 0.05);
-  font-size: 0.72rem;
 }
 
 .taxrefs-inline-label {
@@ -314,7 +327,6 @@
 }
 
 .taxrefs-arg-point {
-  font-size: 0.7rem;
   font-weight: 600;
 }
 

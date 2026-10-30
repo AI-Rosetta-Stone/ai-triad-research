@@ -537,9 +537,11 @@ a.lineage-link,
   letter-spacing: 0.03em;
 }
 
+/* t/4656 follow-up: reading prose matched to the Text pane's statement body size (--text-md),
+   per Design's measured gap (t/4656#3). */
 .convergence-value {
   color: var(--text-primary);
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
 }
 
 .convergence-badge {
