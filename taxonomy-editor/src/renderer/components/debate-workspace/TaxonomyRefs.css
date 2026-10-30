@@ -257,11 +257,15 @@
   font-size: var(--text-2xs);
 }
 
+/* t/4656 follow-up 2 (t/4656#5): the bold frame headline has no class of its own and inherits
+   this font-size -- bump it to var(--text-md) too, or the headline (11.2px) reads smaller than
+   its own explanation (-framing-why, already var(--text-md)), inverting the hierarchy. The
+   "Framing: " label keeps its own explicit var(--text-2xs) regardless (taxrefs-inline-label). */
 .taxrefs-framing-box {
   padding: 6px;
   margin: 4px 0;
   border-left: 3px solid rgba(168, 85, 247, 0.3);
-  font-size: 0.7rem;
+  font-size: var(--text-md);
 }
 
 .taxrefs-framing-why {
@@ -300,8 +304,11 @@
   color: var(--text-muted);
 }
 
+/* t/4656 follow-up 2 (t/4656#5): despite the name, this holds reading prose (argument evidence,
+   planned-move detail), not a meta label -- bumped to var(--text-md) like its siblings. Kept
+   the class name to avoid a wider rename across call sites for a size-only fix. */
 .taxrefs-detail-2xs {
-  font-size: var(--text-2xs);
+  font-size: var(--text-md);
   margin-top: 1px;
 }
 
@@ -341,8 +348,9 @@
   border-radius: 4px;
 }
 
+/* t/4656 follow-up 2 (t/4656#5): reading prose, bumped to var(--text-md). */
 .taxrefs-anticipated-list {
-  font-size: 0.7rem;
+  font-size: var(--text-md);
   margin: 2px 0;
   padding-left: 14px;
 }
