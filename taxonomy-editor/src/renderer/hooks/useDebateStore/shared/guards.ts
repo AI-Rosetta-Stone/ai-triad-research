@@ -207,7 +207,32 @@ function ensureActiveDebateWatcher(): void {
   });
 }
 
-const _beforeUnloadHandler = () => releaseDebateDriver();
+const _beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+  releaseDebateDriver();
+
+  // Check for unsaved debate work (t/4640: existing guard)
+  const debateState = useDebateStore.getState();
+  if (debateState.activeDebateId && debateState.sessions[debateState.activeDebateId]?.isRunning) {
+    e.preventDefault();
+    e.returnValue = '';
+    return;
+  }
+
+  // Check for unsaved taxonomy edits (t/4640: extend guard to prevent navigation loss)
+  try {
+    // Import deferred to avoid circular dependency at module init time
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const { useTaxonomyStore: getTaxonomyStore } = require('../../useTaxonomyStore');
+    const taxonomyState = getTaxonomyStore.getState();
+    if (taxonomyState.dirty?.size > 0) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  } catch {
+    /* beforeunload guard safety fallback — if import fails, allow navigation */
+  }
+};
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _driverChannel?.close();
