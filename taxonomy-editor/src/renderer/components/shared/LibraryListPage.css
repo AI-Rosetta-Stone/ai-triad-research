@@ -417,3 +417,124 @@
   .lib-header-row2 { flex-wrap: wrap; }
   .lib-search { width: 100%; }
 }
+
+/* ── phone layout (t/4571, ≤767px) ── */
+
+@media (max-width: 767px) {
+  /* Hide desktop grid, show phone list */
+  .lib-table-wrap { display: none; }
+  .lib-phone-list { display: block; }
+
+  /* Header row 1: flex-wrap for primary button on row 1, secondary on row 2 */
+  .lib-header-row1 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+    row-gap: var(--sp-2);
+  }
+  .lib-title { flex: 1; min-width: 0; }
+  .lib-header-actions { flex: 0 0 auto; display: flex; gap: var(--sp-2); order: 3; }
+
+  /* Sort bar */
+  .lib-phone-sort-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+    height: 44px;
+    border-bottom: 1px solid var(--lib-border-row);
+  }
+  .lib-phone-sort-label {
+    font-size: var(--text-sm);
+    color: var(--lib-text-secondary);
+    white-space: nowrap;
+  }
+  .lib-phone-sort {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    background: var(--lib-bg);
+    color: var(--lib-text);
+    font-size: var(--text-sm);
+  }
+
+  /* Phone list container */
+  .lib-phone-list {
+    display: none;
+    flex-direction: column;
+  }
+
+  /* Phone list item: stacked card layout */
+  .lib-phone-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    border-bottom: 1px solid var(--lib-border-row);
+    min-height: 44px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .lib-phone-item:hover { background: var(--lib-bg-hover); }
+  .lib-phone-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+  /* Checkbox in phone item */
+  .lib-phone-checkbox {
+    align-self: flex-start;
+    margin-right: var(--sp-2);
+  }
+
+  /* Phone title row: 2-line clamp with flex for inline edit */
+  .lib-phone-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    min-width: 0;
+  }
+  .lib-phone-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+
+  /* Phone meta row: badges/short facts separated by · */
+  .lib-phone-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    font-size: var(--text-2xs);
+    color: var(--lib-text-secondary);
+  }
+  .lib-phone-meta-part {
+    display: inline;
+    background: var(--lib-bg-secondary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .lib-phone-meta-sep::after {
+    content: ' ·';
+    margin: 0 var(--sp-1);
+  }
+  .lib-phone-meta-sep:last-child::after { content: ''; margin: 0; }
+
+  /* Phone actions: trailing menu button */
+  .lib-phone-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+  }
+  .lib-actions {
+    flex-direction: row;
+    gap: var(--sp-1);
+  }
+}
