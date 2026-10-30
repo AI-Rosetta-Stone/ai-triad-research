@@ -733,6 +733,11 @@ export async function approveSubmission(
     JSON.stringify(sanitized, null, 2),
   );
 
+  // Invalidate the listing index so the published item appears immediately on the next list call (t/4611).
+  // The index caches directory contents + version; without this, listViaIndex serves the stale cached copy
+  // that was built before the item was written, so the newly approved item doesn't appear until the cache TTL expires.
+  await invalidateListingIndex(backend, dir);
+
   // Update submission status
   submission.status = 'approved';
   await backend.writeFile(subPath, JSON.stringify(submission, null, 2));
