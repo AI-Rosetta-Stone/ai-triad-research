@@ -9,6 +9,8 @@ import ErrorBoundary from '../../../lib/electron-shared/components/ErrorBoundary
 import { useTaxonomyStore, initAIModels } from './hooks/useTaxonomyStore';
 import { initDebateSessions } from './hooks/useDebateStore';
 import { useAppRoute } from './routing/useAppRoute';
+import { installNavSubscriber } from './navigation/subscriber';
+import { navHistory } from './navigation';
 import { Toolbar } from './components/shared/Toolbar';
 import { TabBar } from './components/shared/TabBar';
 import { SaveBar } from './components/sync/SaveBar';
@@ -184,6 +186,8 @@ async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>)
   void loadAllFn();
   initAnalyticsSession();
   initDebateSessions();
+  // t/4640: install navigation subscriber to maintain history stack (buttons/shortcuts)
+  installNavSubscriber(useTaxonomyStore, navHistory);
 }
 
 export function App() {
