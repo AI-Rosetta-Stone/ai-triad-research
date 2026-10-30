@@ -81,7 +81,7 @@ export function RosettaStoneTab() {
       body: 'Everything behind this site, including the taxonomy, source summaries, debates and embeddings, is public on GitHub. Clone or download the dataset to run your own analyses, check our work, or build on it.',
       cta: 'Open GitHub',
       image: { src: publicAsset('onboarding/onboarding-dataset.png'), alt: 'GitHub repository page for AI-Rosetta-Stone / ai-triad-data' },
-      onOpen: () => api.openExternal('https://github.com/AI-Rosetta-Stone/ai-triad-data'),
+      onOpen: () => { void api.openExternal('https://github.com/AI-Rosetta-Stone/ai-triad-data'); },
     },
     {
       id: 'settings',
