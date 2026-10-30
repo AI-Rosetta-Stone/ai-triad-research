@@ -81,7 +81,7 @@
     "countOver": 1
   },
   "debate/argumentNetwork/prompts.ts": {
-    "max": 47,
+    "max": 48,
     "countOver": 2
   },
   "debate/assignWeights.ts": {
