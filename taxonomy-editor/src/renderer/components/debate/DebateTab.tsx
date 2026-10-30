@@ -1112,6 +1112,13 @@ export function DebateConfigSection({ debate }: { debate: DebateSession }) {
 
 // ── Community Debate Detail ──
 
+// t/1520/t/4672: iPad/iOS Safari drops auth cookies when window.open'ing a new tab, so on
+// mobile navigate in-place via the hash router instead. Mirrors web-bridge.ts isMobilePlatform().
+function isMobilePlatform(): boolean {
+  return /iPad|iPhone|iPod|Android/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
+}
+
 function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
   const [full, setFull] = useState<DebateSession | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1148,16 +1155,22 @@ function CommunityDebateDetail({ debate }: { debate: CommunityDebate }) {
   const handleOpenWindow = useCallback(() => {
     // iPad/iOS Safari drops auth cookies when window.open'ing a new tab (t/1520),
     // so on mobile navigate in-place via the hash router instead of a new window.
-    // Detection mirrors web-bridge.ts isMobilePlatform() — see dedup TODO in t/1520.
     const hash = `debate-window?id=${encodeURIComponent(debate.id)}&source=community`;
-    const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent)
-      || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
-    if (isMobile) {
+    if (isMobilePlatform()) {
       window.location.hash = hash;
     } else {
       window.open(`${location.origin}/#${hash}`, '_blank');
     }
   }, [debate.id]);
+
+  // t/4672 (PI): on mobile, tapping a community debate should land directly in the debate
+  // view, not an interstitial requiring a manual "Open in Window" tap — mirrors the My-debates
+  // path, which already renders DebateWorkspace directly on phone (DebateDetailPane). Desktop
+  // keeps the manual button (opening an un-requested new tab without a user gesture would be a
+  // behavior change there, and is commonly popup-blocked anyway).
+  useEffect(() => {
+    if (isMobilePlatform()) handleOpenWindow();
+  }, [handleOpenWindow]);
 
   const topic = full?.topic ? (full.topic.final || full.topic.refined || full.topic.original) : null;
 
