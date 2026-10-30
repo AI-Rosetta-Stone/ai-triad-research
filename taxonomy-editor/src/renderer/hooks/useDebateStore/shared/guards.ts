@@ -212,8 +212,7 @@ const _beforeUnloadHandler = (e: BeforeUnloadEvent) => {
 
   // Check for unsaved debate work (t/4640: existing guard)
   const debateState = useDebateStore.getState();
-  const activeId = debateState.activeDebateId;
-  if (activeId && debateState.sessions[activeId as keyof typeof debateState.sessions]?.isRunning) {
+  if (debateState.activeDebateId && debateState.debateGenerating) {
     e.preventDefault();
     e.returnValue = '';
     return;
