@@ -482,9 +482,9 @@
 /* Change-count badge on Advanced settings link */
 .ndd-change-badge {
   align-items: center;
-  background: var(--focus-ring, #3b82f6);
+  background: var(--text-primary); /* p/683#28: --focus-ring failed AA (light 3.68, dark 2.54) */
   border-radius: 9999px;
-  color: #fff;
+  color: var(--bg-primary);
   display: inline-flex;
   font-size: var(--text-2xs);
   font-weight: 600;
