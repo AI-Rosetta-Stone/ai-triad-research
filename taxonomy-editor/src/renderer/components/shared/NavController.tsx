@@ -2,15 +2,15 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 import './NavController.css';
 import { navHistory } from '../../navigation';
 
 export function NavController() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
-  const [backLabel, setBackLabel] = useState('Back');
-  const [forwardLabel, setForwardLabel] = useState('Forward');
+  const [backLabel, setBackLabel] = useState('');
+  const [forwardLabel, setForwardLabel] = useState('');
 
   useEffect(() => {
     const updateState = () => {
@@ -18,10 +18,10 @@ export function NavController() {
       setCanGoForward(navHistory.canGoForward());
 
       const back = navHistory.peekBack();
-      setBackLabel(back?.label ?? 'Back');
+      setBackLabel(back?.label ?? '');
 
       const forward = navHistory.peekForward();
-      setForwardLabel(forward?.label ?? 'Forward');
+      setForwardLabel(forward?.label ?? '');
     };
 
     updateState();
@@ -40,6 +40,8 @@ export function NavController() {
   };
 
   const isElectron = import.meta.env.VITE_TARGET !== 'web';
+  const backTitle = backLabel ? `Back to ${backLabel}` : 'Back';
+  const forwardTitle = forwardLabel ? `Forward to ${forwardLabel}` : 'Forward';
 
   return (
     <div className="nav-controller" role="group" aria-label="Navigation">
@@ -49,9 +51,9 @@ export function NavController() {
         disabled={!canGoBack}
         aria-label="Back"
         aria-disabled={!canGoBack}
-        title={`Back to ${backLabel}`}
+        title={backTitle}
       >
-        <ChevronLeft size={18} />
+        <ArrowLeft size={18} />
       </button>
       {isElectron && (
         <button
@@ -60,9 +62,9 @@ export function NavController() {
           disabled={!canGoForward}
           aria-label="Forward"
           aria-disabled={!canGoForward}
-          title={`Forward to ${forwardLabel}`}
+          title={forwardTitle}
         >
-          <ChevronRight size={18} />
+          <ArrowRight size={18} />
         </button>
       )}
     </div>

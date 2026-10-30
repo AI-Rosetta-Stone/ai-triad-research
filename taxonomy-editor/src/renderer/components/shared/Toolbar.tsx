@@ -19,6 +19,7 @@ import { useNavVisibilityContext } from '../../hooks/useNavVisibilityContext';
 import { useSettingsDialog } from '../../hooks/useSettingsDialog';
 import { useTierInfo } from '../../hooks/useTierInfo';
 import { FeedbackPopover } from './FeedbackPopover';
+import { NavController } from './NavController';
 import { NAV_ITEMS, RosetteIcon, getVisibleNavItems, getSecondaryByGroup, type NavItem, type NavAction } from '../../data/navConfig';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import './Toolbar.css';
@@ -311,6 +312,7 @@ export function Toolbar() {
   return (
     <nav className="toolbar" aria-label="Primary">
       <div className="toolbar-top">
+        <NavController />
         {/* Primary nav — icon-over-label stacks. t/4535: reordered to Chat, Op-Ed Studies,
             Ask a Question, Debate, Taxonomy (PI request, p/351#29; order only). */}
         {/* t/2813: Search removed from the nav rail; entry points now live in the
