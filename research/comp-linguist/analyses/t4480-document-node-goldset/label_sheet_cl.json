@@ -1844,7 +1844,7 @@
       "assigned_node_label": "Activation-Based Natural Language Verbalization",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1859,7 +1859,7 @@
       "assigned_node_label": "Building Adaptive Regulatory Frameworks for AI Development",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1874,7 +1874,7 @@
       "assigned_node_label": "Making AI Show Its Work So Auditors Can Spot Deception",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1889,7 +1889,7 @@
       "assigned_node_label": "Giving Victims One Clear Door for AI Liability Claims",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1904,7 +1904,7 @@
       "assigned_node_label": "Audit AI Internal Reasoning Through Mechanistic Interpretability",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1919,7 +1919,7 @@
       "assigned_node_label": "Governing How AI Models Ingest, Retain, and Protect Data",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1934,9 +1934,9 @@
       "assigned_node_label": "Building Accountability Frameworks for AI Agents Operating at Scale",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1949,9 +1949,9 @@
       "assigned_node_label": "Carbon-Aware Pricing Models",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
-      "better_node": null,
-      "cause": null,
+      "label": "misfire",
+      "better_node": "none found",
+      "cause": "retrieval-fixable",
       "family_scored": false
     },
     {
@@ -1964,7 +1964,7 @@
       "assigned_node_label": "Governing How AI Models Ingest, Retain, and Protect Data",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1979,7 +1979,7 @@
       "assigned_node_label": "Preventing AI Use from Lowering Legal Standards of Care",
       "cell": "saf|intentions|1",
       "rank": 1,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -1994,7 +1994,7 @@
       "assigned_node_label": "Requiring Hardware Telemetry as the Price of Liability Immunity",
       "cell": "saf|intentions|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2009,7 +2009,7 @@
       "assigned_node_label": "Inserting Human Judgment Where Autonomous AI Makes Consequential Choices",
       "cell": "saf|intentions|2-5",
       "rank": 5,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2024,7 +2024,7 @@
       "assigned_node_label": "Coordinate International AI Governance to Prevent Arms Races and Ensure Shared Safety Rules",
       "cell": "saf|intentions|2-5",
       "rank": 3,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2039,7 +2039,7 @@
       "assigned_node_label": "Prevent AI Harm Through Pre-Launch Checks and Operational Guardrails",
       "cell": "saf|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
@@ -2054,7 +2054,7 @@
       "assigned_node_label": "Defending Against AI as a Force Multiplier for Harm",
       "cell": "saf|intentions|2-5",
       "rank": 2,
-      "label": null,
+      "label": "correct",
       "better_node": null,
       "cause": null,
       "family_scored": false
