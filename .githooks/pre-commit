@@ -77,25 +77,31 @@ fi
 # Runs on EVERY commit (not just main) so worktree commits also benefit.
 # Fail-OPEN: any error in the detection skips the warning.
 _toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || _toplevel="."
+
+# Shared matcher (t/4149 item 3): same three heuristics used by both the
+# untracked warn-only scan below AND the staged-0-byte blocking scan after it.
+# Reads one filename from argv, prints it back and returns 0 on a match.
+_is_junk_name() {
+  _n=$(basename "$1")
+  _b="${_n%%.*}"
+  if [ "${#_b}" -eq 1 ] && [ "$_n" != "$_b" ]; then
+    printf '%s\n' "$1"; return 0
+  fi
+  if [ "$_n" = "$_b" ]; then
+    case "$_n" in [0-9]*) printf '%s\n' "$1"; return 0 ;; esac
+  fi
+  case "$_n" in
+    *[\`\{\}\(\)\,\[\]]*) printf '%s\n' "$1"; return 0 ;;
+  esac
+  return 1
+}
+
 _junk=$(
   git -C "$_toplevel" status --porcelain 2>/dev/null \
     | grep '^?? ' | sed 's|^?? ||' \
     | grep -v '/node_modules' | grep -v '/\.agents/' | grep -v '/$' \
     | while IFS= read -r _f; do
-        _name=$(basename "$_f")
-        _base="${_name%%.*}"
-        # Rule 1: 1-char basename with extension (e.g. m.id, e.level)
-        if [ "${#_base}" -eq 1 ] && [ "$_name" != "$_base" ]; then
-          printf '%s\n' "$_f"; continue
-        fi
-        # Rule 2: no extension, starts with digit (e.g. 120s, 24, 0)
-        if [ "$_name" = "$_base" ]; then
-          case "$_name" in [0-9]*) printf '%s\n' "$_f"; continue ;; esac
-        fi
-        # Rule 3: shell metacharacters anywhere in the name
-        case "$_name" in
-          *[\`\{\}\(\)\,\[\]]*) printf '%s\n' "$_f" ;;
-        esac
+        _is_junk_name "$_f" || true
       done
 ) 2>/dev/null
 if [ -n "$_junk" ]; then
@@ -105,6 +111,39 @@ if [ -n "$_junk" ]; then
     printf >&2 "    rm -- '%s'\n" "$_f"
   done
   printf >&2 '  See Shell Quoting Rule in root AGENTS.md. (Non-blocking — commit proceeds.)\n\n'
+fi
+
+# ── 0-byte junk-file REFUSAL (t/4149 item 3) ─────────────────────────────────
+# The scan above only ever looks at UNTRACKED files and only ever warns. If a
+# shell-quoting fragment gets `git add`-ed (staged), it's invisible to that scan
+# entirely (no longer in the `?? ` listing) and would otherwise commit clean.
+# This is the stricter case: a STAGED, newly-added file that is BOTH 0 bytes
+# AND matches the same junk-name heuristics is almost certainly an accident,
+# never a legitimate 0-byte file someone meant to commit (an empty marker file
+# a human deliberately creates is never also shell-metacharacter-shaped or
+# digit-leading) — so this one REFUSES rather than warns.
+# Fail-OPEN: any error in the detection allows the commit.
+_zerobyte_junk=$(
+  git -C "$_toplevel" diff --cached --name-only --diff-filter=A 2>/dev/null \
+    | while IFS= read -r _f; do
+        _size=$(git -C "$_toplevel" cat-file -s ":$_f" 2>/dev/null) || continue
+        [ "$_size" = "0" ] || continue
+        _is_junk_name "$_f" || true
+      done
+) 2>/dev/null
+if [ -n "$_zerobyte_junk" ]; then
+  cat >&2 <<MSG
+
+  ✖ BLOCKED: staged 0-byte file(s) with a shell-quoting-accident-shaped name (t/4149 item 3, t/2112 class).
+$(printf '%s\n' "$_zerobyte_junk" | while IFS= read -r _f; do printf '    %s\n' "$_f"; done)
+
+  Confirm each is empty and untracked-by-intent, then unstage and remove:
+$(printf '%s\n' "$_zerobyte_junk" | while IFS= read -r _f; do printf "    git restore --staged -- '%s' && rm -- '%s'\n" "$_f" "$_f"; done)
+
+  Owner / emergency override (bypasses this hook):
+    git commit --no-verify
+MSG
+  exit 1
 fi
 
 # Normalize BOTH paths through `cd && pwd` so the comparison is format-stable on
