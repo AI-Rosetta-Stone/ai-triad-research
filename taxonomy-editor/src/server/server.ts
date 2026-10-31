@@ -942,8 +942,7 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const reqCtx = getRequestContext();
   if (reqCtx) reqCtx.userId = storageUserId;
   const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
-  const stableId = !isAnon ? getRequestStableId(req) : undefined;
-  return { principalName: effectivePrincipal, idp: effectiveIdp, branchName: sessionBranch, storageUserId, isAnonymous: isAnon, anonymousSessionId, stableId };
+  return { principalName: effectivePrincipal, idp: effectiveIdp, branchName: sessionBranch, storageUserId, isAnonymous: isAnon, anonymousSessionId, stableId: isAnon ? undefined : getRequestStableId(req) };
 }
 
 /** M7: per-IP rate limit on API write methods (100/min). Returns true when 429-limited. */
