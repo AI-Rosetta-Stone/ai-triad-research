@@ -4934,7 +4934,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 5. **`autoMergeRequest` (and REST's `auto_merge` field) being `null` does NOT mean a PR was dropped from the merge queue** (DebateWorkspace, p/846#6) — those fields only reflect CLASSIC auto-merge-on-green, never merge-queue group entries. A PR can be genuinely queued (`AWAITING_CHECKS` or similar) while `autoMergeRequest` shows `null` the whole time. The authoritative check for queue state is GraphQL `pullRequest { isInMergeQueue, mergeQueueEntry { state position } }` — never infer queue status from the auto-merge fields in either direction.
 6. **Escalated to t/4660 (DevOps) at this recurrence** — this isn't just a point-of-use lesson anymore. PR triage's `approved-not-armed` classifier had the exact same blind spot (reading `autoMergeRequest` instead of actual merge-queue state); DevOps is fixing the classifier to read true merge-queue state directly. The fix closes the automated-tooling instance of this facet; agents should still apply preventions #4/#5 by hand until it lands.
 
-**Status:** Active — 7 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`; Tech Lead p/335#223/#224 — same `autoMergeRequest`-null false negative on PR #4156, self-corrected after Sage independently confirmed via GraphQL; DevOps Lead p/26#309 — `gh pr view --json isInMergeQueue` exit 1, same field-gap). Deterministic usage error. **Prevention escalated to t/4660** (DevOps) — fixing the `approved-not-armed` PR-triage classifier's same blind spot.
+**Status:** Active — 8 instances (DebateUI p/689#5; Tech Lead p/335#192 — `gh run list --json actor`; PowerShell p/20#137 + Tech Lead p/335#204 — `isInMergeQueue`, two agents, same field, within minutes; DebateWorkspace p/846#6 — `autoMergeRequest`/`auto_merge` null misread as "dropped from queue," confirmed genuinely queued via GraphQL `isInMergeQueue`/`mergeQueueEntry`; Tech Lead p/335#223/#224 — same `autoMergeRequest`-null false negative on PR #4156, self-corrected after Sage independently confirmed via GraphQL; DevOps Lead p/26#309 — `gh pr view --json isInMergeQueue` exit 1, same field-gap; DebateUI p/689#7 — `gh pr view --json ...,isInMergeQueue` exit 1, same field gap, yet another agent). Deterministic usage error. **Prevention escalated to t/4660** (DevOps) — fixing the `approved-not-armed` PR-triage classifier's same blind spot.
 
 **Applies To:** All agents constructing `gh pr list`, `gh pr view`, or other `gh` subcommands with `--json`.
 
@@ -5213,24 +5213,26 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 ---
 
-## #245 [Runtime] jq String Operations Error on Null Input — Guard with `// ""` Before Any String Op
+## #245 [Runtime] jq String/Array Operations Error on Null Input — Guard with `// ""` or `// []` Before Any Op That Assumes Non-Null
 
-**Pattern:** An agent pipes a JSON field into a jq string operation (`gsub`, `ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase`, etc.). The field is null in some records. jq errors: `null (null) and string ("…") cannot be iterated over` or similar. The pipeline aborts or silently drops rows.
+**Pattern:** An agent pipes a JSON field into a jq string operation (`gsub`, `ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase`, etc.) or iterates it as an array (`.field[] | ...`). The field is null in some records (e.g. `comments` is null when a PR has none, rather than an empty array). jq errors: `null (null) and string ("…") cannot be iterated over`, `Cannot iterate over null (null)`, or similar. The pipeline aborts or silently drops rows.
 
 **Instances:**
 - 2026-10-12 — Tech Lead (p/335#141): `.body[0:150] | gsub("…"; "…")` — `.body` was null for some records; `gsub` errored on null. Resolved by guarding: `(.body // "")[0:150] | gsub(…)`.
+- 2026-10-30 — Tech Lead (p/335#233, **iterate-null facet**): `gh pr view --json comments,reviews --jq '...'` exited 1 "cannot iterate over: null" — `comments` was null (not an empty array) on that PR, and the jq expression iterated it without a guard. Resolved by dropping the `comments` half of the query; `reviews` data alone was sufficient.
 
-**Root Cause:** jq string functions expect a string on the left-hand side. A null input is not coerced to an empty string — it propagates the type error. JSON fields that are optional or not always populated can be null even when the schema implies string.
+**Root Cause:** jq string functions expect a string on the left-hand side, and `[]` iteration expects an array; neither coerces null — both propagate a type error. JSON fields that are optional or not always populated (an empty list rendered as `null` rather than `[]`) can be null even when the schema implies string or array.
 
 **Prevention:**
 1. **Guard every string field before a string op:** `(.field // "")` replaces null with empty string. E.g. `(.body // "")[0:150] | gsub(…)`.
-2. **Use `select(.field != null)` or `select(.field)` to filter records before string ops** when null rows should be dropped rather than defaulted.
-3. **`ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase` all have the same null-intolerance.** Apply the `// ""` guard consistently whenever the input field is optional.
-4. **A jq pipeline that works on a sample may silently fail on production data** where optional fields are null — always test against a full data slice or add a null guard defensively.
+2. **Guard every array field before iterating it:** `(.field // [])[] | ...` replaces null with an empty array before the `[]` iteration, so a null field produces zero iterations instead of a crash.
+3. **Use `select(.field != null)` or `select(.field)` to filter records before string ops** when null rows should be dropped rather than defaulted.
+4. **`ltrimstr`, `startswith`, `test`, `split`, `ascii_downcase` all have the same null-intolerance** for strings; `[]` iteration has the same intolerance for arrays. Apply the `// ""` or `// []` guard consistently whenever the input field is optional.
+5. **A jq pipeline that works on a sample may silently fail on production data** where optional fields are null — always test against a full data slice or add a null guard defensively.
 
-**Status:** Active — 1 instance (Tech Lead p/335#141).
+**Status:** Active — 2 instances (Tech Lead p/335#141; Tech Lead p/335#233 — iterate-null facet, `comments` field).
 
-**Applies To:** All agents writing jq expressions against JSON fields that may be null or absent.
+**Applies To:** All agents writing jq expressions against JSON fields that may be null or absent, whether used as a string or iterated as an array.
 
 ---
 
@@ -8152,3 +8154,24 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Unresolved — 2 facets, 1 instance each (DebateTool p/70#91, p/70#93). No agent-side fix for Facet A; Facet B has a practical workaround (plain script file).
 
 **Applies To:** All agents in a worktree-isolated session needing read-only cross-repo checks or inline commands with env-var substitution; expect the guard to over-block both, and use the documented workarounds or defer to a non-isolated session.
+
+---
+
+## #400 [Build] A Known-Baseline Error Count Masks a New Real Error Hiding in the Same Count — Diff the Specific Errors, Not Just the Ceiling
+
+**Pattern:** An agent's local verification environment has a known, consistent set of phantom/unrelated errors (e.g. from a non-standard `node_modules` setup like Windows directory junctions in place of symlinks, used when admin rights for real symlinks aren't available). The agent learns to expect exactly N phantom errors every run and treats "the run still shows N errors" as a clean-verification signal. A NEW, real error (in a file the agent actually touched) appears alongside the N phantom ones, keeping the total at N+1 or even still N if the agent only skims the count — the agent doesn't diff the actual error identities against the known baseline, just eyeballs the count/ceiling line, and the real error slips through to CI.
+
+**Instances:**
+- 2026-10-30 — Rosetta Stone (p/6#111, PR #4214): `renderer-tsc` CI check failed (TS7006 implicit-any) after local verification had reported "clean." The agent's worktree `node_modules` is set up via Windows directory junctions (no admin rights for symlinks), producing 3 consistent phantom module-resolution errors (lib/brief, lib/sanitize) on every local run. The agent had learned to expect exactly those 3 and treated any run showing only "3 errors" as clean — a 4th real error (in a file actually touched) slipped through because the agent wasn't diffing the error list, just checking the count/ceiling hadn't moved. Resolved by pushing a follow-up fixing the real TS error; going forward, diffing specific error lines against the known-3 baseline instead of just checking the ceiling.
+
+**Root Cause:** A known, stable baseline of noise (phantom errors from an environment quirk) trains an agent to pattern-match on a SUMMARY STATISTIC (the count) rather than the actual CONTENT (which specific errors). Once the count itself becomes the verification signal, any new error that doesn't change the count — or that the agent doesn't scrutinize closely enough to notice the count DID change — passes unnoticed. This is a general verification-discipline failure mode: whenever a known baseline of expected noise exists, the correct verification is "diff the specific items against the baseline," not "check the aggregate count/ceiling."
+
+**Prevention:**
+1. **When a local verification environment has a known baseline of phantom/unrelated errors, always diff the SPECIFIC error identities (file + line + rule) against the known baseline list** — never just check whether the count matches an expected number.
+2. **Maintain the known-baseline error list explicitly** (file paths + rule codes), and compare the current run's error list against it programmatically (or by careful manual diff) rather than relying on memory of "it's usually N."
+3. **Any run that shows MORE than the known baseline count is unambiguously a new issue** — but a run showing the SAME count is not proof of cleanliness either, since a new error could coincidentally keep the count unchanged if something else resolved, or simply not be noticed if the agent isn't actually reading each line.
+4. **If a non-standard local environment (junctions instead of symlinks, a shimmed dependency, etc.) causes phantom errors, consider fixing the environment setup** rather than building a mental baseline to work around it — a baseline-based workaround is inherently fragile to exactly this failure mode.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#111, PR #4214).
+
+**Applies To:** All agents with a non-standard local dev environment that produces consistent phantom errors; diff specific error identities against the known baseline, never just check the aggregate count.
