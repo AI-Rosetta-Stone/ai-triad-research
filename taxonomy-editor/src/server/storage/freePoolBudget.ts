@@ -772,7 +772,6 @@ export function ensureFreePoolBudgetBooted(log: any): void {
   try {
     initFreePoolBudget({ accountUrl, callsCap });
   } catch (err) {
-    const { getGlobalRecorder } = require('../../../lib/flight-recorder/index.js');
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'free-pool-budget', level: 'error',
       message: 'Failed to initialize free-pool budget store at boot',
