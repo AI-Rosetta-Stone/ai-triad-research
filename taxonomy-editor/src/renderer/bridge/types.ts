@@ -227,6 +227,10 @@ export interface InquiryStatusResponse {
   error: string | null;
   /** Present on `done` / `done_truncated` (including the cross-replica persisted-result fallback). */
   result?: InquiryResult;
+  /** t/4710 Part B/C: a short human line for the currently-running stage (e.g. "Round 2 of 4 ·
+   *  Skeptic responding"). Optional — older server/Electron builds, or a stage other than
+   *  `debating`, simply omit it; the UI renders as before (t/4714 AC4). */
+  stageDetail?: string | null;
 }
 
 /** Cheap listing row for the "My Questions" history (t/3620). Field-for-field identical to the

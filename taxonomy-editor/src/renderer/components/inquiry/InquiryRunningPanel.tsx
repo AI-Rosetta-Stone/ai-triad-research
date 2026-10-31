@@ -1,12 +1,28 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { useEffect, useRef, useState } from 'react';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { STAGE_ORDER, STAGE_META, stageStatus } from './inquiryDisplay';
 import './InquiryTab.css';
 
+// t/4714: throttles the aria-live announcement (and the visible line, same value) to roughly
+// once per 10s so a 3s poll cadence doesn't spam a screen reader with every intermediate detail.
+const DETAIL_ANNOUNCE_THROTTLE_MS = 10_000;
+
 export function InquiryRunningPanel() {
-  const { question, jobId, status, progressPct, pollError, openList } = useInquiryStore();
+  const { question, jobId, status, progressPct, stageDetail, pollError, openList } = useInquiryStore();
+
+  const [announcedDetail, setAnnouncedDetail] = useState<string | null>(null);
+  const lastAnnouncedAt = useRef(0);
+  useEffect(() => {
+    if (!stageDetail || stageDetail === announcedDetail) return;
+    const now = performance.now();
+    if (now - lastAnnouncedAt.current < DETAIL_ANNOUNCE_THROTTLE_MS) return;
+    lastAnnouncedAt.current = now;
+    setAnnouncedDetail(stageDetail);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only re-runs on a new stageDetail value, not on announcedDetail's own change
+  }, [stageDetail]);
 
   return (
     <div className="inquiry-run">
@@ -30,6 +46,9 @@ export function InquiryRunningPanel() {
               <div>
                 <h5>{STAGE_META[stage].title}</h5>
                 <div className="inquiry-sub">{STAGE_META[stage].sub}</div>
+                {s === 'live' && announcedDetail && (
+                  <div className="inquiry-stage-detail" aria-live="polite">{announcedDetail}</div>
+                )}
               </div>
               <span className="inquiry-stat">{s === 'done' ? 'done' : s === 'live' ? 'running' : 'waiting'}</span>
             </div>
