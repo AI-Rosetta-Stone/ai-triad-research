@@ -118,9 +118,11 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
   });
 
   // CL review on #3511: the first pass used `mustNotExist` alone, which still stored under
-  // `debate-<id>.json` — counted by the quota and visible in the list. These two arms are
-  // CL's exact asks (t/4338, PR comment on #3511).
-  it("doesn't consume a debate slot, and doesn't appear in the user's debate list", async () => {
+  // `debate-<id>.json` — counted by the quota and visible in the list. The quota-exemption
+  // arm is CL's exact ask (t/4338, PR comment on #3511). The listing arm flipped under
+  // t/4680/t/4678: "Ask a Question" debates now DO appear in My Debates (labelled
+  // "Question" via origin_mode) — only the quota exemption survives unchanged.
+  it("doesn't consume a debate slot, but DOES appear in the user's debate list (t/4680)", async () => {
     await userContext.runWithUser(USER_CTX, async () => {
       expect((await fileIO.getDebatesQuotaStatus()).current).toBe(0);
 
@@ -129,8 +131,11 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
       await h.capturedDeps!.runDebate(config, 'q');
 
       expect((await fileIO.getDebatesQuotaStatus()).current).toBe(0);
-      const list = await fileIO.listDebateSessions() as { id: string }[];
-      expect(list.find(d => d.id === 'inquiry-session-1')).toBeUndefined();
+      const list = await fileIO.listDebateSessions() as { id: string; origin_mode?: string; inquiry_id?: string }[];
+      const found = list.find(d => d.id === 'inquiry-session-1');
+      expect(found).toBeDefined();
+      expect(found?.origin_mode).toBe('inquiry');
+      expect(found?.inquiry_id).toBe('job-rt-2');
     });
   });
 
