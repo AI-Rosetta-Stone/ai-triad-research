@@ -1,9 +1,16 @@
 /* OpEdReader.css — essay reader (t/2576 PR#1, §6). Tokens only — no hard-coded colors. */
 
+/* Design review (p/29#204, t/4715#2 fix 1): a sticky element can't leave its containing block.
+   With min-height: 0 this shrank to the shell's own height, so .oped-tabstrip's sticky only
+   worked within the first ~700px; past that, the article (which does overflow this flex
+   column) had scrolled the tab strip off along with everything else. flex: 1 0 auto; min-
+   height: auto lets this grow to its real content height, matching .oped-reader-shell's own
+   t/4719 fix for the same shrink-to-fixed-box symptom. */
 .oped-reader {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  flex: 1 0 auto;
+  min-height: auto;
 }
 
 .oped-reader-empty {

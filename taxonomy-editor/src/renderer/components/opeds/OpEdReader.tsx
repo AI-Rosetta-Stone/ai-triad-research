@@ -292,6 +292,7 @@ export function OpEdReader({
     return idx >= 0 ? idx : 0;
   });
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const active = members[Math.min(activeIdx, members.length - 1)];
 
@@ -299,6 +300,13 @@ export function OpEdReader({
     setActiveIdxState(idx);
     onPovChange?.(members[idx].pov);
   }, [members, onPovChange]);
+
+  // Design review (p/29#204, t/4715#2 fix 3): the page used to scroll, so switching tabs
+  // naturally started the new article at the top. Now .oped-reader-shell is the scroll
+  // container (t/4715) and doesn't reset on its own, so the new article could open mid-scroll.
+  useEffect(() => {
+    rootRef.current?.closest('.oped-reader-shell')?.scrollTo({ top: 0 });
+  }, [activeIdx]);
 
   const onTabKeyDown = useCallback((e: React.KeyboardEvent, idx: number) => {
     let next = idx;
@@ -326,7 +334,7 @@ export function OpEdReader({
   }
 
   return (
-    <div className="oped-reader">
+    <div className="oped-reader" ref={rootRef}>
       <div className="oped-tabstrip" role="tablist" aria-label="Op-ed voices">
         {members.map((m, i) => {
           const meta = resolvePovMeta(m.pov);
