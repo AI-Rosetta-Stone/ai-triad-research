@@ -337,9 +337,12 @@
   border-bottom-color: var(--focus-ring, #2563eb);
 }
 
+/* t/4719: no overflow-y here — every embedding context (.detail-panel, .detail-pane-body,
+   .pinned-panel, .attr-filter-detail) already wraps NodeDetail with its own overflow-y: auto,
+   so a second scroll container here produced two nested scrollbars. The outer wrapper is the
+   single scroll owner; this just grows to its natural content height. */
 .node-detail-tab-content {
   flex: 1;
-  overflow-y: auto;
   padding-top: 12px;
   min-height: 0;
 }
@@ -351,15 +354,16 @@
   min-height: 200px;
 }
 
+/* t/4719: same reasoning — these two columns no longer scroll independently; the page-level
+   scroll container (see above) now owns scrolling for the whole Related tab, list and embedded
+   detail together. */
 .node-detail-related-list {
   min-width: 0;
-  overflow-y: auto;
   flex-shrink: 0;
 }
 
 .node-detail-related-detail {
   min-width: 0;
-  overflow-y: auto;
   flex: 1;
 }
 
