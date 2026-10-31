@@ -74,3 +74,28 @@ describe('FactCheckCard — partially_accurate verdict + discrepancy (t/1716)', 
     expect(container.querySelector('.debate-fact-check-verdict')?.textContent?.trim()).toBe('Supported');
   });
 });
+
+describe('FactCheckContent — italicizing old saved entries (t/4727)', () => {
+  it('wraps a plain "..." quote (pre-t/4726 saved entry) in italics, escaping * and _', () => {
+    const entry = factCheckEntry({ verdict: 'supported', explanation: 'ok', checked_text: 'models trained on *all* the_data' });
+    entry.content = '**Fact Check: Supported**\n\n"models trained on *all* the_data"\n\nok';
+    const { container } = render(<FactCheckCard entry={entry} />);
+    expect(container.textContent).toContain('*"models trained on \\*all\\* the\\_data"*');
+  });
+
+  it('leaves an already-italic quote (post-t/4726 entry) untouched, not doubled', () => {
+    const entry = factCheckEntry({ verdict: 'disputed', explanation: 'no consensus', checked_text: 'AI will take all jobs' });
+    entry.content = '**Fact Check: Disputed**\n\n*"AI will take all jobs"*\n\nno consensus';
+    const { container } = render(<FactCheckCard entry={entry} />);
+    const text = container.textContent ?? '';
+    expect(text).toContain('*"AI will take all jobs"*');
+    expect((text.match(/\*"/g) || []).length).toBe(1);
+  });
+
+  it('applies the truncation fix and the italics fix together for an old plain-quote entry', () => {
+    const entry = factCheckEntry({ verdict: 'disputed', explanation: 'x', checked_text: 'the full untruncated claim text here' });
+    entry.content = '**Fact Check: Disputed**\n\n"the full untr..."\n\nx';
+    const { container } = render(<FactCheckCard entry={entry} />);
+    expect(container.textContent).toContain('*"the full untruncated claim text here"*');
+  });
+});
