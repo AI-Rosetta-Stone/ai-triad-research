@@ -33,6 +33,7 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
     path: '/',
     placeKey: 'rosetta-stone',
     label: 'Rosetta Stone',
+    crumbs: [{ label: 'Rosetta Stone', placeKey: 'rosetta-stone' }],
   }),
 
   'chat': (state) => {
@@ -42,12 +43,21 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
         path: '/chat',
         placeKey: 'chat:none',
         label: 'Chat',
+        crumbs: [
+          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+          { label: 'Chat', placeKey: 'chat:none' },
+        ],
       };
     }
     return {
       path: `/chat/${openChat.id}`,
       placeKey: `chat:${openChat.id}`,
       label: openChat.topic || 'Chat',
+      crumbs: [
+        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+        { label: 'Chat', placeKey: 'chat:none' },
+        { label: openChat.topic || 'Chat', placeKey: `chat:${openChat.id}` },
+      ],
     };
   },
 
@@ -61,12 +71,21 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
         path: '/opeds',
         placeKey: 'opeds:none',
         label: 'Op-Ed Studies',
+        crumbs: [
+          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+          { label: 'Op-Ed Studies', placeKey: 'opeds:none' },
+        ],
       };
     }
     return {
       path: `/opeds/${openSet.set_id}`,
       placeKey: `opeds:${openSet.set_id}`,
       label: openSet.topic || 'Op-Ed',
+      crumbs: [
+        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+        { label: 'Op-Ed Studies', placeKey: 'opeds:none' },
+        { label: openSet.topic || 'Op-Ed', placeKey: `opeds:${openSet.set_id}` },
+      ],
     };
   },
 
@@ -80,12 +99,21 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
         path: '/inquiry',
         placeKey: 'inquiry:none',
         label: 'Ask a Question',
+        crumbs: [
+          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+          { label: 'Ask a Question', placeKey: 'inquiry:none' },
+        ],
       };
     }
     return {
       path: `/inquiry/${openId}`,
       placeKey: `inquiry:${openId}`,
       label: store?.result?.request.question || 'Ask a Question',
+      crumbs: [
+        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+        { label: 'Ask a Question', placeKey: 'inquiry:none' },
+        { label: store?.result?.request.question || 'Answer', placeKey: `inquiry:${openId}` },
+      ],
     };
   },
 
@@ -96,13 +124,22 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
         path: '/debate',
         placeKey: 'debate:none',
         label: 'Debate',
+        crumbs: [
+          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+          { label: 'Debate', placeKey: 'debate:none' },
+        ],
       };
     }
+    const topicLabel = openDebate.topic.final || openDebate.topic.original || 'Debate';
     return {
       path: `/debate/${openDebate.id}`,
       placeKey: `debate:${openDebate.id}`,
-      // topic is { original, refined, final }, not a string.
-      label: openDebate.topic.final || openDebate.topic.original || 'Debate',
+      label: topicLabel,
+      crumbs: [
+        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+        { label: 'Debate', placeKey: 'debate:none' },
+        { label: topicLabel, placeKey: `debate:${openDebate.id}` },
+      ],
     };
   },
 
@@ -117,6 +154,11 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
       path: nodeId ? `/conflicts?claim=${nodeId}` : '/conflicts',
       placeKey: `conflicts:${nodeId ?? 'none'}`,
       label: nodeId ? `Conflict: ${nodeId}` : 'Conflicts',
+      crumbs: [
+        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+        { label: 'Conflicts', placeKey: 'conflicts:none' },
+        ...(nodeId ? [{ label: `Claim: ${nodeId}`, placeKey: `conflicts:${nodeId}` }] : []),
+      ],
     };
   },
 
@@ -124,33 +166,57 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
     path: '/cruxes',
     placeKey: 'cruxes:none',
     label: 'Cruxes',
+    crumbs: [
+      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+      { label: 'Cruxes', placeKey: 'cruxes:none' },
+    ],
   }),
 
   'summaries': () => ({
     path: '/summaries',
     placeKey: 'summaries:none',
     label: 'Summaries',
+    crumbs: [
+      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+      { label: 'Summaries', placeKey: 'summaries:none' },
+    ],
   }),
 
   'validation': () => ({
     path: '/validation',
     placeKey: 'validation:none',
     label: 'Validation',
+    crumbs: [
+      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+      { label: 'Validation', placeKey: 'validation:none' },
+    ],
   }),
 
   'organizations': () => ({
     path: '/organizations',
     placeKey: 'organizations:none',
     label: 'Organizations',
+    crumbs: [
+      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+      { label: 'Organizations', placeKey: 'organizations:none' },
+    ],
   }),
 };
 
 function resolveTaxonomy(tab: string, nodeId: string | null): PlaceInfo {
   const pov = POV_MAP[tab];
+  const crumbs = [
+    { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
+    { label: tab.charAt(0).toUpperCase() + tab.slice(1), placeKey: `taxonomy:none` },
+  ];
+  if (nodeId) {
+    crumbs.push({ label: nodeId, placeKey: `taxonomy:${nodeId}` });
+  }
   return {
     path: nodeId ? `/taxonomy/${pov}?node=${nodeId}` : `/taxonomy/${pov}`,
     placeKey: `taxonomy:${nodeId ?? 'none'}`,
     label: nodeId ? `Taxonomy: ${nodeId}` : `Taxonomy (${tab})`,
+    crumbs,
   };
 }
 

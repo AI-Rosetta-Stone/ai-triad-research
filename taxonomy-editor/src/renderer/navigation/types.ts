@@ -22,8 +22,14 @@ export interface NavHistory {
   subscribe(listener: (entry: HistoryEntry) => void): () => void;
 }
 
+export interface Crumb {
+  label: string;
+  placeKey: string;
+}
+
 export interface PlaceInfo {
   path: string;
   placeKey: string;
   label: string;
+  crumbs: Crumb[];
 }
