@@ -6,6 +6,7 @@
 import type { ArgumentNetworkNode, ClaimTaxonomyAttribution } from '../types.js';
 import { cosineSimilarity, scoreNodeRelevanceMeanTopN } from '../taxonomyRelevance.js';
 import { EXCLUSION_RATIO_THRESHOLD } from '../exclusionGuard.js';
+import { bestMatchingSyntheticStatement } from '../syntheticStatementLookup.js';
 
 /** Thresholds per spec: primary ≥ 0.35, secondary ≥ 0.40. */
 const ATTRIBUTION_PRIMARY_THRESHOLD = 0.35;
@@ -38,6 +39,10 @@ export interface ClaimAttributionDecision {
  * @param nodeEmbeddings - Taxonomy node embeddings keyed by node ID
  * @param candidateNodeIds - Set of taxonomy node IDs eligible for attribution (all BDI categories)
  * @param topN - Number of top vectors for mean-of-top-N multi-vector scoring
+ * @param nodeStatements - Taxonomy synthetic-statement texts keyed by node ID (t/4644/t/4692),
+ *   row-aligned with nodeEmbeddings[id].vectors. On a successful attribution, the claim's
+ *   best-matching statement for the attributed node is stored on grounding_statement — computed
+ *   once here rather than on every prompt render. Does NOT affect attribution/ranking.
  * @returns Attribution summary for diagnostics
  */
 export function computeClaimTaxonomyAttribution(
@@ -46,6 +51,7 @@ export function computeClaimTaxonomyAttribution(
   nodeEmbeddings: Record<string, { pov: string; vector: number[]; vectors?: number[][]; exclusion_vector?: number[] }>,
   candidateNodeIds: Set<string>,
   topN: number = 3,
+  nodeStatements: Record<string, string[]> = {},
 ): ClaimAttributionResult {
   const decisions: ClaimAttributionDecision[] = [];
   let attributed = 0;
@@ -188,6 +194,10 @@ export function computeClaimTaxonomyAttribution(
     };
     if (secondaryRefs.length > 0) {
       attribution.secondary_refs = secondaryRefs;
+    }
+    const groundingStatement = bestMatchingSyntheticStatement(best.node_id, queryVector, nodeEmbeddings, nodeStatements);
+    if (groundingStatement) {
+      attribution.grounding_statement = groundingStatement;
     }
     node.claim_taxonomy_attribution = attribution;
     attributed++;

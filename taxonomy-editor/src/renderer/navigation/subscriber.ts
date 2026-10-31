@@ -31,7 +31,9 @@ export function getRestoringFlag(): boolean {
  * Call this once at app boot, after stores and navHistory are initialized.
  */
 export function installNavSubscriber(store: {
-  subscribe: (selector: (state: TaxonomyStore) => any, listener: (value: any) => void) => () => void;
+  // Zustand's plain subscribe(listener). useTaxonomyStore is NOT created with
+  // subscribeWithSelector, so the (selector, listener) form never calls the listener.
+  subscribe: (listener: (state: TaxonomyStore, prevState: TaxonomyStore) => void) => () => void;
   getState: () => TaxonomyStore;
 }, navHistory: NavHistory): () => void {
   // Boot: apply initial place to history state (replaceState, not push)
@@ -44,12 +46,12 @@ export function installNavSubscriber(store: {
   });
 
   return store.subscribe(
-    (state: TaxonomyStore) => placeOf(state),
-    (newPlace) => {
+    (state: TaxonomyStore) => {
       if (isRestoring) {
         // During restore, ignore store changes — don't push/replace
         return;
       }
+      const newPlace = placeOf(state);
 
       const currentEntry = navHistory.current();
       if (!currentEntry) {

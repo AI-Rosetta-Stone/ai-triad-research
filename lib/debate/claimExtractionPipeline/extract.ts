@@ -236,6 +236,7 @@ export async function extractClaims(
       }
       const attrResult = computeClaimTaxonomyAttribution(
         claimsResult.newNodes, speakerPov, ctx.taxonomy.embeddings, allCandidateNodeIds,
+        3, ctx.taxonomy.syntheticStatements ?? {},
       );
       trace.attribution_attributed = attrResult.attributed;
       trace.attribution_unattributed = attrResult.unattributed;

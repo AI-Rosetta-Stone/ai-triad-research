@@ -26,24 +26,25 @@ interface PublicGroundingSectionProps {
 export function PublicGroundingSection({ grounding }: PublicGroundingSectionProps) {
   const [activeTab, setActiveTab] = useState<TabId>('acc');
 
-  const hasAnyCampNodes = CAMP_TABS.some(camp => (grounding.nodesByCamp[camp]?.length ?? 0) > 0);
-  const hasSituationNodes = (grounding.situationNodes?.length ?? 0) > 0;
-  const shouldShowSituationTab = hasSituationNodes;
-
   const handleTabChange = (tab: TabId) => {
     setActiveTab(tab);
   };
 
   const getCampLabels = (camp: CampTab) => (grounding.nodesByCamp[camp] ?? []).map(node => node.label);
 
-  const getSituationLabels = () => (grounding.situationNodes ?? []).slice(0, 3).map(node => node.label);
+  // Falls back to the anchor summary when the child ticket's ranked situationNodes list
+  // (t/4592) isn't populated — mirrors GroundingSection's internal-view fallback.
+  const getSituationLabels = () => {
+    if (grounding.situationNodes && grounding.situationNodes.length > 0) {
+      return grounding.situationNodes.slice(0, 3).map(node => node.label);
+    }
+    return grounding.anchorSummary ? [grounding.anchorSummary] : [];
+  };
 
   const currentLabels = useMemo(() => {
     if (activeTab === 'situation') return getSituationLabels();
     return getCampLabels(activeTab);
   }, [activeTab, grounding]);
-
-  if (!hasAnyCampNodes && !shouldShowSituationTab) return null;
 
   return (
     <section className="pov-inquiry-sect">
@@ -62,17 +63,15 @@ export function PublicGroundingSection({ grounding }: PublicGroundingSectionProp
             {CAMP_LABELS[camp]}
           </button>
         ))}
-        {shouldShowSituationTab && (
-          <button
-            role="tab"
-            aria-selected={activeTab === 'situation'}
-            aria-controls="pov-grounding-panel-situation"
-            className={`pov-grounding-tab ${activeTab === 'situation' ? 'active' : ''}`}
-            onClick={() => handleTabChange('situation')}
-          >
-            Situation
-          </button>
-        )}
+        <button
+          role="tab"
+          aria-selected={activeTab === 'situation'}
+          aria-controls="pov-grounding-panel-situation"
+          className={`pov-grounding-tab ${activeTab === 'situation' ? 'active' : ''}`}
+          onClick={() => handleTabChange('situation')}
+        >
+          Situation
+        </button>
       </div>
 
       <div

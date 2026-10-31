@@ -354,12 +354,24 @@ export function formatArgumentNetworkContext(
   return lines.join('\n');
 }
 
+/** t/4644/t/4692: appends the attributed node's synthetic-statement grounding line, if the
+ *  claim's attribution carries one (computed once at attribution time, not re-derived here).
+ *  Extracted out of formatEstablishedPoints/formatConcessionCandidatesHint to keep the branch
+ *  out of their already-high complexity. */
+export function appendGroundingLine(
+  lines: string[],
+  attribution: { primary_ref?: string; grounding_statement?: string } | undefined,
+): void {
+  if (!attribution?.primary_ref || !attribution.grounding_statement) return;
+  lines.push(`  Taxonomy grounding [${attribution.primary_ref}]: "${attribution.grounding_statement}"`);
+}
+
 /** Format claims from other debaters, prioritized by response-relevance.
  *  Tier 1: Claims that respond to this agent's prior claims.
  *  Tier 2: Unaddressed claims targeting this agent.
  *  Tier 3: Recency (fallback). */
 export function formatEstablishedPoints(
-  allNodes: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string }[],
+  allNodes: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; claim_taxonomy_attribution?: { primary_ref?: string; grounding_statement?: string } }[],
   currentSpeaker: string,
   maxPoints: number = 10,
   edges?: { source: string; target: string; type: 'supports' | 'attacks' }[],
@@ -402,7 +414,7 @@ export function formatEstablishedPoints(
   }
 
   // Build prioritized list
-  const result: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; tag: string }[] = [];
+  const result: { id: string; text: string; speaker: string; steelman_of?: string; verification_status?: string; verification_evidence?: string; claim_taxonomy_attribution?: { primary_ref?: string; grounding_statement?: string }; tag: string }[] = [];
 
   for (const c of otherClaims) {
     if (tier1.has(c.id)) {
@@ -471,6 +483,7 @@ export function formatEstablishedPoints(
         factTag = normalized === 'false' ? ` [FACT-CHECKED FALSE${ev}]` : ` [FACT-CHECKED DISPUTED${ev}]`;
       }
       lines.push(`- ${c.id} (${campLabel}):${tag}${factTag} ${c.text}`);
+      appendGroundingLine(lines, c.claim_taxonomy_attribution);
     }
   }
 

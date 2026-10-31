@@ -84,3 +84,37 @@ describe('formatEstablishedPoints — steelman routing', () => {
     expect(result).not.toContain('Charitable restatement');
   });
 });
+
+describe('formatEstablishedPoints — grounding line (t/4692)', () => {
+  it('renders the stored grounding_statement for an attributed claim', () => {
+    const node = {
+      id: 'an-20',
+      text: 'A claim already attributed to a taxonomy node',
+      speaker: 'accelerationist',
+      claim_taxonomy_attribution: { primary_ref: 'acc-B-001', grounding_statement: 'A synthetic statement for this node.' },
+    };
+    const result = formatEstablishedPoints([node], 'skeptic');
+    expect(result).toContain('Taxonomy grounding [acc-B-001]: "A synthetic statement for this node."');
+  });
+
+  it('renders no grounding line when the attribution has no grounding_statement', () => {
+    const node = {
+      id: 'an-21',
+      text: 'An attributed claim with no synthetic-corpus match',
+      speaker: 'accelerationist',
+      claim_taxonomy_attribution: { primary_ref: 'acc-B-001' },
+    };
+    const result = formatEstablishedPoints([node], 'skeptic');
+    expect(result).not.toContain('Taxonomy grounding');
+  });
+
+  it('renders no grounding line for an unattributed claim', () => {
+    const node = {
+      id: 'an-22',
+      text: 'An unattributed claim',
+      speaker: 'accelerationist',
+    };
+    const result = formatEstablishedPoints([node], 'skeptic');
+    expect(result).not.toContain('Taxonomy grounding');
+  });
+});

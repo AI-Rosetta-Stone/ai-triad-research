@@ -6,6 +6,7 @@
 import type { ArgumentNetworkNode, ArgumentNetworkEdge } from '../types.js';
 import type { UnansweredClaimEntry } from '../types.js';
 import { effectiveCamp } from './utils.js';
+import { appendGroundingLine } from './prompts.js';
 
 /**
  * Update the unanswered claims ledger after claim extraction.
@@ -142,7 +143,7 @@ export function formatSpecifyHint(
  * any round-based gating (e.g. fire only when no recent concession).
  */
 export function formatConcessionCandidatesHint(
-  nodes: { id: string; text: string; speaker: string; base_strength?: number; computed_strength?: number }[],
+  nodes: { id: string; text: string; speaker: string; base_strength?: number; computed_strength?: number; claim_taxonomy_attribution?: { primary_ref?: string; grounding_statement?: string } }[],
   edges: { source: string; target: string; type: string }[],
   currentSpeaker: string,
   priorConceded: string[] = [],
@@ -180,6 +181,7 @@ export function formatConcessionCandidatesHint(
     lines.push(
       `${i + 1}. [${c.node.id}] ${c.node.speaker} (strength ${c.strength.toFixed(2)}): "${c.node.text}"`,
     );
+    appendGroundingLine(lines, c.node.claim_taxonomy_attribution);
   });
   lines.push('If you decline to concede, set "concession_considered": "declined" in your JSON response.');
   return lines.join('\n') + '\n';

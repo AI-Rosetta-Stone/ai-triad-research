@@ -1,0 +1,45 @@
+.nav-controller {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  opacity: 1;
+  transition: all 0.15s ease;
+}
+
+.nav-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.nav-button:active:not(:disabled) {
+  background: var(--bg-selected);
+}
+
+.nav-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nav-back,
+.nav-forward {
+  font-size: 0;
+}
+
+.nav-back svg,
+.nav-forward svg {
+  display: block;
+}

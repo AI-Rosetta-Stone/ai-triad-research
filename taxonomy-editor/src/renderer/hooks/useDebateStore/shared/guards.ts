@@ -207,7 +207,39 @@ function ensureActiveDebateWatcher(): void {
   });
 }
 
-const _beforeUnloadHandler = () => releaseDebateDriver();
+const _beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+  releaseDebateDriver();
+
+  // Check for unsaved debate work (t/4640: existing guard)
+  const debateState = useDebateStore.getState();
+  if (debateState.activeDebateId && debateState.debateGenerating) {
+    e.preventDefault();
+    e.returnValue = '';
+    return;
+  }
+
+  // Check for unsaved taxonomy edits (t/4640: extend guard to prevent navigation loss)
+  try {
+    // Import deferred to avoid circular dependency at module init time
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require, @typescript-eslint/no-unsafe-member-access
+    const getTaxonomyStore = (require('../../useTaxonomyStore') as Record<string, unknown>).useTaxonomyStore as { getState: () => { dirty?: Set<string> } };
+    const taxonomyState = getTaxonomyStore.getState();
+    if (taxonomyState.dirty && taxonomyState.dirty.size > 0) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error',
+      component: 'beforeunload-guard',
+      level: 'warn',
+      message: 'Failed to check unsaved taxonomy edits in beforeunload',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    /* beforeunload guard safety fallback — if import fails, allow navigation */
+  }
+};
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _driverChannel?.close();
