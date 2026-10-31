@@ -146,18 +146,10 @@ async function rebuildDebateIndex(): Promise<unknown[]> {
   return typed;
 }
 
-export async function listDebateSessions(): Promise<unknown[]> {
-  // t/4680: anonymous debates already live in one flat per-session directory with no
-  // filename-based quota/listing split (AnonymousSessionStore.listDebates lists every
-  // file in <session>/debates/ regardless of prefix, and saveDebateSession's anonymous
-  // branch ignores excludeFromQuota/listedButExempt entirely) — so "inquiry-debate-*
-  // listed, quota-exempt" parity already holds for anon users with no code change here.
-  if (isAnonymousUser()) { const a = getAnonStore(); return a ? await a.store.listDebates(a.sessionId) : []; }
+async function scanDebateFiles(): Promise<DebateIndexEntry[]> {
   const backend = getUserContentBackend();
   const dir = getDebatesDir();
   const summaries: DebateIndexEntry[] = [];
-
-  // Scan root debates dir + cli-runs subdirectory
   const scanDirs = [dir, path.join(dir, 'cli-runs')];
 
   for (const scanDir of scanDirs) {
@@ -169,7 +161,6 @@ export async function listDebateSessions(): Promise<unknown[]> {
         if (rawContent === null) continue;
         const raw = JSON.parse(rawContent);
         // Normalize CLI-generated filenames ({slug}-debate.json → debate-{id}.json)
-        // Move cli-runs files up to the root debates dir for consistent access
         const canonical = `debate-${raw.id}.json`;
         const canonicalPath = path.join(dir, canonical);
         const currentPath = path.join(scanDir, f);
@@ -177,19 +168,32 @@ export async function listDebateSessions(): Promise<unknown[]> {
           await backend.writeFile(canonicalPath, rawContent);
           await backend.deleteFile(currentPath);
         }
-        const transcript = Array.isArray(raw.transcript) ? raw.transcript : [];
-        summaries.push({
+        const entry: DebateIndexEntry = {
           id: raw.id,
           title: raw.title || raw.topic || 'Untitled',
           created_at: raw.created_at || '',
           updated_at: raw.updated_at || raw.created_at || '',
           phase: raw.phase || 'unknown',
           model: raw.debate_model,
-          turn_count: transcript.filter((t: { type?: string }) => t.type === 'statement' || t.type === 'opening').length,
-        });
+          turn_count: (Array.isArray(raw.transcript) ? raw.transcript : [])
+            .filter((t: { type?: string }) => t.type === 'statement' || t.type === 'opening').length,
+        };
+        summaries.push(entry);
       } catch { /* telemetry — silent by design;  skip */ }
     }
   }
+  return summaries;
+}
+
+export async function listDebateSessions(): Promise<unknown[]> {
+  // t/4680: anonymous debates already live in one flat per-session directory with no
+  // filename-based quota/listing split (AnonymousSessionStore.listDebates lists every
+  // file in <session>/debates/ regardless of prefix, and saveDebateSession's anonymous
+  // branch ignores excludeFromQuota/listedButExempt entirely) — so "inquiry-debate-*
+  // listed, quota-exempt" parity already holds for anon users with no code change here.
+  if (isAnonymousUser()) { const a = getAnonStore(); return a ? await a.store.listDebates(a.sessionId) : []; }
+
+  const summaries = await scanDebateFiles();
 
   // t/4680: inquiry-debate-*.json files are quota-exempt by filename alone (see
   // quotaExemptDebatePath below) but, unlike the pre-t/4680 behavior, ARE listed —
@@ -207,6 +211,14 @@ export async function listDebateSessions(): Promise<unknown[]> {
   return summaries.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
 }
 
+function extractTitle(raw: Record<string, unknown>): string {
+  if (typeof raw.title === 'string' && raw.title) return raw.title;
+  const topic = raw.topic as { final?: string; original?: string } | string | undefined;
+  if (typeof topic === 'string') return topic;
+  if (typeof topic === 'object' && topic) return topic.final ?? topic.original ?? 'Untitled';
+  return 'Untitled';
+}
+
 /** Build a `DebateIndexEntry`-shaped summary from a raw parsed debate JSON blob,
  *  filling `origin_mode`/`inquiry_id` for Ask a Question debates via the shared
  *  `normalizeDebateOrigin` (t/4679) so a debate is never mislabeled. Single source
@@ -214,14 +226,9 @@ export async function listDebateSessions(): Promise<unknown[]> {
  *  the index upsert on save. */
 function summaryFromRaw(id: string, raw: Record<string, unknown>): DebateIndexEntry {
   const transcript = Array.isArray(raw.transcript) ? raw.transcript as { type?: string }[] : [];
-  const topic = raw.topic as { final?: string; original?: string } | string | undefined;
   const entry: DebateIndexEntry = {
     id,
-    title: (typeof raw.title === 'string' && raw.title)
-      ? raw.title
-      : typeof topic === 'string'
-        ? topic
-        : (topic?.final ?? topic?.original ?? 'Untitled'),
+    title: extractTitle(raw),
     created_at: (raw.created_at as string) || '',
     updated_at: (raw.updated_at as string) || (raw.created_at as string) || '',
     phase: (raw.phase as string) || 'unknown',
@@ -397,10 +404,7 @@ async function enforceDebateQuota(): Promise<void> {
  * still finds the session via its own fallback, so a direct-by-id load (e.g.
  * "View raw run") works unchanged either way.
  */
-export async function saveDebateSession(
-  session: unknown, caller: string,
-  opts?: { expectedVersion?: number; mustNotExist?: boolean; excludeFromQuota?: boolean; listedButExempt?: boolean },
-): Promise<{ newVersion: number }> {
+function validateSaveOptions(opts?: { excludeFromQuota?: boolean; listedButExempt?: boolean }): void {
   if (opts?.excludeFromQuota && opts?.listedButExempt) {
     throw new ActionableError({
       goal: 'Save a quota-exempt debate session',
@@ -409,6 +413,13 @@ export async function saveDebateSession(
       nextSteps: ['Pass exactly one of `excludeFromQuota` or `listedButExempt`, not both.'],
     });
   }
+}
+
+export async function saveDebateSession(
+  session: unknown, caller: string,
+  opts?: { expectedVersion?: number; mustNotExist?: boolean; excludeFromQuota?: boolean; listedButExempt?: boolean },
+): Promise<{ newVersion: number }> {
+  validateSaveOptions(opts);
   const s = session as { id: string; title?: string; topic?: { final?: string; original?: string }; created_at?: string; updated_at?: string; phase?: string; _saveVersion?: number };
   assertSafeId(s.id, 'debate id');
   if (isAnonymousUser()) {
