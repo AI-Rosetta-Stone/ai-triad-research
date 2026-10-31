@@ -113,7 +113,10 @@ if [ -n "$_junk" ]; then
   printf >&2 '  See Shell Quoting Rule in root AGENTS.md. (Non-blocking — commit proceeds.)\n\n'
 fi
 
-# ── 0-byte junk-file REFUSAL (t/4149 item 3) ─────────────────────────────────
+# ── 0-byte junk-file WARNING (t/4149 item 3, TL ruling t/4149#16: warn-only
+# first, same T0-then-promote pattern as items 1/2 — "making a gate blocking"
+# is T2, and a 7-day zero-false-positive telemetry period comes before any
+# promotion proposal) ─────────────────────────────────────────────────────
 # The scan above only ever looks at UNTRACKED files and only ever warns. If a
 # shell-quoting fragment gets `git add`-ed (staged), it's invisible to that scan
 # entirely (no longer in the `?? ` listing) and would otherwise commit clean.
@@ -121,8 +124,11 @@ fi
 # AND matches the same junk-name heuristics is almost certainly an accident,
 # never a legitimate 0-byte file someone meant to commit (an empty marker file
 # a human deliberately creates is never also shell-metacharacter-shaped or
-# digit-leading) — so this one REFUSES rather than warns.
-# Fail-OPEN: any error in the detection allows the commit.
+# digit-leading).
+# Fail-OPEN: any error in the detection skips the warning. Telemetry logged to
+# .gate-telemetry/zero-byte-junk-warn.jsonl (gitignored runtime data, same
+# shape as operations/devops/gate-telemetry.mjs's sinks) so the 7-day warn-only
+# period can be reviewed for false positives before any promotion proposal.
 _zerobyte_junk=$(
   git -C "$_toplevel" diff --cached --name-only --diff-filter=A 2>/dev/null \
     | while IFS= read -r _f; do
@@ -132,18 +138,23 @@ _zerobyte_junk=$(
       done
 ) 2>/dev/null
 if [ -n "$_zerobyte_junk" ]; then
+  _tel_dir="$_toplevel/.gate-telemetry"
+  mkdir -p "$_tel_dir" 2>/dev/null
+  _tel_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+  printf '%s\n' "$_zerobyte_junk" | while IFS= read -r _f; do
+    printf '{"ts":"%s","hook":"pre-commit","check":"zero-byte-junk-warn","ticket":"t/4149","path":"%s"}\n' \
+      "$_tel_ts" "$_f" >> "$_tel_dir/zero-byte-junk-warn.jsonl" 2>/dev/null
+  done
   cat >&2 <<MSG
 
-  ✖ BLOCKED: staged 0-byte file(s) with a shell-quoting-accident-shaped name (t/4149 item 3, t/2112 class).
+  ⚠ WARNING: staged 0-byte file(s) with a shell-quoting-accident-shaped name (t/4149 item 3, t/2112 class).
 $(printf '%s\n' "$_zerobyte_junk" | while IFS= read -r _f; do printf '    %s\n' "$_f"; done)
 
   Confirm each is empty and untracked-by-intent, then unstage and remove:
 $(printf '%s\n' "$_zerobyte_junk" | while IFS= read -r _f; do printf "    git restore --staged -- '%s' && rm -- '%s'\n" "$_f" "$_f"; done)
 
-  Owner / emergency override (bypasses this hook):
-    git commit --no-verify
+  Non-blocking during the warn-only telemetry period — commit proceeds.
 MSG
-  exit 1
 fi
 
 # Normalize BOTH paths through `cd && pwd` so the comparison is format-stable on
