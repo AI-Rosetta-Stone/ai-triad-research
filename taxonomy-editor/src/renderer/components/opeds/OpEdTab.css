@@ -21,6 +21,10 @@
   min-height: 0;
   overflow: auto;
   width: 100%;
+  /* t/4715: shared with OpEdReader.css's .oped-tabstrip, so the two pinned blocks (this bar,
+     then the camp tab strip) stack without overlapping, without either file needing to know
+     the other's exact box model. Kept in sync with .oped-reader-bar's own box-sizing below. */
+  --oped-reader-bar-h: 41px;
 }
 
 .oped-reader-bar {
@@ -31,8 +35,25 @@
   border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
+  min-height: var(--oped-reader-bar-h);
+  box-sizing: border-box;
   background: var(--bg-primary, var(--bg-secondary));
-  z-index: 1;
+  z-index: 2;
+}
+
+/* t/4715 phone (≤767px): compact the bar so the pinned block (bar + tab strip) stays well
+   under ~25% of a typical phone viewport. */
+@media (max-width: 767px) {
+  .oped-reader-bar {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.35rem 0.5rem;
+    --oped-reader-bar-h: 33px;
+  }
+  .oped-reader-back {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+  }
 }
 
 .oped-reader-back {

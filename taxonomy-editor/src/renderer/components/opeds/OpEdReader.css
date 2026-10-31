@@ -11,12 +11,19 @@
   color: var(--text-muted);
 }
 
-/* Camp-tab strip (multi-voice sets only) */
+/* Camp-tab strip (multi-voice sets only). t/4715: pinned below .oped-reader-bar (OpEdTab.css),
+   which shares its scroll container (.oped-reader-shell) and sets --oped-reader-bar-h so the
+   two stack without overlapping. Single-voice sets render no tab strip at all (see the
+   members.length === 1 branch below) and keep just the bar pinned. */
 .oped-tabstrip {
   display: flex;
   gap: 0.25rem;
   border-bottom: 1px solid var(--border-color);
   padding: 0 0.75rem;
+  position: sticky;
+  top: var(--oped-reader-bar-h, 41px);
+  background: var(--bg-primary, var(--bg-secondary));
+  z-index: 1;
 }
 
 .oped-tab {
