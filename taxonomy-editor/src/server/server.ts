@@ -67,6 +67,7 @@ import type { ServerCtx } from './routes/context.js';
 import { listFlags, setFlag, deleteFlag, type FlagDef } from './featureFlags.js';
 import { drainServerLogLines } from './serverLogBuffer.js';
 import { initAnonymousSessionStore } from './storage/anonymousSessionStore.js';
+import { initFreePoolBudget } from './storage/freePoolBudget.js';
 import { checkProviderBinding } from './ai/providerBinding.js';
 import * as community from './community/community.js';
 import * as fileIO from './storage/fileIO.js';
@@ -1336,6 +1337,27 @@ initAnonymousSessionStore({
   sessionTtlMs: parseInt(process.env.ANON_SESSION_TTL_MS || '0', 10) || undefined,
   maxSessions: parseInt(process.env.ANON_MAX_SESSIONS || '0', 10) || undefined,
 });
+
+// ── Free-pool budget store (t/4677) ──
+// Initialize the persistent free-pool budget gate at boot. If AZURE_STORAGE_ACCOUNT_URL is
+// unset (local dev or Electron mode), skip initialization and log a WARN; the gate will
+// return null from getFreePoolBudget(), and the enforcement flag gates access to it anyway.
+const freePoolAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+const freePoolDailyCallsCap = parseInt(process.env.FREE_POOL_DAILY_CALLS_CAP || '1500', 10);
+if (freePoolAccountUrl) {
+  try {
+    initFreePoolBudget({ accountUrl: freePoolAccountUrl, callsCap: freePoolDailyCallsCap });
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'free-pool-budget', level: 'error',
+      message: 'Failed to initialize free-pool budget store at boot',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    log.server.error({ err }, 'Free-pool budget store initialization failed — gate will be unavailable');
+  }
+} else {
+  log.server.warn({ scope: 'free-pool-budget' }, 'AZURE_STORAGE_ACCOUNT_URL not set — free-pool budget store not initialized (local dev / Electron mode expected)');
+}
 
 // ── Start ──
 assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn't isolated (env drift) — no-op prod/local
