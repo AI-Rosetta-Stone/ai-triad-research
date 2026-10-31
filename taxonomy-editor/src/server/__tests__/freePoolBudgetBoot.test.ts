@@ -113,5 +113,8 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
       expect.any(Object),
       expect.stringContaining('initialization failed')
     );
+
+    // A failed init must leave the store unwired, so /health reports wired:false
+    expect(getFreePoolBudget()).toBeNull();
   });
 });
