@@ -37,6 +37,7 @@ import { runHeadlessDebate } from '../../../../lib/debate/headlessRunner.js';
 import { resolvePoverInfo } from '../../../../lib/debate/soulDocLoader.js';
 import { loadTaxonomy, type LoadedTaxonomy } from '../../../../lib/debate/taxonomyLoader.js';
 import type { DebateSession } from '../../../../lib/debate/types/session.js';
+import { stageProgress, type DebateProgressUpdate } from '../../../../lib/debate/debateProgressMapping.js';
 import { loadModelRegistry } from '../../../../lib/ai-client/registry.js';
 import { saveDebateSession } from '../debateIO.js';
 import {
@@ -53,6 +54,10 @@ interface InquiryJob {
   jobId: string;
   status: InquiryJobStatus;
   progressPct: number;
+  /** t/4710/t/4711/t/4713: fine-grained detail line during the Debate stage (e.g. "Round 2 of
+   *  4 · Skeptic responding"). Only ever non-null while status === 'debating' — setStatus
+   *  clears it on every other transition. */
+  stageDetail: string | null;
   terminationReason: string | null;
   resultId: string | null;
   error: string | null;
@@ -130,14 +135,16 @@ function readDebateRef(result: InquiryResult): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-const PROGRESS: Record<InquiryJobStatus, number> = {
-  queued: 0, grounding: 10, debating: 40, judging: 70, synthesizing: 90,
-  done: 100, done_truncated: 100, failed: 100,
-};
-
+// t/4710/t/4711/t/4713: local PROGRESS table replaced by the shared stageProgress() mapping
+// (lib/debate/debateProgressMapping.ts) — same mapping the server leg reads, so the bar no
+// longer sits at a fixed percentage for the whole (longest) Debate stage.
 function setStatus(job: InquiryJob, status: InquiryJobStatus): void {
   job.status = status;
-  job.progressPct = PROGRESS[status];
+  job.progressPct = stageProgress(status);
+  // stageDetail only applies while debating (set by onDebateProgress below, as fine-grained
+  // events arrive); clear it on every other transition so a stale round/speaker line doesn't
+  // linger once the stage has moved on.
+  if (status !== 'debating') job.stageDetail = null;
 }
 
 function sweepJobs(): void {
@@ -217,6 +224,7 @@ function startJob(request: InquiryRequest): InquiryJob {
     jobId: randomUUID(),
     status: 'queued',
     progressPct: 0,
+    stageDetail: null,
     terminationReason: null,
     resultId: null,
     error: null,
@@ -242,13 +250,21 @@ async function runJob(job: InquiryJob, request: InquiryRequest): Promise<void> {
       // t/4025/t/4050: deriveDebateConfig runs inside runInquiryPipeline without a soulResolver
       // (InquiryPipelineDeps has no passthrough for it), so the config this lambda receives
       // lacks one. Add it here so Electron-run debates record soul_provenance like cli.ts does.
-      runDebate: (config, _question) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy())
+      // t/4713: onProgress is forwarded straight through to runHeadlessDebate's own param — the
+      // debate-progress → fraction mapping lives entirely in debateProgressMapping.ts (onDebateProgress below).
+      runDebate: (config, _question, onProgress) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy(), onProgress)
         .then(r => {
           debateSession = r.session;
           return { session: r.session, terminationReason: r.terminationReason };
         }),
       adapter,
       onStage: (stage: InquiryStage) => setStatus(job, mapStage(stage)),
+      // t/4710/t/4713: fine-grained Debate-stage progress — stageProgress('debating', fraction)
+      // replaces the fixed 40% the old PROGRESS table held for this (longest) stage.
+      onDebateProgress: (update: DebateProgressUpdate) => {
+        job.progressPct = stageProgress('debating', update.fraction);
+        job.stageDetail = update.detail;
+      },
     };
     const result = await runInquiryPipeline(request, deps);
 
@@ -317,6 +333,8 @@ function jobView(job: InquiryJob): Record<string, unknown> {
     jobId: job.jobId,
     status: job.status,
     progressPct: job.progressPct,
+    // t/4713: omitted (not null) when absent — matches the bridge contract's optional field.
+    ...(job.stageDetail ? { stageDetail: job.stageDetail } : {}),
     terminationReason: job.terminationReason,
     resultId: job.resultId,
     error: job.error,

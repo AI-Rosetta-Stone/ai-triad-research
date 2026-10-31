@@ -827,6 +827,8 @@ function buildElectronApi() {
     jobId: string;
     status: 'queued' | 'grounding' | 'debating' | 'judging' | 'synthesizing' | 'done' | 'done_truncated' | 'failed';
     progressPct: number;
+    /** t/4710/t/4713: fine-grained Debate-stage detail line. Present only while debating. */
+    stageDetail?: string;
     terminationReason: string | null; resultId: string | null; error: string | null;
     result?: InquiryResult;
   } | null> =>

@@ -222,6 +222,10 @@ export interface InquiryStatusResponse {
   jobId: string;
   status: InquiryJobStatus;
   progressPct: number;
+  /** t/4710/t/4711/t/4713: fine-grained Debate-stage detail line (e.g. "Round 2 of 4 · Skeptic
+   *  responding"), derived from the debate engine's per-turn progress events. Present only
+   *  while status === 'debating'; absent for every other status. */
+  stageDetail?: string;
   terminationReason: string | null;
   resultId: string | null;
   error: string | null;
