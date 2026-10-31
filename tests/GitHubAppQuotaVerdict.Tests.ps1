@@ -68,4 +68,35 @@ Describe 'GitHub App installation quota preflight verdict (t/4587 part b)' -Tag 
         $v2 = Get-GitHubAppQuotaVerdict -Remaining 999
         $v2.ShouldWarn | Should -BeTrue
     }
+
+    It 'WARN: a ResetsAt in the past is stale, even with a healthy Remaining (TL e/406#5 interim rule)' {
+        $now = Get-Date '2026-10-31T12:00:00Z'
+        $v = Get-GitHubAppQuotaVerdict -Remaining 4982 -ResetsAt (Get-Date '2026-10-31T11:00:00Z') -Now $now
+        $v.ShouldWarn | Should -BeTrue
+        $v.Kind | Should -Be 'stale'
+    }
+
+    It 'QUIET: a ResetsAt in the future with healthy Remaining stays quiet' {
+        $now = Get-Date '2026-10-31T12:00:00Z'
+        $v = Get-GitHubAppQuotaVerdict -Remaining 4982 -ResetsAt (Get-Date '2026-10-31T13:00:00Z') -Now $now
+        $v.ShouldWarn | Should -BeFalse
+        $v.Kind | Should -Be 'healthy'
+    }
+
+    It 'No ResetsAt supplied skips the staleness check entirely (no interim-rule false positive)' {
+        $v = Get-GitHubAppQuotaVerdict -Remaining 4982
+        $v.ShouldWarn | Should -BeFalse
+    }
+
+    It 'Stale takes precedence over quota-low (staleness is checked first)' {
+        $now = Get-Date '2026-10-31T12:00:00Z'
+        $v = Get-GitHubAppQuotaVerdict -Remaining 42 -ResetsAt (Get-Date '2026-10-31T11:00:00Z') -Now $now
+        $v.Kind | Should -Be 'stale'
+    }
+
+    It 'StaleIfResetInPast:$false disables the interim rule (for when t/4699 observedAt supersedes it)' {
+        $now = Get-Date '2026-10-31T12:00:00Z'
+        $v = Get-GitHubAppQuotaVerdict -Remaining 4982 -ResetsAt (Get-Date '2026-10-31T11:00:00Z') -Now $now -StaleIfResetInPast $false
+        $v.ShouldWarn | Should -BeFalse
+    }
 }
