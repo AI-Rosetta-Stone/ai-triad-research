@@ -234,6 +234,7 @@ export async function listCommunityChats(): Promise<unknown[]> {
       mode: parsed.mode || '',
       community_metadata: stripOriginalId(parsed.community_metadata || null), // t/856
       ...(typeof parsed.chat_model === 'string' ? { model: parsed.chat_model } : {}),
+      ...(parsed.pover ? { pover: parsed.pover } : {}),
     }),
   });
   return [...items].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));

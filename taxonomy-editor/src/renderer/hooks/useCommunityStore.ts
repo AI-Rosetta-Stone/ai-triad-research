@@ -8,6 +8,7 @@ import { bridgeGet, bridgePost } from '../bridge/web-bridge';
 import { useTaxonomyStore } from './useTaxonomyStore';
 import { mapErrorToUserMessage } from '../utils/errorMessages';
 import type { OpEdCommunityEntry } from '../../../../lib/oped/types';
+import type { SpeakerId } from '../../../../lib/chat/types';
 
 export interface CommunityItem {
   id: string;
@@ -25,6 +26,7 @@ export interface CommunityItem {
 export interface CommunityChat extends CommunityItem {
   mode?: string;
   model?: string;
+  pover?: Exclude<SpeakerId, 'user'>;
 }
 
 export interface CommunityDebate extends CommunityItem {
