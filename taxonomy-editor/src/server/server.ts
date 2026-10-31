@@ -1339,8 +1339,6 @@ initAnonymousSessionStore({
 });
 
 // ── Free-pool budget store (t/4677) ──
-// Boot-time initialization guard: extract env vars, validate cap, and wire the persistent
-// budget gate. Falls back to default cap (1500) if invalid; logs WARN if unset (local/Electron).
 ensureFreePoolBudgetBooted(log);
 
 // ── Start ──
