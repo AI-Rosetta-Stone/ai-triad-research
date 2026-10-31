@@ -421,9 +421,8 @@
 /* ── phone layout (t/4571, ≤767px) ── */
 
 @media (max-width: 767px) {
-  /* Hide desktop grid, show phone list */
-  .lib-table-wrap { display: none; }
-  .lib-phone-list { display: block; }
+  /* Which layout renders is decided in LibraryListPage via useBreakpoint (one layout in the DOM
+     at a time); these rules only style the phone pieces. */
 
   /* Header row 1: flex-wrap for primary button on row 1, secondary on row 2 */
   .lib-header-row1 {
@@ -463,7 +462,7 @@
 
   /* Phone list container */
   .lib-phone-list {
-    display: none;
+    display: flex;
     flex-direction: column;
   }
 
@@ -478,7 +477,7 @@
     cursor: pointer;
     transition: background 0.12s;
   }
-  .lib-phone-item:hover { background: var(--lib-bg-hover); }
+  .lib-phone-item:hover { background: var(--lib-row-hover); }
   .lib-phone-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
   /* Checkbox in phone item */
@@ -517,7 +516,7 @@
   }
   .lib-phone-meta-part {
     display: inline;
-    background: var(--lib-bg-secondary);
+    background: var(--lib-inactive-badge-bg);
     padding: 2px 6px;
     border-radius: var(--radius-sm);
   }

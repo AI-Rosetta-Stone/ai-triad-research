@@ -6,7 +6,7 @@
 // t/3703#4 prerequisite, an attribute query passes on a semantically-dead div; a role query
 // doesn't, which is the actual thing being verified.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LibraryListPage } from './LibraryListPage';
 import type { LibraryListPageConfig } from './LibraryListPage.types';
@@ -19,6 +19,10 @@ vi.mock('../../hooks/useAuthStatus', () => ({ useAuthStatus: () => mockAuth }));
 // t/4643: defaults to non-admin, matching useIsAdmin()'s own fail-closed-while-loading default.
 let mockIsAdmin = false;
 vi.mock('../../hooks/useIsAdmin', () => ({ useIsAdmin: () => mockIsAdmin }));
+
+// t/4571: desktop by default; the phone-layout suite switches this to render the phone list.
+let mockBreakpoint: string = 'desktop';
+vi.mock('../../hooks/useBreakpoint', () => ({ useBreakpoint: () => mockBreakpoint }));
 
 interface Row { id: string; title: string; date: string; }
 
@@ -70,7 +74,7 @@ function renderPage(configOverrides: Partial<LibraryListPageConfig<Row, Row>> = 
       {...propsOverrides}
     />,
   );
-  return { onOpenMy, onOpenCommunity, container: rendered.container };
+  return { onOpenMy, onOpenCommunity, container: rendered.container, unmount: rendered.unmount };
 }
 
 describe('LibraryListPage — tabs', () => {
@@ -512,6 +516,22 @@ describe('LibraryListPage — defaultCommunityOnWeb (t/4561)', () => {
 });
 
 describe('LibraryListPage — phone layout (t/4571)', () => {
+  beforeEach(() => { mockBreakpoint = 'phone-lg'; });
+  afterEach(() => { mockBreakpoint = 'desktop'; });
+
+  it('renders exactly one layout: phone list on phone, grid on desktop', () => {
+    const phone = renderPage();
+    expect(phone.container.querySelector('.lib-phone-list')).toBeInTheDocument();
+    expect(phone.container.querySelector('.lib-grid')).not.toBeInTheDocument();
+    phone.unmount();
+
+    mockBreakpoint = 'desktop';
+    const desktop = renderPage();
+    expect(desktop.container.querySelector('.lib-grid')).toBeInTheDocument();
+    expect(desktop.container.querySelector('.lib-phone-list')).not.toBeInTheDocument();
+    expect(desktop.container.querySelector('.lib-phone-sort')).not.toBeInTheDocument();
+  });
+
   it('renders phone list with title and meta columns when configured', () => {
     const { container } = renderPage({
       columns: [
@@ -548,16 +568,29 @@ describe('LibraryListPage — phone layout (t/4571)', () => {
   it('sort select controls the same sort state as desktop headers', async () => {
     const { container } = renderPage({
       columns: [
-        { key: 'date', header: 'Date', width: '110px', phone: 'meta', sortable: true, render: (r: Row) => r.date },
+        {
+          key: 'date', header: 'Date', width: '110px', phone: 'meta', sortable: true,
+          render: (r: Row) => r.date, compare: (a, b) => (a as Row).date.localeCompare((b as Row).date),
+        },
       ],
       titleSortable: true,
     });
     const sortSelect = container.querySelector('.lib-phone-sort') as HTMLSelectElement;
     expect(sortSelect).toBeInTheDocument();
+    expect(sortSelect.value).toBe(''); // unsorted → "Default order", not a fake "Title"
     fireEvent.change(sortSelect, { target: { value: 'date' } });
     await waitFor(() => {
       expect(sortSelect.value).toBe('date');
     });
+    const titles = [...container.querySelectorAll('.lib-phone-title')].map(el => el.textContent);
+    expect(titles).toEqual(['Alpha topic', 'Zebra topic']); // date asc: m2 (01-01) before m1 (01-02)
+  });
+
+  it('choosing Title first sorts by title (no stuck pre-selected option)', async () => {
+    const { container } = renderPage({ titleSortable: true });
+    const sortSelect = container.querySelector('.lib-phone-sort') as HTMLSelectElement;
+    fireEvent.change(sortSelect, { target: { value: '__title__' } });
+    await waitFor(() => { expect(sortSelect.value).toBe('__title__'); });
   });
 
   it('actions button is reachable on phone items', () => {

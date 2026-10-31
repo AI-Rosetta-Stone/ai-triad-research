@@ -11,6 +11,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useAuthStatus } from '../../hooks/useAuthStatus';
 import { useIsAdmin } from '../../hooks/useIsAdmin';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import type {
   LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
 } from './LibraryListPage.types';
@@ -527,13 +528,18 @@ function SortSelect({
 
   if (options.length === 0) return null;
 
+  // Unsorted shows a "Default order" placeholder instead of pretending Title is selected —
+  // otherwise choosing Title first fires no change event, so Title could never be picked.
+  const value = sortKey && sortDir !== 'none' ? sortKey : '';
+
   return (
     <select
+      id="lib-phone-sort-select"
       className="lib-phone-sort"
-      value={sortKey ?? TITLE_SORT_KEY}
-      onChange={e => onSort(e.target.value)}
-      aria-label="Sort by"
+      value={value}
+      onChange={e => { if (e.target.value) onSort(e.target.value); }}
     >
+      <option value="" disabled>Default order</option>
       {options.map(opt => (
         <option key={opt.key} value={opt.key}>{opt.label}</option>
       ))}
@@ -642,6 +648,12 @@ function PhoneListView<TMy extends { id: string }, TCommunity extends { id: stri
   );
 }
 
+/** Phone layout at ≤767px — the same cut-off as LibraryListPage.css's phone media query. */
+function useIsPhoneLayout(): boolean {
+  const bp = useBreakpoint();
+  return bp === 'phone' || bp === 'phone-lg';
+}
+
 // ── Component ──
 
 export function LibraryListPage<TMy extends { id: string }, TCommunity extends { id: string }>(
@@ -675,6 +687,9 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'none' });
+  // t/4571: exactly one layout is in the DOM — rendering both and hiding one with CSS doubled
+  // every row (duplicate text and controls for tests and assistive tech).
+  const isPhone = useIsPhoneLayout();
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const switchTab = useCallback((v: LibraryVariant) => {
@@ -757,10 +772,22 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
         hideMyTab={hideMyTab}
       />
 
-      {/* Phone layout: sort select (t/4571) */}
-      <PhoneSortBar sort={sort} onSort={onSort} config={config} />
-
-      {/* Desktop grid (hidden on phone) */}
+      {isPhone ? (
+        <>
+          <PhoneSortBar sort={sort} onSort={onSort} config={config} />
+          <PhoneListView
+            sortedRows={sortedRows}
+            listView={listView}
+            config={config}
+            editModeActive={editModeActive}
+            openRow={openRow}
+            showToast={showToast}
+            loading={loading}
+            hasRows={rows.length > 0}
+            hasQuery={!!q}
+          />
+        </>
+      ) : (
       <div className="lib-table-wrap">
         {/* eslint-disable-next-line local/no-inline-style -- per-page grid-template-columns, not a static class */}
         <div className="lib-grid" role="table" aria-label={`${config.title} ${listView === 'my' ? 'My' : 'Community'} table`} style={{ '--lib-cols': gridCols } as React.CSSProperties}>
@@ -773,19 +800,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
           ))}
         </div>
       </div>
-
-      {/* Phone layout: list view (t/4571, hidden on desktop) */}
-      <PhoneListView
-        sortedRows={sortedRows}
-        listView={listView}
-        config={config}
-        editModeActive={editModeActive}
-        openRow={openRow}
-        showToast={showToast}
-        loading={loading}
-        hasRows={rows.length > 0}
-        hasQuery={!!q}
-      />
+      )}
 
       {toastMsg && <div className="lib-toast" role="status">{toastMsg}</div>}
     </div>
