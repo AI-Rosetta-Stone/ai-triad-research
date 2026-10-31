@@ -66,7 +66,10 @@ def main():
     root, apply_, emit = args[0], "--apply" in args, "--emit-post-hashes" in args
     frozen_bytes = open(FROZEN, "rb").read()
     frozen = json.loads(frozen_bytes)
-    frozen_hash = sha(frozen_bytes)
+    # LF-normalise before hashing (SO note, e/407#6; t/4620 C2 precedent): --approved-sha256 must
+    # bind to the frozen list's CONTENT, not a checkout's line-ending setting. A CRLF checkout of
+    # this code repo would otherwise refuse a correct, already-cleared list.
+    frozen_hash = sha(frozen_bytes.replace(b"\r\n", b"\n"))
     print(f"frozen list sha256 {frozen_hash}  targets={len(frozen['targets'])}  mode={'APPLY' if apply_ else 'dry-run'}")
 
     if apply_:
