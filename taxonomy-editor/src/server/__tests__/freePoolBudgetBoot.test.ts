@@ -94,28 +94,24 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     expect(budgetStore).not.toBeNull();
   });
 
-  it('ensureFreePoolBudgetBooted() records flight recorder error when init throws', async () => {
+  it('ensureFreePoolBudgetBooted() records flight recorder error when init throws', () => {
     process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
 
-    // Import the module and spy on initFreePoolBudget to inject a throwing implementation
-    const freePoolModule = await import('../storage/freePoolBudget.js');
-    const initSpy = vi.spyOn(freePoolModule, 'initFreePoolBudget').mockImplementation(() => {
+    // Inject a throwing init function
+    const throwingInit = () => {
       throw new Error('Simulated init failure');
-    });
+    };
 
     const errorFn = vi.fn();
     const mockLog = { server: { warn: () => {}, error: errorFn } };
 
     // Call should not throw; error is logged instead
-    expect(() => ensureFreePoolBudgetBooted(mockLog)).not.toThrow();
+    expect(() => ensureFreePoolBudgetBooted(mockLog, throwingInit)).not.toThrow();
 
     // Verify error was logged
     expect(errorFn).toHaveBeenCalledWith(
       expect.any(Object),
       expect.stringContaining('initialization failed')
     );
-
-    // Restore spy
-    initSpy.mockRestore();
   });
 });

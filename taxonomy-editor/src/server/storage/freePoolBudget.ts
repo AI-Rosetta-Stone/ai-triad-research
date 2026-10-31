@@ -756,7 +756,8 @@ export function initFreePoolBudget(opts: BlobFreePoolBudgetOptions): FreePoolBud
 
 // t/4677: Boot-time initialization guard. Extract env vars, validate cap, and call initFreePoolBudget.
 // Logs WARN if unset (local/Electron mode); validates cap and falls back to 1500 if NaN or ≤0.
-export function ensureFreePoolBudgetBooted(log: any): void {
+// init parameter is injectable for testing (allows injecting a throwing init).
+export function ensureFreePoolBudgetBooted(log: any, init: (opts: BlobFreePoolBudgetOptions) => FreePoolBudget = initFreePoolBudget): void {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
   if (!accountUrl) {
     log.server.warn({ scope: 'free-pool-budget' }, 'AZURE_STORAGE_ACCOUNT_URL not set — free-pool budget store not initialized (local dev / Electron mode expected)');
@@ -770,7 +771,7 @@ export function ensureFreePoolBudgetBooted(log: any): void {
   }
 
   try {
-    initFreePoolBudget({ accountUrl, callsCap });
+    init({ accountUrl, callsCap });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'free-pool-budget', level: 'error',
