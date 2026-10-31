@@ -241,40 +241,258 @@
   font-size: var(--text-md);
 }
 
-/* ─── Chat Header ────────────────────────────────────── */
+/* ─── Chat Header (t/4724: back chevron, eyebrow+title, camp chip + mode pill) ────── */
 
 .chat-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 12px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
-.chat-header-left {
+.chat-header-back {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.chat-header-back:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-header-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-header-eyebrow {
+  font-family: var(--font-prose);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.chat-header-title {
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-header-right {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
 }
 
-.chat-header-pover {
+.chat-header-camp-chip {
+  font-size: var(--text-sm);
   font-weight: 600;
-  font-size: var(--text-md);
 }
 
-.chat-header-topic {
-  font-size: var(--text-sm);
+.chat-header-mode-pill {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* t/4724: on phone, .chat-header-right (camp chip/mode pill/export/share) doesn't shrink to fit
+   beside the title — it was claiming most of the row and squeezing the title to a few px per
+   `min-width: 0`, wrapping one word per line. Stack the header into two rows instead: back +
+   title first, the action group second, each full width. */
+@media (max-width: 767px) {
+  .chat-header {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .chat-header-titles {
+    order: 1;
+    flex-basis: calc(100% - 38px); /* leaves room for the back button on the same row */
+  }
+
+  .chat-header-title {
+    white-space: normal;
+  }
+
+  .chat-header-right {
+    order: 2;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+}
+
+/* ─── The Question card (t/4724) ────────────────────── */
+
+.chat-question-card {
+  margin: 12px;
+  padding: 16px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+}
+
+.chat-question-eyebrow {
+  display: block;
+  font-family: var(--font-prose);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  white-space: nowrap;
+  margin-bottom: 6px;
+}
+
+.chat-question-text {
+  font-family: var(--font-prose);
+  font-size: var(--text-xl, 1.4rem);
+  line-height: 1.35;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+/* ─── Reading column + Session panel (t/4724) ───────── */
+
+.chat-reading-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.chat-reading-column {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* ─── Chat Mode Selector (header pills) ──────────────── */
+.chat-session-panel {
+  flex-shrink: 0;
+  width: 240px;
+  padding: 16px;
+  border-left: 1px solid var(--border-color);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chat-session-panel-title {
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.chat-session-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-session-panel-label {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-session-info-dot {
+  cursor: help;
+}
+
+.chat-session-mode-value {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.chat-session-bdi-link {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--lib-accent, var(--focus-ring));
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.chat-session-id-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-session-id-value {
+  font-family: monospace;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.chat-session-copy-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  cursor: pointer;
+}
+
+/* t/4724: the Session panel collapses to a section under the header on phone — `order` puts it
+   first in the now-vertical stack, matching the design intent without reordering the DOM. */
+@media (max-width: 767px) {
+  .chat-reading-row {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .chat-session-panel {
+    width: auto;
+    order: -1;
+    border-left: none;
+    border-bottom: 1px solid var(--border-color);
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+}
+
+/* ─── Chat Mode Selector (now in the composer, t/4724) ──────────── */
 
 .chat-mode-selector {
   display: flex;
@@ -321,26 +539,10 @@
   color: #27ae60;
 }
 
-/* t/4538 (reopened, t/4538#2): nowrap plus the POVer/mode/topic/Export/Share content (~414px)
-   overflowed the ~263px phone-width header, scrolling the whole chat pane sideways and pushing
-   Export/Share off-screen. Wrap instead: POVer + mode switcher + topic stay on row 1, Export and
-   Share drop to row 2 — both actions remain one tap away, no horizontal scroll.
-   .chat-header-left (POVer label + mode pills) is itself flex-shrink:0 and wider than the
-   phone-width header on its own, so it also needs to shrink/wrap — otherwise wrapping the
-   header alone still leaves that first row overflowing. Placed after the base rules above:
-   equal-specificity selectors resolve by source order, so a media-query block earlier in the
-   cascade than the unconditional rule it's meant to override loses even when it matches. */
+/* t/4538's phone-width header overflow fix no longer applies — ModeSelector moved out of the
+   header into the composer (t/4724), and the new header's own phone rule (above) covers wrapping
+   the title/camp-chip/mode-pill row. The composer's ModeSelector gets its own wrap rule below. */
 @media (max-width: 767px) {
-  .chat-header {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-
-  .chat-header-left {
-    flex-shrink: 1;
-    flex-wrap: wrap;
-  }
-
   .chat-mode-selector {
     flex-wrap: wrap;
   }
@@ -514,38 +716,67 @@
   to { transform: rotate(360deg); }
 }
 
-/* ─── Chat Input Bar ─────────────────────────────────── */
+/* ─── Chat Input Bar (t/4724: rounded card, mode control + round send button) ───── */
 
 .chat-input-bar {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-color);
+  margin: 0 12px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
   flex-shrink: 0;
 }
 
 .chat-input {
-  flex: 1;
   resize: none;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-input);
+  border: none;
+  background: transparent;
   color: var(--text-primary);
   font-size: var(--text-md);
   font-family: inherit;
   line-height: 1.4;
+  padding: 0;
 }
 
 .chat-input:focus-visible {
-  border-color: var(--focus-ring);
+  outline: none;
+}
+
+.chat-input-bar-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .chat-send-btn {
   flex-shrink: 0;
-  align-self: flex-end;
-  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--lib-accent, var(--focus-ring));
+  color: #fff;
+  cursor: pointer;
+}
+
+.chat-send-btn:disabled {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+@media (max-width: 767px) {
+  .chat-input-bar-controls {
+    flex-wrap: wrap;
+  }
 }
 
 
@@ -593,6 +824,31 @@
   text-align: left;
 }
 
+.chat-message-avatar-identity {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* t/4724: dark, right-aligned bubble for user turns — replaces the light bordered box. */
+.chat-message-user .chat-message-content.markdown-body {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--text-primary);
+  color: var(--bg-primary);
+}
+
+.chat-message-user .chat-message-content.markdown-body a {
+  color: inherit;
+}
+
+/* t/4724: the reply's first paragraph reads as the lead sentence — bolder, larger serif, no
+   invented markdown marker (plain CSS :first-child, not a parsed "lead" block). */
+.chat-message:not(.chat-message-user) .chat-message-content.markdown-body > p:first-child {
+  font-size: 1.1em;
+  font-weight: 700;
+}
+
 /* t/4538: at phone width, .chat-message's row layout put the speaker avatar+label beside
    the message body, splitting an already-capped 85%-wide bubble in two — the body was left
    with so little room that text wrapped one or two words per line. Stack the avatar above
@@ -620,14 +876,78 @@
   max-width: 68ch;
 }
 
-/* ── Composer ────────────────────────────────────────── */
+/* ── Rich blocks (t/4724): restyles of markdown the reply already contains — no response-
+   schema change. See markdownBlocks.tsx for the detection + plain-markdown fallback. ── */
+
+.chat-eyebrow-heading {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 1em 0 0.4em;
+}
+
+.chat-option-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 0.5em 0;
+}
+
+.chat-option-card {
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.chat-option-card-ordinal {
+  display: block;
+  font-family: monospace;
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.chat-option-card-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.chat-option-card-body {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.chat-dyk-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0.5em 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--lib-accent, var(--focus-ring)) 10%, transparent);
+}
+
+.chat-dyk-label {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lib-accent, var(--focus-ring));
+}
+
+.chat-dyk-body {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+/* ── Composer (rounded-card shadow; shape itself lives on .chat-input-bar above) ── */
 
 .chat-input-bar {
   box-shadow: var(--shadow-2);
-}
-
-.chat-input {
-  border-radius: var(--radius-lg);
 }
 
 /* ── Header inline-style hoists ──────────────────────── */
