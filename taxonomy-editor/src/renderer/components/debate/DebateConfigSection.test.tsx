@@ -30,3 +30,21 @@ describe('DebateConfigSection — well-tested exclusion overview (t/1979)', () =
     expect(screen.getByText('Off')).toBeInTheDocument();
   });
 });
+
+describe('DebateConfigSection — origin label (t/4678/t/4683)', () => {
+  it('labels a legacy string origin as "Asked a Question", not "GUI" (t/4679 normalizeDebateOrigin)', () => {
+    render(<DebateConfigSection debate={debateWith({ origin: 'inquiry' as never, inquiryJobId: 'job-1' } as never)} />);
+    expect(screen.getByText('Created via:')).toBeInTheDocument();
+    expect(screen.getByText('Asked a Question')).toBeInTheDocument();
+  });
+
+  it('labels a typed inquiry origin the same way', () => {
+    render(<DebateConfigSection debate={debateWith({ origin: { mode: 'inquiry', inquiry_id: 'job-1' } })} />);
+    expect(screen.getByText('Asked a Question')).toBeInTheDocument();
+  });
+
+  it('still labels cli/gui origins as before', () => {
+    render(<DebateConfigSection debate={debateWith({ origin: { mode: 'cli' } })} />);
+    expect(screen.getByText('CLI (headless runner)')).toBeInTheDocument();
+  });
+});

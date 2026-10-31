@@ -14,6 +14,23 @@
   white-space: nowrap;
 }
 
+/* t/4683: "Question" pill for a My-tab row from Ask a Question — reuses the shared
+   LibraryListPage's active-tab-badge tokens (--lib-active-bg/--lib-accent), already reviewed
+   for contrast in all 4 themes (t/4561/t/4565). TL ruling (p/501#62): Debates-local, no shared
+   titleBadge hook. */
+.debate-lib-question-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-right: 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--lib-active-bg);
+  color: var(--lib-accent);
+}
+
 .debate-lib-status {
   display: inline-flex;
   align-items: center;

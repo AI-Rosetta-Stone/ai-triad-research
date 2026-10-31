@@ -54,16 +54,28 @@ const STATUS_LABEL: Record<DebateStatusToken, string> = {
   cancelled: 'Cancelled', // accessible name — the word carries the meaning, strikethrough is CSS-only decoration
 };
 
+/** t/4678/t/4683: true for a My-tab row that came from Ask a Question. Community debates don't
+ *  carry `origin_mode` (not in scope, t/4678), so this is also the row-shape guard. */
+function isInquiryRow(row: DebateRow): boolean {
+  return 'origin_mode' in row && row.origin_mode === 'inquiry';
+}
+
 /** Status-label cell renderer. Returns `—` for an unmapped/missing phase rather than throwing —
- *  matches the shared component's empty-value convention. */
+ *  matches the shared component's empty-value convention. A "Question" pill (t/4683, TL ruling
+ *  p/501#62: Debates-local, no shared titleBadge hook) sits before the status pill for rows from
+ *  Ask a Question — real text, not colour alone, built from the existing `--lib-*` chip tokens. */
 export function renderDebateStatus(row: DebateRow): import('react').ReactNode {
   const token = debatePhaseToStatusToken(row.phase);
-  if (!token) return <span className="lib-empty-value">—</span>;
+  const badge = isInquiryRow(row) && <span className="debate-lib-question-badge">Question</span>;
+  if (!token) return <>{badge}<span className="lib-empty-value">—</span></>;
   return (
-    <span className={`debate-lib-status debate-lib-status--${token}`}>
-      <span className="debate-lib-status-dot" aria-hidden="true" />
-      {STATUS_LABEL[token]}
-    </span>
+    <>
+      {badge}
+      <span className={`debate-lib-status debate-lib-status--${token}`}>
+        <span className="debate-lib-status-dot" aria-hidden="true" />
+        {STATUS_LABEL[token]}
+      </span>
+    </>
   );
 }
 
@@ -114,13 +126,16 @@ export function filterDebateRows(
 }
 
 // ──────────────────────────────────────────────
-// Second line — Community: "by <author>"; My: none (spec gives Debates no My second-line rule)
+// Second line — Community: "by <author>"; My: "From Ask a Question" for inquiry rows (t/4678/
+// t/4683), otherwise none
 // ──────────────────────────────────────────────
 
 export function debateSecondaryLine(row: DebateRow, variant: LibraryVariant): string | null {
-  if (variant !== 'community') return null;
-  const author = (row as CommunityDebate).community_metadata?.submitted_by_display;
-  return author ? `by ${author}` : null;
+  if (variant === 'community') {
+    const author = (row as CommunityDebate).community_metadata?.submitted_by_display;
+    return author ? `by ${author}` : null;
+  }
+  return isInquiryRow(row) ? 'From Ask a Question' : null;
 }
 
 // ──────────────────────────────────────────────

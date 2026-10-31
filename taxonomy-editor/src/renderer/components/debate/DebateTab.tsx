@@ -8,6 +8,7 @@ import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useCommunityStore } from '../../hooks/useCommunityStore';
+import { useInquiryStore } from '../../hooks/useInquiryStore';
 import type { CommunityDebate } from '../../hooks/useCommunityStore';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -27,7 +28,7 @@ import { TheoryLink } from '../shared/TheoryLink';
 import { LineageDetailView } from '../shared/LineageDetailView';
 import type { DebateSession, SpeakerId } from '../../types/debate';
 import { DebateGettingStarted } from './DebateGettingStarted';
-import { POVER_INFO } from '@lib/debate/types';
+import { POVER_INFO, normalizeDebateOrigin } from '@lib/debate/types';
 import { ParameterHistoryPanel } from '../analysis/ParameterHistoryPanel';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { api, isElectronMode } from '@bridge';
@@ -89,6 +90,14 @@ interface DebateRightPaneProps {
   handleExport: (format?: string) => void;
   exportStatus: string | null;
   handleNewDebate: () => Promise<void>;
+}
+
+// t/4678/t/4683: `inquiryJobId` is a legacy sibling of `origin`, not nested under it (persisted by
+// the web host's old persistInquiryDebateSession as `{ ...session, origin: 'inquiry', inquiryJobId: jobId }`)
+// — normalizeDebateOrigin (t/4679) needs both to recover `inquiry_id` from an old string-origin
+// session. New sessions already carry the typed object and ignore the second argument.
+function debateOrigin(debate: DebateSession): ReturnType<typeof normalizeDebateOrigin> {
+  return normalizeDebateOrigin(debate.origin, (debate as unknown as { inquiryJobId?: unknown }).inquiryJobId);
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -854,6 +863,28 @@ function BulkDeleteDialog({
 
 // ── Debate Detail Summary ──
 
+// t/4678/t/4683: back-link to the originating question. Split out of DebateDetailSummary so its
+// own branch/callback don't count toward that function's complexity budget (local/complexity-budget).
+// The question text IS the debate's topic (runInquiryPipeline passes request.question straight
+// into runDebate) — no separate fetch by inquiry_id needed. Reuses the existing open-by-id action
+// rather than calling NavHistory directly; t/4640's nav model picks up ordinary store-action calls
+// through its own subscriber (t/4640 R1).
+function FromQuestionLink({ debate, topic }: { debate: DebateSession; topic: string }) {
+  const origin = debateOrigin(debate);
+  const handleOpenQuestion = useCallback(() => {
+    if (!origin?.inquiry_id) return;
+    useTaxonomyStore.getState().setActiveTab('inquiry');
+    void useInquiryStore.getState().openFromHistory(origin.inquiry_id);
+  }, [origin?.inquiry_id]);
+
+  if (origin?.mode !== 'inquiry' || !origin.inquiry_id) return null;
+  return (
+    <p className="debate-detail-from-question">
+      From a question: <button type="button" className="debate-detail-from-question-link" onClick={handleOpenQuestion}>{topic}</button>
+    </p>
+  );
+}
+
 function DebateDetailSummary({
   debate,
   onOpenWindow,
@@ -909,6 +940,8 @@ function DebateDetailSummary({
           {PHASE_LABELS[debate.phase] || debate.phase}
         </span>
       </div>
+
+      <FromQuestionLink debate={debate} topic={topic} />
 
       <div className="debate-detail-actions">
         <button className="btn btn-primary" onClick={onOpenWindow}>
@@ -1040,15 +1073,22 @@ function DebateSourceSection({ debate }: { debate: DebateSession }) {
   );
 }
 
+const ORIGIN_MODE_LABELS: Record<string, string> = {
+  cli: 'CLI (headless runner)',
+  gui: 'GUI (Electron app)',
+  inquiry: 'Asked a Question', // t/4678/t/4683: was mislabeled "GUI" for the legacy string origin
+};
+
 export function DebateConfigSection({ debate }: { debate: DebateSession }) {
   if (!(debate.audience || debate.debate_model || debate.protocol_id || debate.origin)) return null;
+  const origin = debateOrigin(debate);
   return (
     <div className="debate-detail-section">
       <h3>Configuration</h3>
-      {debate.origin && (
+      {origin && (
         <div className="debate-detail-meta-row">
           <span className="debate-detail-label">Created via:</span>
-          <span>{debate.origin.mode === 'cli' ? 'CLI (headless runner)' : 'GUI (Electron app)'}</span>
+          <span>{ORIGIN_MODE_LABELS[origin.mode] ?? origin.mode}</span>
         </div>
       )}
       {debate.origin?.command && (
