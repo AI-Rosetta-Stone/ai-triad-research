@@ -222,15 +222,15 @@ export interface InquiryStatusResponse {
   jobId: string;
   status: InquiryJobStatus;
   progressPct: number;
+  /** t/4710/t/4711/t/4713: fine-grained Debate-stage detail line (e.g. "Round 2 of 4 · Skeptic
+   *  responding"), derived from the debate engine's per-turn progress events. Present only
+   *  while status === 'debating'; absent for every other status. */
+  stageDetail?: string;
   terminationReason: string | null;
   resultId: string | null;
   error: string | null;
   /** Present on `done` / `done_truncated` (including the cross-replica persisted-result fallback). */
   result?: InquiryResult;
-  /** t/4710 Part B/C: a short human line for the currently-running stage (e.g. "Round 2 of 4 ·
-   *  Skeptic responding"). Optional — older server/Electron builds, or a stage other than
-   *  `debating`, simply omit it; the UI renders as before (t/4714 AC4). */
-  stageDetail?: string | null;
 }
 
 /** Cheap listing row for the "My Questions" history (t/3620). Field-for-field identical to the

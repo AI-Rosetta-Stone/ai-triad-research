@@ -111,6 +111,19 @@ function computeBackoffDelay(failures: number): number {
     : Math.min(POLL_INTERVAL_MS * 2 ** failures, MAX_POLL_BACKOFF_MS);
 }
 
+/** The store fields a status response sets — shared by poll() and openFromHistory(). An absent
+ *  `stageDetail` (an older server/Electron build) reads as null (t/4714 AC4). */
+function statusFields(view: InquiryStatusResponse) {
+  return {
+    status: view.status,
+    progressPct: view.progressPct,
+    stageDetail: view.stageDetail ?? null,
+    terminationReason: view.terminationReason,
+    error: view.status === 'failed' ? view.error : null,
+    result: view.result ?? null,
+  };
+}
+
 export const useInquiryStore = create<InquiryStoreState>((set, get) => {
   function schedulePoll(jobId: string): void {
     clearPollTimer();
@@ -181,15 +194,11 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
 
     consecutivePollFailures = 0;
     set({
-      status: view.status,
+      ...statusFields(view),
       // t/4714: defensive clamp — the lib-side mapping is monotonic by contract, but an
       // out-of-order poll response (retry landing after a newer one) must never visually move
       // the bar backwards.
       progressPct: Math.max(get().progressPct, view.progressPct),
-      stageDetail: view.stageDetail ?? null,
-      terminationReason: view.terminationReason,
-      error: view.status === 'failed' ? view.error : null,
-      result: view.result ?? null,
       pollError: null,
     });
 
@@ -317,14 +326,7 @@ export const useInquiryStore = create<InquiryStoreState>((set, get) => {
       set({ viewingList: false, error: null, pollError: null, result: null, jobId, status: 'queued', progressPct: 0, stageDetail: null, terminationReason: null });
       try {
         const view = await api.getInquiry(jobId);
-        set({
-          status: view.status,
-          progressPct: view.progressPct,
-          stageDetail: view.stageDetail ?? null,
-          terminationReason: view.terminationReason,
-          error: view.status === 'failed' ? view.error : null,
-          result: view.result ?? null,
-        });
+        set(statusFields(view));
       } catch (err) {
         getGlobalRecorder()?.record({
           type: 'system.error',

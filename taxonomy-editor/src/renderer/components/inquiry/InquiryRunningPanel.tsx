@@ -6,23 +6,28 @@ import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { STAGE_ORDER, STAGE_META, stageStatus } from './inquiryDisplay';
 import './InquiryTab.css';
 
-// t/4714: throttles the aria-live announcement (and the visible line, same value) to roughly
-// once per 10s so a 3s poll cadence doesn't spam a screen reader with every intermediate detail.
+// t/4714: the visible detail line always shows the latest stageDetail. Only the screen-reader
+// announcement is throttled, to at most one per 10s, so a 3s poll cadence doesn't spam it. A
+// throttled value is deferred (trailing), never dropped, so the latest detail is always announced.
 const DETAIL_ANNOUNCE_THROTTLE_MS = 10_000;
+
+function useThrottledAnnouncement(detail: string | null): string | null {
+  const [announced, setAnnounced] = useState<string | null>(null);
+  const lastAt = useRef<number | null>(null);
+  useEffect(() => {
+    if (!detail) return;
+    const wait = lastAt.current === null ? 0 : lastAt.current + DETAIL_ANNOUNCE_THROTTLE_MS - Date.now();
+    const announce = () => { lastAt.current = Date.now(); setAnnounced(detail); };
+    if (wait <= 0) { announce(); return; }
+    const timer = setTimeout(announce, wait);
+    return () => clearTimeout(timer);
+  }, [detail]);
+  return announced;
+}
 
 export function InquiryRunningPanel() {
   const { question, jobId, status, progressPct, stageDetail, pollError, openList } = useInquiryStore();
-
-  const [announcedDetail, setAnnouncedDetail] = useState<string | null>(null);
-  const lastAnnouncedAt = useRef(0);
-  useEffect(() => {
-    if (!stageDetail || stageDetail === announcedDetail) return;
-    const now = performance.now();
-    if (now - lastAnnouncedAt.current < DETAIL_ANNOUNCE_THROTTLE_MS) return;
-    lastAnnouncedAt.current = now;
-    setAnnouncedDetail(stageDetail);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only re-runs on a new stageDetail value, not on announcedDetail's own change
-  }, [stageDetail]);
+  const announcedDetail = useThrottledAnnouncement(stageDetail);
 
   return (
     <div className="inquiry-run">
@@ -46,8 +51,11 @@ export function InquiryRunningPanel() {
               <div>
                 <h5>{STAGE_META[stage].title}</h5>
                 <div className="inquiry-sub">{STAGE_META[stage].sub}</div>
-                {s === 'live' && announcedDetail && (
-                  <div className="inquiry-stage-detail" aria-live="polite">{announcedDetail}</div>
+                {s === 'live' && stageDetail && (
+                  <div className="inquiry-stage-detail" aria-hidden="true">{stageDetail}</div>
+                )}
+                {s === 'live' && (
+                  <span className="inquiry-sr-only" aria-live="polite">{announcedDetail ?? ''}</span>
                 )}
               </div>
               <span className="inquiry-stat">{s === 'done' ? 'done' : s === 'live' ? 'running' : 'waiting'}</span>
