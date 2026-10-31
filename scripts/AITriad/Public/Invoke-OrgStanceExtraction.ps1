@@ -341,8 +341,6 @@ function Invoke-OrgStanceExtraction {
         }
     } else {
         $promptSubs | ForEach-Object -Parallel {
-            Import-Module $using:ModulePath -Force -WarningAction SilentlyContinue
-            Import-Module $using:EnrichPath -Force -WarningAction SilentlyContinue
             $item      = $_
             $NewBag    = $using:newClaims
             $FailBag   = $using:failed
@@ -352,6 +350,21 @@ function Invoke-OrgStanceExtraction {
             $CompRef   = $using:Completed
             $TotalCnt  = $using:Total
             $ProgId    = $using:ProgressId
+
+            # t/4702: these imports used to run unguarded, ahead of the try/catch below. A failure
+            # here (e.g. concurrent-reimport file contention under load) threw before $FailBag could
+            # ever be reached, so the item vanished from BOTH Extracted and Failed — not a dedup bug,
+            # a silently-eaten setup exception. Attribute it like any other per-item failure instead.
+            try {
+                Import-Module $using:ModulePath -Force -WarningAction SilentlyContinue -ErrorAction Stop
+                Import-Module $using:EnrichPath -Force -WarningAction SilentlyContinue -ErrorAction Stop
+            } catch {
+                $FailBag.Add("$($item.OrgId)::$($item.SourceId): module import failed in parallel runspace: $($_.Exception.Message)")
+                $Done = [System.Threading.Interlocked]::Increment($CompRef)
+                $Pct  = [math]::Min(100, [math]::Round(($Done / $TotalCnt) * 100))
+                Write-Progress -Id $ProgId -Activity 'Extracting stance claims' -Status "$Done / $TotalCnt" -PercentComplete $Pct
+                return
+            }
 
             # Inline validator — ForEach-Object -Parallel forbids passing
             # scriptblocks via $using:, so we duplicate the logic here.

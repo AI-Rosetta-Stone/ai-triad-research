@@ -51,9 +51,14 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: 
 const runInquiryPipeline = vi.hoisted(() => vi.fn());
 vi.mock('../../../../lib/debate/inquiryPipeline.js', () => ({ runInquiryPipeline }));
 
+const saveDebateSession = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('../debateIO.js', () => ({ saveDebateSession }));
+
 import { ipcMain } from 'electron';
+import { runHeadlessDebate } from '../../../../lib/debate/headlessRunner.js';
 import { registerInquiryHandlers } from '../ipc/inquiryHandlers.js';
 import type { InquiryResult } from '../../../../lib/inquiry/index.js';
+import type { DebateSession } from '../../../../lib/debate/types/session.js';
 
 type Handler = (...args: unknown[]) => unknown;
 function handlers(): Record<string, Handler> {
@@ -96,6 +101,8 @@ describe('inquiryHandlers — Electron parity (t/3579)', () => {
     runInquiryPipeline.mockReset();
     mockShowSaveDialog.mockReset();
     mockPrintToPDF.mockClear();
+    saveDebateSession.mockReset();
+    (runHeadlessDebate as unknown as { mockReset: () => void }).mockReset();
     fs.rmSync(TMP, { recursive: true, force: true });
     fs.mkdirSync(TMP, { recursive: true });
     registerInquiryHandlers();
@@ -162,6 +169,8 @@ describe('inquiryHandlers — persistence, history, export (t/3683)', () => {
     runInquiryPipeline.mockReset();
     mockShowSaveDialog.mockReset();
     mockPrintToPDF.mockClear();
+    saveDebateSession.mockReset();
+    (runHeadlessDebate as unknown as { mockReset: () => void }).mockReset();
     fs.rmSync(TMP, { recursive: true, force: true });
     fs.mkdirSync(TMP, { recursive: true });
     registerInquiryHandlers();
@@ -259,5 +268,66 @@ describe('inquiryHandlers — persistence, history, export (t/3683)', () => {
     const h = handlers();
     const outcome = await h['export-inquiry-to-file']({ sender: {} }, fakeResult(), 'My question', 'json');
     expect(outcome).toEqual({ cancelled: true });
+  });
+});
+
+// t/4682/t/4678: a question's debate must show up in "My Debates" and support "View raw run"
+// on desktop — both depend on the full DebateSession (captured off deps.runDebate) being saved
+// through debateIO, something runInquiryPipeline's own return value never carries.
+describe('inquiryHandlers — saves the debate session for My Debates (t/4682)', () => {
+  function fakeSession(id = 'sess-1'): DebateSession {
+    return { id } as unknown as DebateSession;
+  }
+
+  beforeEach(() => {
+    (ipcMain.handle as unknown as { mockReset: () => void }).mockReset();
+    runInquiryPipeline.mockReset();
+    saveDebateSession.mockReset();
+    (runHeadlessDebate as unknown as { mockReset: () => void }).mockReset();
+    fs.rmSync(TMP, { recursive: true, force: true });
+    fs.mkdirSync(TMP, { recursive: true });
+    registerInquiryHandlers();
+  });
+  afterEach(() => { fs.rmSync(TMP, { recursive: true, force: true }); });
+
+  it('saves the session with origin {mode: inquiry, inquiry_id: jobId} once the pipeline calls deps.runDebate', async () => {
+    const session = fakeSession('sess-42');
+    (runHeadlessDebate as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ session, terminationReason: undefined });
+    runInquiryPipeline.mockImplementation(async (request: unknown, deps: { runDebate: (c: unknown, q: string) => Promise<unknown> }) => {
+      await deps.runDebate({}, (request as { question: string }).question);
+      return fakeResult();
+    });
+
+    const h = handlers();
+    const { jobId, job } = await createAndWait(h);
+
+    expect(job.status).toBe('done');
+    expect(saveDebateSession).toHaveBeenCalledTimes(1);
+    expect(saveDebateSession).toHaveBeenCalledWith(session, 'inquiry-desktop');
+    expect(session.origin).toEqual({ mode: 'inquiry', inquiry_id: jobId });
+  });
+
+  it('a saveDebateSession failure degrades gracefully — the job still reaches done with its answer intact', async () => {
+    const session = fakeSession('sess-43');
+    (runHeadlessDebate as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ session, terminationReason: undefined });
+    runInquiryPipeline.mockImplementation(async (request: unknown, deps: { runDebate: (c: unknown, q: string) => Promise<unknown> }) => {
+      await deps.runDebate({}, (request as { question: string }).question);
+      return fakeResult();
+    });
+    saveDebateSession.mockRejectedValue(new Error('disk full'));
+
+    const h = handlers();
+    const { job } = await createAndWait(h);
+
+    expect(job.status).toBe('done');
+    expect(job.result).toBeTruthy();
+  });
+
+  it('never calls saveDebateSession when the pipeline never invokes deps.runDebate (no regression on the non-inquiry path shape)', async () => {
+    runInquiryPipeline.mockResolvedValue(fakeResult());
+    const h = handlers();
+    const { job } = await createAndWait(h);
+    expect(job.status).toBe('done');
+    expect(saveDebateSession).not.toHaveBeenCalled();
   });
 });

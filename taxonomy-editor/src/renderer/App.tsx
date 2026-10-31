@@ -7,7 +7,10 @@ import { api } from '@bridge';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
 import ErrorBoundary from '../../../lib/electron-shared/components/ErrorBoundary';
 import { useTaxonomyStore, initAIModels } from './hooks/useTaxonomyStore';
-import { initDebateSessions } from './hooks/useDebateStore';
+import { initDebateSessions, useDebateStore } from './hooks/useDebateStore';
+import { useChatStore } from './hooks/useChatStore';
+import { useOpEdStore } from './hooks/useOpEdStore';
+import { useInquiryStore } from './hooks/useInquiryStore';
 import { useAppRoute } from './routing/useAppRoute';
 import { installNavSubscriber } from './navigation/subscriber';
 import { navHistory } from './navigation';
@@ -33,7 +36,6 @@ import { initAnalyticsSession } from './lib/initAnalyticsSession';
 import { useBreakpoint } from './hooks/useBreakpoint';
 import { useIsTouchDevice } from './hooks/useIsTouchDevice';
 import { BottomNav } from './components/shared/BottomNav';
-import { NavController } from './components/shared/NavController';
 import { HamburgerMenu } from './components/shared/HamburgerMenu';
 import { useNavigationShortcuts } from './hooks/useNavigationShortcuts';
 import { GitProgressBanner } from './components/sync/GitProgressBanner';
@@ -187,7 +189,14 @@ async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>)
   initAnalyticsSession();
   initDebateSessions();
   // t/4640: install navigation subscriber to maintain history stack (buttons/shortcuts)
-  installNavSubscriber(useTaxonomyStore, navHistory);
+  // The open item lives in each tool's own store, so the subscriber listens to all of them.
+  installNavSubscriber({
+    taxonomy: useTaxonomyStore,
+    debate: useDebateStore,
+    chat: useChatStore,
+    opEd: useOpEdStore,
+    inquiry: useInquiryStore,
+  }, navHistory);
 }
 
 export function App() {
@@ -749,7 +758,6 @@ function MainApp() {
         <span className="mobile-header-title">Taxonomy Editor</span>
       </div>
       <div className="app-body">
-        <NavController />
         <Toolbar />
         <div className="tab-content">
           {showPovHeader ? (

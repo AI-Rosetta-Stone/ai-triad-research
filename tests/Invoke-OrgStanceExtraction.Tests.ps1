@@ -274,6 +274,55 @@ Describe 'Invoke-OrgStanceExtraction (t/1553 Stage 1)' -Tag 'taxonomy' {
             }
         }
     }
+
+    It 'under -Concurrency 3, every queued item is accounted for in Failed/ClaimsWritten -- none silently vanish (t/4702)' {
+        # t/4702: found in a real -Concurrency 3 -Force run, one queued (org, source) pair made zero AI
+        # calls and appeared in neither Extracted nor Failed. The dedup/merge logic was proven clean by
+        # direct repro against the real corpus data; the remaining gap was that Import-Module calls in
+        # the parallel runspace ran unguarded, ahead of the per-item try/catch, so a setup-time exception
+        # there would vanish before $FailBag could ever be reached. Fixed by wrapping those imports in
+        # their own try/catch that attributes the failure like any other.
+        #
+        # ForEach-Object -Parallel reimports fresh modules per runspace (t/1550 aphorism lesson), which
+        # bypasses Pester's Mock entirely -- so this test can't mock Invoke-AIByUsage for Concurrency > 1.
+        # Instead it forces a REAL, fast, offline failure (no configured API key anywhere) across several
+        # concurrent sources, and asserts every single one lands in FailedItems. That's the general
+        # invariant this bug violated: under concurrency, a queued item must never disappear.
+        InModuleScope AITriad -Parameters @{ ClaimsPath = $script:tmpClaims } {
+            param($ClaimsPath)
+            $multiDir = Join-Path ([System.IO.Path]::GetTempPath()) "orgstance-t4702-multi-$(Get-Random)"
+            $ids = 'multi-a', 'multi-b', 'multi-c', 'multi-d'
+            foreach ($id in $ids) {
+                $dir = Join-Path $multiDir $id
+                $null = New-Item -ItemType Directory -Path $dir -Force
+                "Body of $id -- plausible policy paragraph with enough words for this fixture." |
+                    Set-Content -Path (Join-Path $dir 'snapshot.md') -Encoding utf8NoBOM
+            }
+            $edges = @(foreach ($id in $ids) { [PSCustomObject]@{ source = 'org-014'; target = $id; type = 'PUBLISHED'; status = 'approved' } })
+
+            $savedKeys = @{}
+            foreach ($var in 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'GROQ_API_KEY', 'AI_API_KEY') {
+                $savedKeys[$var] = [System.Environment]::GetEnvironmentVariable($var)
+                [System.Environment]::SetEnvironmentVariable($var, $null)
+            }
+            try {
+                Mock Get-SourcesDir -MockWith ({ $multiDir }.GetNewClosure())
+                Mock Get-OrganizationEdgesStore -MockWith ({ [PSCustomObject]@{ edges = $edges } }.GetNewClosure())
+
+                $r = Invoke-OrgStanceExtraction -Concurrency 3 -OutputPath $ClaimsPath -Force -Confirm:$false -ErrorAction Continue 3>$null 6>$null
+
+                $r.Failed | Should -Be $ids.Count -Because 'every queued item must be attributed, never silently dropped, under real concurrency'
+                @($r.FailedItems).Count | Should -Be $ids.Count
+                foreach ($id in $ids) {
+                    (@($r.FailedItems) -join '|') | Should -Match ([regex]::Escape("org-014::$id"))
+                }
+            }
+            finally {
+                foreach ($var in $savedKeys.Keys) { [System.Environment]::SetEnvironmentVariable($var, $savedKeys[$var]) }
+                Remove-Item -Recurse -Force $multiDir -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }
 
 Describe 'Test-StanceTextVerbatim (t/4382)' -Tag 'taxonomy' {

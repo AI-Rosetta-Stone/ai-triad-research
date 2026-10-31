@@ -87,8 +87,12 @@ async function selectTheCommunityDebate() {
   const user = userEvent.setup();
   render(<DebateTab />);
   await user.click(screen.getByRole('tab', { name: /^Community/ }));
-  const row = within(screen.getByRole('table')).getByRole('row', { name: /A community debate/ });
-  await user.click(row);
+  // useBreakpoint is mocked to 'phone', so LibraryListPage renders its phone list (one layout in
+  // the DOM at a time, t/4571), not the desktop table.
+  const list = screen.getByRole('list');
+  const row = within(list).getAllByRole('listitem').find(li => /A community debate/.test(li.textContent ?? ''));
+  expect(row).toBeDefined();
+  await user.click(row!);
 }
 
 describe('DebateTab — mobile tapping a community debate (t/4672)', () => {

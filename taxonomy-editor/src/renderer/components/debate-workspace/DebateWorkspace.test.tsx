@@ -6,6 +6,7 @@ import { render, screen, fireEvent, within, act, waitFor } from '@testing-librar
 import { DebateWorkspace } from './DebateWorkspace';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { api } from '@bridge';
+import { isDebatePopoutWindow } from '../../hooks/useDebateStore/shared/guards';
 
 // ── Store mocks ───────────────────────────────────────────────
 
@@ -55,13 +56,27 @@ const mockTaxStore: Record<string, any> = {
   semanticResults: [],
   getLabelForId: vi.fn(() => 'label'),
   communityServerUrl: '',
+  setActiveTab: vi.fn(),
 };
 
-// useTaxonomyStore is called both with and without a selector in this component.
+// useTaxonomyStore is called both with and without a selector in this component, and via its
+// static .getState() in DebateHeader's back-link (t/4693).
 // MODELS_BY_BACKEND is pulled in transitively via DetailPane → NodeDetail → …/PromptInspector (t/1776).
 vi.mock('../../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: (selector?: any) => selector ? selector(mockTaxStore) : mockTaxStore,
+  useTaxonomyStore: Object.assign(
+    (selector?: any) => selector ? selector(mockTaxStore) : mockTaxStore,
+    { getState: () => mockTaxStore },
+  ),
   MODELS_BY_BACKEND: {},
+}));
+
+const mockInquiryStore: Record<string, any> = {
+  openFromHistory: vi.fn(),
+};
+
+// t/4693: DebateHeader's back-link reads useInquiryStore via its static .getState() only.
+vi.mock('../../hooks/useInquiryStore', () => ({
+  useInquiryStore: { getState: () => mockInquiryStore },
 }));
 
 const mockCommentStore: Record<string, any> = {
@@ -597,6 +612,79 @@ describe('phase routing', () => {
     mockStore.activeDebate = makeDebate({ phase: 'edit-claims' });
     render(<DebateWorkspace />);
     expect(screen.getByTestId('claims-editor')).toBeInTheDocument();
+  });
+});
+
+// ── Back-link to the originating question (t/4693) ────────────
+
+describe('back-link to the originating question', () => {
+  beforeEach(() => {
+    mockStore.debateLoading = false;
+    mockStore.debateGenerating = null;
+    mockInquiryStore.openFromHistory.mockClear();
+    mockTaxStore.setActiveTab.mockClear();
+  });
+  afterEach(() => { vi.mocked(isDebatePopoutWindow).mockReturnValue(false); });
+
+  it('renders nothing for a non-inquiry-origin debate', () => {
+    mockStore.activeDebate = makeDebate({ origin: { mode: 'gui' } });
+    render(<DebateWorkspace />);
+    expect(screen.queryByText(/From a question/)).toBeNull();
+  });
+
+  it('renders nothing for an inquiry-origin debate missing inquiry_id', () => {
+    mockStore.activeDebate = makeDebate({ origin: { mode: 'inquiry' } });
+    render(<DebateWorkspace />);
+    expect(screen.queryByText(/From a question/)).toBeNull();
+  });
+
+  it('in the main window: renders a short "View the answer" link naming the question in its accessible name', () => {
+    mockStore.activeDebate = makeDebate({
+      origin: { mode: 'inquiry', inquiry_id: 'job-42' },
+      topic: { original: 'orig', refined: 'refined', final: 'Should AI be regulated?' },
+    });
+    const { container } = render(<DebateWorkspace />);
+    const link = screen.getByRole('button', { name: 'View the answer to: Should AI be regulated?' });
+    expect(link).toBeInTheDocument();
+    expect(link.textContent).toBe('View the answer');
+    expect(container.querySelector('.debate-hdr-from-question')?.textContent).toBe('From a question · View the answer');
+    fireEvent.click(link);
+    expect(mockTaxStore.setActiveTab).toHaveBeenCalledWith('inquiry');
+    expect(mockInquiryStore.openFromHistory).toHaveBeenCalledWith('job-42');
+  });
+
+  it("falls back through topic.refined then topic.original for the link's accessible name when topic.final is empty", () => {
+    mockStore.activeDebate = makeDebate({
+      origin: { mode: 'inquiry', inquiry_id: 'job-42' },
+      topic: { original: 'the original question', refined: null, final: '' },
+    });
+    render(<DebateWorkspace />);
+    expect(screen.getByRole('button', { name: 'View the answer to: the original question' })).toBeInTheDocument();
+  });
+
+  it('in a pop-out window: renders plain text naming Ask a Question, not a button, and never calls the nav actions', () => {
+    vi.mocked(isDebatePopoutWindow).mockReturnValue(true);
+    mockStore.activeDebate = makeDebate({
+      origin: { mode: 'inquiry', inquiry_id: 'job-42' },
+      topic: { original: 'orig', refined: null, final: 'Should AI be regulated?' },
+    });
+    const { container } = render(<DebateWorkspace />);
+    const fromQuestion = container.querySelector('.debate-hdr-from-question');
+    expect(fromQuestion?.textContent).toBe('From a question in Ask a Question');
+    expect(fromQuestion?.querySelector('em')).toBeNull();
+    expect(fromQuestion?.querySelector('button')).toBeNull();
+  });
+
+  it('recovers the legacy flat inquiryJobId shape via normalizeDebateOrigin', () => {
+    mockStore.activeDebate = makeDebate({
+      origin: 'inquiry',
+      inquiryJobId: 'legacy-job-7',
+      topic: { original: 'orig', refined: null, final: 'Legacy inquiry question' },
+    });
+    render(<DebateWorkspace />);
+    const link = screen.getByRole('button', { name: 'View the answer to: Legacy inquiry question' });
+    fireEvent.click(link);
+    expect(mockInquiryStore.openFromHistory).toHaveBeenCalledWith('legacy-job-7');
   });
 });
 

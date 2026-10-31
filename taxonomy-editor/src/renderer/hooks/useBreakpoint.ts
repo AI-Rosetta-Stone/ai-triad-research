@@ -12,7 +12,12 @@ const BREAKPOINT_QUERIES: [Breakpoint, string][] = [
   ['tablet-lg', '(max-width: 1199px)'],
 ];
 
+// jsdom (unit tests) has no matchMedia unless a test mocks it; treat that as desktop so a shared
+// component using this hook doesn't crash every test that renders it (t/4571).
+const hasMatchMedia = (): boolean => typeof window !== 'undefined' && typeof window.matchMedia === 'function';
+
 function resolveBreakpoint(): Breakpoint {
+  if (!hasMatchMedia()) return 'desktop';
   for (const [bp, query] of BREAKPOINT_QUERIES) {
     if (window.matchMedia(query).matches) return bp;
   }
@@ -23,6 +28,7 @@ export function useBreakpoint(): Breakpoint {
   const [breakpoint, setBreakpoint] = useState<Breakpoint>(resolveBreakpoint);
 
   useEffect(() => {
+    if (!hasMatchMedia()) return undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const mqls = BREAKPOINT_QUERIES.map(([, query]) => window.matchMedia(query));
 

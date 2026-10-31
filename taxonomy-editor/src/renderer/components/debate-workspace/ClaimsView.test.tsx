@@ -32,6 +32,7 @@ vi.mock('./utils', () => ({
     if (v >= 0.3) return { label: 'Weak', color: '#f59e0b' };
     return { label: 'Very Weak', color: '#ef4444' };
   },
+  getNodeLabel: (nodeId: string) => `Label for ${nodeId}`,
 }));
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -305,5 +306,41 @@ describe('ClaimNodeRow', () => {
     );
     // 0.90 should be rendered
     expect(screen.getByText(/0\.90/)).toBeInTheDocument();
+  });
+
+  // ── Attribution tooltip — grounding statement disclosure (t/4676) ──
+
+  it('includes the best-matching synthetic statement in the attribution tooltip, disclosed as such', () => {
+    const node = makeNode({
+      claim_taxonomy_attribution: {
+        primary_ref: 'acc-beliefs-001',
+        attribution_confidence: 0.72,
+        grounding_statement: 'AI capability gains will outpace any realistic oversight regime.',
+      },
+    });
+    render(
+      <ClaimNodeRow node={node} attacks={[]} supports={[]} allNodes={[node]} strengthMap={new Map()} />,
+    );
+    const badge = screen.getByText('acc-beliefs-001', { exact: false }).closest('.claims-badge');
+    expect(badge).not.toBeNull();
+    const tip = badge!.getAttribute('title') ?? '';
+    expect(tip).toContain('Label for acc-beliefs-001');
+    expect(tip).toContain('Best-matching statement: "AI capability gains will outpace any realistic oversight regime."');
+  });
+
+  it('omits the grounding-statement line for a claim attributed before t/4692 (field absent)', () => {
+    const node = makeNode({
+      claim_taxonomy_attribution: {
+        primary_ref: 'acc-beliefs-001',
+        attribution_confidence: 0.72,
+      },
+    });
+    render(
+      <ClaimNodeRow node={node} attacks={[]} supports={[]} allNodes={[node]} strengthMap={new Map()} />,
+    );
+    const badge = screen.getByText('acc-beliefs-001', { exact: false }).closest('.claims-badge');
+    const tip = badge!.getAttribute('title') ?? '';
+    expect(tip).toContain('Label for acc-beliefs-001');
+    expect(tip).not.toContain('Best-matching statement');
   });
 });

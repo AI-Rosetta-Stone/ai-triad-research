@@ -26,6 +26,11 @@ export interface LibraryColumn<TMy, TCommunity> {
    *  always `minmax(0,1fr)`, and rendered by LibraryListPage itself (see getTitle below). */
   width: string;
   align?: 'left' | 'right';
+  /** Phone layout visibility (t/4571): whether to show this column on phone (<768px).
+   *  'title' = display on phone's title row; 'meta' = display on phone's meta row;
+   *  'hidden' = omit on phone. Default is 'hidden' for non-title columns. No branching
+   *  outside phone layout path — all pages render desktop grid unchanged. */
+  phone?: 'title' | 'meta' | 'hidden';
   /** Collapsed per TL ruling (t/3703#3): one function branching on variant, not renderMy/
    *  renderCommunity — two functions per column meant Model/Date/Mode got the same reference
    *  passed twice, a copy-paste that drifts the moment one side is edited without the other. */

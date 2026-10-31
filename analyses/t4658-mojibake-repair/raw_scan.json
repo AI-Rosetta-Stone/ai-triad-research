@@ -1,0 +1,494 @@
+{
+  "scan": "t4658-full-mojibake-scan",
+  "total_hits": 61,
+  "entries": [
+    {
+      "doc_id": "ai-agents-could-be-worth-236-billion-by-2034-if-we-ensure-2026",
+      "field": "title",
+      "index": null,
+      "old": "AI agents could be worth $236 billion by 2034 â€“ if we ensure they are the good kind",
+      "new": "AI agents could be worth $236 billion by 2034 – if we ensure they are the good kind",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "ai-doesnt-reduce-workit-intensifies-it-2026",
+      "field": "title",
+      "index": null,
+      "old": "AI Doesnâ€™t Reduce Workâ€”It Intensifies It",
+      "new": "AI Doesn’t Reduce Work—It Intensifies It",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "ai-isnt-replacement-problem-its-redesign-problem-2026",
+      "field": "title",
+      "index": null,
+      "old": "AI isnâ€™t a replacement problemâ€¦ itâ€™s a redesign problem",
+      "new": "AI isn’t a replacement problem… it’s a redesign problem",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "algorithmic-accountability-act-2022-2026",
+      "field": "authors",
+      "index": 5,
+      "old": "Ben Ray LujÃ¡n",
+      "new": "Ben Ray Luján",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "all-powerful-ai-isnt-existential-threat-according-new-2026",
+      "field": "title",
+      "index": null,
+      "old": "All Powerful AI Isnâ€™t an Existential Threat, According to New Georgia Tech Research   Ivan Allen College of Liberal Arts",
+      "new": "All Powerful AI Isn’t an Existential Threat, According to New Georgia Tech Research   Ivan Allen College of Liberal Arts",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "anthropic-identifies-jobs-most-exposed-ai-risksis-your-2026",
+      "field": "title",
+      "index": null,
+      "old": "Anthropic Identifies the Jobs Most Exposed to AI Risksâ€”Is Your Occupation Affected?",
+      "new": "Anthropic Identifies the Jobs Most Exposed to AI Risks—Is Your Occupation Affected?",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "approach-technical-agi-safety-security-2026",
+      "field": "authors",
+      "index": 15,
+      "old": "SÃ©bastien Krier",
+      "new": "Sébastien Krier",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "artificial-intelligence-systemic-risk-2026",
+      "field": "authors",
+      "index": 3,
+      "old": "Antonio SÃ¡nchez Serrano",
+      "new": "Antonio Sánchez Serrano",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "baumols-cost-disease-ai-economic-growth-2026",
+      "field": "title",
+      "index": null,
+      "old": "Baumolâ€™s Cost Disease, AI & Economic Growth",
+      "new": "Baumol’s Cost Disease, AI & Economic Growth",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "baumols-cost-disease-ai-economic-growth-2026-1",
+      "field": "title",
+      "index": null,
+      "old": "Baumolâ€™s Cost Disease, AI & Economic Growth",
+      "new": "Baumol’s Cost Disease, AI & Economic Growth",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "baumols-cost-disease-ai-economic-growth-2026-2",
+      "field": "title",
+      "index": null,
+      "old": "Baumolâ€™s Cost Disease, AI & Economic Growth",
+      "new": "Baumol’s Cost Disease, AI & Economic Growth",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "baumols-cost-disease-ai-economic-growth-2026-2",
+      "field": "one_liner",
+      "index": null,
+      "old": "Argues that Baumolâ€™s cost disease does not preclude radical AI-driven economic transformation and massive increases in living standards.",
+      "new": "Argues that Baumol’s cost disease does not preclude radical AI-driven economic transformation and massive increases in living standards.",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "baumols-cost-disease-long-term-economic-implications-where-2026",
+      "field": "title",
+      "index": null,
+      "old": "Baumolâ€™s cost disease: long-term economic implications where machines cannot replace humans",
+      "new": "Baumol’s cost disease: long-term economic implications where machines cannot replace humans",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "baumols-cost-disease-long-term-economic-implications-where-2026-1",
+      "field": "title",
+      "index": null,
+      "old": "Baumolâ€™s cost disease: long-term economic implications where machines cannot replace humans",
+      "new": "Baumol’s cost disease: long-term economic implications where machines cannot replace humans",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "baumols-cost-disease-long-term-economic-implications-where-2026-2",
+      "field": "title",
+      "index": null,
+      "old": "Baumolâ€™s cost disease: long-term economic implications where machines cannot replace humans",
+      "new": "Baumol’s cost disease: long-term economic implications where machines cannot replace humans",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "benchmarking-is-broken-dont-let-ai-be-its-own-judge-2026",
+      "field": "authors",
+      "index": 5,
+      "old": "JoÃ£o Alves Ribeiro",
+      "new": "João Alves Ribeiro",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "concrete-problems-ai-safety-2026",
+      "field": "authors",
+      "index": 5,
+      "old": "Dan ManÃ©",
+      "new": "Dan Mané",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "detecting-reducing-scheming-ai-models-2026",
+      "field": "one_liner",
+      "index": null,
+      "old": "OpenAI and Apollo Research demonstrate methods to detect and mitigate AI 'scheming'â€”where models hide misalignmentâ€”using deliberative alignment and chain-of-thought transparency.",
+      "new": "OpenAI and Apollo Research demonstrate methods to detect and mitigate AI 'scheming'—where models hide misalignment—using deliberative alignment and chain-of-thought transparency.",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "dont-call-it-intelligence-2026",
+      "field": "title",
+      "index": null,
+      "old": "Donâ€™t Call It â€˜Intelligenceâ€™",
+      "new": "Don’t Call It ‘Intelligence’",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "eight-ways-ai-will-shape-geopolitics-2026-2026",
+      "field": "authors",
+      "index": 7,
+      "old": "Esteban Ponce de LeÃ³n",
+      "new": "Esteban Ponce de León",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "eight-ways-ai-will-shape-geopolitics-2026-2026-1",
+      "field": "authors",
+      "index": 4,
+      "old": "Esteban Ponce de LeÃ³n",
+      "new": "Esteban Ponce de León",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "eight-ways-ai-will-shape-geopolitics-2026-2026-2",
+      "field": "authors",
+      "index": 7,
+      "old": "Esteban Ponce de LeÃ³n",
+      "new": "Esteban Ponce de León",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "eight-ways-ai-will-shape-geopolitics-2026-2026-3",
+      "field": "authors",
+      "index": 4,
+      "old": "Esteban Ponce de LeÃ³n",
+      "new": "Esteban Ponce de León",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "empowering-stakeholders-participatory-auditing-predictive-2026",
+      "field": "authors",
+      "index": 6,
+      "old": "Emily Oâ€™Hara",
+      "new": "Emily O’Hara",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "explaining-womens-skepticism-toward-artificial-intelligence-2026",
+      "field": "title",
+      "index": null,
+      "old": "Explaining womenâ€™s skepticism toward artificial intelligence: The role of risk orientation and risk exposure",
+      "new": "Explaining women’s skepticism toward artificial intelligence: The role of risk orientation and risk exposure",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "future-jobs-report-2025-2026",
+      "field": "authors",
+      "index": 3,
+      "old": "Ximena JÃ¡tiva",
+      "new": "Ximena Játiva",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "humanai-interactions-public-sector-decision-making-2026",
+      "field": "title",
+      "index": null,
+      "old": "Humanâ€“AI Interactions in Public Sector Decision Making: â€œAutomation Biasâ€ and â€œSelective Adherenceâ€ to Algorithmic Advice",
+      "new": "Human–AI Interactions in Public Sector Decision Making: “Automation Bias” and “Selective Adherence” to Algorithmic Advice",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "i-didnt-use-ai-write-this-but-so-what-if-i-had-2026",
+      "field": "title",
+      "index": null,
+      "old": "I didnâ€™t use AI to write this. But so what if I had?",
+      "new": "I didn’t use AI to write this. But so what if I had?",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "language-technology-is-power-critical-survey-bias-nlp-2026",
+      "field": "authors",
+      "index": 2,
+      "old": "Hal DaumÃ© III",
+      "new": "Hal Daumé III",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "language-technology-is-power-critical-survey-bias-nlp-2026",
+      "field": "title",
+      "index": null,
+      "old": "Language (Technology) is Power: A Critical Survey of â€œBiasâ€ in NLP",
+      "new": "Language (Technology) is Power: A Critical Survey of “Bias” in NLP",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "law-following-ai-designing-ai-agents-obey-human-laws-2026",
+      "field": "authors",
+      "index": 0,
+      "old": "Cullen Oâ€™Keefe",
+      "new": "Cullen O’Keefe",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "marc-andreessen-manifesto-says-ai-regulation-is-form-murder-2026",
+      "field": "title",
+      "index": null,
+      "old": "Marc Andreessen Manifesto Says AI Regulation â€œIs a Form of Murderâ€",
+      "new": "Marc Andreessen Manifesto Says AI Regulation “Is a Form of Murder”",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "marc-andreessen-manifesto-says-ai-regulation-is-form-murder-2026-1",
+      "field": "title",
+      "index": null,
+      "old": "Marc Andreessen Manifesto Says AI Regulation â€œIs a Form of Murderâ€",
+      "new": "Marc Andreessen Manifesto Says AI Regulation “Is a Form of Murder”",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "me-myself-ai-situational-awareness-dataset-sad-llms-2026",
+      "field": "authors",
+      "index": 3,
+      "old": "JÃ©rÃ©my Scheurer",
+      "new": "Jérémy Scheurer",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "measuring-us-workers-capacity-adapt-ai-driven-job-2026",
+      "field": "authors",
+      "index": 1,
+      "old": "TomÃ¡s Aguirre",
+      "new": "Tomás Aguirre",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "measuring-us-workers-capacity-adapt-ai-driven-job-2026",
+      "field": "title",
+      "index": null,
+      "old": "Measuring US workersâ€™ capacity to adapt to AI-driven job displacement",
+      "new": "Measuring US workers’ capacity to adapt to AI-driven job displacement",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "pentagon-went-war-anthropic-whats-really-stake-2026",
+      "field": "title",
+      "index": null,
+      "old": "The Pentagon Went to War with Anthropic. Whatâ€™s Really at Stake?",
+      "new": "The Pentagon Went to War with Anthropic. What’s Really at Stake?",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "please-dont-outsource-your-critical-thinking-2026",
+      "field": "title",
+      "index": null,
+      "old": "Please, donâ€™t outsource your critical thinking",
+      "new": "Please, don’t outsource your critical thinking",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "reflections-manifesto-accelerationist-politics-2026",
+      "field": "title",
+      "index": null,
+      "old": "Reflections on the â€œManifesto for an Accelerationist Politicsâ€",
+      "new": "Reflections on the “Manifesto for an Accelerationist Politics”",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "rise-agentic-ai-potential-new-legal-organizational-risks-2026",
+      "field": "title",
+      "index": null,
+      "old": "The rise of â€œagenticâ€ AI: Potential new legal and organizational risks",
+      "new": "The rise of “agentic” AI: Potential new legal and organizational risks",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "role-ai-decision-making-land-based-operations-2026",
+      "field": "authors",
+      "index": 2,
+      "old": "NiccolÃ² Grasso",
+      "new": "Niccolò Grasso",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "sam-altman-defends-ais-energy-toll-by-saying-it-also-takes-2026",
+      "field": "title",
+      "index": null,
+      "old": "Sam Altman defends AIâ€™s energy toll by saying it also takes a lot to â€˜train a humanâ€™",
+      "new": "Sam Altman defends AI’s energy toll by saying it also takes a lot to ‘train a human’",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "scalable-extraction-training-data-from-aligned-production-2026",
+      "field": "authors",
+      "index": 7,
+      "old": "Florian TramÃ¨r",
+      "new": "Florian Tramèr",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "skin-game-dear-business-why-ai-value-demands-shared-2026",
+      "field": "authors",
+      "index": 0,
+      "old": "Marius FÃ¶rsch",
+      "new": "Marius Försch",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "something-big-is-happening-but-not-what-you-think-2026",
+      "field": "title",
+      "index": null,
+      "old": "Something Big Is Happening â€” But Not What You Think",
+      "new": "Something Big Is Happening — But Not What You Think",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "stop-treating-agi-as-north-star-goal-ai-research-2026",
+      "field": "title",
+      "index": null,
+      "old": "Stop Treating â€˜AGIâ€™ as the North-star Goal of AI Research",
+      "new": "Stop Treating ‘AGI’ as the North-star Goal of AI Research",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "superintelligent-agents-pose-catastrophic-risks-can-2026",
+      "field": "authors",
+      "index": 6,
+      "old": "SÃ¸ren Mindermann",
+      "new": "Søren Mindermann",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "tell-me-about-yourself-llms-are-aware-their-learned-2026",
+      "field": "authors",
+      "index": 2,
+      "old": "MartÃ­n Soto",
+      "new": "Martín Soto",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "theres-good-reason-you-cant-concentrate-2026",
+      "field": "title",
+      "index": null,
+      "old": "Thereâ€™s a Good Reason You Canâ€™t Concentrate",
+      "new": "There’s a Good Reason You Can’t Concentrate",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "theres-good-reason-you-cant-concentrate-2026-1",
+      "field": "title",
+      "index": null,
+      "old": "Thereâ€™s a Good Reason You Canâ€™t Concentrate",
+      "new": "There’s a Good Reason You Can’t Concentrate",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "towards-coordinated-global-approach-ai-environmental-2026",
+      "field": "authors",
+      "index": 1,
+      "old": "Isabel BarberÃ¡",
+      "new": "Isabel Barberá",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "towards-coordinated-global-approach-ai-environmental-2026",
+      "field": "authors",
+      "index": 8,
+      "old": "HÃ©lÃ¨ne Costa de Beauregard",
+      "new": "Hélène Costa de Beauregard",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "transformative-ai-firms-2026",
+      "field": "authors",
+      "index": 2,
+      "old": "Eduard TalamÃ s",
+      "new": "Eduard Talamàs",
+      "codec": "latin-1"
+    },
+    {
+      "doc_id": "unacceptable-markey-reintroduces-legislation-combat-bias-2026",
+      "field": "title",
+      "index": null,
+      "old": "â€˜Unacceptableâ€™: Markey reintroduces legislation to combat bias in artificial intelligence",
+      "new": "‘Unacceptable’: Markey reintroduces legislation to combat bias in artificial intelligence",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "unacceptable-markey-reintroduces-legislation-combat-bias-2026-1",
+      "field": "title",
+      "index": null,
+      "old": "â€˜Unacceptableâ€™: Markey reintroduces legislation to combat bias in artificial intelligence",
+      "new": "‘Unacceptable’: Markey reintroduces legislation to combat bias in artificial intelligence",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "whats-next-ai-field-notes-from-microsoft-research-2026-2026",
+      "field": "title",
+      "index": null,
+      "old": "Whatâ€™s next in AI? Field notes from Microsoft Research for 2026",
+      "new": "What’s next in AI? Field notes from Microsoft Research for 2026",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "where-are-chinas-ai-doomers-2026",
+      "field": "title",
+      "index": null,
+      "old": "Where Are Chinaâ€™s A.I. Doomers?",
+      "new": "Where Are China’s A.I. Doomers?",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "why-150-experts-reject-robot-rights-legal-status-2026-as-ai-2026",
+      "field": "title",
+      "index": null,
+      "old": "Why 150 Experts Reject Robot Rights Legal Status 2026 â€” as AI Bots Form Their Own Cults",
+      "new": "Why 150 Experts Reject Robot Rights Legal Status 2026 — as AI Bots Form Their Own Cults",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "why-llms-arent-agi-we-need-new-qualitative-model-2026",
+      "field": "title",
+      "index": null,
+      "old": "Why LLMs arenâ€™t AGI and We need a new Qualitative Model",
+      "new": "Why LLMs aren’t AGI and We need a new Qualitative Model",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "women-are-avoiding-very-technology-that-threatens-them-most-2026",
+      "field": "title",
+      "index": null,
+      "old": "Women are avoiding the very technology that threatens them most, as expert warns of a â€˜two-tiered AI economyâ€™ approaching",
+      "new": "Women are avoiding the very technology that threatens them most, as expert warns of a ‘two-tiered AI economy’ approaching",
+      "codec": "cp1252"
+    },
+    {
+      "doc_id": "yann-lecuns-united-nations-security-council-address-2026",
+      "field": "title",
+      "index": null,
+      "old": "Yann LeCunâ€™s United Nations Security Council Address",
+      "new": "Yann LeCun’s United Nations Security Council Address",
+      "codec": "cp1252"
+    }
+  ]
+}
