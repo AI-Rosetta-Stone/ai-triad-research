@@ -9,17 +9,16 @@ jobs:
     name: Check for code files outside allowlisted roots
     runs-on: ubuntu-latest
     permissions:
-      checks: write
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@f592c3b60303e2f89458f4bc175e64fe900e8f7e  # actions/checkout v4
         with:
           fetch-depth: 0
           ref: ${{ github.head_ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # actions/setup-node v4
         with:
           node-version: '20'
 
@@ -27,15 +26,3 @@ jobs:
         run: |
           # Get the list of changed files and pipe directly to the guard
           git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD | node scripts/ci/stray-file-guard.mjs --from-stdin
-
-      - name: Comment on PR if violations found
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '⚠️ **Stray File Guard**: Code/test files detected outside allowlisted package roots. See the workflow logs for details.\n\nAllowlisted roots: `taxonomy-editor/`, `poviewer/`, `summary-viewer/`, `workflow-app/`, `lib/`, `scripts/`, `tests/`, `research/`, `deploy/`, `operations/`, `.github/`, `docs/`'
-            });
