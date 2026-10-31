@@ -107,9 +107,8 @@ describe('t/4338 — inquiry debate persists, then "View raw run" loads it (roun
     const { status, body } = await userContext.runWithUser(USER_CTX, () => invokeGetDebate('inquiry-session-1'));
 
     expect(status).toBe(200);
-    expect((body as { id: string; origin: string; inquiryJobId: string }).id).toBe('inquiry-session-1');
-    expect((body as { origin: string }).origin).toBe('inquiry');
-    expect((body as { inquiryJobId: string }).inquiryJobId).toBe('job-rt-1');
+    expect((body as { id: string; origin: { mode: string; inquiry_id: string } }).id).toBe('inquiry-session-1');
+    expect((body as { origin: { mode: string; inquiry_id: string } }).origin).toEqual({ mode: 'inquiry', inquiry_id: 'job-rt-1' });
   });
 
   it('a result for a NON-existent debateId still 404s (sanity — the fix does not make loadDebateSession lenient)', async () => {
