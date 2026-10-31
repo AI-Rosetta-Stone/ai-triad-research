@@ -53,6 +53,7 @@ import { PrecacheToast } from './components/shared/PrecacheToast';
 import { usePrecache } from './hooks/usePrecache';
 import { DiagnosticsDrawer } from './components/shared/DiagnosticsDrawer';
 import { GlobalDetailPaneHost } from './components/shared/GlobalDetailPaneHost';
+import { ToolbarPaneRenderer, PhoneToolClose } from './components/shared/ToolbarPaneRenderer';
 
 // Lazy-loaded tab components — only fetched when their tab is selected
 const SituationsTab = recordingLazy(() => import('./components/debate/SituationsTab').then(m => ({ default: m.SituationsTab })));
@@ -197,6 +198,18 @@ async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>)
     opEd: useOpEdStore,
     inquiry: useInquiryStore,
   }, navHistory);
+}
+
+// t/4722: Chat, Conflicts, Cruxes, Debate, Situations and the POV tabs mount their own
+// ToolbarPaneRenderer (list-pane layout, isFullWidthPanel()). Every other tab never did, so a
+// Tools-menu pick there set toolbarPanel and highlighted the menu item but rendered nothing.
+// MainApp's fallback is derived from this single set, instead of a mount per missing tab — the
+// drift that caused the bug in the first place, and the next new tab would repeat it. Exported
+// so the regression test can assert it covers every tab, not just the ones known at the time.
+export const TABS_WITH_OWN_TOOLBAR_PANE = ['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'accelerationist', 'safetyist', 'skeptic'];
+
+export function tabNeedsToolbarFallback(activeTab: string, toolbarPanel: string | null): boolean {
+  return toolbarPanel !== null && !TABS_WITH_OWN_TOOLBAR_PANE.includes(activeTab);
 }
 
 export function App() {
@@ -627,6 +640,8 @@ function MainApp() {
   // showPovHeader mirrors the original TabBar visibility condition exactly. Layout-only.
   const showPovHeader = toolbarPanel === null &&
     !['rosetta-stone', 'situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'organizations', 'inquiry'].includes(activeTab);
+
+  const showToolbarFallback = tabNeedsToolbarFallback(activeTab, toolbarPanel);
   const tabContent = (
     <>
       {activeTab === 'rosetta-stone' && <RosettaStoneTab />}
@@ -760,7 +775,12 @@ function MainApp() {
       <div className="app-body">
         <Toolbar />
         <div className="tab-content">
-          {showPovHeader ? (
+          {showToolbarFallback ? (
+            <div className="list-panel list-panel-full">
+              <PhoneToolClose />
+              <ToolbarPaneRenderer panel={toolbarPanel} />
+            </div>
+          ) : showPovHeader ? (
             <div className="pov-tab-shell">
               <TabBar />
               <div className="pov-tab-shell-body">{tabContent}</div>
