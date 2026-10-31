@@ -161,7 +161,7 @@ export function InquiryTab() {
     titleHeader: 'Question',
     columns: [
       {
-        key: 'status', header: 'Status', width: '110px',
+        key: 'status', header: 'Status', width: '110px', phone: 'meta',
         render: (row, variant) => variant === 'my' && (row as InquiryMyLibRow).truncated
           ? (
             <span className="inquiry-lib-status inquiry-lib-status--partial">
@@ -172,7 +172,7 @@ export function InquiryTab() {
           : <span className="lib-empty-value">—</span>,
       },
       {
-        key: 'date', header: 'Asked', width: '140px', sortable: true,
+        key: 'date', header: 'Asked', width: '140px', phone: 'meta', sortable: true,
         compare: (a, b, variant) => new Date(inquiryLibDate(a, variant)).getTime() - new Date(inquiryLibDate(b, variant)).getTime(),
         render: (row, variant) => <span className="lib-date">{formatLibDate(inquiryLibDate(row, variant))}</span>,
       },
