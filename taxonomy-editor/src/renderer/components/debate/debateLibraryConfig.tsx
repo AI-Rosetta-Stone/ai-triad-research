@@ -152,6 +152,7 @@ export const DEBATE_COLUMNS: LibraryColumn<SessionRowData, CommunityDebate>[] = 
     header: 'Status',
     width: '100px',
     sortable: true,
+    phone: 'meta', // t/4571#4: Debates' phone meta row shows status, turns, date
     compare: (a, b) => localeCompare(a.phase ?? '', b.phase ?? ''),
     render: (row) => renderDebateStatus(row),
   },
@@ -161,6 +162,7 @@ export const DEBATE_COLUMNS: LibraryColumn<SessionRowData, CommunityDebate>[] = 
     width: '50px',
     align: 'right',
     sortable: true,
+    phone: 'meta',
     compare: (a, b) => (a.turn_count ?? 0) - (b.turn_count ?? 0),
     render: (row) => (row.turn_count != null ? row.turn_count : <span className="lib-empty-value">—</span>),
   },
@@ -181,6 +183,7 @@ export const DEBATE_COLUMNS: LibraryColumn<SessionRowData, CommunityDebate>[] = 
     header: 'Date',
     width: '110px',
     sortable: true,
+    phone: 'meta',
     compare: (a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime(),
     render: (row) => renderDebateDate(row.updated_at),
   },
