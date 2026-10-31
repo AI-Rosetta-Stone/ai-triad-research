@@ -576,4 +576,12 @@ describe('getRequestStableId: t/4706', () => {
     expect(getRequestStableId(r)).toBe('github:12345'); // still recorded
     expect(getIdentityMapKey(r)).toBeUndefined(); // but no map entry
   });
+
+  it('forged x-ms-client-principal-name (or -id) header does not change stableId', () => {
+    // Attacker forges the name header to a different value while keeping the claim unchanged.
+    // stableId must come from the claim, not the header, so the forge has no effect.
+    const r = githubReq({ id: '12345', nameHeader: 'forged-name' }); // claim id=12345, forged name header
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345'); // stableId is from claim, not forged header
+  });
 });

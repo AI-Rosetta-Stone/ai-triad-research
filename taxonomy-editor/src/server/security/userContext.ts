@@ -31,7 +31,11 @@ export interface UserContext {
   isAnonymous: boolean;
   /** UUID from anon_session_id cookie, present only for anonymous web users. */
   anonymousSessionId?: string;
-  /** Stable identity key for GitHub/AAD (format: `github:<id>` or `aad:<tid>-<oid>`). undefined for anonymous or other IDPs. t/4706 */
+  /**
+   * Stable identity key for GitHub/AAD (format: `github:<id>` or `aad:<tid>-<oid>`).
+   * undefined for anonymous or other IDPs. t/4706
+   * First branching reader: t/4328 (isAdmin() will match against `<idp>:<id>` entries in ADMIN_USERS).
+   */
   stableId?: string;
 }
 
