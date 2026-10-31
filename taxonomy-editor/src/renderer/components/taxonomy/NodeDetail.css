@@ -340,18 +340,34 @@
 /* t/4719: no overflow-y here — every embedding context (.detail-panel, .detail-pane-body,
    .pinned-panel, .attr-filter-detail) already wraps NodeDetail with its own overflow-y: auto,
    so a second scroll container here produced two nested scrollbars. The outer wrapper is the
-   single scroll owner; this just grows to its natural content height. */
+   single scroll owner. Design review (p/29#202, t/4719#2): `flex: 1; min-height: 0` pinned this
+   box to a fixed 279px regardless of content, which on the Related tab pushed the shared
+   RelatedEdgesPanel's own `overflow: hidden` body down to a 51px inner scroller — the edge list
+   was still there, just invisible. `flex: 1 0 auto; min-height: auto` lets the box grow with its
+   content (and still fill the panel when short) instead. */
 .node-detail-tab-content {
-  flex: 1;
+  flex: 1 0 auto;
   padding-top: 12px;
-  min-height: 0;
+  min-height: auto;
 }
 
 .node-detail-related-split {
   display: flex;
   gap: 0;
-  height: 100%;
+  height: auto;
   min-height: 200px;
+}
+
+/* t/4719 (p/29#202): RelatedEdgesPanel is shared (edge-browser/) — scoped here, not touched
+   in RelatedEdgesPanel.css, since its own fixed-height scroll is correct standing alone. */
+.node-detail-related-list .related-edges-panel {
+  height: auto;
+  overflow: visible;
+}
+
+.node-detail-related-list .related-edges-body {
+  flex: none;
+  overflow-y: visible;
 }
 
 /* t/4719: same reasoning — these two columns no longer scroll independently; the page-level
