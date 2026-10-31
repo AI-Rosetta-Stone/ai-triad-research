@@ -1337,8 +1337,6 @@ initAnonymousSessionStore({
   sessionTtlMs: parseInt(process.env.ANON_SESSION_TTL_MS || '0', 10) || undefined,
   maxSessions: parseInt(process.env.ANON_MAX_SESSIONS || '0', 10) || undefined,
 });
-
-// ── Free-pool budget store (t/4677) ──
 ensureFreePoolBudgetBooted(log);
 
 // ── Start ──
