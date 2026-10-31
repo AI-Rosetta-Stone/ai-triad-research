@@ -33,7 +33,6 @@ import { initAnalyticsSession } from './lib/initAnalyticsSession';
 import { useBreakpoint } from './hooks/useBreakpoint';
 import { useIsTouchDevice } from './hooks/useIsTouchDevice';
 import { BottomNav } from './components/shared/BottomNav';
-import { NavController } from './components/shared/NavController';
 import { HamburgerMenu } from './components/shared/HamburgerMenu';
 import { useNavigationShortcuts } from './hooks/useNavigationShortcuts';
 import { GitProgressBanner } from './components/sync/GitProgressBanner';
@@ -749,7 +748,6 @@ function MainApp() {
         <span className="mobile-header-title">Taxonomy Editor</span>
       </div>
       <div className="app-body">
-        <NavController />
         <Toolbar />
         <div className="tab-content">
           {showPovHeader ? (
