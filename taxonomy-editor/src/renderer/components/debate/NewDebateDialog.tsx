@@ -279,12 +279,15 @@ async function generateDebateTitle(topic: string): Promise<string> {
 
 type SettingsSection = 'format' | 'voices' | 'model' | 'sourcing' | 'material';
 
+// t/4717 (PI): "Model & providers" moved to last, below "Source material" — panels are
+// selected by id (openSettings('model'), the activeSection switch below), so this reorder
+// changes only the sidebar's display/tab order, nothing else.
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'format',   label: 'Format & pacing' },
   { id: 'voices',   label: 'Voices & audience' },
-  { id: 'model',    label: 'Model & providers' },
   { id: 'sourcing', label: 'Argument sourcing' },
   { id: 'material', label: 'Source material' },
+  { id: 'model',    label: 'Model & providers' },
 ];
 
 interface SettingsApply {
