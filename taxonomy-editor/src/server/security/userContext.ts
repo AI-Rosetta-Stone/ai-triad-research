@@ -31,6 +31,8 @@ export interface UserContext {
   isAnonymous: boolean;
   /** UUID from anon_session_id cookie, present only for anonymous web users. */
   anonymousSessionId?: string;
+  /** Stable identity key for GitHub/AAD (format: `github:<id>` or `aad:<tid>-<oid>`). undefined for anonymous or other IDPs. t/4706 */
+  stableId?: string;
 }
 
 const als = new AsyncLocalStorage<UserContext>();
@@ -61,6 +63,11 @@ export function isAnonymousUser(): boolean {
 /** Anonymous session ID from cookie, or undefined if not anonymous. */
 export function getAnonymousSessionId(): string | undefined {
   return als.getStore()?.anonymousSessionId;
+}
+
+/** Stable identity key for the current request (format: `github:<id>` or `aad:<tid>-<oid>`). undefined for anonymous or other IDPs. t/4706 */
+export function getStableId(): string | undefined {
+  return als.getStore()?.stableId;
 }
 
 /** Session branch name for the current request, or undefined (= main). */

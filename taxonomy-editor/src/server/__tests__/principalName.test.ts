@@ -12,7 +12,7 @@ vi.mock('../logger.js', async (importOriginal) => {
   return { ...orig, log: { ...orig.log, security: { ...orig.log.security, warn: warnMock } } };
 });
 
-import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, getIdentityMapKey, _resetPrincipalNameForTest } from '../principalName.js';
+import { normalizePrincipalNameHeader, parseIdentityMap, canProducePrincipal, identityMapSize, getIdentityMapKey, getRequestStableId, _resetPrincipalNameForTest } from '../principalName.js';
 import { deriveStorageUserId } from '../security/userContext.js';
 import { isAdmin } from '../community/community.js';
 
@@ -473,5 +473,107 @@ describe('Google claim-shape diagnostic (TEMPORARY, staging-only, single-account
     process.env.CLAIM_SHAPE_DIAG_EMAIL = TEST_EMAIL;
     normalizePrincipalNameHeader(githubReq({ id: '1', nameHeader: 'x' }), true);
     expect(diagCall()).toBeUndefined();
+  });
+});
+
+describe('getRequestStableId: t/4706', () => {
+  it('GitHub: extracts stable id from the nameidentifier claim', () => {
+    const r = githubReq({ id: '12345' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345');
+  });
+
+  it('GitHub: falls back to x-ms-client-principal-id when no nameidentifier claim', () => {
+    const r = githubReq({ headerId: '67890', displayName: 'octocat' }); // no id claim
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:67890');
+  });
+
+  it('GitHub: claim takes precedence over header when both present', () => {
+    const r = githubReq({ id: '12345', headerId: '67890' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345');
+  });
+
+  it('GitHub: lowercase the stable id', () => {
+    const r = githubReq({ id: 'MIXED_Case_123' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:mixed_case_123');
+  });
+
+  it('GitHub: undefined when no stable id at all (anonymous)', () => {
+    const r = githubReq({ displayName: 'octocat', nameHeader: 'x' }); // no id or headerId
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('AAD: extracts stable id from tid+oid claims', () => {
+    const r = aadReq({ tid: 'tenant-1', oid: 'obj-1' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('aad:tenant-1-obj-1');
+  });
+
+  it('AAD: undefined when tid is missing', () => {
+    const r = aadReq({ oid: 'obj-1', email: 'user@example.com' }); // no tid
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('AAD: undefined when oid is missing', () => {
+    const r = aadReq({ tid: 'tenant-1', email: 'user@example.com' }); // no oid
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('AAD: lowercase the stable id', () => {
+    const r = aadReq({ tid: 'TENANT-1', oid: 'OBJ-1' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('aad:tenant-1-obj-1');
+  });
+
+  it('AAD: invalid charset → undefined', () => {
+    const r = aadReq({ tid: 'tenant\x00', oid: 'obj-1' }); // null byte fails charset check
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('Google (non-GitHub/non-AAD): undefined (no canonicalizeGoogle yet)', () => {
+    const r = { headers: {
+      'x-ms-client-principal-name': 'user@gmail.com', 'x-ms-client-principal-idp': 'google',
+      'x-ms-client-principal': principal([[NAMEID, 'g-1']], 'google'),
+    } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('other unknown idp: undefined', () => {
+    const r = { headers: {
+      'x-ms-client-principal-name': 'user@example.com', 'x-ms-client-principal-idp': 'okta',
+      'x-ms-client-principal': principal([[EMAIL, 'user@example.com']], 'okta'),
+    } } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('anonymous request: undefined', () => {
+    const r = { headers: {} } as unknown as IncomingMessage;
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBeUndefined();
+  });
+
+  it('matches IDENTITY_MAP key when mapped', () => {
+    process.env.IDENTITY_MAP = 'github:12345=jpsnover';
+    const r = githubReq({ id: '12345' });
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345');
+    expect(getIdentityMapKey(r)).toBe('github:12345'); // both refer to the same key
+  });
+
+  it('recorded even when IDENTITY_MAP has no entry for this id', () => {
+    process.env.IDENTITY_MAP = 'github:999=someone-else';
+    const r = githubReq({ id: '12345' }); // no entry for 12345
+    normalizePrincipalNameHeader(r, true);
+    expect(getRequestStableId(r)).toBe('github:12345'); // still recorded
+    expect(getIdentityMapKey(r)).toBeUndefined(); // but no map entry
   });
 });
