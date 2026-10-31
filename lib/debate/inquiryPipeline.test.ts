@@ -171,6 +171,17 @@ describe('runInquiryPipeline — happy path', () => {
     expect(deps.runDebate).toHaveBeenCalledWith(
       expect.objectContaining({ topic: 'test' }),
       'Specific question?',
+      undefined, // t/4711: onProgress is undefined when deps.onDebateProgress isn't supplied
+    );
+  });
+
+  it('passes a tracked onProgress to runDebate when onDebateProgress is supplied (t/4711)', async () => {
+    const deps = makeDeps({ onDebateProgress: vi.fn() });
+    await runInquiryPipeline(makeRequest(), deps);
+    expect(deps.runDebate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.any(Function),
     );
   });
 
