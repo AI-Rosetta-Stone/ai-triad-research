@@ -41,6 +41,10 @@ vi.mock('../../../../lib/debate/headlessRunner.js', () => ({ runHeadlessDebate: 
 vi.mock('../../../../lib/debate/taxonomyLoader.js', () => ({ loadTaxonomy: vi.fn(() => ({})) }));
 vi.mock('../../../../lib/ai-client/registry.js', () => ({ loadModelRegistry: vi.fn(() => ({})) }));
 vi.mock('../../../../lib/flight-recorder/index.js', () => ({ getGlobalRecorder: vi.fn(() => null) }));
+// t/4682: inquiryHandlers now imports debateIO.js (to save the session for My Debates), whose
+// top-level resolveDataPath() call this file's bare fileIO.js mock doesn't provide — stub the
+// whole module out, this file isn't exercising that save path.
+vi.mock('../debateIO.js', () => ({ saveDebateSession: vi.fn(async () => undefined) }));
 
 const FAKE_CONFIG = { topic: 'q', activePovers: ['accelerationist'] } as unknown;
 

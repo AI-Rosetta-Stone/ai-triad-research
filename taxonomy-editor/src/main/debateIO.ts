@@ -11,6 +11,7 @@ import { extractCalibrationData, appendCalibrationLog } from '../../../lib/debat
 import { safeSerialize, atomicWriteSync, renameSyncWithRetry } from '../../../lib/debate/persistence.js';
 import { recordLockHolder } from '../../../lib/debate/lockHolder.js';
 import { ActionableError } from '../../../lib/debate/errors.js';
+import { normalizeDebateOrigin } from '../../../lib/debate/types/session.js';
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 
 const DEBATES_DIR = resolveDataPath('debates');
@@ -60,6 +61,10 @@ export interface DebateSessionSummary {
   topic_text?: string;
   model?: string;
   turn_count?: number;
+  /** Set only for Ask a Question debates (t/4678) — drives the "Question" badge in My Debates. */
+  origin_mode?: 'inquiry';
+  /** inquiry-only: the inquiry job/result id, for the back-link to the question. */
+  inquiry_id?: string;
 }
 
 interface IndexEntry {
@@ -102,6 +107,17 @@ function saveIndex(index: DebateIndex): void {
   }
 }
 
+/** t/4679/t/4682: only Ask a Question debates get origin_mode/inquiry_id — every other
+ *  summary's shape stays byte-identical to today. Mirrors lib/debate/debateIndex.ts's
+ *  extractInquiryFields (this module keeps its own local summary/index, so needs its own copy). */
+function extractInquiryFields(data: Record<string, unknown>): Pick<DebateSessionSummary, 'origin_mode' | 'inquiry_id'> {
+  const normalizedOrigin = normalizeDebateOrigin(data.origin, data.inquiryJobId);
+  if (normalizedOrigin?.mode !== 'inquiry') return {};
+  return normalizedOrigin.inquiry_id
+    ? { origin_mode: 'inquiry', inquiry_id: normalizedOrigin.inquiry_id }
+    : { origin_mode: 'inquiry' };
+}
+
 function extractSummary(data: Record<string, unknown>): DebateSessionSummary {
   const transcript = Array.isArray(data.transcript) ? data.transcript : [];
   const topic = data.topic as { final?: string; original?: string } | undefined;
@@ -124,6 +140,7 @@ function extractSummary(data: Record<string, unknown>): DebateSessionSummary {
     topic_text: topic?.final ?? topic?.original ?? '',
     model: data.debate_model as string | undefined,
     turn_count: transcript.filter((t: { type?: string }) => t.type === 'statement' || t.type === 'opening').length,
+    ...extractInquiryFields(data),
   };
 }
 
