@@ -181,6 +181,26 @@ export function getIdentityMapKey(req: IncomingMessage): string | undefined {
   return identityMapKeyByRequest.get(req);
 }
 
+/**
+ * t/4706: stable identity key for GitHub and AAD (format: `github:<id>` or `aad:<tid>-<oid>`),
+ * recorded by canonicalizeGithub/canonicalizeAad whenever a valid stable id is extracted.
+ * A WeakMap keyed on the live request object (same safety model as identityMapKeyByRequest):
+ * absence means no authenticated stable id for this request (anon or unknown idp).
+ */
+const stableIdByRequest = new WeakMap<IncomingMessage, string>();
+
+/** t/4706: read-only accessor for UserContext.stableId. Returns `undefined` unless the
+ *  request has an authenticated principal with a recordable stable id (GitHub or AAD). */
+export function getRequestStableId(req: IncomingMessage): string | undefined {
+  return stableIdByRequest.get(req);
+}
+
+/** Test-only: reset the stableIdByRequest WeakMap. */
+export function _resetRequestStableIdForTest(): void {
+  // WeakMaps can't be cleared; this is a no-op placeholder for test symmetry with
+  // _resetPrincipalNameForTest. Tests should create fresh request objects instead.
+}
+
 /** GitHub: replace the (user-editable) name with a stable-id-derived canonical name. */
 function canonicalizeGithub(req: IncomingMessage, decoded: DecodedPrincipal): void {
   const claimId = claimValue(decoded.claims, NAMEIDENTIFIER_CLAIM);
@@ -197,6 +217,7 @@ function canonicalizeGithub(req: IncomingMessage, decoded: DecodedPrincipal): vo
     return;
   }
   const key = `github:${stableId.toLowerCase()}`;
+  stableIdByRequest.set(req, key); // t/4706: record the stable id for UserContext
   const mapped = getIdentityMap().get(key);
   if (mapped) identityMapKeyByRequest.set(req, key); // t/4540: this request's own map hit, for checkProviderBinding
   req.headers[NAME_HEADER] = mapped ?? `github-${stableId.toLowerCase()}`;
@@ -225,6 +246,7 @@ function canonicalizeAad(req: IncomingMessage, decoded: DecodedPrincipal): void 
     return;
   }
   const key = `aad:${stableId}`;
+  stableIdByRequest.set(req, key); // t/4706: record the stable id for UserContext
   const mapped = getIdentityMap().get(key);
   if (mapped) identityMapKeyByRequest.set(req, key); // t/4540: this request's own map hit, for checkProviderBinding
   req.headers[NAME_HEADER] = mapped ?? `aad-${stableId}`;
