@@ -251,6 +251,26 @@
 
 /* ── title cell ── */
 
+/* t/4720: wraps the title text/web-address span + an optional titleBadge, same line, so the
+   badge sits beside the title on both desktop (.lib-cell.lib-col-title) and phone (.lib-phone-
+   title) without either path needing its own markup. flex-wrap lets the badge drop to its own
+   line under the title at narrow widths instead of overflowing or shrinking the title further. */
+.lib-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.lib-title-line > .lib-title-text,
+.lib-title-line > .lib-title-webaddr {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.lib-title-badge-slot {
+  flex: none;
+}
+
 .lib-title-text {
   font-size: 14px;
   font-weight: 500;

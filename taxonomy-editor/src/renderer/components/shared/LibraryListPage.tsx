@@ -119,18 +119,23 @@ function TitleCell<TMy extends { id: string }, TCommunity extends { id: string }
     );
   }
 
+  const badge = config.titleBadge?.(row, variant);
+
   return (
     <>
-      {isWebAddress ? (
-        <span className="lib-title-webaddr" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
-          <span className="lib-title-site">{stripWebAddress(title).site}</span>
-          <span className="lib-title-rest">{stripWebAddress(title).rest}</span>
-        </span>
-      ) : (
-        <div className="lib-title-text" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
-          {title}
-        </div>
-      )}
+      <div className="lib-title-line">
+        {isWebAddress ? (
+          <span className="lib-title-webaddr" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
+            <span className="lib-title-site">{stripWebAddress(title).site}</span>
+            <span className="lib-title-rest">{stripWebAddress(title).rest}</span>
+          </span>
+        ) : (
+          <div className="lib-title-text" title={title} onDoubleClick={config.onRename ? startRename : undefined}>
+            {title}
+          </div>
+        )}
+        {badge && <span className="lib-title-badge-slot">{badge}</span>}
+      </div>
       {secondary && <div className="lib-title-secondary">{secondary}</div>}
     </>
   );
