@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only re-scan for t/4658 Repair 1, per SO condition C1 (e/407#2).
+"""Discovery pass for t/4658 Repair 1 (SO condition C1, e/407#2/#4).
 
 Scans authors/title/one_liner across all ai-triad-sources metadata.json for BOTH
 mojibake signatures:
@@ -8,11 +8,16 @@ mojibake signatures:
 
 For each hit, computes the candidate fix via both latin-1 and cp1252 re-encode,
 and records which one produces a plausible repaired string (no replacement
-chars, reversible). Produces a frozen old->new list with per-doc metadata.json
-sha256 (pre), the field, and the decoding used. Does NOT write anything.
+chars). Writes raw_scan.json: doc_id/field/index/old/new/codec only -- no
+sha256, since this script reads the WORKING COPY, which can silently diverge
+from the committed blob (t/4495#4's CRLF-drift class, G1 in e/407#4).
+
+freeze.py consumes raw_scan.json and computes the real, apply-ready
+frozen_metadata_fixes.json (committed-blob pre_sha256, post_sha256) -- this
+script's own output is a discovery intermediate, not the authorization
+artifact. Does NOT write to ai-triad-sources.
 """
 import json
-import hashlib
 import os
 import re
 import sys
@@ -63,10 +68,6 @@ def try_fix(s):
     return None, None
 
 
-def sha256_of_file(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def scan_value(val):
     """Return True if val (string) matches either mojibake signature."""
     if not isinstance(val, str):
@@ -89,8 +90,6 @@ for d in doc_dirs:
         print(f"  WARN unreadable {d.name}: {e}", file=sys.stderr)
         continue
 
-    pre_sha = sha256_of_file(meta_path)
-
     for field in FIELDS:
         if field not in meta:
             continue
@@ -100,6 +99,9 @@ for d in doc_dirs:
         for idx, entry in enumerate(entries):
             if scan_value(entry):
                 fixed, codec = try_fix(entry)
+                if fixed is None:
+                    print(f"WARN not cleanly reversible, EXCLUDED from raw_scan.json: {d.name} [{field}]: {entry!r}", file=sys.stderr)
+                    continue
                 results.append({
                     'doc_id': d.name,
                     'field': field,
@@ -107,8 +109,6 @@ for d in doc_dirs:
                     'old': entry,
                     'new': fixed,
                     'codec': codec,
-                    'reversible': fixed is not None,
-                    'pre_sha256': pre_sha,
                 })
 
 print(f"\n=== TOTAL HITS: {len(results)} ===")
@@ -123,14 +123,9 @@ for field, items in by_field.items():
     docs = len(set(it['doc_id'] for it in items))
     print(f"\n-- {field}: {len(items)} hits across {docs} docs -- by codec: {codecs}")
 
-not_reversible = [r for r in results if not r['reversible']]
-print(f"\nNot cleanly reversible: {len(not_reversible)}")
-for r in not_reversible:
-    print(f"  {r['doc_id']} [{r['field']}]: {r['old']!r}")
-
 print("\n=== authors field detail (human-read column) ===")
 for r in [x for x in results if x['field'] == 'authors']:
-    print(f"  {r['doc_id']}: {r['old']!r} -> {r['new']!r} (codec={r['codec']}, pre_sha256={r['pre_sha256'][:12]}...)")
+    print(f"  {r['doc_id']}: {r['old']!r} -> {r['new']!r} (codec={r['codec']})")
 
 print("\n=== title field detail ===")
 for r in [x for x in results if x['field'] == 'title']:
@@ -140,12 +135,13 @@ print("\n=== one_liner field detail ===")
 for r in [x for x in results if x['field'] == 'one_liner']:
     print(f"  {r['doc_id']}: {r['old']!r} -> {r['new']!r} (codec={r['codec']})")
 
-# Write the frozen list artifact
+# Discovery output -- NOT the apply-ready frozen list. freeze.py turns this into
+# frozen_metadata_fixes.json with committed-blob sha256es.
 out = {
     'scan': 't4658-full-mojibake-scan',
     'total_hits': len(results),
     'entries': results,
 }
-out_path = Path(__file__).parent / 'frozen_list.json'
+out_path = Path(__file__).parent / 'raw_scan.json'
 out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding='utf-8')
-print(f"\nFrozen list written to: {out_path}")
+print(f"\nRaw scan written to: {out_path}")
