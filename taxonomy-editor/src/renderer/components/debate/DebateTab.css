@@ -210,25 +210,6 @@
   white-space: nowrap;
 }
 
-/* t/4678/t/4683: back-link to the originating question, My debates only. */
-.debate-detail-from-question {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin: -8px 0 16px;
-}
-
-.debate-detail-from-question-link {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: inherit;
-  font-weight: 600;
-  color: var(--link-color);
-  cursor: pointer;
-  text-align: left;
-}
-.debate-detail-from-question-link:hover { text-decoration: underline; }
-
 .debate-detail-actions {
   display: flex;
   gap: 8px;

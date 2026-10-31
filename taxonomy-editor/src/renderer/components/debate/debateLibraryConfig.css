@@ -14,9 +14,10 @@
   white-space: nowrap;
 }
 
-/* t/4683: "Question" pill for a My-tab row from Ask a Question — reuses the shared
-   LibraryListPage's active-tab-badge tokens (--lib-active-bg/--lib-accent), already reviewed
-   for contrast in all 4 themes (t/4561/t/4565). TL ruling (p/501#62): Debates-local, no shared
+/* t/4683: "Question" pill for a My-tab row from Ask a Question — a type tag, not a status, so
+   it uses the shared LibraryListPage's inactive-badge tokens (--lib-inactive-badge-bg/--lib-text)
+   rather than --lib-accent, which resolves to --danger (red) in light/dark/bkc and fails AA at
+   11px there (Design review, t/4683#6). TL ruling (p/501#62): Debates-local, no shared
    titleBadge hook. */
 .debate-lib-question-badge {
   display: inline-flex;
@@ -24,11 +25,12 @@
   padding: 2px 8px;
   margin-right: 6px;
   border-radius: 999px;
+  border: 1px solid var(--lib-border-control);
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
-  background: var(--lib-active-bg);
-  color: var(--lib-accent);
+  background: var(--lib-inactive-badge-bg);
+  color: var(--lib-text);
 }
 
 .debate-lib-status {

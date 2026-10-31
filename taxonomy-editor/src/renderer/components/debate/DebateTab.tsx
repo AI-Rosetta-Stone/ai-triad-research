@@ -8,7 +8,6 @@ import { useDebateStore } from '../../hooks/useDebateStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useCommunityStore } from '../../hooks/useCommunityStore';
-import { useInquiryStore } from '../../hooks/useInquiryStore';
 import type { CommunityDebate } from '../../hooks/useCommunityStore';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -863,28 +862,6 @@ function BulkDeleteDialog({
 
 // ── Debate Detail Summary ──
 
-// t/4678/t/4683: back-link to the originating question. Split out of DebateDetailSummary so its
-// own branch/callback don't count toward that function's complexity budget (local/complexity-budget).
-// The question text IS the debate's topic (runInquiryPipeline passes request.question straight
-// into runDebate) — no separate fetch by inquiry_id needed. Reuses the existing open-by-id action
-// rather than calling NavHistory directly; t/4640's nav model picks up ordinary store-action calls
-// through its own subscriber (t/4640 R1).
-function FromQuestionLink({ debate, topic }: { debate: DebateSession; topic: string }) {
-  const origin = debateOrigin(debate);
-  const handleOpenQuestion = useCallback(() => {
-    if (!origin?.inquiry_id) return;
-    useTaxonomyStore.getState().setActiveTab('inquiry');
-    void useInquiryStore.getState().openFromHistory(origin.inquiry_id);
-  }, [origin?.inquiry_id]);
-
-  if (origin?.mode !== 'inquiry' || !origin.inquiry_id) return null;
-  return (
-    <p className="debate-detail-from-question">
-      From a question: <button type="button" className="debate-detail-from-question-link" onClick={handleOpenQuestion}>{topic}</button>
-    </p>
-  );
-}
-
 function DebateDetailSummary({
   debate,
   onOpenWindow,
@@ -940,8 +917,6 @@ function DebateDetailSummary({
           {PHASE_LABELS[debate.phase] || debate.phase}
         </span>
       </div>
-
-      <FromQuestionLink debate={debate} topic={topic} />
 
       <div className="debate-detail-actions">
         <button className="btn btn-primary" onClick={onOpenWindow}>
@@ -1076,7 +1051,7 @@ function DebateSourceSection({ debate }: { debate: DebateSession }) {
 const ORIGIN_MODE_LABELS: Record<string, string> = {
   cli: 'CLI (headless runner)',
   gui: 'GUI (Electron app)',
-  inquiry: 'Asked a Question', // t/4678/t/4683: was mislabeled "GUI" for the legacy string origin
+  inquiry: 'Ask a Question', // t/4678/t/4683: the tool's name (Design review t/4683#6), was mislabeled "GUI" for the legacy string origin
 };
 
 export function DebateConfigSection({ debate }: { debate: DebateSession }) {
