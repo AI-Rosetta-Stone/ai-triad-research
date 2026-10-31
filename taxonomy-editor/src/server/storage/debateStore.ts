@@ -18,6 +18,7 @@ import { safeSerialize } from '../../../../lib/debate/persistence.js';
 import { applyDebateDelta } from '../../../../lib/debate/applyDebateDelta.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import type { DebateDelta, DebateSession } from '../../../../lib/debate/types.js';
+import { normalizeDebateOrigin } from '../../../../lib/debate/types.js';
 import { log } from '../logger.js';
 import { getStorageUserId, isAnonymousUser, getAnonymousSessionId } from '../security/userContext.js';
 import { getAnonymousSessionStore } from './anonymousSessionStore.js';
@@ -45,7 +46,15 @@ const DEBATE_INDEX_FILE = '_index.json';
  *  (t/2725) — the upsert path MUST populate them or the table renders "—" for those rows
  *  while full-rebuild rows show real values (t/2892). `turn_count` is always a number
  *  (0 when no transcript) so it doubles as the schema-drift sentinel. */
-type DebateIndexEntry = { id: string; title: string; created_at: string; updated_at: string; phase: string; model?: string; turn_count?: number };
+type DebateIndexEntry = {
+  id: string; title: string; created_at: string; updated_at: string; phase: string; model?: string; turn_count?: number;
+  /** Set only for Ask a Question debates (t/4678/t/4680) — drives the "Question" badge in My
+   *  Debates. Mirrors lib/debate/debateIndex.ts's extractInquiryFields (t/4679), independently
+   *  because this index is a different schema/file (one row set per user, not per-debate mtime
+   *  cache) — kept in sync by using the same normalizeDebateOrigin helper. */
+  origin_mode?: 'inquiry';
+  inquiry_id?: string;
+};
 
 /** Read the lightweight debate index (one file read).  Returns null if the index doesn't exist. */
 async function readDebateIndex(): Promise<DebateIndexEntry[] | null> {
@@ -110,8 +119,12 @@ export async function listDebateSessionsMeta(): Promise<unknown[]> {
     // Lightweight staleness check: compare file count from tree with index size.
     // listDirectory() uses the in-memory repoTree — zero API calls.
     try {
+      // t/4680: inquiry-debate-* rows now live in this same index (listed, quota-exempt),
+      // so the file count this staleness check compares against must include them too —
+      // otherwise every cold read would see a permanent count mismatch and loop a
+      // background rebuild on every call.
       const files = (await backend.listDirectory(dir))
-        .filter(f => f.endsWith('.json') && f.startsWith('debate-'));
+        .filter(f => f.endsWith('.json') && (f.startsWith('debate-') || f.startsWith('inquiry-debate-')));
       if (files.length === cached.length) return cached;
       // Count mismatch — rebuild in background, return stale data now for speed
       void rebuildDebateIndex().catch((err) => { log.server.warn({ err }, 'Background debate index rebuild failed'); });
@@ -134,10 +147,15 @@ async function rebuildDebateIndex(): Promise<unknown[]> {
 }
 
 export async function listDebateSessions(): Promise<unknown[]> {
+  // t/4680: anonymous debates already live in one flat per-session directory with no
+  // filename-based quota/listing split (AnonymousSessionStore.listDebates lists every
+  // file in <session>/debates/ regardless of prefix, and saveDebateSession's anonymous
+  // branch ignores excludeFromQuota/listedButExempt entirely) — so "inquiry-debate-*
+  // listed, quota-exempt" parity already holds for anon users with no code change here.
   if (isAnonymousUser()) { const a = getAnonStore(); return a ? await a.store.listDebates(a.sessionId) : []; }
   const backend = getUserContentBackend();
   const dir = getDebatesDir();
-  const summaries: { id: string; title: string; created_at: string; updated_at: string; phase: string; model?: string; turn_count?: number }[] = [];
+  const summaries: DebateIndexEntry[] = [];
 
   // Scan root debates dir + cli-runs subdirectory
   const scanDirs = [dir, path.join(dir, 'cli-runs')];
@@ -172,16 +190,117 @@ export async function listDebateSessions(): Promise<unknown[]> {
       } catch { /* telemetry — silent by design;  skip */ }
     }
   }
+
+  // t/4680: inquiry-debate-*.json files are quota-exempt by filename alone (see
+  // quotaExemptDebatePath below) but, unlike the pre-t/4680 behavior, ARE listed —
+  // t/4678 wants "Ask a Question" debates visible in My Debates, labelled "Question".
+  // Back-fill any such file not yet in the index (idempotent by id), then merge the
+  // index's inquiry rows into this full-scan result.
+  await discoverAndPersistInquiryDebates().catch((err) => {
+    log.server.warn({ err }, 'Inquiry debate back-fill failed (best-effort)');
+  });
+  const indexEntries = (await readDebateIndex()) ?? [];
+  for (const entry of indexEntries) {
+    if (entry.origin_mode === 'inquiry') summaries.push(entry);
+  }
+
   return summaries.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
 }
 
-/** t/4338: quota-exempt sessions (`saveDebateSession(..., {excludeFromQuota: true})`)
- *  are stored under this prefix instead of `debate-`, so the quota count
- *  (`getDebatesQuotaStatus`, filters `startsWith('debate-')`) and the listing
- *  scan (`listDebateSessions`, same filter plus `-debate.json`) both skip them
- *  structurally — no per-file `origin` read on every quota check or list. */
+/** Build a `DebateIndexEntry`-shaped summary from a raw parsed debate JSON blob,
+ *  filling `origin_mode`/`inquiry_id` for Ask a Question debates via the shared
+ *  `normalizeDebateOrigin` (t/4679) so a debate is never mislabeled. Single source
+ *  of summary-projection logic shared by the full scan, the inquiry back-fill, and
+ *  the index upsert on save. */
+function summaryFromRaw(id: string, raw: Record<string, unknown>): DebateIndexEntry {
+  const transcript = Array.isArray(raw.transcript) ? raw.transcript as { type?: string }[] : [];
+  const topic = raw.topic as { final?: string; original?: string } | string | undefined;
+  const entry: DebateIndexEntry = {
+    id,
+    title: (typeof raw.title === 'string' && raw.title)
+      ? raw.title
+      : typeof topic === 'string'
+        ? topic
+        : (topic?.final ?? topic?.original ?? 'Untitled'),
+    created_at: (raw.created_at as string) || '',
+    updated_at: (raw.updated_at as string) || (raw.created_at as string) || '',
+    phase: (raw.phase as string) || 'unknown',
+    model: raw.debate_model as string | undefined,
+    turn_count: transcript.filter(t => t.type === 'statement' || t.type === 'opening').length,
+  };
+  const normalizedOrigin = normalizeDebateOrigin(raw.origin, raw.inquiryJobId);
+  if (normalizedOrigin?.mode === 'inquiry') {
+    entry.origin_mode = 'inquiry';
+    if (normalizedOrigin.inquiry_id) entry.inquiry_id = normalizedOrigin.inquiry_id;
+  }
+  return entry;
+}
+
+const INQUIRY_DEBATE_PREFIX = 'inquiry-debate-';
+
+/**
+ * t/4680: discovers `inquiry-debate-*.json` files under the user's debates dir that
+ * aren't yet in the lightweight index (legacy files written before t/4680, or written
+ * by any future caller directly) and persists them into the index — idempotent by id,
+ * so a second call finds nothing new and re-parses nothing already indexed.
+ *
+ * Uses `StorageBackend.listDirectory()` — never a raw `fs` scan — so this works
+ * identically across backends:
+ *   - FilesystemBackend: one `readdir`, local disk, no network cost.
+ *   - GitHubAPIBackend: served from the in-memory repoTree cache — zero API calls
+ *     (see the staleness-check comment on `listDebateSessionsMeta` above).
+ *   - AzureBlobBackend (production/hosted): one "List Blobs" transaction per call —
+ *     real network I/O, billed per transaction by Azure. Called once per user per
+ *     `listDebateSessions()` invocation — not looped or batched further.
+ *
+ * A file that fails to parse (corrupt JSON) is skipped with a WARN; the rest of the
+ * back-fill continues.
+ */
+async function discoverAndPersistInquiryDebates(): Promise<{ found: number; added: number }> {
+  const backend = getUserContentBackend();
+  const dir = getDebatesDir();
+  const userId = getStorageUserId();
+  const files = (await backend.listDirectory(dir)).filter(f => f.startsWith(INQUIRY_DEBATE_PREFIX) && f.endsWith('.json'));
+
+  const entries = (await readDebateIndex()) ?? [];
+  const existingIds = new Set(entries.map(e => e.id));
+
+  const discovered: DebateIndexEntry[] = [];
+  for (const f of files) {
+    const idFromFile = f.slice(INQUIRY_DEBATE_PREFIX.length, -'.json'.length);
+    if (existingIds.has(idFromFile)) continue; // already indexed — idempotent, no re-parse
+    try {
+      const raw = await backend.readFile(path.join(dir, f));
+      if (raw === null) continue;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      discovered.push(summaryFromRaw((parsed.id as string) || idFromFile, parsed));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'debate-store', level: 'warn',
+        message: `Inquiry debate back-fill: legacy file failed to parse — skipped: ${f}`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      log.server.warn({ err, file: f, userId }, 'Inquiry debate back-fill: legacy file failed to parse — skipped');
+    }
+  }
+
+  if (discovered.length > 0) {
+    await writeDebateIndex([...entries, ...discovered]);
+  }
+  log.server.info({ userId, found: files.length, added: discovered.length },
+    `inquiry back-fill user=${userId} found=${files.length} added=${discovered.length}`);
+  return { found: files.length, added: discovered.length };
+}
+
+/** t/4338/t/4680: inquiry sessions (`saveDebateSession(..., {excludeFromQuota: true})`
+ *  or `saveDebateSession(..., {listedButExempt: true})`) are stored under this prefix
+ *  instead of `debate-`, so the quota count (`getDebatesQuotaStatus`, filters
+ *  `startsWith('debate-')`) skips them structurally — no per-file `origin` read on
+ *  every quota check. Unlike pre-t/4680, they ARE listed (see discoverAndPersistInquiryDebates
+ *  + the index merge in listDebateSessions above) — filename alone now decides both
+ *  quota-exemption AND listedness, no separate `listedButExempt` flag is consulted here. */
 function quotaExemptDebatePath(id: string): string {
-  return path.join(getDebatesDir(), `inquiry-debate-${id}.json`);
+  return path.join(getDebatesDir(), `${INQUIRY_DEBATE_PREFIX}${id}.json`);
 }
 
 export async function loadDebateSession(id: string): Promise<unknown> {
@@ -265,30 +384,46 @@ async function enforceDebateQuota(): Promise<void> {
  * adoption is visible (condition 3; follow-up ticket makes it mandatory once
  * the WARN count is zero for 7 days).
  *
- * `opts.excludeFromQuota` (t/4338, CL review on #3511): stores the session
- * under `inquiry-debate-<id>.json` instead of `debate-<id>.json`. Neither the
- * quota count (`getDebatesQuotaStatus`) nor the listing scan
- * (`listDebateSessions`) match that prefix, so an excluded session never
- * consumes a debate slot and never appears in the user's debate list —
- * structurally, not via a per-file read. It also skips the lightweight index
- * (which backs the list), for the same reason. `loadDebateSession` still
- * finds it via a fallback, so a direct-by-id load (e.g. "View raw run")
- * works unchanged.
+ * `opts.excludeFromQuota` (t/4338, CL review on #3511) and `opts.listedButExempt`
+ * (t/4680, TL review t/4680#2) both store the session under
+ * `inquiry-debate-<id>.json` instead of `debate-<id>.json` — the quota count
+ * (`getDebatesQuotaStatus`, filters `startsWith('debate-')`) skips that prefix
+ * structurally, so neither ever consumes a debate slot. They are mutually
+ * exclusive (passing both throws) because historically `excludeFromQuota` also
+ * hid the session from the user's debate list; as of t/4680 that hiding is
+ * gone — inquiry-debate-* sessions ARE listed (t/4678: "Ask a Question" debates
+ * should appear in My Debates, labelled "Question") via the index merge in
+ * `listDebateSessions`/`discoverAndPersistInquiryDebates` above. `loadDebateSession`
+ * still finds the session via its own fallback, so a direct-by-id load (e.g.
+ * "View raw run") works unchanged either way.
  */
 export async function saveDebateSession(
-  session: unknown, caller: string, opts?: { expectedVersion?: number; mustNotExist?: boolean; excludeFromQuota?: boolean },
+  session: unknown, caller: string,
+  opts?: { expectedVersion?: number; mustNotExist?: boolean; excludeFromQuota?: boolean; listedButExempt?: boolean },
 ): Promise<{ newVersion: number }> {
+  if (opts?.excludeFromQuota && opts?.listedButExempt) {
+    throw new ActionableError({
+      goal: 'Save a quota-exempt debate session',
+      problem: '`excludeFromQuota` and `listedButExempt` were both set — conflicting options (t/4680)',
+      location: 'server/storage/debateStore.ts → saveDebateSession',
+      nextSteps: ['Pass exactly one of `excludeFromQuota` or `listedButExempt`, not both.'],
+    });
+  }
   const s = session as { id: string; title?: string; topic?: { final?: string; original?: string }; created_at?: string; updated_at?: string; phase?: string; _saveVersion?: number };
   assertSafeId(s.id, 'debate id');
   if (isAnonymousUser()) {
+    // t/4680: anon debates have no filename-based quota/listing split (see the
+    // listDebateSessions comment above) — excludeFromQuota/listedButExempt are
+    // no-ops here by design, not an oversight.
     const a = getAnonStore();
     if (a) await a.store.saveDebate(a.sessionId, session);
     return { newVersion: (s._saveVersion ?? 0) + 1 };
   }
+  const isInquiryExempt = Boolean(opts?.excludeFromQuota || opts?.listedButExempt);
   const backend = getUserContentBackend();
-  const debatePath = opts?.excludeFromQuota ? quotaExemptDebatePath(s.id) : path.join(getDebatesDir(), `debate-${s.id}.json`);
+  const debatePath = isInquiryExempt ? quotaExemptDebatePath(s.id) : path.join(getDebatesDir(), `debate-${s.id}.json`);
   const { existing, currentVersion } = await resolveVersionedWrite(backend, debatePath, s.id, 'debate', opts);
-  if (existing === null && !opts?.excludeFromQuota) await enforceDebateQuota();
+  if (existing === null && !isInquiryExempt) await enforceDebateQuota();
   const newVersion = resolveSaveVersion(session as Record<string, unknown>, currentVersion, opts !== undefined);
   const bodyToWrite = opts !== undefined ? { ...(session as object), _saveVersion: newVersion } : session;
   const { json, hadError, errorMessage } = safeSerialize(bodyToWrite, 2);
@@ -297,12 +432,10 @@ export async function saveDebateSession(
   }
   await writeVersionedOrThrowConflict(backend, debatePath, json, existing ? existing.version : '', s.id, currentVersion);
   log.server.info({ caller, debateId: s.id, backendName: backend.backendName, blobKey: debatePath, bytes: json.length, writeAck: true }, 'Debate session saved');
-  // Maintain the lightweight index — skipped for quota-exempt sessions, which
-  // must not surface in the user's debate list (t/4338).
-  if (!opts?.excludeFromQuota) {
-    void upsertDebateIndex(buildDebateIndexEntry(s.id, { ...(session as DebateSession), _saveVersion: newVersion }))
-      .catch((err) => { log.server.warn({ err }, 'Debate index upsert failed (best-effort)'); });
-  }
+  // t/4680: the index is now maintained for EVERY session, including
+  // inquiry-debate-* ones — they are listed, not hidden, as of this ticket.
+  void upsertDebateIndex(buildDebateIndexEntry(s.id, { ...(session as DebateSession), _saveVersion: newVersion }))
+    .catch((err) => { log.server.warn({ err }, 'Debate index upsert failed (best-effort)'); });
   return { newVersion };
 }
 
@@ -429,19 +562,11 @@ async function applyDeltaAnon(delta: DebateDelta): Promise<{ newVersion: number 
 }
 
 function buildDebateIndexEntry(id: string, merged: DebateSession): DebateIndexEntry {
-  const m = merged as { title?: string; topic?: { final?: string; original?: string }; created_at?: string; updated_at?: string; phase?: string; debate_model?: string; transcript?: { type?: string }[] };
-  // model + turn_count mirror the full-rebuild path (listDebateSessions) so upsert-written
-  // rows carry the same fields — else Turns/Model render "—" for saved debates (t/2892).
-  const transcript = Array.isArray(m.transcript) ? m.transcript : [];
-  return {
-    id,
-    title: m.title || m.topic?.final || m.topic?.original || 'Untitled',
-    created_at: m.created_at || '',
-    updated_at: m.updated_at || m.created_at || '',
-    phase: m.phase || 'unknown',
-    model: m.debate_model,
-    turn_count: transcript.filter(t => t.type === 'statement' || t.type === 'opening').length,
-  };
+  // t/4680: delegates to summaryFromRaw (same projection the full scan and the
+  // inquiry back-fill use) so upsert-written rows also carry origin_mode/inquiry_id —
+  // else "Ask a Question" debates saved through this path would lose the "Question"
+  // badge (t/2892's same mirroring concern, extended to the new fields).
+  return summaryFromRaw(id, merged as unknown as Record<string, unknown>);
 }
 
 export async function applyDebateDeltaToStorage(delta: DebateDelta): Promise<{ newVersion: number }> {
@@ -479,6 +604,11 @@ export async function deleteDebateSession(id: string): Promise<void> {
   if (isAnonymousUser()) { const a = getAnonStore(); if (a) await a.store.deleteDebate(a.sessionId, id); return; }
   const backend = getUserContentBackend();
   await backend.deleteFile(path.join(getDebatesDir(), `debate-${id}.json`));
+  // t/4680: a session may have been stored under the inquiry-debate-* prefix
+  // (excludeFromQuota or listedButExempt) — delete that path too; no-op if absent,
+  // since deleteFile is itself a no-op for a missing file (StorageBackend contract).
+  await backend.deleteFile(quotaExemptDebatePath(id));
+  // removeFromDebateIndex matches purely by id, so it works for either prefix.
   void removeFromDebateIndex(id).catch((err) => { log.server.warn({ err, debateId: id }, 'Debate index removal failed (best-effort)'); });
 }
 
