@@ -68,6 +68,32 @@ describe('useInquiryStore', () => {
     expect(mockApi.getInquiry).toHaveBeenCalledTimes(3);
   });
 
+  it('never lets progressPct decrease across polls, even if a response reports a lower value (t/4714)', async () => {
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-mono' });
+    mockApi.getInquiry
+      .mockResolvedValueOnce(pollView({ status: 'debating', progressPct: 60 }))
+      .mockResolvedValueOnce(pollView({ status: 'debating', progressPct: 45 })); // out-of-order / retry artifact
+
+    await useInquiryStore.getState().startInquiry();
+    expect(useInquiryStore.getState().progressPct).toBe(60);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(useInquiryStore.getState().progressPct).toBe(60); // clamped, not dropped to 45
+  });
+
+  it('carries stageDetail through from the poll response, and clears it to null when the field is absent (t/4714 AC4)', async () => {
+    mockApi.startInquiry.mockResolvedValue({ jobId: 'job-detail' });
+    mockApi.getInquiry
+      .mockResolvedValueOnce(pollView({ status: 'debating', progressPct: 20, stageDetail: 'Round 1 of 4 · Accelerationist opening' }))
+      .mockResolvedValueOnce(pollView({ status: 'judging', progressPct: 85 })); // no stageDetail field — older build
+
+    await useInquiryStore.getState().startInquiry();
+    expect(useInquiryStore.getState().stageDetail).toBe('Round 1 of 4 · Accelerationist opening');
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(useInquiryStore.getState().stageDetail).toBeNull();
+  });
+
   it('backs off exponentially on poll errors without treating them as job failure (poll-error ≠ job-failed)', async () => {
     mockApi.startInquiry.mockResolvedValue({ jobId: 'job-2' });
     mockApi.getInquiry
