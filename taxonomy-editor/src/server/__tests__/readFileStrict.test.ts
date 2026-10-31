@@ -136,6 +136,7 @@ describe.skipIf(!UNDICI_ALIGNED)('GitHubAPIBackend.readFileStrict — null-read 
     backend.shutdown();
   });
 
+
   it('403 with the shared quota exhausted throws reason rate_limited', async () => {
     const backend = await createBackend();
     apiHandlers.push((url) => (url.includes('/contents/') ? { status: 403, body: { message: 'API rate limit exceeded' }, headers: { 'x-ratelimit-remaining': '0' } } : null));
