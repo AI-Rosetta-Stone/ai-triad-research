@@ -1,0 +1,28 @@
+name: Stray File Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  stray-file-guard:
+    name: Check for code files outside allowlisted roots
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@f592c3b60303e2f89458f4bc175e64fe900e8f7e  # actions/checkout v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # actions/setup-node v4
+        with:
+          node-version: '20'
+
+      - name: Run stray-file guard
+        run: |
+          # Get the list of changed files and pipe directly to the guard
+          git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD | node scripts/ci/stray-file-guard.mjs --from-stdin

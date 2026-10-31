@@ -111,6 +111,23 @@ A component's visible state is asserted via an HTML attribute (`hidden`, `aria-e
   2. **A CSS-source regression test** for any component whose visibility hinges on an attribute the test suite can't see applied — read the `.css` file's text directly (as `BaseReset.test.ts` and `LibraryGettingStarted.test.tsx` do) and assert the overriding/defining rule is present, rather than asserting only on rendered DOM. This is the generalizable pattern: whenever a unit test's claim ("the panel is hidden") depends on a CSS rule actually applying, and the test harness doesn't load CSS, add a source-text assertion alongside the DOM assertion — the DOM assertion alone cannot distinguish "styled correctly" from "the governing rule was deleted."
 - **Tickets:** t/4639 (the live defect + component-level fix), t/4647 (the global reset + this entry).
 
+## Class 11 — Tests that never ran look green
+
+A code file is placed outside every build/test tool's `include` glob — neither the TypeScript compiler's `tsconfig` reaches it, nor any test runner's vitest/Pester/pytest config. The file compiles and tests cleanly *as a result of not running at all*. Broken assertions and type errors inside it are invisible to CI, surfaced only by manual code review or by the test framework's own error logs (which CI runs but nobody reads unless looking for something else).
+
+This is a **placement defect, not a logic defect** — the code is written correctly, but it lives in a place where the build system doesn't reach it. It is structurally similar to Class 5 (gate blind spot) and Class 6 (silent degradation), but distinct in root cause: Class 5 is a gate that was sufficient when written but outgrown; Class 6 is a code path that returns success-shaped results in an uncovered context; Class 11 is a file that is compiled and tested by no tool at all, so **every tool reports green** even though the file has never been built or tested.
+
+- **Examples (all from build-root misplacement, 2026-10-30):**
+  - **t/4167 (root `src/renderer/...`)** — PR shipped 8 files under `src/renderer/` instead of `taxonomy-editor/src/renderer/`. No `tsconfig` at the repo root includes `src/`, and no test runner's `include` glob reaches a top-level `src/`. CI compiled and tested the Electron app cleanly (the real `taxonomy-editor/src/renderer/` compiled; the stray root files never did). The stray files contained a broken assertion and a type error, invisible until code review.
+  - **t/4647 (nested path outside build root)** — UI state tests passed in jsdom without loading CSS; the component's visibility rule was present but the test framework couldn't observe it applying.
+  - **t/4631 (smoke false-PASS)** — smoke test asserted health without querying live data, returning success on zero results. Different shape (code did run, just incompletely) but same outcome: a passing test claimed coverage it didn't have.
+- **Prevention (three coupled, like Class 6):**
+  1. **Enforce root placement at PR time.** A guard that flags code/test files outside every declared build root (the `/stray-file-guard` pattern: Arm 1 top-level roots, Arm 2 per-tool `include` globs) — both arms tested with fixtures, fail-open on config parsing errors so a future config refactor can't silently break the guard itself.
+  2. **Validate the positive claim in the deployed context.** A test that passes locally (on a filesystem, with all CSS files present, with full data) might skip an entire subsystem in the deployed context (headless, CSS-less, data-proxied). Smoke tests assert the presence of expected outcomes, not the absence of errors — *"data count > 0"* not *"renders without error."*
+  3. **Make the silent outcome observable.** Every path that can succeed without doing its job (empty graceful result, test that never ran, smoke that never queried) emits a clear log or metric. A file compiled zero times should emit a `WARNING: file never reached by any build tool` when it exists, turning an invisible placement error into a diagnostic signal.
+- **Remaining vector:** a file inside a valid build root but outside that tool's specific `include` glob (e.g., a `.test.ts` file inside `lib/` but outside the `lib/debate/vitest.config.ts` `include` pattern). Arm 2 of the stray-file-guard closes this for test files; a parallel `tsconfig` coverage check would close it for source files.
+- **Tickets:** t/4665 (stray-file-guard design and implementation), t/4167 (the shipped incident), t/4647 (CSS-blind UI state tests), t/4631 (smoke false-PASS).
+
 ## How to use this
 
 - **Reviewing a change:** ask which class(es) it could introduce; require the corresponding contract test, user-type coverage, prod-config check, or gate before approving.
