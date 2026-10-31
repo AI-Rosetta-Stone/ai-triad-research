@@ -455,6 +455,49 @@ describe('LibraryListPage — rename', () => {
   });
 });
 
+describe('LibraryListPage — titleBadge slot (t/4720)', () => {
+  it('renders nothing extra when titleBadge is omitted (every pre-existing page, unchanged)', () => {
+    const { container } = renderPage();
+    expect(container.querySelector('.lib-title-badge-slot')).toBeNull();
+  });
+
+  it('renders the badge beside the title, on the same line, on desktop', () => {
+    const { container } = renderPage({
+      titleBadge: (row) => <span data-testid={`badge-${(row as Row).id}`}>Badge</span>,
+    });
+    const line = container.querySelector('.lib-title-line');
+    expect(line).toBeInTheDocument();
+    expect(line!.querySelector('.lib-title-text')).toBeInTheDocument();
+    expect(line!.querySelector('.lib-title-badge-slot')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-m1')).toBeInTheDocument();
+  });
+
+  it('passes the row and variant through to titleBadge', () => {
+    const titleBadge = vi.fn(() => null);
+    renderPage({ titleBadge });
+    expect(titleBadge).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'my');
+  });
+
+  it('renders the badge beside the title on phone too', () => {
+    mockBreakpoint = 'phone-lg';
+    const { container } = renderPage({
+      titleBadge: () => <span data-testid="phone-badge">Badge</span>,
+    });
+    const phoneTitle = container.querySelector('.lib-phone-title');
+    expect(phoneTitle?.querySelector('.lib-title-line .lib-title-badge-slot')).toBeInTheDocument();
+    mockBreakpoint = 'desktop';
+  });
+
+  it('title search still matches the title text only, not the badge content', () => {
+    renderPage({
+      titleBadge: () => <span>Unrelated Badge Text</span>,
+    });
+    fireEvent.change(screen.getByPlaceholderText('Search things…'), { target: { value: 'Unrelated Badge Text' } });
+    expect(screen.queryByText('Alpha topic')).toBeNull();
+    expect(screen.queryByText('Zebra topic')).toBeNull();
+  });
+});
+
 describe('LibraryListPage — intro slot (t/4536)', () => {
   it('renders nothing extra when intro is omitted (Debates/Op-Eds, unchanged)', () => {
     const { container } = renderPage();
