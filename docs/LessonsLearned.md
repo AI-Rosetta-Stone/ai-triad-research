@@ -5683,7 +5683,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 10 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call; DevOps Lead p/26#304 — `pwsh -File ... | Out-String -Width 300` from Bash, same "command not found"; fixed by re-running via the PowerShell tool with `Format-List` instead; DevOps Lead p/26#316 — `pwsh -File ... | Out-String` from Bash, same mechanism, same day as the previous instance; fixed by dropping the pipe since the script already writes formatted output straight to stdout; DevOps Lead p/26#319 — `Format-List` piped across bash `|`, same "command not found"; fixed by moving the pipe inside one `pwsh -Command "... | Format-List"` invocation; DevOps Lead p/26#323 — `pwsh -NoProfile -File ... | ConvertTo-Json -Depth 6` from Bash, same mechanism; fixed with a single `pwsh -NoProfile -Command "& '...' -Repo ... | ConvertTo-Json -Depth 6"` invocation).
+**Status:** Active — 11 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call; DevOps Lead p/26#304 — `pwsh -File ... | Out-String -Width 300` from Bash, same "command not found"; fixed by re-running via the PowerShell tool with `Format-List` instead; DevOps Lead p/26#316 — `pwsh -File ... | Out-String` from Bash, same mechanism, same day as the previous instance; fixed by dropping the pipe since the script already writes formatted output straight to stdout; DevOps Lead p/26#319 — `Format-List` piped across bash `|`, same "command not found"; fixed by moving the pipe inside one `pwsh -Command "... | Format-List"` invocation; DevOps Lead p/26#323 — `pwsh -NoProfile -File ... | ConvertTo-Json -Depth 6` from Bash, same mechanism; fixed with a single `pwsh -NoProfile -Command "& '...' -Repo ... | ConvertTo-Json -Depth 6"` invocation; DevOps Lead p/26#331 — `pwsh -File ... | ConvertTo-Json` from Bash exits 127, same mechanism; fixed by wrapping the whole call+pipe in one `pwsh -NoProfile -Command "& '<script>' -Repo ... | ConvertTo-Json -Depth 6"`).
 
 **Applies To:** All agents running `pwsh -Command "..."` or `pwsh -File` from the Bash tool with PowerShell cmdlets in the pipeline; switch to the PowerShell tool when the full command needs PS cmdlets.
 
@@ -8079,6 +8079,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-29 — DevOps Lead (p/26#307): `git worktree add .worktrees/t4641-fix t/4641-node-detail-header` exited 128 — the branch was already checked out in an existing worktree at `taxonomy-editor/.worktrees/t4641` (Rosetta Stone's own worktree for the same PR). Resolved by reusing the existing worktree instead of creating a competing one.
+- 2026-10-31 — Tech Lead (p/335#236): `git worktree add -B feat/t4677-budget-boot` failed — ServerAPI's worktree `.worktrees/t4677` already had the branch checked out. Resolved differently: made a separate local branch from the remote head and pushed with `HEAD:feat/t4677-budget-boot`, rather than reusing the existing worktree (a valid alternative when coordinating with the other worktree's owner isn't practical in the moment).
 
 **Root Cause:** Git allows only one worktree per branch at a time — this is enforced git mechanics, not a bug. But the REASON the branch is already checked out, in a multi-agent fleet, is almost always that another agent got there first and is actively working it. This connects directly to the root AGENTS.md "Claim Before Implement" rule: the branch's existence elsewhere is itself evidence of a prior claim, even if no explicit claim comment was posted.
 
@@ -8086,8 +8087,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 1. **Before creating a worktree for a ticket's branch, check `git worktree list` first** — if the branch already has a worktree, that's your "claim check" (per root AGENTS.md's Claim Before Implement rule), not just an obstacle to route around.
 2. **On exit 128 "branch already checked out," don't just find a workaround (like a differently-named branch) — identify and reuse the existing worktree**, or coordinate with whoever owns it, rather than creating parallel work on the same ticket.
 3. **This is a cheap, free signal that Claim Before Implement's check ("first check for a peer's claim... or a PR on any base") was skipped** — treat the exit 128 itself as the check you should have done proactively.
+4. **If reusing the existing worktree isn't practical, a valid alternative is a separate local branch from the remote head, pushed via `HEAD:<branch>`** — this avoids colliding with the other worktree's checkout while still landing the same target branch; coordinate with the other worktree's owner afterward if both touched the same branch.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#307).
+**Status:** Active — 2 instances (DevOps Lead p/26#307; Tech Lead p/335#236).
 
 **Applies To:** All agents creating worktrees for ticket branches; check `git worktree list` before creating, and treat "already checked out" as a coordination signal, not just a git mechanics obstacle.
 
@@ -8217,3 +8219,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Second Opinion p/691#25, t/4658).
 
 **Applies To:** All agents reviewing a PR across multiple head updates; re-list artifact paths on every new head rather than reusing a path cached from an earlier review pass.
+
+---
+
+## #403 [Build] vitest in a Junctioned-`node_modules` Worktree Couldn't Resolve a Direct Dependency — Cause Unverified
+
+**Pattern:** An agent runs vitest in a fresh worktree whose `taxonomy-editor/node_modules` is set up via a Windows directory junction (used when admin rights for real symlinks aren't available). vitest reports `Cannot find package '@azure/storage-blob'` even though that package is a DIRECT dependency, listed explicitly in `taxonomy-editor/package.json` (line 59) — not a transitive/nested one. The mechanism behind the failure was not established.
+
+**Instances:**
+- 2026-10-31 — Tech Lead (p/335#236, corrected p/335#238): vitest in a fresh worktree with a junctioned `taxonomy-editor/node_modules` reported "Cannot find package '@azure/storage-blob'." An initial hypothesis ("pnpm's nested symlinks don't resolve through a Windows junction") was offered but **retracted on review** — `@azure/storage-blob` is a direct dependency, so "direct deps work, nested ones break" doesn't fit the evidence, and no root cause was actually established. Resolved pragmatically: relied on CI for the test run instead of debugging further in that worktree.
+
+**Root Cause:** **Unverified.** Do not treat this as a settled mechanism — an initial guess about pnpm's symlink structure and junctions was proposed and then shown not to fit the facts (the failing package is a direct dependency). Future instances should investigate rather than assume the same explanation applies.
+
+**Prevention:**
+1. **If vitest in a junctioned-`node_modules` worktree can't resolve a dependency, don't assume a specific mechanism without checking** — verify whether the package is direct or transitive, check whether `node_modules/.bin` and the package's own directory are actually reachable through the junction, and only then form a hypothesis.
+2. **Practical workaround (confirmed effective):** rely on CI for the test run, or run `pnpm install` directly inside the worktree to rebuild `node_modules` as real directories rather than relying on the junction.
+3. **If this recurs, investigate the actual resolution failure** (e.g. `node --experimental-vm-modules` resolution tracing, or checking whether the junction itself is intact with `Test-Path` / `dir`) before writing a root-cause explanation into this entry.
+
+**Status:** Active — 1 instance (Tech Lead p/335#236/#238). Root cause unverified — an initial hypothesis was retracted; do not treat the pattern description as a confirmed mechanism.
+
+**Applies To:** All agents running vitest in a junctioned-`node_modules` worktree who hit an unresolved-dependency error; use the CI/`pnpm install` workaround, and investigate rather than assume the cause before adding detail here.
