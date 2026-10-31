@@ -38,7 +38,7 @@
 }
 
 .nav-locbar-crumb:active:not(:disabled) {
-  background-color: var(--bg-active);
+  background-color: var(--bg-selected);
 }
 
 .nav-locbar-crumb:disabled {
@@ -49,7 +49,7 @@
 }
 
 .nav-locbar-crumb:focus-visible {
-  outline: 2px solid var(--focus-color);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -1px;
 }
 
