@@ -57,6 +57,11 @@ on:
           - 'false'
           - 'true'
       # enable_git_sync removed — GitHub API-first mode is always on (STORAGE_MODE=github-api)
+      quota_preflight_test_ceiling:
+        description: 't/4587 part (b) GV live-fire only: override the quota-preflight warning ceiling (default 1000) to force a ::warning:: on a healthy real quota, without needing genuinely low quota. Leave empty for a normal deploy.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -973,6 +978,72 @@ jobs:
         run: |
           & ./operations/devops/Invoke-EmbeddingsResolutionGateCheck.ps1 `
             -BaseUrl '${{ steps.health_check.outputs.base_url }}'
+
+      - name: Check GitHub App installation quota before traffic shift (t/4587 part b)
+        # WARN-ONLY (T1, non-blocking): catches the t/4584 condition (a cold boot draining the
+        # sync App's shared rate-limit quota) before the shift, not after. e/406: reads the
+        # NEW revision's own /health (its cold-boot burst already happened) AND the OLD/still-
+        # serving revision's /health (SO e/406#4 point 1 — take the lower of the two so neither
+        # side's drain is masked by the other). Needs no new secret access: /health already
+        # exposes githubRateLimitRemaining/githubRateLimitResetsAt for the running app's own
+        # installation (e/406#2 dissent — do NOT mint a fresh token from the raw PEM here).
+        id: quota_preflight
+        if: steps.health_check.outputs.healthy == 'true' && steps.warm_gate.outputs.warm == 'true'
+        shell: pwsh
+        continue-on-error: true
+        env:
+          # t/4587 GV live-fire only: see the workflow_dispatch input's own description.
+          TEST_CEILING: ${{ inputs.quota_preflight_test_ceiling }}
+        run: |
+          Import-Module ./scripts/AITriad/AITriad.psm1 -Force -ErrorAction SilentlyContinue
+          . ./operations/devops/GitHubAppQuotaVerdict.ps1
+
+          function Get-QuotaReading {
+            param([string]$Label, [string]$BaseUrl)
+            if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+              # No prior revision to read (first-ever deploy) -- not a failure, nothing to check.
+              return $null
+            }
+            try {
+              $Resp = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 15
+              $Remaining = if ($Resp.PSObject.Properties['githubRateLimitRemaining']) { $Resp.githubRateLimitRemaining } else { $null }
+              $ResetsAtRaw = if ($Resp.PSObject.Properties['githubRateLimitResetsAt']) { $Resp.githubRateLimitResetsAt } else { $null }
+              $ResetsAt = if ($ResetsAtRaw) { try { [datetime]$ResetsAtRaw } catch { $null } } else { $null }
+              [PSCustomObject]@{ Label = $Label; Remaining = $Remaining; ResetsAt = $ResetsAt; QueryError = $null }
+            } catch {
+              [PSCustomObject]@{ Label = $Label; Remaining = $null; ResetsAt = $null; QueryError = $_.Exception.Message }
+            }
+          }
+
+          $NewUrl = '${{ steps.health_check.outputs.base_url }}'
+          $OldRevName = '${{ steps.current_revision.outputs.revision }}'
+          $OldUrl = $null
+          if (-not [string]::IsNullOrWhiteSpace($OldRevName)) {
+            $OldInfo = Get-ContainerAppRevision -Mode Fqdn -RevisionName $OldRevName `
+              -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+            if ($OldInfo -and $OldInfo.Fqdn) { $OldUrl = "https://$($OldInfo.Fqdn)" }
+          }
+
+          $Ceiling = if ([string]::IsNullOrWhiteSpace($env:TEST_CEILING)) { 1000 } else { [int]$env:TEST_CEILING }
+
+          $Readings = [System.Collections.Generic.List[object]]::new()
+          $NewReading = Get-QuotaReading -Label 'new' -BaseUrl $NewUrl
+          if ($NewReading) { $Readings.Add($NewReading) }
+          $OldReading = Get-QuotaReading -Label 'old' -BaseUrl $OldUrl
+          if ($OldReading) { $Readings.Add($OldReading) }
+
+          if ($Readings.Count -eq 0) {
+            Write-Host "t/4587 quota preflight: no prior revision to read (first-ever deploy) -- nothing to check."
+          } else {
+            foreach ($R in $Readings) {
+              $Verdict = Get-GitHubAppQuotaVerdict -Remaining $R.Remaining -ResetsAt $R.ResetsAt -QueryError $R.QueryError -Ceiling $Ceiling
+              if ($Verdict.ShouldWarn) {
+                Write-Host "::warning::t/4587 quota preflight ($($R.Label) revision): $($Verdict.Reason)"
+              } else {
+                Write-Host "t/4587 quota preflight ($($R.Label) revision): $($Verdict.Reason)"
+              }
+            }
+          }
 
       - name: Shift traffic to new revision
         # t/3148: warm_gate is now a peer gate — traffic shifts only when the /readyz warm-gate
