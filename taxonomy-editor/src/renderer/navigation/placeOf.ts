@@ -10,7 +10,7 @@ type ChatStore = ReturnType<typeof import('../hooks/useChatStore').useChatStore.
 type OpEdStore = ReturnType<typeof import('../hooks/useOpEdStore').useOpEdStore.getState>;
 type InquiryStore = ReturnType<typeof import('../hooks/useInquiryStore').useInquiryStore.getState>;
 
-interface AppState {
+export interface AppState {
   taxonomyStore: TaxonomyStore;
   debateStore?: DebateStore;
   opEdStore?: OpEdStore;
@@ -71,8 +71,11 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
   },
 
   'inquiry': (state) => {
-    const openInquiry = state.inquiryStore?.activeInquiry;
-    if (!openInquiry) {
+    // The inquiry store has no "active inquiry" object: an answer is open when `result` is set,
+    // and `jobId` identifies it.
+    const store = state.inquiryStore;
+    const openId = store?.result ? store.jobId : null;
+    if (!openId) {
       return {
         path: '/inquiry',
         placeKey: 'inquiry:none',
@@ -80,9 +83,9 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
       };
     }
     return {
-      path: `/inquiry/${openInquiry.id}`,
-      placeKey: `inquiry:${openInquiry.id}`,
-      label: openInquiry.title || 'Inquiry',
+      path: `/inquiry/${openId}`,
+      placeKey: `inquiry:${openId}`,
+      label: store?.result?.request.question || 'Ask a Question',
     };
   },
 
@@ -98,7 +101,8 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
     return {
       path: `/debate/${openDebate.id}`,
       placeKey: `debate:${openDebate.id}`,
-      label: openDebate.topic || 'Debate',
+      // topic is { original, refined, final }, not a string.
+      label: openDebate.topic.final || openDebate.topic.original || 'Debate',
     };
   },
 

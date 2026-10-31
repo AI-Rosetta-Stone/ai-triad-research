@@ -10,6 +10,8 @@ describe('placeOf - per-tool open item resolvers', () => {
     activeTab: 'rosetta-stone',
     selectedNodeId: null,
   } as unknown as TaxonomyStore;
+  // DebateSession.topic is an object, not a string (lib/debate/types/session.ts).
+  const topic = (text: string) => ({ original: text, refined: null, final: text });
 
   describe('Debate place resolution', () => {
     it('returns library path when no debate is open', () => {
@@ -24,7 +26,7 @@ describe('placeOf - per-tool open item resolvers', () => {
     });
 
     it('returns open debate path keyed off debate ID, not selectedNodeId', () => {
-      const mockDebate = { id: 'debate-123', topic: 'Should AI be regulated?' };
+      const mockDebate = { id: 'debate-123', topic: topic('Should AI be regulated?') };
       const state = {
         taxonomyStore: { ...mockTaxonomyStore, selectedNodeId: 'taxonomy-node-456' },
         activeTab: 'debate',
@@ -37,8 +39,8 @@ describe('placeOf - per-tool open item resolvers', () => {
     });
 
     it('opening two different debates generates different placeKeys (pushes history)', () => {
-      const debate1 = { id: 'debate-1', topic: 'Should AI be regulated?' };
-      const debate2 = { id: 'debate-2', topic: 'AI and labor markets' };
+      const debate1 = { id: 'debate-1', topic: topic('Should AI be regulated?') };
+      const debate2 = { id: 'debate-2', topic: topic('AI and labor markets') };
 
       const state1 = {
         taxonomyStore: mockTaxonomyStore,
@@ -94,12 +96,26 @@ describe('placeOf - per-tool open item resolvers', () => {
   });
 
   describe('Inquiry place resolution', () => {
-    it('returns open inquiry path keyed off inquiry ID', () => {
-      const mockInquiry = { id: 'job-99', title: 'How does transformer attention work?' };
+    it('returns the library path when no answer is open', () => {
       const state = {
         taxonomyStore: mockTaxonomyStore,
         activeTab: 'inquiry',
-        inquiryStore: { activeInquiry: mockInquiry } as any,
+        inquiryStore: { jobId: 'job-99', result: null } as any,
+      };
+      const place = placeOf(state as any);
+      expect(place.path).toBe('/inquiry');
+      expect(place.placeKey).toBe('inquiry:none');
+    });
+
+    it('returns open inquiry path keyed off the job ID when an answer is open', () => {
+      // The inquiry store has no activeInquiry object: an answer is open when `result` is set.
+      const state = {
+        taxonomyStore: mockTaxonomyStore,
+        activeTab: 'inquiry',
+        inquiryStore: {
+          jobId: 'job-99',
+          result: { request: { question: 'How does transformer attention work?' } },
+        } as any,
       };
       const place = placeOf(state as any);
       expect(place.path).toBe('/inquiry/job-99');
@@ -110,7 +126,7 @@ describe('placeOf - per-tool open item resolvers', () => {
 
   describe('Taxonomy place resolution (POV tabs)', () => {
     it('returns taxonomy path keyed off node ID, not debate/chat ID', () => {
-      const mockDebate = { id: 'debate-123', topic: 'Some debate' };
+      const mockDebate = { id: 'debate-123', topic: topic('Some debate') };
       const state = {
         taxonomyStore: { ...mockTaxonomyStore, activeTab: 'accelerationist', selectedNodeId: 'acc-001-042' },
         activeTab: 'accelerationist',
