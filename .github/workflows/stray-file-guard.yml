@@ -12,13 +12,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@f592c3b60303e2f89458f4bc175e64fe900e8f7e  # actions/checkout v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # actions/checkout v6
         with:
           fetch-depth: 0
           ref: ${{ github.head_ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # actions/setup-node v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # actions/setup-node v6
         with:
           node-version: '20'
 
