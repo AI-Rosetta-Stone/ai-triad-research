@@ -1,0 +1,128 @@
+{
+  "docs": [
+    {
+      "doc_id": "fixture-1-paraphrase-key-point",
+      "note": "Two chunks restate the same accelerationist thesis in different words, within the same (camp, category) cell.",
+      "chunks": [
+        {
+          "pov_summaries": {
+            "accelerationist": { "key_points": [
+              { "point": "Automation technologies will meaningfully raise aggregate productivity across the economy over the next decade.", "canonical_proposition": "Automation raises aggregate productivity across the economy.", "category": "Beliefs", "taxonomy_node_id": "acc-beliefs-010", "verbatim": "automation... raise aggregate productivity", "excerpt_context": "Section 2, paragraph 3" }
+            ] },
+            "safetyist": { "key_points": [] },
+            "skeptic": { "key_points": [] }
+          },
+          "factual_claims": [],
+          "unmapped_concepts": []
+        },
+        {
+          "pov_summaries": {
+            "accelerationist": { "key_points": [
+              { "point": "Productivity gains from automation are likely to be substantial and economy-wide, lifting output across nearly every sector.", "canonical_proposition": "Automation raises aggregate productivity across the economy, especially in the near term.", "category": "Beliefs", "taxonomy_node_id": "acc-beliefs-010", "verbatim": "productivity gains from automation are likely to be substantial", "excerpt_context": "Section 5, introduction" }
+            ] },
+            "safetyist": { "key_points": [] },
+            "skeptic": { "key_points": [] }
+          },
+          "factual_claims": [],
+          "unmapped_concepts": []
+        }
+      ]
+    },
+    {
+      "doc_id": "fixture-2-factual-claim-numeric-superset",
+      "note": "Two chunks' factual claims restate the same statistic, one with more numeric detail (superset).",
+      "chunks": [
+        {
+          "pov_summaries": { "accelerationist": { "key_points": [] }, "safetyist": { "key_points": [] }, "skeptic": { "key_points": [] } },
+          "factual_claims": [
+            { "claim": "A 2026 industry survey found that 57 percent of firms had adopted at least one generative AI tool.", "claim_label": "adoption-rate" }
+          ],
+          "unmapped_concepts": []
+        },
+        {
+          "pov_summaries": { "accelerationist": { "key_points": [] }, "safetyist": { "key_points": [] }, "skeptic": { "key_points": [] } },
+          "factual_claims": [
+            { "claim": "A 2026 industry survey found that 57 percent of firms had adopted at least one generative AI tool, up from 35 percent the prior year.", "claim_label": "adoption-rate-trend" }
+          ],
+          "unmapped_concepts": []
+        }
+      ]
+    },
+    {
+      "doc_id": "fixture-3-templated-stat-false-positive",
+      "note": "Two factual claims differ only in which group's percentage they report -- cosine-alone would wrongly fold these (t/4472 finding); the numeric guard must keep them separate.",
+      "chunks": [
+        {
+          "pov_summaries": { "accelerationist": { "key_points": [] }, "safetyist": { "key_points": [] }, "skeptic": { "key_points": [] } },
+          "factual_claims": [
+            { "claim": "Among surveyed adults in the Asian demographic group, 57 percent reported regular AI tool usage." }
+          ],
+          "unmapped_concepts": []
+        },
+        {
+          "pov_summaries": { "accelerationist": { "key_points": [] }, "safetyist": { "key_points": [] }, "skeptic": { "key_points": [] } },
+          "factual_claims": [
+            { "claim": "Among surveyed adults in the Hispanic demographic group, 36 percent reported regular AI tool usage." }
+          ],
+          "unmapped_concepts": []
+        }
+      ]
+    },
+    {
+      "doc_id": "fixture-4-same-node-reworded-point",
+      "note": "t/4472's own motivating defect: identical taxonomy_node_id, reworded point text past the old 80-char prefix window -- the old dedup key (node_id|point[0:80]) treats these as distinct, keeping both; semantic clustering correctly folds them.",
+      "chunks": [
+        {
+          "pov_summaries": {
+            "accelerationist": { "key_points": [
+              { "point": "Geopolitical competition over frontier AI capability will intensify as nations race to secure a durable strategic and economic advantage in the coming decade.", "canonical_proposition": "Competition for frontier AI capability intensifies geopolitical rivalry between nations.", "category": "Beliefs", "taxonomy_node_id": "acc-beliefs-044", "verbatim": "geopolitical competition over frontier AI capability will intensify" }
+            ] },
+            "safetyist": { "key_points": [] },
+            "skeptic": { "key_points": [] }
+          },
+          "factual_claims": [],
+          "unmapped_concepts": []
+        },
+        {
+          "pov_summaries": {
+            "accelerationist": { "key_points": [
+              { "point": "As states compete for frontier AI capability, geopolitical rivalry is set to sharpen considerably.", "canonical_proposition": "Competition for frontier AI capability intensifies geopolitical rivalry among nations.", "category": "Beliefs", "taxonomy_node_id": "acc-beliefs-044", "verbatim": "geopolitical rivalry is set to sharpen considerably" }
+            ] },
+            "safetyist": { "key_points": [] },
+            "skeptic": { "key_points": [] }
+          },
+          "factual_claims": [],
+          "unmapped_concepts": []
+        }
+      ]
+    },
+    {
+      "doc_id": "fixture-5-anchors-veto",
+      "note": "Two safetyist key_points are semantically close but anchor to different, disjoint legal instruments -- the anchors veto must keep them separate even though the old threshold-only logic would likely have merged them.",
+      "chunks": [
+        {
+          "pov_summaries": {
+            "accelerationist": { "key_points": [] },
+            "safetyist": { "key_points": [
+              { "point": "Mandatory pre-deployment risk evaluations should be required for frontier models, as specified under the EU AI Act's Article 6 high-risk provisions.", "canonical_proposition": "Frontier models need mandatory pre-deployment risk evaluation.", "category": "Intentions", "anchors": ["EU AI Act Article 6"] }
+            ] },
+            "skeptic": { "key_points": [] }
+          },
+          "factual_claims": [],
+          "unmapped_concepts": []
+        },
+        {
+          "pov_summaries": {
+            "accelerationist": { "key_points": [] },
+            "safetyist": { "key_points": [
+              { "point": "Frontier model developers should conduct pre-deployment risk assessments consistent with the NIST AI Risk Management Framework's govern function.", "canonical_proposition": "Frontier model developers should assess risk before deployment.", "category": "Intentions", "anchors": ["NIST AI RMF Govern 1.1"] }
+            ] },
+            "skeptic": { "key_points": [] }
+          },
+          "factual_claims": [],
+          "unmapped_concepts": []
+        }
+      ]
+    }
+  ]
+}
