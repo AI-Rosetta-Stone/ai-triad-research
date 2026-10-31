@@ -1,13 +1,17 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useDebateStore } from '../../hooks/useDebateStore';
+import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
+import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { DEBATE_AUDIENCES, POVER_INFO } from '../../types/debate';
-import { AI_POVERS } from '@lib/debate/types';
+import { AI_POVERS, normalizeDebateOrigin } from '@lib/debate/types';
 import type { CoverageMap, StrengthWeightedCoverage } from '@lib/debate/coverageTracker';
 import { CoverageBadge } from './TaxonomyRefs';
 import { TheoryLink } from '../shared/TheoryLink';
+import { isDebatePopoutWindow } from '../../hooks/useDebateStore/shared/guards';
 import './DebateHeader.css';
 
 type DWStore = ReturnType<typeof useDebateStore.getState>;
@@ -40,6 +44,43 @@ export function deriveHeaderTitle(topicFinal: string, sourceRef: string | null |
   if (!sourceRef) return { displayTitle, sourceDisplay: null };
   const humanSource = humanizeUrl(sourceRef);
   return { displayTitle, sourceDisplay: humanSource === displayTitle ? null : humanSource };
+}
+
+// t/4678/t/4693: `inquiryJobId` is a legacy sibling of `origin`, not nested under it (persisted
+// by the web host's old persistInquiryDebateSession as `{ ...session, origin: 'inquiry',
+// inquiryJobId: jobId }`) — normalizeDebateOrigin (t/4679) needs both to recover `inquiry_id`
+// from an old string-origin session. New sessions already carry the typed object.
+function debateOrigin(activeDebate: ActiveDebateSession): ReturnType<typeof normalizeDebateOrigin> {
+  return normalizeDebateOrigin(activeDebate.origin, (activeDebate as unknown as { inquiryJobId?: unknown }).inquiryJobId);
+}
+
+/**
+ * t/4693: back-link to the originating question, split out of t/4683's `DebateTab.tsx` attempt
+ * (Design review, t/4683#6) — `DebateWorkspace` is the only place a running/finished debate
+ * actually renders, so the link belongs in its header, not `DebateDetailSummary`. The question
+ * text IS the debate's topic (runInquiryPipeline passes the question straight into runDebate) —
+ * no separate fetch by inquiry_id needed. In a pop-out window, `setActiveTab` runs in the
+ * pop-out's own renderer (which only shows the debate), so the control would do nothing there —
+ * render plain text instead of a dead button.
+ */
+function FromQuestionLink({ activeDebate }: { activeDebate: ActiveDebateSession }) {
+  const origin = debateOrigin(activeDebate);
+  const handleOpenQuestion = useCallback(() => {
+    if (!origin?.inquiry_id) return;
+    useTaxonomyStore.getState().setActiveTab('inquiry');
+    void useInquiryStore.getState().openFromHistory(origin.inquiry_id);
+  }, [origin?.inquiry_id]);
+
+  if (origin?.mode !== 'inquiry' || !origin.inquiry_id) return null;
+  const topic = activeDebate.topic.final || activeDebate.topic.refined || activeDebate.topic.original;
+
+  return isDebatePopoutWindow() ? (
+    <p className="debate-hdr-from-question">From a question: <em>{topic}</em></p>
+  ) : (
+    <p className="debate-hdr-from-question">
+      From a question: <button type="button" className="debate-hdr-from-question-link" onClick={handleOpenQuestion}>{topic}</button>
+    </p>
+  );
 }
 
 /** Redesigned debate window header (t/2293) — three bands: title+source, status+
@@ -97,6 +138,7 @@ export function DebateHeader({
           {sourceDisplay && (
             <span className="debate-hdr-source" title={activeDebate.source_ref ?? undefined}>{sourceDisplay}</span>
           )}
+          <FromQuestionLink activeDebate={activeDebate} />
         </div>
         {actions}
       </div>
