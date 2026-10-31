@@ -60,7 +60,15 @@ function AttributedBadge({ attr }: { attr: ClaimAttribution }) {
     { threshold: 0,   color: '#f59e0b' },
   ]);
   const secCount = attr.secondary_refs?.length ?? 0;
-  const attrTip = `Attributed to ${attr.primary_ref} (confidence: ${conf.toFixed(2)})\n${getNodeLabel(attr.primary_ref)}${secCount > 0 ? `\n\n${secCount} secondary ref${secCount !== 1 ? 's' : ''}: ${attr.secondary_refs!.map((s: { node_id: string; similarity: number }) => `${s.node_id} (${s.similarity.toFixed(2)})`).join(', ')}` : ''}`;
+  // t/4676: attr.grounding_statement (t/4692) is the claim's best-matching synthetic
+  // statement for this node — NOT the node's canonical description (getNodeLabel above is
+  // the label, not the description, but the disclosure still applies since both are shown
+  // together). Absent on claims attributed before t/4692 landed; the tooltip falls back to
+  // the label alone, unchanged from before this ticket.
+  const groundingLine = attr.grounding_statement
+    ? `\n\nBest-matching statement: "${attr.grounding_statement}"`
+    : '';
+  const attrTip = `Attributed to ${attr.primary_ref} (confidence: ${conf.toFixed(2)})\n${getNodeLabel(attr.primary_ref)}${groundingLine}${secCount > 0 ? `\n\n${secCount} secondary ref${secCount !== 1 ? 's' : ''}: ${attr.secondary_refs!.map((s: { node_id: string; similarity: number }) => `${s.node_id} (${s.similarity.toFixed(2)})`).join(', ')}` : ''}`;
   return (
     <span className="claims-badge" title={attrTip}>
       {/* eslint-disable-next-line local/no-inline-style -- dynamic confidence color */}
