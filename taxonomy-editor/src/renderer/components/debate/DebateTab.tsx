@@ -27,7 +27,7 @@ import { TheoryLink } from '../shared/TheoryLink';
 import { LineageDetailView } from '../shared/LineageDetailView';
 import type { DebateSession, SpeakerId } from '../../types/debate';
 import { DebateGettingStarted } from './DebateGettingStarted';
-import { POVER_INFO } from '@lib/debate/types';
+import { POVER_INFO, normalizeDebateOrigin } from '@lib/debate/types';
 import { ParameterHistoryPanel } from '../analysis/ParameterHistoryPanel';
 import { usePreferencesStore } from '../../store/preferencesStore';
 import { api, isElectronMode } from '@bridge';
@@ -89,6 +89,14 @@ interface DebateRightPaneProps {
   handleExport: (format?: string) => void;
   exportStatus: string | null;
   handleNewDebate: () => Promise<void>;
+}
+
+// t/4678/t/4683: `inquiryJobId` is a legacy sibling of `origin`, not nested under it (persisted by
+// the web host's old persistInquiryDebateSession as `{ ...session, origin: 'inquiry', inquiryJobId: jobId }`)
+// — normalizeDebateOrigin (t/4679) needs both to recover `inquiry_id` from an old string-origin
+// session. New sessions already carry the typed object and ignore the second argument.
+function debateOrigin(debate: DebateSession): ReturnType<typeof normalizeDebateOrigin> {
+  return normalizeDebateOrigin(debate.origin, (debate as unknown as { inquiryJobId?: unknown }).inquiryJobId);
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -1040,15 +1048,22 @@ function DebateSourceSection({ debate }: { debate: DebateSession }) {
   );
 }
 
+const ORIGIN_MODE_LABELS: Record<string, string> = {
+  cli: 'CLI (headless runner)',
+  gui: 'GUI (Electron app)',
+  inquiry: 'Ask a Question', // t/4678/t/4683: the tool's name (Design review t/4683#6), was mislabeled "GUI" for the legacy string origin
+};
+
 export function DebateConfigSection({ debate }: { debate: DebateSession }) {
   if (!(debate.audience || debate.debate_model || debate.protocol_id || debate.origin)) return null;
+  const origin = debateOrigin(debate);
   return (
     <div className="debate-detail-section">
       <h3>Configuration</h3>
-      {debate.origin && (
+      {origin && (
         <div className="debate-detail-meta-row">
           <span className="debate-detail-label">Created via:</span>
-          <span>{debate.origin.mode === 'cli' ? 'CLI (headless runner)' : 'GUI (Electron app)'}</span>
+          <span>{ORIGIN_MODE_LABELS[origin.mode] ?? origin.mode}</span>
         </div>
       )}
       {debate.origin?.command && (
