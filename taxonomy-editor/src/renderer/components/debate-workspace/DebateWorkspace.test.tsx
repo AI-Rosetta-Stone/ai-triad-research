@@ -638,38 +638,40 @@ describe('back-link to the originating question', () => {
     expect(screen.queryByText(/From a question/)).toBeNull();
   });
 
-  it('in the main window: renders a clickable button that navigates to the Inquiry tab and opens the question', () => {
+  it('in the main window: renders a short "View the answer" link naming the question in its accessible name', () => {
     mockStore.activeDebate = makeDebate({
       origin: { mode: 'inquiry', inquiry_id: 'job-42' },
       topic: { original: 'orig', refined: 'refined', final: 'Should AI be regulated?' },
     });
-    render(<DebateWorkspace />);
-    const link = screen.getByRole('button', { name: 'Should AI be regulated?' });
+    const { container } = render(<DebateWorkspace />);
+    const link = screen.getByRole('button', { name: 'View the answer to: Should AI be regulated?' });
     expect(link).toBeInTheDocument();
+    expect(link.textContent).toBe('View the answer');
+    expect(container.querySelector('.debate-hdr-from-question')?.textContent).toBe('From a question · View the answer');
     fireEvent.click(link);
     expect(mockTaxStore.setActiveTab).toHaveBeenCalledWith('inquiry');
     expect(mockInquiryStore.openFromHistory).toHaveBeenCalledWith('job-42');
   });
 
-  it('falls back through topic.refined then topic.original when topic.final is empty', () => {
+  it("falls back through topic.refined then topic.original for the link's accessible name when topic.final is empty", () => {
     mockStore.activeDebate = makeDebate({
       origin: { mode: 'inquiry', inquiry_id: 'job-42' },
       topic: { original: 'the original question', refined: null, final: '' },
     });
     render(<DebateWorkspace />);
-    expect(screen.getByRole('button', { name: 'the original question' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View the answer to: the original question' })).toBeInTheDocument();
   });
 
-  it('in a pop-out window: renders plain text, not a button, and never calls the nav actions', () => {
+  it('in a pop-out window: renders plain text naming Ask a Question, not a button, and never calls the nav actions', () => {
     vi.mocked(isDebatePopoutWindow).mockReturnValue(true);
     mockStore.activeDebate = makeDebate({
       origin: { mode: 'inquiry', inquiry_id: 'job-42' },
-      // Distinct from the h2 title text so the back-link's own text is unambiguous to query.
-      topic: { original: 'orig', refined: null, final: 'A different debate title' },
+      topic: { original: 'orig', refined: null, final: 'Should AI be regulated?' },
     });
     const { container } = render(<DebateWorkspace />);
     const fromQuestion = container.querySelector('.debate-hdr-from-question');
-    expect(fromQuestion?.textContent).toBe('From a question: A different debate title');
+    expect(fromQuestion?.textContent).toBe('From a question in Ask a Question');
+    expect(fromQuestion?.querySelector('em')).toBeNull();
     expect(fromQuestion?.querySelector('button')).toBeNull();
   });
 
@@ -680,7 +682,7 @@ describe('back-link to the originating question', () => {
       topic: { original: 'orig', refined: null, final: 'Legacy inquiry question' },
     });
     render(<DebateWorkspace />);
-    const link = screen.getByRole('button', { name: 'Legacy inquiry question' });
+    const link = screen.getByRole('button', { name: 'View the answer to: Legacy inquiry question' });
     fireEvent.click(link);
     expect(mockInquiryStore.openFromHistory).toHaveBeenCalledWith('legacy-job-7');
   });

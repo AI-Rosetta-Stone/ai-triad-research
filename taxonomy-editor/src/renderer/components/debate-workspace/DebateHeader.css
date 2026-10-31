@@ -74,13 +74,14 @@
   text-overflow: ellipsis;
   max-width: 100%;
 }
-/* t/4693: back-link to the originating question — AA-reviewed in all 4 themes. The
-   pop-out's plain-text arm (<em>, no .debate-hdr-from-question-link) intentionally
-   doesn't look clickable. */
+/* t/4693 follow-up (Design review, t/4693#2): --text-muted failed AA in harvard (3.57) and
+   bkc (3.31) — --text-secondary is AA in all 4 themes and is the token for readable copy,
+   per docs/ux/design-system.md (--text-muted is for placeholders). The pop-out's plain-text
+   arm (no .debate-hdr-from-question-link, no italic) intentionally doesn't look clickable. */
 .debate-hdr-from-question {
   margin: 0;
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 .debate-hdr-from-question-link {
   background: none;

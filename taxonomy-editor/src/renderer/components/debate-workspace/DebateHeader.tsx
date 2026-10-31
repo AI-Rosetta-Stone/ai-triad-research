@@ -62,6 +62,12 @@ function debateOrigin(activeDebate: ActiveDebateSession): ReturnType<typeof norm
  * no separate fetch by inquiry_id needed. In a pop-out window, `setActiveTab` runs in the
  * pop-out's own renderer (which only shows the debate), so the control would do nothing there —
  * render plain text instead of a dead button.
+ *
+ * t/4693 follow-up (Design review of the merged PR, t/4693#2): the question is already the
+ * header title, so repeating it in full here added 4 extra lines at 1100px. Now a single short
+ * line — "From a question · View the answer" (main window) or "From a question in Ask a
+ * Question" (pop-out, plain text, no italic) — with the question named only in the button's
+ * aria-label, not its visible text.
  */
 function FromQuestionLink({ activeDebate }: { activeDebate: ActiveDebateSession }) {
   const origin = debateOrigin(activeDebate);
@@ -72,13 +78,22 @@ function FromQuestionLink({ activeDebate }: { activeDebate: ActiveDebateSession 
   }, [origin?.inquiry_id]);
 
   if (origin?.mode !== 'inquiry' || !origin.inquiry_id) return null;
-  const topic = activeDebate.topic.final || activeDebate.topic.refined || activeDebate.topic.original;
 
-  return isDebatePopoutWindow() ? (
-    <p className="debate-hdr-from-question">From a question: <em>{topic}</em></p>
-  ) : (
+  if (isDebatePopoutWindow()) {
+    return <p className="debate-hdr-from-question">From a question in Ask a Question</p>;
+  }
+  const topic = activeDebate.topic.final || activeDebate.topic.refined || activeDebate.topic.original;
+  return (
     <p className="debate-hdr-from-question">
-      From a question: <button type="button" className="debate-hdr-from-question-link" onClick={handleOpenQuestion}>{topic}</button>
+      From a question ·{' '}
+      <button
+        type="button"
+        className="debate-hdr-from-question-link"
+        onClick={handleOpenQuestion}
+        aria-label={`View the answer to: ${topic}`}
+      >
+        View the answer
+      </button>
     </p>
   );
 }
