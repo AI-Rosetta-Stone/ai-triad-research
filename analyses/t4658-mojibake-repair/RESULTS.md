@@ -79,12 +79,21 @@ python3 analyses/t4658-mojibake-repair/apply_metadata_fixes.py <path to a core.a
 All three steps are read-only. Nothing in this pipeline writes to `ai-triad-sources` without
 `--apply --approved-sha256 <hash>` on the third step.
 
-## Still open before any write
+## C3: before/after source grouping — DONE, zero drift
 
-- **C3 (SO/TL):** since 36 `title` entries are included and `title` feeds
-  `SourceDedupe`/`SourceIdentity`'s title key, the corpus-wide source grouping must be run before
-  and after the write, with the result recorded (unchanged, or the expected deltas named) — the
-  t/4495#9 pattern (`Get-SourceIdentityIndex` before/after).
+Ran `Get-SourceIdentityIndex` (the real production function, `AITriad/Private/SourceDedupe.ps1`)
+against a dedicated worktree at the frozen `base_commit`, then again after applying all 57
+targets' fixes to that same (disposable, never-pushed) worktree — the t/4495#9 pattern.
+
+`grouping_before.json` / `grouping_after.json`: sorted `ByHash`/`ByUrl`/`ByTitle` key→owner maps.
+
+**Result: 0 drift.** Same key counts (697 `ByHash`, 133 `ByUrl`, 708 `ByTitle`), and a full
+key-set + owner diff confirms zero keys removed, zero added, zero owner reassigned, across all
+three indices. The 36 corrected titles don't change their title-identity key — the mojibake and
+the clean text evidently normalize to the same key under `SourceDedupe`'s title-key computation.
+
+## Still open before the write
+
 - **C4 (`/data-mutation`):** second-agent pre-hash recount at the then-current `ai-triad-sources`
   HEAD immediately before applying (void if HEAD has moved since this freeze — re-freeze), claim
   on t/4658 before the shared-tree write, app quiesce, apply from a fresh `core.autocrlf=false`
@@ -93,5 +102,5 @@ All three steps are read-only. Nothing in this pipeline writes to `ai-triad-sour
   T2 process — SO clearance lets the TL approve instead of the PI (t/4096#58), if the SO clears
   with no dissent.
 
-Not executed here. This artifact is apply-ready (dry run passes 57/57) but nothing has been
-written to `ai-triad-sources`.
+Not executed here. This artifact is apply-ready (dry run passes 57/57, C3 clean) but nothing has
+been written to `ai-triad-sources`.
