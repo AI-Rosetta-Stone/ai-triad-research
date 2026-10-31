@@ -5682,7 +5682,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 2. **Alternatively, use the PowerShell tool** (`pwsh`) for any command that needs PowerShell cmdlets — it runs the full pipeline natively without bash involvement.
 3. **"command not found" on a PowerShell cmdlet name** immediately after a `pwsh -Command` call is a reliable diagnostic that the cmdlet leaked outside the `-Command` string into bash.
 
-**Status:** Active — 7 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call; DevOps Lead p/26#304 — `pwsh -File ... | Out-String -Width 300` from Bash, same "command not found"; fixed by re-running via the PowerShell tool with `Format-List` instead; DevOps Lead p/26#316 — `pwsh -File ... | Out-String` from Bash, same mechanism, same day as the previous instance; fixed by dropping the pipe since the script already writes formatted output straight to stdout).
+**Status:** Active — 10 instances (DevOps Worker p/749#16; DevOps Lead p/26#184; DevOps Lead p/26#194 — `Format-List`; DevOps Lead p/26#264 — `pwsh -File Get-CiAlertEscalations.ps1 | ConvertTo-Json`; bash reported "command not found"; fixed by moving both into one `pwsh -Command "& '<script>' | ConvertTo-Json -Depth 6"`; DevOps Lead p/26#268 — `Format-List` piped after a watchdog `pwsh` call via Bash tool; `/usr/bin/bash: Format-List: command not found`; fixed by switching to the PowerShell tool; DevOps Lead p/26#283 — `pwsh -NoProfile -File script.ps1 | Format-List` from Bash, same "command not found"; fixed by wrapping the whole pipeline in one `pwsh -NoProfile -Command "& 'script.ps1' -Repo X | Format-List"` call; DevOps Lead p/26#304 — `pwsh -File ... | Out-String -Width 300` from Bash, same "command not found"; fixed by re-running via the PowerShell tool with `Format-List` instead; DevOps Lead p/26#316 — `pwsh -File ... | Out-String` from Bash, same mechanism, same day as the previous instance; fixed by dropping the pipe since the script already writes formatted output straight to stdout; DevOps Lead p/26#319 — `Format-List` piped across bash `|`, same "command not found"; fixed by moving the pipe inside one `pwsh -Command "... | Format-List"` invocation; DevOps Lead p/26#323 — `pwsh -NoProfile -File ... | ConvertTo-Json -Depth 6` from Bash, same mechanism; fixed with a single `pwsh -NoProfile -Command "& '...' -Repo ... | ConvertTo-Json -Depth 6"` invocation).
 
 **Applies To:** All agents running `pwsh -Command "..."` or `pwsh -File` from the Bash tool with PowerShell cmdlets in the pipeline; switch to the PowerShell tool when the full command needs PS cmdlets.
 
@@ -8175,3 +8175,23 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Rosetta Stone p/6#111, PR #4214).
 
 **Applies To:** All agents with a non-standard local dev environment that produces consistent phantom errors; diff specific error identities against the known baseline, never just check the aggregate count.
+
+---
+
+## #401 [Build] Never Guess the GitHub Repo Owner From Git-Committer Identity — Check `gh repo view --json nameWithOwner` First
+
+**Pattern:** An agent constructs a `gh api graphql` (or other `gh api`) call and assumes the repo owner is the same as the git-committer identity (the fleet's shared GitHub account, `jpsnover`/`jsnover15`). The actual repo owner is a different entity — the `AI-Rosetta-Stone` organization. The call returns `NOT_FOUND` because it's querying a repo path that doesn't exist (`jsnover15/ai-triad-research` instead of `AI-Rosetta-Stone/ai-triad-research`).
+
+**Instances:**
+- 2026-10-30 — DevOps Lead (p/26#321): `gh api graphql` guessed the repo owner as `jsnover15` instead of the actual org `AI-Rosetta-Stone`, causing `NOT_FOUND`. Resolved by running `gh repo view --json nameWithOwner` first to get the correct owner, then retrying successfully.
+
+**Root Cause:** The fleet commits and pushes under one shared GitHub user identity (`jpsnover`, aliased as `jsnover15` in some session contexts), but the repository itself is owned by a GitHub ORGANIZATION (`AI-Rosetta-Stone`), a distinct entity from the committer's personal account. Constructing a repo path by assuming `<committer-username>/<repo-name>` produces a path that simply doesn't exist.
+
+**Prevention:**
+1. **Before constructing any `gh api` call that needs an explicit owner/repo path, run `gh repo view --json nameWithOwner` first** to get the authoritative `owner/repo` string — don't assume it from the git-committer identity or from memory.
+2. **This repo's owner is `AI-Rosetta-Stone`, not a personal account** — per root AGENTS.md's permanent rule, all `gh` commands should explicitly target `-R AI-Rosetta-Stone/ai-triad-research`. If you're constructing a raw `gh api graphql`/`gh api` call without the `-R` convenience flag, this is exactly the gap that produces the wrong owner.
+3. **`NOT_FOUND` on a `gh api` call referencing an owner/repo path is a reliable diagnostic to check the owner first** — before assuming auth, permissions, or a typo in the query itself.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#321).
+
+**Applies To:** All agents constructing raw `gh api`/`gh api graphql` calls with an explicit owner/repo path; verify via `gh repo view --json nameWithOwner` rather than assuming from committer identity.
