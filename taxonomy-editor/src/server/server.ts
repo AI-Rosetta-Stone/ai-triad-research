@@ -67,6 +67,7 @@ import type { ServerCtx } from './routes/context.js';
 import { listFlags, setFlag, deleteFlag, type FlagDef } from './featureFlags.js';
 import { drainServerLogLines } from './serverLogBuffer.js';
 import { initAnonymousSessionStore } from './storage/anonymousSessionStore.js';
+import { ensureFreePoolBudgetBooted } from './storage/freePoolBudget.js';
 import { checkProviderBinding } from './ai/providerBinding.js';
 import * as community from './community/community.js';
 import * as fileIO from './storage/fileIO.js';
@@ -1330,13 +1331,12 @@ process.on('unhandledRejection', (reason) => {
   serverRecorder.record({ type: 'system.error', component: 'server', level: 'error', message: err.message, error: { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) } });
   log.server.error({ err }, 'Unhandled promise rejection');
 });
-
 // ── Anonymous session store (in-memory, ephemeral) ──
 initAnonymousSessionStore({
   sessionTtlMs: parseInt(process.env.ANON_SESSION_TTL_MS || '0', 10) || undefined,
   maxSessions: parseInt(process.env.ANON_MAX_SESSIONS || '0', 10) || undefined,
 });
-
+ensureFreePoolBudgetBooted(log);
 // ── Start ──
 assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn't isolated (env drift) — no-op prod/local
 // t/3296 (t/3290 prevention) → t/3309 Path B (step-3): assert taxonomy/ + dictionary/ are present AND

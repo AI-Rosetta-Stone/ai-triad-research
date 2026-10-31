@@ -754,6 +754,41 @@ export function initFreePoolBudget(opts: BlobFreePoolBudgetOptions): FreePoolBud
   return globalFreePoolBudget;
 }
 
+// t/4677: Boot-time initialization guard. Extract env vars, validate cap, and call initFreePoolBudget.
+// Logs WARN if unset (local/Electron mode); validates cap and falls back to 1500 if NaN or ≤0.
+// init parameter is injectable for testing (allows injecting a throwing init).
+type BootLogger = { server: { warn(obj: object, msg: string): void; error(obj: object, msg: string): void } };
+
+export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFreePoolBudgetOptions) => FreePoolBudget = initFreePoolBudget): void {
+  const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  if (!accountUrl) {
+    log.server.warn({ scope: 'free-pool-budget' }, 'AZURE_STORAGE_ACCOUNT_URL not set — free-pool budget store not initialized (local dev / Electron mode expected)');
+    return;
+  }
+
+  let callsCap = parseInt(process.env.FREE_POOL_DAILY_CALLS_CAP || '1500', 10);
+  if (Number.isNaN(callsCap) || callsCap <= 0) {
+    log.server.warn({ givenCap: process.env.FREE_POOL_DAILY_CALLS_CAP, fallback: 1500 }, 'FREE_POOL_DAILY_CALLS_CAP invalid; using default');
+    callsCap = 1500;
+  }
+
+  try {
+    init({ accountUrl, callsCap });
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'free-pool-budget', level: 'error',
+      message: 'Failed to initialize free-pool budget store at boot',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    log.server.error({ err }, 'Free-pool budget store initialization failed — gate will be unavailable');
+  }
+}
+
 export function getFreePoolBudget(): FreePoolBudget | null {
   return globalFreePoolBudget;
+}
+
+// t/4677: Test helper to reset the global store between test runs.
+export function _resetFreePoolBudgetForTest(): void {
+  globalFreePoolBudget = null;
 }
