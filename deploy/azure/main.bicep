@@ -1879,13 +1879,17 @@ resource paidFallbackOverflow 'Microsoft.Insights/scheduledQueryRules@2023-03-15
 //
 // MATCH-TOKEN IS A CONTRACT: the literal "FREE-POOL-HEADROOM pct=80" (freePoolBudgetGate.ts:183)
 // — change that message, change it here too, or the headroom crossing goes unmonitored.
+//
+// Split by ContainerAppName_s (t/4288 precedent, same pattern as alert-aadsts-config-error) so
+// prod and staging page independently — the free-pool pool is shared across both apps, so a
+// staging-only low-cap test crossing (t/4677 AC4) must not look like a prod sev-2.
 resource freePoolHeadroom 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
   name: 'alert-free-pool-headroom'
   location: location
   tags: tags
   properties: {
     displayName: 'Free Pool Budget Headroom (80% of daily cap)'
-    description: 'The free-tier Gemini pool crossed 80% of its daily calls or token cap (t/4485). Early warning before admission is refused at 100% — consider the paid fallback or raising the pool.'
+    description: 'The free-tier Gemini pool crossed 80% of its daily calls or token cap (t/4485). Early warning before admission is refused at 100% — consider the paid fallback or raising the pool. Split by ContainerAppName_s (t/4288) so prod and staging page independently.'
     severity: 2
     enabled: true
     scopes: [ logAnalytics.id ]
@@ -1897,12 +1901,18 @@ resource freePoolHeadroom 'Microsoft.Insights/scheduledQueryRules@2023-03-15-pre
           query: '''
             ContainerAppConsoleLogs_CL
             | where Log_s contains "FREE-POOL-HEADROOM pct=80"
-            | summarize Warnings = count()
-            | where Warnings > 0
+            | summarize Warnings = count() by ContainerAppName_s
           '''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0
+          dimensions: [
+            {
+              name: 'ContainerAppName_s'
+              operator: 'Include'
+              values: [ '*' ]
+            }
+          ]
         }
       ]
     }
