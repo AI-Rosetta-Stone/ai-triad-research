@@ -53,13 +53,14 @@
   flex-shrink: 0;
 }
 
-/* closed — filled dot, upright (concluded) */
+/* closed — filled dot, upright (concluded). #6f6760 measured 4.43:1 on #ebe5dd, below the 4.5:1
+   AA minimum for 11px text (Design review, t/4683#6 / t/4694) — darkened to #5d554f, 5.83:1. */
 .debate-lib-status--closed {
-  color: #6f6760;
+  color: #5d554f;
   background: #ebe5dd;
 }
 .debate-lib-status--closed .debate-lib-status-dot {
-  background: #6f6760;
+  background: #5d554f;
 }
 
 /* active */
@@ -92,13 +93,15 @@
 /* cancelled — hollow ring + strikethrough, neutral grey family, no new hue (Design ruling
    t/3705#3): a terminal state that was aborted, not one that concluded. The dot is unfilled
    (border only); the label text itself reads "Cancelled" (t/3705#4) so the distinction survives
-   in the accessible name — strikethrough here is decorative reinforcement only. */
+   in the accessible name — strikethrough here is decorative reinforcement only. #8a8079 measured
+   3.08:1 on #ebe5dd, well below AA — darkened to #696056, 4.92:1, kept lighter than Closed's
+   #5d554f/5.83:1 per Design's "lighter if possible, but AA wins" (t/4694). */
 .debate-lib-status--cancelled {
-  color: #8a8079;
+  color: #696056;
   background: #ebe5dd;
   text-decoration: line-through;
 }
 .debate-lib-status--cancelled .debate-lib-status-dot {
   background: transparent;
-  border: 1px solid #8a8079;
+  border: 1px solid #696056;
 }
