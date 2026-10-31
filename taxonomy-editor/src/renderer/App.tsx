@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, type ReactNode } from 'react';
 import './App.css';
 import { api } from '@bridge';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
@@ -210,6 +210,33 @@ export const TABS_WITH_OWN_TOOLBAR_PANE = ['situations', 'conflicts', 'cruxes', 
 
 export function tabNeedsToolbarFallback(activeTab: string, toolbarPanel: string | null): boolean {
   return toolbarPanel !== null && !TABS_WITH_OWN_TOOLBAR_PANE.includes(activeTab);
+}
+
+/** The main tab-content body: the t/4722 toolbar-pane fallback, the POV tab shell, or the tab
+ *  itself. Kept out of MainApp so MainApp stays within its complexity budget. */
+function TabBody({ activeTab, toolbarPanel, showPovHeader, children }: {
+  activeTab: string;
+  toolbarPanel: string | null;
+  showPovHeader: boolean;
+  children: ReactNode;
+}) {
+  if (tabNeedsToolbarFallback(activeTab, toolbarPanel)) {
+    return (
+      <div className="list-panel list-panel-full">
+        <PhoneToolClose />
+        <ToolbarPaneRenderer panel={toolbarPanel} />
+      </div>
+    );
+  }
+  if (showPovHeader) {
+    return (
+      <div className="pov-tab-shell">
+        <TabBar />
+        <div className="pov-tab-shell-body">{children}</div>
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 export function App() {
@@ -640,8 +667,6 @@ function MainApp() {
   // showPovHeader mirrors the original TabBar visibility condition exactly. Layout-only.
   const showPovHeader = toolbarPanel === null &&
     !['rosetta-stone', 'situations', 'conflicts', 'cruxes', 'debate', 'chat', 'opeds', 'summaries', 'validation', 'organizations', 'inquiry'].includes(activeTab);
-
-  const showToolbarFallback = tabNeedsToolbarFallback(activeTab, toolbarPanel);
   const tabContent = (
     <>
       {activeTab === 'rosetta-stone' && <RosettaStoneTab />}
@@ -775,19 +800,9 @@ function MainApp() {
       <div className="app-body">
         <Toolbar />
         <div className="tab-content">
-          {showToolbarFallback ? (
-            <div className="list-panel list-panel-full">
-              <PhoneToolClose />
-              <ToolbarPaneRenderer panel={toolbarPanel} />
-            </div>
-          ) : showPovHeader ? (
-            <div className="pov-tab-shell">
-              <TabBar />
-              <div className="pov-tab-shell-body">{tabContent}</div>
-            </div>
-          ) : (
-            tabContent
-          )}
+          <TabBody activeTab={activeTab} toolbarPanel={toolbarPanel} showPovHeader={showPovHeader}>
+            {tabContent}
+          </TabBody>
         </div>
         {/* One app-level ref → DetailPane host for every main tab in this shell (t/1987).
             A ref-link click in PovTab/Situations/Conflicts/Cruxes/Debate sets the global
