@@ -28,6 +28,8 @@ import type { DebateSession } from './types/session.js';
 import type { DebateConfig } from './debateEngine/internals.js';
 import type { InquiryRequest, InquiryResult } from '../inquiry/schema.js';
 import type { TerminationReason } from './calibrationLogger/extract.js';
+import { createDebateProgressTracker, type DebateProgressUpdate } from './debateProgressMapping.js';
+import type { DebateProgress } from './debateEngine/internals.js';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -56,10 +58,20 @@ export interface InquiryPipelineDeps {
   runDebate: (
     config: DebateConfig,
     question: string,
+    /** t/4711: forwarded straight to `runHeadlessDebate`'s own `onProgress` — the host's
+     *  implementation doesn't need to know about debate-progress mapping, just relay it. */
+    onProgress?: (p: DebateProgress) => void,
   ) => Promise<{ session: DebateSession; terminationReason?: TerminationReason }>;
   adapter: AIAdapter;
   /** Optional progress sink. Emits each stage label as it begins. */
   onStage?: (stage: InquiryStage) => void;
+  /**
+   * Optional fine-grained progress sink for the Debate stage specifically (t/4710/t/4711):
+   * a monotonic [0,1] fraction + a short detail line, derived from `runHeadlessDebate`'s
+   * per-turn `DebateProgress` events. The host passes `stageProgress('debating', fraction)`
+   * (`debateProgressMapping.ts`) through to its own poll/IPC response.
+   */
+  onDebateProgress?: (p: DebateProgressUpdate) => void;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -196,7 +208,10 @@ export async function runInquiryPipeline(
 
   // ── Stage 3: run debate ────────────────────────────────────────────────────
   deps.onStage?.('debating');
-  const { session, terminationReason } = await deps.runDebate(config, request.question);
+  const onProgress = deps.onDebateProgress
+    ? createDebateProgressTracker(deps.onDebateProgress)
+    : undefined;
+  const { session, terminationReason } = await deps.runDebate(config, request.question, onProgress);
 
   // ── Stage 4: project trust ─────────────────────────────────────────────────
   deps.onStage?.('projecting');
