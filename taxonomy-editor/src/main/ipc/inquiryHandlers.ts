@@ -261,8 +261,11 @@ async function runJob(job: InquiryJob, request: InquiryRequest): Promise<void> {
       onStage: (stage: InquiryStage) => setStatus(job, mapStage(stage)),
       // t/4710/t/4713: fine-grained Debate-stage progress — stageProgress('debating', fraction)
       // replaces the fixed 40% the old PROGRESS table held for this (longest) stage.
+      // A late event after the stage has moved on is ignored, so the bar never moves backwards
+      // and a stale round/speaker line never reappears (t/4710 AC1: monotonic).
       onDebateProgress: (update: DebateProgressUpdate) => {
-        job.progressPct = stageProgress('debating', update.fraction);
+        if (job.status !== 'debating') return;
+        job.progressPct = Math.max(job.progressPct, stageProgress('debating', update.fraction));
         job.stageDetail = update.detail;
       },
     };

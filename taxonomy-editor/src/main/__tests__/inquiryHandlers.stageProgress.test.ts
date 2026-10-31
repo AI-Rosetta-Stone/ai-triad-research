@@ -153,4 +153,45 @@ describe('inquiryHandlers — stageProgress/stageDetail wiring (t/4713)', () => 
     expect(final.progressPct).toBe(100);
     expect(final.stageDetail).toBeUndefined();
   });
+
+  it('ignores a late debate-progress event after the stage has moved on (never goes backwards)', async () => {
+    let resolvePipeline: () => void = () => {};
+    runInquiryPipeline.mockImplementation((_request: unknown, deps: PipelineDeps) => {
+      deps.onStage?.('debating');
+      deps.onDebateProgress?.({ fraction: 0.9, detail: 'Closing arguments' });
+      deps.onStage?.('projecting'); // mapStage → 'judging'
+      deps.onDebateProgress?.({ fraction: 0.3, detail: 'Stale round' }); // late event
+      return new Promise<InquiryResult>((res) => { resolvePipeline = () => res(fakeResult()); });
+    });
+
+    const h = handlers();
+    const { jobId } = (await h['start-inquiry'](null, VALID_REQUEST)) as { jobId: string };
+    const judging = await waitForStatus(h, jobId, 'judging');
+
+    expect(judging.progressPct).toBe(stageProgress('judging'));
+    expect(judging.stageDetail).toBeUndefined();
+
+    resolvePipeline();
+    await waitForTerminal(h, jobId);
+  });
+
+  it('a lower fraction while still debating does not move the bar backwards', async () => {
+    let resolvePipeline: () => void = () => {};
+    runInquiryPipeline.mockImplementation((_request: unknown, deps: PipelineDeps) => {
+      deps.onStage?.('debating');
+      deps.onDebateProgress?.({ fraction: 0.6, detail: 'Round 3 of 4' });
+      deps.onDebateProgress?.({ fraction: 0.4, detail: 'Waiting to retry…' });
+      return new Promise<InquiryResult>((res) => { resolvePipeline = () => res(fakeResult()); });
+    });
+
+    const h = handlers();
+    const { jobId } = (await h['start-inquiry'](null, VALID_REQUEST)) as { jobId: string };
+    const mid = await waitForStatus(h, jobId, 'debating');
+
+    expect(mid.progressPct).toBe(stageProgress('debating', 0.6));
+    expect(mid.stageDetail).toBe('Waiting to retry…');
+
+    resolvePipeline();
+    await waitForTerminal(h, jobId);
+  });
 });
