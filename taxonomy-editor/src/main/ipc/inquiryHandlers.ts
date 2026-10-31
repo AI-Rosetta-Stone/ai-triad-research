@@ -36,7 +36,9 @@ import { runInquiryPipeline, type InquiryPipelineDeps, type InquiryStage } from 
 import { runHeadlessDebate } from '../../../../lib/debate/headlessRunner.js';
 import { resolvePoverInfo } from '../../../../lib/debate/soulDocLoader.js';
 import { loadTaxonomy, type LoadedTaxonomy } from '../../../../lib/debate/taxonomyLoader.js';
+import type { DebateSession } from '../../../../lib/debate/types/session.js';
 import { loadModelRegistry } from '../../../../lib/ai-client/registry.js';
+import { saveDebateSession } from '../debateIO.js';
 import {
   InquiryRequestSchema, type InquiryRequest, type InquiryResult,
   type InquiryJobStatus, isTerminalStatus, deriveTruncation,
@@ -227,6 +229,10 @@ function startJob(request: InquiryRequest): InquiryJob {
 }
 
 async function runJob(job: InquiryJob, request: InquiryRequest): Promise<void> {
+  // t/4682: captured by the runDebate lambda below so it survives past runInquiryPipeline,
+  // which only returns the derived InquiryResult — the full session is otherwise discarded,
+  // leaving nothing for "View raw run" (debateIO) to load on desktop.
+  let debateSession: DebateSession | undefined;
   try {
     const adapter = makeElectronAIAdapter('Inquiry');
     const deps: InquiryPipelineDeps = {
@@ -237,7 +243,10 @@ async function runJob(job: InquiryJob, request: InquiryRequest): Promise<void> {
       // (InquiryPipelineDeps has no passthrough for it), so the config this lambda receives
       // lacks one. Add it here so Electron-run debates record soul_provenance like cli.ts does.
       runDebate: (config, _question) => runHeadlessDebate({ ...config, soulResolver: resolvePoverInfo }, adapter, getLoadedTaxonomy())
-        .then(r => ({ session: r.session, terminationReason: r.terminationReason })),
+        .then(r => {
+          debateSession = r.session;
+          return { session: r.session, terminationReason: r.terminationReason };
+        }),
       adapter,
       onStage: (stage: InquiryStage) => setStatus(job, mapStage(stage)),
     };
@@ -268,6 +277,24 @@ async function runJob(job: InquiryJob, request: InquiryRequest): Promise<void> {
         message: `Failed to persist inquiry result ${job.jobId} — answer is shown but will not survive an app restart`,
         error: { name: (persistErr as Error).name ?? 'Error', message: errorMessage(persistErr) },
       });
+    }
+
+    // t/4682/t/4678: save the full session through debateIO (desktop has no quota, so unlike
+    // web's excludeFromQuota flag there's nothing to suppress) — this is what makes the inquiry
+    // debate show up in My Debates and fixes "View raw run" on desktop.
+    if (debateSession) {
+      debateSession.origin = { mode: 'inquiry', inquiry_id: job.jobId };
+      try {
+        await saveDebateSession(debateSession, 'inquiry-desktop');
+      } catch (saveErr) {
+        // A failed save must not fail the inquiry itself — the answer is still shown this
+        // session, "View raw run" and My Debates just won't have it. WARN per ADR-003.
+        getGlobalRecorder()?.record({
+          type: 'system.error', component: 'inquiry-desktop', level: 'warn',
+          message: `Failed to save inquiry debate session ${debateSession.id} — it will not appear in My Debates or support "View raw run"`,
+          error: { name: (saveErr as Error).name ?? 'Error', message: errorMessage(saveErr) },
+        });
+      }
     }
 
     setStatus(job, truncated ? 'done_truncated' : 'done');
