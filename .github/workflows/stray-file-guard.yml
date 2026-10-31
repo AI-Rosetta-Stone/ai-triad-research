@@ -23,16 +23,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Get changed files
-        id: changed-files
-        run: |
-          # Get the list of changed files between the PR base and head
-          FILES=$(git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD)
-          echo "files=$FILES" >> $GITHUB_OUTPUT
-
       - name: Run stray-file guard
         run: |
-          node scripts/ci/stray-file-guard.mjs ${{ steps.changed-files.outputs.files }}
+          # Get the list of changed files and pipe directly to the guard
+          git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD | node scripts/ci/stray-file-guard.mjs --from-stdin
 
       - name: Comment on PR if violations found
         if: failure()
