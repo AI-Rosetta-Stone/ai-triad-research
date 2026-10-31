@@ -109,7 +109,7 @@ export function registerDebatesRoutes(r: Router, _ctx: ServerCtx): void {
   get('/api/debates', async (_req, res) => { json(res, await fileIO.listDebateSessions()); });
   get('/api/debates/list', async (_req, res) => {
     const entries = await fileIO.listDebateSessionsMeta() as Record<string, unknown>[];
-    json(res, entries.map(e => ({ ...e, source: 'user' })));
+    json(res, entries.map(e => ({ ...e, source: 'user', origin_mode: e.origin_mode, inquiry_id: e.inquiry_id })));
   });
 
   // t/1360: read-only quota pre-check for the New Debate button (t/1358). MUST be

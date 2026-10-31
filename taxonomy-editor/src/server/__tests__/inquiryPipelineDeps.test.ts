@@ -122,18 +122,17 @@ describe('t/4289/t/4290 — server inquiry adapter wires computeQueryEmbedding',
 // t/4338: runHeadlessDebate's session was never persisted, so result.debateId (session.id)
 // pointed at nothing — "View raw run" (t/3617) 404'd for every inquiry answer ever produced.
 describe('t/4338 — runDebate persists the headless debate session', () => {
-  it('calls saveDebateSession with mustNotExist:true, excludeFromQuota:true, and the origin/jobId marker', async () => {
+  it('calls saveDebateSession with mustNotExist:true, listedButExempt:true, and the typed origin marker', async () => {
     await buildInquiryRunPipeline()(REQUEST, CTX);
     const config = { model: 'test-model' } as unknown as Parameters<InquiryPipelineDeps['runDebate']>[0];
     await h.capturedDeps!.runDebate(config, 'q');
 
     expect(h.saveDebateSessionSpy).toHaveBeenCalledTimes(1);
     const [savedSession, caller, opts] = h.saveDebateSessionSpy.mock.calls[0];
-    expect((savedSession as { id: string; origin: string; inquiryJobId: string }).id).toBe('session-1');
-    expect((savedSession as { origin: string }).origin).toBe('inquiry');
-    expect((savedSession as { inquiryJobId: string }).inquiryJobId).toBe('job-123');
+    expect((savedSession as { id: string }).id).toBe('session-1');
+    expect((savedSession as { origin: { mode: string; inquiry_id: string } }).origin).toEqual({ mode: 'inquiry', inquiry_id: 'job-123' });
     expect(caller).toBe('inquiry');
-    expect(opts).toEqual({ mustNotExist: true, excludeFromQuota: true });
+    expect(opts).toEqual({ mustNotExist: true, listedButExempt: true });
   });
 
   it('still returns the session/terminationReason to the pipeline on a successful save', async () => {
