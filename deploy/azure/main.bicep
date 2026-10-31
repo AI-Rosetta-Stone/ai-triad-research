@@ -1872,6 +1872,46 @@ resource paidFallbackOverflow 'Microsoft.Insights/scheduledQueryRules@2023-03-15
   }
 }
 
+// Free-pool headroom early-warning (t/4485 item 4 / t/4677 AC5). The free-pool budget gate
+// (freePoolBudgetGate.ts) WARNs once per UTC day, per process, the first time either the calls
+// or token usage crosses 80% of its daily cap — before admission is actually refused. This alert
+// is what makes that WARN visible instead of a log line nobody watches.
+//
+// MATCH-TOKEN IS A CONTRACT: the literal "FREE-POOL-HEADROOM pct=80" (freePoolBudgetGate.ts:183)
+// — change that message, change it here too, or the headroom crossing goes unmonitored.
+resource freePoolHeadroom 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-free-pool-headroom'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Free Pool Budget Headroom (80% of daily cap)'
+    description: 'The free-tier Gemini pool crossed 80% of its daily calls or token cap (t/4485). Early warning before admission is refused at 100% — consider the paid fallback or raising the pool.'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where Log_s contains "FREE-POOL-HEADROOM pct=80"
+            | summarize Warnings = count()
+            | where Warnings > 0
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
 // Data-root boot validation WARN (t/3308 — observability backstop for the t/3296 warn-only default).
 // server.ts validates taxonomy/ + dictionary/ are present & non-empty at boot via the ACTIVE backend.
 // When DATA_ROOT_VALIDATION_ENFORCE is unset (default) a failed validation is WARN-only and the
