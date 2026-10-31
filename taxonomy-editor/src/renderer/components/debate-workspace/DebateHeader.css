@@ -74,6 +74,26 @@
   text-overflow: ellipsis;
   max-width: 100%;
 }
+/* t/4693: back-link to the originating question — AA-reviewed in all 4 themes. The
+   pop-out's plain-text arm (<em>, no .debate-hdr-from-question-link) intentionally
+   doesn't look clickable. */
+.debate-hdr-from-question {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.debate-hdr-from-question-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--link-color, var(--focus-ring));
+  font-weight: 600;
+  cursor: pointer;
+}
+.debate-hdr-from-question-link:hover {
+  text-decoration: underline;
+}
 /* Action cluster reusing DebateToolbar in header variant — neutralize the frozen
    .debate-toolbar bar chrome (border/bg/padding) so it sits inline in Band 1. */
 .debate-toolbar.debate-hdr-actions {
