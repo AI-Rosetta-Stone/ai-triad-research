@@ -555,10 +555,10 @@ export function OpEdTab() {
     titleHeader: 'Headline',
     titleSortable: true,
     columns: [
-      { key: 'camps', header: 'Camps', width: '150px', render: row => <OpEdCampTags camps={row.camps} /> },
-      { key: 'outlet', header: 'Outlet', width: '90px', sortable: true, compare: (a, b) => (a.outlet ?? '').localeCompare(b.outlet ?? ''), render: row => row.outlet ?? <span className="lib-empty-value">—</span> },
+      { key: 'camps', header: 'Camps', width: '150px', phone: 'meta', render: row => <OpEdCampTags camps={row.camps} /> },
+      { key: 'outlet', header: 'Outlet', width: '90px', phone: 'meta', sortable: true, compare: (a, b) => (a.outlet ?? '').localeCompare(b.outlet ?? ''), render: row => row.outlet ?? <span className="lib-empty-value">—</span> },
       {
-        key: 'date', header: 'Date', width: '110px', sortable: true,
+        key: 'date', header: 'Date', width: '110px', phone: 'meta', sortable: true,
         compare: (a, b, variant) => new Date(opEdLibDate(a, variant)).getTime() - new Date(opEdLibDate(b, variant)).getTime(),
         render: (row, variant) => <span className="lib-date">{formatLibDate(opEdLibDate(row, variant))}</span>,
       },
