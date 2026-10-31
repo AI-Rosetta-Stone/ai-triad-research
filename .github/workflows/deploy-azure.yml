@@ -57,11 +57,6 @@ on:
           - 'false'
           - 'true'
       # enable_git_sync removed — GitHub API-first mode is always on (STORAGE_MODE=github-api)
-      quota_preflight_test_ceiling:
-        description: 't/4587 part (b) GV live-fire only: override the quota-preflight warning ceiling (default 1000) to force a ::warning:: on a healthy real quota, without needing genuinely low quota. Leave empty for a normal deploy.'
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
@@ -992,57 +987,82 @@ jobs:
         shell: pwsh
         continue-on-error: true
         env:
-          # t/4587 GV live-fire only: see the workflow_dispatch input's own description.
-          TEST_CEILING: ${{ inputs.quota_preflight_test_ceiling }}
+          # t/4587 GV live-fire only (TL review, e/406): a repo/environment variable, not a
+          # workflow_dispatch input -- forcing this arm on PROD via dispatch would BE a real prod
+          # deploy. Proven on staging's next natural (workflow_run-triggered) deploy instead.
+          TEST_CEILING: ${{ vars.QUOTA_PREFLIGHT_TEST_CEILING }}
         run: |
-          Import-Module ./scripts/AITriad/AITriad.psm1 -Force -ErrorAction SilentlyContinue
-          . ./operations/devops/GitHubAppQuotaVerdict.ps1
+          # TL review (e/406, PR #4235 comments): every outcome below must be a visible verdict
+          # (a plain log line or a ::warning::) -- NEVER a silent pass, whether that's "zero
+          # readings produced," "the old revision's address couldn't be resolved," or "the whole
+          # step threw." The outer try/catch below exists specifically for the last case: this
+          # step is continue-on-error:true, which reports step conclusion=success on ANY outcome
+          # including an uncaught exception -- without this catch, a crash would look identical
+          # to a clean pass in the job summary.
+          try {
+            Import-Module ./scripts/AITriad/AITriad.psm1 -Force -ErrorAction SilentlyContinue
+            . ./operations/devops/GitHubAppQuotaVerdict.ps1
 
-          function Get-QuotaReading {
-            param([string]$Label, [string]$BaseUrl)
-            if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
-              # No prior revision to read (first-ever deploy) -- not a failure, nothing to check.
-              return $null
-            }
-            try {
-              $Resp = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 15
-              $Remaining = if ($Resp.PSObject.Properties['githubRateLimitRemaining']) { $Resp.githubRateLimitRemaining } else { $null }
-              $ResetsAtRaw = if ($Resp.PSObject.Properties['githubRateLimitResetsAt']) { $Resp.githubRateLimitResetsAt } else { $null }
-              $ResetsAt = if ($ResetsAtRaw) { try { [datetime]$ResetsAtRaw } catch { $null } } else { $null }
-              [PSCustomObject]@{ Label = $Label; Remaining = $Remaining; ResetsAt = $ResetsAt; QueryError = $null }
-            } catch {
-              [PSCustomObject]@{ Label = $Label; Remaining = $null; ResetsAt = $null; QueryError = $_.Exception.Message }
-            }
-          }
-
-          $NewUrl = '${{ steps.health_check.outputs.base_url }}'
-          $OldRevName = '${{ steps.current_revision.outputs.revision }}'
-          $OldUrl = $null
-          if (-not [string]::IsNullOrWhiteSpace($OldRevName)) {
-            $OldInfo = Get-ContainerAppRevision -Mode Fqdn -RevisionName $OldRevName `
-              -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}'
-            if ($OldInfo -and $OldInfo.Fqdn) { $OldUrl = "https://$($OldInfo.Fqdn)" }
-          }
-
-          $Ceiling = if ([string]::IsNullOrWhiteSpace($env:TEST_CEILING)) { 1000 } else { [int]$env:TEST_CEILING }
-
-          $Readings = [System.Collections.Generic.List[object]]::new()
-          $NewReading = Get-QuotaReading -Label 'new' -BaseUrl $NewUrl
-          if ($NewReading) { $Readings.Add($NewReading) }
-          $OldReading = Get-QuotaReading -Label 'old' -BaseUrl $OldUrl
-          if ($OldReading) { $Readings.Add($OldReading) }
-
-          if ($Readings.Count -eq 0) {
-            Write-Host "t/4587 quota preflight: no prior revision to read (first-ever deploy) -- nothing to check."
-          } else {
-            foreach ($R in $Readings) {
-              $Verdict = Get-GitHubAppQuotaVerdict -Remaining $R.Remaining -ResetsAt $R.ResetsAt -QueryError $R.QueryError -Ceiling $Ceiling
-              if ($Verdict.ShouldWarn) {
-                Write-Host "::warning::t/4587 quota preflight ($($R.Label) revision): $($Verdict.Reason)"
-              } else {
-                Write-Host "t/4587 quota preflight ($($R.Label) revision): $($Verdict.Reason)"
+            function Get-QuotaReading {
+              param([string]$Label, [string]$BaseUrl)
+              try {
+                $Resp = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 15
+                $Remaining = if ($Resp.PSObject.Properties['githubRateLimitRemaining']) { $Resp.githubRateLimitRemaining } else { $null }
+                $ResetsAtRaw = if ($Resp.PSObject.Properties['githubRateLimitResetsAt']) { $Resp.githubRateLimitResetsAt } else { $null }
+                $ResetsAt = if ($ResetsAtRaw) { try { [datetime]$ResetsAtRaw } catch { $null } } else { $null }
+                [PSCustomObject]@{ Label = $Label; Remaining = $Remaining; ResetsAt = $ResetsAt; QueryError = $null }
+              } catch {
+                [PSCustomObject]@{ Label = $Label; Remaining = $null; ResetsAt = $null; QueryError = $_.Exception.Message }
               }
             }
+
+            function Show-QuotaVerdict {
+              param([string]$Label, [object]$Reading, [int]$Ceiling)
+              $Verdict = Get-GitHubAppQuotaVerdict -Remaining $Reading.Remaining -ResetsAt $Reading.ResetsAt -QueryError $Reading.QueryError -Ceiling $Ceiling
+              if ($Verdict.ShouldWarn) {
+                Write-Host "::warning::t/4587 quota preflight ($Label revision): $($Verdict.Reason)"
+              } else {
+                Write-Host "t/4587 quota preflight ($Label revision): $($Verdict.Reason)"
+              }
+            }
+
+            $Ceiling = if ([string]::IsNullOrWhiteSpace($env:TEST_CEILING)) { 1000 } else { [int]$env:TEST_CEILING }
+
+            # NEW revision: base_url should always be set by the health-check step above. An
+            # unexpectedly empty value is itself a finding (the mechanism this preflight depends
+            # on broke), never silently skipped.
+            $NewUrl = '${{ steps.health_check.outputs.base_url }}'
+            if ([string]::IsNullOrWhiteSpace($NewUrl)) {
+              Write-Host "::warning::t/4587 quota preflight (new revision): base_url was unexpectedly empty -- cannot read quota, treat as unknown."
+            } else {
+              Show-QuotaVerdict -Label 'new' -Reading (Get-QuotaReading -Label 'new' -BaseUrl $NewUrl) -Ceiling $Ceiling
+            }
+
+            # OLD revision: genuinely absent only on a first-ever deploy (no prior revision to
+            # pin at all) -- that case alone is a quiet, expected "nothing to check." Any OTHER
+            # reason the old revision's address can't be resolved (the FQDN lookup throws, or
+            # returns nothing) is a DISTINCT failure and must warn, not fall through to silence.
+            $OldRevName = '${{ steps.current_revision.outputs.revision }}'
+            if ([string]::IsNullOrWhiteSpace($OldRevName)) {
+              Write-Host "t/4587 quota preflight (old revision): no prior revision -- first-ever deploy, nothing to check."
+            } else {
+              $OldInfo = $null
+              $OldFqdnError = $null
+              try {
+                $OldInfo = Get-ContainerAppRevision -Mode Fqdn -RevisionName $OldRevName `
+                  -AppName '${{ env.CONTAINER_APP_NAME }}' -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+              } catch {
+                $OldFqdnError = $_.Exception.Message
+              }
+              if ($OldFqdnError -or -not $OldInfo -or -not $OldInfo.Fqdn) {
+                $Reason = if ($OldFqdnError) { $OldFqdnError } else { "no FQDN resolved for revision '$OldRevName'" }
+                Write-Host "::warning::t/4587 quota preflight (old revision): could not resolve the old revision's address ($Reason) -- cannot read its quota, treat as unknown."
+              } else {
+                Show-QuotaVerdict -Label 'old' -Reading (Get-QuotaReading -Label 'old' -BaseUrl "https://$($OldInfo.Fqdn)") -Ceiling $Ceiling
+              }
+            }
+          } catch {
+            Write-Host "::warning::t/4587 quota preflight CRASHED before producing a verdict: $($_.Exception.Message) -- treat as unknown, never a silent pass."
           }
 
       - name: Shift traffic to new revision
