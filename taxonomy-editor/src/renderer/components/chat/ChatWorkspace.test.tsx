@@ -148,14 +148,18 @@ describe('ChatWorkspace', () => {
     expect(screen.getByText('Select a chat or start a new one.')).toBeInTheDocument();
   });
 
-  it('renders chat header with POVer label, mode selector, and topic', () => {
+  it('renders chat header with camp chip, mode pill, and the question card', () => {
     mockChatStoreState = { activeChat: makeChat() };
     render(<ChatWorkspace />);
-    expect(screen.getByText('Accelerationist')).toBeInTheDocument();
+    // t/4724: "Accelerationist" appears twice by design — the header's camp chip and the
+    // always-visible Session panel's "Talking to" row.
+    expect(screen.getAllByText('Accelerationist').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('AI Safety')).toBeInTheDocument();
-    expect(screen.getByText('Brainstorm')).toBeInTheDocument();
-    expect(screen.getByText('Inform')).toBeInTheDocument();
-    expect(screen.getByText('Decide')).toBeInTheDocument();
+    expect(screen.getByText('BRAINSTORM')).toBeInTheDocument(); // header's read-only mode pill
+    // The segmented mode control moved into the composer (t/4724).
+    expect(screen.getByRole('button', { name: 'Brainstorm' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Inform' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Decide' })).toBeInTheDocument();
   });
 
   it('renders transcript messages', () => {
@@ -176,7 +180,7 @@ describe('ChatWorkspace', () => {
   it('renders input bar with textarea and send button', () => {
     mockChatStoreState = { activeChat: makeChat() };
     render(<ChatWorkspace />);
-    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Ask the Accelerationist a follow-up/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
 
@@ -189,7 +193,7 @@ describe('ChatWorkspace', () => {
   it('enables send button when input has text', async () => {
     mockChatStoreState = { activeChat: makeChat() };
     render(<ChatWorkspace />);
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Ask the Accelerationist a follow-up/);
     await userEvent.type(textarea, 'test message');
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
   });
@@ -197,7 +201,7 @@ describe('ChatWorkspace', () => {
   it('calls sendMessage and clears input on send button click', async () => {
     mockChatStoreState = { activeChat: makeChat() };
     render(<ChatWorkspace />);
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Ask the Accelerationist a follow-up/);
     await userEvent.type(textarea, 'hello world');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(mockSendMessage).toHaveBeenCalledWith('hello world');
@@ -213,7 +217,7 @@ describe('ChatWorkspace', () => {
   it('disables textarea and send button while generating', () => {
     mockChatStoreState = { activeChat: makeChat(), chatGenerating: true };
     render(<ChatWorkspace />);
-    expect(screen.getByPlaceholderText(/Type a message/)).toBeDisabled();
+    expect(screen.getByPlaceholderText(/Ask the Accelerationist a follow-up/)).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
   });
 
