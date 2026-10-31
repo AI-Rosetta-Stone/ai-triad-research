@@ -784,3 +784,8 @@ export function ensureFreePoolBudgetBooted(log: any): void {
 export function getFreePoolBudget(): FreePoolBudget | null {
   return globalFreePoolBudget;
 }
+
+// t/4677: Test helper to reset the global store between test runs.
+export function _resetFreePoolBudgetForTest(): void {
+  globalFreePoolBudget = null;
+}

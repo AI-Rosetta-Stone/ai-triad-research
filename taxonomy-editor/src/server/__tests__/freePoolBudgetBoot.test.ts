@@ -13,15 +13,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { ensureFreePoolBudgetBooted, getFreePoolBudget, initFreePoolBudget } from '../storage/freePoolBudget.js';
+import { ensureFreePoolBudgetBooted, getFreePoolBudget, _resetFreePoolBudgetForTest } from '../storage/freePoolBudget.js';
 
 describe('free-pool budget store boot initialization (t/4677)', () => {
   const originalAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
   const originalCallsCap = process.env.FREE_POOL_DAILY_CALLS_CAP;
 
   beforeEach(() => {
-    // Reset store state between tests by calling initFreePoolBudget with a null-like state.
-    // Clear env vars to ensure clean state.
+    // Reset the module-level store to ensure test isolation
+    _resetFreePoolBudgetForTest();
+    // Clear env vars to ensure clean state
     delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     delete process.env.FREE_POOL_DAILY_CALLS_CAP;
   });
@@ -93,10 +94,15 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     expect(budgetStore).not.toBeNull();
   });
 
-  it('ensureFreePoolBudgetBooted() records flight recorder error when init throws', () => {
-    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://invalid-blob-url/';
+  it('ensureFreePoolBudgetBooted() records flight recorder error when init throws', async () => {
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
 
-    // This will throw during BlobFreePoolBudget construction
+    // Import the module and spy on initFreePoolBudget to inject a throwing implementation
+    const freePoolModule = await import('../storage/freePoolBudget.js');
+    const initSpy = vi.spyOn(freePoolModule, 'initFreePoolBudget').mockImplementation(() => {
+      throw new Error('Simulated init failure');
+    });
+
     const errorFn = vi.fn();
     const mockLog = { server: { warn: () => {}, error: errorFn } };
 
@@ -108,5 +114,8 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
       expect.any(Object),
       expect.stringContaining('initialization failed')
     );
+
+    // Restore spy
+    initSpy.mockRestore();
   });
 });
