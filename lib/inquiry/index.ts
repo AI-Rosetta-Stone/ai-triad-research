@@ -25,3 +25,6 @@ export type { PublicInquiryShare, PublicInquiryShareRead } from './publicShare.j
 // Inquiry duration estimation (t/4751) — p50/p90 wall-clock estimate by fidelity + debater model.
 export { estimateInquiryDuration } from './durationEstimate.js';
 export type { InquiryFidelity, DurationEstimate } from './durationEstimate.js';
+// Desktop Ask upload payload schema (t/4743) — single-source contract for server/IPC/desktop.
+export { inquiryPayloadSchema, HttpUrlSchema } from './inquiryPayloadSchema.js';
+export type { InquiryPayload } from './inquiryPayloadSchema.js';
