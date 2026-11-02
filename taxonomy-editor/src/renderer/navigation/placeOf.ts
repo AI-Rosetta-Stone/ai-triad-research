@@ -22,11 +22,16 @@ export interface AppState {
 type PlaceResolver = (state: AppState) => PlaceInfo;
 
 /**
- * Build a place. `label` is always the last crumb's text, so the bar, the Back tooltip and the
- * Recent menu can never disagree, and an id can't leak into one but not the others.
+ * Build a place. `label` — the short form for Back/Forward names, the Recent menu and the live
+ * announcement — is derived from the crumbs, so they can never disagree and an id can't leak into
+ * one but not the others. Per the spec it is the last crumb, prefixed with the tool name (the
+ * first crumb) when they differ: "Chat: <title>", "Taxonomy: <node>"; just "Chat" on a collection.
  */
 function place(tool: PlaceTool, path: string, placeKey: string, crumbs: Crumb[]): PlaceInfo {
-  return { tool, path, placeKey, label: crumbs[crumbs.length - 1].text, crumbs };
+  const last = crumbs[crumbs.length - 1].text;
+  const toolText = crumbs[0].text;
+  const label = crumbs.length > 1 && toolText !== last ? `${toolText}: ${last}` : last;
+  return { tool, path, placeKey, label, crumbs };
 }
 
 /**
