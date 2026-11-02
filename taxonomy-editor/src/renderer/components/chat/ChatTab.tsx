@@ -12,7 +12,7 @@ import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { NewChatDialog } from './NewChatDialog';
 import { ChatGettingStarted } from './ChatGettingStarted';
-import { buildChatLibraryListConfig } from './chatLibraryListConfig';
+import { buildChatLibraryListConfig, rowCampChip } from './chatLibraryListConfig';
 import { ChatWorkspace } from './ChatWorkspace';
 import { SearchPreview } from '../edge-browser/SearchPreview';
 import { PromptDetailPanel } from './PromptsPanel';
@@ -158,13 +158,7 @@ function MyChatsList({
             <span className={`chat-mode-badge mode-${s.mode}`}>
               {MODE_LABELS[s.mode] || s.mode}
             </span>
-            <span
-              className="chat-session-pover"
-              // eslint-disable-next-line local/no-inline-style -- dynamic POVer camp color
-              style={{ color: POVER_INFO[s.pover]?.color }}
-            >
-              {POVER_INFO[s.pover]?.label || s.pover}
-            </span>
+            {rowCampChip(s, 'my')}
             {s.id === activeChatId && chatGenerating ? (
               <span className="chat-session-generating">
                 <span className="dot-animation" />
@@ -236,7 +230,7 @@ function CommunityChatsList({
                 {MODE_LABELS[cc.mode as ChatMode] || cc.mode}
               </span>
             )}
-
+            {rowCampChip(cc, 'community')}
             <span className="chat-session-item-date">{formatDate(cc.updated_at)}</span>
           </div>
           <div className="chat-community-copy-row">

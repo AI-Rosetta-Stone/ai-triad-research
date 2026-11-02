@@ -54,10 +54,6 @@
   color: var(--text-muted);
 }
 
-.chat-session-pover {
-  font-weight: 500;
-}
-
 .chat-session-item-date {
   margin-left: auto;
 }
