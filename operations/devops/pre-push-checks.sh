@@ -82,9 +82,13 @@ if ! command -v pnpm >/dev/null 2>&1; then
   echo "pre-push: WARN pnpm not found; skipping TypeScript checks (CI will still run them)." >&2; exit 0
 fi
 
-DIRTY=$(echo "$CHANGED" | xargs git status --porcelain -- 2>/dev/null | head -5)
-[ -n "$DIRTY" ] && echo "pre-push: WARN checking the working tree, which has uncommitted edits to pushed files:
-$DIRTY" >&2
+# Uncommitted code anywhere under the checked packages (pushed files or not, tracked or
+# untracked) makes a failure unattributable: tsc and vitest check the whole tree, so another
+# agent's half-edit in a shared checkout could fail them. Then failures WARN instead of block.
+DIRTY=$(git status --porcelain --untracked-files=all -- taxonomy-editor lib 2>/dev/null |
+  while IFS= read -r line; do is_lintable "${line#???}" && echo "$line"; done)
+[ -n "$DIRTY" ] && echo "pre-push: WARN the working tree has uncommitted code, so failures below will warn, not block:
+$(echo "$DIRTY" | head -5)" >&2
 
 echo "pre-push: running CI's fast checks on changed TypeScript (AITRIAD_PREPUSH=skip to bypass)..."
 FAILED=""
@@ -121,6 +125,12 @@ for step in $PLAN; do
 done
 IFS=$OLDIFS
 
+if [ -n "$FAILED" ] && [ -n "$DIRTY" ]; then
+  echo "
+pre-push: WARN these checks failed, but uncommitted code in the tree means the failure may not
+be this push's. Not blocking; CI will judge the pushed commit:$FAILED" >&2
+  exit 0
+fi
 if [ -n "$FAILED" ]; then
   echo "
 pre-push: BLOCKED. These checks fail locally and would fail CI:$FAILED

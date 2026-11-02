@@ -20,12 +20,20 @@ if [ ! -f "$CHECKS" ]; then
   exit 0
 fi
 ZERO=0000000000000000000000000000000000000000
+# The checks read the working tree, so they only describe a pushed commit that is the
+# checked-out one. Pushing any other ref (git push origin some-other-branch) would check
+# the wrong code, so that ref is skipped with a WARN instead of blocked or passed on bad evidence.
+HEAD_SHA=$(git rev-parse HEAD 2>/dev/null)
 
 status=0
 # stdin: <local ref> <local sha> <remote ref> <remote sha>, one line per pushed ref.
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$ZERO" ] && continue            # deleting a remote ref
   case "$remote_ref" in refs/tags/*) continue ;; esac
+  if [ "$local_sha" != "$HEAD_SHA" ]; then
+    echo "pre-push: WARN $local_ref is not the checked-out commit; skipping checks for it (they read the working tree)." >&2
+    continue
+  fi
   base=$(git merge-base "$local_sha" origin/main 2>/dev/null)
   if [ -z "$base" ] && [ "$remote_sha" != "$ZERO" ]; then base=$remote_sha; fi
   if [ -z "$base" ]; then

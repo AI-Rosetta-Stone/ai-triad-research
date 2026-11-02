@@ -67,3 +67,30 @@ Describe 'pre-push-checks.sh --plan' -Tag 'devops' {
         @($plan | Where-Object { $_ -like '*|tsc|tsconfig.json' }).Count | Should -Be 1
     }
 }
+
+Describe '.githooks/pre-push ref handling' -Tag 'devops' {
+
+    BeforeAll {
+        $script:Sh = (Get-Command sh -ErrorAction SilentlyContinue).Source
+        if (-not $script:Sh -and (Test-Path 'C:\Program Files\Git\bin\sh.exe')) { $script:Sh = 'C:\Program Files\Git\bin\sh.exe' }
+        $script:Hook = Join-Path $PSScriptRoot '../.githooks/pre-push'
+        $script:Zero = '0' * 40
+        $script:NotHead = (& git -C $PSScriptRoot rev-parse 'HEAD~1').Trim()
+    }
+
+    BeforeEach {
+        if (-not $script:Sh) { Set-ItResult -Skipped -Because 'no POSIX sh available' }
+    }
+
+    It 'skips, with a WARN, a pushed ref that is not the checked-out commit (checks read the working tree)' {
+        $out = "refs/heads/x $($script:NotHead) refs/heads/x $($script:Zero)" | & $script:Sh $script:Hook 2>&1
+        $LASTEXITCODE | Should -Be 0
+        ($out -join "`n") | Should -Match 'not the checked-out commit'
+    }
+
+    It 'ignores a branch deletion' {
+        $out = "(delete) $($script:Zero) refs/heads/y $($script:NotHead)" | & $script:Sh $script:Hook 2>&1
+        $LASTEXITCODE | Should -Be 0
+        ($out -join "`n") | Should -Not -Match 'running'
+    }
+}
