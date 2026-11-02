@@ -1347,10 +1347,8 @@ assertStateRootIsolation(); // t/2643: refuse start if staging's state root wasn
 // (proven to block a misprovisioned promotion by the Arm-B GV, t/3309#21) is now the SOLE data-root
 // deploy protection: a misprovisioned revision never promotes (warm-gate blocks + rolls back) while
 // the old rev keeps serving, so the process stays up (liveness) with no crash-loop (t/2683 class).
-try {
-  await fileIO.validateDataRoot();
-  setDataRootReady(); // t/3309: cache data-root readiness for the /readyz gate
-} catch (err) {
+// t/4760: NOT awaited, so a slow data mount (up to DATA_ROOT_MOUNT_WAIT_MS) can't hold off listen(); /readyz says 'warming' until it settles.
+void fileIO.validateDataRoot().then(() => setDataRootReady(), (err: unknown) => { // t/3309: cache readiness for /readyz
   // t/3309 step-3: record the definitive failure for the /readyz gate, then CONTINUE (no exit(1)).
   // The boot exit(1)/DATA_ROOT_VALIDATION_ENFORCE path is REMOVED — after the staging Arm-B GV proved
   // the /readyz warm-gate blocks a misprovisioned rev (t/3309#21), the readiness gate supersedes the
@@ -1359,7 +1357,7 @@ try {
   setDataRootFailed(err instanceof Error ? err.message : String(err));
   const errObj = err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err);
   log.server.warn({ err: errObj }, 'Data root validation failed at boot — /readyz will report data-root-failed (503); process continues (liveness up), the deploy warm-gate blocks the promotion');
-}
+});
 // t/4298/t/4299/t/4300: WARN-only boot check — github-api's disk cache must never overlap
 // AI_TRIAD_DATA_ROOT (a data-root writer would otherwise silently become what this server
 // serves, with no check against GitHub). Synchronous, never throws, no-op on filesystem mode.

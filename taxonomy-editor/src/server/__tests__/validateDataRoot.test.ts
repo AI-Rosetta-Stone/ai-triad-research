@@ -25,7 +25,8 @@ vi.mock('../../../../lib/flight-recorder/index.js', () => ({
   redactRecord: (r: unknown) => r,
 }));
 
-import { validateDataRoot, setBackend } from '../storage/fileIO.js';
+import path from 'path';
+import { validateDataRoot, setBackend, getTaxonomyDir } from '../storage/fileIO.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
 import { FilesystemBackend } from '../storage/filesystemBackend.js';
@@ -34,13 +35,20 @@ import { FilesystemBackend } from '../storage/filesystemBackend.js';
 
 // Speed up retries — set delay to 0ms for all tests
 process.env.VALIDATE_DATA_ROOT_RETRY_DELAY_MS = '0';
+// Filesystem mount wait (t/4760): no waiting by default, so the original single-attempt cases keep
+// their meaning; the mount-wait tests below set a budget explicitly.
+process.env.DATA_ROOT_MOUNT_WAIT_MS = '0';
+process.env.DATA_ROOT_MOUNT_RETRY_DELAY_MS = '0';
 
 // ── Helpers ──
 
+const SENTINEL_FILE_BODY = '{"entities":[{"id":"ent-1"}]}';
+
 function makeFilesystemBackend(
   listFn: (dir: string) => Promise<string[]>,
+  readFn: (file: string) => Promise<string | null> = async () => SENTINEL_FILE_BODY,
 ): StorageBackend {
-  return { listDirectory: listFn } as unknown as StorageBackend;
+  return { listDirectory: listFn, readFile: readFn } as unknown as StorageBackend;
 }
 
 function makeGitHubBackend(
@@ -91,6 +99,64 @@ describe('validateDataRoot (t/3296 A arm)', () => {
       await expect(validateDataRoot()).rejects.toMatchObject({
         message: expect.stringContaining("dictionary/"),
       });
+    });
+
+    it('reads the sentinel files from the taxonomy directory, not the data root', async () => {
+      const read: string[] = [];
+      setBackend(makeFilesystemBackend(async () => ['f.json'], async (file) => { read.push(file); return SENTINEL_FILE_BODY; }));
+      await expect(validateDataRoot()).resolves.toBeUndefined();
+      const taxonomyDir = getTaxonomyDir();
+      expect(read).toEqual([path.join(taxonomyDir, 'entities.json'), path.join(taxonomyDir, 'organizations.json')]);
+    });
+
+    it('throws naming entities.json when it is missing', async () => {
+      setBackend(makeFilesystemBackend(async () => ['f.json'], async (file) => (file.endsWith('entities.json') ? null : SENTINEL_FILE_BODY)));
+      await expect(validateDataRoot()).rejects.toMatchObject({ message: expect.stringContaining('entities.json') });
+    });
+  });
+
+  // ── Filesystem mode: waiting for a slow data mount (t/4760) ──
+
+  describe('filesystem mode: waiting for the data mount (t/4760)', () => {
+    beforeEach(() => { process.env.DATA_ROOT_MOUNT_WAIT_MS = '60000'; });
+    afterEach(() => { process.env.DATA_ROOT_MOUNT_WAIT_MS = '0'; });
+
+    it('keeps waiting while taxonomy/ lists empty (unattached mount), then passes', async () => {
+      let lists = 0;
+      setBackend(makeFilesystemBackend(async (dir) => {
+        if (dir.includes('taxonomy')) return ++lists < 3 ? [] : ['f.json'];
+        return ['f.json'];
+      }));
+      await expect(validateDataRoot()).resolves.toBeUndefined();
+      expect(lists).toBe(3);
+    });
+
+    it('treats read errors as not-ready-yet, records them, and passes once reads succeed', async () => {
+      let reads = 0;
+      setBackend(makeFilesystemBackend(async () => ['f.json'], async () => {
+        if (++reads === 1) throw Object.assign(new Error('EIO: mount not ready'), { code: 'EIO' });
+        return SENTINEL_FILE_BODY;
+      }));
+      await expect(validateDataRoot()).resolves.toBeUndefined();
+      expect(recordedEvents.filter(e => e.level === 'warn' && e.message?.includes('entities.json'))).toHaveLength(1);
+    });
+
+    it('fails with the waited time once the budget runs out', async () => {
+      process.env.DATA_ROOT_MOUNT_WAIT_MS = '30';
+      process.env.DATA_ROOT_MOUNT_RETRY_DELAY_MS = '10';
+      try {
+        setBackend(makeFilesystemBackend(async () => []));
+        await expect(validateDataRoot()).rejects.toMatchObject({ message: expect.stringMatching(/taxonomy\/.*after waiting/) });
+      } finally {
+        process.env.DATA_ROOT_MOUNT_RETRY_DELAY_MS = '0';
+      }
+    });
+
+    it('records the mount-ready time on success (for r/40)', async () => {
+      setBackend(makeFilesystemBackend(async () => ['f.json']));
+      await expect(validateDataRoot()).resolves.toBeUndefined();
+      const ready = recordedEvents.find(e => e.message?.includes('data root readable'));
+      expect(ready?.data).toMatchObject({ attempts: 1, mountReadyMs: expect.any(Number) });
     });
   });
 

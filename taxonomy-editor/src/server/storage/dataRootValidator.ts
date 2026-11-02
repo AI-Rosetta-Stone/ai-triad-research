@@ -9,10 +9,11 @@
  *
  * In github-api mode, uses GitHubAPIBackend.listDirectoryStrict() (3-way
  * outcome: genuine-empty → exit; transient → retry 2×; no-creds → exit).
- * In filesystem mode, uses backend.listDirectory() (ENOENT swallowed → []
- * = definitive absent/empty, no transient confusion).
+ * In filesystem mode, waits (bounded) until taxonomy/, dictionary/, entities.json and
+ * organizations.json are all readable, because an Azure Files mount can attach before it is
+ * readable (t/4760, below).
  *
- * Called at boot by server.ts (ServerAPI wires the call site).
+ * Called at boot by server.ts in the background, after listen (ServerAPI wires the call site).
  * Re-exported from fileIO.ts barrel.
  */
 
@@ -21,10 +22,7 @@ import { resolveDataPath, getDataRoot, STORAGE_MODE, CACHE_DIR } from '../config
 import { ActionableError } from '../../../../lib/debate/errors.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
-import { getBackend } from './fileIO.js';
-import { FilesystemBackend } from './filesystemBackend.js';
-
-const MOUNT_RETRY_BUDGET_MS = 180_000; // 3min provisional ceiling, pending r/40 mount-ready measurements (t/4760)
+import { getBackend, getTaxonomyDir } from './fileIO.js';
 
 export async function validateDataRoot(): Promise<void> {
   const backend = getBackend();
@@ -41,10 +39,15 @@ export async function validateDataRoot(): Promise<void> {
           .listDirectoryStrict(dir, opts)
     : null;
 
+  if (!strictFn) {
+    await waitForFilesystemData(backend, resolutionMethod);
+    return;
+  }
+
   for (const sentinel of sentinels) {
     const dir = resolveDataPath(sentinel);
 
-    if (strictFn) {
+    {
       // github-api mode: retry up to 3 attempts for transient errors
       const delayMs = parseInt(process.env.VALIDATE_DATA_ROOT_RETRY_DELAY_MS ?? '1000', 10);
       let lastErr: unknown;
@@ -90,140 +93,103 @@ export async function validateDataRoot(): Promise<void> {
           ],
         });
       }
-    } else if (backend instanceof FilesystemBackend) {
-      // filesystem mode + SMB mount warm-up: retry with backoff (t/4760)
-      const startMs = Date.now();
-      const delayMs = 10_000; // 10s backoff
-      const maxAttempts = Math.ceil(MOUNT_RETRY_BUDGET_MS / delayMs);
-      let lastErr: unknown;
-
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const entries = await backend.listDirectory(dir);
-          if (entries.length === 0) {
-            throw new ActionableError({
-              goal: 'Serve taxonomy and dictionary data',
-              problem: `Data root sentinel '${sentinel}/' is missing or empty. dataRoot=${getDataRoot()} (resolved via: ${resolutionMethod}), STORAGE_MODE=${STORAGE_MODE}`,
-              location: 'server/storage/dataRootValidator.ts → validateDataRoot',
-              nextSteps: [
-                'Verify the data repository is cloned at the expected path',
-                'Set AI_TRIAD_DATA_ROOT to the correct absolute path',
-                'Check that taxonomy/ and dictionary/ directories exist in the data root',
-              ],
-            });
-          }
-          lastErr = undefined;
-          break;
-        } catch (err) {
-          if (err instanceof ActionableError) throw err; // config or genuine-empty — no retry
-          lastErr = err;
-          getGlobalRecorder()?.record({
-            type: 'system.warn', component: 'data-root', level: 'warn',
-            message: `validateDataRoot: transient mount read error on attempt ${attempt + 1}/${maxAttempts} for sentinel '${sentinel}/' — retrying (t/4760)`,
-            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-          });
-          if (attempt < maxAttempts - 1) {
-            const elapsedMs = Date.now() - startMs;
-            if (elapsedMs + delayMs > MOUNT_RETRY_BUDGET_MS) break; // budget exhausted
-            await new Promise<void>(r => setTimeout(r, delayMs));
-          }
-        }
-      }
-
-      if (lastErr !== undefined) {
-        throw new ActionableError({
-          goal: 'Serve taxonomy and dictionary data',
-          problem: `Data root sentinel '${sentinel}/' is unreachable after ${maxAttempts} attempts (${Math.round(MOUNT_RETRY_BUDGET_MS / 1000)}s timeout). dataRoot=${getDataRoot()}, STORAGE_MODE=${STORAGE_MODE}. Mount may be slow to attach.`,
-          location: 'server/storage/dataRootValidator.ts → validateDataRoot',
-          nextSteps: [
-            'Check that the SMB mount for /mnt/shared is attached and ready',
-            'Verify network connectivity to the Azure Files share',
-            'Check pod/container logs for mount errors',
-            'Consider increasing the mount warm-up timeout if needed',
-          ],
-        });
-      }
-    } else {
-      // non-filesystem backend: single attempt, no retry
-      const entries = await backend.listDirectory(dir);
-      if (entries.length === 0) {
-        throw new ActionableError({
-          goal: 'Serve taxonomy and dictionary data',
-          problem: `Data root sentinel '${sentinel}/' is missing or empty. dataRoot=${getDataRoot()} (resolved via: ${resolutionMethod}), STORAGE_MODE=${STORAGE_MODE}`,
-          location: 'server/storage/dataRootValidator.ts → validateDataRoot',
-          nextSteps: [
-            'Verify the data repository is cloned at the expected path',
-            'Set AI_TRIAD_DATA_ROOT to the correct absolute path',
-            'Check that taxonomy/ and dictionary/ directories exist in the data root',
-          ],
-        });
-      }
     }
   }
+}
 
-  // Condition 3: sentinel coverage for entities.json and organizations.json (t/4760)
-  const fileSentinels = ['entities.json', 'organizations.json'] as const;
-  const startMs = Date.now();
+// ── Filesystem mode: wait for the data mount (t/4760) ──
+// On Azure Container Apps the shared data is an Azure Files mount. A new revision can see it attached
+// but not yet readable for a minute or more: reads come back empty or fail (4 rollbacks in the week
+// to 11-02, t/4091#56). Filesystem listDirectory swallows ENOENT to [], so "not ready yet" and
+// "genuinely empty" look the same; the only way to tell them apart is to wait. Validation runs in the
+// background after the server is listening (server.ts), so /readyz reports 'warming' meanwhile and
+// liveness is unaffected. The budget is provisional until r/40 has real mount-ready times.
+const MOUNT_WAIT_BUDGET_MS = 180_000;
+const MOUNT_RETRY_DELAY_MS = 10_000;
+const SENTINEL_DIRS = ['taxonomy', 'dictionary'] as const;
+// What the deploy smoke test reads, and what the failed rollbacks returned null for. Both live in
+// the taxonomy directory (fileIO.readEntities / readOrganizations), not the data root.
+const SENTINEL_FILES = ['entities.json', 'organizations.json'] as const;
 
-  for (const file of fileSentinels) {
-    const filePath = path.join(getDataRoot(), file);
-    let lastErr: unknown;
+type Backend = ReturnType<typeof getBackend>;
 
-    // Use same retry logic for filesystem backend
-    const isFsBackend = backend instanceof FilesystemBackend;
-    const maxAttempts = isFsBackend ? Math.ceil(MOUNT_RETRY_BUDGET_MS / 10_000) : 1;
-    const delayMs = 10_000;
+function envMs(name: string, fallback: number): number {
+  const v = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(v) && v >= 0 ? v : fallback;
+}
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        // Check if file exists and is non-empty by reading it
-        const content = await backend.readFile(filePath);
-        if (!content || content.trim().length === 0) {
-          throw new ActionableError({
-            goal: 'Serve taxonomy and dictionary data',
-            problem: `Sentinel file '${file}' is missing or empty. dataRoot=${getDataRoot()}`,
-            location: 'server/storage/dataRootValidator.ts → validateDataRoot',
-            nextSteps: ['Verify the file exists and contains valid JSON', 'Check data root permissions'],
-          });
-        }
-        lastErr = undefined;
-        break;
-      } catch (err) {
-        if (err instanceof ActionableError) throw err;
-        lastErr = err;
+interface MissingSentinel { name: string; err?: unknown }
 
-        if (isFsBackend && attempt < maxAttempts - 1) {
-          const elapsedMs = Date.now() - startMs;
-          if (elapsedMs + delayMs > MOUNT_RETRY_BUDGET_MS) break;
-          getGlobalRecorder()?.record({
-            type: 'system.warn', component: 'data-root', level: 'warn',
-            message: `validateDataRoot: transient file read error on attempt ${attempt + 1}/${maxAttempts} for '${file}' — retrying (t/4760)`,
-            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
-          });
-          await new Promise<void>(r => setTimeout(r, delayMs));
-        }
-      }
-    }
-
-    if (lastErr !== undefined) {
-      throw new ActionableError({
-        goal: 'Serve taxonomy and dictionary data',
-        problem: `Sentinel file '${file}' is unreachable. dataRoot=${getDataRoot()}`,
-        location: 'server/storage/dataRootValidator.ts → validateDataRoot',
-        nextSteps: ['Verify the file path and permissions', 'Check mount status for filesystem backend'],
+/** The first sentinel that isn't readable yet (with the read error, if any), or null when all are.
+ *  A read error counts as "not readable yet": the caller records it and decides whether to wait. */
+async function missingFilesystemSentinel(backend: Backend): Promise<MissingSentinel | null> {
+  for (const dir of SENTINEL_DIRS) {
+    try {
+      if ((await backend.listDirectory(resolveDataPath(dir))).length === 0) return { name: `${dir}/` };
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'data-root', level: 'warn',
+        message: `validateDataRoot: listing '${dir}/' failed; treated as not-ready-yet (t/4760)`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
       });
+      return { name: `${dir}/`, err };
     }
   }
-
-  // Record mount-ready latency on success (filesystem backend only)
-  if (backend instanceof FilesystemBackend) {
-    const mountReadyMs = Date.now() - startMs;
-    getGlobalRecorder()?.record({
-      type: 'system.info', component: 'data-root', level: 'info',
-      message: `validateDataRoot: mount ready after ${mountReadyMs}ms (t/4760)`,
-      data: { mountReadyMs },
-    });
+  for (const file of SENTINEL_FILES) {
+    try {
+      const raw = await backend.readFile(path.join(getTaxonomyDir(), file));
+      if (!raw || raw.trim().length === 0) return { name: file };
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'data-root', level: 'warn',
+        message: `validateDataRoot: reading '${file}' failed; treated as not-ready-yet (t/4760)`,
+        error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+      });
+      return { name: file, err };
+    }
   }
+  return null;
+}
+
+async function waitForFilesystemData(backend: Backend, resolutionMethod: string): Promise<void> {
+  const budgetMs = envMs('DATA_ROOT_MOUNT_WAIT_MS', MOUNT_WAIT_BUDGET_MS);
+  const delayMs = envMs('DATA_ROOT_MOUNT_RETRY_DELAY_MS', MOUNT_RETRY_DELAY_MS);
+  const start = Date.now();
+  for (let attempt = 1; ; attempt++) {
+    const missing = await missingFilesystemSentinel(backend);
+    const elapsedMs = Date.now() - start;
+    if (missing === null) {
+      // Logged every boot: r/40 reads this to set the budget from data (t/4091#57 item 2).
+      log.server.info({ mountReadyMs: elapsedMs, attempts: attempt }, 'Data root readable (mount ready)');
+      getGlobalRecorder()?.record({
+        type: 'system.info', component: 'data-root', level: 'info',
+        message: `validateDataRoot: data root readable after ${elapsedMs}ms (${attempt} attempt(s)) (t/4760)`,
+        data: { mountReadyMs: elapsedMs, attempts: attempt },
+      });
+      return;
+    }
+    if (elapsedMs + delayMs > budgetMs) throw filesystemMissingError(missing, elapsedMs, attempt, resolutionMethod);
+    if (attempt === 1) {
+      log.server.warn({ missing: missing.name, err: missing.err === undefined ? undefined : String(missing.err), budgetMs },
+        'Data root not readable yet; waiting for the data mount (/readyz reports warming meanwhile)');
+    }
+    await new Promise<void>(r => setTimeout(r, delayMs));
+  }
+}
+
+function filesystemMissingError(missing: MissingSentinel, waitedMs: number, attempts: number, resolutionMethod: string): ActionableError {
+  return new ActionableError({
+    goal: 'Serve taxonomy and dictionary data',
+    problem: `Data root sentinel '${missing.name}' is missing or empty after waiting ${Math.round(waitedMs / 1000)}s (${attempts} attempt(s)). dataRoot=${getDataRoot()} (resolved via: ${resolutionMethod}), STORAGE_MODE=${STORAGE_MODE}`,
+    innerError: missing.err,
+    location: 'server/storage/dataRootValidator.ts → validateDataRoot',
+    nextSteps: [
+      'Verify the data repository is cloned at the expected path, or that the Azure Files mount is attached',
+      'Set AI_TRIAD_DATA_ROOT to the correct absolute path',
+      'Check that taxonomy/, dictionary/, entities.json and organizations.json exist in the data root',
+      'If the mount is just slow, raise DATA_ROOT_MOUNT_WAIT_MS (and record the measured mount-ready time on t/4760)',
+    ],
+  });
 }
 
 /**
