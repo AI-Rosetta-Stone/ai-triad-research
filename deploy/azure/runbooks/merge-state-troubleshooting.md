@@ -58,6 +58,6 @@ then forces the `Invoke-ContextSwapRetrigger.ps1` close/reopen dance on every op
 - If a suite is genuinely **stuck** (hung job, not merely slow), cancel that run
   (`gh run cancel <id>`) so its stale suite settles — the problem is the stuck run, **not**
   branch protection.
-- Merge normally once green + `CLEAN`, per Pre-Self-Merge Verification (root AGENTS.md).
+- Merge normally once green + `CLEAN`, per Pre-Self-Merge Verification (`docs/pr-landing.md`).
 
 Refs: t/3605 (incident), t/3606 (this runbook).

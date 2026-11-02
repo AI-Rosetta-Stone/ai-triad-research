@@ -1,0 +1,8 @@
+# Search-tool ignore list (ripgrep / Claude Code Glob+Grep). Not a git ignore.
+# Worktrees are full repo copies: searching them times out and returns duplicate
+# hits that waste agent context. ripgrep reads this file even when VCS ignores
+# are bypassed. To search a worktree on purpose, run the search inside it.
+.worktrees/
+.claude/worktrees/
+**/.worktrees/
+node_modules/

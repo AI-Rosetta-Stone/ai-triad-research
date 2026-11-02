@@ -5,7 +5,7 @@
 
 This document explains the branch protection rules, CI pipeline, and deployment workflow for the AI Triad Research codebase — why they exist and how they interact.
 
-> **Landing code is governed elsewhere, deliberately.** How changes reach `main` — worktree vs. direct mode, the PR-flow, self-merge verification, `/land-from-worktree` — lives in the root `AGENTS.md` (sections *Feedback Rules → workflow-mode*, *Pre-Self-Merge Verification*, *PR-Flow Practice Rules*). This document does **not** restate that workflow: two copies of a landing procedure is exactly how this file came to recommend a path the platform now refuses (t/3803). It describes the *mechanism* GitHub enforces; the root `AGENTS.md` describes the *procedure* the fleet follows.
+> **Landing code is governed elsewhere, deliberately.** How changes reach `main` — worktree vs. direct mode, the PR-flow, self-merge verification, `/land-from-worktree` — lives in the root `AGENTS.md` (*Workflow Mode and the Shared Checkout*, *Landing Code*) and its full procedure in `docs/pr-landing.md` (*Pre-Self-Merge Verification*, *PR-Flow Practice Rules*). This document does **not** restate that workflow: two copies of a landing procedure is exactly how this file came to recommend a path the platform now refuses (t/3803). It describes the *mechanism* GitHub enforces; the root `AGENTS.md` describes the *procedure* the fleet follows.
 
 ## The Theory: Defense in Depth
 
@@ -141,8 +141,8 @@ The procedure — worktree vs. direct workflow mode, batching, self-merge verifi
 
 - **Workflow mode** (`worktree` strict vs. `direct`) — root `AGENTS.md` → *Feedback Rules*; read with `sh .githooks/read-workflow-mode.sh`. Mode governs branching discipline in the shared checkout; it does **not** loosen branch protection — code lands via PR in either mode.
 - **Landing a change** — `/land-from-worktree` (branch-first, checks-only self-merge).
-- **Self-merge verification** — root `AGENTS.md` → *Pre-Self-Merge Verification* (base is `main`, `--match-head-commit`, CI green on the exact head).
-- **PR-flow practice** — root `AGENTS.md` → *PR-Flow Practice Rules* (batching, prompt merge on green, gated-PR draft discipline, `joint-gv` co-merge).
+- **Self-merge verification** — `docs/pr-landing.md` → *Pre-Self-Merge Verification* (base is `main`, `--match-head-commit`, CI green on the exact head).
+- **PR-flow practice** — `docs/pr-landing.md` → *PR-Flow Practice Rules* (batching, prompt merge on green, gated-PR draft discipline, `joint-gv` co-merge).
 
 ### Workflow / CI file changes — the one real friction point
 
