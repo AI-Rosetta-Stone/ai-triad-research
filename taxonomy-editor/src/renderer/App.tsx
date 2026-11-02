@@ -13,6 +13,7 @@ import { useOpEdStore } from './hooks/useOpEdStore';
 import { useInquiryStore } from './hooks/useInquiryStore';
 import { useAppRoute } from './routing/useAppRoute';
 import { installNavSubscriber } from './navigation/subscriber';
+import { restorePath } from './navigation/restore';
 import { navHistory } from './navigation';
 import { LocationBarHost } from './components/navigation/LocationBarHost';
 import { Toolbar } from './components/shared/Toolbar';
@@ -199,7 +200,7 @@ async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>)
     chat: useChatStore,
     opEd: useOpEdStore,
     inquiry: useInquiryStore,
-  }, navHistory);
+  }, navHistory, restorePath);
 }
 
 // t/4722: Chat, Conflicts, Cruxes, Debate, Situations and the POV tabs mount their own
