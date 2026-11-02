@@ -11,8 +11,9 @@
 *.ps1xml text eol=crlf
 # Shell scripts: LF only (broken by CRLF)
 *.sh  text eol=lf
-# Git hooks are extensionless shell scripts — CRLF breaks the `sh` interpreter (t/1926)
-.githooks/pre-commit text eol=lf
+# Git hooks are extensionless shell scripts — CRLF breaks the `sh` interpreter (t/1926).
+# Every hook, not just pre-commit: post-merge and pre-push were added later and checked out CRLF.
+.githooks/* text eol=lf
 # Web / config: LF
 *.md   text eol=lf
 *.txt  text eol=lf
