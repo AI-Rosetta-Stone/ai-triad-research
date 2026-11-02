@@ -20,7 +20,32 @@ vi.mock('../hooks/useOpEdStore', () => ({
   useOpEdStore: { getState: () => ({ requestOpen: mockRequestOpen }) },
 }));
 
-const { OPED_ROUTE, findRoute, opedRoutePath, navigateTo, replaceRoute } = await import('./appRoutes');
+vi.mock('../hooks/useDebateStore', () => ({
+  useDebateStore: { getState: () => ({}) },
+}));
+
+const { DEBATE_ROUTE, OPED_ROUTE, findRoute, opedRoutePath, navigateTo, replaceRoute } = await import('./appRoutes');
+
+describe('DEBATE_ROUTE.match', () => {
+  it('matches /debate with or without trailing slash', () => {
+    expect(DEBATE_ROUTE.match('/debate')).toEqual({});
+    expect(DEBATE_ROUTE.match('/debate/')).toEqual({});
+  });
+  it('returns null for non-matching paths', () => {
+    expect(DEBATE_ROUTE.match('/')).toBeNull();
+    expect(DEBATE_ROUTE.match('/debates')).toBeNull();
+    expect(DEBATE_ROUTE.match('/debate/123')).toBeNull();
+  });
+});
+
+describe('DEBATE_ROUTE.restore', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('switches to the debate tab', () => {
+    DEBATE_ROUTE.restore({}, new URLSearchParams());
+    expect(mockSetActiveTab).toHaveBeenCalledWith('debate');
+  });
+});
 
 describe('OPED_ROUTE.match', () => {
   it('matches /opeds/:setId, with or without a trailing slash', () => {
@@ -54,6 +79,11 @@ describe('OPED_ROUTE.restore', () => {
 });
 
 describe('findRoute', () => {
+  it('finds the registered debate route', () => {
+    const match = findRoute('/debate');
+    expect(match?.route.id).toBe('debate');
+    expect(match?.params).toEqual({});
+  });
   it('finds the registered op-eds route', () => {
     const match = findRoute('/opeds/set-1');
     expect(match?.route.id).toBe('opeds');
@@ -70,6 +100,7 @@ describe('findRoute', () => {
     expect(match?.params).toEqual({ setId: 'set-1' });
   });
   it('returns null for an unregistered path', () => {
+    expect(findRoute('/chat')).toBeNull();
     expect(findRoute('/debates/anything')).toBeNull();
   });
 });
