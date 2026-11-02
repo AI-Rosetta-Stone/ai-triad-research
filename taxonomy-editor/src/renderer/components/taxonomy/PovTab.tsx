@@ -50,6 +50,7 @@ import { SoulDocDialog } from './SoulDocDialog';
 import { api } from '@bridge';
 import { useNodeConflicts } from '../conflict/edit-conflicts';
 import { useSyncStatus } from '../../hooks/useSyncStatus';
+import { expectReplace } from '../../navigation';
 
 interface PovTabProps {
   pov: Pov;
@@ -626,6 +627,7 @@ export function PovTab({ pov }: PovTabProps) {
   // Auto-select first node when tab loads and nothing is selected
   useEffect(() => {
     if (!selectedNodeId && orderedIds.length > 0) {
+      expectReplace(`taxonomy:${orderedIds[0]}`); // t/4640#40: an auto-select is not a Back step
       setSelectedNodeId(orderedIds[0]);
     }
   }, [pov]);

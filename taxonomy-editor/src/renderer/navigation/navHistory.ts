@@ -17,15 +17,19 @@ export class WebHistory implements NavHistory {
   private static readonly INDEX_KEY = 'nav_index';
 
   constructor() {
-    // Listen for browser back/forward (popstate)
+    // Browser back/forward (popstate). Every move notifies, so the nav subscriber restores the
+    // place (t/4640#40 item 5). An entry this class didn't write (no v:1 state, e.g. one left by
+    // an older bundle) still notifies, with an empty placeKey, so it restores from its URL.
     window.addEventListener('popstate', (e) => {
       const state = e.state as { v?: number; idx?: number; placeKey?: string; label?: string } | null;
-      if (state?.v === 1 && state.placeKey) {
-        const current = this.current();
-        if (current) {
-          this.listeners.forEach(l => l(current));
-        }
-      }
+      if (state?.v === 1 && typeof state.idx === 'number') this.saveIndex(state.idx);
+      const moved = this.current() ?? {
+        path: window.location.pathname + window.location.search,
+        placeKey: '',
+        label: '',
+        timestamp: Date.now(),
+      };
+      this.listeners.forEach(l => l(moved));
     });
   }
 

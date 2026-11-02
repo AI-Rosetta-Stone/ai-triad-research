@@ -78,7 +78,7 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
       };
     }
     return {
-      path: `/opeds/${openSet.set_id}`,
+      path: `/opeds/${encodeURIComponent(openSet.set_id)}`,
       placeKey: `opeds:${openSet.set_id}`,
       label: openSet.topic || 'Op-Ed',
       crumbs: [

@@ -15,7 +15,7 @@ BeforeAll {
     $ModulePath = Join-Path $PSScriptRoot '..' 'scripts' 'AITriad' 'AITriad.psm1'
     Import-Module $ModulePath -Force -WarningAction SilentlyContinue
 
-    $script:KeyVars = @('GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'AI_API_KEY', 'AI_MODEL')
+    $script:KeyVars = @('GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'OPENAI_API_KEY', 'ZAI_API_KEY', 'AI_API_KEY', 'AI_MODEL')
     $script:SavedKeyVars = @{}
     foreach ($v in $script:KeyVars) {
         $script:SavedKeyVars[$v] = [Environment]::GetEnvironmentVariable($v)
@@ -60,6 +60,25 @@ Describe 'Get-ApiKeyEnvArgs env-file (t/2530 L3)' -Tag 'unit' {
                 if (-not $IsWindows) {
                     (Get-Item -LiteralPath $envFile).UnixMode | Should -Be '-rw-------'
                 }
+            }
+            finally {
+                if ($result.Count -ge 2 -and (Test-Path -LiteralPath $result[1])) {
+                    Remove-Item -LiteralPath $result[1] -Force
+                }
+            }
+        }
+    }
+
+    It 'passes OPENAI_API_KEY and ZAI_API_KEY through (t/4755 -- these two were missing)' {
+        [Environment]::SetEnvironmentVariable('OPENAI_API_KEY', 'openai-secret-abc')
+        [Environment]::SetEnvironmentVariable('ZAI_API_KEY', 'zai-secret-def')
+        InModuleScope AITriad {
+            $result = @(Get-ApiKeyEnvArgs)
+            try {
+                $envFile = $result[1]
+                $content = Get-Content -Raw -LiteralPath $envFile
+                $content | Should -Match 'OPENAI_API_KEY=openai-secret-abc'
+                $content | Should -Match 'ZAI_API_KEY=zai-secret-def'
             }
             finally {
                 if ($result.Count -ge 2 -and (Test-Path -LiteralPath $result[1])) {

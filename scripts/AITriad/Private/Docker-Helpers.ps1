@@ -241,7 +241,10 @@ function Get-ApiKeyEnvArgs {
 
     Set-StrictMode -Version Latest
 
-    $keyVars = @('GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'AI_API_KEY', 'AI_MODEL')
+    # t/4755: was missing OPENAI_API_KEY/ZAI_API_KEY, two of the backends Register-AIBackend
+    # supports (AIEnrich.psm1's $script:AIApiKeyEnvVarMap) -- a container launch silently
+    # never passed those keys through even when the host had them set.
+    $keyVars = @('GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'OPENAI_API_KEY', 'ZAI_API_KEY', 'AI_API_KEY', 'AI_MODEL')
     $lines = [System.Collections.Generic.List[string]]::new()
     foreach ($var in $keyVars) {
         $val = [System.Environment]::GetEnvironmentVariable($var)

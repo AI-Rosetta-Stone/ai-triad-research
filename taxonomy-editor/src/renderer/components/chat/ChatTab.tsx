@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useChatStore } from '../../hooks/useChatStore';
+import { expectReplace } from '../../navigation';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useCommunityStore } from '../../hooks/useCommunityStore';
 import type { CommunityChat } from '../../hooks/useCommunityStore';
@@ -446,7 +447,7 @@ export function ChatTab() {
   const {
     sessions, sessionsLoading, loadSessions,
     activeChatId, loadChat, deleteChat, renameChat,
-    chatGenerating, chatActivity, chatError,
+    chatGenerating, chatActivity, chatError, chatLoading,
   } = useChatStore();
   const { toolbarPanel } = useTaxonomyStore();
   const { width, onMouseDown } = useResizablePanel();
@@ -538,12 +539,14 @@ export function ChatTab() {
   // Suppressed on phone: the phone layout is list-first and the user initiates detail view by tapping.
   useEffect(() => {
     if (isPhone) return;
-    if (activeChatId || selectedCommunityChat) return;
+    // chatLoading: a chat is already on its way (e.g. a restored /chat/:id) — don't race it.
+    if (activeChatId || selectedCommunityChat || chatLoading) return;
     if (sessionsLoading || communityLoading) return;
     if (sessions.length > 0) {
       const newest = [...sessions].sort((a, b) =>
         new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
       )[0];
+      expectReplace(`chat:${newest.id}`); // t/4640#40: an auto-open is not a Back step
       void loadChat(newest.id);
     } else if (communityChats.length > 0) {
       const newest = [...communityChats].sort((a, b) =>
@@ -551,7 +554,7 @@ export function ChatTab() {
       )[0];
       setSelectedCommunityChat(newest);
     }
-  }, [isPhone, activeChatId, selectedCommunityChat, sessionsLoading, communityLoading, sessions, communityChats, loadChat]);
+  }, [isPhone, activeChatId, selectedCommunityChat, chatLoading, sessionsLoading, communityLoading, sessions, communityChats, loadChat]);
 
   const handleSelect = (session: ChatSessionSummary) => {
     if (session.id !== activeChatId) {
