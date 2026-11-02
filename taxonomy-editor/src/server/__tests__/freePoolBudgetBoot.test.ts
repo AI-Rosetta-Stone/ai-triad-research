@@ -117,4 +117,51 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     // A failed init must leave the store unwired, so /health reports wired:false
     expect(getFreePoolBudget()).toBeNull();
   });
+
+  it('t/4733: routes to staging-user-content when AZURE_USER_CONTENT_CONTAINER=staging-user-content', () => {
+    // Regression test: verify container routing for prod/staging isolation
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
+    process.env.AZURE_USER_CONTENT_CONTAINER = 'staging-user-content';
+
+    // Capture what container was passed to init
+    const capturedOpts: any[] = [];
+    const capturingInit = (opts: any) => {
+      capturedOpts.push(opts);
+      return {}; // Return a mock store
+    };
+
+    const mockLog = { server: { warn: () => {}, error: () => {} } };
+    ensureFreePoolBudgetBooted(mockLog, capturingInit);
+
+    // Verify init was called with the correct container (staging)
+    expect(capturedOpts).toHaveLength(1);
+    expect(capturedOpts[0]).toHaveProperty('container', 'staging-user-content');
+  });
+
+  it('t/4733: falls back to user-content when AZURE_USER_CONTENT_CONTAINER is unset', () => {
+    // Regression test: verify fallback for prod (where env var is not yet set by Bicep, t/4728)
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
+    delete process.env.AZURE_USER_CONTENT_CONTAINER; // Simulate unset (prod state until t/4728)
+
+    // Capture what container was passed to init
+    const capturedOpts: any[] = [];
+    const capturingInit = (opts: any) => {
+      capturedOpts.push(opts);
+      return {}; // Return a mock store
+    };
+
+    const warnFn = vi.fn();
+    const mockLog = { server: { warn: warnFn, error: () => {} } };
+    ensureFreePoolBudgetBooted(mockLog, capturingInit);
+
+    // Verify init was called with fallback container (prod)
+    expect(capturedOpts).toHaveLength(1);
+    expect(capturedOpts[0]).toHaveProperty('container', 'user-content');
+
+    // Verify WARN was logged for fallback (error-handling rule: no silent fallbacks)
+    expect(warnFn).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.stringContaining('AZURE_USER_CONTENT_CONTAINER')
+    );
+  });
 });
