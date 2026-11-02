@@ -116,9 +116,15 @@
 .debate-debater-pill-active {
   font-weight: 600;
 }
+/* Not strikethrough: a sat-out debater's earlier turns stay visible, so a
+   crossed-out look wrongly reads as a hide-turns filter (t/4748). */
 .debate-debater-pill-inactive {
-  opacity: 0.4;
-  text-decoration: line-through;
+  opacity: 0.6;
+  border-style: dashed;
+  color: var(--text-muted);
+}
+.debate-debater-pill-status {
+  font-style: italic;
 }
 .debate-debater-pill:hover:not(:disabled) {
   opacity: 1;
