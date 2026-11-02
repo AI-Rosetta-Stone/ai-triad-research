@@ -1,0 +1,70 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+   Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4689: finished-run toast stack. Same fixed-bottom-center pattern as .precache-toast,
+   stacked upward when more than one run finishes elsewhere at once. */
+
+.run-toast-stack {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  z-index: 1999;
+  max-width: 90vw;
+}
+
+.run-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.run-toast-error {
+  border-color: var(--danger);
+}
+
+.run-toast-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-toast-btn {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 4px 12px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.run-toast-btn:hover {
+  background: var(--bg-hover);
+}
+
+.run-toast-dismiss {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--text-md);
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.run-toast-dismiss:hover {
+  color: var(--text-primary);
+}

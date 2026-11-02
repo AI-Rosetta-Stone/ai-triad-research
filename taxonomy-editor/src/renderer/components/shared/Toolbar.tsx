@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useState, useEffect, useRef, Fragment, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore, Fragment, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutGrid, MessageSquare, MessageCircle,
@@ -21,7 +21,14 @@ import { useTierInfo } from '../../hooks/useTierInfo';
 import { FeedbackPopover } from './FeedbackPopover';
 import { NAV_ITEMS, RosetteIcon, getVisibleNavItems, getSecondaryByGroup, type NavItem, type NavAction } from '../../data/navConfig';
 import { usePreferencesStore } from '../../store/preferencesStore';
+import { subscribeRunning, runningCountByTool } from '../../navigation/runningSignal';
 import './Toolbar.css';
+
+/** t/4689: rail dot for a tool with a run finishing elsewhere. useSyncExternalStore keeps this
+ *  isolated to the two buttons that need it — Toolbar itself doesn't re-render per tick. */
+function useToolRunning(tool: 'chat' | 'debate'): boolean {
+  return useSyncExternalStore(subscribeRunning, () => runningCountByTool(tool) > 0);
+}
 
 type ToolbarPanel = 'search' | 'related' | 'attrFilter' | 'attrInfo' | 'lineage' | 'prompts' | 'console' | 'fallacy' | 'edges' | 'policyAlignment' | 'policyDashboard' | 'vocabulary' | 'calibration';
 
@@ -197,17 +204,23 @@ interface PrimaryNavButtonProps {
   activeTab: string;
   toolbarPanel: string | null;
   onClick: () => void;
+  /** t/4689: a dot + augmented aria-label when this tool has a run finishing elsewhere.
+   *  Omit for tools with no running concept (Rosetta Stone, Op-Eds, Taxonomy). */
+  running?: boolean;
 }
 
-function PrimaryNavButton({ id, ariaLabel, label, icon: Icon, activeTab, toolbarPanel, onClick }: PrimaryNavButtonProps) {
+function PrimaryNavButton({ id, ariaLabel, label, icon: Icon, activeTab, toolbarPanel, onClick, running }: PrimaryNavButtonProps) {
   const active = activeTab === id && toolbarPanel === null;
   return (
     <button
       className={`toolbar-nav${active ? ' toolbar-nav-active' : ''}`}
       onClick={onClick}
-      aria-label={ariaLabel}
+      aria-label={running ? `${ariaLabel} — running` : ariaLabel}
     >
-      <Icon size="1.25em" />
+      <span className="toolbar-nav-icon-wrap">
+        <Icon size="1.25em" />
+        {running && <span className="toolbar-nav-running-dot" aria-hidden="true" />}
+      </span>
       <span className="toolbar-nav-label">{label}</span>
     </button>
   );
@@ -269,6 +282,8 @@ export function Toolbar() {
   const moreHasActive = secondaryGroups.flatMap(g => g.items).some(i => isNavItemActive(i));
   const viewMode = usePreferencesStore(state => state.viewMode);
   const setViewMode = usePreferencesStore(state => state.setViewMode);
+  const chatRunning = useToolRunning('chat');
+  const debateRunning = useToolRunning('debate');
 
   const clearCurrentPanel = () => {
     if (toolbarPanel === 'search') clearSimilarSearch();
@@ -326,6 +341,7 @@ export function Toolbar() {
           id="chat" ariaLabel="Chat" label="Chat"
           icon={MessageCircle} activeTab={activeTab} toolbarPanel={toolbarPanel}
           onClick={() => switchTab('chat')}
+          running={chatRunning}
         />
         {opedsVisible && (
           <PrimaryNavButton
@@ -345,6 +361,7 @@ export function Toolbar() {
           id="debate" ariaLabel="Debate" label="Debate"
           icon={MessageSquare} activeTab={activeTab} toolbarPanel={toolbarPanel}
           onClick={() => switchTab('debate')}
+          running={debateRunning}
         />
         <button
           className={`toolbar-nav${isTaxonomyActive ? ' toolbar-nav-active' : ''}`}

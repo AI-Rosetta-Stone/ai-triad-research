@@ -62,30 +62,6 @@
     gap: 0.4rem;
     padding: 0.35rem 0.5rem;
   }
-  .oped-reader-back {
-    padding: 0.15rem 0.5rem;
-    font-size: 0.75rem;
-  }
-}
-
-.oped-reader-back {
-  background: none;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-primary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8125rem;
-  padding: 0.25rem 0.7rem;
-}
-
-.oped-reader-back:hover {
-  background: var(--bg-hover);
-}
-
-.oped-reader-back:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 
 /* ── Public share control (web-only; t/2728) ── */

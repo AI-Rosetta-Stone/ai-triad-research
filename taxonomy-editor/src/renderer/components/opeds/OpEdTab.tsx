@@ -233,13 +233,12 @@ function ShareOpEdControl({ setId, source = 'my' }: { setId: string; source?: 'm
 // ── Reader view (back bar + article/loading/error) ────────────────────────────
 
 export function OpEdReaderView({
-  readerSet, readerLoading, readerError, status, onBack, shareSource, communityId, initialPov, onPovChange,
+  readerSet, readerLoading, readerError, status, shareSource, communityId, initialPov, onPovChange,
 }: {
   readerSet: OpEdSet | null;
   readerLoading: boolean;
   readerError: string | null;
   status: string | null;
-  onBack: () => void;
   /** t/2987/t/3315: which store the op-ed came from — 'my' (own share) or 'community' (public community
    *  share); null = not shareable. Both mint a public /share/oped link via their respective endpoint. */
   shareSource: 'my' | 'community' | null;
@@ -261,7 +260,8 @@ export function OpEdReaderView({
     <div className="two-column oped-tab-table-mode">
       <div className="oped-reader-shell">
         <div className="oped-reader-bar">
-          <button type="button" className="oped-reader-back" onClick={onBack}>‹ Op-Ed Studies</button>
+          {/* t/4689: the "‹ Op-Ed Studies" link is removed — the shared location-bar crumb
+              (LocationBarHost) now provides the same up-navigation. */}
           {status && <span className="oped-status">{status}</span>}
           {/* Share is web-only (electron-bridge rejects, t/2728). Own op-eds use the own-share endpoint;
               community op-eds use the community-share endpoint (t/3315 — community is public). Both mint
@@ -422,16 +422,6 @@ export function OpEdTab() {
       recordError('oped-tab', 'Failed to load community op-ed', err);
       setReaderError('Could not load this op-ed — it may have been removed.');
     }).finally(() => setReaderLoading(false));
-  }, [selectSet]);
-
-  const closeReader = useCallback(() => {
-    selectSet(null);
-    setReaderSet(null);
-    setReaderSource(null);
-    setReaderCommunityId(null);
-    setReaderError(null);
-    setInitialPov(undefined);
-    navigateTo('/'); // t/3486: back to the table view — the address bar should match.
   }, [selectSet]);
 
   // A fresh create (PR#2) — reload the library, then open the new set in the reader. LibraryListPage
@@ -600,7 +590,6 @@ export function OpEdTab() {
         readerLoading={readerLoading}
         readerError={readerError}
         status={status}
-        onBack={closeReader}
         shareSource={readerSource}
         communityId={readerCommunityId}
         initialPov={initialPov}

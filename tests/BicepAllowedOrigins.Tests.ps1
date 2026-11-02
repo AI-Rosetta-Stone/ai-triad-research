@@ -14,7 +14,11 @@ BeforeAll {
         return $Matches[1]
     }
     function Get-OriginHost([string]$Block) {
-        $m = [regex]::Matches($Block, "\{\s*name:\s*'ALLOWED_ORIGINS',\s*value:\s*'https://([a-z0-9-]+)\.\$\{containerAppEnv\.properties\.defaultDomain\}'\s*\}")
+        # t/4752: interpolates containerAppEnvDefaultDomain (a param), not the live
+        # containerAppEnv.properties.defaultDomain resource reference -- that reference made the
+        # whole derived env-var chain resource-dependent, forcing ARM to inline it in full at
+        # every use and exceeding the 81920-char single-expression limit on staging's chain.
+        $m = [regex]::Matches($Block, "\{\s*name:\s*'ALLOWED_ORIGINS',\s*value:\s*'https://([a-z0-9-]+)\.\$\{containerAppEnvDefaultDomain\}'\s*\}")
         return @($m | ForEach-Object { $_.Groups[1].Value })
     }
     function Get-AppName([string]$ResourceSymbol) {

@@ -16,6 +16,26 @@ import './InquiryTab.css';
 
 type ExportFormat = 'pdf' | 'json' | 'markdown';
 
+/** t/4753 part B: the TRUNCATED banner's cause clause. Previously always said "hit its
+ *  N-call budget" regardless of terminationReason — wrong whenever a run was actually cut
+ *  off by a turn cap, not the budget. Named per the TL's ruling (t/4753): `api_ceiling` is
+ *  the budget; `max_iterations` is a turn cap ("round limit"); anything else states the
+ *  reason verbatim rather than defaulting to "budget". */
+function truncationCause(terminationReason: string | null, callBudget: number): { phrase: string; emphasis: string } {
+  if (terminationReason === 'api_ceiling') {
+    return { phrase: 'hit its', emphasis: `${callBudget}-call budget` };
+  }
+  if (terminationReason === 'max_iterations') {
+    return { phrase: 'hit its', emphasis: 'round limit' };
+  }
+  if (terminationReason) {
+    return { phrase: 'was stopped early', emphasis: `(${terminationReason})` };
+  }
+  // terminationReason absent on an otherwise-truncated run: fall back to the budget wording
+  // (the historical default) rather than claim a cause we don't have.
+  return { phrase: 'hit its', emphasis: `${callBudget}-call budget` };
+}
+
 /** Extracted from the component (ESLint complexity) — pure request/result, no component state. */
 async function runExport(result: import('../../bridge/types').InquiryResult, format: ExportFormat): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
@@ -122,7 +142,7 @@ function InquiryGrounding({ grounding }: { grounding: import('../../bridge/types
 }
 
 export function InquiryAnswerPanel() {
-  const { status, result, error, terminationReason, jobId, reset, openList } = useInquiryStore();
+  const { status, result, error, terminationReason, jobId, reset } = useInquiryStore();
   const [exportError, setExportError] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [rawRunDeleted, setRawRunDeleted] = useState(false);
@@ -171,7 +191,6 @@ export function InquiryAnswerPanel() {
         </div>
         <div className="inquiry-rawrow">
           <button className="inquiry-ghost" onClick={reset}>Ask another question</button>
-          <button className="inquiry-ghost" onClick={openList}>My Questions</button>
         </div>
       </div>
     );
@@ -197,7 +216,6 @@ export function InquiryAnswerPanel() {
           <InquiryExportDropdown onExport={(f) => void handleExport(f)} />
           {jobId && <InquiryShareControl jobId={jobId} result={result} />}
           {result.debateId && <button className="inquiry-ghost" onClick={() => void handleViewRawRun(result.debateId!)}>View raw run</button>}
-          <button className="inquiry-ghost" onClick={openList}>My Questions</button>
         </div>
         {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
         {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}
@@ -222,15 +240,18 @@ export function InquiryAnswerPanel() {
       {/* Gated on the terminal STATUS, not terminationReason — terminationReason is set on every
        *  completed debate ('unknown' is a valid member, TL t/3599), so gating on its presence would
        *  fire on every run (TL t/3583#4 point 1). */}
-      {isTruncated && (
-        <div className="inquiry-banner inquiry-banner-truncated">
-          <span className="inquiry-bi">TRUNCATED</span>
-          <p>This run hit its <b>{result.derivation.callBudget}-call budget</b>{terminationReason ? ` (${terminationReason})` : ''} and
-            was cut off, rather than stopping at a decision point. The substance below still stands, but
-            metrics marked <b>incomplete</b> measure how far the debate got — a budget wall leaves them
-            unreadable, not merely low.</p>
-        </div>
-      )}
+      {isTruncated && (() => {
+        const cause = truncationCause(terminationReason, result.derivation.callBudget);
+        return (
+          <div className="inquiry-banner inquiry-banner-truncated">
+            <span className="inquiry-bi">TRUNCATED</span>
+            <p>This run {cause.phrase} <b>{cause.emphasis}</b> and
+              was cut off, rather than stopping at a decision point. The substance below still stands, but
+              metrics marked <b>incomplete</b> measure how far the debate got — a cutoff leaves them
+              unreadable, not merely low.</p>
+          </div>
+        );
+      })()}
 
       {result.campVerdicts.length > 0 && (
         <div className="inquiry-sect">
@@ -303,7 +324,6 @@ export function InquiryAnswerPanel() {
         <InquiryExportDropdown onExport={(f) => void handleExport(f)} />
         {jobId && <InquiryShareControl jobId={jobId} result={result} />}
         {result.debateId && <button className="inquiry-ghost" onClick={() => void handleViewRawRun(result.debateId!)}>View raw run</button>}
-        <button className="inquiry-ghost" onClick={openList}>My Questions</button>
       </div>
       {shareStatus && <p className="inquiry-faint">{shareStatus}</p>}
       {exportError && <p className="inquiry-error" role="alert">{exportError}</p>}

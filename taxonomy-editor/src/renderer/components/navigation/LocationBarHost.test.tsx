@@ -9,6 +9,8 @@ import { navHistory } from '../../navigation';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useChatStore } from '../../hooks/useChatStore';
+import { useOpEdStore } from '../../hooks/useOpEdStore';
+import { useInquiryStore } from '../../hooks/useInquiryStore';
 
 // Mock the store hooks
 vi.mock('../../hooks/useTaxonomyStore');
@@ -26,14 +28,24 @@ describe('LocationBarHost', () => {
     };
     const mockDebateState = {
       loadDebate: vi.fn(),
+      closeDebate: vi.fn(),
     };
     const mockChatState = {
       loadChat: vi.fn(),
+    };
+    const mockOpEdState = {
+      selectSet: vi.fn(),
+    };
+    const mockInquiryState = {
+      openFromHistory: vi.fn(),
+      openList: vi.fn(),
     };
 
     vi.mocked(useTaxonomyStore).mockReturnValue(mockTaxonomyState as any);
     vi.mocked(useDebateStore).mockReturnValue(mockDebateState as any);
     vi.mocked(useChatStore).mockReturnValue(mockChatState as any);
+    vi.mocked(useOpEdStore).mockReturnValue(mockOpEdState as any);
+    vi.mocked(useInquiryStore).mockReturnValue(mockInquiryState as any);
 
     vi.mocked(navHistory).canGoBack.mockReturnValue(false);
     vi.mocked(navHistory).canGoForward.mockReturnValue(false);
@@ -153,5 +165,69 @@ describe('LocationBarHost', () => {
     await userEvent.click(screen.getByRole('button', { name: '← Rosetta Stone' }));
 
     expect(navHistory.go).toHaveBeenCalledWith(-1);
+  });
+
+  // t/4689: clicking an ancestor ("library") crumb previously parsed its placeKey's '<tool>:none'
+  // sentinel as a real item id and called e.g. chatState.loadChat('none'). These assert the fix:
+  // a library crumb switches the tab and clears the open item, never passing 'none' to a loader.
+  describe('up-crumb library navigation (t/4689)', () => {
+    it('clicking the Chat library crumb clears the open chat, not loadChat("none")', async () => {
+      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'chat' } as any);
+      const loadChat = vi.fn();
+      vi.mocked(useChatStore).mockReturnValue({
+        loadChat, activeChat: { id: 'c1', topic: 'My topic' },
+      } as any);
+      (useChatStore as any).setState = vi.fn();
+
+      render(<LocationBarHost />);
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+
+      expect(loadChat).not.toHaveBeenCalled();
+      expect((useChatStore as any).setState).toHaveBeenCalledWith({ activeChatId: null, activeChat: null });
+    });
+
+    it('clicking the Debate library crumb calls closeDebate, not loadDebate("none")', async () => {
+      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'debate' } as any);
+      const loadDebate = vi.fn();
+      const closeDebate = vi.fn();
+      vi.mocked(useDebateStore).mockReturnValue({
+        loadDebate, closeDebate, activeDebate: { id: 'd1', topic: { original: 'My debate' } },
+      } as any);
+
+      render(<LocationBarHost />);
+      await userEvent.click(screen.getByRole('button', { name: 'Debate' }));
+
+      expect(loadDebate).not.toHaveBeenCalled();
+      expect(closeDebate).toHaveBeenCalled();
+    });
+
+    it('clicking the Op-Ed Studies library crumb calls selectSet(null), not selectSet("none")', async () => {
+      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'opeds' } as any);
+      const selectSet = vi.fn();
+      vi.mocked(useOpEdStore).mockReturnValue({
+        selectSet, selectedSetId: 'set-1', sets: [{ set_id: 'set-1', topic: 'My op-ed' }],
+      } as any);
+
+      render(<LocationBarHost />);
+      await userEvent.click(screen.getByRole('button', { name: 'Op-Ed Studies' }));
+
+      expect(selectSet).toHaveBeenCalledWith(null);
+      expect(selectSet).not.toHaveBeenCalledWith('none');
+    });
+
+    it('clicking the Ask a Question library crumb calls openList, not openFromHistory("none")', async () => {
+      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'inquiry' } as any);
+      const openFromHistory = vi.fn();
+      const openList = vi.fn();
+      vi.mocked(useInquiryStore).mockReturnValue({
+        openFromHistory, openList, result: { request: { question: 'My question' } }, jobId: 'job-1',
+      } as any);
+
+      render(<LocationBarHost />);
+      await userEvent.click(screen.getByRole('button', { name: 'Ask a Question' }));
+
+      expect(openFromHistory).not.toHaveBeenCalled();
+      expect(openList).toHaveBeenCalled();
+    });
   });
 });

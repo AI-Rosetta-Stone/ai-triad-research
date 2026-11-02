@@ -107,6 +107,48 @@ describe('deriveDebateConfig — displayed budget equals the enforced ceiling, e
   });
 });
 
+// ── Phase-bound overrides (t/4753) ───────────────────────────────────────────
+// PI report: Standard/Deep Ask a Question debates always force-exit on the shared
+// calibration-config.json's phase_bounds (confrontation/argumentation/concluding max =
+// 2/2/1) before convergence ever fires, because argumentation's min EQUALS its max there
+// (phaseTransitions.ts:566 clamps the effective min to min(sharedMin, effectiveMax), so
+// min==max==2 leaves no window at all). TL-approved values, t/4753#2.
+describe('deriveDebateConfig — phase-bound overrides (t/4753)', () => {
+  it('quick carries no phaseBoundsOverride — unchanged from the shared default', () => {
+    const { config } = deriveDebateConfig(makeRequest({ fidelity: 'quick' }), makeRegistry());
+    expect(config.phaseBoundsOverride).toBeUndefined();
+  });
+
+  it('standard overrides to 2/6/2', () => {
+    const { config } = deriveDebateConfig(makeRequest({ fidelity: 'standard' }), makeRegistry());
+    expect(config.phaseBoundsOverride).toEqual({
+      maxConfrontationRounds: 2, maxArgumentationRounds: 6, maxConcludingRounds: 2,
+    });
+  });
+
+  it('deep overrides to 3/10/2', () => {
+    const { config } = deriveDebateConfig(makeRequest({ fidelity: 'deep' }), makeRegistry());
+    expect(config.phaseBoundsOverride).toEqual({
+      maxConfrontationRounds: 3, maxArgumentationRounds: 10, maxConcludingRounds: 2,
+    });
+  });
+
+  it.each([['standard'] as const, ['deep'] as const])(
+    '%s: argumentation max exceeds the shared min, opening a real convergence window',
+    (fidelity) => {
+      const { config } = deriveDebateConfig(makeRequest({ fidelity }), makeRegistry());
+      const sharedMin = loadProvisionalWeights().phase_bounds.min_argumentation_rounds;
+      expect(config.phaseBoundsOverride!.maxArgumentationRounds).toBeGreaterThan(sharedMin);
+    },
+  );
+
+  it('maxTotalRounds and callBudget are unaffected by the phase-bound override', () => {
+    const { config, derivation } = deriveDebateConfig(makeRequest({ fidelity: 'standard' }), makeRegistry());
+    expect(config.maxTotalRounds).toBe(16);
+    expect(derivation.callBudget).toBe(240);
+  });
+});
+
 // ── Model resolution ─────────────────────────────────────────────────────────
 
 describe('deriveDebateConfig — model resolution', () => {

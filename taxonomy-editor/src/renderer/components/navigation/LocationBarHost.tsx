@@ -10,6 +10,7 @@ import { useOpEdStore } from '../../hooks/useOpEdStore';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { placeOf } from '../../navigation/placeOf';
 import { navHistory } from '../../navigation';
+import { isRunning, subscribeRunning, type RunningToolId } from '../../navigation/runningSignal';
 import { LocationBar } from './LocationBar';
 import './LocationBarHost.css';
 
@@ -44,6 +45,14 @@ export function LocationBarHost() {
     activeTab: taxonomyState.activeTab,
   });
 
+  // t/4689: "Running…" suffix for a Recent entry whose place has a run finishing elsewhere.
+  const RUNNING_TOOLS: ReadonlySet<string> = new Set<RunningToolId>(['chat', 'debate']);
+  const entryIsRunning = (placeKey: string): boolean => {
+    const [tool, itemId] = placeKey.split(':');
+    if (!tool || !itemId || !RUNNING_TOOLS.has(tool)) return false;
+    return isRunning(tool as RunningToolId, itemId);
+  };
+
   // Update recent menu with actual history entries
   const updateRecentEntries = () => {
     const allEntries = navHistory.entries();
@@ -54,7 +63,8 @@ export function LocationBarHost() {
     for (let i = currentIndex - 1; i >= 0; i--) {
       const entry = allEntries[i];
       if (entry) {
-        entries.push({ label: `← ${entry.label}`, delta: i - currentIndex, index: i });
+        const running = entryIsRunning(entry.placeKey) ? ' (Running…)' : '';
+        entries.push({ label: `← ${entry.label}${running}`, delta: i - currentIndex, index: i });
       }
     }
 
@@ -62,7 +72,8 @@ export function LocationBarHost() {
     for (let i = currentIndex + 1; i < allEntries.length; i++) {
       const entry = allEntries[i];
       if (entry) {
-        entries.push({ label: `${entry.label} →`, delta: i - currentIndex, index: i });
+        const running = entryIsRunning(entry.placeKey) ? ' (Running…)' : '';
+        entries.push({ label: `${entry.label}${running} →`, delta: i - currentIndex, index: i });
       }
     }
 
@@ -76,6 +87,15 @@ export function LocationBarHost() {
   // Subscribe to history changes to update recent menu
   useEffect(() => {
     const unsub = navHistory.subscribe(() => {
+      updateRecentEntries();
+    });
+    return unsub;
+  }, []);
+
+  // t/4689: also refresh on running-state changes, so "(Running…)" appears/clears live
+  // while the dropdown is open without requiring a navigation.
+  useEffect(() => {
+    const unsub = subscribeRunning(() => {
       updateRecentEntries();
     });
     return unsub;
@@ -97,24 +117,31 @@ export function LocationBarHost() {
   const handleNavigate = async (targetPlaceKey: string) => {
     if (targetPlaceKey === place.placeKey) return;
 
-    // Parse the targetPlaceKey and navigate to the appropriate item
+    // Parse the targetPlaceKey and navigate to the appropriate item. placeOf() uses
+    // '<tool>:none' for a tool's library (no item open) — 'none' is a sentinel, not a real
+    // id, so it must NOT be passed to a loader (t/4689: clicking a library crumb previously
+    // called e.g. chatState.loadChat('none') instead of just switching to the library view).
     const [tool, ...rest] = targetPlaceKey.split(':');
-    const itemId = rest.join(':') || undefined;
+    const rawItemId = rest.join(':');
+    const itemId = rawItemId && rawItemId !== 'none' ? rawItemId : undefined;
 
     if (tool === 'rosetta-stone') {
       useTaxonomyStore.setState({ activeTab: 'rosetta-stone' });
-    } else if (tool === 'debate' && itemId) {
+    } else if (tool === 'debate') {
       useTaxonomyStore.setState({ activeTab: 'debate' });
-      await debateState.loadDebate(itemId);
-    } else if (tool === 'chat' && itemId) {
+      if (itemId) await debateState.loadDebate(itemId);
+      else debateState.closeDebate();
+    } else if (tool === 'chat') {
       useTaxonomyStore.setState({ activeTab: 'chat' });
-      await chatState.loadChat(itemId);
-    } else if (tool === 'opeds' && itemId) {
+      if (itemId) await chatState.loadChat(itemId);
+      else useChatStore.setState({ activeChatId: null, activeChat: null });
+    } else if (tool === 'opeds') {
       useTaxonomyStore.setState({ activeTab: 'opeds' });
-      opEdState.selectSet(itemId);
-    } else if (tool === 'inquiry' && itemId) {
+      opEdState.selectSet(itemId ?? null);
+    } else if (tool === 'inquiry') {
       useTaxonomyStore.setState({ activeTab: 'inquiry' });
-      await inquiryState.openFromHistory(itemId);
+      if (itemId) await inquiryState.openFromHistory(itemId);
+      else inquiryState.openList();
     }
   };
 
