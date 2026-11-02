@@ -202,6 +202,25 @@ describe('BlobFreePoolBudget (Azurite)', () => {
     expect(h.callsUsed).toBe(0);
   });
 
+  it('t/4733: a day doc created with cap 5 does not limit a store configured for 1500 (cap comes from the process)', async () => {
+    // Staging (cap 5) creates the day's blob first and fills it; prod (cap 1500) shares the blob.
+    const staging = makeBudget(prefix, { callsCap: 5 });
+    for (let i = 0; i < 5; i++) {
+      const r = await staging.reserve({ calls: 1, tokens: 10, key: `s-${i}` });
+      expect(r.ok).toBe(true);
+      if (r.ok) await staging.commit(r.reservationId, { calls: 1, tokens: 10 });
+    }
+    expect((await staging.reserve({ calls: 1, tokens: 10, key: 's-over' })).ok).toBe(false); // staging's own cap holds
+
+    const prod = makeBudget(prefix, { callsCap: 1500 });
+    const p = await prod.reserve({ calls: 1, tokens: 10, key: 'p-1' });
+    expect(p.ok).toBe(true); // the doc's frozen cap of 5 must not refuse prod
+    const pk = await prod.reserveForKey({ calls: 1, tokens: 10, key: 'debate:p:1' });
+    expect(pk.ok).toBe(true);
+    const h = await prod.headroom();
+    expect(h.callsCap).toBe(1500); // headroom reports the process's cap, not the doc's
+  });
+
   // These two run last and kill the real Azurite process to simulate "storage
   // unreachable" — a closed port on this network stack doesn't fail fast
   // enough for a sane test timeout (OS-level connect timeout, not a quick

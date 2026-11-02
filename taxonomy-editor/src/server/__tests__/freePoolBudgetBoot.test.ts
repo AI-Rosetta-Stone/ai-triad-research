@@ -13,11 +13,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { ensureFreePoolBudgetBooted, getFreePoolBudget, _resetFreePoolBudgetForTest } from '../storage/freePoolBudget.js';
+import { ensureFreePoolBudgetBooted, getFreePoolBudget, getFreePoolBudgetConfig, _resetFreePoolBudgetForTest } from '../storage/freePoolBudget.js';
+import { freePoolBudgetHealth } from '../routes/meta.js';
 
 describe('free-pool budget store boot initialization (t/4677)', () => {
   const originalAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
   const originalCallsCap = process.env.FREE_POOL_DAILY_CALLS_CAP;
+  const originalContainer = process.env.AZURE_USER_CONTENT_CONTAINER;
 
   beforeEach(() => {
     // Reset the module-level store to ensure test isolation
@@ -25,6 +27,7 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     // Clear env vars to ensure clean state
     delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     delete process.env.FREE_POOL_DAILY_CALLS_CAP;
+    delete process.env.AZURE_USER_CONTENT_CONTAINER;
   });
 
   afterEach(() => {
@@ -33,6 +36,8 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
     else delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     if (originalCallsCap) process.env.FREE_POOL_DAILY_CALLS_CAP = originalCallsCap;
     else delete process.env.FREE_POOL_DAILY_CALLS_CAP;
+    if (originalContainer) process.env.AZURE_USER_CONTENT_CONTAINER = originalContainer;
+    else delete process.env.AZURE_USER_CONTENT_CONTAINER;
   });
 
   it('R1: server.ts calls ensureFreePoolBudgetBooted() at boot (guard fails if removed)', () => {
@@ -163,5 +168,23 @@ describe('free-pool budget store boot initialization (t/4677)', () => {
       expect.any(Object),
       expect.stringContaining('AZURE_USER_CONTENT_CONTAINER')
     );
+  });
+
+  it('t/4733: the real boot records the container and cap /health reports', () => {
+    expect(getFreePoolBudgetConfig()).toBeNull(); // unwired
+
+    process.env.AZURE_STORAGE_ACCOUNT_URL = 'https://test.blob.core.windows.net';
+    process.env.AZURE_USER_CONTENT_CONTAINER = 'staging-user-content';
+    process.env.FREE_POOL_DAILY_CALLS_CAP = '5';
+    ensureFreePoolBudgetBooted({ server: { warn: () => {}, error: () => {} } });
+
+    expect(getFreePoolBudgetConfig()).toEqual({ container: 'staging-user-content', callsCap: 5 });
+    expect(freePoolBudgetHealth()).toEqual(expect.objectContaining({
+      wired: true, container: 'staging-user-content', callsCap: 5,
+    }));
+  });
+
+  it('t/4733: /health block reports wired:false with null container and cap when unwired', () => {
+    expect(freePoolBudgetHealth()).toEqual(expect.objectContaining({ wired: false, container: null, callsCap: null }));
   });
 });

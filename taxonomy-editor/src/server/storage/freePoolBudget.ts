@@ -6,6 +6,7 @@ import { BlobServiceClient, type ContainerClient, type BlockBlobClient, RestErro
 import { DefaultAzureCredential } from '@azure/identity';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { ActionableError } from '../../../../lib/debate/errors.js';
+import { userContentContainer, isUserContentContainerConfigured } from './userContentContainer.js';
 
 /**
  * FreePoolBudget — the free Gemini pool's global daily spending cap (t/4410
@@ -255,8 +256,9 @@ interface BudgetDoc {
 export interface BlobFreePoolBudgetOptions {
   /** e.g. https://<account>.blob.core.windows.net — from AZURE_STORAGE_ACCOUNT_URL. */
   accountUrl: string;
-  /** Default `'user-content'` — reuses the existing container (no new
-   *  resource, no bicep change) under a path no user content ever uses. */
+  /** Default: `userContentContainer()` — the same env-resolved container every other
+   *  user-content store uses, so staging stays isolated (t/4733), under a path no user
+   *  content ever uses. */
   container?: string;
   /** Default `'_system/free-pool-budget'`. */
   blobPrefix?: string;
@@ -286,7 +288,6 @@ export interface BlobFreePoolBudgetOptions {
   now?: () => Date;
 }
 
-const DEFAULT_CONTAINER = 'user-content';
 const DEFAULT_BLOB_PREFIX = '_system/free-pool-budget';
 const DEFAULT_RESERVATION_TTL_MS = 2 * 60 * 1000;
 const DEFAULT_MAX_CAS_RETRIES = 5;
@@ -364,13 +365,23 @@ export class BlobFreePoolBudget implements FreePoolBudget {
   constructor(opts: BlobFreePoolBudgetOptions) {
     const service = opts.serviceClient
       ?? new BlobServiceClient(opts.accountUrl, new DefaultAzureCredential());
-    this.containerClient = service.getContainerClient(opts.container ?? DEFAULT_CONTAINER);
+    this.containerClient = service.getContainerClient(opts.container ?? userContentContainer());
     this.blobPrefix = opts.blobPrefix ?? DEFAULT_BLOB_PREFIX;
     this.callsCap = opts.callsCap;
     this.tokensCap = opts.tokensCap ?? null;
     this.reservationTtlMs = opts.reservationTtlMs ?? DEFAULT_RESERVATION_TTL_MS;
     this.maxCasRetries = opts.maxCasRetries ?? DEFAULT_MAX_CAS_RETRIES;
     this.now = opts.now ?? (() => new Date());
+  }
+
+  /** t/4733: admission and headroom compare against THIS process's configured caps, never
+   *  `doc.callsCap`/`doc.tokensCap`. The doc's caps are written once by whichever process
+   *  creates the day's blob (kept for forensics only) — trusting them let staging's cap of 5
+   *  limit prod for a whole day when both shared one blob. */
+  private overCap(doc: BudgetDoc, req: { calls: number; tokens: number }): boolean {
+    const used = this.usage(doc);
+    if (used.calls + req.calls > this.callsCap) return true;
+    return this.tokensCap !== null && used.tokens + req.tokens > this.tokensCap;
   }
 
   private blobClientFor(day: string): BlockBlobClient {
@@ -533,10 +544,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
     const day = todayUtc(this.now());
     try {
       return await this.rmw<FreePoolBudgetReserveResult>(day, (doc) => {
-        const used = this.usage(doc);
-        const overCalls = used.calls + req.calls > doc.callsCap;
-        const overTokens = doc.tokensCap !== null && used.tokens + req.tokens > doc.tokensCap;
-        if (overCalls || overTokens) {
+        if (this.overCap(doc, req)) {
           return { result: { ok: false, reason: 'daily_cap', resetsAt: nextUtcMidnightIso(this.now()) } };
         }
         const reservationId = `${day}:${randomUUID()}`;
@@ -626,7 +634,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
       const doc = current?.doc ?? freshDoc(day, this.callsCap, this.tokensCap);
       this.sweepExpired(doc, this.now());
       const used = this.usage(doc);
-      return { callsUsed: used.calls, callsCap: doc.callsCap, tokensUsed: used.tokens, tokensCap: doc.tokensCap, day };
+      return { callsUsed: used.calls, callsCap: this.callsCap, tokensUsed: used.tokens, tokensCap: this.tokensCap, day };
     } catch (err) {
       // headroom() throws on a genuine failure (interface contract) —
       // never a zeroed result that could misread as "plenty left".
@@ -665,10 +673,7 @@ export class BlobFreePoolBudget implements FreePoolBudget {
           }
         }
 
-        const used = this.usage(doc);
-        const overCalls = used.calls + req.calls > doc.callsCap;
-        const overTokens = doc.tokensCap !== null && used.tokens + req.tokens > doc.tokensCap;
-        if (overCalls || overTokens) {
+        if (this.overCap(doc, req)) {
           return { result: { ok: false, reason: 'daily_cap', resetsAt: nextUtcMidnightIso(this.now()) }, skipWrite: true };
         }
 
@@ -749,9 +754,19 @@ export class BlobFreePoolBudget implements FreePoolBudget {
 
 let globalFreePoolBudget: FreePoolBudget | null = null;
 
+/** t/4733: what the wired store was configured with — surfaced on `/health` so a staging/prod
+ *  container share or a wrong cap is visible by curl, not inferred. Null while unwired. */
+export interface FreePoolBudgetConfig { container: string; callsCap: number }
+let globalFreePoolBudgetConfig: FreePoolBudgetConfig | null = null;
+
 export function initFreePoolBudget(opts: BlobFreePoolBudgetOptions): FreePoolBudget {
   globalFreePoolBudget = new BlobFreePoolBudget(opts);
+  globalFreePoolBudgetConfig = { container: opts.container ?? userContentContainer(), callsCap: opts.callsCap };
   return globalFreePoolBudget;
+}
+
+export function getFreePoolBudgetConfig(): FreePoolBudgetConfig | null {
+  return globalFreePoolBudget ? globalFreePoolBudgetConfig : null;
 }
 
 // t/4677: Boot-time initialization guard. Extract env vars, validate cap, and call initFreePoolBudget.
@@ -772,10 +787,10 @@ export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFree
     callsCap = 1500;
   }
 
-  // t/4733: use AZURE_USER_CONTENT_CONTAINER env var, matching sharedOverlayStore pattern.
-  const containerName = process.env.AZURE_USER_CONTENT_CONTAINER || 'user-content';
-  if (!process.env.AZURE_USER_CONTENT_CONTAINER) {
-    log.server.warn({ scope: 'free-pool-budget' }, 'AZURE_USER_CONTENT_CONTAINER not set — using fallback "user-content" (set by Bicep in t/4728 for prod)');
+  // t/4733: the same env-resolved container as every other user-content store (staging isolation).
+  const containerName = userContentContainer();
+  if (!isUserContentContainerConfigured()) {
+    log.server.warn({ scope: 'free-pool-budget', container: containerName }, 'AZURE_USER_CONTENT_CONTAINER not set — free-pool budget using the default container (set it per app in Bicep, t/4728/t/4738)');
   }
 
   try {
@@ -797,4 +812,5 @@ export function getFreePoolBudget(): FreePoolBudget | null {
 // t/4677: Test helper to reset the global store between test runs.
 export function _resetFreePoolBudgetForTest(): void {
   globalFreePoolBudget = null;
+  globalFreePoolBudgetConfig = null;
 }
