@@ -15,6 +15,7 @@
 
 import type { ReactNode } from 'react';
 import type { ItemPlace } from '../../navigation/openInWindow';
+import type { LibraryVariantKey } from '../../navigation/lastVariant';
 
 export type LibraryVariant = 'my' | 'community';
 
@@ -218,4 +219,13 @@ export interface LibraryListPageProps<TMy extends { id: string }, TCommunity ext
    * never lands on a tab it can't see, same as before this prop existed.
    */
   defaultCommunityOnWeb?: boolean;
+  /**
+   * t/4689: remembers which My/Community tab this page was last on, so the location-bar's
+   * up-crumb (which unmounts this component and remounts it on return — App.tsx's
+   * `{activeTab === 'chat' && <ChatTab/>}` pattern) restores it instead of always landing back
+   * on the `defaultCommunityOnWeb`/My default. One key per tool (`navigation/lastVariant.ts`'s
+   * `LibraryVariantKey`). Omit it and behavior is unchanged — `hideMyTab` and
+   * `defaultCommunityOnWeb` still apply exactly as before this prop existed.
+   */
+  restoreKey?: LibraryVariantKey;
 }

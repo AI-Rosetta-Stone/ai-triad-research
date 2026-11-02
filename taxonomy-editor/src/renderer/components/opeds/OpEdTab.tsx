@@ -622,6 +622,7 @@ export function OpEdTab() {
         onOpenCommunity={openCommunity}
         intro={<OpEdGettingStarted hasNoOpEds={myLibRows.length === 0} onPickStarter={handlePickStarter} />}
         defaultCommunityOnWeb
+        restoreKey="opeds"
       />
 
       {/* Create dialog — both builds (t/2614). URL/source create is desktop-only in v1
