@@ -1,0 +1,74 @@
+# ─── Dependabot enqueue sweep ───
+# What:  Every 30 minutes, enqueue Dependabot PRs that dependabot-auto-merge.yml armed
+#        (its minor/patch policy) and whose required checks (ci-gate, CodeQL Analysis) are
+#        green, but that are not in the merge queue. Enqueues as a GitHub App through
+#        operations/devops/enqueue-pr.mjs, which verifies queue entry and fails loudly.
+# Why:   Auto-merge armed with the built-in GITHUB_TOKEN never led to queue entry: every
+#        Dependabot PR since the queue launched (2026-10-28) sat 16-41h until a human
+#        re-armed it (#4262, #4263, #4280, #4282). Dependabot-triggered workflows cannot
+#        read Actions secrets, so the App step runs here on a schedule instead.
+# Setup: Needs repo variable DEPENDABOT_MERGE_APP_CLIENT_ID and repo secret
+#        DEPENDABOT_MERGE_APP_PRIVATE_KEY for an App installed on this repo with
+#        Contents: write, Pull requests: write, and Workflows: write (the last is needed to
+#        merge Dependabot bumps of .github/workflows files). Until both exist, the job logs
+#        a warning and exits without acting.
+
+name: Dependabot enqueue sweep
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List what would be enqueued without acting'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read   # checkout only; all writes use the App token
+
+concurrency:
+  group: dependabot-enqueue-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check App configuration
+        id: cfg
+        env:
+          APP_CLIENT_ID: ${{ vars.DEPENDABOT_MERGE_APP_CLIENT_ID }}
+          APP_KEY_PRESENT: ${{ secrets.DEPENDABOT_MERGE_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ "$APP_KEY_PRESENT" != "true" ]; then
+            echo "::warning::WARN: Dependabot enqueue sweep skipped: DEPENDABOT_MERGE_APP_CLIENT_ID (variable) or DEPENDABOT_MERGE_APP_PRIVATE_KEY (secret) is not set. Armed Dependabot PRs will NOT enter the merge queue until they are enqueued by hand."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        if: steps.cfg.outputs.configured == 'true'
+
+      - name: Sweep unit tests
+        if: steps.cfg.outputs.configured == 'true'
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs
+
+      - name: Mint App token
+        id: app
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        with:
+          client-id: ${{ vars.DEPENDABOT_MERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPENDABOT_MERGE_APP_PRIVATE_KEY }}
+
+      - name: Enqueue green, armed Dependabot PRs
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node operations/devops/dependabot-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN
