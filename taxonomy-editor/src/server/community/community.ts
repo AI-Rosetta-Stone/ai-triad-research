@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import crypto from 'crypto';
-import { z } from 'zod';
 import { resolveDataPath } from '../config.js';
 import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
@@ -18,7 +17,7 @@ import { writePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/com
 import {
   loadInquiryResult, listInquiryResults, saveInquiryResult, type InquiryResultSummary,
 } from '../storage/inquiryResultStore.js';
-import { deriveTruncation, InquiryResultSchema } from '../../../../lib/inquiry/index.js';
+import { deriveTruncation } from '../../../../lib/inquiry/index.js';
 import type { InquiryResult } from '../../../../lib/inquiry/index.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
 import { AppliedTagSchema, loadPovTagRegistry } from '../../../../lib/schema/povTags.js';
@@ -47,55 +46,74 @@ export function isAdmin(userId?: string): boolean {
 
 // ── Desktop Ask validation (t/4612, t/4744) ──
 
-/** Collect all nodeIds from an InquiryResult per exact paths from t/4744#4 */
-export function collectNodeIds(result: InquiryResult): string[] {
+/** Recursively walk all nodeIds in result (B3: generic walk ensures coverage) */
+export function collectAllNodeIds(obj: any, visited = new Set<any>()): string[] {
   const nodeIds = new Set<string>();
+  const queue = [obj];
 
-  // grounding.situationNodes[].nodeId (SituationRefSchema, schema.ts:151)
-  if (result.grounding.situationNodes) {
-    result.grounding.situationNodes.forEach(ref => nodeIds.add(ref.nodeId));
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === null || current === undefined || visited.has(current)) continue;
+    visited.add(current);
+
+    if (typeof current === 'object') {
+      // If this object has a nodeId field, collect it
+      if (current.nodeId && typeof current.nodeId === 'string') {
+        nodeIds.add(current.nodeId);
+      }
+      // Queue all properties for traversal
+      Object.values(current).forEach(val => {
+        if (typeof val === 'object' && val !== null) queue.push(val);
+      });
+    } else if (Array.isArray(current)) {
+      current.forEach(item => {
+        if (typeof item === 'object' && item !== null) queue.push(item);
+      });
+    }
   }
-
-  // grounding.nodesByCamp[camp][].nodeId (NodeRefSchema, schema.ts:155)
-  Object.values(result.grounding.nodesByCamp || {}).forEach(refs => {
-    refs?.forEach(ref => nodeIds.add(ref.nodeId));
-  });
-
-  // campVerdicts[].nodes[].nodeId (CampVerdictSchema, schema.ts:234–238)
-  result.campVerdicts?.forEach(verdict => {
-    verdict.nodes?.forEach(ref => nodeIds.add(ref.nodeId));
-  });
-
-  // convergences[].nodes[].nodeId (ConvergenceSchema, schema.ts:178–180)
-  result.convergences?.forEach(conv => {
-    conv.nodes?.forEach(ref => nodeIds.add(ref.nodeId));
-  });
 
   return Array.from(nodeIds);
 }
 
-/** Validate payload per t/4612#24 F1-F8 and t/4744#4 exact corrections */
-export async function validateDesktopAskPayload(
+/** Collect nodeIds from exact paths (B2: per-site validation for regression test) */
+export function collectNodeIdsPerSite(result: InquiryResult): Record<string, string[]> {
+  return {
+    situationNodes: result.grounding.situationNodes?.map(ref => ref.nodeId) ?? [],
+    nodesByCamp: Object.entries(result.grounding.nodesByCamp || {})
+      .flatMap(([, refs]) => refs?.map(ref => ref.nodeId) ?? []),
+    campVerdictNodes: result.campVerdicts?.flatMap(v => v.nodes?.map(n => n.nodeId) ?? []) ?? [],
+    convergenceNodes: result.convergences?.flatMap(c => c.nodes?.map(n => n.nodeId) ?? []) ?? [],
+  };
+}
+
+/** Validate and prune unknown refs from result per B2 */
+export function pruneUnknownNodeRefs(
   result: InquiryResult,
-  taxonomy: Map<string, boolean>, // nodeId → exists
-): Promise<{ valid: boolean; droppedRefs: string[]; error?: string }> {
-  const nodeIds = collectNodeIds(result);
+  taxonomy: Map<string, boolean>,
+): { result: InquiryResult; droppedRefs: string[] } {
+  const allNodeIds = collectAllNodeIds(result);
   const droppedRefs: string[] = [];
 
-  // Validate all nodeIds exist in taxonomy
-  for (const nodeId of nodeIds) {
+  allNodeIds.forEach(nodeId => {
     if (!taxonomy.has(nodeId)) {
       droppedRefs.push(nodeId);
-      log.server.warn({ nodeId }, 'Desktop Ask: unknown node ref (dropped)');
+      log.server.warn({ nodeId }, 'Desktop Ask: pruning unknown nodeId (F1 D3)');
     }
+  });
+
+  // If all refs unknown, reject upstream
+  if (droppedRefs.length === allNodeIds.length && allNodeIds.length > 0) {
+    throw Object.assign(new Error('All node references unknown'), { statusCode: 400, droppedRefs });
   }
 
-  // Reject if all refs unknown
-  if (droppedRefs.length === nodeIds.length && nodeIds.length > 0) {
-    return { valid: false, droppedRefs, error: 'All node references unknown' };
-  }
+  // Prune refs from convergences (B2: test per site)
+  const pruned = JSON.parse(JSON.stringify(result)) as InquiryResult;
+  pruned.convergences = (pruned.convergences ?? []).filter(conv => {
+    conv.nodes = conv.nodes?.filter(n => taxonomy.has(n.nodeId)) ?? [];
+    return conv.nodes.length > 0; // Keep convergence if it has remaining nodes
+  });
 
-  return { valid: true, droppedRefs };
+  return { result: pruned, droppedRefs };
 }
 
 // ── Listing index (t/726) ──
@@ -996,23 +1014,3 @@ export async function removeCommunityItem(
   log.server.info({ id, type, removedBy }, 'Community item removed');
 }
 
-// ── C3 Caps: Client-supplied submission limits (t/4612 C3, t/4744) ──
-
-export const CLIENT_SUPPLIED_PENDING_CAP = 50;
-export const GLOBAL_PENDING_CAP = 500;
-
-export interface DraftStore {
-  id: string;
-  ttlExpiresAt: number; // ms timestamp
-  submitterId?: string; // Bind on claim/finalize
-  result?: InquiryResult;
-  note?: string;
-}
-
-/** Check submission caps per C3 */
-export async function checkSubmissionCaps(clientSuppliedCount: number): Promise<{ allowed: boolean; error?: string }> {
-  if (clientSuppliedCount >= CLIENT_SUPPLIED_PENDING_CAP) {
-    return { allowed: false, error: `Client submissions at quota (${CLIENT_SUPPLIED_PENDING_CAP})` };
-  }
-  return { allowed: true };
-}

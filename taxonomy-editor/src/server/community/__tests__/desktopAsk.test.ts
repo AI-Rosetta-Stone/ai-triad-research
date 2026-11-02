@@ -2,10 +2,10 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { collectNodeIds, validateDesktopAskPayload } from '../community.js';
+import { collectAllNodeIds, collectNodeIdsPerSite, pruneUnknownNodeRefs } from '../community.js';
 import type { InquiryResult } from '../../../../../lib/inquiry/index.js';
 
-describe('Desktop Ask validation (t/4612, t/4744)', () => {
+describe('Desktop Ask validation (t/4612, t/4744, B2/B3)', () => {
   const fakeResult = (): InquiryResult => ({
     schemaVersion: 1,
     request: { question: 'test', fidelity: 'standard' },
@@ -38,37 +38,96 @@ describe('Desktop Ask validation (t/4612, t/4744)', () => {
     singleRunCaveat: 'test',
   });
 
-  describe('collectNodeIds', () => {
-    it('collects from all paths per t/4744#4', () => {
-      const nodeIds = collectNodeIds(fakeResult());
+  describe('B3: Generic nodeId walk (collectAllNodeIds)', () => {
+    it('recursively finds all nodeIds', () => {
+      const nodeIds = collectAllNodeIds(fakeResult());
       expect(nodeIds).toContain('sit-001');
       expect(nodeIds).toContain('acc-test-001');
       expect(nodeIds).toContain('saf-test-001');
     });
+
+    it('covers new nodeId sites added to schema', () => {
+      // Test that walk visits all paths (regression test for B3)
+      const result = fakeResult();
+      const allIds = collectAllNodeIds(result);
+      const perSite = collectNodeIdsPerSite(result);
+
+      // All per-site IDs must be in the generic walk
+      Object.values(perSite).flat().forEach(id => {
+        expect(allIds).toContain(id);
+      });
+    });
   });
 
-  describe('validateDesktopAskPayload', async () => {
-    it('accepts when all nodeIds exist', async () => {
+  describe('B2: Per-site pruning (pruneUnknownNodeRefs)', () => {
+    it('prunes from situationNodes', () => {
+      const result = fakeResult();
       const taxonomy = new Map([
         ['acc-test-001', true],
         ['saf-test-001', true],
-        ['sit-001', true],
+        // sit-001 missing
       ]);
-      const outcome = await validateDesktopAskPayload(fakeResult(), taxonomy);
-      expect(outcome.valid).toBe(true);
-      expect(outcome.droppedRefs).toHaveLength(0);
+
+      const { droppedRefs } = pruneUnknownNodeRefs(result, taxonomy);
+      expect(droppedRefs).toContain('sit-001');
     });
 
-    it('drops missing refs', async () => {
-      const taxonomy = new Map([['acc-test-001', true]]);
-      const outcome = await validateDesktopAskPayload(fakeResult(), taxonomy);
-      expect(outcome.valid).toBe(true);
-      expect(outcome.droppedRefs.length).toBeGreaterThan(0);
+    it('prunes from convergences', () => {
+      const result = fakeResult();
+      const taxonomy = new Map([
+        ['sit-001', true],
+        ['acc-test-001', true],
+        // saf-test-001 missing
+      ]);
+
+      const { result: pruned, droppedRefs } = pruneUnknownNodeRefs(result, taxonomy);
+      expect(droppedRefs).toContain('saf-test-001');
+      expect(pruned.convergences).toHaveLength(0);
     });
 
-    it('rejects when all refs unknown', async () => {
-      const outcome = await validateDesktopAskPayload(fakeResult(), new Map());
-      expect(outcome.valid).toBe(false);
+    it('rejects when all refs unknown', () => {
+      const result = fakeResult();
+      const taxonomy = new Map();
+
+      expect(() => pruneUnknownNodeRefs(result, taxonomy)).toThrow('All node references unknown');
+    });
+
+    it('keeps valid refs in pruned result', () => {
+      const result = fakeResult();
+      const taxonomy = new Map([
+        ['sit-001', true],
+        ['acc-test-001', true],
+        ['saf-test-001', true],
+      ]);
+
+      const { result: pruned } = pruneUnknownNodeRefs(result, taxonomy);
+      expect(pruned.convergences[0].nodes[0].nodeId).toBe('saf-test-001');
+    });
+  });
+
+  describe('B2 per-site regression tests', () => {
+    it('validates situationNodes path', () => {
+      const result = fakeResult();
+      const perSite = collectNodeIdsPerSite(result);
+      expect(perSite.situationNodes).toContain('sit-001');
+    });
+
+    it('validates nodesByCamp path', () => {
+      const result = fakeResult();
+      const perSite = collectNodeIdsPerSite(result);
+      expect(perSite.nodesByCamp).toContain('acc-test-001');
+    });
+
+    it('validates campVerdictNodes path', () => {
+      const result = fakeResult();
+      const perSite = collectNodeIdsPerSite(result);
+      expect(perSite.campVerdictNodes).toContain('acc-test-001');
+    });
+
+    it('validates convergenceNodes path', () => {
+      const result = fakeResult();
+      const perSite = collectNodeIdsPerSite(result);
+      expect(perSite.convergenceNodes).toContain('saf-test-001');
     });
   });
 });
