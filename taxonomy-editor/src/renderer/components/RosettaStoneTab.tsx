@@ -100,7 +100,15 @@ export function RosettaStoneTab() {
         <div className="rosetta-tab-hero">
           <h1 className="rosetta-tab-title">{INTRO_TITLE}</h1>
           <p className="rosetta-tab-tagline">
-            {INTRO_TAGLINE_LINES.map((line, i) => <span key={i}>{line}</span>)}
+            {INTRO_TAGLINE_LINES.map((segments, i) => (
+              // t/4739: .rosetta-tab-tagline span { display: block } sets each LINE's own
+              // wrapping — a per-segment <span> here would pick up the same rule and stack
+              // words vertically, so a strong segment renders as <strong>, everything else as
+              // a bare text node (React renders seg.text as-is; no wrapper needed).
+              <span key={i}>
+                {segments.map((seg, j) => (seg.strong ? <strong key={j}>{seg.text}</strong> : seg.text))}
+              </span>
+            ))}
           </p>
         </div>
 
@@ -119,12 +127,14 @@ export function RosettaStoneTab() {
               );
             })}
           </ul>
-          <p className="rosetta-tab-specimen-coda">{INTRO_CODA}</p>
+          <p className="rosetta-tab-specimen-coda">
+            {INTRO_CODA.map((seg, i) => (seg.strong ? <strong key={i}>{seg.text}</strong> : seg.text))}
+          </p>
         </div>
 
         <h2 className="rosetta-tab-section-heading">Who it&rsquo;s for</h2>
         <p className="rosetta-tab-whofor-intro">
-          AI Triad Research is a multi-perspective research tool for AI policy/safety literature, built around a
+          <strong>AI Rosetta Stone tool</strong> is a multi-perspective research tool for AI policy/safety literature, built around a
           three-way debate engine (Accelerationist / Safetyist / Skeptic) plus a taxonomy editor over curated sources.
         </p>
         <div className="rosetta-tab-whofor-grid">

@@ -52,9 +52,28 @@ describe('RosettaStoneTab (t/4543)', () => {
     render(<RosettaStoneTab />);
     expect(screen.queryByText('AI Triad Research · Berkman Klein Center')).not.toBeInTheDocument();
     expect(screen.getByText('AI Rosetta Stone')).toBeInTheDocument();
-    expect(screen.getByText('The goal is NOT to PROVIDE ANSWERS.')).toBeInTheDocument();
-    expect(screen.getByText('The goal is to PROVOKE THINKING.')).toBeInTheDocument();
+    // t/4739: caps → bold, lowercase.
+    expect(screen.getByText('The goal is not to provide answers.')).toBeInTheDocument();
+    expect(screen.getByText('The goal is to provoke thinking.')).toBeInTheDocument();
     expect(screen.getByText('The issue isn’t what was said, but why.')).toBeInTheDocument();
+  });
+
+  it('t/4739: bolds "not"/"provide answers"/"provoke thinking" in the tagline and "what"/"why" in the coda', () => {
+    render(<RosettaStoneTab />);
+    const tagline = screen.getByText('The goal is not to provide answers.').closest('.rosetta-tab-tagline');
+    const taglineStrongs = within(tagline as HTMLElement).getAllByText((_, el) => el?.tagName === 'STRONG').map(el => el.textContent);
+    expect(taglineStrongs).toEqual(['not', 'provide answers', 'provoke thinking']);
+
+    const coda = screen.getByText('The issue isn’t what was said, but why.');
+    const codaStrongs = within(coda).getAllByText((_, el) => el?.tagName === 'STRONG').map(el => el.textContent);
+    expect(codaStrongs).toEqual(['what', 'why']);
+  });
+
+  it('t/4739: bolds "AI Rosetta Stone tool" in the who-it\'s-for paragraph', () => {
+    render(<RosettaStoneTab />);
+    const intro = screen.getByText(/is a multi-perspective research tool/);
+    expect(intro.querySelector('strong')?.textContent).toBe('AI Rosetta Stone tool');
+    expect(screen.queryByText(/^AI Triad Research is a multi-perspective/)).not.toBeInTheDocument();
   });
 
   it('t/4632: the coda renders after the Skeptic row, inside the specimen card', () => {

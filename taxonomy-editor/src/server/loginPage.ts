@@ -17,6 +17,7 @@ import { hasEasyAuthSessionCookie, expiredAuthCookies } from './security/accessC
 import { parseCookies } from './httpCookies.js';
 import {
   INTRO_TITLE, INTRO_TAGLINE_LINES, INTRO_QUESTION, INTRO_VOICES, INTRO_CODA,
+  type IntroSegment,
 } from '../../../lib/electron-shared/introCopy.js';
 
 // t/4183: the hero copy is shared with the intro tour's first page; only the markup lives here.
@@ -240,12 +241,12 @@ export function buildLoginPage(showAnonymous: boolean): string {
     <div class="jacket-content">
       <div class="hero-row">
         <div class="project-title">${escapeHtml(INTRO_TITLE)}</div>
-        <div class="tagline">${INTRO_TAGLINE_LINES.map(escapeHtml).join('<br>')}</div>
+        <div class="tagline">${INTRO_TAGLINE_LINES.map(segmentsHtml).join('<br>')}</div>
       </div>
       <div class="specimen">
         <div class="specimen-sep"></div>
         <div class="question">&ldquo;${escapeHtml(INTRO_QUESTION)}&rdquo;</div>${heroVoicesHtml()}
-        <div class="coda">${escapeHtml(INTRO_CODA)}</div>
+        <div class="coda">${segmentsHtml(INTRO_CODA)}</div>
       </div>
       <div class="jacket-footer">A research instrument of the Berkman Klein Center, 2026</div>
     </div>
@@ -258,6 +259,11 @@ export function buildLoginPage(showAnonymous: boolean): string {
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// t/4739: escape each segment's text first, then wrap — never build HTML from unescaped copy.
+function segmentsHtml(segments: readonly IntroSegment[]): string {
+  return segments.map(seg => (seg.strong ? `<strong>${escapeHtml(seg.text)}</strong>` : escapeHtml(seg.text))).join('');
 }
 
 export const FORBIDDEN_PAGE = (name: string) => `<!DOCTYPE html>
