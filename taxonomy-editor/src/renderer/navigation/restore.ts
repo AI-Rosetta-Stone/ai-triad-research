@@ -1,34 +1,37 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import type { AppRoute } from '../routing/appRoutes';
-import { findRoute } from '../routing/appRoutes';
-import { setRestoringFlag } from './subscriber';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
+import { findRoute, ROOT_ROUTE } from '../routing/appRoutes';
+import { expectReplace, setRestoringFlag } from './subscriber';
 
 /**
- * Restore app state from a history path.
- * Matches the path against registered routes, then calls each route's restore() function
- * while the restoring flag is set, preventing the subscriber from pushing new entries.
+ * Restore app state from a history path (t/4640): boot, Reload, a pasted URL, and every
+ * Back / Forward / Recent move all come through here.
+ *
+ * The route's restore() runs with the restoring flag set, so its synchronous store changes
+ * don't record history. Its async half (a chat or debate loading) lands later; the route's
+ * placeKey is registered with expectReplace() so that arrival replaces the entry rather than
+ * adding a Back step.
+ *
+ * An unknown path restores the landing page, with a WARN — never a blank page.
  */
-export function restore(path: string): void {
+export function restorePath(path: string): void {
+  const [pathname, queryString] = path.split('?');
+  const query = new URLSearchParams(queryString ?? '');
+  let match = findRoute(pathname);
+  if (!match) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'navigation', level: 'warn',
+      message: `restorePath: no route for "${path}" — falling back to the landing page`,
+    });
+    match = { route: ROOT_ROUTE, params: {} };
+  }
   setRestoringFlag(true);
   try {
-    const route = findRoute(path);
-    if (route) {
-      // Parse query string for route params
-      const [pathname, queryString] = path.split('?');
-      const params = route.params;
-      const query = new URLSearchParams(queryString ?? '');
-
-      // Call the route's restore function to apply state
-      route.route.restore(params, query);
-    } else {
-      // Unknown path — replace to landing with WARN
-      console.warn(`Navigation: unknown route "${path}", falling back to /`);
-      setRestoringFlag(false);
-      // The caller should handle this by navigating to '/'
-    }
+    match.route.restore(match.params, query);
   } finally {
     setRestoringFlag(false);
   }
+  expectReplace(match.route.placeKey(match.params, query));
 }

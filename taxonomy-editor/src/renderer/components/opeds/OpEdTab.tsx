@@ -24,7 +24,8 @@ import { OpEdCampTags } from './OpEdCampTags';
 import { OpEdReader } from './OpEdReader';
 import { NewOpEdDialog } from './NewOpEdDialog';
 import { OpEdGettingStarted } from './OpEdGettingStarted';
-import { opedRoutePath, navigateTo, replaceRoute } from '../../routing/appRoutes';
+import { opedRoutePath } from '../../routing/appRoutes';
+import { replaceCurrentView } from '../../navigation';
 import './OpEdTab.css';
 
 // LibraryListPage requires `{ id: string }`; OpEdSetSummary's own key is `set_id`. Adapter, not
@@ -390,7 +391,9 @@ export function OpEdTab() {
     setReaderSet(null);
     setReaderLoading(true);
     setInitialPov(pov);
-    navigateTo(opedRoutePath(id, pov)); // t/3486: reflect the open set in the address bar.
+    // t/4640: selectSet() above is the place change the nav subscriber records; the camp is a
+    // view of it, so it only replaces that entry's URL.
+    if (pov) replaceCurrentView(opedRoutePath(id, pov), `opeds:${id}`);
     api.loadOpEdSet(id).then(set => {
       setReaderSet(set);
     }).catch(err => {
@@ -434,7 +437,6 @@ export function OpEdTab() {
     selectSet(setId);
     setReaderSource('my'); // t/2987: a freshly-created set is the user's own → shareable.
     setReaderCommunityId(null); // t/3426: only set for the community branch.
-    navigateTo(opedRoutePath(setId)); // t/3486: reflect the newly-created set in the address bar.
     setReaderError(null);
     setReaderSet(null);
     setReaderLoading(true);
@@ -596,7 +598,7 @@ export function OpEdTab() {
         // t/3486: only "my" sets are URL-tracked for now (t/3486#4) — a community set's
         // reader still works, its tab switches just don't update the address bar.
         onPovChange={readerSource === 'my' && readerSet
-          ? (pov: string) => replaceRoute(opedRoutePath(readerSet.set_id, pov))
+          ? (pov: string) => replaceCurrentView(opedRoutePath(readerSet.set_id, pov), `opeds:${readerSet.set_id}`)
           : undefined}
       />
     );
