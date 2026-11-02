@@ -6,25 +6,25 @@ import { estimateInquiryDuration, type InquiryFidelity } from './durationEstimat
 
 describe('estimateInquiryDuration', () => {
   describe('fidelity fallback behavior', () => {
-    it('returns Quick estimate for known fidelity', () => {
+    it('returns quick estimate for known fidelity', () => {
       const result = estimateInquiryDuration({
-        fidelity: 'Quick',
+        fidelity: 'quick',
         debaterModel: 'gemini-3.5-flash-lite',
       });
       expect(result).toEqual({ lowMin: 1, highMin: 3 });
     });
 
-    it('returns Standard estimate for known fidelity', () => {
+    it('returns standard estimate for known fidelity', () => {
       const result = estimateInquiryDuration({
-        fidelity: 'Standard',
+        fidelity: 'standard',
         debaterModel: 'gemini-3.5-pro',
       });
       expect(result).toEqual({ lowMin: 3, highMin: 8 });
     });
 
-    it('returns Deep estimate for known fidelity', () => {
+    it('returns deep estimate for known fidelity', () => {
       const result = estimateInquiryDuration({
-        fidelity: 'Deep',
+        fidelity: 'deep',
         debaterModel: 'claude-opus-5.5',
       });
       expect(result).toEqual({ lowMin: 5, highMin: 15 });
@@ -32,7 +32,7 @@ describe('estimateInquiryDuration', () => {
 
     it('falls back to fidelity default for unknown model', () => {
       const result = estimateInquiryDuration({
-        fidelity: 'Quick',
+        fidelity: 'quick',
         debaterModel: 'unknown-model-xyz',
       });
       expect(result).toEqual({ lowMin: 1, highMin: 3 });
@@ -41,7 +41,7 @@ describe('estimateInquiryDuration', () => {
     it('rejects invalid fidelity', () => {
       expect(() =>
         estimateInquiryDuration({
-          fidelity: 'Invalid' as InquiryFidelity,
+          fidelity: 'invalid' as InquiryFidelity,
           debaterModel: 'gemini-3.5-flash-lite',
         }),
       ).toThrow(/Unknown fidelity/);
@@ -53,14 +53,14 @@ describe('estimateInquiryDuration', () => {
       // These are placeholder estimates; test documents that they exist and are reasonable.
       // Once Azure p50/p90 table arrives on t/4751, this test will be updated to match real data.
       const quickResult = estimateInquiryDuration({
-        fidelity: 'Quick',
+        fidelity: 'quick',
         debaterModel: 'gemini-3.5-flash-lite',
       });
       expect(quickResult.lowMin).toBeGreaterThan(0);
       expect(quickResult.highMin).toBeGreaterThan(quickResult.lowMin);
 
       const deepResult = estimateInquiryDuration({
-        fidelity: 'Deep',
+        fidelity: 'deep',
         debaterModel: 'claude-opus-5.5',
       });
       expect(deepResult.lowMin).toBeGreaterThanOrEqual(quickResult.lowMin);
