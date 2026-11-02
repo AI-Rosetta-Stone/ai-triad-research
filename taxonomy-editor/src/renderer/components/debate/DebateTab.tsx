@@ -712,6 +712,7 @@ function DebateLibraryPanel(props: DebateLibraryPanelProps) {
         onOpenCommunity={onOpenCommunity}
         intro={intro}
         defaultCommunityOnWeb
+        restoreKey="debate"
       />
     </div>
   );

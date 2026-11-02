@@ -470,6 +470,7 @@ function ChatTableMode({
           onOpenCommunity={id => openChatInPlace(id, 'community')}
           intro={<ChatGettingStarted hasNoChats={sessions.length === 0} onPickStarter={onPickStarter} />}
           defaultCommunityOnWeb={true}
+          restoreKey="chat"
         />
       )}
     </div>

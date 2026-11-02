@@ -35,7 +35,7 @@ describe('placeOf - per-tool open item resolvers', () => {
       const place = placeOf(state as any);
       expect(place.path).toBe('/debate/debate-123');
       expect(place.placeKey).toBe('debate:debate-123');
-      expect(place.label).toBe('Should AI be regulated?');
+      expect(place.label).toBe('Debate: Should AI be regulated?');
     });
 
     it('opening two different debates generates different placeKeys (pushes history)', () => {
@@ -91,7 +91,7 @@ describe('placeOf - per-tool open item resolvers', () => {
       const place = placeOf(state as any);
       expect(place.path).toBe('/opeds/set-1');
       expect(place.placeKey).toBe('opeds:set-1');
-      expect(place.label).toBe('My Policy Analysis');
+      expect(place.label).toBe('Op-Ed Studies: My Policy Analysis');
     });
   });
 
@@ -120,7 +120,7 @@ describe('placeOf - per-tool open item resolvers', () => {
       const place = placeOf(state as any);
       expect(place.path).toBe('/inquiry/job-99');
       expect(place.placeKey).toBe('inquiry:job-99');
-      expect(place.label).toBe('How does transformer attention work?');
+      expect(place.label).toBe('Ask a Question: How does transformer attention work?');
     });
   });
 

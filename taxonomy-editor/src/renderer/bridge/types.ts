@@ -706,6 +706,11 @@ export interface AppAPI {
   // Submit to a remote community server. In Electron this is proxied through the main
   // process (net.fetch) so it is not blocked by browser CORS; baseUrl is the server origin.
   communitySubmit: (baseUrl: string, payload: { type: 'chat' | 'debate' | 'oped' | 'inquiry'; data: unknown; note?: string }) => Promise<{ submissionId: string }>;
+  // t/4746/t/4612: desktop Ask "Share to Community" — uploads the full InquiryResult to the
+  // unauthenticated draft endpoint (a desktop result has no server-side counterpart, t/4611).
+  // Distinct from communitySubmit above: separate endpoint, separate (stricter) payload schema,
+  // returns a draft link + id rather than a submissionId — never auto-published.
+  submitAskToCommunity: (baseUrl: string, result: InquiryResult, note: string) => Promise<{ draftId: string; link: string }>;
 
   // --- Support cases ---
   createSupportCase: (payload: SupportCaseCreatePayload) => Promise<{ id: string }>;

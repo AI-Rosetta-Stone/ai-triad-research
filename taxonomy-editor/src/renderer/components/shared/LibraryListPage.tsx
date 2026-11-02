@@ -13,6 +13,7 @@ import { useAuthStatus } from '../../hooks/useAuthStatus';
 import { useIsAdmin } from '../../hooks/useIsAdmin';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace } from '../../navigation/openInWindow';
+import { getLastVariant, setLastVariant } from '../../navigation/lastVariant';
 import type {
   LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
 } from './LibraryListPage.types';
@@ -36,10 +37,13 @@ function ariaSortFor(state: SortState, key: string): 'ascending' | 'descending' 
   return state.dir === 'asc' ? 'ascending' : 'descending';
 }
 
-/** t/4561: extracted so the branching lives in its own function, not LibraryListPage's — kept
- *  the main component's complexity unchanged rather than bumping it over threshold. */
-function initialListView(hideMyTab: boolean, defaultCommunityOnWeb: boolean, isWeb: boolean): LibraryVariant {
+/** t/4561 (t/4689: + remembered): extracted so the branching lives in its own function, not
+ *  LibraryListPage's — kept the main component's complexity unchanged rather than bumping it
+ *  over threshold. `hideMyTab` still wins over a remembered 'my' — an anonymous session with no
+ *  My content can't honor a memory of a tab it no longer has. */
+function initialListView(hideMyTab: boolean, defaultCommunityOnWeb: boolean, isWeb: boolean, remembered?: LibraryVariant): LibraryVariant {
   if (hideMyTab) return 'community';
+  if (remembered) return remembered;
   if (defaultCommunityOnWeb && isWeb) return 'community';
   return 'my';
 }
@@ -860,7 +864,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
 ) {
   const {
     config, myRows, myLoading, communityRows, communityLoading, onOpenMy, onOpenCommunity,
-    actionVisibility = 'hover', intro, defaultCommunityOnWeb = false,
+    actionVisibility = 'hover', intro, defaultCommunityOnWeb = false, restoreKey,
   } = props;
 
   // t/3703#8: My-tab visibility is auth-driven, read here rather than taken as a prop — the
@@ -882,7 +886,7 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   // never changes after mount — no re-render risk from reading it in useState's initializer.
   const isWeb = import.meta.env.VITE_TARGET === 'web';
   const [listView, setListView] = useState<LibraryVariant>(
-    () => initialListView(hideMyTab, defaultCommunityOnWeb, isWeb),
+    () => initialListView(hideMyTab, defaultCommunityOnWeb, isWeb, restoreKey ? getLastVariant(restoreKey) : undefined),
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'none' });
@@ -891,10 +895,14 @@ export function LibraryListPage<TMy extends { id: string }, TCommunity extends {
   const isPhone = useIsPhoneLayout();
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  // t/4689: remember the tab across this page's unmount/remount (rail tab switch, or the
+  // up-crumb). Only writes when restoreKey is set — omitting it keeps a page's behavior
+  // byte-for-byte unchanged from before this feature existed.
   const switchTab = useCallback((v: LibraryVariant) => {
     setListView(v);
     setSearchQuery('');
-  }, []);
+    if (restoreKey) setLastVariant(restoreKey, v);
+  }, [restoreKey]);
 
   // hideMyTab can flip true after mount (e.g. auth resolves anonymous after an optimistic 'my'
   // default) — force off 'my' rather than leave the view stuck on a tab whose button just

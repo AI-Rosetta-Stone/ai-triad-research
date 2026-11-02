@@ -7,6 +7,7 @@
  */
 import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult, RefreshModelsResponse } from './types';
 import { pullDataUpdatesRest } from './dataUpdatesPull';
+import { submitAskToCommunityRest } from './communityAskSubmit';
 import { createTaxonomyVersions } from './taxonomyVersions';
 import { exportInquiryToFileWeb } from './inquiryExportWeb';
 import { instrumentBridge } from './instrumentBridge';
@@ -1218,9 +1219,8 @@ const rawApi: AppAPI = {
   loadCommunityDebateSession: (id) => get(`/api/community/debates/${encodeURIComponent(id)}`),
   loadCommunityOpEd: (id) => get<OpEdSet>(`/api/community/opeds/${encodeURIComponent(id)}`),
   loadCommunityChatSession: (id) => get(`/api/community/chats/${encodeURIComponent(id)}`),
-  // Web mode is same-origin; baseUrl is ignored and the relative path is used.
-  communitySubmit: (_baseUrl, payload) => post('/api/community/submit', payload),
-
+  communitySubmit: (_baseUrl, payload) => post('/api/community/submit', payload), // web mode: same-origin, baseUrl ignored
+  submitAskToCommunity: (_baseUrl, result, note) => submitAskToCommunityRest(result, note), // t/4746 — see communityAskSubmit.ts
   // Support cases
   createSupportCase: (payload) => post('/api/support/cases', payload),
   listSupportCases: () => get('/api/support/cases'),

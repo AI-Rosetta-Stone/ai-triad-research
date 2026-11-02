@@ -13,13 +13,14 @@ import { navHistory } from '../../navigation';
 import { goToPath } from '../../navigation/restore';
 import type { Crumb, HistoryEntry } from '../../navigation/types';
 import { isRunning, subscribeRunning, type RunningToolId } from '../../navigation/runningSignal';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { LocationBar } from './LocationBar';
+import { backAction, historyButtonName, type BackAction } from './backAction';
 import './LocationBarHost.css';
 
 const isElectron = import.meta.env.VITE_TARGET !== 'web';
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 const RECENT_MAX = 15;
-const LABEL_MAX = 60;
 
 const TOOL_NAMES: Record<string, string> = {
   'rosetta-stone': 'Rosetta Stone', chat: 'Chat', opeds: 'Op-Ed Studies', inquiry: 'Ask a Question',
@@ -39,13 +40,6 @@ function entryIsRunning(placeKey: string): boolean {
   const [tool, itemId] = placeKey.split(':');
   if (!tool || !itemId || !RUNNING_TOOLS.has(tool)) return false;
   return isRunning(tool as RunningToolId, itemId);
-}
-
-const truncate = (s: string) => (s.length > LABEL_MAX ? `${s.slice(0, LABEL_MAX - 1)}…` : s);
-
-/** "Back to {label}" / "Forward to {label}", or plain "Back" / "Forward" with no destination. */
-function historyButtonName(verb: 'Back' | 'Forward', dest: HistoryEntry | undefined): string {
-  return dest?.label ? `${verb} to ${truncate(dest.label)}` : verb;
 }
 
 function toolNameOf(placeKey: string): string {
@@ -138,7 +132,12 @@ function RecentMenu({ entries, index, onJump }: RecentMenuProps) {
             const isCurrent = i === index;
             const running = entryIsRunning(entry.placeKey);
             const toolName = toolNameOf(entry.placeKey);
-            const side = running ? 'Running…' : (toolName !== entry.label ? toolName : '');
+            // The label carries a "Tool: " prefix for Back/Forward names; the row shows the tool in
+            // its own right-hand column instead, so drop the prefix from the row text.
+            const rowText = toolName && entry.label.startsWith(`${toolName}: `)
+              ? entry.label.slice(toolName.length + 2)
+              : entry.label;
+            const side = running ? 'Running…' : (toolName !== rowText ? toolName : '');
             return (
               <button
                 key={i}
@@ -149,7 +148,7 @@ function RecentMenu({ entries, index, onJump }: RecentMenuProps) {
                 aria-label={`${entry.label}${isCurrent ? ', you are here' : ''}${running ? ', running' : ''}`}
                 onClick={() => pick(i)}
               >
-                <span className="nav-locbar-menu-label">{entry.label}</span>
+                <span className="nav-locbar-menu-label">{rowText}</span>
                 {isCurrent && <span className="nav-locbar-menu-here"> · you are here</span>}
                 {side && <span className="nav-locbar-menu-tool">{side}</span>}
               </button>
@@ -158,6 +157,29 @@ function RecentMenu({ entries, index, onJump }: RecentMenuProps) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * ← — plain Back, or "Up to {ancestor}" under the phone up rule (see backAction). The shortcut
+ * belongs to Back only, so the up form carries no shortcut hint.
+ */
+function BackButton({ action, onBack, onUp }: { action: BackAction; onBack: () => void; onUp: (href: string) => void }) {
+  const isUp = action.kind === 'up';
+  const disabled = !isUp && !action.enabled;
+  return (
+    <button
+      type="button"
+      className="nav-locbar-btn"
+      onClick={() => (isUp ? onUp(action.href) : onBack())}
+      disabled={disabled}
+      aria-disabled={disabled}
+      aria-label={action.name}
+      aria-keyshortcuts={isUp ? undefined : (isMac ? 'Meta+BracketLeft' : 'Alt+ArrowLeft')}
+      title={isUp ? action.name : `${action.name} (${isMac ? '⌘[' : 'Alt+←'})`}
+    >
+      <ArrowLeft aria-hidden="true" />
+    </button>
   );
 }
 
@@ -196,6 +218,7 @@ export function LocationBarHost() {
   }), []);
   useEffect(() => subscribeRunning(() => setHistoryVersion(v => v + 1)), []);
 
+  const isPhone = useBreakpoint() === 'phone';
   const entries = navHistory.entries();
   const index = navHistory.index();
   const canGoBack = navHistory.canGoBack();
@@ -213,24 +236,17 @@ export function LocationBarHost() {
     action();
   };
 
-  const backName = historyButtonName('Back', canGoBack ? entries[index - 1] : undefined);
+  const back = backAction({ isPhone, canGoBack, backDest: entries[index - 1], crumbs });
   const forwardName = historyButtonName('Forward', canGoForward ? entries[index + 1] : undefined);
 
   return (
     <div className="nav-locbar location-bar-host">
       <div className="nav-locbar-history" role="group" aria-label="History">
-        <button
-          type="button"
-          className="nav-locbar-btn"
-          onClick={() => navigate(() => navHistory.back())}
-          disabled={!canGoBack}
-          aria-disabled={!canGoBack}
-          aria-label={backName}
-          aria-keyshortcuts={isMac ? 'Meta+BracketLeft' : 'Alt+ArrowLeft'}
-          title={`${backName} (${isMac ? '⌘[' : 'Alt+←'})`}
-        >
-          <ArrowLeft aria-hidden="true" />
-        </button>
+        <BackButton
+          action={back}
+          onBack={() => navigate(() => navHistory.back())}
+          onUp={href => navigate(() => goToPath(href))}
+        />
         {isElectron && (
           <button
             type="button"

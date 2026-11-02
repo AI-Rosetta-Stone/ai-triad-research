@@ -17,6 +17,8 @@ import { useOpEdStore } from '../hooks/useOpEdStore';
 import { useDebateStore } from '../hooks/useDebateStore';
 import { useChatStore } from '../hooks/useChatStore';
 import { useInquiryStore } from '../hooks/useInquiryStore';
+import { postNavNotice } from '../navigation/navNotice';
+import { resyncToState } from '../navigation/subscriber';
 
 export interface AppRoute {
   /** Unique id for logging/debugging — not part of the URL. */
@@ -34,6 +36,25 @@ export interface AppRoute {
 }
 
 const taxonomy = () => useTaxonomyStore.getState();
+
+// t/4640 AC3: an item URL whose item is gone (deleted, or never this user's) lands on the tool's
+// library with a notice, never a blank page and never silently. The library itself shows no
+// load error on desktop, so the route says it.
+const NOT_FOUND = {
+  chat: 'That chat couldn’t be found. It may have been deleted.',
+  debate: 'That debate couldn’t be found. It may have been deleted.',
+} as const;
+
+/**
+ * The restored item didn't load: point the current entry at the library the app is showing (no
+ * new Back step) and say why. Only while the user is still on that tool — after they've moved
+ * on, the entry and the notice would both be about somewhere they no longer are.
+ */
+function fallBackToLibrary(tab: TabId, text: string): void {
+  if (taxonomy().activeTab !== tab) return;
+  resyncToState();
+  postNavNotice(text);
+}
 
 /** `/a/b/` → `/a/b`; `/` stays `/`. Routes compare plain strings — no regex built from input. */
 function trimSlash(pathname: string): string {
@@ -77,9 +98,11 @@ export const CHAT_ROUTE = exactRoute('chat', '/chat', 'chat:none', () => {
 export const CHAT_ITEM_ROUTE = itemRoute('chat-item', 'chat', 'chatId', 'chat', (chatId) => {
   taxonomy().setActiveTab('chat');
   // Clear first: a failed load must fall back to the library, not leave the previous chat
-  // showing under this chat's URL. loadChat sets chatError, which the tab shows as the notice.
+  // showing under this chat's URL.
   useChatStore.setState({ activeChatId: null, activeChat: null });
-  void useChatStore.getState().loadChat(chatId);
+  void useChatStore.getState().loadChat(chatId).then(() => {
+    if (useChatStore.getState().activeChatId !== chatId) fallBackToLibrary('chat', NOT_FOUND.chat);
+  });
 });
 
 // ── Debate ──
@@ -90,7 +113,13 @@ export const DEBATE_ROUTE = exactRoute('debate', '/debate', 'debate:none', () =>
 });
 export const DEBATE_ITEM_ROUTE = itemRoute('debate-item', 'debate', 'debateId', 'debate', (debateId) => {
   taxonomy().setActiveTab('debate');
-  void useDebateStore.getState().loadDebate(debateId);
+  // Clear first, as for chat: otherwise the previously open debate shows under this URL until
+  // the load lands, and the nav subscriber records it as a new place. Only the open-item fields
+  // — closeDebate() would also log an abandon and reset a running debate's generation state.
+  useDebateStore.setState({ activeDebateId: null, activeDebate: null });
+  void useDebateStore.getState().loadDebate(debateId).then(() => {
+    if (useDebateStore.getState().activeDebateId !== debateId) fallBackToLibrary('debate', NOT_FOUND.debate);
+  });
 });
 
 // ── Op-Ed Studies ──

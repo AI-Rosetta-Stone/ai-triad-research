@@ -480,6 +480,8 @@ export const api: AppAPI = {
   loadCommunityChatSession: async () => { throw new Error('Community Library is only available in the web app'); },
   // Proxy through the main process so the cross-origin POST is not blocked by browser CORS.
   communitySubmit: (baseUrl, payload) => window.electronAPI.communitySubmit(baseUrl, payload),
+  // t/4746/t/4612: same CORS-bypass proxy, dedicated to the desktop Ask upload-to-draft flow.
+  submitAskToCommunity: (baseUrl, result, note) => window.electronAPI.submitAskToCommunity(baseUrl, result, note),
 
   // Support cases — desktop stubs (not supported in Electron per HLD)
   createSupportCase: () => Promise.reject(new Error('Support cases are only available in the web app')),
