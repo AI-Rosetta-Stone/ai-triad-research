@@ -189,6 +189,7 @@ class StrayFileGuard {
     return globPatterns.some(pattern => {
       // Convert glob pattern to regex
       const regexPattern = pattern
+        .replace(/\\/g, '\\\\')
         .replace(/\./g, '\\.')
         .replace(/\*/g, '.*')
         .replace(/\?/g, '.');
