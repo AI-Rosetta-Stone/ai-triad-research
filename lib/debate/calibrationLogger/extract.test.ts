@@ -64,11 +64,17 @@ describe('extractCalibrationData termination_reason golden set', () => {
     ['Network hard cap (500 >= 500)', true, 'situation_cap'],
     ['Max total rounds (10 >= 10)', true, 'max_iterations'],
     ['Max total rounds (15 >= 15)', true, 'max_iterations'],
-    ['Max thesis turns (limit reached)', true, 'situation_cap'],
-    ['Max exploration turns (limit reached)', true, 'situation_cap'],
+    // t/4753: widened from /Max total rounds/i to /^Max /i — these three per-phase
+    // hard-cap exits (phaseTransitions.ts:692/750/816) were misclassified as
+    // situation_cap before the fix; real message format included for each.
+    ['Max thesis turns (limit reached)', true, 'max_iterations'],
+    ['Max thesis turns (2 rounds × 3 speakers)', true, 'max_iterations'],
+    ['Max exploration turns (limit reached)', true, 'max_iterations'],
+    ['Max exploration turns (2 rounds × 3 speakers)', true, 'max_iterations'],
+    ['Max synthesis turns (limit reached)', true, 'max_iterations'],
+    ['Max synthesis turns (1 rounds × 3 speakers)', true, 'max_iterations'],
     ['API soft budget hit (80%)', true, 'situation_cap'],
     ['Debate is dead (recycling > 0.8 AND fatigue > 0.8)', true, 'situation_cap'],
-    ['Max synthesis turns (limit reached)', true, 'situation_cap'],
     ['Synthesis stall (2 rounds, delta < 0.05, recycling > 0.5)', true, 'situation_cap'],
     // force_active=false → natural decision-point
     ['Saturation score 0.75 >= threshold 0.70', false, 'natural_conclusion'],

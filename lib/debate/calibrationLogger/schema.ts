@@ -496,7 +496,9 @@ export interface CalibrationDataPoint {
   /**
    * How the debate ended, derived from phases[].force_active stamped in crossRespond.ts.
    * 'natural_conclusion': force_active=false — convergence/saturation threshold reached naturally.
-   * 'max_iterations': force_active=true AND exit_reason matches /Max total rounds/i.
+   * 'max_iterations': force_active=true AND exit_reason matches /^Max /i (t/4753: widened from
+   *   /Max total rounds/i, which missed the per-phase "Max thesis/exploration/synthesis turns"
+   *   hard-cap exits — new runs only, no reprocessing of stored rows).
    * 'situation_cap': force_active=true, any other forced cap (health, synthesis stall, etc.).
    * 'api_ceiling': API hard ceiling hit (detected via transcript content; overrides force_active).
    * 'first_round_exit': debate exited with ≤1 statement, no ASD phases — early failure before convergence logic ran (t/3502).
