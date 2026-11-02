@@ -1,12 +1,14 @@
 # ─── Dependabot Weekly ───
-# What:  Weekly schedule that finds all open Dependabot PRs where both the
-#        ci-gate and CodeQL checks have passed, merges them, then triggers a
-#        fresh container image build. Does NOT auto-deploy to production —
-#        production deploy remains a manual owner-triggered step (p/247).
+# What:  Weekly schedule that triggers a fresh container image build when any
+#        Dependabot PR merged in the last 7 days, so dependency bumps reach an
+#        image. Does NOT auto-deploy to production — production deploy remains a
+#        manual owner-triggered step (p/247).
 # When:  Mondays at 09:00 UTC (after the weekend Dependabot batch). Also
 #        triggerable via workflow_dispatch with an optional dry_run mode.
-# Gate:  Only merges PRs where BOTH ci-gate AND CodeQL Analysis are SUCCESS.
-#        PRs with pending or failed checks are skipped (not touched).
+# Merging: this workflow NO LONGER MERGES. It used a bare `gh pr merge` with
+#        GITHUB_TOKEN, which AGENTS.md forbids (main lands only through the merge
+#        queue) and which never got PRs into the queue. dependabot-auto-merge.yml
+#        arms minor/patch bumps and dependabot-enqueue-sweep.yml enqueues them.
 # After: Monitor the triggered Container Image workflow run in the Actions tab.
 #        When satisfied, manually trigger deploy-azure.yml for production with the built
 #        commit: gh workflow run deploy-azure.yml -f environment=production -f sha=<commit>
@@ -20,15 +22,15 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'List PRs without merging or building'
+        description: 'Count recent Dependabot merges without building'
         required: false
         default: false
         type: boolean
 
 permissions:
-  contents: write        # merge PRs
-  pull-requests: write   # approve + close PRs
-  actions: write         # trigger container and deploy workflows
+  contents: read         # list merged PRs
+  pull-requests: read    # list merged PRs
+  actions: write         # trigger the container workflow
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -38,92 +40,35 @@ env:
   GH_REPO: ${{ github.repository }}
 
 jobs:
-  # ── Step 1: Merge all green Dependabot PRs ─────────────────────────────────
-  merge-prs:
+  # ── Step 1: Count Dependabot PRs merged in the last 7 days ────────────────
+  count-merges:
     runs-on: ubuntu-latest
     outputs:
-      merged_count: ${{ steps.merge.outputs.merged_count }}
+      merged_count: ${{ steps.count.outputs.merged_count }}
     steps:
-      - name: Find and merge green Dependabot PRs
-        id: merge
-        env:
-          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      - name: Count Dependabot PRs merged in the last 7 days
+        id: count
         run: |
           echo "=== Dependabot Weekly — $(date -u '+%Y-%m-%d %H:%M UTC') ==="
-          echo "Mode: ${DRY_RUN:+dry-run}${DRY_RUN:-live}"
-
-          # Fetch all open Dependabot PRs with their check statuses
-          PRS_JSON=$(gh pr list \
+          SINCE=$(date -u -d '7 days ago' '+%Y-%m-%d')
+          MERGED_JSON=$(gh pr list \
             --author "app/dependabot" \
-            --state open \
-            --json number,title,headRefName,statusCheckRollup \
-            --limit 50)
-
-          TOTAL=$(echo "$PRS_JSON" | jq 'length')
-          echo "Open Dependabot PRs found: $TOTAL"
-
-          if [ "$TOTAL" = "0" ]; then
-            echo "Nothing to do."
-            echo "merged_count=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          MERGED=0
-
-          while IFS= read -r PR; do
-            NUMBER=$(echo "$PR" | jq -r '.number')
-            TITLE=$(echo "$PR" | jq -r '.title')
-
-            # Require both ci-gate AND CodeQL to be SUCCESS.
-            # ci-gate alone is not sufficient — CodeQL is a required check
-            # and a ci-gate-only gate re-opens the gap closed in t/2025.
-            CI_STATE=$(echo "$PR" | jq -r '
-              .statusCheckRollup
-              | map(select(.name == "ci-gate"))
-              | if length > 0 then .[0].state else "NOT_FOUND" end
-            ')
-            CODEQL_STATE=$(echo "$PR" | jq -r '
-              .statusCheckRollup
-              | map(select(.name == "CodeQL Analysis"))
-              | if length > 0 then .[0].state else "NOT_FOUND" end
-            ')
-
-            echo ""
-            echo "PR #$NUMBER: $TITLE"
-            echo "  ci-gate:       $CI_STATE"
-            echo "  CodeQL:        $CODEQL_STATE"
-
-            if [ "$CI_STATE" != "SUCCESS" ] || [ "$CODEQL_STATE" != "SUCCESS" ]; then
-              echo "  → Skipping (both ci-gate and CodeQL must be SUCCESS)"
-              continue
-            fi
-
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "  → [dry-run] Would merge"
-              MERGED=$((MERGED + 1))
-              continue
-            fi
-
-            echo "  → Merging..."
-            if gh pr merge "$NUMBER" --squash --delete-branch 2>&1; then
-              echo "  → Merged successfully."
-              MERGED=$((MERGED + 1))
-            else
-              echo "  → ::warning:: Merge failed for PR #$NUMBER — skipping."
-            fi
-          done < <(echo "$PRS_JSON" | jq -c '.[]')
-
-          echo ""
-          echo "Merged: $MERGED / $TOTAL"
-          echo "merged_count=$MERGED" >> "$GITHUB_OUTPUT"
+            --state merged \
+            --search "merged:>=$SINCE" \
+            --json number,title,mergedAt \
+            --limit 100)
+          COUNT=$(echo "$MERGED_JSON" | jq 'length')
+          echo "Dependabot PRs merged since $SINCE: $COUNT"
+          echo "$MERGED_JSON" | jq -r '.[] | "  #\(.number) \(.mergedAt) \(.title)"'
+          echo "merged_count=$COUNT" >> "$GITHUB_OUTPUT"
 
   # ── Step 2: Build a fresh container image ──────────────────────────────────
-  # Skipped when no PRs were merged or in dry-run mode.
+  # Skipped when no Dependabot PRs merged in the last 7 days, or in dry-run mode.
   # Production deploy is NOT triggered here — run deploy-azure.yml manually with the built
   # commit: gh workflow run deploy-azure.yml -f environment=production -f sha=<commit> (t/3679).
   build-image:
-    needs: [merge-prs]
-    if: needs.merge-prs.outputs.merged_count > 0 && inputs.dry_run != true
+    needs: [count-merges]
+    if: needs.count-merges.outputs.merged_count > 0 && inputs.dry_run != true
     runs-on: ubuntu-latest
     steps:
       - name: Trigger container image build
@@ -168,6 +113,6 @@ jobs:
       - name: Summary
         run: |
           echo "=== Dependabot Weekly summary ==="
-          echo "  PRs merged:      ${{ needs.merge-prs.outputs.merged_count }}"
+          echo "  Dependabot PRs merged (last 7 days): ${{ needs.count-merges.outputs.merged_count }}"
           echo "  Container build: triggered and completed"
           echo "  Production:      NOT auto-deployed — run: gh workflow run deploy-azure.yml -f environment=production -f sha=<commit> (t/3679; sha required)"
