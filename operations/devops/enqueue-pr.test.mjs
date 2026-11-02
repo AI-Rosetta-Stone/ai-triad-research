@@ -2,25 +2,46 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect } from 'vitest';
-import { decideEnqueueOutcome, formatSilentMissWarning } from './enqueue-pr.mjs';
+import { classifyEnqueueOutcome, formatSilentMissWarning } from './enqueue-pr.mjs';
 
-describe('decideEnqueueOutcome', () => {
-  it('is enqueued when both isInMergeQueue and mergeQueueEntry are present', () => {
-    expect(decideEnqueueOutcome({ isInMergeQueue: true, mergeQueueEntry: { position: 1, state: 'QUEUED' } }))
-      .toEqual({ enqueued: true });
+describe('classifyEnqueueOutcome', () => {
+  it('is queued when both isInMergeQueue and mergeQueueEntry are present', () => {
+    expect(classifyEnqueueOutcome({
+      isInMergeQueue: true, mergeQueueEntry: { position: 1, state: 'QUEUED' }, autoMergeRequest: null,
+    })).toEqual({ state: 'queued' });
   });
 
-  it('is NOT enqueued when isInMergeQueue is true but mergeQueueEntry is null (t/4740#1 shape)', () => {
-    expect(decideEnqueueOutcome({ isInMergeQueue: true, mergeQueueEntry: null })).toEqual({ enqueued: false });
+  it('is NOT queued when isInMergeQueue is true but mergeQueueEntry is null (t/4740#1 shape)', () => {
+    expect(classifyEnqueueOutcome({ isInMergeQueue: true, mergeQueueEntry: null, autoMergeRequest: null }))
+      .toEqual({ state: 'not_armed' });
   });
 
-  it('is NOT enqueued when isInMergeQueue is false, even with a stale mergeQueueEntry', () => {
-    expect(decideEnqueueOutcome({ isInMergeQueue: false, mergeQueueEntry: { position: 1, state: 'QUEUED' } }))
-      .toEqual({ enqueued: false });
+  it('is NOT queued when isInMergeQueue is false, even with a stale mergeQueueEntry', () => {
+    expect(classifyEnqueueOutcome({
+      isInMergeQueue: false, mergeQueueEntry: { position: 1, state: 'QUEUED' }, autoMergeRequest: null,
+    })).toEqual({ state: 'not_armed' });
   });
 
-  it('is NOT enqueued when both fields are null (the #4298 shape, TL p/331#2548)', () => {
-    expect(decideEnqueueOutcome({ isInMergeQueue: false, mergeQueueEntry: null })).toEqual({ enqueued: false });
+  it('is not_armed when all fields are null (the #4298 shape, TL p/331#2548)', () => {
+    expect(classifyEnqueueOutcome({ isInMergeQueue: false, mergeQueueEntry: null, autoMergeRequest: null }))
+      .toEqual({ state: 'not_armed' });
+  });
+
+  it('is armed_waiting when autoMergeRequest is set but the PR has not entered the queue yet ' +
+     '— required checks still pending (t/4768, PR #4351 incident shape)', () => {
+    expect(classifyEnqueueOutcome({
+      isInMergeQueue: false,
+      mergeQueueEntry: null,
+      autoMergeRequest: { mergeMethod: 'MERGE', enabledAt: '2026-11-02T21:50:17Z', enabledBy: { login: 'jpsnover' } },
+    })).toEqual({ state: 'armed_waiting' });
+  });
+
+  it('prefers queued over armed_waiting when the PR has genuinely entered the queue', () => {
+    expect(classifyEnqueueOutcome({
+      isInMergeQueue: true,
+      mergeQueueEntry: { position: 1, state: 'QUEUED' },
+      autoMergeRequest: { mergeMethod: 'SQUASH', enabledAt: '2026-11-02T21:50:17Z', enabledBy: { login: 'jpsnover' } },
+    })).toEqual({ state: 'queued' });
   });
 });
 
