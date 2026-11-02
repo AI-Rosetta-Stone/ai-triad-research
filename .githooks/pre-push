@@ -1,0 +1,45 @@
+#!/bin/sh
+# pre-push — run CI's fast TypeScript checks on the files this push changes, so real
+# failures are caught in ~1-2 minutes locally instead of a 12-minute CI run.
+# All logic, the rationale and the fail-open rules live in
+# operations/devops/pre-push-checks.sh. This wrapper only maps git's push info to a
+# base..head range per pushed ref.
+#
+# Overrides (visible in the command): AITRIAD_PREPUSH=skip git push   or   git push --no-verify
+# Activation: git config core.hooksPath .githooks (root AGENTS.md).
+
+if [ "${AITRIAD_PREPUSH:-}" = "skip" ]; then
+  echo "pre-push: WARN checks skipped by AITRIAD_PREPUSH=skip; CI will still run them." >&2
+  exit 0
+fi
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+CHECKS="$ROOT/operations/devops/pre-push-checks.sh"
+if [ ! -f "$CHECKS" ]; then
+  echo "pre-push: WARN $CHECKS not found (branch predates it?); skipping TypeScript checks." >&2
+  exit 0
+fi
+ZERO=0000000000000000000000000000000000000000
+# The checks read the working tree, so they only describe a pushed commit that is the
+# checked-out one. Pushing any other ref (git push origin some-other-branch) would check
+# the wrong code, so that ref is skipped with a WARN instead of blocked or passed on bad evidence.
+HEAD_SHA=$(git rev-parse HEAD 2>/dev/null)
+
+status=0
+# stdin: <local ref> <local sha> <remote ref> <remote sha>, one line per pushed ref.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue            # deleting a remote ref
+  case "$remote_ref" in refs/tags/*) continue ;; esac
+  if [ "$local_sha" != "$HEAD_SHA" ]; then
+    echo "pre-push: WARN $local_ref is not the checked-out commit; skipping checks for it (they read the working tree)." >&2
+    continue
+  fi
+  base=$(git merge-base "$local_sha" origin/main 2>/dev/null)
+  if [ -z "$base" ] && [ "$remote_sha" != "$ZERO" ]; then base=$remote_sha; fi
+  if [ -z "$base" ]; then
+    echo "pre-push: WARN no origin/main to diff $local_ref against; skipping checks." >&2
+    continue
+  fi
+  sh "$CHECKS" "$base" "$local_sha" || status=1
+done
+exit $status
