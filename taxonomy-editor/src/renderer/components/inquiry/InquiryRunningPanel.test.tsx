@@ -14,6 +14,7 @@ vi.mock('@bridge', () => ({ api: { startInquiry: vi.fn(), getInquiry: vi.fn(), l
 
 const visible = (c: HTMLElement) => c.querySelector('.inquiry-stage-detail')?.textContent ?? null;
 const announced = (c: HTMLElement) => c.querySelector('[aria-live="polite"]')?.textContent ?? null;
+const progressLabel = (c: HTMLElement) => c.querySelector('.inquiry-budget-top')?.textContent ?? null;
 
 describe('InquiryRunningPanel (t/4714)', () => {
   beforeEach(() => {
@@ -52,5 +53,11 @@ describe('InquiryRunningPanel (t/4714)', () => {
 
     act(() => { vi.advanceTimersByTime(10_000); });
     expect(announced(container)).toBe('Round 2 of 4'); // trailing announcement, not dropped
+  });
+
+  it('rounds the progress label to a whole percentage (t/4750)', () => {
+    useInquiryStore.setState({ progressPct: 18.611111111111111 });
+    const { container } = render(<InquiryRunningPanel />);
+    expect(progressLabel(container)).toBe('Progress19%');
   });
 });
