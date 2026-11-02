@@ -61,6 +61,7 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 - **Batch sequential same-feature work** into one PR, unless the diff is over ~400 lines or mixes concerns. Merge promptly on green, or record why not.
 - **Arm auto-merge at PR creation** (`node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`, t/4740) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247). Arming means "done", so disarm (and dequeue, if queued) before pushing more.
   - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
+  - **Backstop:** `enqueue-sweep.yml` enqueues any non-draft T0 PR on `main` once its required checks are green and nothing has been pushed for 15 minutes. If you will push more, open it as a draft or add the `no-auto-enqueue` label.
 - **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
   - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
   - or with the "SO did not review" note plus the human approval.

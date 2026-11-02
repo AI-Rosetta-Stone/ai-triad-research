@@ -1,0 +1,88 @@
+# ─── Merge-queue enqueue sweep ───
+# What:  Every 10 minutes, as a GitHub App, put PRs into the merge queue that are ready but
+#        were never (or not successfully) enqueued:
+#        1. Dependabot PRs that dependabot-auto-merge.yml armed (its minor/patch policy) with
+#           ci-gate and CodeQL Analysis green (operations/devops/dependabot-enqueue-sweep.mjs).
+#        2. T0 PRs (body starts `Tier: T0`, base main, not draft, no consult-hold / joint-gv /
+#           no-auto-enqueue label) with all required checks green and NOTHING PUSHED FOR 15
+#           MINUTES, since pushing to a queued PR is refused (operations/devops/t0-enqueue-sweep.mjs).
+#        Both enqueue through operations/devops/enqueue-pr.mjs (pinned head, verified entry).
+# Why:   Auto-merge armed with the built-in GITHUB_TOKEN never led to queue entry: every
+#        Dependabot PR since the queue launched (2026-10-28) sat 16-41h until a human
+#        re-armed it (#4262, #4263, #4280, #4282). Dependabot-triggered workflows cannot read
+#        Actions secrets, so the App step runs here on a schedule. T0 PRs that authors forgot
+#        to arm waited 1-14h each (~35h over five days); the PI approved auto-enqueue at
+#        green + 15 min idle (2026-11-02).
+# Setup: Repo variable DEPENDABOT_MERGE_APP_CLIENT_ID and repo secret
+#        DEPENDABOT_MERGE_APP_PRIVATE_KEY, for an App installed on this repo with Contents,
+#        Pull requests and Workflows write. (The names predate the T0 step; the same App now
+#        enqueues both.) Until both exist, the job logs a warning and exits without acting.
+
+name: Merge-queue enqueue sweep
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List what would be enqueued without acting'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read   # checkout only; all writes use the App token
+
+concurrency:
+  group: enqueue-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check App configuration
+        id: cfg
+        env:
+          APP_CLIENT_ID: ${{ vars.DEPENDABOT_MERGE_APP_CLIENT_ID }}
+          APP_KEY_PRESENT: ${{ secrets.DEPENDABOT_MERGE_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ "$APP_KEY_PRESENT" != "true" ]; then
+            echo "::warning::WARN: enqueue sweep skipped: DEPENDABOT_MERGE_APP_CLIENT_ID (variable) or DEPENDABOT_MERGE_APP_PRIVATE_KEY (secret) is not set. Ready Dependabot and T0 PRs will NOT be enqueued automatically."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        if: steps.cfg.outputs.configured == 'true'
+
+      - name: Sweep unit tests
+        if: steps.cfg.outputs.configured == 'true'
+        run: node --test operations/devops/dependabot-enqueue-sweep.test.mjs operations/devops/t0-enqueue-sweep.test.mjs
+
+      - name: Mint App token
+        id: app
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        with:
+          client-id: ${{ vars.DEPENDABOT_MERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPENDABOT_MERGE_APP_PRIVATE_KEY }}
+
+      - name: Enqueue green, armed Dependabot PRs
+        id: dependabot
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node operations/devops/dependabot-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN
+
+      # Runs even if the Dependabot step failed: one stuck Dependabot PR must not hold back T0 PRs.
+      - name: Enqueue green, idle T0 PRs
+        if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node operations/devops/t0-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN
