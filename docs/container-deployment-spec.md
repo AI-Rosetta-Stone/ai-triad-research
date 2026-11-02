@@ -115,12 +115,10 @@ $env:GEMINI_API_KEY = "your-key"
 Show-TaxonomyEditor
 ```
 
-**Option C:** Explicit parameter:
-```powershell
-Show-TaxonomyEditor -ApiKeys @{ Gemini = "key1"; Claude = "key2" }
-```
-
-The cmdlet passes keys via Docker `--env` flags (never written to disk on host, never baked into image).
+The cmdlet writes any matching host-environment keys to a private, owner-only (0600) temp
+`--env-file` and deletes it immediately after `docker run` has read it — never via `--env
+key=value` directly, since that would expose the value to any local user running `docker
+inspect` (t/2530 L3). Never baked into the image.
 
 ### Multi-User (Future Stage)
 
@@ -390,16 +388,22 @@ COPY --from=builder /build/dist /app/dist
 The data directory (`ai-triad-data`) is bind-mounted from the host:
 
 ```
-docker run -v /path/to/ai-triad-data:/data ghcr.io/ai-rosetta-stone/taxonomy-editor
+docker run -v /path/to/ai-triad-data:/data \
+  -e STORAGE_MODE=filesystem -e AI_TRIAD_DATA_ROOT=/data \
+  -p 127.0.0.1:7862:7862 \
+  ghcr.io/ai-rosetta-stone/taxonomy-editor
 ```
 
 This means:
 - Data persists across container restarts
 - Users can still use the PowerShell module directly against the same data
 - Existing data repos work without migration
-- Git operations inside the container work on the mounted repo
 
-The `Show-TaxonomyEditor` cmdlet auto-detects the data path using the same resolution logic as today (`Resolve-DataPath`).
+Git operations should be done on the **host**, not inside the container: the container
+filesystem is `--read-only` and carries no git credentials, so a commit or push attempted
+inside it fails.
+
+The `Show-TaxonomyEditor` cmdlet auto-detects the data path using the same resolution logic as today (`Get-DataRoot`).
 
 ## 2.7 API Key Security
 
@@ -407,7 +411,10 @@ Electron's `safeStorage` is not available in a server context. Replacement:
 
 1. **Server-side encrypted file**: Keys are encrypted with a key derived from a machine-specific secret (container ID + data volume fingerprint) using Node.js `crypto.createCipheriv`. Stored in `/data/.aitriad-keys.enc`.
 
-2. **Environment variable passthrough**: The cmdlet detects `$env:GEMINI_API_KEY` etc. and passes them via `docker run --env`.
+2. **Environment variable passthrough**: The cmdlet detects `$env:GEMINI_API_KEY` etc. and
+   passes them via a private, owner-only `--env-file` (never `--env key=value`, which would
+   expose the value to `docker inspect`), deleting the file immediately after `docker run`
+   has read it.
 
 3. **Keys never reach the browser**: The server proxies all AI API calls. The browser sends prompts to `/api/ai/generate`; the server attaches the API key.
 
@@ -611,7 +618,7 @@ function Show-TaxonomyEditor {
 
     # 1. Resolve data path (existing logic)
     if (-not $DataPath) {
-        $DataPath = Resolve-DataPath
+        $DataPath = Get-DataRoot
     }
 
     # 2. Check Docker
