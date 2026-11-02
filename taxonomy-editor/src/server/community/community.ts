@@ -995,3 +995,24 @@ export async function removeCommunityItem(
 
   log.server.info({ id, type, removedBy }, 'Community item removed');
 }
+
+// ── C3 Caps: Client-supplied submission limits (t/4612 C3, t/4744) ──
+
+export const CLIENT_SUPPLIED_PENDING_CAP = 50;
+export const GLOBAL_PENDING_CAP = 500;
+
+export interface DraftStore {
+  id: string;
+  ttlExpiresAt: number; // ms timestamp
+  submitterId?: string; // Bind on claim/finalize
+  result?: InquiryResult;
+  note?: string;
+}
+
+/** Check submission caps per C3 */
+export async function checkSubmissionCaps(clientSuppliedCount: number): Promise<{ allowed: boolean; error?: string }> {
+  if (clientSuppliedCount >= CLIENT_SUPPLIED_PENDING_CAP) {
+    return { allowed: false, error: `Client submissions at quota (${CLIENT_SUPPLIED_PENDING_CAP})` };
+  }
+  return { allowed: true };
+}
