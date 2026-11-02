@@ -34,6 +34,7 @@ export const INQUIRY_BOOT_ID: string = randomUUID();
 import { getGlobalRecorder } from '../../../lib/flight-recorder/index.js';
 import { errorMessage } from '../../../lib/debate/errors.js';
 import { stageProgress, createDebateProgressTracker } from '../../../lib/debate/debateProgressMapping.js';
+import type { DebateProgress } from '../../../lib/debate/debateEngine/internals.js';
 import { log } from './logger.js';
 import type { InquiryRequest, InquiryResult } from '../../../lib/inquiry/index.js';
 import { saveInquiryResult, type InquiryResultSummary } from './storage/inquiryResultStore.js';
@@ -173,8 +174,8 @@ function readDebateRef(result: InquiryResult): string | null {
 
 export interface InquiryPipelineContext {
   onStage: (stage: InquiryPipelineStage) => void;
-  /** t/4712: optional callback for debate progress updates (fraction [0, 1] and human detail). */
-  onDebateProgress?: (update: { fraction: number; detail: string }) => void;
+  /** t/4712: optional callback for debate progress events from the debate engine. */
+  onDebateProgress?: (p: DebateProgress) => void;
   signal?: AbortSignal;
   /** t/4338: threaded through so the pipeline deps (inquiryPipelineDeps.ts) can mark the
    *  persisted debate session's origin without inquiryJobs.ts reaching into the pipeline. */

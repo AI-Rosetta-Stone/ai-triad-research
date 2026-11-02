@@ -25,6 +25,7 @@ import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
 import { getFreePoolBudget, getFreePoolBudgetConfig } from '../storage/freePoolBudget.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
+import { areBlobBackendsWired } from '../storage/blobBackendBoot.js';
 
 /** `/health`'s free-pool block (t/4677, t/4733): wiring and enforcement, plus the container and
  *  daily cap this process actually uses, so a staging/prod store share or a wrong cap is visible
@@ -49,7 +50,6 @@ import { getLastEventLoopSample } from '../eventLoopMonitor.js';
 import { findUnreachableAllowlistEntries } from '../identityAllowlistCheck.js';
 import { getReadOnlyPrincipalEntries } from '../readOnlyGuard.js';
 import { getNodeSourceIndexStatus } from '../storage/nodeSourceIndex.js';
-import { areBlobBackendsWired } from '../storage/blobBackendBoot.js';
 
 // t/2059: throttle the readiness log to state transitions. ACA probes /healthz
 // every few seconds, so logging every not-ready probe would spam the log. Emit
