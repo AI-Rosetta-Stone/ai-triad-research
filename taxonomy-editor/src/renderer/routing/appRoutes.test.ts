@@ -55,6 +55,8 @@ vi.mock('../hooks/useInquiryStore', () => ({
 
 const notices: string[] = [];
 vi.mock('../navigation/navNotice', () => ({ postNavNotice: (text: string) => notices.push(text) }));
+const resyncToState = vi.fn();
+vi.mock('../navigation/subscriber', () => ({ resyncToState: () => resyncToState() }));
 
 const { DEBATE_ROUTE, OPED_ROUTE, findRoute, opedRoutePath } = await import('./appRoutes');
 
@@ -80,11 +82,12 @@ beforeEach(() => {
 });
 
 describe('a deleted or unknown item falls back to its library with a notice (t/4640 AC3)', () => {
-  it('/chat/:id that fails to load posts the not-found notice', async () => {
+  it('/chat/:id that fails to load posts the not-found notice and resyncs the entry to the library', async () => {
     loadSucceeds = false;
     restore('/chat/gone');
     await settle();
     expect(notices).toEqual(['That chat couldn’t be found. It may have been deleted.']);
+    expect(resyncToState).toHaveBeenCalledTimes(1);
   });
 
   it('/debate/:id that fails to load posts the not-found notice', async () => {
@@ -94,19 +97,21 @@ describe('a deleted or unknown item falls back to its library with a notice (t/4
     expect(notices).toEqual(['That debate couldn’t be found. It may have been deleted.']);
   });
 
-  it('a successful load posts nothing', async () => {
+  it('a successful load posts nothing and resyncs nothing', async () => {
     restore('/chat/c-1');
     restore('/debate/d-1');
     await settle();
     expect(notices).toEqual([]);
+    expect(resyncToState).not.toHaveBeenCalled();
   });
 
-  it('no notice once the user has moved to another tool before the load failed', async () => {
+  it('no notice and no resync once the user has moved to another tool before the load failed', async () => {
     loadSucceeds = false;
     restore('/debate/gone');
     taxonomyState.activeTab = 'chat';
     await settle();
     expect(notices).toEqual([]);
+    expect(resyncToState).not.toHaveBeenCalled();
   });
 
   it('/debate/:id clears the previously open debate first, without closeDebate()', () => {

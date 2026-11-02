@@ -18,6 +18,7 @@ import { useDebateStore } from '../hooks/useDebateStore';
 import { useChatStore } from '../hooks/useChatStore';
 import { useInquiryStore } from '../hooks/useInquiryStore';
 import { postNavNotice } from '../navigation/navNotice';
+import { resyncToState } from '../navigation/subscriber';
 
 export interface AppRoute {
   /** Unique id for logging/debugging — not part of the URL. */
@@ -44,9 +45,15 @@ const NOT_FOUND = {
   debate: 'That debate couldn’t be found. It may have been deleted.',
 } as const;
 
-/** Post the notice only if the user is still on that tool — not after they've moved on. */
-function noticeIfStillOn(tab: TabId, text: string): void {
-  if (taxonomy().activeTab === tab) postNavNotice(text);
+/**
+ * The restored item didn't load: point the current entry at the library the app is showing (no
+ * new Back step) and say why. Only while the user is still on that tool — after they've moved
+ * on, the entry and the notice would both be about somewhere they no longer are.
+ */
+function fallBackToLibrary(tab: TabId, text: string): void {
+  if (taxonomy().activeTab !== tab) return;
+  resyncToState();
+  postNavNotice(text);
 }
 
 /** `/a/b/` → `/a/b`; `/` stays `/`. Routes compare plain strings — no regex built from input. */
@@ -94,7 +101,7 @@ export const CHAT_ITEM_ROUTE = itemRoute('chat-item', 'chat', 'chatId', 'chat', 
   // showing under this chat's URL.
   useChatStore.setState({ activeChatId: null, activeChat: null });
   void useChatStore.getState().loadChat(chatId).then(() => {
-    if (useChatStore.getState().activeChatId !== chatId) noticeIfStillOn('chat', NOT_FOUND.chat);
+    if (useChatStore.getState().activeChatId !== chatId) fallBackToLibrary('chat', NOT_FOUND.chat);
   });
 });
 
@@ -111,7 +118,7 @@ export const DEBATE_ITEM_ROUTE = itemRoute('debate-item', 'debate', 'debateId', 
   // — closeDebate() would also log an abandon and reset a running debate's generation state.
   useDebateStore.setState({ activeDebateId: null, activeDebate: null });
   void useDebateStore.getState().loadDebate(debateId).then(() => {
-    if (useDebateStore.getState().activeDebateId !== debateId) noticeIfStillOn('debate', NOT_FOUND.debate);
+    if (useDebateStore.getState().activeDebateId !== debateId) fallBackToLibrary('debate', NOT_FOUND.debate);
   });
 });
 

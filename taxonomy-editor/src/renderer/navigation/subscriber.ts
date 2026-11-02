@@ -33,6 +33,11 @@ export function expectReplace(placeKey: string | null): void {
   expectedPlaceKey = placeKey;
 }
 
+const toolOf = (placeKey: string) => placeKey.split(':')[0];
+
+/** Set by installNavSubscriber; lets resyncToState() reach the installed subscriber. */
+let resyncHook: (() => void) | null = null;
+
 /**
  * A Zustand store's plain subscribe(listener) + getState(). None of these stores is created with
  * subscribeWithSelector, so the (selector, listener) form would never call the listener (t/4640).
@@ -107,8 +112,23 @@ export function installNavSubscriber(
     }
   };
 
+  /** A restore that landed synchronously has nothing left to wait for — drop the expectation. */
+  const clearExpectedIfReached = () => {
+    if (expectedPlaceKey === placeOf(readAppState(stores)).placeKey) expectedPlaceKey = null;
+  };
+
   const initialPlace = placeOf(readAppState(stores));
   write('replace', { path: initialPlace.path, placeKey: initialPlace.placeKey, label: initialPlace.label });
+  clearExpectedIfReached();
+
+  resyncHook = () => {
+    expectedPlaceKey = null;
+    const place = placeOf(readAppState(stores));
+    const currentEntry = navHistory.current();
+    if (currentEntry && currentEntry.placeKey !== place.placeKey) {
+      write('replace', { path: place.path, placeKey: place.placeKey, label: place.label });
+    }
+  };
 
   const onStoreChange = () => {
     if (isRestoring) return;
@@ -119,6 +139,15 @@ export function installNavSubscriber(
       write('replace', entry);
       return;
     }
+
+    // The current entry is a restored item still loading (e.g. Back to /chat/:id clears the old
+    // chat, then loads this one). Until it lands, placeOf() reports the tool's library; recording
+    // that would push a new place and drop every Forward entry (Electron AC4 walk, t/4640).
+    // Only the interim place is skipped; the item itself arriving falls through (title update).
+    const stillLoading = expectedPlaceKey === currentEntry.placeKey
+      && newPlace.placeKey !== currentEntry.placeKey
+      && toolOf(newPlace.placeKey) === toolOf(currentEntry.placeKey);
+    if (stillLoading) return;
 
     if (newPlace.placeKey !== currentEntry.placeKey) {
       if (newPlace.placeKey === expectedPlaceKey) {
@@ -141,6 +170,7 @@ export function installNavSubscriber(
     if (writing) return;
     if (moved.placeKey === placeOf(readAppState(stores)).placeKey) return;
     restorePath(moved.path);
+    clearExpectedIfReached();
   };
 
   const unsubscribes = [
@@ -152,7 +182,19 @@ export function installNavSubscriber(
     navHistory.subscribe(onHistoryMove),
   ].filter((u): u is () => void => typeof u === 'function');
 
-  return () => unsubscribes.forEach(unsubscribe => unsubscribe());
+  return () => {
+    unsubscribes.forEach(unsubscribe => unsubscribe());
+    resyncHook = null;
+  };
+}
+
+/**
+ * A restored item failed to load (t/4640 AC3): stop waiting for it, and replace the current
+ * entry with the place the app is actually showing — the tool's library — so the URL and the
+ * Back tooltip don't keep naming an item that isn't there. No Back step is added.
+ */
+export function resyncToState(): void {
+  resyncHook?.();
 }
 
 /**
