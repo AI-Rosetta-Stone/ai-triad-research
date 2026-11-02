@@ -43,6 +43,10 @@ import { effectivePerReplicaRpm } from './ai/rpmLimiter.js';
 import { configureEmbeddingWorkerPool } from '../../../lib/embeddings/offThreadEmbedding.js';
 import { GitHubAPIBackend } from './storage/githubAPIBackend.js';
 import { SessionBranchManager } from './storage/sessionBranchManager.js';
+import { userContentContainer } from './storage/userContentContainer.js';
+import { communityContainer } from './storage/communityContainer.js';
+import { briefExportsContainer } from './storage/briefExportsContainer.js';
+import { validateBlobBackendConfig, areBlobBackendsWired } from './storage/blobBackendBoot.js';
 import { flushOverlaysWithDeadline, FORCE_EXIT_TIMEOUT_MS } from './shutdownOverlayFlush.js';
 import { logRequestMetrics, REQUEST_METRICS_LOG_DELAY_MS } from './requestMetricsLog.js';
 import { runWithUser, getCurrentUserId, getSessionBranchName, setSessionBranchName, deriveStorageUserId, type UserContext } from './security/userContext.js';
@@ -264,24 +268,33 @@ if (STORAGE_MODE === 'github-api') {
 
   // User content (chats, debates, community) lives in Azure Blob Storage.
   // Taxonomy/conflicts/calibration stay on the GitHub backend.
+  // t/4756: validate container config at boot; fail-closed if hosted + account URL + missing var.
+  validateBlobBackendConfig(process.env);
   const blobAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-  if (blobAccountUrl) {
-    const [{ AzureBlobBackend }, { userContentContainer }] = await Promise.all([import('./storage/azureBlobBackend.js'), import('./storage/userContentContainer.js')]);
+  if (blobAccountUrl && areBlobBackendsWired()) {
+    const { AzureBlobBackend } = await import('./storage/azureBlobBackend.js');
     fileIO.setUserContentBackend(new AzureBlobBackend({
       accountUrl: blobAccountUrl,
       userContentContainer: userContentContainer(), // t/4733: single env-resolved source, staging isolation
-      communityContainer: process.env.AZURE_COMMUNITY_CONTAINER || 'community',
+      communityContainer: communityContainer(), // t/4756: single env-resolved source, staging isolation
     }));
-    const briefExportsContainer = process.env.AZURE_BRIEF_EXPORTS_CONTAINER || 'brief-exports';
     fileIO.setBriefExportBackend(new AzureBlobBackend({
       accountUrl: blobAccountUrl,
-      userContentContainer: briefExportsContainer,
-      communityContainer: briefExportsContainer,
+      userContentContainer: briefExportsContainer(), // t/4756: single env-resolved source, staging isolation
+      communityContainer: briefExportsContainer(),
     }));
     serverRecorder.record({
       type: 'storage.mode', component: 'storage', level: 'info',
       message: 'User content storage: azure-blob',
       data: { accountUrl: blobAccountUrl },
+    });
+  } else if (blobAccountUrl && !areBlobBackendsWired()) {
+    // t/4756: fail-closed — account URL set but validation failed (missing container var in hosted mode).
+    // Blob backends not wired; user content falls back to GitHub. /readyz will return 503.
+    log.storage.error('AZURE_STORAGE_ACCOUNT_URL is set but required container config is missing — Blob backend not initialized; user content falls back to the primary GitHub backend.');
+    serverRecorder.record({
+      type: 'storage.mode', component: 'storage', level: 'error',
+      message: 'User content storage: github-api fallback (Azure Blob config failed validation)',
     });
   } else {
     log.storage.warn('AZURE_STORAGE_ACCOUNT_URL is unset — Blob backend not initialized; user content will fall back to the primary GitHub backend.');
