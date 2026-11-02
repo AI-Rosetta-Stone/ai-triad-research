@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-// t/4640 AC6: unsaved taxonomy edits ask before the page unloads. The previous check loaded the
-// store with require(), which doesn't exist in the renderer, so it never fired.
+// t/4640 AC6: unsaved taxonomy edits ask before the page unloads, in both builds (Electron since
+// t/4758 added the main-process confirm dialog). The previous check loaded the store with
+// require(), which doesn't exist in the renderer, so it never fired.
 
 // @vitest-environment jsdom
 
@@ -16,7 +17,7 @@ function storeWithDirty(keys: string[]): SubscribableStore<TaxonomyStore> {
   return { getState: () => state, subscribe: () => () => {} };
 }
 
-/** Dispatch a cancelable beforeunload; true when a handler asked the browser to confirm. */
+/** Dispatch a cancelable beforeunload; true when a handler asked to confirm. */
 function unloadAsksToConfirm(): boolean {
   const event = new Event('beforeunload', { cancelable: true });
   window.dispatchEvent(event);
@@ -27,23 +28,18 @@ describe('installUnsavedEditsGuard', () => {
   let uninstall: (() => void) | undefined;
   afterEach(() => { uninstall?.(); uninstall = undefined; });
 
-  it('asks to confirm when there are unsaved edits (web)', () => {
-    uninstall = installUnsavedEditsGuard(storeWithDirty(['accelerationist']), true);
+  it('asks to confirm when there are unsaved edits — in whichever build it runs', () => {
+    uninstall = installUnsavedEditsGuard(storeWithDirty(['accelerationist']));
     expect(unloadAsksToConfirm()).toBe(true);
   });
 
   it('lets the page unload when nothing is unsaved', () => {
-    uninstall = installUnsavedEditsGuard(storeWithDirty([]), true);
-    expect(unloadAsksToConfirm()).toBe(false);
-  });
-
-  it('is not installed in Electron until the main process shows a confirm dialog', () => {
-    uninstall = installUnsavedEditsGuard(storeWithDirty(['accelerationist']), false);
+    uninstall = installUnsavedEditsGuard(storeWithDirty([]));
     expect(unloadAsksToConfirm()).toBe(false);
   });
 
   it('uninstalling removes the guard', () => {
-    installUnsavedEditsGuard(storeWithDirty(['accelerationist']), true)();
+    installUnsavedEditsGuard(storeWithDirty(['accelerationist']))();
     expect(unloadAsksToConfirm()).toBe(false);
   });
 });

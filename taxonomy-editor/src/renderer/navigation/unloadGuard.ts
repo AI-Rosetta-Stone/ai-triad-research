@@ -5,9 +5,10 @@ import type { TaxonomyStore } from '../hooks/useTaxonomyStore';
 import type { SubscribableStore } from './subscriber';
 
 /**
- * t/4640 AC6: leaving the app with unsaved taxonomy edits asks for confirmation (the browser's
- * own "Leave site?" prompt). The running-debate half of the guard lives with the debate store
- * (useDebateStore/shared/guards.ts).
+ * t/4640 AC6: leaving the app with unsaved taxonomy edits asks for confirmation — on the web the
+ * browser's own "Leave site?" prompt; in Electron the main process's `will-prevent-unload`
+ * Stay/Leave dialog (t/4758, main.ts). The running-debate half of the guard lives with the debate
+ * store (useDebateStore/shared/guards.ts).
  *
  * This replaces a check inside the debate guard that loaded the taxonomy store with `require()`.
  * The renderer has no `require` in either build (Vite ESM, contextIsolation on, nodeIntegration
@@ -18,16 +19,10 @@ import type { SubscribableStore } from './subscriber';
  * No back-trapping: this only fires on a real unload (close, reload, leaving the site); it never
  * touches in-app history.
  *
- * Web only for now. In Electron a cancelled beforeunload cancels the window close SILENTLY unless
- * the main process handles `will-prevent-unload` with a confirm dialog, and it doesn't yet — so
- * installing this there would trap the window with no explanation. Remove the gate once the main
- * process shows that dialog (ElectronMain follow-up on t/4640).
+ * Both builds. It was web-only until t/4758: without the main-process dialog, a cancelled
+ * beforeunload cancels the Electron window close silently.
  */
-export function installUnsavedEditsGuard(
-  taxonomy: SubscribableStore<TaxonomyStore>,
-  isWeb: boolean = import.meta.env.VITE_TARGET === 'web',
-): () => void {
-  if (!isWeb) return () => {};
+export function installUnsavedEditsGuard(taxonomy: SubscribableStore<TaxonomyStore>): () => void {
   const onBeforeUnload = (e: BeforeUnloadEvent) => {
     if (taxonomy.getState().dirty.size === 0) return;
     e.preventDefault();
