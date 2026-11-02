@@ -1,12 +1,11 @@
 // @vitest-environment node
 
 /**
- * t/4733 / t/4738 — staging isolation depends on every blob store resolving the
- * user-content, community, and brief-exports containers through env-aware helpers
- * (`storage/userContentContainer.ts`, `storage/communityContainer.ts`,
- * `storage/briefExportsContainer.ts`). The free-pool budget hard-coded the prod
- * container name instead, so staging traffic drained prod's daily budget (t/4733).
- * Failure class: "a new blob store skips staging isolation"
+ * t/4733 / t/4738 — staging isolation depends on every blob store resolving the user-content
+ * container through ONE env-aware helper (`storage/userContentContainer.ts`). The free-pool
+ * budget hard-coded the prod container name instead, so staging traffic drained prod's daily
+ * budget (t/4733). t/4756 adds communityContainer() and briefExportsContainer() helpers
+ * with the same pattern. Failure class: "a new blob store skips staging isolation"
  * (docs/CodeReview/failure-classes.md).
  */
 
@@ -56,29 +55,24 @@ describe('blob container names: single env-aware sources (t/4733, t/4756)', () =
     expect(isUserContentContainerConfigured({})).toBe(false);
   });
 
-  it('communityContainer() reads AZURE_COMMUNITY_CONTAINER, else the prod default', () => {
+  it('communityContainer() reads AZURE_COMMUNITY_CONTAINER, else the prod default (t/4756)', () => {
     expect(communityContainer({ AZURE_COMMUNITY_CONTAINER: 'staging-community' })).toBe('staging-community');
     expect(communityContainer({})).toBe(DEFAULT_COMMUNITY_CONTAINER);
     expect(isCommunityContainerConfigured({ AZURE_COMMUNITY_CONTAINER: 'staging-community' })).toBe(true);
     expect(isCommunityContainerConfigured({})).toBe(false);
   });
 
-  it('briefExportsContainer() reads AZURE_BRIEF_EXPORTS_CONTAINER, else the prod default', () => {
+  it('briefExportsContainer() reads AZURE_BRIEF_EXPORTS_CONTAINER, else the prod default (t/4756)', () => {
     expect(briefExportsContainer({ AZURE_BRIEF_EXPORTS_CONTAINER: 'staging-brief-exports' })).toBe('staging-brief-exports');
     expect(briefExportsContainer({})).toBe(DEFAULT_BRIEF_EXPORTS_CONTAINER);
     expect(isBriefExportsContainerConfigured({ AZURE_BRIEF_EXPORTS_CONTAINER: 'staging-brief-exports' })).toBe(true);
     expect(isBriefExportsContainerConfigured({})).toBe(false);
   });
 
-  it('no server module except the helpers spells out prod container names', () => {
-    const helpers = [USER_CONTENT_HELPER, COMMUNITY_HELPER, BRIEF_EXPORTS_HELPER];
-    const otherFiles = serverSourceFiles(serverRoot).filter(f => !helpers.includes(f));
-    const userContentHits = otherFiles.flatMap(f => literalHits(f, USER_CONTENT_LITERAL));
-    const communityHits = otherFiles.flatMap(f => literalHits(f, COMMUNITY_LITERAL));
-    const briefExportsHits = otherFiles.flatMap(f => literalHits(f, BRIEF_EXPORTS_LITERAL));
-    expect(userContentHits).toEqual([]);
-    expect(communityHits).toEqual([]);
-    expect(briefExportsHits).toEqual([]);
+  it('no server module except the user-content helper spells out the prod container name', () => {
+    const otherFiles = serverSourceFiles(serverRoot).filter(f => f !== USER_CONTENT_HELPER);
+    const hits = otherFiles.flatMap(f => literalHits(f, USER_CONTENT_LITERAL));
+    expect(hits).toEqual([]);
   });
 
   it('the scan itself detects literals (guard against a scan that matches nothing)', () => {

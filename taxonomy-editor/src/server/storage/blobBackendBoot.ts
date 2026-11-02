@@ -14,10 +14,6 @@
 
 import { log } from '../logger.js';
 
-const DEFAULT_USER_CONTENT_CONTAINER = 'user-content';
-const DEFAULT_COMMUNITY_CONTAINER = 'community';
-const DEFAULT_BRIEF_EXPORTS_CONTAINER = 'brief-exports';
-
 /** Initialize to true; set to false only by fail-closed validation. */
 let blobBackendsWired = true;
 
