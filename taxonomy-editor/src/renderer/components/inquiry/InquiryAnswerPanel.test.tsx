@@ -125,3 +125,41 @@ describe('InquiryAnswerPanel "View raw run" deleted-debate notice (t/4684)', () 
     expect(screen.queryByText('The debate behind this answer was deleted.')).not.toBeInTheDocument();
   });
 });
+
+// t/4753 part B: the TRUNCATED banner previously always said "hit its N-call budget"
+// regardless of terminationReason — wrong whenever a turn cap, not the budget, cut the run off.
+describe('InquiryAnswerPanel TRUNCATED banner names the real cause (t/4753)', () => {
+  function setTruncated(terminationReason: string | null): void {
+    mockUseInquiryStore.mockReturnValue({
+      status: 'done_truncated', result: BASE_RESULT, error: null, terminationReason, jobId: 'job-1', reset: vi.fn(),
+    });
+  }
+
+  it('api_ceiling: names the call budget', () => {
+    setTruncated('api_ceiling');
+    render(<InquiryAnswerPanel />);
+    expect(screen.getByText('TRUNCATED').closest('.inquiry-banner')).toHaveTextContent('This run hit its 150-call budget and was cut off');
+  });
+
+  it('max_iterations (a turn cap): names the round limit, not the budget', () => {
+    setTruncated('max_iterations');
+    render(<InquiryAnswerPanel />);
+    const banner = screen.getByText('TRUNCATED').closest('.inquiry-banner');
+    expect(banner).toHaveTextContent('This run hit its round limit and was cut off');
+    expect(banner).not.toHaveTextContent('call budget');
+  });
+
+  it('an unrecognized reason: states it verbatim rather than defaulting to "budget"', () => {
+    setTruncated('situation_cap');
+    render(<InquiryAnswerPanel />);
+    const banner = screen.getByText('TRUNCATED').closest('.inquiry-banner');
+    expect(banner).toHaveTextContent('This run was stopped early (situation_cap) and was cut off');
+    expect(banner).not.toHaveTextContent('call budget');
+  });
+
+  it('no terminationReason: falls back to the budget wording (historical default)', () => {
+    setTruncated(null);
+    render(<InquiryAnswerPanel />);
+    expect(screen.getByText('TRUNCATED').closest('.inquiry-banner')).toHaveTextContent('This run hit its 150-call budget and was cut off');
+  });
+});
