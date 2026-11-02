@@ -244,7 +244,7 @@ if (-not $v.EnforceAdminsInSync) {
     # is `true`, so `enforce_admins: false` live is the regression to name explicitly — this is
     # the setting that currently substitutes for two inert feedback rules (root AGENTS.md, t/3695).
     $eaRegressionNote = if ((-not $apiEnforceAdmins) -and $ssotEnforceAdmins) {
-        " — live `enforce_admins: false` is a REGRESSION from the expected `true` (this silently re-opens the merge-on-untested-head and joint-gv auto-merge-stranding incident classes; see root AGENTS.md Pre-Self-Merge Verification, t/3695)."
+        " — live `enforce_admins: false` is a REGRESSION from the expected `true` (this silently re-opens the merge-on-untested-head and joint-gv auto-merge-stranding incident classes; see docs/pr-landing.md Pre-Self-Merge Verification, t/3695)."
     } else {
         ''
     }

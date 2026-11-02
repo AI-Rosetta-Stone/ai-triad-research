@@ -8,12 +8,7 @@ AI Triad Research — multi-perspective research platform for AI policy/safety l
 
 ## Build & Test Commands
 
-Role-specific — see the owning subtree's `AGENTS.md` (auto-loads in scope):
-
-- PowerShell module / Pester / manifest → `scripts/AGENTS.md`
-- Taxonomy Editor / poviewer / summary-viewer (npm, vitest, tsc) → `taxonomy-editor/AGENTS.md`
-- Debate engine (vitest) → `lib/debate/AGENTS.md`
-- CI pipeline (`ci.yml`) → `operations/devops/AGENTS.md`
+Role-specific — see the owning subtree's `AGENTS.md` (auto-loads in scope): `scripts/` (PowerShell/Pester), `taxonomy-editor/` (Electron apps, npm/vitest/tsc), `lib/debate/` (vitest), `operations/devops/` (CI, `ci.yml`).
 
 ## Architecture
 
@@ -37,56 +32,20 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 ### Workflow Mode and the Shared Checkout
 
 - **Mode** is line 1 of the overlay file `.orca/workflow-mode` (`sh .githooks/read-workflow-mode.sh`): `worktree` (strict; also the fail-safe for any other value) or `direct`. Change it only deliberately, and record who, when and why in the file.
-- **In both modes the shared checkout stays on `main`.** Anything that moves HEAD or rewrites the tree (`checkout`, `reset`, `rebase`, `merge`, `pull --rebase`, `stash`) happens only in a worktree. On the shared checkout:
-  - never `git commit -a` or `git add -A`;
-  - commit with a pathspec and push immediately;
-  - if a push is rejected, land it from a worktree.
+- **In both modes the shared checkout stays on `main`.** Anything that moves HEAD or rewrites the tree (`checkout`, `reset`, `rebase`, `merge`, `pull --rebase`, `stash`) happens only in a worktree. On the shared checkout: never `git commit -a` or `git add -A`; commit with a pathspec and push immediately; if a push is rejected, land it from a worktree. Only DevOps cleans up a diverged shared tree (`docs/shared-tree-divergence.md`). Ref §2.
+- **In `worktree` mode:** work on a branch (`git worktree add -b <branch>`, or `/land-from-worktree`); be in the worktree before your first edit; `cd` into it **in the same command**, because the shell cwd resets between calls. The pre-commit hook (`git config core.hooksPath .githooks`) refuses commits on `main`, and in both modes refuses commits on a detached HEAD in a worktree.
 
-  Only DevOps cleans up a diverged shared tree (`docs/shared-tree-divergence.md`). Ref §2.
-- **In `worktree` mode:**
-  - work on a branch: `git worktree add -b <branch>`, or `/land-from-worktree`;
-  - be in the worktree before your first edit;
-  - `cd` into it **in the same command**, because the shell cwd resets between calls.
+### Landing Code (full procedure: `docs/pr-landing.md` — read it before arming, enqueuing, holds, `joint-gv`, approvals or a queue jump)
 
-  The pre-commit hook (`git config core.hooksPath .githooks`) refuses commits on `main`, and in both modes refuses commits on a detached HEAD in a worktree.
-
-### Pre-Self-Merge Verification
-
-- **Land code through a PR to `main`.** The required contexts are `ci-gate`, `CodeQL Analysis`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on. (t/4567: the native `CodeQL` alert-gating check never reports on a merge-group ref; alert-gating is enforced by the merge queue's `code_scanning` ruleset rule instead.)
-- **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. **Enqueue pinned with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`** (t/4740) — the bare `gh pr merge --auto --squash --match-head-commit <headRefOid>` CLI form has twice (t/4731#1, t/4740#1) reported success while leaving the PR unenqueued, with no confirmed trigger; the wrapper verifies `isInMergeQueue` and falls back to the GraphQL mutation on a miss. **Never push to a queued PR:** GitHub may reject it (`GH006`), and `--disable-auto` doesn't dequeue. Use a separate PR, or dequeue, push and re-enqueue pinned. Never a bare manual merge. Ref §3.
-- **Incident hotfix (jump the queue):** only the TL, or DevOps Lead with the TL's recorded go, for a PR fixing an active incident with an anchor ticket. Enqueue with `jump`, head pinned; every required check still runs. Never for `consult-hold` or `joint-gv` PRs; a T2 fix still needs its SO clearance and approval. Log each jump on the incident ticket. Bypassing branch protection stays PI-only.
-
-### PR-Flow Practice Rules
-
-- **Batch sequential same-feature work** into one PR, unless the diff is over ~400 lines or mixes concerns. Merge promptly on green, or record why not.
-- **Arm auto-merge at PR creation** (`node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`, t/4740) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247). Arming means "done", so disarm (and dequeue, if queued) before pushing more.
-  - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
-- **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
-  - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
-  - or with the "SO did not review" note plus the human approval.
-  - Adding `consult-hold` or `joint-gv` removes a PR from the queue, and the queue guards refuse any batch containing one.
-- **Co-landing PRs** carry `joint-gv` until their joint review clears. Then each reviewer posts `Joint review cleared (<roles>): <head sha>` on every PR in the set, the owner removes `joint-gv`, and enqueues them back-to-back with heads pinned — later entries' groups include the earlier ones, so the set is tested together. If the PRs must land atomically, combine them into one PR instead; the queue can land one without the other. Cross-repo sets (e.g. a data-repo PR) keep their existing order; only `main` here is queued.
-- **Approve via the reviewer App:** `Invoke-AsAgentApp -Role reviewer`, with the review body `Approved (<role>): …`. Never approve your own role's PR. It fails closed; procedure in `docs/agent-pr-approval.md`. The approval is a record, not a merge requirement.
-- **Where this section differs from Change Tiers below, Change Tiers wins.** Ref §4.
+- **Land code through a PR to `main`**, via the merge queue. The required contexts are `ci-gate`, `CodeQL Analysis`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on.
+- **Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`** (t/4740), after confirming the base is `main`, checks are green on the exact head and no hold is open. Never a bare manual merge.
+- **Never push to a queued PR.** Disarm and dequeue first, or use a separate PR.
+- **Arm:** T0 at PR creation; T1 only after the reviewer's `Approved (<role>):` on the current head. Never arm `consult-hold`, `joint-gv`, draft or non-`main`-base PRs.
+- **Batch** sequential same-feature work into one PR (unless >~400 lines or mixed concerns). **Epic** child PRs target `epic/<name>`, never `main`.
 
 ### Claim Before Implement
 
 Claim before implementing (assign yourself or comment). First check for a peer's claim, a PR on any base, or a recent landed commit.
-
-### Epic Branches
-
-- **Epics:**
-  - child PRs target `epic/<name>`, never `main`;
-  - there is one shared epic → `main` PR;
-  - review each child when it merges into the epic. Ref §5.
-
-### Subsystem Map
-
-Detailed conventions live in each subtree's `AGENTS.md`. Orientation only:
-
-- **PowerShell module** (`scripts/AITriad/`) — 40+ cmdlets (Public/Private), prompts in `Prompts/`, `AIEnrich.psm1` (multi-backend AI) + `DocConverters.psm1`. → `scripts/AGENTS.md`
-- **Electron apps** — 3 independent Vite + React 19 + Electron 35 + TS apps: **taxonomy-editor/** (Zustand + Zod), **poviewer/** (pdfjs-dist), **summary-viewer/**. → `taxonomy-editor/AGENTS.md`
-- **Debate engine** (`lib/debate/`) — three-agent BDI (Accelerationist / Safetyist / Skeptic). Entry: `Show-TriadDialogue` or `npm run debate`; `aiAdapter.ts` abstracts backends. → `lib/debate/AGENTS.md`
 
 ### Taxonomy Model
 
@@ -111,13 +70,7 @@ Follow `docs/security/dependency-policy.md` ("Executing a Dependency Security Bu
 
 ## Verify Against the Authoritative Source
 
-Before asserting what a system *is* doing, read the system, not a file that describes it:
-- **Merged state:** read `origin/main`, never the shared checkout.
-- **Infrastructure:** query the registry or cloud API, not the workflow YAML.
-- **Baselines:** check against design intent.
-- **Gate behaviour:** run the failing arm.
-
-If your evidence for "X does Y" is a file that *configures* Y, you haven't verified it.
+Before asserting what a system *is* doing, read the system, not a file that describes it: merged state → `origin/main`, never the shared checkout; infrastructure → the registry or cloud API, not workflow YAML; baselines → design intent; gate behaviour → run the failing arm. If your evidence for "X does Y" is a file that *configures* Y, you haven't verified it.
 
 ## Error Handling Convention
 
@@ -127,23 +80,18 @@ Unrecoverable errors use `New-ActionableError` (PS) / `ActionableError` (TS) wit
 
 - Prefer ping over email for status updates and single-question exchanges.
 - Reference entities (t/KEY) instead of inlining their content.
+- Read files in ranges and filter long command output (`tail`, `jq`, `--jq`) rather than loading it whole.
 
 ## Incident Response
 
 - **The TL coordinates** (`/tl-incident-response`), and the anchor ticket is the source of truth. Claim a follow-up on the anchor before filing it, and before any shared-tree write.
-- **Every diagnosis files two follow-ups:**
-  - **Observability**: make it diagnosable next time;
-  - **Prevention**: an automated check, test or platform fix, mapped to a failure class in `docs/CodeReview/failure-classes.md`.
-
-  Gate-touching prevention goes to TL Gate Verification.
+- **Every diagnosis files two follow-ups:** **Observability** (make it diagnosable next time) and **Prevention** (an automated check, test or platform fix, mapped to a failure class in `docs/CodeReview/failure-classes.md`). Gate-touching prevention goes to TL Gate Verification.
 - **When a failure class recurs, validate the baseline against design intent.**
 - **Before closing a prevention,** name one way the class could still occur through ordinary use with the mechanism intact. If you can name one, you closed a *vector*, not the class: say so and file the remainder. Ref §7.
 
 ## Ticket Lifecycle
 
-- Starting work → `transition_ticket` to **In Progress** immediately.
-- Done (PR merged or no-code task complete) → **Done**.
-- Never leave a ticket Unstarted while actively working it.
+Starting work → `transition_ticket` to **In Progress** immediately. Done (PR merged or no-code task complete) → **Done**. Never leave a ticket Unstarted while actively working it.
 
 ## Change Tiers and Decision Rights (t/4092, PI-approved 2026-10-07)
 
