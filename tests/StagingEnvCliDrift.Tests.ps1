@@ -38,6 +38,25 @@ Describe 'Get-EnvDriftVerdict' {
         $v = Get-EnvDriftVerdict -App 'taxonomy-editor-staging' -Key 'FREE_POOL_DAILY_CALLS_CAP' -LiveValue '5' -BicepValue $null
         $v.Outcome | Should -Be 'Undeterminable'
     }
+
+    # t/4738: the container-isolation incident's exact shape, fed through the same predicate.
+    It "FIRE ARM: '<_>' serving a PROD container name instead of staging's is a Mismatch" -ForEach @(
+        @{ Key = 'AZURE_USER_CONTENT_CONTAINER'; Prod = 'user-content'; Staging = 'staging-user-content' }
+        @{ Key = 'AZURE_COMMUNITY_CONTAINER'; Prod = 'community'; Staging = 'staging-community' }
+        @{ Key = 'AZURE_BRIEF_EXPORTS_CONTAINER'; Prod = 'brief-exports'; Staging = 'staging-brief-exports' }
+    ) {
+        $v = Get-EnvDriftVerdict -App 'taxonomy-editor-staging' -Key $_.Key -LiveValue $_.Prod -BicepValue $_.Staging
+        $v.Outcome | Should -Be 'Mismatch' -Because "this is exactly the t/4738 incident shape for $($_.Key)"
+    }
+
+    It "PASS ARM: '<_>' serving its own staging container matches" -ForEach @(
+        @{ Key = 'AZURE_USER_CONTENT_CONTAINER'; Staging = 'staging-user-content' }
+        @{ Key = 'AZURE_COMMUNITY_CONTAINER'; Staging = 'staging-community' }
+        @{ Key = 'AZURE_BRIEF_EXPORTS_CONTAINER'; Staging = 'staging-brief-exports' }
+    ) {
+        $v = Get-EnvDriftVerdict -App 'taxonomy-editor-staging' -Key $_.Key -LiveValue $_.Staging -BicepValue $_.Staging
+        $v.Outcome | Should -Be 'Match'
+    }
 }
 
 Describe 'Get-BicepParamDefault' {
@@ -45,6 +64,16 @@ Describe 'Get-BicepParamDefault' {
         $bicepPath = Join-Path $PSScriptRoot '..' 'deploy' 'azure' 'main.bicep'
         $text = Get-Content $bicepPath -Raw
         Get-BicepParamDefault -BicepText $text -ParamName 'freePoolDailyCallsCapStaging' | Should -Be '5'
+    }
+
+    It "extracts each t/4738 container param's declared default from the real main.bicep" -ForEach @(
+        @{ ParamName = 'azureUserContentContainerStaging'; Expected = 'staging-user-content' }
+        @{ ParamName = 'azureCommunityContainerStaging'; Expected = 'staging-community' }
+        @{ ParamName = 'azureBriefExportsContainerStaging'; Expected = 'staging-brief-exports' }
+    ) {
+        $bicepPath = Join-Path $PSScriptRoot '..' 'deploy' 'azure' 'main.bicep'
+        $text = Get-Content $bicepPath -Raw
+        Get-BicepParamDefault -BicepText $text -ParamName $_.ParamName | Should -Be $_.Expected
     }
 
     It 'returns $null for a param that does not exist' {

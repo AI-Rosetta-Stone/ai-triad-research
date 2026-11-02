@@ -54,6 +54,12 @@ $ErrorActionPreference = 'Stop'
 # default. Extend this list if another CLI-fragile override needs the same protection.
 $script:TrackedKeys = @(
     [PSCustomObject]@{ Name = 'FREE_POOL_DAILY_CALLS_CAP'; BicepParam = 'freePoolDailyCallsCapStaging' }
+    # t/4738: staging's blob-container isolation. A CLI containment fix (p/868#83) proved these
+    # need the same protection as the cap above, or the next prod apply silently reverts staging
+    # to reading/writing prod's containers.
+    [PSCustomObject]@{ Name = 'AZURE_USER_CONTENT_CONTAINER'; BicepParam = 'azureUserContentContainerStaging' }
+    [PSCustomObject]@{ Name = 'AZURE_COMMUNITY_CONTAINER'; BicepParam = 'azureCommunityContainerStaging' }
+    [PSCustomObject]@{ Name = 'AZURE_BRIEF_EXPORTS_CONTAINER'; BicepParam = 'azureBriefExportsContainerStaging' }
 )
 
 function Write-EnvDriftWarning([string]$msg) {

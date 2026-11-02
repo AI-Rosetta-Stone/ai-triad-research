@@ -95,6 +95,24 @@ param stagingLoadTestSize bool = false
 @description('FREE_POOL_DAILY_CALLS_CAP override for staging only. TEMPORARY for the t/4677 proof — revert via t/4732, in Bicep, not CLI.')
 param freePoolDailyCallsCapStaging string = '5'
 
+// ── Staging blob-container isolation (t/4738 incident) ──
+// PERMANENT (unlike freePoolDailyCallsCapStaging above, this is the intended isolation, not an
+// incident-only value). `server.ts` wires AzureBlobBackend whenever AZURE_STORAGE_ACCOUNT_URL is
+// set, defaulting each container to the prod name (`user-content`/`community`/`brief-exports`)
+// when its env var is unset. Staging shares prod's storage ACCOUNT by design (t/4406 et al.), but
+// nothing ever set these three CONTAINER vars for staging, so staging's chats, debates, community
+// submissions and brief exports were reading from and writing to PROD's containers (t/4738) —
+// `main.bicep` already provisions the three `staging-*` containers below (t/2821 / line ~420), the
+// wiring step was simply never done. A PARAMETER, not a hand-applied `--set-env-vars`: same t/4728
+// lesson — a CLI-set value is wiped by the next apply, which is exactly why this was caught as a
+// live incident instead of a code review.
+@description('AZURE_USER_CONTENT_CONTAINER override for staging only (t/4738). Isolates staging chats/debates from prod.')
+param azureUserContentContainerStaging string = 'staging-user-content'
+@description('AZURE_COMMUNITY_CONTAINER override for staging only (t/4738). Isolates staging community submissions from prod — without this, a staging test item could be approved and published on the public prod site.')
+param azureCommunityContainerStaging string = 'staging-community'
+@description('AZURE_BRIEF_EXPORTS_CONTAINER override for staging only (t/4738). Isolates staging brief exports from prod.')
+param azureBriefExportsContainerStaging string = 'staging-brief-exports'
+
 // ── Resource Tags ──
 var tags = {
   project: 'ai-triad-research'
@@ -629,6 +647,12 @@ var baseEnv = [
   // Azure Blob Storage — user content (chats, debates) and community library.
   // Auth via managed identity (DefaultAzureCredential), no connection string needed.
   { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageAccount.properties.primaryEndpoints.blob }
+  // t/4738: explicit, not relying on server.ts's code default. Staging overrides all three to
+  // its own staging-* containers (see stagingEnvOverrides below) — prod states its own name here
+  // so neither side depends on an implicit fallback matching by coincidence.
+  { name: 'AZURE_USER_CONTENT_CONTAINER', value: 'user-content' }
+  { name: 'AZURE_COMMUNITY_CONTAINER', value: 'community' }
+  { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: 'brief-exports' }
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
   // ONNX embedding compute to the off-thread worker (t/3183) so a large novel-text batch can't starve
@@ -726,6 +750,11 @@ var stagingEnvOverrides = [
   // t/4728: staging's TEMPORARY low-cap override for the t/4677 proof. See the
   // freePoolDailyCallsCapStaging param above (near stagingLoadTestSize) for the revert note.
   { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
+  // t/4738: staging's blob-container isolation — PERMANENT, see the three params above
+  // (near freePoolDailyCallsCapStaging) for the incident history and rationale.
+  { name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }
+  { name: 'AZURE_COMMUNITY_CONTAINER', value: azureCommunityContainerStaging }
+  { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: azureBriefExportsContainerStaging }
   // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
   // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this

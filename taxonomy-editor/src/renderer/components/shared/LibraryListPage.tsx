@@ -536,19 +536,136 @@ function SortSelect({
   // Unsorted shows a "Default order" placeholder instead of pretending Title is selected —
   // otherwise choosing Title first fires no change event, so Title could never be picked.
   const value = sortKey && sortDir !== 'none' ? sortKey : '';
+  const dirGlyph = sortDir === 'asc' ? '▴' : '▾';
 
   return (
-    <select
-      id="lib-phone-sort-select"
-      className="lib-phone-sort"
-      value={value}
-      onChange={e => { if (e.target.value) onSort(e.target.value); }}
-    >
-      <option value="" disabled>Default order</option>
-      {options.map(opt => (
-        <option key={opt.key} value={opt.key}>{opt.label}</option>
-      ))}
-    </select>
+    <div className="lib-phone-sort-controls">
+      <select
+        id="lib-phone-sort-select"
+        className="lib-phone-sort"
+        value={value}
+        onChange={e => { if (e.target.value) onSort(e.target.value); }}
+      >
+        <option value="" disabled>Default order</option>
+        {options.map(opt => (
+          <option key={opt.key} value={opt.key}>{opt.label}</option>
+        ))}
+      </select>
+      {sortKey && sortDir !== 'none' && (
+        <button
+          type="button"
+          className="lib-phone-sort-direction"
+          title={sortDir === 'asc' ? 'Switch to descending' : 'Switch to ascending'}
+          aria-label={sortDir === 'asc' ? 'Switch to descending' : 'Switch to ascending'}
+          onClick={() => { if (sortKey) onSort(sortKey); }}
+        >
+          {dirGlyph}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Phone layout: trailing actions menu (t/4571, spec item 2) ──
+
+function PhoneActionsMenu<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, listView, config, editModeActive, showToast,
+}: {
+  row: TMy | TCommunity;
+  listView: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  editModeActive: boolean;
+  showToast: (msg: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const close = useCallback(() => setMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    const onDocClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) close();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDocClick);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDocClick);
+    };
+  }, [menuOpen, close]);
+
+  const title = config.getTitle(row, listView);
+
+  if (editModeActive) {
+    const rowActions = listView === 'my' ? config.editMode?.rowActions?.(row as TMy) ?? [] : [];
+    return rowActions.length > 0 ? <RowEditActions actions={rowActions} /> : null;
+  }
+
+  const showCopy = listView === 'community' ? (config.showCopy ? config.showCopy(row as TCommunity) : true) : false;
+
+  return (
+    <div className="lib-phone-actions-menu-wrap" ref={wrapRef} onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        className="lib-phone-actions-btn"
+        aria-label={`Actions for ${title}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen(!menuOpen)}
+      >
+        ⋯
+      </button>
+      {menuOpen && (
+        <div role="menu" className="lib-phone-actions-menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="lib-phone-menu-item"
+            onClick={() => {
+              close();
+              const fmt = config.exportFormats[0]?.key;
+              if (fmt) {
+                if (listView === 'my') config.onExportMy(row as TMy, fmt);
+                else config.onExportCommunity(row as TCommunity, fmt);
+                showToast(`Exporting as ${config.exportFormats[0]?.label}`);
+              }
+            }}
+          >
+            Export
+          </button>
+          {listView === 'my' && (
+            <button
+              type="button"
+              role="menuitem"
+              className="lib-phone-menu-item"
+              onClick={() => {
+                close();
+                config.onShare(row as TMy);
+                showToast('Share link copied');
+              }}
+            >
+              Share
+            </button>
+          )}
+          {listView === 'community' && showCopy && (
+            <button
+              type="button"
+              role="menuitem"
+              className="lib-phone-menu-item"
+              onClick={() => {
+                close();
+                config.onCopy(row as TCommunity);
+                showToast(`Copied to My ${config.title}`);
+              }}
+            >
+              Copy
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -603,8 +720,8 @@ function PhoneListRow<TMy extends { id: string }, TCommunity extends { id: strin
           ))}
         </div>
       )}
-      <div className="lib-phone-actions" onClick={e => e.stopPropagation()}>
-        <ActionsCell row={row} variant={listView} config={config} toast={showToast} editModeActive={editModeActive} />
+      <div className="lib-phone-actions">
+        <PhoneActionsMenu row={row} listView={listView} config={config} editModeActive={editModeActive} showToast={showToast} />
       </div>
     </div>
   );

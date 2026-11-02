@@ -469,6 +469,13 @@
     color: var(--lib-text-secondary);
     white-space: nowrap;
   }
+  .lib-phone-sort-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex: 1;
+    min-width: 0;
+  }
   .lib-phone-sort {
     flex: 1;
     min-width: 0;
@@ -479,6 +486,19 @@
     color: var(--lib-text);
     font-size: var(--text-sm);
   }
+  .lib-phone-sort-direction {
+    appearance: none;
+    min-width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    background: var(--lib-bg);
+    color: var(--lib-text);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .lib-phone-sort-direction:hover { background: #fff; border-color: #c9bfb2; }
 
   /* Phone list container */
   .lib-phone-list {
@@ -550,10 +570,57 @@
   .lib-phone-actions {
     display: flex;
     justify-content: flex-end;
-    gap: var(--sp-2);
+    align-items: center;
+    flex-shrink: 0;
   }
   .lib-actions {
     flex-direction: row;
     gap: var(--sp-1);
   }
+  .lib-phone-actions-menu-wrap {
+    position: relative;
+  }
+  .lib-phone-actions-btn {
+    appearance: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    background: var(--lib-bg);
+    color: var(--lib-text);
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .lib-phone-actions-btn:hover { background: #fff; border-color: #c9bfb2; }
+  .lib-phone-actions-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 120px;
+    background: #fff;
+    border: 1px solid var(--lib-border-control);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(43, 38, 34, 0.12);
+    z-index: 20;
+    padding: 4px;
+  }
+  .lib-phone-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    color: var(--lib-text);
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .lib-phone-menu-item:hover { background: var(--lib-bg); }
 }
