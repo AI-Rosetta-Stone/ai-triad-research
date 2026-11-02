@@ -6,7 +6,7 @@
 #
 # Since the merge queue (2026-10-28), this arm alone does NOT enqueue: auto-merge armed
 # with GITHUB_TOKEN never entered the queue. The arm is now the minor/patch POLICY MARKER;
-# dependabot-enqueue-sweep.yml enqueues armed, green PRs as a GitHub App.
+# enqueue-sweep.yml enqueues armed, green PRs as a GitHub App.
 name: Dependabot auto-merge
 
 on: pull_request
