@@ -65,7 +65,7 @@ export function InquiryRunningPanel() {
       </div>
 
       <div className="inquiry-budget">
-        <div className="inquiry-budget-top"><span>Progress</span><span><b>{progressPct}</b>%</span></div>
+        <div className="inquiry-budget-top"><span>Progress</span><span><b>{Math.round(progressPct)}</b>%</span></div>
         <div className="inquiry-meter">
           {/* eslint-disable-next-line local/no-inline-style -- dynamic numeric percentage, no static token fits */}
           <i style={{ width: `${progressPct}%` }} />
