@@ -192,8 +192,12 @@ export function installNavSubscriber(
  * A restored item failed to load (t/4640 AC3): stop waiting for it, and replace the current
  * entry with the place the app is actually showing — the tool's library — so the URL and the
  * Back tooltip don't keep naming an item that isn't there. No Back step is added.
+ *
+ * Stops waiting even before the subscriber is installed: a pasted URL restores at boot, and its
+ * load can fail before installNavSubscriber runs (the boot replace then records the library).
  */
 export function resyncToState(): void {
+  expectedPlaceKey = null;
   resyncHook?.();
 }
 

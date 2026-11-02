@@ -9,11 +9,31 @@ type NavNoticeListener = (text: string) => void;
 
 const listeners = new Set<NavNoticeListener>();
 
+/**
+ * Notices posted while nobody is listening. A pasted URL restores at boot, while MainApp is still
+ * showing its loading screen — RunToastHost hasn't mounted, so a not-found notice posted then
+ * would be lost (found on staging, t/4640 web sweep). Held here and delivered on first subscribe.
+ */
+let pending: string[] = [];
+
 export function postNavNotice(text: string): void {
+  if (listeners.size === 0) {
+    pending.push(text);
+    return;
+  }
   listeners.forEach(listener => listener(text));
 }
 
 export function subscribeNavNotice(listener: NavNoticeListener): () => void {
   listeners.add(listener);
+  const held = pending;
+  pending = [];
+  held.forEach(text => listener(text));
   return () => { listeners.delete(listener); };
+}
+
+/** Test-only: drop any held notices. */
+export function __resetNavNoticeForTest(): void {
+  pending = [];
+  listeners.clear();
 }
