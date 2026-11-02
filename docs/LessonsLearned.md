@@ -7884,7 +7884,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 6. **Precision correction (Second Opinion, p/691#19):** when `gh pr merge --auto` succeeds against a merge-queue-enabled repo, record only that **enqueue** was confirmed — not that "the merge queue works." Enqueueing and actually merging are separate steps; a queue can accept an enqueue call and still stall before merging (observed on `ai-triad-research` itself after adopting its own queue — see #388 for a diagnosis-discipline lesson from that same rollout's teething issues). Don't let a successful enqueue stand in for proof the whole pipeline functions.
 7. **`gh pr merge --auto`'s stderr warning on a queue-enabled repo ("! The merge strategy for main is set by the merge queue") reads like a failure but the enqueue still succeeds** (DevOps Lead, p/26#301). Don't treat this stderr line as an error on its own — verify actual queue state (`gh pr view --json autoMergeRequest`, or query `mergeQueueEntry`/`isInMergeQueue` via GraphQL) before concluding the call failed or retrying the `enqueuePullRequest` mutation, which will itself fail with `UNPROCESSABLE: Pull request is already in the queue` if the first call already succeeded.
 
-**Status:** Active — 2 instances (DevOps Lead p/26#296/#298, originally scoped to `app-scratch` only; DevOps Lead p/26#301 — stderr warning on `ai-triad-research`'s own queue misread as a failure, confirmed enqueue had already succeeded via GraphQL). **Note:** `ai-triad-research` separately adopted a (CLI-compatible) merge queue on 2026-10-28 (t/4567/t/4580) — see prevention #4 for the distinction between the two queue integration styles, and #388 for a related diagnosis-discipline lesson from that rollout.
+**Status:** Active — 3 instances (DevOps Lead p/26#296/#298, originally scoped to `app-scratch` only; DevOps Lead p/26#301 — stderr warning on `ai-triad-research`'s own queue misread as a failure, confirmed enqueue had already succeeded via GraphQL; Rosetta Stone p/6#119/#121 — same misread on PR #4295, retracted an "-- `--squash` is rejected" claim after admitting the exit code/GraphQL state was never actually checked after the first attempt; likely both attempts succeeded, the second was redundant). **Note:** `ai-triad-research` separately adopted a (CLI-compatible) merge queue on 2026-10-28 (t/4567/t/4580) — see prevention #4 for the distinction between the two queue integration styles, and #388 for a related diagnosis-discipline lesson from that rollout.
 
 **Applies To:** All agents self-merging on any repo other than `ai-triad-research`, or on `ai-triad-research` if its branch protection is ever changed to add a merge queue; check for a queue before assuming `--auto` works.
 
@@ -8359,3 +8359,38 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (DevOps Lead p/26#358).
 
 **Applies To:** All agents cleaning up local/remote branches after a squash-merged PR; expect `-d` to fail and use `-D` after confirming content landed, not as a blind substitute.
+
+## #410 [Build] `gh pr diff` Does Not Accept a Pathspec Argument — Unlike `git diff`
+
+**Pattern:** An agent runs `gh pr diff <N> -- <path>`, expecting it to behave like `git diff <ref> -- <path>` and filter the diff to one file. `gh pr diff` errors `accepts at most 1 arg(s)` — it takes only the PR number (or none, for the current branch's PR) and has no pathspec filtering of its own.
+
+**Instances:**
+- 2026-11-02 — Shared Lib (p/5#64): `gh pr diff 4295 -- lib/electron-shared/introCopy.ts` errored "accepts at most 1 arg(s)." Resolved by running `gh pr diff 4295` with no path filter and extracting the relevant file's hunk manually.
+
+**Root Cause:** `gh pr diff`'s argument parser only accepts a single positional argument (the PR number); it was never designed to accept `git diff`-style pathspec filtering, unlike the underlying `git diff` command it wraps.
+
+**Prevention:**
+1. **`gh pr diff <N>` takes no pathspec.** To view a single file's diff from a PR, run it unfiltered and extract the relevant section manually (e.g. split on `diff --git` markers, or `grep -A/-B` around the target path).
+2. **If filtering by path is essential**, fetch the PR's head ref locally and use `git diff <base>...<head> -- <path>` instead, which does support pathspecs.
+
+**Status:** Active — 1 instance (Shared Lib p/5#64).
+
+**Applies To:** All agents inspecting PR diffs via `gh pr diff`; don't pass a path filter, extract manually or fall back to `git diff` with a pathspec.
+
+## #411 [Environment] `git push` Hangs on `git-credential-manager` Mid-Session — Cause Unverified, Requires Manual User Intervention
+
+**Pattern:** `git push` to origin hangs indefinitely on a spawned `git-credential-manager` process — no error, no timeout, just a non-resolving process. The only observed resolution is flagging it to the human user, who clears something unspecified on their end, after which an immediate retry of the same push succeeds. Recurred 3 times within one session for the same agent, with no root cause established.
+
+**Instances:**
+- 2026-11-02 — Rosetta Stone (p/6#117): `git push` hung on `git-credential-manager` 3 times in one session; each time, flagged to the user, who cleared something (unspecified), and the retried push then succeeded immediately. Possibly a stale/expired cached credential requiring repeated manual re-authentication, but not confirmed.
+
+**Root Cause:** **Unverified.** A stale/expired cached credential forcing a re-auth prompt that the headless agent session can't itself interact with is the leading guess, but no agent has confirmed what the user actually clears, or why it recurs within a single session rather than being resolved once.
+
+**Prevention:**
+1. **If `git push` hangs indefinitely on a `git-credential-manager` process with no error, don't assume it will self-resolve** — flag it to the human user promptly rather than waiting or retrying blindly; the only confirmed resolution so far requires their manual intervention.
+2. **After the user signals it's cleared, retry the exact same push** — it has succeeded immediately every time so far.
+3. **If this recurs for other agents, escalate to DevOps/Orca Support for a root-cause investigation** — 3-for-3 in one session suggests an environment-level credential-caching issue, not a one-off fluke, but the specific mechanism is still unknown.
+
+**Status:** Active — 1 instance, 3 recurrences within it (Rosetta Stone p/6#117). Cause unverified; a possibly-related GitHub auth-popup fix by Orca Support was flagged for investigation but not yet confirmed connected.
+
+**Applies To:** All agents pushing to origin; if `git push` hangs on credential-manager, flag the human promptly rather than waiting, and retry once cleared.
