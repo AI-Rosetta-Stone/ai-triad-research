@@ -42,6 +42,55 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// t/4690: one-time first-open hint (copy from Design's amended spec, t/4686#1), shown once per
+// browser the first time a chat opens in place, never on phone. Read/write pattern matches
+// FreeTierDisclosure.tsx — a storage failure shows the hint again next visit, the safe failure
+// for a one-time disclosure (never a missing one).
+export const CHAT_IN_PLACE_HINT_STORAGE_KEY = 'aitriad.chatInPlaceHint.v1';
+
+function readHintAcknowledged(): boolean {
+  try {
+    return localStorage.getItem(CHAT_IN_PLACE_HINT_STORAGE_KEY) === 'ack';
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'chat-tab', level: 'warn',
+      message: 'localStorage unreadable; showing the chat in-place hint (WARN: fallback to show)',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+    return false;
+  }
+}
+
+function writeHintAcknowledged(): void {
+  try {
+    localStorage.setItem(CHAT_IN_PLACE_HINT_STORAGE_KEY, 'ack');
+  } catch (err) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'chat-tab', level: 'warn',
+      message: 'localStorage unwritable; the chat in-place hint will show again next visit (WARN: fallback)',
+      error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+    });
+  }
+}
+
+function ChatInPlaceHint() {
+  const [acknowledged, setAcknowledged] = useState(readHintAcknowledged);
+  if (acknowledged) return null;
+  return (
+    <div className="chat-in-place-hint" role="status">
+      <span><strong>Opens here now.</strong> Use ⧉ to open it in a separate window.</span>
+      <button
+        type="button"
+        className="chat-in-place-hint-dismiss"
+        aria-label="Dismiss"
+        onClick={() => { writeHintAcknowledged(); setAcknowledged(true); }}
+      >
+        &times;
+      </button>
+    </div>
+  );
+}
+
 type ToolbarPanel = ReturnType<typeof useTaxonomyStore.getState>['toolbarPanel'];
 type RenameChat = ReturnType<typeof useChatStore.getState>['renameChat'];
 type LoadSessions = ReturnType<typeof useChatStore.getState>['loadSessions'];
@@ -359,14 +408,78 @@ interface RightPaneProps {
   lineagePreviewValue: string | null;
   setLineagePreviewValue: Dispatch<SetStateAction<string | null>>;
   isPhone: boolean;
-  activeChatId: string | null;
   listView: 'my' | 'community' | null;
   selectedCommunityChat: CommunityChat | null;
 }
 
+// t/4690: the chat-vs-community-read-only detail, shared by the split-view RightPane and table
+// mode's in-place detail branch — both show the same thing once an item is open, they just differ
+// in what surrounds it (a resizable sidebar vs. the full-width table-mode shell). Carries the
+// one-time first-open hint (never on phone, per t/4686#1) since every in-place open goes through here.
+function ChatDetailContent({ listView, selectedCommunityChat, isPhone }: {
+  listView: 'my' | 'community' | null;
+  selectedCommunityChat: CommunityChat | null;
+  isPhone: boolean;
+}) {
+  return (
+    <div className="chat-detail-content">
+      {!isPhone && <ChatInPlaceHint />}
+      {listView === 'community' && selectedCommunityChat ? (
+        <CommunityChatDetail chat={selectedCommunityChat} />
+      ) : (
+        <ChatWorkspace />
+      )}
+    </div>
+  );
+}
+
+// t/4690: table mode's own branching (library vs. in-place detail), pulled out of ChatTab so
+// ChatTab's own complexity doesn't absorb it (complexity-budget) — same reasoning as
+// NewChatDialogHost below.
+interface ChatTableModeProps {
+  activeChatId: string | null;
+  selectedCommunityChat: CommunityChat | null;
+  listView: 'my' | 'community' | null;
+  isPhone: boolean;
+  chatLibraryConfig: ReturnType<typeof buildChatLibraryListConfig>;
+  sessions: ChatSessionSummary[];
+  sessionsLoading: boolean;
+  communityChats: CommunityChat[];
+  communityLoading: boolean;
+  openChatInPlace: (id: string, source: 'my' | 'community') => void;
+  onPickStarter: (mode: ChatMode, topic: string) => void;
+}
+
+function ChatTableMode({
+  activeChatId, selectedCommunityChat, listView, isPhone, chatLibraryConfig,
+  sessions, sessionsLoading, communityChats, communityLoading, openChatInPlace, onPickStarter,
+}: ChatTableModeProps) {
+  return (
+    // eslint-disable-next-line local/no-inline-style -- table mode fills the tab width
+    <div className="chat-tab-table-shell" style={{ flex: 1, width: '100%' }}>
+      {(activeChatId || selectedCommunityChat) ? (
+        <ChatDetailContent listView={listView} selectedCommunityChat={selectedCommunityChat} isPhone={isPhone} />
+      ) : (
+        <LibraryListPage
+          config={chatLibraryConfig}
+          myRows={sessions}
+          myLoading={sessionsLoading}
+          communityRows={communityChats}
+          communityLoading={communityLoading}
+          onOpenMy={id => openChatInPlace(id, 'my')}
+          onOpenCommunity={id => openChatInPlace(id, 'community')}
+          intro={<ChatGettingStarted hasNoChats={sessions.length === 0} onPickStarter={onPickStarter} />}
+          defaultCommunityOnWeb={true}
+          restoreKey="chat"
+        />
+      )}
+    </div>
+  );
+}
+
 function RightPane({
   toolbarPanel, promptInspectorActive, onMouseDown, searchPreviewId, setSearchPreviewId,
-  selectedPromptEntry, lineagePreviewValue, setLineagePreviewValue, isPhone, activeChatId,
+  selectedPromptEntry, lineagePreviewValue, setLineagePreviewValue, isPhone,
   listView, selectedCommunityChat,
 }: RightPaneProps) {
   return (
@@ -403,18 +516,7 @@ function RightPane({
       <>
         <div className="resize-handle" onMouseDown={onMouseDown} />
         <div className="detail-panel chat-workspace-container">
-          {isPhone && activeChatId && (
-            <div className="phone-detail-header">
-              <button className="phone-detail-back" onClick={() => useChatStore.setState({ activeChatId: null, activeChat: null, chatModel: null })}>
-                &larr; Chats
-              </button>
-            </div>
-          )}
-          {listView === 'community' && selectedCommunityChat ? (
-            <CommunityChatDetail chat={selectedCommunityChat} />
-          ) : (
-            <ChatWorkspace />
-          )}
+          <ChatDetailContent listView={listView} selectedCommunityChat={selectedCommunityChat} isPhone={isPhone} />
         </div>
       </>
     )
@@ -472,17 +574,19 @@ export function ChatTab() {
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [selectedCommunityChat, setSelectedCommunityChat] = useState<CommunityChat | null>(null);
   const isTableMode = !toolbarPanel && !isPhone;
-  const [capNotice, setCapNotice] = useState<string | null>(null);
 
-  // t/2790 UAT: tables fill the tab; opening a chat launches a popout window
-  // (max 5 concurrent, deduped per chatId in chatWindowHandlers).
-  const openChatPopout = useCallback((id: string, source: 'my' | 'community') => {
-    api.openChatWindow(id, source).then((result) => {
-      setCapNotice(result && result.atCap ? 'Close a chat window — max 5 open' : null);
-    }).catch((err: Error) => {
-      getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-tab', level: 'warn', message: 'Failed to open chat popout window', error: { name: err.name ?? 'Error', message: String(err), stack: err.stack } });
-    });
-  }, []);
+  // t/4690: table mode's row click now opens in place (as a t/4640 place, /chat/:id), matching
+  // split mode's handleSelect below — ⧉/Ctrl-click still goes through the shell's
+  // openPlaceInNewWindow via chatLibraryListConfig's itemPlace, unaffected by this.
+  const openChatInPlace = useCallback((id: string, source: 'my' | 'community') => {
+    setListView(source);
+    if (source === 'my') {
+      if (id !== activeChatId) void loadChat(id);
+      return;
+    }
+    const cc = communityChats.find(c => c.id === id);
+    if (cc) setSelectedCommunityChat(cc);
+  }, [activeChatId, loadChat, communityChats]);
 
   const handleExportChat = useCallback((id: string, format: string) => {
     void api.loadChatSession(id).then((raw) => {
@@ -536,9 +640,11 @@ export function ChatTab() {
   }, [listView, sessionsLoading, sessions.length]);
 
   // Auto-select the most-recent chat into pane 2 on first open (t/2760).
-  // Suppressed on phone: the phone layout is list-first and the user initiates detail view by tapping.
+  // Suppressed on phone and in table mode: both are list-first (t/4690 — table mode now has a
+  // real list-vs-detail state instead of always showing the library) and the user initiates
+  // detail view by tapping/clicking a row.
   useEffect(() => {
-    if (isPhone) return;
+    if (isPhone || isTableMode) return;
     // chatLoading: a chat is already on its way (e.g. a restored /chat/:id) — don't race it.
     if (activeChatId || selectedCommunityChat || chatLoading) return;
     if (sessionsLoading || communityLoading) return;
@@ -582,22 +688,19 @@ export function ChatTab() {
           setPromptInspectorActive={setPromptInspectorActive}
         />
       ) : isTableMode ? (
-        // eslint-disable-next-line local/no-inline-style -- table mode fills the tab width
-        <div className="chat-tab-table-shell" style={{ flex: 1, width: '100%' }}>
-          {capNotice && <div className="chat-tab-cap-notice" role="status">{capNotice}</div>}
-          <LibraryListPage
-            config={chatLibraryConfig}
-            myRows={sessions}
-            myLoading={sessionsLoading}
-            communityRows={communityChats}
-            communityLoading={communityLoading}
-            onOpenMy={id => openChatPopout(id, 'my')}
-            onOpenCommunity={id => openChatPopout(id, 'community')}
-            intro={<ChatGettingStarted hasNoChats={sessions.length === 0} onPickStarter={handlePickStarter} />}
-            defaultCommunityOnWeb={true}
-            restoreKey="chat"
-          />
-        </div>
+        <ChatTableMode
+          activeChatId={activeChatId}
+          selectedCommunityChat={selectedCommunityChat}
+          listView={listView}
+          isPhone={isPhone}
+          chatLibraryConfig={chatLibraryConfig}
+          sessions={sessions}
+          sessionsLoading={sessionsLoading}
+          communityChats={communityChats}
+          communityLoading={communityLoading}
+          openChatInPlace={openChatInPlace}
+          onPickStarter={handlePickStarter}
+        />
       ) : listCollapsed ? (
         <div className="pane-collapsed pane-collapsed-list" onClick={() => setListCollapsed(false)} title="Expand list">
           <span className="pane-collapsed-label">Chats</span>
@@ -637,7 +740,7 @@ export function ChatTab() {
         />
       )}
 
-      {/* Right pane: split view only — table mode fills the tab, chats open in popouts */}
+      {/* Right pane: split view only — table mode fills the tab with its own in-place detail branch */}
       {!toolbarPanel && !isTableMode && <RightPane
         toolbarPanel={toolbarPanel}
         promptInspectorActive={promptInspectorActive}
@@ -648,7 +751,6 @@ export function ChatTab() {
         lineagePreviewValue={lineagePreviewValue}
         setLineagePreviewValue={setLineagePreviewValue}
         isPhone={isPhone}
-        activeChatId={activeChatId}
         listView={listView}
         selectedCommunityChat={selectedCommunityChat}
       />}
