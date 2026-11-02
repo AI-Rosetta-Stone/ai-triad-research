@@ -10,7 +10,7 @@ markdownify>=1.2.3
 trafilatura>=2.3.1
 
 # PDF text extraction
-pypdf>=6.21.2
+pypdf>=6.21.4
 pdfminer.six>=20260107
 
 # URL/slug utilities
