@@ -53,13 +53,13 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 ### Pre-Self-Merge Verification
 
 - **Land code through a PR to `main`.** The required contexts are `ci-gate`, `CodeQL Analysis`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on. (t/4567: the native `CodeQL` alert-gating check never reports on a merge-group ref; alert-gating is enforced by the merge queue's `code_scanning` ruleset rule instead.)
-- **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. Enqueue pinned: `gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`. **Never push to a queued PR:** GitHub may reject it (`GH006`), and `--disable-auto` doesn't dequeue. Use a separate PR, or dequeue, push and re-enqueue pinned. Never a bare manual merge. Ref §3.
+- **`main` merges through the merge queue (t/4567).** Before arming or enqueuing, confirm the base is `main`, PR-tier checks are green on the exact head, and no hold is open. **Enqueue pinned with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`** (t/4740) — the bare `gh pr merge --auto --squash --match-head-commit <headRefOid>` CLI form has twice (t/4731#1, t/4740#1) reported success while leaving the PR unenqueued, with no confirmed trigger; the wrapper verifies `isInMergeQueue` and falls back to the GraphQL mutation on a miss. **Never push to a queued PR:** GitHub may reject it (`GH006`), and `--disable-auto` doesn't dequeue. Use a separate PR, or dequeue, push and re-enqueue pinned. Never a bare manual merge. Ref §3.
 - **Incident hotfix (jump the queue):** only the TL, or DevOps Lead with the TL's recorded go, for a PR fixing an active incident with an anchor ticket. Enqueue with `jump`, head pinned; every required check still runs. Never for `consult-hold` or `joint-gv` PRs; a T2 fix still needs its SO clearance and approval. Log each jump on the incident ticket. Bypassing branch protection stays PI-only.
 
 ### PR-Flow Practice Rules
 
 - **Batch sequential same-feature work** into one PR, unless the diff is over ~400 lines or mixes concerns. Merge promptly on green, or record why not.
-- **Arm auto-merge at PR creation** (`gh pr merge <N> --auto --squash --match-head-commit <headRefOid>`) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247). Arming means "done", so disarm (and dequeue, if queued) before pushing more.
+- **Arm auto-merge at PR creation** (`node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`, t/4740) for **T0** PRs. For **T1**, arm only after the reviewer's `Approved (<role>):` approval (App review or comment) is on the PR for the current head (t/4247). Arming means "done", so disarm (and dequeue, if queued) before pushing more.
   - Never arm consult-hold, joint-gv or draft PRs, or PRs whose base isn't `main`.
 - **Holds:** the `consult-hold` label (T2 only) is the only hold. Draft state, hold comments and condition checklists are optional.
   - It clears with the Second Opinion's clearing comment, which checks each of its own conditions against the head;
@@ -156,7 +156,7 @@ Unrecoverable errors use `New-ActionableError` (PS) / `ActionableError` (TS) wit
   - One Second Opinion round (`main.engineering-second-opinion@ai-triad-research.orca.local`), time-boxed to **2 hours**. Send the proposal, alternatives, what's at stake and the evidence; the reply is Recommendation / Key risks / Conditions / Dissent.
   - **Silence never approves.** After the time-box, the PR goes to the T2 human approver marked "SO did not review", and the approver decides knowingly. An unreachable SO backend is an infra issue for Orca Support; it neither blocks nor waives.
   - Conditions name the files they edit **and the files their logic depends on**. A new head needs re-confirmation only if it touches one of those.
-  - Apply the **`consult-hold` label** (the required context `consult-hold-guard` enforces it for every merge path) and a one-line comment naming the open conditions. Human approval is required: the PI, or the TL when the SO has cleared the exact head (t/4096#58). SO dissent or no SO review → the PI. Merge pinned with `--match-head-commit`.
+  - Apply the **`consult-hold` label** (the required context `consult-hold-guard` enforces it for every merge path) and a one-line comment naming the open conditions. Human approval is required: the PI, or the TL when the SO has cleared the exact head (t/4096#58). SO dissent or no SO review → the PI. Merge pinned with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` (t/4740).
 - **Incident remediation is an automated check, test or platform fix.** A new prose rule needs a second occurrence, an owner and a review-by date.
 
 **Only the PI decides:**
