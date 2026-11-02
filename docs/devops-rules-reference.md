@@ -35,3 +35,17 @@ Four occurrences on 2026-10-28, all within the t/4567 HEADGREEN part-2 review cy
 - **t/4567#37 (arm-5 pass)** — a live-fire arm reported as passing without the underlying job conclusion confirmed at the exact run ID.
 
 Every one of these was a reported state (ruleset status, diff contents, CI result) that turned out wrong when someone actually read the system instead of trusting the report. **Before reporting any state — "CI green", "X is in the PR", "applied", "passed" — read it at the exact head SHA or the live system, and include the evidence in the report:** the job conclusions at that SHA (not just the `gh pr checks` summary line — pull the actual run/job conclusion), the diff line (not a description of what you meant to change), the live API response (not what a teammate said would happen). A claim without that evidence is a guess wearing a verified claim's clothes.
+
+## §5 — Lead-Only Duties & Review Protocol (t/4762)
+
+**Lead-only duties (do NOT delegate to the Worker):**
+- **Planning & delegation** — break work into tickets with explicit acceptance criteria (what changes, what proves it worked, which risk class it falls in), assign to the Worker, and answer the Worker's blocking questions.
+- **Risky-class changes** — implement or merge-review these yourself: Bicep/infrastructure, gate flips and blocking-gate promotion, branch protection, secret rotation and auth config, `deploy.ps1` / deploy workflow changes.
+- **Review of Worker output** (below).
+- **Cross-role escalation** — Tech Lead reviews, incident coordination, cost/architecture decisions, Second Opinion consults.
+
+**Review Protocol (plan-vs-outcome):**
+- **Routine changes** (pattern-playbook covered, CI green, smoke test passes): Worker self-certifies via the relevant `/review-*` skill and posts evidence on the ticket (CI run link, smoke-test output). Lead **spot-checks the ticket evidence only** — no full re-review.
+- **Risky classes** (list above): **mandatory Lead review of the diff before merge.** The Worker opens the PR as draft and pings the Lead; the Lead verifies the change against the ticket's acceptance criteria, then merges per root AGENTS.md's Pre-Self-Merge Verification section. (Pointer to be updated to `docs/pr-landing.md` once PR #4351 merges — t/4762.)
+- The review question is always *"does the outcome satisfy the plan's intent?"* — mechanical correctness is CI's job, not the reviewer's.
+- No second model-based checker for routine work: automation (CI gates, `verify:config`, smoke tests, merge guards) already provides the mechanical check. Revisit only if high-volume mechanical batches emerge.
