@@ -38,6 +38,13 @@ describe('LocationBarHost', () => {
     vi.mocked(navHistory).canGoBack.mockReturnValue(false);
     vi.mocked(navHistory).canGoForward.mockReturnValue(false);
     vi.mocked(navHistory).subscribe.mockReturnValue(() => {});
+    // t/4640: the mount-time effect always calls entries()/index() (updateRecentEntries), even
+    // for tests that never touch the Recent menu. An auto-mocked vi.fn() with no default returns
+    // undefined, and `allEntries.length` on undefined throws inside that effect — failing every
+    // test that doesn't explicitly mock these two. Default to the empty-history shape here;
+    // individual tests still override when they need specific entries.
+    vi.mocked(navHistory).entries.mockReturnValue([]);
+    vi.mocked(navHistory).index.mockReturnValue(0);
   });
 
   it('renders LocationBar with breadcrumbs', () => {
