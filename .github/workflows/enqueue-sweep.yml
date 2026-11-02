@@ -17,10 +17,22 @@
 #        DEPENDABOT_MERGE_APP_PRIVATE_KEY, for an App installed on this repo with Contents,
 #        Pull requests and Workflows write. (The names predate the T0 step; the same App now
 #        enqueues both.) Until both exist, the job logs a warning and exits without acting.
+# Triggers: GitHub's scheduler runs this repo's crons hours late (15-minute crons fired 3
+#        times in a day, #4389), so the sweep runs when a CI run COMPLETES (workflow_run),
+#        dozens of times an hour; the cron stays as a fallback. A workflow_run run always uses
+#        main's copy of this file and checks out main: nothing from the triggering PR is run,
+#        so PR code never sees the App key. When the triggering CI run was Dependabot's,
+#        GitHub withholds secrets: the config check below warns and exits, and the next CI
+#        completion covers it. Concurrency allows one running sweep plus one pending (a newer
+#        trigger replaces the pending one; a running sweep is never cancelled mid-enqueue).
+#        The T0 step waits up to 16 minutes for PRs blocked only by the 15-minute idle window.
 
 name: Merge-queue enqueue sweep
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
@@ -41,7 +53,7 @@ concurrency:
 jobs:
   sweep:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25   # up to 16 min of idle-window waiting in the T0 step, plus the sweeps
     steps:
       - name: Check App configuration
         id: cfg
@@ -56,8 +68,13 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Always main, never the triggering run's head: on workflow_run the App key is in this
+      # job, so no PR-controlled code may be checked out or executed here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
         if: steps.cfg.outputs.configured == 'true'
+        with:
+          ref: main
+          persist-credentials: false
 
       - name: Sweep unit tests
         if: steps.cfg.outputs.configured == 'true'
@@ -84,5 +101,6 @@ jobs:
         if: always() && steps.cfg.outputs.configured == 'true' && steps.app.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-        run: node operations/devops/t0-enqueue-sweep.mjs "${{ github.repository }}" $DRY_RUN
+          # Dry runs report once; real runs wait up to 16 min for PRs blocked only by the idle window.
+          MODE: ${{ inputs.dry_run && '--dry-run' || '--wait-max-minutes=16' }}
+        run: node operations/devops/t0-enqueue-sweep.mjs "${{ github.repository }}" $MODE

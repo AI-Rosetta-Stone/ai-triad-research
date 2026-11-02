@@ -45,10 +45,15 @@ export function headPushedAt(contexts) {
   return starts.length ? Math.min(...starts) : null;
 }
 
-/** PURE. Splits open PRs into those to enqueue now and those to skip (with the reason). */
+/**
+ * PURE. Splits open PRs into those to enqueue now and those to skip (with the reason).
+ * `waiting` lists the skipped PRs whose ONLY blocker is the idle window, with the time
+ * (ms) they become eligible, so an event-triggered run can wait for them (planNextWake).
+ */
 export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = {}) {
   const enqueue = [];
   const skip = [];
+  const waiting = [];
   for (const pr of prs) {
     const labels = pr.labels ?? [];
     const blocking = BLOCKING_LABELS.find((l) => labels.includes(l));
@@ -70,14 +75,28 @@ export function selectT0Candidates(prs, nowMs, { idleMinutes = IDLE_MINUTES } = 
         if (pushed == null) reason = 'push time unknown (no check runs with a start time)';
         else {
           const idle = (nowMs - pushed) / 60000;
-          if (idle < idleMinutes) reason = `idle ${Math.floor(idle)}m < ${idleMinutes}m since last push`;
+          if (idle < idleMinutes) {
+            reason = `idle ${Math.floor(idle)}m < ${idleMinutes}m since last push`;
+            waiting.push({ number: pr.number, eligibleAt: pushed + idleMinutes * 60000 });
+          }
         }
       }
     }
     if (reason) skip.push({ number: pr.number, reason });
     else enqueue.push({ number: pr.number, headRefOid: pr.headRefOid, armed: pr.autoMergeRequest != null });
   }
-  return { enqueue, skip };
+  return { enqueue, skip, waiting };
+}
+
+/**
+ * PURE. When should a run wake to sweep again? The earliest `eligibleAt` plus a small
+ * margin, if that is no later than `deadlineMs`; otherwise null (stop, and leave the PR to
+ * the next CI-completion trigger or the schedule).
+ */
+export function planNextWake(waiting, nowMs, deadlineMs, { marginMs = 20000 } = {}) {
+  if (!waiting?.length) return null;
+  const wake = Math.max(nowMs, Math.min(...waiting.map((w) => w.eligibleAt)) + marginMs);
+  return wake <= deadlineMs ? wake : null;
 }
 
 function gh(args) {
@@ -113,28 +132,48 @@ function listOpenPRs(repo) {
   return prs;
 }
 
-export async function sweep(repo, { dryRun = false } = {}) {
-  const { enqueue, skip } = selectT0Candidates(listOpenPRs(repo), Date.now());
-  for (const s of skip) console.log(`skip #${s.number}: ${s.reason}`);
-  if (enqueue.length === 0) { console.log('No T0 PRs to enqueue.'); return; }
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const failures = [];
-  for (const pr of enqueue) {
-    if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
-    try {
-      // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
-      // re-arm, so clear it first.
-      if (pr.armed) gh(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
-      const result = await enqueuePR(repo, pr.number);
-      console.log(`enqueued #${pr.number} (usedFallback=${result.usedFallback})`);
-    } catch (err) {
-      failures.push(pr.number);
-      console.error(`::error::#${pr.number}: ${err.message ?? err}`);
+/**
+ * One or more passes. With waitMaxMinutes > 0 (the event-triggered mode), a PR blocked only
+ * by the idle window makes this run sleep until it qualifies and sweep again, for up to
+ * waitMaxMinutes in total. GitHub's scheduler runs this repo's crons hours late (#4389), so
+ * without waiting, a PR that goes green right after a CI-completion trigger could sit until
+ * the next unrelated CI run.
+ */
+export async function sweep(repo, { dryRun = false, waitMaxMinutes = 0 } = {}) {
+  const deadline = Date.now() + waitMaxMinutes * 60000;
+  const failures = new Set();
+  for (let pass = 1; ; pass++) {
+    const { enqueue, skip, waiting } = selectT0Candidates(listOpenPRs(repo), Date.now());
+    for (const s of skip) console.log(`skip #${s.number}: ${s.reason}`);
+    if (enqueue.length === 0) console.log(`pass ${pass}: no T0 PRs to enqueue.`);
+
+    for (const pr of enqueue) {
+      if (dryRun) { console.log(`[dry-run] would enqueue #${pr.number} at ${pr.headRefOid}`); continue; }
+      try {
+        // An arm that never reached the queue (the silent-miss class, t/4740) is a no-op to
+        // re-arm, so clear it first.
+        if (pr.armed) gh(['pr', 'merge', String(pr.number), '-R', repo, '--disable-auto']);
+        const result = await enqueuePR(repo, pr.number);
+        console.log(`enqueued #${pr.number} (${JSON.stringify(result)})`);
+        failures.delete(pr.number);
+      } catch (err) {
+        failures.add(pr.number);
+        console.error(`::error::#${pr.number}: ${err.message ?? err}`);
+      }
     }
+
+    if (dryRun) break;
+    const wake = planNextWake(waiting, Date.now(), deadline);
+    if (wake == null) break;
+    const ids = waiting.map((w) => `#${w.number}`).join(', ');
+    console.log(`waiting ${Math.round((wake - Date.now()) / 1000)}s for ${ids} to pass the ${IDLE_MINUTES}-minute idle window`);
+    await sleep(wake - Date.now());
   }
-  if (failures.length) {
+  if (failures.size) {
     throw new Error(
-      `t0-enqueue-sweep: failed to enqueue ${failures.map((n) => `#${n}`).join(', ')} on ${repo}.\n` +
+      `t0-enqueue-sweep: failed to enqueue ${[...failures].map((n) => `#${n}`).join(', ')} on ${repo}.\n` +
       '  Goal:       land green, idle T0 PRs through the merge queue.\n' +
       '  Problem:    enqueue-pr.mjs could not get these PRs into the queue as the App.\n' +
       '  Location:   operations/devops/t0-enqueue-sweep.mjs (see the ::error:: lines above).\n' +
@@ -147,10 +186,12 @@ const isCliEntry = process.argv[1] && fileURLToPath(import.meta.url) === process
 if (isCliEntry) {
   const repo = process.argv[2];
   if (!repo) {
-    console.error('Usage: node operations/devops/t0-enqueue-sweep.mjs <owner>/<repo> [--dry-run]');
+    console.error('Usage: node operations/devops/t0-enqueue-sweep.mjs <owner>/<repo> [--dry-run] [--wait-max-minutes=N]');
     process.exit(1);
   }
-  sweep(repo, { dryRun: process.argv.includes('--dry-run') }).then(
+  const waitArg = process.argv.find((a) => a.startsWith('--wait-max-minutes='));
+  const waitMaxMinutes = waitArg ? Number(waitArg.split('=')[1]) || 0 : 0;
+  sweep(repo, { dryRun: process.argv.includes('--dry-run'), waitMaxMinutes }).then(
     () => {},
     (err) => { console.error(err.message ?? err); process.exit(1); },
   );

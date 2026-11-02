@@ -4,7 +4,7 @@
 // Run: node --test operations/devops/t0-enqueue-sweep.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { declaresT0, headPushedAt, selectT0Candidates, IDLE_MINUTES } from './t0-enqueue-sweep.mjs';
+import { declaresT0, headPushedAt, selectT0Candidates, planNextWake, IDLE_MINUTES } from './t0-enqueue-sweep.mjs';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
@@ -66,4 +66,24 @@ test('skips each disqualifying state with a reason', () => {
   const { enqueue, skip } = selectT0Candidates(cases.map(([p]) => p), NOW);
   assert.deepEqual(enqueue, []);
   for (const [p, re] of cases) assert.match(skip.find((s) => s.number === p.number).reason, re, `#${p.number}`);
+});
+
+test('only a PR blocked by nothing but the idle window is reported as waiting, with its eligible time', () => {
+  const failingCi = greenAt(minsAgo(5)).map((c) => (c.name === 'ci-gate' ? { ...c, conclusion: 'FAILURE' } : c));
+  const { enqueue, waiting } = selectT0Candidates([
+    pr({ number: 30, contexts: greenAt(minsAgo(5)) }),                 // green, 5m idle -> waiting
+    pr({ number: 31, contexts: failingCi }),                            // red -> not waiting
+    pr({ number: 32, isDraft: true, contexts: greenAt(minsAgo(5)) }),  // draft -> not waiting
+    pr({ number: 33 }),                                                  // green, 20m idle -> enqueue
+  ], NOW);
+  assert.deepEqual(enqueue.map((e) => e.number), [33]);
+  assert.deepEqual(waiting, [{ number: 30, eligibleAt: NOW - 5 * 60000 + IDLE_MINUTES * 60000 }]);
+});
+
+test('planNextWake wakes just after the earliest eligible PR, within the deadline', () => {
+  const waiting = [{ number: 1, eligibleAt: NOW + 10 * 60000 }, { number: 2, eligibleAt: NOW + 4 * 60000 }];
+  assert.equal(planNextWake(waiting, NOW, NOW + 16 * 60000), NOW + 4 * 60000 + 20000);
+  assert.equal(planNextWake(waiting, NOW, NOW + 3 * 60000), null, 'past the deadline: stop');
+  assert.equal(planNextWake([], NOW, NOW + 16 * 60000), null, 'nothing waiting: stop');
+  assert.equal(planNextWake([{ number: 3, eligibleAt: NOW - 60000 }], NOW, NOW + 60000), NOW, 'already eligible: wake now');
 });
