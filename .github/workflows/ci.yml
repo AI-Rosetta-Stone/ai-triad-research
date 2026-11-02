@@ -995,56 +995,10 @@ jobs:
         working-directory: ${{ matrix.app }}
         run: pnpm run test
 
-      - name: Test with coverage
-        if: matrix.app == 'taxonomy-editor'
-        working-directory: ${{ matrix.app }}
-        # Tee'd to a log for the DATA-ROOT-TEST-WRITE summary step below (t/4454 Phase 1 parity
-        # with test-powershell) -- PIPESTATUS[0] preserves vitest's own exit code through the
-        # pipe (bash's $? after a pipeline is the LAST command's, i.e. tee's, which always
-        # succeeds; without this, a real vitest failure would silently pass the step).
-        run: |
-          set -o pipefail
-          pnpm exec vitest run --coverage 2>&1 | tee "$RUNNER_TEMP/vitest-taxonomy-editor.log"
-
-      - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
-        # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
-        # never fails the job. dataRootGuard.ts (lib/test-support) only instruments
-        # taxonomy-editor's vite config (via #3769's src/renderer/test-setup.ts, resolved through
-        # vite.config.ts's `root: 'src/renderer'`), so this only runs for that matrix leg.
-        #
-        # Three-state read (TL ruling p/331#2364, after p/331#2360's false-clean finding --
-        # "0 hits" alone can't distinguish "checked, found nothing" from "never checked"):
-        #   - no DATA-ROOT-GUARD-INSTALLED marker in the log -> "guard not installed" (t/4464's
-        #     own runtime signal, not a static grep of config/setup files -- robust to whichever
-        #     setup file or vitest project structure actually wires it in).
-        #   - marker present, no DATA-ROOT-TEST-WRITE hits -> "0 hits" (a real clean result).
-        #   - hits -> list them, same as before.
-        # Both tokens are console.warn'd to the same stream (stderr), so both are in the one
-        # tee'd log. One line per hit: "DATA-ROOT-TEST-WRITE op=<op> target=<target>
-        # protectedRoot=<root>"; the marker: "DATA-ROOT-GUARD-INSTALLED mode=<mode> roots=[...]".
-        if: always() && matrix.app == 'taxonomy-editor'
-        continue-on-error: true
-        shell: bash
-        run: |
-          LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
-          if [ -f "$LOG" ]; then
-            mapfile -t HITS < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
-            GUARD_INSTALLED=$(grep -q 'DATA-ROOT-GUARD-INSTALLED' "$LOG" && echo true || echo false)
-          else
-            HITS=()
-            GUARD_INSTALLED=false
-          fi
-          if [ "${#HITS[@]}" -gt 0 ]; then
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): ${#HITS[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
-            for line in "${HITS[@]}"; do
-              echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
-              echo "::warning::$line"
-            done
-          elif [ "$GUARD_INSTALLED" = true ]; then
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): 0 hits" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor): guard not installed -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
-          fi
+      # taxonomy-editor's vitest suite (with coverage thresholds and the DATA-ROOT-TEST-WRITE
+      # report) moved OUT of this job into `test-electron-vitest` (3 parallel shards) +
+      # `test-electron-coverage` (merge + thresholds), below. As a single step here it was ~10 of
+      # this job's ~13 minutes and the CI critical path.
 
       - name: Build
         if: matrix.app == 'taxonomy-editor'
@@ -1074,6 +1028,182 @@ jobs:
           Import-Module ./scripts/AITriad/AITriad.psd1 -Force
           $r = Test-PreloadHealth -CheckSyntax
           if (-not $r.Healthy) { $r.Checks | Where-Object { -not $_.Pass } | ForEach-Object { Write-Error $_.Detail }; exit 1 }
+
+  # ── test-electron-vitest: taxonomy-editor's vitest suite in 3 parallel shards ──
+  # This suite was one ~10-minute step inside test-electron and set the CI critical path
+  # (test-electron took ~13 min; every other job finishes in <=8). Each shard runs 1/3 of the
+  # test files with coverage collected but thresholds OFF (a third of the suite can't meet a
+  # whole-suite threshold) and writes a vitest blob report; test-electron-coverage merges the
+  # blobs and enforces the vite.config.ts thresholds on the whole. Same trigger condition as
+  # test-electron. Both jobs are in ci-gate's needs, so a failed shard or merge blocks.
+  test-electron-vitest:
+    needs: [changes]
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Checkout data repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+        continue-on-error: true
+        with:
+          repository: AI-Rosetta-Stone/ai-triad-data
+          path: ai-triad-data
+          fetch-depth: 1
+
+      - name: Symlink data repo to expected location
+        run: ln -s "$GITHUB_WORKSPACE/ai-triad-data" ../ai-triad-data
+        continue-on-error: true
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install dependencies (retry on transient nuget/network failures — t/2968)
+        run: |
+          for i in 1 2 3; do
+            pnpm install --frozen-lockfile --side-effects-cache && break
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
+
+      - name: Test shard ${{ matrix.shard }}/3 (coverage collected; thresholds enforced after the merge)
+        working-directory: taxonomy-editor
+        # Tee'd to a log for the DATA-ROOT-TEST-WRITE summary step below (t/4454 Phase 1 parity
+        # with test-powershell). pipefail preserves vitest's own exit code through the pipe
+        # (without it the step would report tee's always-zero status and hide a real failure).
+        # The default reporter keeps the console output (and the DATA-ROOT tokens) in the log;
+        # the blob reporter writes the file test-electron-coverage merges.
+        run: |
+          set -o pipefail
+          pnpm exec vitest run --shard=${{ matrix.shard }}/3 \
+            --reporter=default --reporter=blob \
+            --outputFile.blob="$RUNNER_TEMP/vitest-blobs/blob-${{ matrix.shard }}.json" \
+            --coverage \
+            --coverage.thresholds.statements=0 --coverage.thresholds.branches=0 \
+            --coverage.thresholds.functions=0 --coverage.thresholds.lines=0 \
+            2>&1 | tee "$RUNNER_TEMP/vitest-taxonomy-editor.log"
+
+      - name: Report DATA-ROOT-TEST-WRITE hits (t/4454 Phase 1 vitest parity, TL ruling p/331#2356)
+        # Isolated sink, same #2070 pattern as test-powershell's equivalent step -- warn-only,
+        # never fails the job. dataRootGuard.ts (lib/test-support) only instruments
+        # taxonomy-editor's vite config (via #3769's src/renderer/test-setup.ts, resolved through
+        # vite.config.ts's `root: 'src/renderer'`). Reported per shard.
+        #
+        # Three-state read (TL ruling p/331#2364, after p/331#2360's false-clean finding --
+        # "0 hits" alone can't distinguish "checked, found nothing" from "never checked"):
+        #   - no DATA-ROOT-GUARD-INSTALLED marker in the log -> "guard not installed" (t/4464's
+        #     own runtime signal, not a static grep of config/setup files).
+        #   - marker present, no DATA-ROOT-TEST-WRITE hits -> "0 hits" (a real clean result).
+        #   - hits -> list them.
+        # Both tokens are console.warn'd to the same stream (stderr), so both are in the one
+        # tee'd log. One line per hit: "DATA-ROOT-TEST-WRITE op=<op> target=<target>
+        # protectedRoot=<root>"; the marker: "DATA-ROOT-GUARD-INSTALLED mode=<mode> roots=[...]".
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          LOG="$RUNNER_TEMP/vitest-taxonomy-editor.log"
+          if [ -f "$LOG" ]; then
+            mapfile -t HITS < <(grep -o 'DATA-ROOT-TEST-WRITE.*' "$LOG" | sort -u)
+            GUARD_INSTALLED=$(grep -q 'DATA-ROOT-GUARD-INSTALLED' "$LOG" && echo true || echo false)
+          else
+            HITS=()
+            GUARD_INSTALLED=false
+          fi
+          if [ "${#HITS[@]}" -gt 0 ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): ${#HITS[@]} hit(s)" >> "$GITHUB_STEP_SUMMARY"
+            for line in "${HITS[@]}"; do
+              echo "- \`$line\`" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::$line"
+            done
+          elif [ "$GUARD_INSTALLED" = true ]; then
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): 0 hits" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### DATA-ROOT-TEST-WRITE (vitest, taxonomy-editor, shard $SHARD/3): guard not installed -- 0 hits is NOT a clean result" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload shard blob report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: vitest-blob-${{ matrix.shard }}
+          path: ${{ runner.temp }}/vitest-blobs/
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── test-electron-coverage: merge the vitest shards, enforce coverage thresholds ──
+  # Merges test-electron-vitest's blob reports (test results + coverage) and applies
+  # vite.config.ts's coverage thresholds to the whole suite, exactly as the old single
+  # `vitest run --coverage` step did. Refuses to merge unless all 3 shard blobs arrived: a
+  # missing shard would quietly lower coverage and drop its tests from the merged result.
+  test-electron-coverage:
+    needs: [changes, test-electron-vitest]
+    if: >-
+      always() && !cancelled() && needs.test-electron-vitest.result != 'skipped' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || needs.changes.outputs.electron == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        with:
+          version: '11.20.0'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v6
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Install dependencies (retry on transient nuget/network failures — t/2968)
+        run: |
+          for i in 1 2 3; do
+            pnpm install --frozen-lockfile --side-effects-cache && break
+            if [ "$i" -lt 3 ]; then
+              echo "pnpm install attempt $i failed; retry in $((i * 15))s"
+              sleep $((i * 15))
+            else
+              echo "::error::pnpm install failed after $i attempts"
+              exit 1
+            fi
+          done
+
+      - name: Download shard blob reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: vitest-blob-*
+          path: ${{ runner.temp }}/vitest-blobs
+          merge-multiple: true
+
+      - name: Merge shard reports and enforce coverage thresholds
+        working-directory: taxonomy-editor
+        run: |
+          COUNT=$(find "$RUNNER_TEMP/vitest-blobs" -maxdepth 1 -name 'blob-*.json' | wc -l)
+          if [ "$COUNT" -ne 3 ]; then
+            echo "::error::test-electron-coverage: expected 3 vitest shard blobs, found $COUNT -- a shard failed to produce its report, so merged coverage would be incomplete. See test-electron-vitest."
+            exit 1
+          fi
+          pnpm exec vitest run --merge-reports="$RUNNER_TEMP/vitest-blobs" --coverage
 
   # ── render-smoke: "surface renders styled" gate (t/3026 / t/3059) ──
   # Catches the failure class "a component's CSS lives in a lazy tab-chunk that is NOT
@@ -2810,7 +2940,7 @@ jobs:
 
   ci-gate:
     name: ci-gate
-    needs: [changes, test-powershell, test-electron, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test]
+    needs: [changes, test-powershell, test-electron, test-electron-vitest, test-electron-coverage, test-electron-matrix-membership, test-container, python-embed-smoke, test-python, dependency-coverage, lockfile-overrides-check, lib-lint, renderer-tsc, contrast-check, test-server-prod-config, workflow-lint, bicep-env-drift, schema-version-bump, render-smoke, bicep-aca-resources, embedding-onnx-equivalence, complexity-budget, agents-md-budget, merge-queue-f4-shim-test]
     if: always()
     # lint:skipped-tolerated: yes — path-filtered gated jobs gate on needs.changes.outputs.* and
     #   skip by design on PRs that don't touch their subsystem; a skipped need is expected, not a
