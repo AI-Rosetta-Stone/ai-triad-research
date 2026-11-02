@@ -1,0 +1,100 @@
+{
+ "docs": {
+  "sample": 15,
+  "ok": 14,
+  "chunked": 12,
+  "status": {
+   "future-online-expression-innovation-depends-robust-section-2026": "ok",
+   "labor-as-capital-ai-ownership-expertise-2026": "ok",
+   "do-ai-risks-require-extraordinary-government-intervention-2026": "ok",
+   "end-foundation-model-era-open-weight-models-sovereign-ai-2026": "ok",
+   "maintaincoder-maintainable-code-generation-under-dynamic-2026": "ok",
+   "evolving-procedural-memory-from-user-traffic-agentic-2026-2": "ok",
+   "generative-design-bacteriophages-genome-language-models-2026": "ok",
+   "crisis-risk-communication-or-propaganda-disinformation-2026": "ok",
+   "gender-shades-intersectional-accuracy-disparities-2026": "ok",
+   "final-frontier-why-privacy-means-protecting-workers-rights-2026": "ok",
+   "limits-self-correction-llms-information-theoretic-analysis-2026": "ok",
+   "zero-trust-ai-systems-reference-architecture-assurance-2026": "ok",
+   "pluralistic-what-kind-bubble-is-ai-2026": "ok",
+   "detection-mitigation-mythos-class-frontier-model-2026": "ok",
+   "evolving-procedural-memory-from-user-traffic-agentic-2026": "skipped_by_triage"
+  }
+ },
+ "labels": {
+  "new_off": {
+   "n": 30,
+   "genuine": 13,
+   "stretched": 13,
+   "unsupported": 4,
+   "bad": 17
+  },
+  "saved_off": {
+   "n": 30,
+   "genuine": 10,
+   "stretched": 16,
+   "unsupported": 4,
+   "bad": 20
+  },
+  "new_on": {
+   "n": 30,
+   "genuine": 22,
+   "stretched": 8,
+   "unsupported": 0,
+   "bad": 8
+  }
+ },
+ "off_tag_bad": "17/30 (57%)",
+ "saved_off_tag_bad": "20/30 (67%)",
+ "on_tag_genuine": "22/30 (73%)",
+ "on_tag_median_change_all": -0.121,
+ "on_tag_median_change_chunked": -0.05,
+ "on_tag_change_n": 14,
+ "on_tag_saved_total": 155,
+ "on_tag_new_total": 141,
+ "kp_median_saved": 21.5,
+ "kp_median_new": 14.0,
+ "calls_non_chunked": {
+  "do-ai-risks-require-extraordinary-government-intervention-2026": [
+   "single_shot",
+   1
+  ],
+  "pluralistic-what-kind-bubble-is-ai-2026": [
+   "single_shot",
+   1
+  ]
+ },
+ "empty_cells_persisted": "14/14",
+ "empty_camps": {
+  "labor-as-capital-ai-ownership-expertise-2026": [
+   "accelerationist"
+  ],
+  "do-ai-risks-require-extraordinary-government-intervention-2026": [
+   "accelerationist"
+  ],
+  "generative-design-bacteriophages-genome-language-models-2026": [
+   "skeptic"
+  ],
+  "crisis-risk-communication-or-propaganda-disinformation-2026": [
+   "accelerationist"
+  ],
+  "gender-shades-intersectional-accuracy-disparities-2026": [
+   "accelerationist"
+  ],
+  "final-frontier-why-privacy-means-protecting-workers-rights-2026": [
+   "accelerationist"
+  ],
+  "zero-trust-ai-systems-reference-architecture-assurance-2026": [
+   "accelerationist"
+  ]
+ },
+ "empty_camps_undeclared": {},
+ "tagged_empty": {},
+ "crashes": [],
+ "skipped_by_triage": [
+  "evolving-procedural-memory-from-user-traffic-agentic-2026"
+ ],
+ "off_tag_share_new": "68/209 (33%)",
+ "off_tag_share_saved": "149/304 (49%)",
+ "spend_usd": 0.6541
+}

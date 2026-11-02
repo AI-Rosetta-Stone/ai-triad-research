@@ -32,6 +32,7 @@ import { ThinkingIndicator, MessageBubble, StreamingBubble } from '../shared/Cha
 import { TaxNodeDetail } from '../shared/TaxNodeDetail';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { UrlContextChip } from './UrlContextChip';
+import { MarkdownOl, MarkdownP, MarkdownHeading } from './markdownBlocks';
 import './ChatWorkspace.css';
 
 // ── Helpers ──────────────────────────────────────────────
@@ -136,27 +137,51 @@ export function TaxonomyRefsSection({ refs }: { refs: TaxonomyRef[] }) {
 
 // ── Chat message ─────────────────────────────────────────
 
+/** t/4724: redesigned agent turns lead with SpeakerIdentity's own avatar+camp-name (one unit);
+ *  the pre-redesign glyph-only avatar is unchanged when the flag is off. User turns never show
+ *  an avatar here — "You" renders in the header instead, beside the dark bubble (CSS). Split out
+ *  of ChatMessage to keep its branching within the complexity budget. */
+function ChatMessageAvatar({ isUser, chatRedesign, speaker, camp }: {
+  isUser: boolean; chatRedesign: boolean; speaker: string; camp: ReturnType<typeof povToCamp>;
+}) {
+  if (isUser) return null;
+  if (chatRedesign) return <SpeakerIdentity variant="avatar" speaker={speaker} className="chat-message-avatar-identity" />;
+  if (!camp) return null;
+  return (
+    <div className={`chat-message-avatar camp-${camp}`}>
+      <CampGlyph camp={camp} size={14} />
+    </div>
+  );
+}
+
+/** The separate text label would duplicate SpeakerIdentity's own label once the redesign flag's
+ *  avatar is showing, so this renders nothing for a redesigned agent turn. */
+function ChatMessageHeader({ isUser, chatRedesign, speaker, camp }: {
+  isUser: boolean; chatRedesign: boolean; speaker: string; camp: ReturnType<typeof povToCamp>;
+}) {
+  if (isUser) return <div className="chat-message-header"><span className="chat-message-speaker">You</span></div>;
+  if (chatRedesign) return null;
+  return (
+    <div className="chat-message-header">
+      <span className={`chat-message-speaker${camp ? ` camp-speaker-${camp}` : ''}`}>{speakerLabel(speaker)}</span>
+    </div>
+  );
+}
+
 function ChatMessage({ entry, onSelectRef }: { entry: ChatEntry; onSelectRef: (ref: EntityRef | null) => void }) {
   const isUser = entry.speaker === 'user';
   const camp = povToCamp(entry.speaker);
-  const mdComponents = useMemo(() => ({ span: makeRefLinkSpan(onSelectRef) }), [onSelectRef]);
+  const mdComponents = useMemo(() => ({
+    span: makeRefLinkSpan(onSelectRef), ol: MarkdownOl, p: MarkdownP,
+    h1: MarkdownHeading, h2: MarkdownHeading, h3: MarkdownHeading, h4: MarkdownHeading, h5: MarkdownHeading, h6: MarkdownHeading,
+  }), [onSelectRef]);
   const chatRedesign = useFlag('DEBATE_CHAT_REDESIGN');
 
   return (
     <div className={`chat-message chat-speaker-${entry.speaker}${isUser ? ' chat-message-user' : ''}`}>
-      {chatRedesign
-        ? <SpeakerIdentity variant="avatar" speaker={entry.speaker} />
-        : (camp && (
-          <div className={`chat-message-avatar camp-${camp}`}>
-            <CampGlyph camp={camp} size={14} />
-          </div>
-        ))}
+      <ChatMessageAvatar isUser={isUser} chatRedesign={chatRedesign} speaker={entry.speaker} camp={camp} />
       <div className="chat-message-body">
-        <div className="chat-message-header">
-          <span className={`chat-message-speaker${camp ? ` camp-speaker-${camp}` : ''}`}>
-            {speakerLabel(entry.speaker)}
-          </span>
-        </div>
+        <ChatMessageHeader isUser={isUser} chatRedesign={chatRedesign} speaker={entry.speaker} camp={camp} />
         <MessageBubble role={isUser ? 'user' : 'assistant'} className="chat-message-content markdown-body prose">
           <Markdown remarkPlugins={[remarkGfm, remarkColorizePov, remarkLinkifyRefs]} components={mdComponents}>{entry.content}</Markdown>
         </MessageBubble>
@@ -340,34 +365,104 @@ type ActiveChat = NonNullable<ReturnType<typeof useChatStore.getState>['activeCh
 type ShareState = 'idle' | 'sharing' | 'success' | 'error';
 type ResizePanel = ReturnType<typeof useResizableRightPanel>;
 
-function ChatHeader({ activeChat, changeMode, shareState, onShare }: {
+/** t/4724: back to the chat list — same store reset the phone-only "← Chats" button
+ *  (ChatTab.tsx) already uses, now also reachable from the always-visible header chevron. */
+function goBackToList() {
+  useChatStore.setState({ activeChatId: null, activeChat: null, chatModel: null });
+}
+
+function ChatHeader({ activeChat, shareState, onShare }: {
   activeChat: ActiveChat;
-  changeMode: (m: ChatMode) => Promise<void>;
   shareState: ShareState;
   onShare: () => void;
 }) {
   const poverInfo = POVER_INFO[activeChat.pover as keyof typeof POVER_INFO];
-  const headerCamp = povToCamp(activeChat.pover);
   return (
     <div className="chat-header">
-      <div className="chat-header-left">
-        <span className={`chat-header-pover${headerCamp ? ` camp-speaker-${headerCamp}` : ''}`}>
-          {poverInfo?.label ?? activeChat.pover}
-        </span>
-        <ModeSelector mode={activeChat.mode} onChange={(m) => { getGlobalRecorder()?.record({ type: 'user.action', component: 'chat', level: 'info', message: 'chat.mode_switch', data: { chat_id: activeChat.id, from: activeChat.mode, to: m } }); void changeMode(m); }} />
-      </div>
-      <div className="chat-header-topic" title={activeChat.topic}>
-        {activeChat.topic}
-      </div>
-      <ExportButton chat={activeChat} />
-      <button
-        className="btn btn-sm chat-share-btn"
-        onClick={onShare}
-        disabled={shareState !== 'idle'}
-        title="Submit this chat for community review"
-      >
-        {shareState === 'sharing' ? 'Sharing...' : 'Share'}
+      <button type="button" className="chat-header-back" onClick={goBackToList} aria-label="Back to chats" title="Back to chats">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
       </button>
+      <div className="chat-header-titles">
+        <span className="chat-header-eyebrow">Individual Chat</span>
+        <h1 className="chat-header-title">{activeChat.title}</h1>
+      </div>
+      <div className="chat-header-right">
+        <SpeakerIdentity variant="avatar" speaker={activeChat.pover} className="chat-header-camp-chip" />
+        <span className="chat-header-mode-pill" title={CHAT_MODE_INFO[activeChat.mode].description}>
+          {CHAT_MODE_INFO[activeChat.mode].label.toUpperCase()}
+        </span>
+        <ExportButton chat={activeChat} />
+        <button
+          className="btn btn-sm chat-share-btn"
+          onClick={onShare}
+          disabled={shareState !== 'idle'}
+          title="Submit this chat for community review"
+        >
+          {shareState === 'sharing' ? 'Sharing...' : 'Share'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** t/4724: "The Question" card — the opening topic in large serif. No tag row (TL ruling,
+ *  p/513#36): the mockup's one-word topic chips have no backing data, and inventing them from
+ *  taxonomy_refs would show long node labels instead, nothing like the mockup. */
+function QuestionCard({ topic }: { topic: string }) {
+  return (
+    <div className="chat-question-card">
+      <span className="chat-question-eyebrow">The Question</span>
+      <p className="chat-question-text">{topic}</p>
+    </div>
+  );
+}
+
+function ChatSessionPanel({ activeChat }: { activeChat: ActiveChat }) {
+  const poverInfo = POVER_INFO[activeChat.pover as keyof typeof POVER_INFO];
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(activeChat.id).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [activeChat.id]);
+
+  return (
+    <div className="chat-session-panel">
+      <h2 className="chat-session-panel-title">Session</h2>
+
+      <div className="chat-session-panel-section">
+        <span className="chat-session-panel-label">Talking to</span>
+        <SpeakerIdentity variant="avatar" speaker={activeChat.pover} />
+        <button
+          type="button"
+          className="chat-session-bdi-link"
+          onClick={() => useTaxonomyStore.getState().setActiveTab(activeChat.pover)}
+        >
+          Beliefs, desires &amp; intentions
+        </button>
+      </div>
+
+      <div className="chat-session-panel-section">
+        <span className="chat-session-panel-label">
+          Mode
+          <span className="chat-session-info-dot" title={CHAT_MODE_INFO[activeChat.mode].description} aria-label={CHAT_MODE_INFO[activeChat.mode].description}>ⓘ</span>
+        </span>
+        <span className="chat-session-mode-value">{CHAT_MODE_INFO[activeChat.mode].label}</span>
+      </div>
+
+      <div className="chat-session-panel-section">
+        <span className="chat-session-panel-label">Session ID</span>
+        <div className="chat-session-id-row">
+          <span className="chat-session-id-value">{activeChat.id}</span>
+          <button type="button" className="chat-session-copy-btn" onClick={handleCopy} aria-label="Copy session ID" title="Copy session ID">
+            {copied ? '✓' : '⧉'}
+          </button>
+        </div>
+      </div>
+
+      {poverInfo == null && <span className="lib-empty-value">Unknown POVer</span>}
     </div>
   );
 }
@@ -438,31 +533,39 @@ function ChatTranscript({ activeChat, chatGenerating, chatActivity, onSelectRef,
   );
 }
 
-function ChatInputBar({ input, onInputChange, onKeyDown, onSend, chatGenerating }: {
+function ChatInputBar({ input, onInputChange, onKeyDown, onSend, chatGenerating, mode, onModeChange, poverLabel }: {
   input: string;
   onInputChange: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onSend: () => void;
   chatGenerating: boolean;
+  mode: ChatMode;
+  onModeChange: (m: ChatMode) => void;
+  poverLabel: string;
 }) {
   return (
     <div className="chat-input-bar">
       <textarea
         className="chat-input"
-        placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+        placeholder={`Ask the ${poverLabel} a follow-up…`}
         value={input}
         onChange={(e) => onInputChange(e.target.value)}
         onKeyDown={onKeyDown}
         disabled={chatGenerating}
-        rows={2}
+        rows={1}
       />
-      <button
-        className="btn btn-primary chat-send-btn"
-        onClick={onSend}
-        disabled={!input.trim() || chatGenerating}
-      >
-        Send
-      </button>
+      <div className="chat-input-bar-controls">
+        <ModeSelector mode={mode} onChange={onModeChange} />
+        <button
+          className="chat-send-btn"
+          onClick={onSend}
+          disabled={!input.trim() || chatGenerating}
+          aria-label="Send"
+          title="Send"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" /></svg>
+        </button>
+      </div>
     </div>
   );
 }
@@ -602,37 +705,56 @@ export function ChatWorkspace() {
     );
   }
 
+  const activePoverLabel = POVER_INFO[activeChat.pover as keyof typeof POVER_INFO]?.label ?? activeChat.pover;
+
   return (
     <div className={`chat-workspace${selectedRef ? ' has-detail-pane' : ''}`}>
       <div className="chat-main-column">
         {/* Header */}
-        <ChatHeader activeChat={activeChat} changeMode={changeMode} shareState={shareState} onShare={handleShare} />
+        <ChatHeader activeChat={activeChat} shareState={shareState} onShare={handleShare} />
 
-        {/* Share result banner */}
-        <ShareResult shareState={shareState} shareError={shareError} onDismiss={() => setShareState('idle')} />
+        <div className="chat-reading-row">
+          <div className="chat-reading-column">
+            {/* Share result banner */}
+            <ShareResult shareState={shareState} shareError={shareError} onDismiss={() => setShareState('idle')} />
 
-        {/* Error bar */}
-        {chatError && (
-          <div className="chat-error">{chatError}</div>
-        )}
+            {/* Error bar */}
+            {chatError && (
+              <div className="chat-error">{chatError}</div>
+            )}
 
-        {/* Transcript */}
-        <ChatTranscript
-          activeChat={activeChat}
-          chatGenerating={chatGenerating}
-          chatActivity={chatActivity}
-          onSelectRef={setSelectedRef}
-          transcriptEndRef={transcriptEndRef}
-        />
+            {/* The Question */}
+            <QuestionCard topic={activeChat.topic} />
 
-        {/* Input bar */}
-        <ChatInputBar
-          input={input}
-          onInputChange={setInput}
-          onKeyDown={handleKeyDown}
-          onSend={handleSend}
-          chatGenerating={chatGenerating}
-        />
+            {/* Transcript */}
+            <ChatTranscript
+              activeChat={activeChat}
+              chatGenerating={chatGenerating}
+              chatActivity={chatActivity}
+              onSelectRef={setSelectedRef}
+              transcriptEndRef={transcriptEndRef}
+            />
+
+            {/* Input bar */}
+            <ChatInputBar
+              input={input}
+              onInputChange={setInput}
+              onKeyDown={handleKeyDown}
+              onSend={handleSend}
+              chatGenerating={chatGenerating}
+              mode={activeChat.mode}
+              poverLabel={activePoverLabel}
+              onModeChange={(m) => { getGlobalRecorder()?.record({ type: 'user.action', component: 'chat', level: 'info', message: 'chat.mode_switch', data: { chat_id: activeChat.id, from: activeChat.mode, to: m } }); void changeMode(m); }}
+            />
+          </div>
+
+          {/* t/4724: the Session panel is a second, always-present right column, independent of
+             the ref-link detail pane below (which only appears when a prose ref is clicked —
+             a deliberate deviation from the design posted on t/4724#1, which proposed folding
+             ref-detail into the reading column; keeping ChatDetailPane's existing mechanism
+             unchanged was the much lower-risk option and loses nothing). */}
+          <ChatSessionPanel activeChat={activeChat} />
+        </div>
       </div>
 
       <ChatDetailPane

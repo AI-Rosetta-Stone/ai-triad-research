@@ -14,6 +14,7 @@ import { api } from '@bridge';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { trackDebateComplete } from '../../../lib/analyticsEmitter';
 import { generateId, nowISO, stripCodeFences, parseAIJson, extractArraysFromPartialJson, formatRecentTranscript } from '@lib/debate/helpers';
+import { formatFactCheckContent } from '../shared/factCheckFormat';
 import { runSynthesisPhases } from '@lib/debate/synthesisPhases';
 import type { SynthesisInput } from '@lib/debate/synthesisPhases';
 import { finalizeUndecidedCruxes } from '@lib/debate/cruxResolution';
@@ -736,7 +737,7 @@ function addFactCheckTranscriptEntry(
   addTranscriptEntry({
     type: 'fact-check',
     speaker: 'system',
-    content: `**Fact Check: ${verdictLabels[validated.verdict] || validated.verdict}**\n\n"${selectedText}"\n\n${validated.explanation}${webNote}`,
+    content: formatFactCheckContent(verdictLabels[validated.verdict] || validated.verdict, selectedText, validated.explanation, webNote),
     taxonomy_refs: sourceRefs,
     metadata: {
       fact_check: {

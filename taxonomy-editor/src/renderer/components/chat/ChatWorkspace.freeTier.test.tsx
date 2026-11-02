@@ -151,7 +151,7 @@ describe('ChatWorkspace — free-tier Gemini onboarding (t/1480)', () => {
     tierValue = freeTierValue;
     render(<ChatWorkspace />);
 
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Ask the Accelerationist a follow-up/);
     await userEvent.type(textarea, 'test message');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
@@ -163,7 +163,7 @@ describe('ChatWorkspace — free-tier Gemini onboarding (t/1480)', () => {
     tierValue = byokTierValue;
     render(<ChatWorkspace />);
 
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Ask the Accelerationist a follow-up/);
     await userEvent.type(textarea, 'test message');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 

@@ -1,0 +1,27 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved. */
+/* Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4718: camp chip beside each chat's title, My and Community. Same solid-fill-on-camp-color
+   pattern as the New Debate dialog's debater chip (.ndd-debater-chip[data-camp]) — same tokens,
+   same white-on-color contrast already in use there, nothing new to validate. Reuses the shared
+   .lib-title-badge-slot (t/4720) for placement; only the chip's own look lives here. */
+
+.chat-lib-camp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chat-lib-camp-chip[data-camp='acc'] { background: var(--color-acc); }
+.chat-lib-camp-chip[data-camp='saf'] { background: var(--color-saf); }
+.chat-lib-camp-chip[data-camp='skp'] { background: var(--color-skp); }
+
+.chat-lib-camp-chip-icon {
+  flex-shrink: 0;
+}

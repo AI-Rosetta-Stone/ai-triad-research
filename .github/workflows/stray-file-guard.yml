@@ -26,3 +26,6 @@ jobs:
         run: |
           # Get the list of changed files and pipe directly to the guard
           git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD | node scripts/ci/stray-file-guard.mjs --from-stdin
+        # t/4665 (TL, p/331#2547): sources the guard script from the PR's base ref, not the
+        # PR head, with a fail-open WARN if it's still missing -- see run-stray-file-guard.sh.
+        run: bash scripts/ci/run-stray-file-guard.sh "${{ github.base_ref }}"

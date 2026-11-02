@@ -129,6 +129,13 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
    *  web-address detection than the default regex. */
   isWebAddressTitle?: (row: TMy | TCommunity, variant: LibraryVariant) => boolean;
 
+  /** Optional content beside the title text, same line, on both the desktop and phone layouts
+   *  (t/4720, Chat's first consumer at t/4718 — a camp chip). Omit it and nothing renders; every
+   *  page predating this field is unchanged. The title keeps its own clamping/wrapping; this
+   *  content doesn't shrink and wraps onto its own line under the title at narrow widths rather
+   *  than forcing an overflow — see `.lib-title-line`/`.lib-title-badge-slot` in the CSS. */
+  titleBadge?: (row: TMy | TCommunity, variant: LibraryVariant) => ReactNode;
+
   /** Inline rename via the shared title cell (double-click to start, Enter/blur to commit, Esc
    *  to cancel, stopPropagation on click) — shared per the same "spec states it once generically"
    *  rule; Op-Eds (edit mode) and Chats (list, no edit mode) both need it. Omit `onRename` and the

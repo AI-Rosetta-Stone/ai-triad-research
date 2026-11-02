@@ -93,7 +93,7 @@ import type { ReviewAction } from './community/admin/types.js';
 import { calibrationReviewHandler } from './community/admin/calibrationHandler.js';
 import { communityReviewHandler } from './community/admin/communityReviewHandler.js';
 import { serveStatic } from './staticServe.js';
-import { normalizePrincipalNameHeader, getIdentityMapKey } from './principalName.js';
+import { normalizePrincipalNameHeader, getIdentityMapKey, getRequestStableId } from './principalName.js';
 
 // Register review domain handlers at startup so the unified admin endpoints
 // (queue/stats/action/detail) can delegate to them (t/646, t/647, t/650).
@@ -942,7 +942,7 @@ async function resolveRequestUserContext(req: http.IncomingMessage, res: http.Se
   const reqCtx = getRequestContext();
   if (reqCtx) reqCtx.userId = storageUserId;
   const anonymousSessionId = isAnon ? parseCookies(req).get('anon_session_id') : undefined;
-  return { principalName: effectivePrincipal, idp: effectiveIdp, branchName: sessionBranch, storageUserId, isAnonymous: isAnon, anonymousSessionId };
+  return { principalName: effectivePrincipal, idp: effectiveIdp, branchName: sessionBranch, storageUserId, isAnonymous: isAnon, anonymousSessionId, stableId: isAnon ? undefined : getRequestStableId(req) };
 }
 
 /** M7: per-IP rate limit on API write methods (100/min). Returns true when 429-limited. */
