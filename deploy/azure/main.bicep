@@ -113,6 +113,17 @@ param azureCommunityContainerStaging string = 'staging-community'
 @description('AZURE_BRIEF_EXPORTS_CONTAINER override for staging only (t/4738). Isolates staging brief exports from prod.')
 param azureBriefExportsContainerStaging string = 'staging-brief-exports'
 
+// t/4752: cae-aitriad's defaultDomain, hardcoded instead of read via containerAppEnv.properties.*.
+// A managed environment's default domain is fixed at creation and never changes without
+// recreating 'cae-aitriad' (destructive, deliberate, would already require updating
+// deployment-facts.md). Verified live via `az containerapp env show --query properties.defaultDomain`
+// at authoring time. Referencing the resource instead made baseEnv/stagingEnvOverrides
+// resource-dependent, which forces ARM to inline the ENTIRE derived env-var chain at every use —
+// staging's extra filter()/map() layer pushed that inlined expression over ARM's 81920-char single
+// -expression limit (89240 actual), failing template validation for EVERY deploy regardless of SHA.
+@description('cae-aitriad managed environment default domain suffix (t/4752) — see comment above.')
+param containerAppEnvDefaultDomain string = 'yellowbush-aeda037d.eastus.azurecontainerapps.io'
+
 // ── Resource Tags ──
 var tags = {
   project: 'ai-triad-research'
@@ -598,7 +609,7 @@ var baseEnv = [
   // MUST equal the container app's maxReplicas below, and deploy-azure.yml ExpectedEnvVars.
   { name: 'MAX_REPLICAS', value: '1' }
   // PROD's origin. Staging overrides it with its own FQDN in stagingEnvOverrides (t/4406).
-  { name: 'ALLOWED_ORIGINS', value: 'https://taxonomy-editor.${containerAppEnv.properties.defaultDomain}' }
+  { name: 'ALLOWED_ORIGINS', value: 'https://taxonomy-editor.${containerAppEnvDefaultDomain}' }
   { name: 'HOME', value: '/home/aitriad' }
   { name: 'NODE_ENV', value: 'production' }
   // BYOK model: users enter keys via the app UI. In Azure the server
@@ -760,7 +771,7 @@ var stagingEnvOverrides = [
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this
   // list; Host is preserved through ingress, probed t/4406#3) and is NOT the staging sign-in bounce.
   // Host MUST match the staging app's name below; tests/BicepAllowedOrigins.Tests.ps1 asserts it.
-  { name: 'ALLOWED_ORIGINS',     value: 'https://taxonomy-editor-staging.${containerAppEnv.properties.defaultDomain}' }
+  { name: 'ALLOWED_ORIGINS',     value: 'https://taxonomy-editor-staging.${containerAppEnvDefaultDomain}' }
   // NOTE: DATA_ROOT_VALIDATION_ENFORCE was retired in t/3309 step-3 (see baseEnv above) — the
   // /readyz warm-gate replaces the boot hard-fail. Nothing to override here.
   // NOTE: S2 (GROUNDING_RECONCILE_INLINE=0 override) DROPPED per TL (e/327#5) — G8a is gated by
