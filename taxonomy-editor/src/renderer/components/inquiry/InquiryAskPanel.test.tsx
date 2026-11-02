@@ -97,6 +97,19 @@ describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {
     expect(screen.getByRole('button', { name: 'Ask' })).toBeInTheDocument();
   });
 
+  // t/4751: the estimate is built and ready, but held behind SHOW_DURATION_ESTIMATE until
+  // Azure's real measurements (not estimateInquiryDuration's placeholder table) land — TL
+  // condition, p/875#4/#10. These guard against it slipping onto screen un-reviewed.
+  it('does not show an estimated-time label while SHOW_DURATION_ESTIMATE is off', () => {
+    renderDialog();
+    expect(screen.queryByText(/Est\. time/)).not.toBeInTheDocument();
+  });
+
+  it('SHOW_DURATION_ESTIMATE is off (documents intent — flip deliberately, not by accident)', async () => {
+    const { SHOW_DURATION_ESTIMATE } = await import('./InquiryAskPanel');
+    expect(SHOW_DURATION_ESTIMATE).toBe(false);
+  });
+
   it('Cancel calls onClose', async () => {
     const { onClose } = renderDialog();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
