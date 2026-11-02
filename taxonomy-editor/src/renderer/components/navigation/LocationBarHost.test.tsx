@@ -89,9 +89,10 @@ describe('LocationBarHost', () => {
     expect(backBtn).not.toBeDisabled();
   });
 
-  it('respects go() bounds - only enables back when canGoBack is true', () => {
-    const mockGo = vi.fn();
-    vi.mocked(navHistory).go.mockImplementation(mockGo);
+  // go()'s own bounds (-99/+99 are no-ops, a valid delta moves and notifies once) are covered
+  // directly against a real MemoryHistory in navHistory.test.ts. This test is the Back button's
+  // reactivity to canGoBack(), which the UI actually renders from.
+  it('Back button disabled state tracks canGoBack() across a rerender', () => {
     vi.mocked(navHistory).entries.mockReturnValue([
       { path: '/', placeKey: 'rosetta-stone', label: 'Rosetta Stone', timestamp: 1000 },
       { path: '/debate', placeKey: 'debate:123', label: 'Debate', timestamp: 2000 },
@@ -111,48 +112,39 @@ describe('LocationBarHost', () => {
     expect(backBtnEnabled).not.toBeDisabled();
   });
 
-  it('AC2: same place navigation early-returns without store update', () => {
-    const mockSetActiveTab = vi.fn();
-    const mockTaxonomyState = { activeTab: 'rosetta-stone', setActiveTab: mockSetActiveTab };
-    vi.mocked(useTaxonomyStore).mockReturnValue(mockTaxonomyState as any);
-
-    render(<LocationBarHost />);
-
-    // Navigating to current place (rosetta-stone) should not call setActiveTab
-    // The handleNavigate early return: if (targetPlaceKey === place.placeKey) return
-  });
-
-  it('breadcrumb navigation calls loadDebate (proper store method)', async () => {
-    const mockLoadDebate = vi.fn().mockResolvedValue(undefined);
-    const mockDebateState = { loadDebate: mockLoadDebate };
-    const mockTaxonomyState = { activeTab: 'debate' };
-
-    vi.mocked(useDebateStore).mockReturnValue(mockDebateState as any);
-    vi.mocked(useTaxonomyStore).mockReturnValue(mockTaxonomyState as any);
-
-    render(<LocationBarHost />);
-
-    // handleNavigate should call loadDebate, not setState with strings
-    // Verified by checking the mock was called with correct ID
-  });
-
-  it('Recent menu shows back/forward buttons when available', async () => {
+  it('Recent menu: clicking a future entry jumps forward by its delta', async () => {
     vi.mocked(navHistory).entries.mockReturnValue([
       { path: '/', placeKey: 'rosetta-stone', label: 'Rosetta Stone', timestamp: 1000 },
       { path: '/chat', placeKey: 'chat:none', label: 'Chat', timestamp: 2000 },
       { path: '/debate', placeKey: 'debate:123', label: 'Debate', timestamp: 3000 },
     ] as any);
-    vi.mocked(navHistory).index.mockReturnValue(1); // at Chat
+    vi.mocked(navHistory).index.mockReturnValue(0); // at Rosetta Stone, index 0
+    vi.mocked(navHistory).canGoBack.mockReturnValue(false);
+    vi.mocked(navHistory).canGoForward.mockReturnValue(true);
+
+    render(<LocationBarHost />);
+    await userEvent.click(screen.getByTitle('Recent navigation'));
+    // "Debate" is entries[2], 2 steps forward of the current index (0).
+    await userEvent.click(screen.getByRole('button', { name: 'Debate →' }));
+
+    expect(navHistory.go).toHaveBeenCalledWith(2);
+  });
+
+  it('Recent menu: clicking a past entry jumps back by its delta', async () => {
+    vi.mocked(navHistory).entries.mockReturnValue([
+      { path: '/', placeKey: 'rosetta-stone', label: 'Rosetta Stone', timestamp: 1000 },
+      { path: '/chat', placeKey: 'chat:none', label: 'Chat', timestamp: 2000 },
+      { path: '/debate', placeKey: 'debate:123', label: 'Debate', timestamp: 3000 },
+    ] as any);
+    vi.mocked(navHistory).index.mockReturnValue(1); // at Chat, index 1
     vi.mocked(navHistory).canGoBack.mockReturnValue(true);
     vi.mocked(navHistory).canGoForward.mockReturnValue(true);
 
     render(<LocationBarHost />);
-    const menuBtn = screen.getByTitle('Recent navigation');
-    await userEvent.click(menuBtn);
+    await userEvent.click(screen.getByTitle('Recent navigation'));
+    // "Rosetta Stone" is entries[0], 1 step back of the current index (1).
+    await userEvent.click(screen.getByRole('button', { name: '← Rosetta Stone' }));
 
-    // Recent menu should show past and future entries
-    // With back (← Rosetta Stone) and forward (Debate →) options
-    const menu = screen.getByText('No history').parentElement?.parentElement;
-    expect(menu).toBeInTheDocument();
+    expect(navHistory.go).toHaveBeenCalledWith(-1);
   });
 });
