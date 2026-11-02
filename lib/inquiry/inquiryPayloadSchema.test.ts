@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { inquiryPayloadSchema, HttpUrlSchema } from './inquiryPayloadSchema.js';
-import { makeValidResult } from './schema.test.js';
+import { makeValidResult } from './__fixtures__/validResult.js';
 
 describe('HttpUrlSchema', () => {
   it('accepts valid HTTP URLs', () => {
