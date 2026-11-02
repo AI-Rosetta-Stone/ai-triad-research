@@ -8,10 +8,12 @@ type NavHistoryListener = (entry: HistoryEntry) => void;
 /**
  * WebHistory — backed by window.history + popstate.
  * Stores state in window.history.state with { v, idx, placeKey, label }.
- * Tooltips use a sessionStorage shadow array for labels.
+ * Full stack stored in sessionStorage['nav_stack'] for entries() and index().
  */
 export class WebHistory implements NavHistory {
   private listeners = new Set<NavHistoryListener>();
+  private static readonly STACK_KEY = 'nav_stack';
+  private static readonly INDEX_KEY = 'nav_index';
 
   constructor() {
     // Listen for browser back/forward (popstate)
@@ -28,37 +30,62 @@ export class WebHistory implements NavHistory {
 
   push(entry: Omit<HistoryEntry, 'timestamp'>): void {
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    const state = { v: 1, idx: (this.current()?.timestamp ?? -1) + 1, placeKey: entry.placeKey, label: entry.label };
+    const stack = this.getStack();
+    const currentIdx = this.getIndex();
+
+    // Discard forward history when pushing from a non-head position
+    stack.splice(currentIdx + 1);
+    stack.push(withTimestamp);
+
+    const newIdx = stack.length - 1;
+    const state = { v: 1, idx: newIdx, placeKey: entry.placeKey, label: entry.label };
 
     window.history.pushState(state, '', entry.path);
-    this.updateLabelShadow(entry.label);
+    this.saveStack(stack);
+    this.saveIndex(newIdx);
     this.listeners.forEach(l => l(withTimestamp));
   }
 
   replace(entry: Omit<HistoryEntry, 'timestamp'>): void {
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    const state = { v: 1, idx: (this.current()?.timestamp ?? -1), placeKey: entry.placeKey, label: entry.label };
+    const stack = this.getStack();
+    const currentIdx = this.getIndex();
+
+    if (currentIdx >= 0) {
+      stack[currentIdx] = withTimestamp;
+    } else {
+      stack.push(withTimestamp);
+    }
+
+    const state = { v: 1, idx: currentIdx >= 0 ? currentIdx : 0, placeKey: entry.placeKey, label: entry.label };
 
     window.history.replaceState(state, '', entry.path);
-    this.updateLabelShadow(entry.label);
+    this.saveStack(stack);
     this.listeners.forEach(l => l(withTimestamp));
   }
 
   back(): void {
     if (this.canGoBack()) {
+      this.saveIndex(this.getIndex() - 1);
       window.history.back();
     }
   }
 
   forward(): void {
     if (this.canGoForward()) {
+      this.saveIndex(this.getIndex() + 1);
       window.history.forward();
     }
   }
 
   go(delta: number): void {
     if (delta !== 0) {
-      window.history.go(delta);
+      const newIdx = this.getIndex() + delta;
+      const stack = this.getStack();
+      if (newIdx >= 0 && newIdx < stack.length) {
+        this.saveIndex(newIdx);
+        window.history.go(delta);
+      }
     }
   }
 
@@ -99,14 +126,11 @@ export class WebHistory implements NavHistory {
   }
 
   entries(): HistoryEntry[] {
-    // Web history doesn't expose the full stack; return current only
-    const current = this.current();
-    return current ? [current] : [];
+    return this.getStack();
   }
 
   index(): number {
-    // Web history doesn't expose index; return 0 for current
-    return 0;
+    return this.getIndex();
   }
 
   subscribe(listener: NavHistoryListener): () => void {
@@ -114,12 +138,33 @@ export class WebHistory implements NavHistory {
     return () => this.listeners.delete(listener);
   }
 
-  private updateLabelShadow(label: string): void {
+  private getStack(): HistoryEntry[] {
     try {
-      const idx = (this.current()?.timestamp ?? -1);
-      const labels = JSON.parse(sessionStorage.getItem('nav_labels') ?? '[]') as string[];
-      labels[idx] = label;
-      sessionStorage.setItem('nav_labels', JSON.stringify(labels));
+      return JSON.parse(sessionStorage.getItem(WebHistory.STACK_KEY) ?? '[]') as HistoryEntry[];
+    } catch {
+      return [];
+    }
+  }
+
+  private saveStack(stack: HistoryEntry[]): void {
+    try {
+      sessionStorage.setItem(WebHistory.STACK_KEY, JSON.stringify(stack));
+    } catch {
+      /* telemetry — silent by design */
+    }
+  }
+
+  private getIndex(): number {
+    try {
+      return parseInt(sessionStorage.getItem(WebHistory.INDEX_KEY) ?? '0', 10) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private saveIndex(idx: number): void {
+    try {
+      sessionStorage.setItem(WebHistory.INDEX_KEY, String(idx));
     } catch {
       /* telemetry — silent by design */
     }
