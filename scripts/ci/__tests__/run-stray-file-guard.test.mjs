@@ -77,9 +77,16 @@ describe('run-stray-file-guard.sh', () => {
 
     run('git', ['-C', cloneDir, 'checkout', 'main']);
     fs.mkdirSync(path.join(cloneDir, 'scripts', 'ci'), { recursive: true });
+    // Real ESM syntax (import/export), matching the real stray-file-guard.mjs -- Sage p/26#362 /
+    // TL p/331#2549: an earlier version of this stub had no import/export, so it ran fine even
+    // when run-stray-file-guard.sh piped it into node via an extensionless mktemp path. Node's
+    // loader only throws ERR_UNKNOWN_FILE_EXTENSION on ESM syntax without a resolvable
+    // extension, so a CommonJS-shaped stub can't catch that regression.
     fs.writeFileSync(
       path.join(cloneDir, 'scripts', 'ci', 'stray-file-guard.mjs'),
-      "process.stdin.resume(); process.stdin.on('end', () => { console.log('guard ran'); process.exit(0); });\n",
+      "import process from 'node:process';\n" +
+      "process.stdin.resume(); process.stdin.on('end', () => { console.log('guard ran'); process.exit(0); });\n" +
+      "export {};\n",
     );
     commitAll(cloneDir, 'add guard script to main');
 
