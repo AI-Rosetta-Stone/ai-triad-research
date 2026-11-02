@@ -651,4 +651,62 @@ describe('LibraryListPage — phone layout (t/4571)', () => {
     fireEvent.keyDown(phoneItem, { key: 'Enter' });
     expect(onOpenMy).toHaveBeenCalledWith('m1');
   });
+
+  it('⋯ actions button appears with aria-label="Actions for <title>" (t/4571, spec item 2)', () => {
+    const { container } = renderPage();
+    const actionsBtn = container.querySelector('.lib-phone-actions-btn') as HTMLButtonElement;
+    expect(actionsBtn).toBeInTheDocument();
+    expect(actionsBtn.textContent).toContain('⋯');
+    expect(actionsBtn).toHaveAttribute('aria-label', 'Actions for Zebra topic');
+  });
+
+  it('⋯ actions menu opens/closes on button click', () => {
+    const { container } = renderPage();
+    const actionsBtn = container.querySelector('.lib-phone-actions-btn') as HTMLButtonElement;
+    expect(container.querySelector('.lib-phone-actions-menu')).not.toBeInTheDocument();
+    fireEvent.click(actionsBtn);
+    expect(container.querySelector('.lib-phone-actions-menu')).toBeInTheDocument();
+    fireEvent.click(actionsBtn);
+    expect(container.querySelector('.lib-phone-actions-menu')).not.toBeInTheDocument();
+  });
+
+  it('⋯ menu exports first format on My tab', () => {
+    const onExportMy = vi.fn();
+    const { container } = renderPage({ onExportMy });
+    const actionsBtn = container.querySelector('.lib-phone-actions-btn') as HTMLButtonElement;
+    fireEvent.click(actionsBtn);
+    const exportItem = screen.getByRole('menuitem', { name: /Export/i });
+    fireEvent.click(exportItem);
+    expect(onExportMy).toHaveBeenCalledWith({ id: 'm1', title: 'Zebra topic', date: '2026-01-02' }, 'markdown');
+  });
+
+  it('⋯ menu shows Share on My tab', () => {
+    const { container } = renderPage();
+    const actionsBtn = container.querySelector('.lib-phone-actions-btn') as HTMLButtonElement;
+    fireEvent.click(actionsBtn);
+    expect(screen.getByRole('menuitem', { name: /Share/i })).toBeInTheDocument();
+  });
+
+  it('sort direction button appears when a sort is active (t/4571, item 2)', () => {
+    const { container } = renderPage({
+      columns: [{ key: 'date', header: 'Date', width: '110px', phone: 'meta', sortable: true, render: (r: Row) => r.date }],
+    });
+    const sortSelect = container.querySelector('.lib-phone-sort') as HTMLSelectElement;
+    expect(container.querySelector('.lib-phone-sort-direction')).not.toBeInTheDocument();
+    fireEvent.change(sortSelect, { target: { value: 'date' } });
+    expect(container.querySelector('.lib-phone-sort-direction')).toBeInTheDocument();
+  });
+
+  it('sort direction button toggles between ascending and descending', () => {
+    const { container } = renderPage({
+      columns: [{ key: 'date', header: 'Date', width: '110px', phone: 'meta', sortable: true, render: (r: Row) => r.date }],
+    });
+    const sortSelect = container.querySelector('.lib-phone-sort') as HTMLSelectElement;
+    fireEvent.change(sortSelect, { target: { value: 'date' } });
+    let dirBtn = container.querySelector('.lib-phone-sort-direction') as HTMLButtonElement;
+    expect(dirBtn.textContent).toContain('▴');
+    fireEvent.click(dirBtn);
+    dirBtn = container.querySelector('.lib-phone-sort-direction') as HTMLButtonElement;
+    expect(dirBtn.textContent).toContain('▾');
+  });
 });
