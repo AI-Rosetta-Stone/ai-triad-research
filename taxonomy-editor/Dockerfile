@@ -7,7 +7,7 @@
 # (see deploy/azure/Dockerfile.base)
 
 # ── Stage 1: Build ──
-FROM node:26.12.1-trixie-slim@sha256:94816674c62774da0d099a947bf4613b9e1972a2733abd0d0cd80e795f8411d0 AS builder
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS builder
 
 WORKDIR /build
 
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 # so onnxEmbedding.ts runs fully offline. Without this, each cold-start downloads
 # from HuggingFace at runtime, hitting the 50s route timeout (t/2784).
 # fp32 is required — quantized output diverges from the stored embeddings.json corpus.
-FROM node:26.12.1-trixie-slim@sha256:94816674c62774da0d099a947bf4613b9e1972a2733abd0d0cd80e795f8411d0 AS onnx-model
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS onnx-model
 # hadolint ignore=DL3008
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -108,7 +108,7 @@ RUN mkdir -p /onnx/all-MiniLM-L6-v2 \
          -o /onnx/all-MiniLM-L6-v2/tokenizer_config.json
 
 # ── Stage 2: Production dependencies (with build tools for native modules) ──
-FROM node:26.12.1-trixie-slim@sha256:94816674c62774da0d099a947bf4613b9e1972a2733abd0d0cd80e795f8411d0 AS prod-deps
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS prod-deps
 
 # node-pty requires make/g++/python3 for compilation when prebuilds
 # are unavailable. The runtime base image is intentionally slim (no
@@ -157,7 +157,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # undici 8.x, which trips the undici major-version invariant if the runtime moves alone).
 # onnxruntime-node and node-pty verified to build and load under Node 26 with real build
 # output before this landed (t/1990#10).
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-10-28@sha256:aea2c6351135e37af25f98d96ba4ed7caf4646339b850979eac919fe63bbadc9 AS runtime
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-01@sha256:b7232d9f48ac773c716f34b1e473abcac2b7f628487ab119962015409608e6da AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"

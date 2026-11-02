@@ -1453,6 +1453,16 @@ jobs:
             -Apps '${{ env.CONTAINER_APP_NAME }}', '${{ env.CONTAINER_APP_NAME }}-staging' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}'
 
+      - name: Staging CLI-only env var drift (warn-only, t/4728 — a prod Bicep apply can silently wipe a CLI override)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./operations/devops/Test-StagingEnvCliDrift.ps1 `
+            -App '${{ env.CONTAINER_APP_NAME }}-staging' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -BicepPath './deploy/azure/main.bicep'
+
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────
   # Set-TaxEditorKnownGood was manual-only and never actually run, consistently, across the org

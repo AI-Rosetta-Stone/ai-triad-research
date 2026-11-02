@@ -600,6 +600,8 @@ type NodeSourceIndexCache = {
 let nodeSourceIndexCache: NodeSourceIndexCache | null = null;
 let nodeSourceIndexGeneration = 0;
 let nodeSourceIndexBuildPromise: Promise<NodeSourceIndexCache> | null = null;
+let nodeSourceIndexBuildStartMs: number | null = null;
+let nodeSourceIndexFirstRequestLogged = false;
 
 async function currentInvalidationSignature(): Promise<string> {
   const summariesDir = resolveDataPath(loadDataConfig().summaries_dir);
@@ -733,6 +735,7 @@ async function getNodeSourceIndexCache(): Promise<NodeSourceIndexCache> {
     if (sig === nodeSourceIndexCache.invalidationSignature) return nodeSourceIndexCache;
   }
   if (!nodeSourceIndexBuildPromise) {
+    nodeSourceIndexBuildStartMs = Date.now();
     nodeSourceIndexBuildPromise = rebuildNodeSourceIndexCache().finally(() => { nodeSourceIndexBuildPromise = null; });
   }
   nodeSourceIndexCache = await nodeSourceIndexBuildPromise;
@@ -772,7 +775,36 @@ export function prewarmNodeSourceIndex(): void {
  * source card per canonical document referenced.
  */
 export async function getNodeSources(nodeId: string): Promise<{ sources: SourceReference[]; cards: Record<string, SourceCardMeta>; indexVersion: number }> {
+  const isBuildInProgress = !!nodeSourceIndexBuildPromise;
+  const buildStartMs = nodeSourceIndexBuildStartMs;
+  const requestStartMs = Date.now();
+
   const cache = await getNodeSourceIndexCache();
+
+  // t/4657: log the first request's wait time on the in-flight cold build.
+  if (!nodeSourceIndexFirstRequestLogged) {
+    nodeSourceIndexFirstRequestLogged = true;
+    const waitedOnBuildMs = isBuildInProgress ? Date.now() - requestStartMs : 0;
+    const msSinceBuildStart = buildStartMs ? requestStartMs - buildStartMs : 0;
+    const buildComplete = cache.summaryReadFailures === 0;
+
+    log.server.info(
+      { waitedOnBuildMs, msSinceBuildStart, buildComplete },
+      'Node source index first request',
+    );
+    if (waitedOnBuildMs > 3000) {
+      log.server.warn(
+        { waitedOnBuildMs, msSinceBuildStart, buildComplete },
+        'Node source index first request: waited over 3s on cold build',
+      );
+    }
+    getGlobalRecorder()?.record({
+      type: 'system.info', component: 'node-source-index', level: 'info',
+      message: 'Node source index first request',
+      data: { waitedOnBuildMs, msSinceBuildStart, buildComplete },
+    });
+  }
+
   const sources = cache.index[nodeId] ?? [];
   const cards: Record<string, SourceCardMeta> = {};
   for (const ref of sources) {
@@ -802,4 +834,6 @@ export function getNodeSourceIndexStatus(): { built: boolean; complete: boolean;
 export function resetNodeSourceIndexCacheForTests(): void {
   nodeSourceIndexCache = null;
   nodeSourceIndexGeneration = 0;
+  nodeSourceIndexBuildStartMs = null;
+  nodeSourceIndexFirstRequestLogged = false;
 }
