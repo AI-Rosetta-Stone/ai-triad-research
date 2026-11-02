@@ -14,6 +14,7 @@ import { useInquiryStore } from './hooks/useInquiryStore';
 import { useAppRoute } from './routing/useAppRoute';
 import { installNavSubscriber } from './navigation/subscriber';
 import { navHistory } from './navigation';
+import { LocationBarHost } from './components/navigation/LocationBarHost';
 import { Toolbar } from './components/shared/Toolbar';
 import { TabBar } from './components/shared/TabBar';
 import { SaveBar } from './components/sync/SaveBar';
@@ -800,6 +801,8 @@ function MainApp() {
       <div className="app-body">
         <Toolbar />
         <div className="tab-content">
+          {/* t/4640 Phase 3: LocationBar breadcrumbs + Recent menu via LocationBarHost */}
+          <LocationBarHost />
           <TabBody activeTab={activeTab} toolbarPanel={toolbarPanel} showPovHeader={showPovHeader}>
             {tabContent}
           </TabBody>

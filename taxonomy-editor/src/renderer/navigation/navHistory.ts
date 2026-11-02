@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { NavHistory, HistoryEntry } from './types';
 
 type NavHistoryListener = (entry: HistoryEntry) => void;
@@ -8,10 +9,12 @@ type NavHistoryListener = (entry: HistoryEntry) => void;
 /**
  * WebHistory — backed by window.history + popstate.
  * Stores state in window.history.state with { v, idx, placeKey, label }.
- * Tooltips use a sessionStorage shadow array for labels.
+ * Full stack stored in sessionStorage['nav_stack'] for entries() and index().
  */
 export class WebHistory implements NavHistory {
   private listeners = new Set<NavHistoryListener>();
+  private static readonly STACK_KEY = 'nav_stack';
+  private static readonly INDEX_KEY = 'nav_index';
 
   constructor() {
     // Listen for browser back/forward (popstate)
@@ -28,31 +31,62 @@ export class WebHistory implements NavHistory {
 
   push(entry: Omit<HistoryEntry, 'timestamp'>): void {
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    const state = { v: 1, idx: (this.current()?.timestamp ?? -1) + 1, placeKey: entry.placeKey, label: entry.label };
+    const stack = this.getStack();
+    const currentIdx = this.getIndex();
+
+    // Discard forward history when pushing from a non-head position
+    stack.splice(currentIdx + 1);
+    stack.push(withTimestamp);
+
+    const newIdx = stack.length - 1;
+    const state = { v: 1, idx: newIdx, placeKey: entry.placeKey, label: entry.label };
 
     window.history.pushState(state, '', entry.path);
-    this.updateLabelShadow(entry.label);
+    this.saveStack(stack);
+    this.saveIndex(newIdx);
     this.listeners.forEach(l => l(withTimestamp));
   }
 
   replace(entry: Omit<HistoryEntry, 'timestamp'>): void {
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    const state = { v: 1, idx: (this.current()?.timestamp ?? -1), placeKey: entry.placeKey, label: entry.label };
+    const stack = this.getStack();
+    const currentIdx = this.getIndex();
+
+    if (currentIdx >= 0) {
+      stack[currentIdx] = withTimestamp;
+    } else {
+      stack.push(withTimestamp);
+    }
+
+    const state = { v: 1, idx: currentIdx >= 0 ? currentIdx : 0, placeKey: entry.placeKey, label: entry.label };
 
     window.history.replaceState(state, '', entry.path);
-    this.updateLabelShadow(entry.label);
+    this.saveStack(stack);
     this.listeners.forEach(l => l(withTimestamp));
   }
 
   back(): void {
     if (this.canGoBack()) {
+      this.saveIndex(this.getIndex() - 1);
       window.history.back();
     }
   }
 
   forward(): void {
     if (this.canGoForward()) {
+      this.saveIndex(this.getIndex() + 1);
       window.history.forward();
+    }
+  }
+
+  go(delta: number): void {
+    if (delta !== 0) {
+      const newIdx = this.getIndex() + delta;
+      const stack = this.getStack();
+      if (newIdx >= 0 && newIdx < stack.length) {
+        this.saveIndex(newIdx);
+        window.history.go(delta);
+      }
     }
   }
 
@@ -92,19 +126,68 @@ export class WebHistory implements NavHistory {
     return null;
   }
 
+  entries(): HistoryEntry[] {
+    return this.getStack();
+  }
+
+  index(): number {
+    return this.getIndex();
+  }
+
   subscribe(listener: NavHistoryListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  private updateLabelShadow(label: string): void {
+  // t/4640#28: a failed sessionStorage read/write degrades the Recent menu to the current entry
+  // only — each catch records a WARN so the degradation is visible, never silent.
+  private getStack(): HistoryEntry[] {
     try {
-      const idx = (this.current()?.timestamp ?? -1);
-      const labels = JSON.parse(sessionStorage.getItem('nav_labels') ?? '[]') as string[];
-      labels[idx] = label;
-      sessionStorage.setItem('nav_labels', JSON.stringify(labels));
-    } catch {
-      /* telemetry — silent by design */
+      return JSON.parse(sessionStorage.getItem(WebHistory.STACK_KEY) ?? '[]') as HistoryEntry[];
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: reading the history mirror failed — Recent menu falls back to the current entry',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
+      return [];
+    }
+  }
+
+  private saveStack(stack: HistoryEntry[]): void {
+    try {
+      sessionStorage.setItem(WebHistory.STACK_KEY, JSON.stringify(stack));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: writing the history mirror failed — Recent menu may be incomplete',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
+    }
+  }
+
+  private getIndex(): number {
+    try {
+      return parseInt(sessionStorage.getItem(WebHistory.INDEX_KEY) ?? '0', 10) || 0;
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: reading the history index failed — using 0',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
+      return 0;
+    }
+  }
+
+  private saveIndex(idx: number): void {
+    try {
+      sessionStorage.setItem(WebHistory.INDEX_KEY, String(idx));
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: writing the history index failed — Recent menu may be off by one',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
     }
   }
 }
@@ -114,17 +197,17 @@ export class WebHistory implements NavHistory {
  * Stores history in renderer memory; no main-process involvement.
  */
 export class MemoryHistory implements NavHistory {
-  private entries: HistoryEntry[] = [];
+  private stack: HistoryEntry[] = [];
   private currentIndex = -1;
   private listeners = new Set<NavHistoryListener>();
 
   push(entry: Omit<HistoryEntry, 'timestamp'>): void {
     // Discard forward history when pushing from a non-head position
-    this.entries = this.entries.slice(0, this.currentIndex + 1);
+    this.stack = this.stack.slice(0, this.currentIndex + 1);
 
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    this.entries.push(withTimestamp);
-    this.currentIndex = this.entries.length - 1;
+    this.stack.push(withTimestamp);
+    this.currentIndex = this.stack.length - 1;
 
     this.listeners.forEach(l => l(withTimestamp));
   }
@@ -137,7 +220,7 @@ export class MemoryHistory implements NavHistory {
     }
 
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    this.entries[this.currentIndex] = withTimestamp;
+    this.stack[this.currentIndex] = withTimestamp;
 
     this.listeners.forEach(l => l(withTimestamp));
   }
@@ -145,7 +228,7 @@ export class MemoryHistory implements NavHistory {
   back(): void {
     if (this.canGoBack()) {
       this.currentIndex--;
-      const entry = this.entries[this.currentIndex];
+      const entry = this.stack[this.currentIndex];
       if (entry) {
         this.listeners.forEach(l => l(entry));
       }
@@ -155,7 +238,18 @@ export class MemoryHistory implements NavHistory {
   forward(): void {
     if (this.canGoForward()) {
       this.currentIndex++;
-      const entry = this.entries[this.currentIndex];
+      const entry = this.stack[this.currentIndex];
+      if (entry) {
+        this.listeners.forEach(l => l(entry));
+      }
+    }
+  }
+
+  go(delta: number): void {
+    const newIndex = this.currentIndex + delta;
+    if (newIndex >= 0 && newIndex < this.stack.length) {
+      this.currentIndex = newIndex;
+      const entry = this.stack[this.currentIndex];
       if (entry) {
         this.listeners.forEach(l => l(entry));
       }
@@ -167,25 +261,33 @@ export class MemoryHistory implements NavHistory {
   }
 
   canGoForward(): boolean {
-    return this.currentIndex < this.entries.length - 1;
+    return this.currentIndex < this.stack.length - 1;
   }
 
   current(): HistoryEntry | null {
-    return this.currentIndex >= 0 ? this.entries[this.currentIndex] ?? null : null;
+    return this.currentIndex >= 0 ? this.stack[this.currentIndex] ?? null : null;
   }
 
   peekBack(): HistoryEntry | null {
     if (this.currentIndex > 0) {
-      return this.entries[this.currentIndex - 1] ?? null;
+      return this.stack[this.currentIndex - 1] ?? null;
     }
     return null;
   }
 
   peekForward(): HistoryEntry | null {
-    if (this.currentIndex < this.entries.length - 1) {
-      return this.entries[this.currentIndex + 1] ?? null;
+    if (this.currentIndex < this.stack.length - 1) {
+      return this.stack[this.currentIndex + 1] ?? null;
     }
     return null;
+  }
+
+  entries(): HistoryEntry[] {
+    return [...this.stack];
+  }
+
+  index(): number {
+    return this.currentIndex;
   }
 
   subscribe(listener: NavHistoryListener): () => void {

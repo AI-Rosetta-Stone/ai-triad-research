@@ -88,6 +88,22 @@ describe('installNavSubscriber blockers', () => {
     expect(history.canGoBack()).toBe(true);
   });
 
+  it('AC2: a POV tab switch on the same selected node replaces, adding no new history entry', () => {
+    taxonomy.state = { ...taxonomy.state, activeTab: 'accelerationist', selectedNodeId: 'node-1' } as unknown as TaxonomyStore;
+    installNavSubscriber({ taxonomy, chat }, history);
+    expect(history.entries()).toHaveLength(1);
+    expect(history.current()?.placeKey).toBe('taxonomy:node-1');
+
+    // Same node, different POV tab — placeOf() keys taxonomy places off the node id, not the
+    // POV tab, so this must replace (same entry count), not push (t/4640 AC2).
+    taxonomy.state = { ...taxonomy.state, activeTab: 'safetyist' } as unknown as TaxonomyStore;
+    taxonomy.notify();
+
+    expect(history.entries()).toHaveLength(1);
+    expect(history.current()?.path).toBe('/taxonomy/saf?node=node-1');
+    expect(history.canGoBack()).toBe(false);
+  });
+
   it('the returned function unsubscribes from every store', () => {
     const unsubscribe = installNavSubscriber({ taxonomy, chat }, history);
     unsubscribe();

@@ -99,6 +99,33 @@ describe('MemoryHistory', () => {
     });
   });
 
+  describe('go(delta) bounds', () => {
+    it('clamps out-of-range deltas to no-ops and moves + notifies once for a valid delta', () => {
+      const history = new MemoryHistory();
+      const calls: string[] = [];
+      history.subscribe((entry) => calls.push(entry.placeKey));
+
+      history.push({ path: '/a', placeKey: 'a', label: 'A' });
+      history.push({ path: '/b', placeKey: 'b', label: 'B' });
+      history.push({ path: '/c', placeKey: 'c', label: 'C' });
+      expect(history.index()).toBe(2);
+      calls.length = 0; // clear push notifications, isolate go()
+
+      history.go(-99);
+      expect(history.index()).toBe(2);
+      expect(calls).toEqual([]);
+
+      history.go(99);
+      expect(history.index()).toBe(2);
+      expect(calls).toEqual([]);
+
+      history.go(-1);
+      expect(history.index()).toBe(1);
+      expect(history.current()?.placeKey).toBe('b');
+      expect(calls).toEqual(['b']);
+    });
+  });
+
   describe('subscribe and unsubscribe', () => {
     it('notifies subscribers on push/replace/back/forward', () => {
       const history = new MemoryHistory();

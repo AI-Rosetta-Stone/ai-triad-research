@@ -14,11 +14,14 @@ export interface NavHistory {
   replace(entry: Omit<HistoryEntry, 'timestamp'>): void;
   back(): void;
   forward(): void;
+  go(delta: number): void;
   canGoBack(): boolean;
   canGoForward(): boolean;
   current(): HistoryEntry | null;
   peekBack(): HistoryEntry | null;
   peekForward(): HistoryEntry | null;
+  entries(): HistoryEntry[];
+  index(): number;
   subscribe(listener: (entry: HistoryEntry) => void): () => void;
 }
 

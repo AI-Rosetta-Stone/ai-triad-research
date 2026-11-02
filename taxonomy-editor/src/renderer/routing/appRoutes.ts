@@ -13,6 +13,7 @@
 import { isElectronMode } from '@bridge';
 import { useTaxonomyStore } from '../hooks/useTaxonomyStore';
 import { useOpEdStore } from '../hooks/useOpEdStore';
+import { useDebateStore } from '../hooks/useDebateStore';
 
 export interface AppRoute {
   /** Unique id for logging/debugging — not part of the URL. */
@@ -23,10 +24,26 @@ export interface AppRoute {
   restore(params: Record<string, string>, query: URLSearchParams): void;
 }
 
+const DEBATE_PATH_RE = /^\/debate\/?$/;
 const OPED_PATH_RE = /^\/opeds\/([^/]+)\/?$/;
 
 /**
- * `/opeds/:setId?pov=acc|saf|skp` — the first registered route. Restoring only opens
+ * `/debate` — navigate to Debate tab. Can optionally open a specific debate via
+ * sessionStorage state, but basic restore just shows the Debate tab.
+ */
+export const DEBATE_ROUTE: AppRoute = {
+  id: 'debate',
+  match(pathname) {
+    return DEBATE_PATH_RE.test(pathname) ? {} : null;
+  },
+  restore() {
+    useTaxonomyStore.getState().setActiveTab('debate');
+    // Specific debate ID (if any) would be in sessionStorage from a prior session
+  },
+};
+
+/**
+ * `/opeds/:setId?pov=acc|saf|skp` — the op-eds route. Restoring only opens
  * "my" sets for now (t/3486#4): the URL shape doesn't distinguish source yet, and
  * community op-ed addressing has its own id-mismatch history (t/3426). A community
  * deep link 404s into "not found" today — a deliberate MVP scope cut, not silent.
@@ -43,7 +60,7 @@ export const OPED_ROUTE: AppRoute = {
   },
 };
 
-export const APP_ROUTES: AppRoute[] = [OPED_ROUTE];
+export const APP_ROUTES: AppRoute[] = [DEBATE_ROUTE, OPED_ROUTE];
 
 export function findRoute(url: string): { route: AppRoute; params: Record<string, string> } | null {
   // Strip query string before matching (e.g., /opeds/set-1?pov=acc → /opeds/set-1)
