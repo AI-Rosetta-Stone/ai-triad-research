@@ -16,7 +16,10 @@ import { useDebateStore } from '../../hooks/useDebateStore';
 import { useChatStore } from '../../hooks/useChatStore';
 import { useOpEdStore } from '../../hooks/useOpEdStore';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
+// Auto-mocked: returns undefined (not 'phone') unless a test says otherwise.
+vi.mock('../../hooks/useBreakpoint');
 vi.mock('../../hooks/useTaxonomyStore');
 vi.mock('../../hooks/useDebateStore');
 vi.mock('../../hooks/useChatStore');
@@ -205,6 +208,42 @@ describe('crumbs per place (§ Breadcrumb table)', () => {
     render(<LocationBarHost />);
     await userEvent.click(screen.getByRole('link', { name: 'Chat' }));
     expect(goToPath).toHaveBeenCalledWith('/chat');
+  });
+});
+
+describe('phone up (§ Phone "up")', () => {
+  beforeEach(() => {
+    vi.mocked(useBreakpoint).mockReturnValue('phone');
+  });
+
+  it('a deep-linked item at phone width: ← is enabled as "Up to Chat" and goes to the collection', async () => {
+    stores({ activeTab: 'chat' }, { chat: { activeChat: { id: 'c1', topic: 'Compute caps' } } });
+    historyAt([entry('/chat/c1', 'chat:c1', 'Compute caps')], 0);
+    render(<LocationBarHost />);
+
+    const up = screen.getByRole('button', { name: 'Up to Chat' });
+    expect(up).toBeEnabled();
+    expect(up).toHaveAttribute('title', 'Up to Chat');
+    expect(up).not.toHaveAttribute('aria-keyshortcuts');
+    await userEvent.click(up);
+    expect(goToPath).toHaveBeenCalledWith('/chat');
+    expect(navHistory.back).not.toHaveBeenCalled();
+  });
+
+  it('with history to go back to, ← stays plain Back even at phone width', async () => {
+    stores({ activeTab: 'chat' }, { chat: { activeChat: { id: 'c1', topic: 'Compute caps' } } });
+    historyAt([STACK[1], entry('/chat/c1', 'chat:c1', 'Compute caps')], 1);
+    render(<LocationBarHost />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back to Chat' }));
+    expect(navHistory.back).toHaveBeenCalledTimes(1);
+    expect(goToPath).not.toHaveBeenCalled();
+  });
+
+  it('on a collection (no linked ancestor) with no history, ← is a disabled plain Back', () => {
+    stores({ activeTab: 'debate' });
+    render(<LocationBarHost />);
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
   });
 });
 
