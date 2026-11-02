@@ -802,12 +802,15 @@ function MainApp() {
       </div>
       <div className="app-body">
         <Toolbar />
-        <div className="tab-content">
-          {/* t/4640 Phase 3: LocationBar breadcrumbs + Recent menu via LocationBarHost */}
+        {/* t/4640: column wrapper puts the LocationBar above .tab-content (a row flexbox),
+            not beside it as a narrow left column. */}
+        <div className="tab-column">
           <LocationBarHost />
-          <TabBody activeTab={activeTab} toolbarPanel={toolbarPanel} showPovHeader={showPovHeader}>
-            {tabContent}
-          </TabBody>
+          <div className="tab-content">
+            <TabBody activeTab={activeTab} toolbarPanel={toolbarPanel} showPovHeader={showPovHeader}>
+              {tabContent}
+            </TabBody>
+          </div>
         </div>
         {/* One app-level ref → DetailPane host for every main tab in this shell (t/1987).
             A ref-link click in PovTab/Situations/Conflicts/Cruxes/Debate sets the global

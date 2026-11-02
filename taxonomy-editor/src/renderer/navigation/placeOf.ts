@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import type { PlaceInfo } from './types';
+import type { Crumb, PlaceInfo, PlaceTool } from './types';
 import type { TaxonomyStore } from '../hooks/useTaxonomyStore';
 
 // Lazy imports to avoid circular dependencies
@@ -21,72 +21,45 @@ export interface AppState {
 
 type PlaceResolver = (state: AppState) => PlaceInfo;
 
-const POV_MAP: Record<string, string> = {
-  'accelerationist': 'acc',
-  'safetyist': 'saf',
-  'skeptic': 'skp',
-  'situations': 'sit',
+/**
+ * Build a place. `label` is always the last crumb's text, so the bar, the Back tooltip and the
+ * Recent menu can never disagree, and an id can't leak into one but not the others.
+ */
+function place(tool: PlaceTool, path: string, placeKey: string, crumbs: Crumb[]): PlaceInfo {
+  return { tool, path, placeKey, label: crumbs[crumbs.length - 1].text, crumbs };
+}
+
+/**
+ * A tool with a collection and items (§ Breadcrumb table): `Tool` alone on the collection;
+ * `Tool › title` on an item, where the tool crumb links up to the collection. While the item's
+ * title is still loading (no title), only the tool crumb shows — never its id.
+ */
+function collectionPlace(tool: PlaceTool, toolName: string, collectionPath: string, item: { id: string; title?: string | null } | null): PlaceInfo {
+  if (!item) return place(tool, collectionPath, `${tool}:none`, [{ text: toolName }]);
+  const crumbs: Crumb[] = [{ text: toolName, href: collectionPath }];
+  if (item.title) crumbs.push({ text: item.title });
+  return place(tool, `${collectionPath}/${encodeURIComponent(item.id)}`, `${tool}:${item.id}`, crumbs);
+}
+
+const CAMPS: Record<string, { pov: string; name: string; camp?: Crumb['camp'] }> = {
+  accelerationist: { pov: 'acc', name: 'Accelerationist', camp: 'acc' },
+  safetyist: { pov: 'saf', name: 'Safetyist', camp: 'saf' },
+  skeptic: { pov: 'skp', name: 'Skeptic', camp: 'skp' },
+  situations: { pov: 'sit', name: 'Situations' },
 };
 
 const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
-  'rosetta-stone': () => ({
-    path: '/',
-    placeKey: 'rosetta-stone',
-    label: 'Rosetta Stone',
-    crumbs: [{ label: 'Rosetta Stone', placeKey: 'rosetta-stone' }],
-  }),
+  'rosetta-stone': () => place('rosetta-stone', '/', 'rosetta-stone', [{ text: 'Rosetta Stone' }]),
 
   'chat': (state) => {
-    const openChat = state.chatStore?.activeChat;
-    if (!openChat) {
-      return {
-        path: '/chat',
-        placeKey: 'chat:none',
-        label: 'Chat',
-        crumbs: [
-          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-          { label: 'Chat', placeKey: 'chat:none' },
-        ],
-      };
-    }
-    return {
-      path: `/chat/${openChat.id}`,
-      placeKey: `chat:${openChat.id}`,
-      label: openChat.topic || 'Chat',
-      crumbs: [
-        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-        { label: 'Chat', placeKey: 'chat:none' },
-        { label: openChat.topic || 'Chat', placeKey: `chat:${openChat.id}` },
-      ],
-    };
+    const chat = state.chatStore?.activeChat;
+    return collectionPlace('chat', 'Chat', '/chat', chat ? { id: chat.id, title: chat.topic } : null);
   },
 
   'opeds': (state) => {
     const store = state.opEdStore;
-    const openSet = store?.selectedSetId ?
-      store.sets.find(s => s.set_id === store.selectedSetId) :
-      null;
-    if (!openSet) {
-      return {
-        path: '/opeds',
-        placeKey: 'opeds:none',
-        label: 'Op-Ed Studies',
-        crumbs: [
-          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-          { label: 'Op-Ed Studies', placeKey: 'opeds:none' },
-        ],
-      };
-    }
-    return {
-      path: `/opeds/${encodeURIComponent(openSet.set_id)}`,
-      placeKey: `opeds:${openSet.set_id}`,
-      label: openSet.topic || 'Op-Ed',
-      crumbs: [
-        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-        { label: 'Op-Ed Studies', placeKey: 'opeds:none' },
-        { label: openSet.topic || 'Op-Ed', placeKey: `opeds:${openSet.set_id}` },
-      ],
-    };
+    const openSet = store?.selectedSetId ? store.sets.find(s => s.set_id === store.selectedSetId) : null;
+    return collectionPlace('opeds', 'Op-Ed Studies', '/opeds', openSet ? { id: openSet.set_id, title: openSet.topic } : null);
   },
 
   'inquiry': (state) => {
@@ -94,141 +67,63 @@ const PLACE_RESOLVERS: Record<string, PlaceResolver> = {
     // and `jobId` identifies it.
     const store = state.inquiryStore;
     const openId = store?.result ? store.jobId : null;
-    if (!openId) {
-      return {
-        path: '/inquiry',
-        placeKey: 'inquiry:none',
-        label: 'Ask a Question',
-        crumbs: [
-          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-          { label: 'Ask a Question', placeKey: 'inquiry:none' },
-        ],
-      };
-    }
-    return {
-      path: `/inquiry/${openId}`,
-      placeKey: `inquiry:${openId}`,
-      label: store?.result?.request.question || 'Ask a Question',
-      crumbs: [
-        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-        { label: 'Ask a Question', placeKey: 'inquiry:none' },
-        { label: store?.result?.request.question || 'Answer', placeKey: `inquiry:${openId}` },
-      ],
-    };
+    return collectionPlace('inquiry', 'Ask a Question', '/inquiry',
+      openId ? { id: openId, title: store?.result?.request.question } : null);
   },
 
   'debate': (state) => {
-    const openDebate = state.debateStore?.activeDebate;
-    if (!openDebate) {
-      return {
-        path: '/debate',
-        placeKey: 'debate:none',
-        label: 'Debate',
-        crumbs: [
-          { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-          { label: 'Debate', placeKey: 'debate:none' },
-        ],
-      };
-    }
-    const topicLabel = openDebate.topic.final || openDebate.topic.original || 'Debate';
-    return {
-      path: `/debate/${openDebate.id}`,
-      placeKey: `debate:${openDebate.id}`,
-      label: topicLabel,
-      crumbs: [
-        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-        { label: 'Debate', placeKey: 'debate:none' },
-        { label: topicLabel, placeKey: `debate:${openDebate.id}` },
-      ],
-    };
+    const debate = state.debateStore?.activeDebate;
+    return collectionPlace('debate', 'Debate', '/debate',
+      debate ? { id: debate.id, title: debate.topic.final || debate.topic.original } : null);
   },
 
-  'accelerationist': (state) => resolveTaxonomy('accelerationist', state.taxonomyStore.selectedNodeId),
-  'safetyist': (state) => resolveTaxonomy('safetyist', state.taxonomyStore.selectedNodeId),
-  'skeptic': (state) => resolveTaxonomy('skeptic', state.taxonomyStore.selectedNodeId),
-  'situations': (state) => resolveTaxonomy('situations', state.taxonomyStore.selectedNodeId),
+  'accelerationist': (state) => resolveTaxonomy('accelerationist', state.taxonomyStore),
+  'safetyist': (state) => resolveTaxonomy('safetyist', state.taxonomyStore),
+  'skeptic': (state) => resolveTaxonomy('skeptic', state.taxonomyStore),
+  'situations': (state) => resolveTaxonomy('situations', state.taxonomyStore),
 
   'conflicts': (state) => {
-    const nodeId = state.taxonomyStore.selectedNodeId;
-    return {
-      path: nodeId ? `/conflicts?claim=${nodeId}` : '/conflicts',
-      placeKey: `conflicts:${nodeId ?? 'none'}`,
-      label: nodeId ? `Conflict: ${nodeId}` : 'Conflicts',
-      crumbs: [
-        { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-        { label: 'Conflicts', placeKey: 'conflicts:none' },
-        ...(nodeId ? [{ label: `Claim: ${nodeId}`, placeKey: `conflicts:${nodeId}` }] : []),
-      ],
-    };
+    const claimId = state.taxonomyStore.selectedNodeId;
+    if (!claimId) return place('conflicts', '/conflicts', 'conflicts:none', [{ text: 'Conflicts' }]);
+    const claimLabel = state.taxonomyStore.conflicts?.find(c => c.claim_id === claimId)?.claim_label;
+    const crumbs: Crumb[] = [{ text: 'Conflicts', href: '/conflicts' }];
+    if (claimLabel) crumbs.push({ text: claimLabel });
+    return place('conflicts', `/conflicts?claim=${encodeURIComponent(claimId)}`, `conflicts:${claimId}`, crumbs);
   },
 
-  'cruxes': () => ({
-    path: '/cruxes',
-    placeKey: 'cruxes:none',
-    label: 'Cruxes',
-    crumbs: [
-      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-      { label: 'Cruxes', placeKey: 'cruxes:none' },
-    ],
-  }),
-
-  'summaries': () => ({
-    path: '/summaries',
-    placeKey: 'summaries:none',
-    label: 'Summaries',
-    crumbs: [
-      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-      { label: 'Summaries', placeKey: 'summaries:none' },
-    ],
-  }),
-
-  'validation': () => ({
-    path: '/validation',
-    placeKey: 'validation:none',
-    label: 'Validation',
-    crumbs: [
-      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-      { label: 'Validation', placeKey: 'validation:none' },
-    ],
-  }),
-
-  'organizations': () => ({
-    path: '/organizations',
-    placeKey: 'organizations:none',
-    label: 'Organizations',
-    crumbs: [
-      { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-      { label: 'Organizations', placeKey: 'organizations:none' },
-    ],
-  }),
+  'cruxes': () => place('cruxes', '/cruxes', 'cruxes:none', [{ text: 'Cruxes' }]),
+  'summaries': () => place('summaries', '/summaries', 'summaries:none', [{ text: 'Summaries' }]),
+  'validation': () => place('validation', '/validation', 'validation:none', [{ text: 'Validation' }]),
+  'organizations': () => place('organizations', '/organizations', 'organizations:none', [{ text: 'Organizations' }]),
 };
 
-function resolveTaxonomy(tab: string, nodeId: string | null): PlaceInfo {
-  const pov = POV_MAP[tab];
-  const crumbs = [
-    { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-    { label: tab.charAt(0).toUpperCase() + tab.slice(1), placeKey: `taxonomy:none` },
-  ];
-  if (nodeId) {
-    crumbs.push({ label: nodeId, placeKey: `taxonomy:${nodeId}` });
-  }
-  return {
-    path: nodeId ? `/taxonomy/${pov}?node=${nodeId}` : `/taxonomy/${pov}`,
-    placeKey: `taxonomy:${nodeId ?? 'none'}`,
-    label: nodeId ? `Taxonomy: ${nodeId}` : `Taxonomy (${tab})`,
-    crumbs,
-  };
+/**
+ * `Taxonomy › ● Camp` and, with a node selected, `› node label`. "Taxonomy" is never a link (it
+ * has no collection); the camp links up to the camp with no node selected.
+ */
+function resolveTaxonomy(tab: string, store: TaxonomyStore): PlaceInfo {
+  const { pov, name, camp } = CAMPS[tab];
+  const nodeId = store.selectedNodeId;
+  const campPath = `/taxonomy/${pov}`;
+  const campCrumb: Crumb = camp ? { text: name, camp } : { text: name };
+  if (!nodeId) return place('taxonomy', campPath, 'taxonomy:none', [{ text: 'Taxonomy' }, campCrumb]);
+
+  const file = (store as unknown as Record<string, { nodes?: Array<{ id: string; label?: string }> } | null | undefined>)[tab];
+  const nodeLabel = file?.nodes?.find(n => n.id === nodeId)?.label;
+  const crumbs: Crumb[] = [{ text: 'Taxonomy' }, { ...campCrumb, href: campPath }];
+  if (nodeLabel) crumbs.push({ text: nodeLabel });
+  return place('taxonomy', `${campPath}?node=${encodeURIComponent(nodeId)}`, `taxonomy:${nodeId}`, crumbs);
 }
 
 /**
  * Serializes the current app state into a "place" — a unique location in the app
- * that the user would recognize as "I am on X". Returns path, placeKey, and label.
+ * that the user would recognize as "I am on X". Returns path, placeKey, label, tool and crumbs.
  *
  * placeKey is a unique identifier for the place (e.g., 'debate:debate-123', 'chat:conv-42').
  * Different placeKeys always push history; same placeKey with different path replaces.
  *
  * Per-tool open items are keyed off each tool's store (debateStore.activeDebate,
- * chatStore.activeChat, opEdStore.selectedSetId, inquiryStore.activeInquiry),
+ * chatStore.activeChat, opEdStore.selectedSetId, inquiryStore.result/jobId),
  * NOT off the taxonomy's selectedNodeId.
  */
 export function placeOf(state: AppState): PlaceInfo {

@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { ArrowLeft, ArrowRight, ChevronDown } from 'lucide-react';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useChatStore } from '../../hooks/useChatStore';
@@ -10,32 +10,172 @@ import { useOpEdStore } from '../../hooks/useOpEdStore';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { placeOf } from '../../navigation/placeOf';
 import { navHistory } from '../../navigation';
+import { goToPath } from '../../navigation/restore';
+import type { Crumb, HistoryEntry } from '../../navigation/types';
 import { isRunning, subscribeRunning, type RunningToolId } from '../../navigation/runningSignal';
 import { LocationBar } from './LocationBar';
 import './LocationBarHost.css';
 
+const isElectron = import.meta.env.VITE_TARGET !== 'web';
+const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+const RECENT_MAX = 15;
+const LABEL_MAX = 60;
+
+const TOOL_NAMES: Record<string, string> = {
+  'rosetta-stone': 'Rosetta Stone', chat: 'Chat', opeds: 'Op-Ed Studies', inquiry: 'Ask a Question',
+  debate: 'Debate', taxonomy: 'Taxonomy', conflicts: 'Conflicts', cruxes: 'Cruxes',
+  summaries: 'Summaries', validation: 'Validation', organizations: 'Organizations',
+};
+
+const CAMP_CRUMBS: Record<string, Crumb> = {
+  acc: { text: 'Accelerationist', camp: 'acc' },
+  saf: { text: 'Safetyist', camp: 'saf' },
+  skp: { text: 'Skeptic', camp: 'skp' },
+};
+
+// t/4689: "Running…" for a Recent entry whose place has a run finishing elsewhere.
+const RUNNING_TOOLS: ReadonlySet<string> = new Set<RunningToolId>(['chat', 'debate']);
+function entryIsRunning(placeKey: string): boolean {
+  const [tool, itemId] = placeKey.split(':');
+  if (!tool || !itemId || !RUNNING_TOOLS.has(tool)) return false;
+  return isRunning(tool as RunningToolId, itemId);
+}
+
+const truncate = (s: string) => (s.length > LABEL_MAX ? `${s.slice(0, LABEL_MAX - 1)}…` : s);
+
+/** "Back to {label}" / "Forward to {label}", or plain "Back" / "Forward" with no destination. */
+function historyButtonName(verb: 'Back' | 'Forward', dest: HistoryEntry | undefined): string {
+  return dest?.label ? `${verb} to ${truncate(dest.label)}` : verb;
+}
+
+function toolNameOf(placeKey: string): string {
+  const tool = placeKey.startsWith('taxonomy:') ? 'taxonomy' : placeKey.split(':')[0];
+  return TOOL_NAMES[tool] ?? '';
+}
+
+interface RecentMenuProps {
+  entries: HistoryEntry[];
+  index: number;
+  /** Jump to stack index `i` — one go(delta), never a replay. */
+  onJump: (i: number) => void;
+}
+
 /**
- * LocationBarHost wraps LocationBar and Recent menu to avoid re-rendering MainApp
- * when store state changes. All store hooks are local to this component.
- *
- * Navigation flow:
- * 1. Breadcrumb click → call loadDebate/Chat/etc
- * 2. Store state updates → subscriber detects place change → push/replace to history
- * 3. No manual navHistory.push() in handlers
+ * ▾ Recent locations (§ ▾ Recent locations menu): the stack newest first, at most 15 (web: only
+ * entries with a label), the current one marked. Opening focuses the current entry; ↑/↓ and
+ * Home/End move; Esc closes and refocuses ▾; Tab or a click outside closes.
+ */
+function RecentMenu({ entries, index, onJump }: RecentMenuProps) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const recent = entries
+    .map((entry, i) => ({ entry, i }))
+    .filter(({ entry }) => entry.label)
+    .reverse()
+    .slice(0, RECENT_MAX);
+  const disabled = !recent.some(({ i }) => i !== index);
+
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) buttonRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) close(false);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const focus = (n: number) => { e.preventDefault(); items[(n + items.length) % items.length]?.focus(); };
+    switch (e.key) {
+      case 'ArrowDown': focus(at + 1); break;
+      case 'ArrowUp': focus(at - 1); break;
+      case 'Home': focus(0); break;
+      case 'End': focus(items.length - 1); break;
+      case 'Escape': e.preventDefault(); close(true); break;
+      case 'Tab': close(false); break;
+    }
+  };
+
+  const pick = (i: number) => {
+    close(true);
+    if (i !== index) onJump(i);
+  };
+
+  return (
+    <div className="nav-locbar-recent-wrap">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="nav-locbar-btn nav-locbar-recent-btn"
+        onClick={() => setOpen(o => !o)}
+        disabled={disabled}
+        aria-disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Recent locations"
+        title="Recent locations"
+      >
+        <ChevronDown aria-hidden="true" />
+      </button>
+      {open && (
+        <div ref={menuRef} className="nav-locbar-menu" role="menu" aria-label="Recent locations" onKeyDown={handleKeyDown}>
+          {recent.map(({ entry, i }) => {
+            const isCurrent = i === index;
+            const running = entryIsRunning(entry.placeKey);
+            const toolName = toolNameOf(entry.placeKey);
+            const side = running ? 'Running…' : (toolName !== entry.label ? toolName : '');
+            return (
+              <button
+                key={i}
+                type="button"
+                role="menuitem"
+                className={`nav-locbar-menu-item${isCurrent ? ' nav-locbar-menu-current' : ''}`}
+                aria-current={isCurrent ? 'page' : undefined}
+                aria-label={`${entry.label}${isCurrent ? ', you are here' : ''}${running ? ', running' : ''}`}
+                onClick={() => pick(i)}
+              >
+                <span className="nav-locbar-menu-label">{entry.label}</span>
+                {isCurrent && <span className="nav-locbar-menu-here"> · you are here</span>}
+                {side && <span className="nav-locbar-menu-tool">{side}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The location bar (t/4640; docs/ux/navigation-location-bar.md): ← (→ in Electron) ▾ and the
+ * breadcrumb, as the first row of the main content column. Store hooks live here, not in
+ * MainApp, so a store change re-renders the bar and not the app shell.
  */
 export function LocationBarHost() {
-  const [recentMenu, setRecentMenu] = useState(false);
-  const [recentEntries, setRecentEntries] = useState<Array<{ label: string; delta: number; index: number }>>([]);
-  const recentRef = useRef<HTMLDivElement>(null);
+  const [, setHistoryVersion] = useState(0);
+  const [announcement, setAnnouncement] = useState('');
+  const announceNext = useRef(false);
 
-  // All store hooks here (not in MainApp) to avoid app-wide re-renders
   const taxonomyState = useTaxonomyStore();
   const debateState = useDebateStore();
   const chatState = useChatStore();
   const opEdState = useOpEdStore();
   const inquiryState = useInquiryStore();
-
-  // Compute current place from all store states
   const place = placeOf({
     taxonomyStore: taxonomyState,
     debateStore: debateState,
@@ -45,174 +185,72 @@ export function LocationBarHost() {
     activeTab: taxonomyState.activeTab,
   });
 
-  // t/4689: "Running…" suffix for a Recent entry whose place has a run finishing elsewhere.
-  const RUNNING_TOOLS: ReadonlySet<string> = new Set<RunningToolId>(['chat', 'debate']);
-  const entryIsRunning = (placeKey: string): boolean => {
-    const [tool, itemId] = placeKey.split(':');
-    if (!tool || !itemId || !RUNNING_TOOLS.has(tool)) return false;
-    return isRunning(tool as RunningToolId, itemId);
-  };
-
-  // Update recent menu with actual history entries
-  const updateRecentEntries = () => {
-    const allEntries = navHistory.entries();
-    const currentIndex = navHistory.index();
-    const entries: Array<{ label: string; delta: number; index: number }> = [];
-
-    // Show past entries (back navigation)
-    for (let i = currentIndex - 1; i >= 0; i--) {
-      const entry = allEntries[i];
-      if (entry) {
-        const running = entryIsRunning(entry.placeKey) ? ' (Running…)' : '';
-        entries.push({ label: `← ${entry.label}${running}`, delta: i - currentIndex, index: i });
-      }
+  // Re-render on every history change (buttons, Recent, the op-ed camp crumb), and announce the
+  // new place after a Back / Forward / Recent / up navigation (§ Announcements).
+  useEffect(() => navHistory.subscribe((entry) => {
+    setHistoryVersion(v => v + 1);
+    if (announceNext.current) {
+      announceNext.current = false;
+      setAnnouncement(entry.label);
     }
+  }), []);
+  useEffect(() => subscribeRunning(() => setHistoryVersion(v => v + 1)), []);
 
-    // Show future entries (forward navigation)
-    for (let i = currentIndex + 1; i < allEntries.length; i++) {
-      const entry = allEntries[i];
-      if (entry) {
-        const running = entryIsRunning(entry.placeKey) ? ' (Running…)' : '';
-        entries.push({ label: `${entry.label}${running} →`, delta: i - currentIndex, index: i });
-      }
-    }
-
-    setRecentEntries(entries);
-  };
-
-  useEffect(() => {
-    updateRecentEntries();
-  }, []);
-
-  // Subscribe to history changes to update recent menu
-  useEffect(() => {
-    const unsub = navHistory.subscribe(() => {
-      updateRecentEntries();
-    });
-    return unsub;
-  }, []);
-
-  // t/4689: also refresh on running-state changes, so "(Running…)" appears/clears live
-  // while the dropdown is open without requiring a navigation.
-  useEffect(() => {
-    const unsub = subscribeRunning(() => {
-      updateRecentEntries();
-    });
-    return unsub;
-  }, []);
-
-  // Close recent menu on outside click
-  useEffect(() => {
-    if (!recentMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (recentRef.current && !recentRef.current.contains(e.target as Node)) {
-        setRecentMenu(false);
-      }
-    };
-    window.addEventListener('mousedown', handler);
-    return () => window.removeEventListener('mousedown', handler);
-  }, [recentMenu]);
-
-  // Handle breadcrumb navigation: don't push manually; subscriber does it
-  const handleNavigate = async (targetPlaceKey: string) => {
-    if (targetPlaceKey === place.placeKey) return;
-
-    // Parse the targetPlaceKey and navigate to the appropriate item. placeOf() uses
-    // '<tool>:none' for a tool's library (no item open) — 'none' is a sentinel, not a real
-    // id, so it must NOT be passed to a loader (t/4689: clicking a library crumb previously
-    // called e.g. chatState.loadChat('none') instead of just switching to the library view).
-    const [tool, ...rest] = targetPlaceKey.split(':');
-    const rawItemId = rest.join(':');
-    const itemId = rawItemId && rawItemId !== 'none' ? rawItemId : undefined;
-
-    if (tool === 'rosetta-stone') {
-      useTaxonomyStore.setState({ activeTab: 'rosetta-stone' });
-    } else if (tool === 'debate') {
-      useTaxonomyStore.setState({ activeTab: 'debate' });
-      if (itemId) await debateState.loadDebate(itemId);
-      else debateState.closeDebate();
-    } else if (tool === 'chat') {
-      useTaxonomyStore.setState({ activeTab: 'chat' });
-      if (itemId) await chatState.loadChat(itemId);
-      else useChatStore.setState({ activeChatId: null, activeChat: null });
-    } else if (tool === 'opeds') {
-      useTaxonomyStore.setState({ activeTab: 'opeds' });
-      opEdState.selectSet(itemId ?? null);
-    } else if (tool === 'inquiry') {
-      useTaxonomyStore.setState({ activeTab: 'inquiry' });
-      if (itemId) await inquiryState.openFromHistory(itemId);
-      else inquiryState.openList();
-    }
-  };
-
-  // Handle recent menu navigation via go(delta)
-  const handleRecentJump = (delta: number) => {
-    setRecentMenu(false);
-    navHistory.go(delta);
-  };
-
-  const isElectron = import.meta.env.VITE_TARGET !== 'web';
+  const entries = navHistory.entries();
+  const index = navHistory.index();
   const canGoBack = navHistory.canGoBack();
-  const canGoForward = navHistory.canGoForward();
+  const canGoForward = isElectron && navHistory.canGoForward();
+
+  // The op-ed camp is a view of the set (?pov=), not part of the store — read it off the entry.
+  const crumbs = [...place.crumbs];
+  if (place.tool === 'opeds' && place.placeKey !== 'opeds:none') {
+    const pov = new URLSearchParams(navHistory.current()?.path.split('?')[1] ?? '').get('pov');
+    if (pov && CAMP_CRUMBS[pov]) crumbs.push(CAMP_CRUMBS[pov]);
+  }
+
+  const navigate = (action: () => void) => {
+    announceNext.current = true;
+    action();
+  };
+
+  const backName = historyButtonName('Back', canGoBack ? entries[index - 1] : undefined);
+  const forwardName = historyButtonName('Forward', canGoForward ? entries[index + 1] : undefined);
 
   return (
-    <div className="location-bar-host">
-      <div className="location-bar-container">
-        {/* Back/Forward buttons for Electron */}
+    <div className="nav-locbar location-bar-host">
+      <div className="nav-locbar-history" role="group" aria-label="History">
+        <button
+          type="button"
+          className="nav-locbar-btn"
+          onClick={() => navigate(() => navHistory.back())}
+          disabled={!canGoBack}
+          aria-disabled={!canGoBack}
+          aria-label={backName}
+          aria-keyshortcuts={isMac ? 'Meta+BracketLeft' : 'Alt+ArrowLeft'}
+          title={`${backName} (${isMac ? '⌘[' : 'Alt+←'})`}
+        >
+          <ArrowLeft aria-hidden="true" />
+        </button>
         {isElectron && (
-          <div className="location-bar-controls">
-            <button
-              className="location-bar-btn location-bar-back"
-              onClick={() => navHistory.back()}
-              disabled={!canGoBack}
-              title="Back"
-              aria-label="Back"
-            >
-              <ArrowLeft size={18} />
-            </button>
-            <button
-              className="location-bar-btn location-bar-forward"
-              onClick={() => navHistory.forward()}
-              disabled={!canGoForward}
-              title="Forward"
-              aria-label="Forward"
-            >
-              <ArrowRight size={18} />
-            </button>
-          </div>
-        )}
-
-        {/* Breadcrumbs */}
-        <LocationBar crumbs={place.crumbs} currentPlaceKey={place.placeKey} onNavigate={handleNavigate} />
-
-        {/* Recent menu button */}
-        <div className="location-bar-menu-wrap" ref={recentRef}>
           <button
-            className={`location-bar-menu-btn${recentMenu ? ' location-bar-menu-active' : ''}`}
-            onClick={() => setRecentMenu(!recentMenu)}
-            title="Recent navigation"
-            aria-label="Recent navigation"
+            type="button"
+            className="nav-locbar-btn"
+            onClick={() => navigate(() => navHistory.forward())}
+            disabled={!canGoForward}
+            aria-disabled={!canGoForward}
+            aria-label={forwardName}
+            aria-keyshortcuts={isMac ? 'Meta+BracketRight' : 'Alt+ArrowRight'}
+            title={`${forwardName} (${isMac ? '⌘]' : 'Alt+→'})`}
           >
-            ▾
+            <ArrowRight aria-hidden="true" />
           </button>
-          {recentMenu && (
-            <div className="location-bar-menu-dropdown">
-              {recentEntries.map(entry => (
-                <button
-                  key={entry.delta}
-                  className="location-bar-menu-item"
-                  onClick={() => handleRecentJump(entry.delta)}
-                >
-                  {entry.label}
-                </button>
-              ))}
-              {recentEntries.length === 0 && (
-                <div className="location-bar-menu-empty">No history</div>
-              )}
-            </div>
-          )}
-        </div>
+        )}
+        <RecentMenu entries={entries} index={index} onJump={i => navigate(() => navHistory.go(i - index))} />
       </div>
+
+      <LocationBar crumbs={crumbs} tool={place.tool} onUp={href => navigate(() => goToPath(href))} />
+
+      <div className="nav-locbar-live" aria-live="polite">{announcement}</div>
     </div>
   );
 }

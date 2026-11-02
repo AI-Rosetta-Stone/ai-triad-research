@@ -1,94 +1,77 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+// t/4640#40 item 3: the breadcrumb's markup per docs/ux/navigation-location-bar.md — a Breadcrumb
+// landmark with a list, links only on up-ancestors, the current crumb as plain text.
+
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { LocationBar } from './LocationBar';
+import type { Crumb } from '../../navigation/types';
+
+const itemCrumbs: Crumb[] = [
+  { text: 'Chat', href: '/chat' },
+  { text: 'How would a Safetyist see compute caps?' },
+];
 
 describe('LocationBar', () => {
-  const mockCrumbs = [
-    { label: 'Rosetta Stone', placeKey: 'rosetta-stone' },
-    { label: 'Chat', placeKey: 'chat:none' },
-    { label: 'Conversation #42', placeKey: 'chat:conv-42' },
-  ];
-
-  it('renders all crumbs with separators', () => {
-    const onNavigate = vi.fn();
-    render(
-      <LocationBar
-        crumbs={mockCrumbs}
-        currentPlaceKey="chat:conv-42"
-        onNavigate={onNavigate}
-      />
-    );
-
-    expect(screen.getByText('Rosetta Stone')).toBeInTheDocument();
-    expect(screen.getByText('Chat')).toBeInTheDocument();
-    expect(screen.getByText('Conversation #42')).toBeInTheDocument();
-    // Separators (should have n-1 separators for n crumbs)
-    expect(screen.getAllByText('/')).toHaveLength(2);
+  it('is a Breadcrumb nav landmark with an ordered list, one item per crumb', () => {
+    render(<LocationBar crumbs={itemCrumbs} tool="chat" onUp={vi.fn()} />);
+    const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    const list = within(nav).getByRole('list');
+    expect(list.tagName).toBe('OL');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
   });
 
-  it('disables the current crumb', () => {
-    const onNavigate = vi.fn();
-    render(
-      <LocationBar
-        crumbs={mockCrumbs}
-        currentPlaceKey="chat:conv-42"
-        onNavigate={onNavigate}
-      />
-    );
-
-    const currentCrumb = screen.getByText('Conversation #42');
-    expect(currentCrumb).toBeDisabled();
-    expect(currentCrumb).toHaveAttribute('aria-current', 'page');
+  it('renders the current crumb as plain text with aria-current="location" — not a button or link', () => {
+    render(<LocationBar crumbs={itemCrumbs} tool="chat" onUp={vi.fn()} />);
+    const current = screen.getByText('How would a Safetyist see compute caps?').closest('li')!;
+    expect(current).toHaveAttribute('aria-current', 'location');
+    expect(within(current).queryByRole('link')).toBeNull();
+    expect(within(current).queryByRole('button')).toBeNull();
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
-  it('calls onNavigate when a non-current crumb is clicked', async () => {
-    const user = userEvent.setup();
-    const onNavigate = vi.fn();
-    render(
-      <LocationBar
-        crumbs={mockCrumbs}
-        currentPlaceKey="chat:conv-42"
-        onNavigate={onNavigate}
-      />
-    );
-
-    const chatCrumb = screen.getByText('Chat');
-    await user.click(chatCrumb);
-
-    expect(onNavigate).toHaveBeenCalledWith('chat:none');
+  it('renders an up-ancestor as a real link to its collection, titled "Up to …"', () => {
+    render(<LocationBar crumbs={itemCrumbs} tool="chat" onUp={vi.fn()} />);
+    const link = screen.getByRole('link', { name: 'Chat' });
+    expect(link).toHaveAttribute('href', '/chat');
+    expect(link).toHaveAttribute('title', 'Up to Chat');
   });
 
-  it('does not call onNavigate when the current crumb is clicked', async () => {
-    const user = userEvent.setup();
-    const onNavigate = vi.fn();
-    render(
-      <LocationBar
-        crumbs={mockCrumbs}
-        currentPlaceKey="chat:conv-42"
-        onNavigate={onNavigate}
-      />
-    );
-
-    const currentCrumb = screen.getByText('Conversation #42');
-    // Disabled buttons don't fire click events, but verify no call
-    await user.click(currentCrumb);
-    expect(onNavigate).not.toHaveBeenCalled();
+  it('a plain click on an up-link navigates in place: prevents the page load and calls onUp(href)', () => {
+    const onUp = vi.fn();
+    render(<LocationBar crumbs={itemCrumbs} tool="chat" onUp={onUp} />);
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    fireEvent(screen.getByRole('link', { name: 'Chat' }), event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onUp).toHaveBeenCalledWith('/chat');
   });
 
-  it('renders with empty crumbs gracefully', () => {
-    const onNavigate = vi.fn();
+  it('an ancestor without href (e.g. "Taxonomy") is plain text, not a link', () => {
+    const crumbs: Crumb[] = [
+      { text: 'Taxonomy' },
+      { text: 'Safetyist', camp: 'saf', href: '/taxonomy/saf' },
+      { text: 'AI must not erode human oversight' },
+    ];
+    render(<LocationBar crumbs={crumbs} tool="taxonomy" onUp={vi.fn()} />);
+    expect(screen.queryByRole('link', { name: 'Taxonomy' })).toBeNull();
+    expect(screen.getByText('Taxonomy')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Safetyist' })).toHaveAttribute('href', '/taxonomy/saf');
+  });
+
+  it('draws the camp dot for a crumb with a camp, hidden from assistive tech', () => {
     const { container } = render(
-      <LocationBar
-        crumbs={[]}
-        currentPlaceKey="none"
-        onNavigate={onNavigate}
-      />
+      <LocationBar crumbs={[{ text: 'Taxonomy' }, { text: 'Safetyist', camp: 'saf' }]} tool="taxonomy" onUp={vi.fn()} />,
     );
+    const dot = container.querySelector('.nav-locbar-dot-saf');
+    expect(dot).not.toBeNull();
+    expect(dot).toHaveAttribute('aria-hidden', 'true');
+  });
 
-    expect(container.querySelector('.nav-locbar')).toBeInTheDocument();
+  it('a single-crumb place has no links and no separators', () => {
+    const { container } = render(<LocationBar crumbs={[{ text: 'Rosetta Stone' }]} tool="rosetta-stone" onUp={vi.fn()} />);
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    expect(container.querySelectorAll('.nav-locbar-separator')).toHaveLength(0);
   });
 });
