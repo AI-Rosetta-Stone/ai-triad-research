@@ -13,7 +13,7 @@ vi.mock('@bridge', () => ({
 describe('preferencesStore', () => {
   beforeEach(() => {
     // Reset store state
-    usePreferencesStore.setState({ nodeDetailModes: {} });
+    usePreferencesStore.setState({ nodeDetailModes: {}, viewMode: 'simple' });
     mockGetPreferences.mockReset();
     mockSetPreferences.mockReset();
   });
@@ -71,5 +71,48 @@ describe('preferencesStore', () => {
     await hydratePromise;
 
     expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('advanced');
+  });
+
+  describe('global toggle sync (t/4736)', () => {
+    it('getNodeDetailMode falls back to the global viewMode, not a hard-coded default', () => {
+      usePreferencesStore.setState({ viewMode: 'advanced' });
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('advanced');
+
+      usePreferencesStore.setState({ viewMode: 'simple' });
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
+    });
+
+    it('a per-node override still wins over the global viewMode', async () => {
+      usePreferencesStore.setState({ viewMode: 'advanced' });
+      await usePreferencesStore.getState().setNodeDetailMode('node-1', 'simple');
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-2')).toBe('advanced');
+    });
+
+    it('setViewMode clears every per-node override, so already-open nodes follow it too', async () => {
+      await usePreferencesStore.getState().setNodeDetailMode('node-1', 'advanced');
+      await usePreferencesStore.getState().setNodeDetailMode('node-2', 'advanced');
+      expect(Object.keys(usePreferencesStore.getState().nodeDetailModes)).toHaveLength(2);
+
+      mockSetPreferences.mockResolvedValue(undefined);
+      await usePreferencesStore.getState().setViewMode('advanced');
+
+      expect(usePreferencesStore.getState().nodeDetailModes).toEqual({});
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('advanced');
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-2')).toBe('advanced');
+      expect(mockSetPreferences).toHaveBeenCalledWith({ viewMode: 'advanced', nodeDetailModes: {} });
+    });
+
+    it('a per-node switch made after a global change sticks until the next global change', async () => {
+      mockSetPreferences.mockResolvedValue(undefined);
+      await usePreferencesStore.getState().setViewMode('advanced');
+      await usePreferencesStore.getState().setNodeDetailMode('node-1', 'simple');
+
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-2')).toBe('advanced');
+
+      await usePreferencesStore.getState().setViewMode('simple');
+      expect(usePreferencesStore.getState().getNodeDetailMode('node-1')).toBe('simple');
+    });
   });
 });

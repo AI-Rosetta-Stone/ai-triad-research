@@ -8,9 +8,10 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 interface PreferencesState {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => Promise<void>;
-  /** Per-node Simple/Advanced mode map (t/4574). Plain Record for persist compatibility. */
+  /** Per-node Simple/Advanced override, on top of the global `viewMode` default (t/4574, t/4736).
+   *  Plain Record for persist compatibility. Cleared whenever `viewMode` changes. */
   nodeDetailModes: Record<string, 'simple' | 'advanced'>;
-  /** Get the mode for a node, defaulting to 'simple'. */
+  /** The mode for a node: its own override if one exists, else the global `viewMode` (t/4736). */
   getNodeDetailMode: (nodeId: string) => 'simple' | 'advanced';
   /** Set the mode for a node, with LRU eviction at 500 entries. */
   setNodeDetailMode: (nodeId: string, mode: 'simple' | 'advanced') => Promise<void>;
@@ -25,17 +26,21 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   nodeDetailModes: {},
 
   setViewMode: async (mode: ViewMode) => {
-    set({ viewMode: mode });
+    // t/4736: the global toggle sets the default for every POV item view. Clearing the per-node
+    // overrides here (not just changing the fallback) means every ALREADY-OPEN node follows the
+    // new global mode immediately, not just ones opened after the change.
+    set({ viewMode: mode, nodeDetailModes: {} });
     try {
       const { api } = await import('@bridge'); // alias — resolves to web-bridge on web, electron-bridge on desktop (t/2651)
-      await api.setPreferences({ viewMode: mode });
+      await api.setPreferences({ viewMode: mode, nodeDetailModes: {} });
     } catch (err) {
       getGlobalRecorder()?.record({ type: 'system.error', component: 'preferencesStore', level: 'error', message: 'Failed to persist view mode preference', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
     }
   },
 
   getNodeDetailMode: (nodeId: string): 'simple' | 'advanced' => {
-    return get().nodeDetailModes[nodeId] ?? 'simple';
+    const state = get();
+    return state.nodeDetailModes[nodeId] ?? state.viewMode;
   },
 
   setNodeDetailMode: async (nodeId: string, mode: 'simple' | 'advanced') => {

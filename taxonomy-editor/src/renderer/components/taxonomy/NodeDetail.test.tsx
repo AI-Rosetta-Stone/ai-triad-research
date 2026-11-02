@@ -58,6 +58,10 @@ const mockPrefsState = {
   setNodeDetailMode: vi.fn(async (nodeId: string, mode: 'simple' | 'advanced') => {
     mockPrefsState.nodeDetailModes = { ...mockPrefsState.nodeDetailModes, [nodeId]: mode };
   }),
+  // t/4736: NodeDetail reads through the getter (not a reimplemented fallback), so the mock
+  // must mirror the real one — falls back to the mocked global viewMode, not a hard-coded 'simple'.
+  getNodeDetailMode: (nodeId: string): 'simple' | 'advanced' =>
+    mockPrefsState.nodeDetailModes[nodeId] ?? mockPrefsState.viewMode,
 };
 
 vi.mock('../../store/preferencesStore', () => ({
@@ -305,8 +309,17 @@ describe('NodeDetail — panel-local Simple/Advanced toggle isolation and persis
     expect(mockPrefsState.viewMode).toBe('simple');
   });
 
-  it('the global viewMode being Advanced does not flip this panel to Advanced', () => {
+  // t/4736 reverses this: the panel now DOES follow the global default when the node has no
+  // per-node override of its own (getNodeDetailMode falls back to viewMode, not 'simple').
+  it('an untoggled node follows the global viewMode default (t/4736)', () => {
     mockPrefsState.viewMode = 'advanced';
+    render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /attributes/i })).toBeInTheDocument();
+  });
+
+  it('a per-node override still wins over the global viewMode, in either direction (t/4736)', () => {
+    mockPrefsState.viewMode = 'advanced';
+    setNodeMode(mockNode.id, 'simple');
     render(<NodeDetail pov="acc" node={mockNode} readOnly={false} onPin={vi.fn()} onSimilarSearch={vi.fn()} onRelated={vi.fn()} />);
     expect(screen.queryByRole('tab', { name: /attributes/i })).not.toBeInTheDocument();
   });
