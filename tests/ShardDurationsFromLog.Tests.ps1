@@ -66,3 +66,30 @@ Describe 'ConvertFrom-PesterShardLog' -Tag 'devops' {
             Should -Throw -ExpectedMessage '*no test files found*Next steps:*'
     }
 }
+
+Describe 'Merge-ShardDurationSample' -Tag 'devops' {
+
+    BeforeAll {
+        . "$PSScriptRoot/../operations/devops/ShardDurationsFromLog.ps1"
+    }
+
+    It 'takes the per-file median, so one slow run does not move a file' {
+        $m = Merge-ShardDurationSample -Sample @(
+            @{ 'tests/A.Tests.ps1' = 100; 'tests/B.Tests.ps1' = 1 },
+            @{ 'tests/A.Tests.ps1' = 170; 'tests/B.Tests.ps1' = 13 },
+            @{ 'tests/A.Tests.ps1' = 110; 'tests/B.Tests.ps1' = 2 }
+        )
+        $m['tests/A.Tests.ps1'] | Should -Be 110
+        $m['tests/B.Tests.ps1'] | Should -Be 2
+    }
+
+    It 'averages the middle two for an even number of samples' {
+        (Merge-ShardDurationSample -Sample @(@{ a = 10 }, @{ a = 20 }, @{ a = 30 }, @{ a = 100 }))['a'] | Should -Be 25
+    }
+
+    It 'uses only the runs a file appears in' {
+        $m = Merge-ShardDurationSample -Sample @(@{ a = 5; new = 9 }, @{ a = 7 })
+        $m['new'] | Should -Be 9
+        $m['a'] | Should -Be 6
+    }
+}

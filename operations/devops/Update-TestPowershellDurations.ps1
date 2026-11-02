@@ -8,9 +8,11 @@
 .DESCRIPTION
     Two sources:
 
-    -FromCiRun <runId> (preferred): reads the six test-powershell shard job logs of a green CI run
-    and measures each file's real wall-clock cost on the CI runner, setup included
-    (ConvertFrom-PesterShardLog). This is what the shards actually pay.
+    -FromCiRun <runId[]> (preferred): reads the six test-powershell shard job logs of each green CI
+    run and measures each file's real wall-clock cost on the CI runner, setup included
+    (ConvertFrom-PesterShardLog), then takes each file's MEDIAN across the runs
+    (Merge-ShardDurationSample). Pass several runs (5 is a good default): one run's per-file
+    times swing ~25% of the suite, so balancing against a single run overfits it.
 
     Local (default): runs the WHOLE suite here with -PassThru and records each file's Pester
     container Duration. Local timings differ from the Linux runners, so prefer -FromCiRun.
@@ -23,13 +25,13 @@
     regenerate when shard wall-clock times visibly drift apart, not on every test file addition.
 
     Run from the repo root:
-      ./operations/devops/Update-TestPowershellDurations.ps1 -FromCiRun 41501306096
+      ./operations/devops/Update-TestPowershellDurations.ps1 -FromCiRun 41501306096, 41507081739, ...
       ./operations/devops/Update-TestPowershellDurations.ps1
 #>
 [CmdletBinding(DefaultParameterSetName = 'Local', SupportsShouldProcess)]
 param(
     [Parameter(Mandatory, ParameterSetName = 'FromCi')]
-    [long]$FromCiRun,
+    [long[]]$FromCiRun,
 
     [Parameter(ParameterSetName = 'FromCi')]
     [string]$Repo = 'AI-Rosetta-Stone/ai-triad-research',
@@ -56,29 +58,36 @@ if ($PSCmdlet.ParameterSetName -eq 'FromCi') {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         throw (Format-DurationsError 'the gh CLI is not on PATH.' 'install gh and run gh auth login.')
     }
-    $jobs = @(gh run view $FromCiRun --repo $Repo --json jobs -q '.jobs[] | select(.name|test("^test-powershell \\(\\d+\\)$")) | [.databaseId, .name, .conclusion] | @tsv' |
-        ForEach-Object { $id, $name, $conclusion = $_ -split "`t"; [pscustomobject]@{ Id = $id; Name = $name; Conclusion = $conclusion } })
-    if ($LASTEXITCODE -ne 0 -or $jobs.Count -eq 0) {
-        throw (Format-DurationsError "run $FromCiRun has no test-powershell shard jobs (or gh failed)." 'pass the id of a ci.yml run that ran test-powershell.')
-    }
-    $notGreen = @($jobs | Where-Object Conclusion -ne 'success')
-    if ($notGreen.Count -gt 0) {
-        throw (Format-DurationsError "shard job(s) not successful in run ${FromCiRun}: $(($notGreen | ForEach-Object { "$($_.Name)=$($_.Conclusion)" }) -join ', ')." 'use a run where every test-powershell shard succeeded.')
-    }
-    foreach ($job in $jobs) {
-        $log = @(gh api "repos/$Repo/actions/jobs/$($job.Id)/logs")
-        if ($LASTEXITCODE -ne 0) {
-            throw (Format-DurationsError "could not download the log for $($job.Name) (job $($job.Id))." 'logs expire after the retention period; pick a more recent run.')
+    $samples = [System.Collections.Generic.List[hashtable]]::new()
+    foreach ($runId in $FromCiRun) {
+        $jobs = @(gh run view $runId --repo $Repo --json jobs -q '.jobs[] | select(.name|test("^test-powershell \\(\\d+\\)$")) | [.databaseId, .name, .conclusion] | @tsv' |
+            ForEach-Object { $id, $name, $conclusion = $_ -split "`t"; [pscustomobject]@{ Id = $id; Name = $name; Conclusion = $conclusion } })
+        if ($LASTEXITCODE -ne 0 -or $jobs.Count -eq 0) {
+            throw (Format-DurationsError "run $runId has no test-powershell shard jobs (or gh failed)." 'pass ids of ci.yml runs that ran test-powershell.')
         }
-        $perFile = ConvertFrom-PesterShardLog -LogLine $log -Source $job.Name
-        foreach ($path in $perFile.Keys) {
-            if ($durations.ContainsKey($path)) {
-                throw (Format-DurationsError "$path appears in more than one shard log." 'the shard assignment overlapped; check ShardBalancer coverage for this run.')
+        $notGreen = @($jobs | Where-Object Conclusion -ne 'success')
+        if ($notGreen.Count -gt 0) {
+            throw (Format-DurationsError "shard job(s) not successful in run ${runId}: $(($notGreen | ForEach-Object { "$($_.Name)=$($_.Conclusion)" }) -join ', ')." 'use runs where every test-powershell shard succeeded.')
+        }
+        $runDurations = @{}
+        foreach ($job in $jobs) {
+            $log = @(gh api "repos/$Repo/actions/jobs/$($job.Id)/logs")
+            if ($LASTEXITCODE -ne 0) {
+                throw (Format-DurationsError "could not download the log for $($job.Name) (run $runId, job $($job.Id))." 'logs expire after the retention period; pick more recent runs.')
             }
-            $durations[$path] = $perFile[$path]
+            $perFile = ConvertFrom-PesterShardLog -LogLine $log -Source "run $runId $($job.Name)"
+            foreach ($path in $perFile.Keys) {
+                if ($runDurations.ContainsKey($path)) {
+                    throw (Format-DurationsError "$path appears in more than one shard log of run $runId." 'the shard assignment overlapped; check ShardBalancer coverage for this run.')
+                }
+                $runDurations[$path] = $perFile[$path]
+            }
         }
-        Write-Host "$($job.Name): $($perFile.Count) files, $([math]::Round(($perFile.Values | Measure-Object -Sum).Sum, 1))s"
+        Write-Host "run ${runId}: $($runDurations.Count) files, $([math]::Round(($runDurations.Values | Measure-Object -Sum).Sum, 1))s"
+        $samples.Add($runDurations)
     }
+    # Per-file median across runs: one run's timings are too noisy to balance against.
+    $durations = Merge-ShardDurationSample -Sample $samples.ToArray()
 }
 else {
     . ./operations/devops/Get-PesterExcludePaths.ps1

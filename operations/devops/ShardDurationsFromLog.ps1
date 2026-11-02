@@ -67,3 +67,35 @@ function ConvertFrom-PesterShardLog {
     }
     $result
 }
+
+<#
+.SYNOPSIS
+    Pure: per-file MEDIAN across several runs' duration maps.
+.DESCRIPTION
+    One run's per-file times are noisy: two consecutive green runs differed by ~25% of the suite
+    in total, with single files swinging 119s -> 173s, and the first file in each shard absorbing
+    one-time warm-up. Balancing against one run overfits that run. The median of several runs
+    keeps one slow sample from moving a file. A file missing from some runs uses the runs it
+    appears in.
+#>
+function Merge-ShardDurationSample {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)] [System.Collections.IDictionary[]]$Sample)
+
+    $values = @{}
+    foreach ($s in $Sample) {
+        foreach ($k in $s.Keys) {
+            if (-not $values.ContainsKey($k)) { $values[$k] = [System.Collections.Generic.List[double]]::new() }
+            $values[$k].Add([double]$s[$k])
+        }
+    }
+    $merged = @{}
+    foreach ($k in $values.Keys) {
+        $sorted = @($values[$k] | Sort-Object)
+        $n = $sorted.Count
+        $median = if ($n % 2 -eq 1) { $sorted[($n - 1) / 2] } else { ($sorted[$n / 2 - 1] + $sorted[$n / 2]) / 2 }
+        $merged[$k] = [math]::Round($median, 3)
+    }
+    $merged
+}
