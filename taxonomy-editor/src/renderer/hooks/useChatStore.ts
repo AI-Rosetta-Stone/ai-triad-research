@@ -28,6 +28,11 @@ import {
   chatContinuationPrompt,
   CHAT_MODE_TEMPERATURE,
 } from '../prompts/chat';
+// t/4690, per TL p/864#1: registerRun must be called from the store-level run loop itself, never
+// a view effect, so a run survives the view that started it unmounting (the whole point of the
+// shell's running signal). Pre-approved call site — see t/4687#1/#3.
+import { registerRun } from '../navigation/runningSignal';
+import type { RunOutcome } from '../navigation/runningSignal';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -404,6 +409,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const isStillValid = createChatGuard(get);
     set({ chatGenerating: true, chatError: null, chatStreamingText: null });
 
+    const finishRun = registerRun('chat', activeChat.id, activeChat.topic);
+    // Default 'aborted': every isStillValid() early-return below exits through finally before
+    // either terminal assignment runs, and 'aborted' — not a success, not a thrown failure — is
+    // the accurate outcome for a run that was invalidated out from under it.
+    let outcome: RunOutcome = 'aborted';
+
     try {
       const info = chatSoul(activeChat);
       const taxonomyBlock = chatTaxonomyBlock(info.pov, activeChat);
@@ -451,7 +462,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       // Update session list
       const sessions = await api.listChatSessions();
       set({ sessions: sessions as ChatSessionSummary[] });
+      outcome = 'done';
     } catch (err) {
+      outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to generate opening message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       set({ chatError: `Failed to start conversation: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
       // createChat pre-saved an empty session before generation; the opening never landed, so remove
@@ -465,6 +478,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'warn', message: 'Failed to clean up empty chat session after opening failure', error: { name: (cleanupErr as Error).name ?? 'Error', message: String(cleanupErr), stack: (cleanupErr as Error).stack } });
       }
     } finally {
+      finishRun(outcome);
       set({ chatGenerating: false });
     }
   },
@@ -475,6 +489,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     const isStillValid = createChatGuard(get);
     set({ chatGenerating: true, chatError: null, chatStreamingText: null });
+
+    const finishRun = registerRun('chat', activeChat.id, activeChat.topic);
+    // Default 'aborted' — see generateOpening's identical isStillValid()-early-return rationale.
+    let outcome: RunOutcome = 'aborted';
 
     // Add user message to transcript
     const userEntry: ChatEntry = {
@@ -585,11 +603,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       // Update session list
       const sessions = await api.listChatSessions();
       set({ sessions: sessions as ChatSessionSummary[] });
+      outcome = 'done';
     } catch (err) {
       if (!isStillValid()) return;
+      outcome = 'error';
       getGlobalRecorder()?.record({ type: 'system.error', component: 'chat-store', level: 'error', message: 'Failed to send chat message', error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack } });
       set({ chatError: `Response failed: ${mapErrorToUserMessage(err)}`, chatStreamingText: null });
     } finally {
+      finishRun(outcome);
       set({ chatGenerating: false });
     }
   },
