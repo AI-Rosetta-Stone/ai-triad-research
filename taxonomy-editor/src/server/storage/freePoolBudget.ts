@@ -772,8 +772,14 @@ export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFree
     callsCap = 1500;
   }
 
+  // t/4733: use AZURE_USER_CONTENT_CONTAINER env var, matching sharedOverlayStore pattern.
+  const containerName = process.env.AZURE_USER_CONTENT_CONTAINER || 'user-content';
+  if (!process.env.AZURE_USER_CONTENT_CONTAINER) {
+    log.server.warn({ scope: 'free-pool-budget' }, 'AZURE_USER_CONTENT_CONTAINER not set — using fallback "user-content" (set by Bicep in t/4728 for prod)');
+  }
+
   try {
-    init({ accountUrl, callsCap });
+    init({ accountUrl, container: containerName, callsCap });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'free-pool-budget', level: 'error',
