@@ -35,12 +35,17 @@ export interface AppRoute {
 
 const taxonomy = () => useTaxonomyStore.getState();
 
-/** A route for an exact path with no params. */
+/** `/a/b/` → `/a/b`; `/` stays `/`. Routes compare plain strings — no regex built from input. */
+function trimSlash(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+}
+
+/** A route for an exact path with no params (`/` for the landing page). */
 function exactRoute(id: string, path: string, placeKey: string, restore: () => void): AppRoute {
-  const re = new RegExp(`^${path.replace(/\//g, '\\/')}\\/?$`);
+  const target = path || '/';
   return {
     id,
-    match: (pathname) => (re.test(pathname) ? {} : null),
+    match: (pathname) => (trimSlash(pathname || '/') === target ? {} : null),
     placeKey: () => placeKey,
     restore,
   };
@@ -48,12 +53,14 @@ function exactRoute(id: string, path: string, placeKey: string, restore: () => v
 
 /** A route for `/<prefix>/:id`. */
 function itemRoute(id: string, prefix: string, param: string, placeKeyPrefix: string, restore: (itemId: string, query: URLSearchParams) => void): AppRoute {
-  const re = new RegExp(`^\\/${prefix}\\/([^/]+)\\/?$`);
+  const head = `/${prefix}/`;
   return {
     id,
     match(pathname) {
-      const m = pathname.match(re);
-      return m ? { [param]: decodeURIComponent(m[1]) } : null;
+      const p = trimSlash(pathname);
+      if (!p.startsWith(head)) return null;
+      const rest = p.slice(head.length);
+      return rest && !rest.includes('/') ? { [param]: decodeURIComponent(rest) } : null;
     },
     placeKey: (params) => `${placeKeyPrefix}:${params[param]}`,
     restore: (params, query) => restore(params[param], query),
