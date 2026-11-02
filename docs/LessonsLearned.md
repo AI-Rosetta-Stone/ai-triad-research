@@ -56,6 +56,7 @@ Institutional memory for failure patterns across the AI Triad Research project.
 - 2026-10-24 — PowerShell (p/20#126): 8th recurrence — inline `pwsh -NoProfile -Command '...'` from Bash with mixed `\'` single-quote escaping and embedded double-quoted JSON string literal → `syntax error near unexpected token ')'`. Shell's own quote parser broke before PowerShell ran. Resolved by writing to a scratchpad `.ps1` file and running `pwsh -File`.
 - 2026-10-28 — Computational Linguist (p/7#160): `git commit -m "..."` with embedded double-quotes (`"deberta can't discriminate poles"`) inside the outer double-quoted message closed the string early, breaking Bash parsing. Violated the Shell Quoting Rule by inline-authoring a long, quote-containing commit message instead of writing it to a file first. Fixed with `git commit -F <scratch-file>`.
 - 2026-10-28 — Refactorer (p/840#1): `gh pr create --body "$(cat <<'EOF'…)"` triggered a backtick command-substitution warning inside the heredoc. Switched to `--body-file` with a temp file, same ADR-004 class as the p/20#59/#114 `--body-file` instances.
+- 2026-11-02 — Rosetta Stone 3 (p/355#7): a Bash heredoc embedding a Python script with TSX source failed "unexpected EOF while looking for matching `'`." Correctly self-identified as an existing-rule recurrence, not a new lesson. Fixed by rewriting the file with the Write tool instead of the heredoc.
 
 **Root Cause:** Heredocs (even quoted `<< 'EOF'` which disable variable expansion) still cannot contain the same quote delimiter used by the inner language. The `bash -c` and `pwsh -Command` wrappers compound this by adding another quoting layer. Additionally, PowerShell-specific syntax (`@'...'@` here-strings) is silently misinterpreted by Bash, not rejected — leading to confusing errors. The `--` separator compounds commit message issues: all flags must come before `--`, or git treats them as pathspecs.
 
@@ -8416,3 +8417,39 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Resolved — 1 instance (DevOps Lead p/26#363), fixed via PR #4305 (t/4665 follow-up).
 
 **Applies To:** All agents writing scripts that create temp files for later dynamic `import()`; always specify `.mjs`/`.js` via `mktemp --suffix`, and ensure test stubs match the real module format being exercised.
+
+## #413 [Build] A GraphQL Inline Fragment Can't Be Spread Directly on a List/Connection Field — It Must Go Through `.nodes { ... on Type }`
+
+**Pattern:** An agent writes a `gh api graphql` query with an inline fragment (`... on CheckRun { ... }`) spread directly inside the selection set of a field like `statusCheckRollup`, expecting it to behave like a union type. The query errors with a GraphQL schema validation error — `statusCheckRollup` (and similar fields) are list/connection types, not unions, at that position in the schema. An inline type fragment can only be spread on a field whose type is itself a union or interface; applying one to a plain list field is a schema mismatch, not a syntax error in the usual sense.
+
+**Instances:**
+- 2026-11-02 — Rosetta Stone (p/6#124): `gh api graphql` query with `... on CheckRun { ... }` spread directly inside `statusCheckRollup`'s selection set failed GraphQL schema validation. Resolved by dropping the raw GraphQL query entirely and using `gh pr view --json statusCheckRollup -q '...'` instead, which already handles the underlying union/connection shape correctly on the CLI's curated side.
+
+**Root Cause:** GraphQL inline fragments (`... on Type`) are only valid where the enclosing field's type is a union or interface — the fragment tells the query "if this particular item turns out to be this concrete type, select these fields." A field that's already a concrete list/connection type (like `statusCheckRollup`'s underlying connection) doesn't support that construct directly; the union/interface members (e.g. `CheckRun` vs. a status context) live one level deeper, inside `.nodes { ... on CheckRun { ... } ... on StatusContext { ... } }` or equivalent.
+
+**Prevention:**
+1. **Before spreading an inline fragment (`... on Type`) in a raw GraphQL query, confirm the enclosing field is actually a union or interface type** — check the schema (e.g. via `gh api graphql` introspection, or GitHub's public GraphQL schema docs) rather than assuming based on how the CLI's `--json` flattens the same data.
+2. **If a field has both list/connection semantics AND a union of member types, the fragment goes on the connection's `.nodes` entries, not the connection field itself.**
+3. **When unsure whether a field needs this treatment, prefer `gh <subcommand> --json <field>` over raw GraphQL** — the CLI's curated JSON output already resolves these union/list distinctions for the common cases, avoiding the schema-shape question entirely.
+
+**Status:** Active — 1 instance (Rosetta Stone p/6#124).
+
+**Applies To:** All agents writing raw `gh api graphql` queries involving `statusCheckRollup` or similar union-bearing connection fields; prefer the CLI's `--json` form unless the raw query is specifically needed.
+
+## #414 [Build] `az ad app` Commands' `--id` Flag Expects a GUID or Identifier URI, Not a Bare Display Name
+
+**Pattern:** An agent runs `az ad app federated-credential list --id <display-name>` (or a similar `az ad app` subcommand) using the application's human-readable display name directly as `--id`. The call fails with "Application with identifier URI '<display-name>' doesn't exist" — `--id` accepts the app's object/client GUID or a registered identifier URI, never a bare display name, even though the error message's phrasing ("identifier URI") can read as if the tool just needs a different kind of name rather than a different kind of value entirely.
+
+**Instances:**
+- 2026-11-02 — DevOps Lead (p/26#370): `az ad app federated-credential list --id github-ai-triad-deploy` errored "doesn't exist" using the app's display name as `--id`. Resolved by first looking up the app via `az ad app list --display-name github-ai-triad-deploy` to get its `appId`, then re-querying federated credentials with that GUID.
+
+**Root Cause:** Azure AD app registrations have multiple identifying values — object ID, application (client) ID, and optionally one or more identifier URIs — but no identifier based on display name, since display names aren't guaranteed unique. `az ad app`'s `--id` parameter is documented to accept the GUID or an identifier URI, but a bare display name silently fails the same lookup path rather than being rejected as an invalid parameter type up front.
+
+**Prevention:**
+1. **Never pass a bare display name to `az ad app ... --id`.** Resolve it to the `appId` (or object ID) first: `az ad app list --display-name <name> --query "[0].appId" -o tsv`.
+2. **The error "Application with identifier URI '<name>' doesn't exist" is a strong signal you passed a display name as `--id`** — it is not telling you the app doesn't exist, it's telling you no app is registered under that string as an identifier URI.
+3. **Chain the lookup and the real command in one step when scripting:** `az ad app federated-credential list --id $(az ad app list --display-name <name> --query "[0].appId" -o tsv)`.
+
+**Status:** Active — 1 instance (DevOps Lead p/26#370).
+
+**Applies To:** All agents using `az ad app` subcommands with `--id`; resolve display names to `appId` first.
