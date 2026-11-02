@@ -78,7 +78,7 @@ cd .worktrees/<name> && git cherry-pick <local-sha> [<local-sha>...]
 git push -u origin <rescue-branch>
 ```
 
-Open a PR, verify, merge with `--match-head-commit`. Preservative by construction: the author's content lands unchanged under a new SHA.
+Open a PR, verify, merge with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` (t/4740, pins the head and verifies real queue entry). Preservative by construction: the author's content lands unchanged under a new SHA.
 
 Then confirm at the object level that it landed, and only then treat the local commits as REDUNDANT:
 

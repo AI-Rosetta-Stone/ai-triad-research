@@ -53,7 +53,7 @@ This is not `direct` failing at what it is chosen for — one agent committing s
 
 Before `gh pr merge`, confirm all four (prevents stranded/stale-head merges — #710, #701, #830/#831, t/2470):
 0. **Base is `main`** — `gh pr view <N> --json baseRefName` (GitHub silently suggests the parent feature branch).
-1. **Head matches your push — ENFORCE it with `--match-head-commit`.** Always self-merge as:
+1. **Head matches your push — ENFORCE it with `--match-head-commit`.** On `main` (queue-protected), enqueue with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>` (t/4740), which pins the head and verifies the PR actually entered the queue, falling back to the direct GraphQL mutation on a silent miss — the bare `gh pr merge --auto --squash --match-head-commit <sha>` CLI form has twice (t/4731#1, t/4740#1) reported success while leaving the PR unenqueued. For a direct (non-queue) merge, still pass the flag yourself:
    `gh pr merge <N> --squash --match-head-commit $(gh pr view <N> --json headRefOid -q .headRefOid)`
    GitHub then refuses the merge *atomically* if the live head ≠ that SHA — race-free: a stale local view OR a newer push both abort instead of stranding the later commit (#1868). Never run a bare `gh pr merge` without this flag.
 2. **CI ran on that exact OID** — `gh run list --commit <headRefOid>` is green, not a predecessor's.
