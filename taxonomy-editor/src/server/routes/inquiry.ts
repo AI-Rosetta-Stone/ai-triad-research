@@ -37,11 +37,13 @@ import { buildInquiryRunPipeline } from '../inquiryPipelineDeps.js';
 
 /** Map an in-memory job to the shared poll projection (tier-1 path for buildPollView). */
 function jobProjection(job: InquiryJob) {
-  return {
+  const projection: any = {
     jobId: job.jobId, status: job.status, resultId: job.resultId,
     error: job.error, debateId: job.debateId,
     terminationReason: job.terminationReason ?? null,
   };
+  if (job.currentStageDetail) projection.stageDetail = job.currentStageDetail;
+  return projection;
 }
 
 /** Idempotency key from the standard header (kept OUT of the strict request body schema). */
