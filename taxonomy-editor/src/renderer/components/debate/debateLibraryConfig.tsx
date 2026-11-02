@@ -264,5 +264,8 @@ export function buildDebateLibraryConfig(deps: DebateLibraryConfigDeps): Library
     onShare: deps.onShare,
     onCopy: deps.onCopy,
     showCopy: deps.showCopy,
+    // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. canOpenInNewWindow allows this on
+    // both web and Electron for debate (it has a popout window type, unlike opeds/inquiry).
+    itemPlace: row => ({ tool: 'debate', id: row.id, path: `/debate/${row.id}` }),
   };
 }

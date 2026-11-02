@@ -12,6 +12,7 @@ import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { useAuthStatus } from '../../hooks/useAuthStatus';
 import { useIsAdmin } from '../../hooks/useIsAdmin';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { canOpenInNewWindow, openPlaceInNewWindow, type ItemPlace } from '../../navigation/openInWindow';
 import type {
   LibraryVariant, LibraryListPageProps, LibraryColumn, LibraryRowEditAction,
 } from './LibraryListPage.types';
@@ -48,6 +49,17 @@ function initialListView(hideMyTab: boolean, defaultCommunityOnWeb: boolean, isW
 // repo's per-file budget — see eslint.config.mjs's local/complexity-budget rule.
 function canShowEditFor(showEdit: boolean, listView: LibraryVariant, isAdmin: boolean): boolean {
   return showEdit && (listView !== 'community' || isAdmin);
+}
+
+// t/4689: the row's ⧉ place, or null when the page has no window-opening story for this row
+// (no `config.itemPlace`) or the current build/tool combination can't open one
+// (`canOpenInNewWindow`, e.g. Electron + opeds/inquiry). One check, reused by the ⧉ button and
+// the row's Ctrl/Cmd/middle-click handling, so they can never disagree about availability.
+function openablePlace<TMy extends { id: string }, TCommunity extends { id: string }>(
+  config: LibraryListPageProps<TMy, TCommunity>['config'], row: TMy | TCommunity, variant: LibraryVariant,
+): ItemPlace | null {
+  const place = config.itemPlace?.(row, variant) ?? null;
+  return place && canOpenInNewWindow(place) ? place : null;
 }
 
 function warnMissingComparator(columnKey: string): void {
@@ -239,28 +251,42 @@ function RowEditActions({ actions }: { actions: LibraryRowEditAction[] }) {
   );
 }
 
-// ── Actions cell (shared, non-negotiable per t/3703 ruling) ──
+// ── ⧉ open-in-new-window button (t/4689) — extracted to keep ActionsCell under budget ──
 
-function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string }>({
-  row, variant, config, toast, editModeActive,
+function OpenInWindowButton({ place, title }: { place: ItemPlace; title: string }) {
+  return (
+    <button
+      type="button"
+      className="lib-action-btn lib-action-open-window"
+      title="Open in new window"
+      aria-label={`Open ${title} in a new window`}
+      onClick={() => openPlaceInNewWindow(place)}
+    >
+      ⧉
+    </button>
+  );
+}
+
+// ── Actions cell: the non-edit-mode button row (t/4689: extracted from ActionsCell to keep
+//    it under the per-file complexity budget — adding the ⧉ button's branch pushed the
+//    combined function over threshold) ──
+
+function ActionsCellButtons<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, variant, config, toast, menuOpen, setMenuOpen,
 }: {
   row: TMy | TCommunity;
   variant: LibraryVariant;
   config: LibraryListPageProps<TMy, TCommunity>['config'];
   toast: (msg: string) => void;
-  editModeActive: boolean;
+  menuOpen: boolean;
+  setMenuOpen: (open: boolean) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  if (editModeActive) {
-    const rowActions = variant === 'my' ? config.editMode?.rowActions?.(row as TMy) ?? [] : [];
-    return rowActions.length > 0 ? <RowEditActions actions={rowActions} /> : null;
-  }
-
   const showCopy = variant === 'community' ? (config.showCopy ? config.showCopy(row as TCommunity) : true) : false;
+  const place = openablePlace(config, row, variant);
 
   return (
     <div className={`lib-actions${menuOpen ? ' lib-menu-open' : ''}`} onClick={e => e.stopPropagation()}>
+      {place && <OpenInWindowButton place={place} title={config.getTitle(row, variant)} />}
       <ExportMenu
         formats={config.exportFormats}
         onOpenChange={setMenuOpen}
@@ -283,6 +309,27 @@ function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string
       )}
     </div>
   );
+}
+
+// ── Actions cell (shared, non-negotiable per t/3703 ruling) ──
+
+function ActionsCell<TMy extends { id: string }, TCommunity extends { id: string }>({
+  row, variant, config, toast, editModeActive,
+}: {
+  row: TMy | TCommunity;
+  variant: LibraryVariant;
+  config: LibraryListPageProps<TMy, TCommunity>['config'];
+  toast: (msg: string) => void;
+  editModeActive: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  if (editModeActive) {
+    const rowActions = variant === 'my' ? config.editMode?.rowActions?.(row as TMy) ?? [] : [];
+    return rowActions.length > 0 ? <RowEditActions actions={rowActions} /> : null;
+  }
+
+  return <ActionsCellButtons row={row} variant={variant} config={config} toast={toast} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />;
 }
 
 // ── Sortable header cell ──
@@ -460,12 +507,31 @@ function BodyRow<TMy extends { id: string }, TCommunity extends { id: string }>(
   openRow: (id: string) => void;
   showToast: (msg: string) => void;
 }) {
+  // t/4689: Ctrl/Cmd-click or middle-click opens the row in a new window/tab instead of
+  // navigating in place — same gate (`openablePlace`) as the ⧉ button, so the two never
+  // disagree. Middle-click fires onAuxClick (button 1), never onClick, in every browser.
+  const openInWindowIfModified = (e: { ctrlKey: boolean; metaKey: boolean }): boolean => {
+    if (editModeActive || !(e.ctrlKey || e.metaKey)) return false;
+    const place = openablePlace(config, row, listView);
+    if (!place) return false;
+    openPlaceInNewWindow(place);
+    return true;
+  };
+
   return (
     <div
       className="lib-row lib-body-row"
       role="row"
       tabIndex={0}
-      onClick={() => { if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id); }}
+      onClick={e => {
+        if (openInWindowIfModified(e)) return;
+        if (!editModeActive) openRow(row.id); else config.editMode?.onToggleSelect(row.id);
+      }}
+      onAuxClick={e => {
+        if (e.button !== 1 || editModeActive) return;
+        const place = openablePlace(config, row, listView);
+        if (place) { e.preventDefault(); openPlaceInNewWindow(place); }
+      }}
       onKeyDown={e => {
         if (e.key !== 'Enter' || editModeActive) return;
         e.preventDefault();
@@ -604,6 +670,7 @@ function PhoneActionsMenu<TMy extends { id: string }, TCommunity extends { id: s
   }
 
   const showCopy = listView === 'community' ? (config.showCopy ? config.showCopy(row as TCommunity) : true) : false;
+  const place = openablePlace(config, row, listView);
 
   return (
     <div className="lib-phone-actions-menu-wrap" ref={wrapRef} onClick={e => e.stopPropagation()}>
@@ -619,6 +686,16 @@ function PhoneActionsMenu<TMy extends { id: string }, TCommunity extends { id: s
       </button>
       {menuOpen && (
         <div role="menu" className="lib-phone-actions-menu">
+          {place && (
+            <button
+              type="button"
+              role="menuitem"
+              className="lib-phone-menu-item"
+              onClick={() => { close(); openPlaceInNewWindow(place); }}
+            >
+              Open in new window
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

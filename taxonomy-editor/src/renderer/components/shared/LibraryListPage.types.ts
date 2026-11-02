@@ -14,6 +14,7 @@
 // this even though only Op-Eds/Chats exercise them respectively.
 
 import type { ReactNode } from 'react';
+import type { ItemPlace } from '../../navigation/openInWindow';
 
 export type LibraryVariant = 'my' | 'community';
 
@@ -174,6 +175,15 @@ export interface LibraryListPageConfig<TMy extends { id: string }, TCommunity ex
    *  that's the one deliberate exception — see `anonymousHasMyContent`; it still has no general
    *  auth-driven per-row logic of its own, which is what this predicate is for.) */
   showCopy?: (row: TCommunity) => boolean;
+  /**
+   * t/4689: the row's open-in-new-window place, for the shared ⧉ button and Ctrl/Cmd/middle-click
+   * on the row. Omit entirely for a page with no window-opening story yet. `canOpenInNewWindow`
+   * (from `navigation/openInWindow`) is what actually gates visibility per tool/build — this just
+   * supplies the place to check it against; LibraryListPage owns the button/click-modifier
+   * mechanics, same split as every other actions-column affordance in this file. Return null for
+   * a row this doesn't apply to (there shouldn't be one, but the escape hatch costs nothing).
+   */
+  itemPlace?: (row: TMy | TCommunity, variant: LibraryVariant) => ItemPlace | null;
 }
 
 export interface LibraryListPageProps<TMy extends { id: string }, TCommunity extends { id: string }> {

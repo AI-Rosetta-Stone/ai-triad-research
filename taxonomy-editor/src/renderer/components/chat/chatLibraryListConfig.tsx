@@ -148,5 +148,8 @@ export function buildChatLibraryListConfig(
     onExportCommunity: (row, format) => deps.onExportCommunity(row.id, format),
     onShare: deps.onShare,
     onCopy: deps.onCopy,
+
+    // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Path matches placeOf.ts's chat route.
+    itemPlace: (row) => ({ tool: 'chat', id: row.id, path: `/chat/${row.id}` }),
   };
 }

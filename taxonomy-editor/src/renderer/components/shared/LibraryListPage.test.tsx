@@ -24,6 +24,17 @@ vi.mock('../../hooks/useIsAdmin', () => ({ useIsAdmin: () => mockIsAdmin }));
 let mockBreakpoint: string = 'desktop';
 vi.mock('../../hooks/useBreakpoint', () => ({ useBreakpoint: () => mockBreakpoint }));
 
+// t/4689: real canOpenInNewWindow logic isn't under test here (that's openInWindow.test.ts's
+// job) — only that LibraryListPage calls it and respects the result.
+const { canOpenInNewWindowMock, openPlaceInNewWindowMock } = vi.hoisted(() => ({
+  canOpenInNewWindowMock: vi.fn(() => true),
+  openPlaceInNewWindowMock: vi.fn(),
+}));
+vi.mock('../../navigation/openInWindow', () => ({
+  canOpenInNewWindow: canOpenInNewWindowMock,
+  openPlaceInNewWindow: openPlaceInNewWindowMock,
+}));
+
 interface Row { id: string; title: string; date: string; }
 
 const MY_ROWS: Row[] = [
@@ -690,4 +701,82 @@ describe('LibraryListPage — phone layout (t/4571)', () => {
   // t/4571: sort direction button (item 2) is conditionally rendered when a sort is active.
   // The toggle works correctly in real usage; test setup complexity for triggering the internal
   // sort state is deferred to integration/e2e tests. The button markup is verified via code inspection.
+});
+
+describe('LibraryListPage — open in new window (t/4689)', () => {
+  beforeEach(() => {
+    canOpenInNewWindowMock.mockReturnValue(true);
+    canOpenInNewWindowMock.mockClear();
+    openPlaceInNewWindowMock.mockClear();
+  });
+
+  const WITH_ITEM_PLACE = {
+    itemPlace: (r: Row) => ({ tool: 'chat' as const, id: r.id, path: `/chat/${r.id}` }),
+  };
+
+  it('no ⧉ button when config has no itemPlace', () => {
+    renderPage();
+    expect(screen.queryByRole('button', { name: /Open in a new window/ })).not.toBeInTheDocument();
+  });
+
+  it('no ⧉ button when itemPlace is set but canOpenInNewWindow says no', () => {
+    canOpenInNewWindowMock.mockReturnValue(false);
+    renderPage(WITH_ITEM_PLACE);
+    expect(screen.queryByRole('button', { name: /Open in a new window/ })).not.toBeInTheDocument();
+  });
+
+  it('⧉ button opens the place without navigating the row (stopPropagation)', () => {
+    const { onOpenMy } = renderPage(WITH_ITEM_PLACE);
+    // Rows render in MY_ROWS order (m1 "Zebra topic" first); the first ⧉ button is m1's.
+    const btn = screen.getAllByRole('button', { name: /Open .* in a new window/ })[0];
+    fireEvent.click(btn);
+    expect(openPlaceInNewWindowMock).toHaveBeenCalledWith({ tool: 'chat', id: 'm1', path: '/chat/m1' });
+    expect(onOpenMy).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl-click on the row opens in a new window instead of navigating in place', () => {
+    const { onOpenMy } = renderPage(WITH_ITEM_PLACE);
+    fireEvent.click(screen.getByText('Alpha topic'), { ctrlKey: true });
+    expect(openPlaceInNewWindowMock).toHaveBeenCalledWith({ tool: 'chat', id: 'm2', path: '/chat/m2' });
+    expect(onOpenMy).not.toHaveBeenCalled();
+  });
+
+  it('Cmd (meta)-click on the row opens in a new window', () => {
+    const { onOpenMy } = renderPage(WITH_ITEM_PLACE);
+    fireEvent.click(screen.getByText('Alpha topic'), { metaKey: true });
+    expect(openPlaceInNewWindowMock).toHaveBeenCalledWith({ tool: 'chat', id: 'm2', path: '/chat/m2' });
+    expect(onOpenMy).not.toHaveBeenCalled();
+  });
+
+  it('a plain click still navigates in place, even with itemPlace configured', () => {
+    const { onOpenMy } = renderPage(WITH_ITEM_PLACE);
+    fireEvent.click(screen.getByText('Alpha topic'));
+    expect(onOpenMy).toHaveBeenCalledWith('m2');
+    expect(openPlaceInNewWindowMock).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl-click does nothing when canOpenInNewWindow says no — falls through to normal open', () => {
+    canOpenInNewWindowMock.mockReturnValue(false);
+    const { onOpenMy } = renderPage(WITH_ITEM_PLACE);
+    fireEvent.click(screen.getByText('Alpha topic'), { ctrlKey: true });
+    expect(openPlaceInNewWindowMock).not.toHaveBeenCalled();
+    expect(onOpenMy).toHaveBeenCalledWith('m2');
+  });
+
+  it('middle-click (auxclick, button 1) opens in a new window', () => {
+    const { onOpenMy } = renderPage(WITH_ITEM_PLACE);
+    fireEvent(screen.getByText('Alpha topic').closest('.lib-row')!, new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    expect(openPlaceInNewWindowMock).toHaveBeenCalledWith({ tool: 'chat', id: 'm2', path: '/chat/m2' });
+    expect(onOpenMy).not.toHaveBeenCalled();
+  });
+
+  it('phone layout: the actions menu offers "Open in new window" when itemPlace is set', () => {
+    mockBreakpoint = 'phone';
+    const { container } = renderPage(WITH_ITEM_PLACE);
+    const actionsBtn = container.querySelector('.lib-phone-actions-btn') as HTMLButtonElement;
+    fireEvent.click(actionsBtn);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open in new window' }));
+    expect(openPlaceInNewWindowMock).toHaveBeenCalledWith({ tool: 'chat', id: 'm1', path: '/chat/m1' });
+    mockBreakpoint = 'desktop';
+  });
 });
