@@ -772,8 +772,12 @@ export function ensureFreePoolBudgetBooted(log: BootLogger, init:(opts: BlobFree
     callsCap = 1500;
   }
 
+  // t/4733: route to staging-user-content on staging, user-content on prod (t/2643 pattern).
+  const appName = process.env.CONTAINER_APP_NAME || '';
+  const containerName = appName.toLowerCase().includes('staging') ? 'staging-user-content' : 'user-content';
+
   try {
-    init({ accountUrl, callsCap });
+    init({ accountUrl, container: containerName, callsCap });
   } catch (err) {
     getGlobalRecorder()?.record({
       type: 'system.error', component: 'free-pool-budget', level: 'error',
