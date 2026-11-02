@@ -46,6 +46,23 @@
   white-space: nowrap;
 }
 
+/* t/4689: running-indicator dot on the Chat/Debate rail icons */
+.toolbar-nav-icon-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.toolbar-nav-running-dot {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(var(--accent-rgb), 1);
+  border: 1.5px solid var(--bg-primary, #fff);
+}
+
 @media (max-height: 700px) {
   .electron .toolbar-nav {
     width: 48px;

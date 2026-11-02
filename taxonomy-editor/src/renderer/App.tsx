@@ -51,6 +51,7 @@ import { pullDataTracked } from './utils/syncApi';
 import { useFeatureFlagStore, useFlag } from './hooks/useFeatureFlags';
 import { useTheoryLinkHotkey } from './hooks/useTheoryLinkHotkey';
 import { PrecacheToast } from './components/shared/PrecacheToast';
+import { RunToastHost } from './components/navigation/RunToastHost';
 import { usePrecache } from './hooks/usePrecache';
 import { DiagnosticsDrawer } from './components/shared/DiagnosticsDrawer';
 import { GlobalDetailPaneHost } from './components/shared/GlobalDetailPaneHost';
@@ -820,6 +821,7 @@ function MainApp() {
       {isMobile && <HamburgerMenu isOpen={hamburgerOpen} onClose={() => setHamburgerOpen(false)} />}
       {UpdatePrompt && !loading && <Suspense fallback={null}><UpdatePrompt /></Suspense>}
       <PrecacheToast progress={precacheProgress} onCancel={cancelPrecache} onDismiss={dismissPrecache} />
+      <RunToastHost />
       <WhatsNewToast onOpenChangelog={() => setShowChangelogHelp(true)} />
       {showChangelogHelp && <HelpDialog onClose={() => setShowChangelogHelp(false)} initialTab="changelog" />}
       {isMobile && <DiagnosticsDrawer />}

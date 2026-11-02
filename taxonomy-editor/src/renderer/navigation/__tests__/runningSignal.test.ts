@@ -12,6 +12,7 @@ vi.mock('../index', () => ({
 import {
   registerRun,
   isElsewhere,
+  isRunning,
   runningCountByTool,
   subscribeRunning,
   subscribeRunCompletion,
@@ -101,5 +102,19 @@ describe('runningSignal', () => {
     const finish = registerRun('chat', 'chat-1', 'My chat');
     finish('aborted');
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'aborted', wasElsewhere: true }));
+  });
+
+  // t/4689: isRunning (Recent-menu "Running…" row annotation) is current-place-independent,
+  // unlike isElsewhere — it's about whether the item is running at all.
+  it('isRunning is false for an item that was never registered', () => {
+    expect(isRunning('chat', 'chat-1')).toBe(false);
+  });
+
+  it('isRunning is true while registered, regardless of the current place', () => {
+    const finish = registerRun('debate', 'debate-1', 'My debate');
+    currentMock.mockReturnValue({ placeKey: 'debate:debate-1' }); // viewing it right now
+    expect(isRunning('debate', 'debate-1')).toBe(true);
+    finish('done');
+    expect(isRunning('debate', 'debate-1')).toBe(false);
   });
 });
