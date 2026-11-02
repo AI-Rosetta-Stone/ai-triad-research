@@ -219,6 +219,7 @@ export function InquiryTab() {
           onOpenCommunity={id => void openCommunityResult(id)}
           intro={<InquiryGettingStarted hasNoQuestions={myLibRows.length === 0} onPickStarter={handlePickStarter} />}
           defaultCommunityOnWeb
+          restoreKey="inquiry"
         />
         {showAskDialog && <InquiryAskPanel onClose={handleCloseAskDialog} onStarted={closeAskDialog} />}
       </>

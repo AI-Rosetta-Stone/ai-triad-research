@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LibraryListPage } from './LibraryListPage';
 import type { LibraryListPageConfig } from './LibraryListPage.types';
+import { getLastVariant, __resetLastVariantForTest } from '../../navigation/lastVariant';
 
 vi.mock('@lib/flight-recorder/index', () => ({ getGlobalRecorder: () => ({ record: vi.fn() }) }));
 
@@ -105,6 +106,59 @@ describe('LibraryListPage — tabs', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
     fireEvent.click(screen.getByRole('tab', { name: /My/ }));
     expect(screen.getByPlaceholderText('Search things…')).toHaveValue('');
+  });
+});
+
+describe('LibraryListPage — restoreKey remembers the My/Community tab (t/4689)', () => {
+  beforeEach(() => { __resetLastVariantForTest(); });
+
+  it('without restoreKey, behavior is unchanged: always starts on My', () => {
+    renderPage();
+    expect(screen.getByRole('tab', { name: /My/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('with restoreKey but nothing remembered yet, starts on My (same default as before)', () => {
+    renderPage({}, { restoreKey: 'chat' });
+    expect(screen.getByRole('tab', { name: /My/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('switching to Community remembers it under restoreKey', () => {
+    renderPage({}, { restoreKey: 'chat' });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    expect(getLastVariant('chat')).toBe('community');
+  });
+
+  it('a fresh mount with the same restoreKey restores the remembered tab — the up-crumb scenario', () => {
+    const { unmount } = renderPage({}, { restoreKey: 'chat' });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    unmount(); // simulates App.tsx unmounting ChatTab when the rail tab switches away
+
+    renderPage({}, { restoreKey: 'chat' });
+    expect(screen.getByRole('tab', { name: /Community/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('different tools remember independently', () => {
+    const { unmount } = renderPage({}, { restoreKey: 'chat' });
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    unmount();
+
+    renderPage({}, { restoreKey: 'debate' });
+    expect(screen.getByRole('tab', { name: /My/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('hideMyTab still wins over a remembered "my" — an anonymous session with no My content', () => {
+    const { unmount } = renderPage({}, { restoreKey: 'chat' });
+    // Already defaults to My; remember it explicitly by round-tripping through Community and back.
+    fireEvent.click(screen.getByRole('tab', { name: /Community/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /My/ }));
+    expect(getLastVariant('chat')).toBe('my');
+    unmount();
+
+    mockAuth = { anonymous: true };
+    renderPage({ anonymousHasMyContent: false }, { restoreKey: 'chat' });
+    expect(screen.queryByRole('tab', { name: /^My/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Community/ })).toHaveAttribute('aria-selected', 'true');
+    mockAuth = { anonymous: false };
   });
 });
 

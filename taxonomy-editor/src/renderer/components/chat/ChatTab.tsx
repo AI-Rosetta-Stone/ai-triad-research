@@ -595,6 +595,7 @@ export function ChatTab() {
             onOpenCommunity={id => openChatPopout(id, 'community')}
             intro={<ChatGettingStarted hasNoChats={sessions.length === 0} onPickStarter={handlePickStarter} />}
             defaultCommunityOnWeb={true}
+            restoreKey="chat"
           />
         </div>
       ) : listCollapsed ? (
