@@ -35,3 +35,22 @@ export function restorePath(path: string): void {
   }
   expectReplace(match.route.placeKey(match.params, query));
 }
+
+/**
+ * Go to a path as a user action — the breadcrumb's "up" link (t/4640 § Clickable breadcrumb).
+ * Unlike restorePath, the route's store changes are NOT suppressed, so the nav subscriber
+ * records the arrival as a push and Back returns to where the user was. Up targets are
+ * collections and camps, which open synchronously, so there's no async arrival to expect.
+ */
+export function goToPath(path: string): void {
+  const [pathname, queryString] = path.split('?');
+  const match = findRoute(pathname);
+  if (!match) {
+    getGlobalRecorder()?.record({
+      type: 'system.error', component: 'navigation', level: 'warn',
+      message: `goToPath: no route for "${path}" — ignoring the click`,
+    });
+    return;
+  }
+  match.route.restore(match.params, new URLSearchParams(queryString ?? ''));
+}

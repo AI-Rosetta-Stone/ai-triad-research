@@ -1,233 +1,237 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+// The location bar per docs/ux/navigation-location-bar.md (t/4640#40 items 2 and 3): the History
+// group (← → ▾), destination tooltips, the Recent menu, and the crumbs each place produces.
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LocationBarHost } from './LocationBarHost';
 import { navHistory } from '../../navigation';
+import { goToPath } from '../../navigation/restore';
+import type { HistoryEntry } from '../../navigation/types';
 import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useChatStore } from '../../hooks/useChatStore';
 import { useOpEdStore } from '../../hooks/useOpEdStore';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 
-// Mock the store hooks
 vi.mock('../../hooks/useTaxonomyStore');
 vi.mock('../../hooks/useDebateStore');
 vi.mock('../../hooks/useChatStore');
 vi.mock('../../hooks/useOpEdStore');
 vi.mock('../../hooks/useInquiryStore');
 vi.mock('../../navigation');
+vi.mock('../../navigation/restore');
 
-describe('LocationBarHost', () => {
-  beforeEach(() => {
-    // Setup default mocks
-    const mockTaxonomyState = {
-      activeTab: 'rosetta-stone',
-    };
-    const mockDebateState = {
-      loadDebate: vi.fn(),
-      closeDebate: vi.fn(),
-    };
-    const mockChatState = {
-      loadChat: vi.fn(),
-    };
-    const mockOpEdState = {
-      selectSet: vi.fn(),
-    };
-    const mockInquiryState = {
-      openFromHistory: vi.fn(),
-      openList: vi.fn(),
-    };
+const entry = (path: string, placeKey: string, label: string): HistoryEntry => ({ path, placeKey, label, timestamp: 0 });
+const STACK = [
+  entry('/', 'rosetta-stone', 'Rosetta Stone'),
+  entry('/chat', 'chat:none', 'Chat'),
+  entry('/debate', 'debate:none', 'Debate'),
+];
 
-    vi.mocked(useTaxonomyStore).mockReturnValue(mockTaxonomyState as any);
-    vi.mocked(useDebateStore).mockReturnValue(mockDebateState as any);
-    vi.mocked(useChatStore).mockReturnValue(mockChatState as any);
-    vi.mocked(useOpEdStore).mockReturnValue(mockOpEdState as any);
-    vi.mocked(useInquiryStore).mockReturnValue(mockInquiryState as any);
+/** Point the mocked history at `entries` with `index` current. */
+function historyAt(entries: HistoryEntry[], index: number): void {
+  const h = vi.mocked(navHistory);
+  h.entries.mockReturnValue(entries);
+  h.index.mockReturnValue(index);
+  h.current.mockReturnValue(entries[index] ?? null);
+  h.canGoBack.mockReturnValue(index > 0);
+  h.canGoForward.mockReturnValue(index < entries.length - 1);
+}
 
-    vi.mocked(navHistory).canGoBack.mockReturnValue(false);
-    vi.mocked(navHistory).canGoForward.mockReturnValue(false);
-    vi.mocked(navHistory).subscribe.mockReturnValue(() => {});
-    // t/4640: the mount-time effect always calls entries()/index() (updateRecentEntries), even
-    // for tests that never touch the Recent menu. An auto-mocked vi.fn() with no default returns
-    // undefined, and `allEntries.length` on undefined throws inside that effect — failing every
-    // test that doesn't explicitly mock these two. Default to the empty-history shape here;
-    // individual tests still override when they need specific entries.
-    vi.mocked(navHistory).entries.mockReturnValue([]);
-    vi.mocked(navHistory).index.mockReturnValue(0);
-  });
+function stores(taxonomy: Record<string, unknown>, extra: { chat?: unknown; opEd?: unknown } = {}): void {
+  vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'rosetta-stone', selectedNodeId: null, ...taxonomy } as never);
+  vi.mocked(useDebateStore).mockReturnValue({ activeDebate: null } as never);
+  vi.mocked(useChatStore).mockReturnValue((extra.chat ?? { activeChat: null }) as never);
+  vi.mocked(useOpEdStore).mockReturnValue((extra.opEd ?? { selectedSetId: null, sets: [] }) as never);
+  vi.mocked(useInquiryStore).mockReturnValue({ result: null, jobId: null } as never);
+}
 
-  it('renders LocationBar with breadcrumbs', () => {
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(navHistory).subscribe.mockReturnValue(() => {});
+  historyAt([STACK[0]], 0);
+  stores({});
+});
+
+describe('Back / Forward (§ Back / Forward)', () => {
+  it('with no history: plain "Back"/"Forward", disabled and aria-disabled', () => {
     render(<LocationBarHost />);
-    // The LocationBar should be rendered (location-bar-host is the wrapper)
-    const host = screen.getByRole('navigation', { hidden: true });
-    expect(host).toBeInTheDocument();
+    const back = screen.getByRole('button', { name: 'Back' });
+    expect(back).toBeDisabled();
+    expect(back).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Forward' })).toBeDisabled();
   });
 
-  it('shows Recent menu button', () => {
+  it('names the destination in aria-label and title, with the shortcut in the title only', () => {
+    historyAt(STACK, 1);
     render(<LocationBarHost />);
-    const menuBtn = screen.getByTitle('Recent navigation');
-    expect(menuBtn).toBeInTheDocument();
+    const back = screen.getByRole('button', { name: 'Back to Rosetta Stone' });
+    expect(back).toBeEnabled();
+    expect(back).toHaveAttribute('title', 'Back to Rosetta Stone (Alt+←)');
+    expect(back).toHaveAttribute('aria-keyshortcuts', 'Alt+ArrowLeft');
+    expect(screen.getByRole('button', { name: 'Forward to Debate' })).toBeEnabled();
   });
 
-  it('opens Recent menu on click', async () => {
+  it('truncates a long destination label at 60 characters', () => {
+    const long = 'x'.repeat(80);
+    historyAt([entry('/chat/c', 'chat:c', long), STACK[2]], 1);
     render(<LocationBarHost />);
-    const menuBtn = screen.getByTitle('Recent navigation');
-    await userEvent.click(menuBtn);
-    // Menu should be visible
-    const menuDropdown = screen.getByText('No history');
-    expect(menuDropdown).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Back to ${'x'.repeat(59)}…` })).toBeInTheDocument();
   });
 
-  it('closes Recent menu on outside click', async () => {
-    const { container } = render(<LocationBarHost />);
-    const menuBtn = screen.getByTitle('Recent navigation');
-    await userEvent.click(menuBtn);
-
-    // Click outside the menu
-    fireEvent.mouseDown(container);
-
-    // Menu should be hidden (would not have text)
-    await waitFor(() => {
-      expect(screen.queryByText('No history')).not.toBeInTheDocument();
-    });
-  });
-
-  it('disables back button when canGoBack is false', () => {
+  it('clicking Back calls navHistory.back()', async () => {
+    historyAt(STACK, 2);
     render(<LocationBarHost />);
-    const backBtn = screen.getByTitle('Back');
-    expect(backBtn).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Back to Chat' }));
+    expect(navHistory.back).toHaveBeenCalledTimes(1);
   });
 
-  it('enables back button when canGoBack is true', () => {
-    vi.mocked(navHistory).canGoBack.mockReturnValue(true);
+  it('sits in a "History" group with the Recent button', () => {
     render(<LocationBarHost />);
-    const backBtn = screen.getByTitle('Back');
-    expect(backBtn).not.toBeDisabled();
+    const group = screen.getByRole('group', { name: 'History' });
+    expect(within(group).getByRole('button', { name: 'Recent locations' })).toBeInTheDocument();
   });
+});
 
-  // go()'s own bounds (-99/+99 are no-ops, a valid delta moves and notifies once) are covered
-  // directly against a real MemoryHistory in navHistory.test.ts. This test is the Back button's
-  // reactivity to canGoBack(), which the UI actually renders from.
-  it('Back button disabled state tracks canGoBack() across a rerender', () => {
-    vi.mocked(navHistory).entries.mockReturnValue([
-      { path: '/', placeKey: 'rosetta-stone', label: 'Rosetta Stone', timestamp: 1000 },
-      { path: '/debate', placeKey: 'debate:123', label: 'Debate', timestamp: 2000 },
-    ] as any);
-    vi.mocked(navHistory).index.mockReturnValue(1);
-    vi.mocked(navHistory).canGoBack.mockReturnValue(false);
-    vi.mocked(navHistory).canGoForward.mockReturnValue(false);
-
-    const { rerender } = render(<LocationBarHost />);
-    const backBtn = screen.getByTitle('Back');
-    expect(backBtn).toBeDisabled();
-
-    // When canGoBack becomes true, button enables
-    vi.mocked(navHistory).canGoBack.mockReturnValue(true);
-    rerender(<LocationBarHost />);
-    const backBtnEnabled = screen.getByTitle('Back');
-    expect(backBtnEnabled).not.toBeDisabled();
-  });
-
-  it('Recent menu: clicking a future entry jumps forward by its delta', async () => {
-    vi.mocked(navHistory).entries.mockReturnValue([
-      { path: '/', placeKey: 'rosetta-stone', label: 'Rosetta Stone', timestamp: 1000 },
-      { path: '/chat', placeKey: 'chat:none', label: 'Chat', timestamp: 2000 },
-      { path: '/debate', placeKey: 'debate:123', label: 'Debate', timestamp: 3000 },
-    ] as any);
-    vi.mocked(navHistory).index.mockReturnValue(0); // at Rosetta Stone, index 0
-    vi.mocked(navHistory).canGoBack.mockReturnValue(false);
-    vi.mocked(navHistory).canGoForward.mockReturnValue(true);
-
+describe('Recent locations (§ ▾ Recent locations menu)', () => {
+  it('is disabled when no other entry exists', () => {
     render(<LocationBarHost />);
-    await userEvent.click(screen.getByTitle('Recent navigation'));
-    // "Debate" is entries[2], 2 steps forward of the current index (0).
-    await userEvent.click(screen.getByRole('button', { name: 'Debate →' }));
-
-    expect(navHistory.go).toHaveBeenCalledWith(2);
+    expect(screen.getByRole('button', { name: 'Recent locations' })).toBeDisabled();
   });
 
-  it('Recent menu: clicking a past entry jumps back by its delta', async () => {
-    vi.mocked(navHistory).entries.mockReturnValue([
-      { path: '/', placeKey: 'rosetta-stone', label: 'Rosetta Stone', timestamp: 1000 },
-      { path: '/chat', placeKey: 'chat:none', label: 'Chat', timestamp: 2000 },
-      { path: '/debate', placeKey: 'debate:123', label: 'Debate', timestamp: 3000 },
-    ] as any);
-    vi.mocked(navHistory).index.mockReturnValue(1); // at Chat, index 1
-    vi.mocked(navHistory).canGoBack.mockReturnValue(true);
-    vi.mocked(navHistory).canGoForward.mockReturnValue(true);
-
+  it('lists the stack newest first, marks the current entry, and focuses it on open', async () => {
+    historyAt(STACK, 1);
     render(<LocationBarHost />);
-    await userEvent.click(screen.getByTitle('Recent navigation'));
-    // "Rosetta Stone" is entries[0], 1 step back of the current index (1).
-    await userEvent.click(screen.getByRole('button', { name: '← Rosetta Stone' }));
+    const button = screen.getByRole('button', { name: 'Recent locations' });
+    expect(button).toHaveAttribute('aria-haspopup', 'menu');
+    await userEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
 
+    const items = within(screen.getByRole('menu')).getAllByRole('menuitem');
+    expect(items.map(i => i.querySelector('.nav-locbar-menu-label')?.textContent)).toEqual(['Debate', 'Chat', 'Rosetta Stone']);
+    expect(items[1]).toHaveAttribute('aria-current', 'page');
+    expect(items[1]).toHaveAccessibleName('Chat, you are here');
+    expect(items[1]).toHaveFocus();
+  });
+
+  it('caps the list at 15 entries', async () => {
+    const many = Array.from({ length: 20 }, (_, i) => entry(`/chat/${i}`, `chat:${i}`, `Chat ${i}`));
+    historyAt(many, 19);
+    render(<LocationBarHost />);
+    await userEvent.click(screen.getByRole('button', { name: 'Recent locations' }));
+    expect(screen.getAllByRole('menuitem')).toHaveLength(15);
+  });
+
+  it('activating an entry is one go(delta) to it; the current entry just closes the menu', async () => {
+    historyAt(STACK, 1);
+    render(<LocationBarHost />);
+    await userEvent.click(screen.getByRole('button', { name: 'Recent locations' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Debate' }));
+    expect(navHistory.go).toHaveBeenCalledWith(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Recent locations' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Rosetta Stone' }));
     expect(navHistory.go).toHaveBeenCalledWith(-1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Recent locations' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Chat, you are here' }));
+    expect(navHistory.go).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  // t/4689: clicking an ancestor ("library") crumb previously parsed its placeKey's '<tool>:none'
-  // sentinel as a real item id and called e.g. chatState.loadChat('none'). These assert the fix:
-  // a library crumb switches the tab and clears the open item, never passing 'none' to a loader.
-  describe('up-crumb library navigation (t/4689)', () => {
-    it('clicking the Chat library crumb clears the open chat, not loadChat("none")', async () => {
-      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'chat' } as any);
-      const loadChat = vi.fn();
-      vi.mocked(useChatStore).mockReturnValue({
-        loadChat, activeChat: { id: 'c1', topic: 'My topic' },
-      } as any);
-      (useChatStore as any).setState = vi.fn();
+  it('keyboard: ↓/End move focus; Esc closes and returns focus to ▾', async () => {
+    historyAt(STACK, 2);
+    render(<LocationBarHost />);
+    const button = screen.getByRole('button', { name: 'Recent locations' });
+    await userEvent.click(button);
+    const items = screen.getAllByRole('menuitem');
+    expect(items[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(items[1]).toHaveFocus();
+    await userEvent.keyboard('{End}');
+    expect(items[2]).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(button).toHaveFocus();
+  });
+});
 
-      render(<LocationBarHost />);
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+describe('crumbs per place (§ Breadcrumb table)', () => {
+  const crumbTexts = () =>
+    within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getAllByRole('listitem').map(li => li.textContent);
 
-      expect(loadChat).not.toHaveBeenCalled();
-      expect((useChatStore as any).setState).toHaveBeenCalledWith({ activeChatId: null, activeChat: null });
+  it('the landing page is just "Rosetta Stone"', () => {
+    render(<LocationBarHost />);
+    expect(crumbTexts()).toEqual(['Rosetta Stone']);
+  });
+
+  it('a tool has no "Rosetta Stone" prefix', () => {
+    stores({ activeTab: 'debate' });
+    render(<LocationBarHost />);
+    expect(crumbTexts()).toEqual(['Debate']);
+  });
+
+  it('a taxonomy node shows Taxonomy › ● Camp › node label — never the node id', () => {
+    stores({
+      activeTab: 'accelerationist',
+      selectedNodeId: 'acc-desires-010',
+      accelerationist: { nodes: [{ id: 'acc-desires-010', label: 'Unlock abundance through compute' }] },
     });
+    render(<LocationBarHost />);
+    expect(crumbTexts()).toEqual(['Taxonomy', 'Accelerationist', 'Unlock abundance through compute']);
+    expect(screen.queryByText(/acc-desires-010/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Accelerationist' })).toHaveAttribute('href', '/taxonomy/acc');
+  });
 
-    it('clicking the Debate library crumb calls closeDebate, not loadDebate("none")', async () => {
-      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'debate' } as any);
-      const loadDebate = vi.fn();
-      const closeDebate = vi.fn();
-      vi.mocked(useDebateStore).mockReturnValue({
-        loadDebate, closeDebate, activeDebate: { id: 'd1', topic: { original: 'My debate' } },
-      } as any);
+  it('while the node label is still loading, shows Taxonomy › Camp only — no id', () => {
+    stores({ activeTab: 'accelerationist', selectedNodeId: 'acc-desires-010', accelerationist: null });
+    render(<LocationBarHost />);
+    expect(crumbTexts()).toEqual(['Taxonomy', 'Accelerationist']);
+  });
 
-      render(<LocationBarHost />);
-      await userEvent.click(screen.getByRole('button', { name: 'Debate' }));
+  it('an op-ed set shows Op-Ed Studies › topic › ● Camp, the camp read from ?pov=', () => {
+    stores({ activeTab: 'opeds' }, { opEd: { selectedSetId: 's1', sets: [{ set_id: 's1', topic: 'Compute caps' }] } });
+    historyAt([entry('/opeds/s1?pov=saf', 'opeds:s1', 'Compute caps')], 0);
+    render(<LocationBarHost />);
+    expect(crumbTexts()).toEqual(['Op-Ed Studies', 'Compute caps', 'Safetyist']);
+  });
 
-      expect(loadDebate).not.toHaveBeenCalled();
-      expect(closeDebate).toHaveBeenCalled();
-    });
+  it('clicking an up-link goes to its collection via goToPath (a push)', async () => {
+    stores({ activeTab: 'chat' }, { chat: { activeChat: { id: 'c1', topic: 'Compute caps' } } });
+    render(<LocationBarHost />);
+    await userEvent.click(screen.getByRole('link', { name: 'Chat' }));
+    expect(goToPath).toHaveBeenCalledWith('/chat');
+  });
+});
 
-    it('clicking the Op-Ed Studies library crumb calls selectSet(null), not selectSet("none")', async () => {
-      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'opeds' } as any);
-      const selectSet = vi.fn();
-      vi.mocked(useOpEdStore).mockReturnValue({
-        selectSet, selectedSetId: 'set-1', sets: [{ set_id: 'set-1', topic: 'My op-ed' }],
-      } as any);
+describe('web build (§ Contents by build)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
 
-      render(<LocationBarHost />);
-      await userEvent.click(screen.getByRole('button', { name: 'Op-Ed Studies' }));
-
-      expect(selectSet).toHaveBeenCalledWith(null);
-      expect(selectSet).not.toHaveBeenCalledWith('none');
-    });
-
-    it('clicking the Ask a Question library crumb calls openList, not openFromHistory("none")', async () => {
-      vi.mocked(useTaxonomyStore).mockReturnValue({ activeTab: 'inquiry' } as any);
-      const openFromHistory = vi.fn();
-      const openList = vi.fn();
-      vi.mocked(useInquiryStore).mockReturnValue({
-        openFromHistory, openList, result: { request: { question: 'My question' } }, jobId: 'job-1',
-      } as any);
-
-      render(<LocationBarHost />);
-      await userEvent.click(screen.getByRole('button', { name: 'Ask a Question' }));
-
-      expect(openFromHistory).not.toHaveBeenCalled();
-      expect(openList).toHaveBeenCalled();
-    });
+  it('shows ← and ▾ but no → (the browser owns Forward)', async () => {
+    vi.stubEnv('VITE_TARGET', 'web');
+    vi.resetModules();
+    const { LocationBarHost: WebHost } = await import('./LocationBarHost');
+    const { navHistory: webHistory } = await import('../../navigation');
+    // resetModules gave the host fresh (auto-mocked) store modules; give them state again.
+    vi.mocked((await import('../../hooks/useTaxonomyStore')).useTaxonomyStore).mockReturnValue({ activeTab: 'rosetta-stone', selectedNodeId: null } as never);
+    vi.mocked((await import('../../hooks/useDebateStore')).useDebateStore).mockReturnValue({ activeDebate: null } as never);
+    vi.mocked((await import('../../hooks/useChatStore')).useChatStore).mockReturnValue({ activeChat: null } as never);
+    vi.mocked((await import('../../hooks/useOpEdStore')).useOpEdStore).mockReturnValue({ selectedSetId: null, sets: [] } as never);
+    vi.mocked((await import('../../hooks/useInquiryStore')).useInquiryStore).mockReturnValue({ result: null, jobId: null } as never);
+    vi.mocked(webHistory).subscribe.mockReturnValue(() => {});
+    vi.mocked(webHistory).entries.mockReturnValue(STACK);
+    vi.mocked(webHistory).index.mockReturnValue(1);
+    vi.mocked(webHistory).canGoBack.mockReturnValue(true);
+    render(<WebHost />);
+    expect(screen.getByRole('button', { name: 'Back to Rosetta Stone' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Recent locations' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /^Forward/ })).toBeNull();
   });
 });
