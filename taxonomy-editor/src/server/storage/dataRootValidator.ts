@@ -22,6 +22,9 @@ import { ActionableError } from '../../../../lib/debate/errors.js';
 import { log } from '../logger.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 import { getBackend } from './fileIO.js';
+import { FilesystemBackend } from './filesystemBackend.js';
+
+const MOUNT_RETRY_BUDGET_MS = 180_000; // 3min provisional ceiling, pending r/40 mount-ready measurements (t/4760)
 
 export async function validateDataRoot(): Promise<void> {
   const backend = getBackend();
@@ -87,8 +90,61 @@ export async function validateDataRoot(): Promise<void> {
           ],
         });
       }
+    } else if (backend instanceof FilesystemBackend) {
+      // filesystem mode + SMB mount warm-up: retry with backoff (t/4760)
+      const startMs = Date.now();
+      const delayMs = 10_000; // 10s backoff
+      const maxAttempts = Math.ceil(MOUNT_RETRY_BUDGET_MS / delayMs);
+      let lastErr: unknown;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const entries = await backend.listDirectory(dir);
+          if (entries.length === 0) {
+            throw new ActionableError({
+              goal: 'Serve taxonomy and dictionary data',
+              problem: `Data root sentinel '${sentinel}/' is missing or empty. dataRoot=${getDataRoot()} (resolved via: ${resolutionMethod}), STORAGE_MODE=${STORAGE_MODE}`,
+              location: 'server/storage/dataRootValidator.ts → validateDataRoot',
+              nextSteps: [
+                'Verify the data repository is cloned at the expected path',
+                'Set AI_TRIAD_DATA_ROOT to the correct absolute path',
+                'Check that taxonomy/ and dictionary/ directories exist in the data root',
+              ],
+            });
+          }
+          lastErr = undefined;
+          break;
+        } catch (err) {
+          if (err instanceof ActionableError) throw err; // config or genuine-empty — no retry
+          lastErr = err;
+          getGlobalRecorder()?.record({
+            type: 'system.warn', component: 'data-root', level: 'warn',
+            message: `validateDataRoot: transient mount read error on attempt ${attempt + 1}/${maxAttempts} for sentinel '${sentinel}/' — retrying (t/4760)`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+          if (attempt < maxAttempts - 1) {
+            const elapsedMs = Date.now() - startMs;
+            if (elapsedMs + delayMs > MOUNT_RETRY_BUDGET_MS) break; // budget exhausted
+            await new Promise<void>(r => setTimeout(r, delayMs));
+          }
+        }
+      }
+
+      if (lastErr !== undefined) {
+        throw new ActionableError({
+          goal: 'Serve taxonomy and dictionary data',
+          problem: `Data root sentinel '${sentinel}/' is unreachable after ${maxAttempts} attempts (${Math.round(MOUNT_RETRY_BUDGET_MS / 1000)}s timeout). dataRoot=${getDataRoot()}, STORAGE_MODE=${STORAGE_MODE}. Mount may be slow to attach.`,
+          location: 'server/storage/dataRootValidator.ts → validateDataRoot',
+          nextSteps: [
+            'Check that the SMB mount for /mnt/shared is attached and ready',
+            'Verify network connectivity to the Azure Files share',
+            'Check pod/container logs for mount errors',
+            'Consider increasing the mount warm-up timeout if needed',
+          ],
+        });
+      }
     } else {
-      // filesystem mode: ENOENT swallowed → [] = definitive absent/empty
+      // non-filesystem backend: single attempt, no retry
       const entries = await backend.listDirectory(dir);
       if (entries.length === 0) {
         throw new ActionableError({
@@ -103,6 +159,70 @@ export async function validateDataRoot(): Promise<void> {
         });
       }
     }
+  }
+
+  // Condition 3: sentinel coverage for entities.json and organizations.json (t/4760)
+  const fileSentinels = ['entities.json', 'organizations.json'] as const;
+  const startMs = Date.now();
+
+  for (const file of fileSentinels) {
+    const filePath = path.join(getDataRoot(), file);
+    let lastErr: unknown;
+
+    // Use same retry logic for filesystem backend
+    const isFsBackend = backend instanceof FilesystemBackend;
+    const maxAttempts = isFsBackend ? Math.ceil(MOUNT_RETRY_BUDGET_MS / 10_000) : 1;
+    const delayMs = 10_000;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        // Check if file exists and is non-empty by reading it
+        const content = await backend.readFile(filePath);
+        if (!content || content.trim().length === 0) {
+          throw new ActionableError({
+            goal: 'Serve taxonomy and dictionary data',
+            problem: `Sentinel file '${file}' is missing or empty. dataRoot=${getDataRoot()}`,
+            location: 'server/storage/dataRootValidator.ts → validateDataRoot',
+            nextSteps: ['Verify the file exists and contains valid JSON', 'Check data root permissions'],
+          });
+        }
+        lastErr = undefined;
+        break;
+      } catch (err) {
+        if (err instanceof ActionableError) throw err;
+        lastErr = err;
+
+        if (isFsBackend && attempt < maxAttempts - 1) {
+          const elapsedMs = Date.now() - startMs;
+          if (elapsedMs + delayMs > MOUNT_RETRY_BUDGET_MS) break;
+          getGlobalRecorder()?.record({
+            type: 'system.warn', component: 'data-root', level: 'warn',
+            message: `validateDataRoot: transient file read error on attempt ${attempt + 1}/${maxAttempts} for '${file}' — retrying (t/4760)`,
+            error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+          });
+          await new Promise<void>(r => setTimeout(r, delayMs));
+        }
+      }
+    }
+
+    if (lastErr !== undefined) {
+      throw new ActionableError({
+        goal: 'Serve taxonomy and dictionary data',
+        problem: `Sentinel file '${file}' is unreachable. dataRoot=${getDataRoot()}`,
+        location: 'server/storage/dataRootValidator.ts → validateDataRoot',
+        nextSteps: ['Verify the file path and permissions', 'Check mount status for filesystem backend'],
+      });
+    }
+  }
+
+  // Record mount-ready latency on success (filesystem backend only)
+  if (backend instanceof FilesystemBackend) {
+    const mountReadyMs = Date.now() - startMs;
+    getGlobalRecorder()?.record({
+      type: 'system.info', component: 'data-root', level: 'info',
+      message: `validateDataRoot: mount ready after ${mountReadyMs}ms (t/4760)`,
+      data: { mountReadyMs },
+    });
   }
 }
 
