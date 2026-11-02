@@ -336,6 +336,8 @@ export interface ElectronAPI {
 
   // Community
   communitySubmit: (baseUrl: string, payload: { type: 'chat' | 'debate' | 'oped' | 'inquiry'; data: unknown; note?: string }) => Promise<{ submissionId: string }>;
+  /** t/4746/t/4612: desktop Ask "Share to Community" — uploads the full InquiryResult to the unauthenticated draft endpoint. */
+  submitAskToCommunity: (baseUrl: string, result: InquiryResult, note: string) => Promise<{ draftId: string; link: string }>;
 
   // Admin Review
   adminReviewConfigured: () => Promise<boolean>;

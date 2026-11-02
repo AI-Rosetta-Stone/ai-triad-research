@@ -680,6 +680,16 @@ function buildElectronApi() {
   ): Promise<{ submissionId: string }> =>
     ipcRenderer.invoke('community-submit', baseUrl, payload),
 
+  // t/4746/t/4612: desktop Ask "Share to Community" — uploads the full InquiryResult to the
+  // unauthenticated draft endpoint. Distinct from communitySubmit above (separate endpoint,
+  // separate payload schema, returns a draft link + id rather than a submissionId).
+  submitAskToCommunity: (
+    baseUrl: string,
+    result: InquiryResult,
+    note: string,
+  ): Promise<{ draftId: string; link: string }> =>
+    ipcRenderer.invoke('submit-ask-to-community', baseUrl, result, note),
+
   // File picker
   pickDocumentFile: (): Promise<{ cancelled: boolean; filePath?: string; content?: string }> =>
     ipcRenderer.invoke('pick-document-file'),
