@@ -19,6 +19,8 @@ import { useChatStore } from '../hooks/useChatStore';
 import { useInquiryStore } from '../hooks/useInquiryStore';
 import { postNavNotice } from '../navigation/navNotice';
 import { resyncToState } from '../navigation/subscriber';
+import { allPovNodes, type PovKey } from '../hooks/useTaxonomyStore/superseded';
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 
 export interface AppRoute {
   /** Unique id for logging/debugging — not part of the URL. */
@@ -43,7 +45,43 @@ const taxonomy = () => useTaxonomyStore.getState();
 const NOT_FOUND = {
   chat: 'That chat couldn’t be found. It may have been deleted.',
   debate: 'That debate couldn’t be found. It may have been deleted.',
+  node: 'That node couldn’t be found. It may have been removed or renamed.',
 } as const;
+
+const CAMP_LOAD_TIMEOUT_MS = 60_000;
+
+/**
+ * Run `check` once the camp's file is in the store. A pasted /taxonomy/:pov?node= restores at
+ * boot, before loadAll has fetched the taxonomy, so whether the node exists can't be known yet.
+ * Always deferred, so `check` never runs inside restorePath's restoring window.
+ */
+function whenCampLoaded(tab: TabId, check: () => void): void {
+  const loaded = () => (taxonomy() as unknown as Record<string, unknown>)[tab] != null;
+  setTimeout(() => {
+    if (loaded()) { check(); return; }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = useTaxonomyStore.subscribe(() => {
+      if (!loaded()) return;
+      clearTimeout(timer);
+      unsubscribe();
+      check();
+    });
+    timer = setTimeout(() => {
+      unsubscribe();
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: `appRoutes: ${tab} taxonomy not loaded after ${CAMP_LOAD_TIMEOUT_MS}ms — skipped the restored node's existence check`,
+      });
+    }, CAMP_LOAD_TIMEOUT_MS);
+  }, 0);
+}
+
+/** Live or superseded — a superseded node still opens (with its banner), so it isn't "not found". */
+function nodeExists(tab: TabId, id: string): boolean {
+  const state = taxonomy();
+  if (tab === 'situations') return !!state.situations?.nodes.some(n => n.id === id);
+  return allPovNodes(state, tab as PovKey).some(n => n.id === id);
+}
 
 /**
  * The restored item didn't load: point the current entry at the library the app is showing (no
@@ -168,8 +206,19 @@ export const TAXONOMY_ROUTE: AppRoute = {
   restore(params, query) {
     const tab = POV_TABS[params.pov];
     const node = query.get('node');
-    if (node) taxonomy().navigateToNode(tab, node);
-    else taxonomy().setActiveTab(tab);
+    if (!node) {
+      taxonomy().setActiveTab(tab);
+      return;
+    }
+    taxonomy().navigateToNode(tab, node);
+    // A stale node id (deleted, renamed, or from another dataset) would otherwise leave an empty
+    // detail pane under a URL naming a node that isn't there (t/4640 AC3, staging sweep).
+    whenCampLoaded(tab, () => {
+      const state = taxonomy();
+      if (state.activeTab !== tab || state.selectedNodeId !== node || nodeExists(tab, node)) return;
+      state.setSelectedNodeId(null);
+      fallBackToLibrary(tab, NOT_FOUND.node);
+    });
   },
 };
 

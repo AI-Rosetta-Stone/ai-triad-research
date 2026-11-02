@@ -9,15 +9,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { placeOf, type AppState } from '../navigation/placeOf';
 
-// Stateful enough for the routes to read back what they set (activeTab, the open item id).
+type CampFile = { nodes: Array<{ id: string; label: string; superseded_by?: string }> } | null;
+
+// Stateful enough for the routes to read back what they set (activeTab, the open item id), and
+// subscribable so a route can wait for a camp's file to load.
 const taxonomyState = {
   activeTab: 'rosetta-stone' as string,
-  setActiveTab: vi.fn((tab: string) => { taxonomyState.activeTab = tab; }),
-  navigateToNode: vi.fn(),
+  selectedNodeId: null as string | null,
+  accelerationist: null as CampFile,
+  safetyist: null as CampFile,
+  skeptic: null as CampFile,
+  situations: null as CampFile,
+  supersededNodes: { accelerationist: [], safetyist: [], skeptic: [] } as Record<string, Array<{ node: { id: string }; index: number }>>,
+  setActiveTab: vi.fn((tab: string) => { taxonomyState.activeTab = tab; taxonomyState.selectedNodeId = null; }),
+  setSelectedNodeId: vi.fn((id: string | null) => { taxonomyState.selectedNodeId = id; }),
+  navigateToNode: vi.fn((tab: string, id: string) => { taxonomyState.activeTab = tab; taxonomyState.selectedNodeId = id; }),
   navigateToConflict: vi.fn(),
 };
+const taxonomyListeners = new Set<() => void>();
+/** Simulate loadAll landing a camp's file. */
+function loadCamp(tab: 'accelerationist' | 'safetyist' | 'skeptic' | 'situations', nodes: Array<{ id: string; label: string }>): void {
+  taxonomyState[tab] = { nodes };
+  taxonomyListeners.forEach(l => l());
+}
 vi.mock('../hooks/useTaxonomyStore', () => ({
-  useTaxonomyStore: { getState: () => taxonomyState },
+  useTaxonomyStore: {
+    getState: () => taxonomyState,
+    subscribe: (l: () => void) => { taxonomyListeners.add(l); return () => taxonomyListeners.delete(l); },
+  },
 }));
 
 const opEdState = { requestOpen: vi.fn(), selectSet: vi.fn() };
@@ -76,9 +95,60 @@ beforeEach(() => {
   loadSucceeds = true;
   notices.length = 0;
   taxonomyState.activeTab = 'rosetta-stone';
+  taxonomyState.selectedNodeId = null;
+  taxonomyState.accelerationist = taxonomyState.safetyist = taxonomyState.skeptic = taxonomyState.situations = null;
+  taxonomyState.supersededNodes = { accelerationist: [], safetyist: [], skeptic: [] };
+  taxonomyListeners.clear();
   debateState.activeDebate = null;
   debateState.activeDebateId = null;
   chatState.activeChatId = null;
+});
+
+describe('a stale /taxonomy/:pov?node= falls back to the camp with a notice (t/4640 AC3, staging sweep)', () => {
+  const NODE_NOTICE = 'That node couldn’t be found. It may have been removed or renamed.';
+
+  it('a node missing from the loaded camp is cleared, the entry resyncs, and the notice posts', async () => {
+    loadCamp('safetyist', [{ id: 'saf-desires-011', label: 'Real' }]);
+    restore('/taxonomy/saf?node=saf-desires-034');
+    await settle();
+    expect(taxonomyState.setSelectedNodeId).toHaveBeenCalledWith(null);
+    expect(resyncToState).toHaveBeenCalledTimes(1);
+    expect(notices).toEqual([NODE_NOTICE]);
+  });
+
+  it('waits for the camp to load when restored at boot, then checks', async () => {
+    restore('/taxonomy/saf?node=saf-desires-034');
+    await settle();
+    expect(notices).toEqual([]); // not loaded yet — can't know
+    loadCamp('safetyist', [{ id: 'saf-desires-011', label: 'Real' }]);
+    expect(notices).toEqual([NODE_NOTICE]);
+  });
+
+  it('an existing node stays selected, with no notice', async () => {
+    loadCamp('safetyist', [{ id: 'saf-desires-011', label: 'Real' }]);
+    restore('/taxonomy/saf?node=saf-desires-011');
+    await settle();
+    expect(taxonomyState.selectedNodeId).toBe('saf-desires-011');
+    expect(notices).toEqual([]);
+    expect(resyncToState).not.toHaveBeenCalled();
+  });
+
+  it('a superseded node still counts as found — it opens with its banner', async () => {
+    loadCamp('safetyist', [{ id: 'saf-desires-011', label: 'Real' }]);
+    taxonomyState.supersededNodes = { accelerationist: [], safetyist: [{ node: { id: 'saf-desires-old' }, index: 0 }], skeptic: [] };
+    restore('/taxonomy/saf?node=saf-desires-old');
+    await settle();
+    expect(notices).toEqual([]);
+  });
+
+  it('no fallback once the user has selected another node before the check ran', async () => {
+    restore('/taxonomy/saf?node=saf-desires-034');
+    await settle();
+    taxonomyState.selectedNodeId = 'saf-desires-011'; // the user clicked a node while loading
+    loadCamp('safetyist', [{ id: 'saf-desires-011', label: 'Real' }]);
+    expect(notices).toEqual([]);
+    expect(taxonomyState.setSelectedNodeId).not.toHaveBeenCalled();
+  });
 });
 
 describe('a deleted or unknown item falls back to its library with a notice (t/4640 AC3)', () => {
