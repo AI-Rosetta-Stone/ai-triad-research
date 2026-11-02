@@ -6,7 +6,7 @@ import { useTaxonomyStore } from '../../hooks/useTaxonomyStore';
 import { useDebateStore } from '../../hooks/useDebateStore';
 import { useChatStore } from '../../hooks/useChatStore';
 import { subscribeRunCompletion, type RunCompletion } from '../../navigation/runningSignal';
-import { subscribeNavNotice } from '../../navigation/navNotice';
+import { subscribeNavNotice, dismissNavNotice, NAV_NOTICE_TTL_MS } from '../../navigation/navNotice';
 import './RunToastHost.css';
 
 const AUTO_DISMISS_MS = 8000;
@@ -32,12 +32,15 @@ export function RunToastHost() {
   const dismiss = (key: string) => {
     const timer = timers.current.get(key);
     if (timer) { clearTimeout(timer); timers.current.delete(key); }
+    if (key.startsWith('notice:')) dismissNavNotice(Number(key.slice('notice:'.length)));
     setToasts(prev => prev.filter(t => t.key !== key));
   };
 
-  const add = (entry: ToastEntry) => {
-    setToasts(prev => [...prev, entry]);
-    timers.current.set(entry.key, setTimeout(() => dismiss(entry.key), AUTO_DISMISS_MS));
+  const add = (entry: ToastEntry, showForMs: number = AUTO_DISMISS_MS) => {
+    setToasts(prev => (prev.some(t => t.key === entry.key) ? prev : [...prev, entry]));
+    if (!timers.current.has(entry.key)) {
+      timers.current.set(entry.key, setTimeout(() => dismiss(entry.key), showForMs));
+    }
   };
 
   useEffect(() => {
@@ -45,10 +48,17 @@ export function RunToastHost() {
       if (completion.outcome === 'aborted' || !completion.wasElsewhere) return;
       add({ ...completion, kind: 'run', key: `${completion.tool}:${completion.itemId}:${Date.now()}` });
     });
-    const unsubscribeNotices = subscribeNavNotice((text) => {
-      add({ kind: 'notice', text, key: `notice:${Date.now()}:${Math.random()}` });
+    // A notice replayed after a remount shows only for what's left of its display window.
+    const unsubscribeNotices = subscribeNavNotice((notice) => {
+      const left = Math.max(0, NAV_NOTICE_TTL_MS - (Date.now() - notice.postedAt));
+      add({ kind: 'notice', text: notice.text, key: `notice:${notice.id}` }, left);
     });
-    return () => { unsubscribeRuns(); unsubscribeNotices(); };
+    return () => {
+      unsubscribeRuns();
+      unsubscribeNotices();
+      timers.current.forEach(clearTimeout);
+      timers.current.clear();
+    };
   }, []);
 
   const pause = (key: string) => {
