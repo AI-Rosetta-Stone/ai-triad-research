@@ -195,6 +195,9 @@ export function InquiryTab() {
     onExportCommunity: handleExportCommunity,
     onShare: handleShare,
     onCopy: handleCopy,
+    // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Web-only per the ticket
+    // (canOpenInNewWindow already gates Electron, which has no inquiry popout window type).
+    itemPlace: row => ({ tool: 'inquiry', id: row.id, path: `/inquiry/${row.id}` }),
   }), [handleOpenNew, handleExportMy, handleExportCommunity, handleShare, handleCopy]);
 
   // t/4666: the New question dialog opens OVER the list rather than replacing it — the list

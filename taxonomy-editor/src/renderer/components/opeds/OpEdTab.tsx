@@ -575,6 +575,9 @@ export function OpEdTab() {
     onShare: handleShare,
     onCopy: handleCopy,
     showCopy: () => !auth?.anonymous,
+    // t/4689: ⧉ / Ctrl-Cmd/middle-click open-in-new-window. Web-only per the ticket
+    // (canOpenInNewWindow already gates Electron, which has no op-ed popout window type).
+    itemPlace: row => ({ tool: 'opeds', id: row.id, path: `/opeds/${row.id}` }),
   }), [
     editMode, selectedIds, customOrder, exitEditMode, handleBulkDelete, clearSelected, saveCustomOrder,
     toggleSelected, myLibRows, moveSet, handleRename, renamingId, handleExportMy, handleExportCommunity,
