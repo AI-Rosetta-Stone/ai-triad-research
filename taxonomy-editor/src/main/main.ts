@@ -222,6 +222,24 @@ function createWindow(): void {
     console.error('[main] Failed to load:', errorCode, errorDescription);
   });
 
+  // t/4758: the renderer's beforeunload guards (a running debate, unsaved taxonomy edits)
+  // cancel the unload — but in Electron a cancelled beforeunload cancels the window close
+  // SILENTLY unless the main process handles will-prevent-unload itself. Without this, the
+  // close button does nothing and the user gets no explanation.
+  const windowForUnloadDialog = mainWindow;
+  windowForUnloadDialog.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(windowForUnloadDialog, {
+      type: 'warning',
+      buttons: ['Stay', 'Leave'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Leave this page?',
+      message: 'You have unsaved work or a running debate. Leave anyway?',
+    });
+    if (choice === 1) event.preventDefault(); // Leave: override the renderer's cancel.
+    // Stay (choice === 0): do nothing — the renderer's beforeunload cancel stands.
+  });
+
   mainWindow.on('unresponsive', () => {
     console.error('[main] Window became unresponsive');
   });
