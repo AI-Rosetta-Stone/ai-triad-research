@@ -1119,6 +1119,9 @@ jobs:
               GITHUB_APP_PRIVATE_KEY_SECRET_NAME = '${{ vars.SYNC_GITHUB_APP_PRIVATE_KEY_SECRET_NAME }}'
               AZURE_KEYVAULT_URL                 = '${{ steps.deploy.outputs.keyVaultUri }}'
               AZURE_STORAGE_ACCOUNT_URL          = '${{ steps.deploy.outputs.storageAccountBlobUrl }}'
+              AZURE_USER_CONTENT_CONTAINER       = 'user-content'  # t/4738 — explicit prod container name, must match main.bicep baseEnv
+              AZURE_COMMUNITY_CONTAINER          = 'community'  # t/4738 — explicit prod container name, must match main.bicep baseEnv
+              AZURE_BRIEF_EXPORTS_CONTAINER      = 'brief-exports'  # t/4738 — explicit prod container name, must match main.bicep baseEnv
               EMBEDDING_WORKER_OFFLOAD           = '1'  # t/3165 durable close — gate verifies the offload flag is deployed
               EMBEDDING_WORKER_POOL_SIZE         = '1'  # t/4263 SO C3 — one worker at 1.5 vCPU; must match main.bicep baseEnv
               OVERLAY_CONFLICT_STATE_ENABLED     = '1'  # t/4312/#3467, PI-approved (p/331#2174) — gate verifies the overlay-conflict fence is armed
@@ -1452,6 +1455,16 @@ jobs:
           ./operations/devops/Test-AllowedOriginsFqdnParity.ps1 `
             -Apps '${{ env.CONTAINER_APP_NAME }}', '${{ env.CONTAINER_APP_NAME }}-staging' `
             -ResourceGroup '${{ env.RESOURCE_GROUP }}'
+
+      - name: Staging CLI-only env var drift (warn-only, t/4728 — a prod Bicep apply can silently wipe a CLI override)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./operations/devops/Test-StagingEnvCliDrift.ps1 `
+            -App '${{ env.CONTAINER_APP_NAME }}-staging' `
+            -ResourceGroup '${{ env.RESOURCE_GROUP }}' `
+            -BicepPath './deploy/azure/main.bicep'
 
 
   # ── tag-known-good: t/4170 ask 2 ──────────────────────────────────────────

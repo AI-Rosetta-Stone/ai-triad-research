@@ -50,6 +50,7 @@ export function RosettaStoneTab() {
       heading: 'Op-Ed Studies',
       body: 'Generate an op-ed from any perspective, styled after a real outlet — The Washington Post, The New York Times, The Wall Street Journal — with that outlet’s length and framing built in. Open, export, or share from your My / Community library.',
       cta: 'Open Op-Ed Studies',
+      image: { src: publicAsset('onboarding/onboarding-opeds.png'), alt: 'Op-ed reader showing an Accelerationist piece with camp tabs and the outlet byline' },
       onOpen: () => setActiveTab('opeds'),
     },
     {
@@ -64,7 +65,7 @@ export function RosettaStoneTab() {
       heading: 'Run AI Debates',
       body: 'Stage structured debates between AI-powered characters who argue from each perspective. Choose a topic, select debaters, and watch them engage in real-time.',
       cta: 'Open Debate',
-      image: { src: publicAsset('onboarding/onboarding-debate.png'), alt: 'Debate view showing a three-agent debate in progress with speaker cards' },
+      image: { src: publicAsset('onboarding/onboarding-debate.png'), alt: 'New debate dialog showing the topic field, fidelity presets, and the three camps selected' },
       onOpen: () => setActiveTab('debate'),
     },
     {
@@ -88,7 +89,7 @@ export function RosettaStoneTab() {
       heading: 'Bring Your Own AI Key',
       body: 'AI features work out of the box on a shared, rate-limited key. Add your own in Settings to choose your model, switch backends, and remove the limits.',
       cta: 'Open Settings',
-      image: { src: publicAsset('onboarding/onboarding-settings.png'), alt: 'Settings dialog showing the AI Backend section with Gemini selected and API key input' },
+      image: { src: publicAsset('onboarding/onboarding-settings.png'), alt: 'Settings dialog showing the API Keys panel with a Google Gemini API key field' },
       onOpen: () => openSettings('apiKeys'),
     },
   ];

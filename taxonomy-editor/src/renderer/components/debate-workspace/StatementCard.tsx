@@ -3,6 +3,7 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef, useLayoutEffect, type ReactNode } from 'react';
 import { useDebateStore } from '../../hooks/useDebateStore';
+import { escapeMarkdownEmphasis } from '../../hooks/useDebateStore/shared/factCheckFormat';
 import { useShallow } from 'zustand/react/shallow';
 import { useFlag } from '../../hooks/useFeatureFlags';
 import { POVER_INFO } from '../../types/debate';
@@ -1274,8 +1275,20 @@ function FactCheckContent({ entry, factCheck, findQuery, matchOffset, findCurren
     const quoteEnd = quoteStart >= 0 ? displayContent.indexOf('"', quoteStart + 1) : -1;
     if (quoteStart >= 0 && quoteEnd > quoteStart) {
       const embedded = displayContent.slice(quoteStart + 1, quoteEnd);
-      if (embedded.endsWith('...') && factCheck.checked_text.length > embedded.length) {
-        displayContent = displayContent.slice(0, quoteStart + 1) + factCheck.checked_text + displayContent.slice(quoteEnd);
+      const isTruncated = embedded.endsWith('...') && factCheck.checked_text.length > embedded.length;
+      const claimText = isTruncated ? factCheck.checked_text : embedded;
+      // t/4726 wraps the claim in `*"..."*`; a plain `"..."` (no surrounding asterisks) is a
+      // debate saved before that change. Re-wrap it the same way at render time (t/4727) —
+      // never rewriting the saved file — reusing t/4726's own escaping so a claim containing
+      // `*`/`_` still renders as valid, unbroken emphasis instead of a second copy that could
+      // drift from it.
+      const alreadyItalic = displayContent[quoteStart - 1] === '*' && displayContent[quoteEnd + 1] === '*';
+      if (alreadyItalic) {
+        if (isTruncated) {
+          displayContent = displayContent.slice(0, quoteStart + 1) + claimText + displayContent.slice(quoteEnd);
+        }
+      } else {
+        displayContent = displayContent.slice(0, quoteStart) + '*"' + escapeMarkdownEmphasis(claimText) + '"*' + displayContent.slice(quoteEnd + 1);
       }
     }
   }

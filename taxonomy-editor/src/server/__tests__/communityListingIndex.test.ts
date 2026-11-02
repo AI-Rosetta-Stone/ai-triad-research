@@ -206,4 +206,37 @@ describe('community listing index (t/726)', () => {
     expect((result[0] as { model?: string }).model).toBe('claude-sonnet-5');
     expect(mem.itemReads('debate-')).toBe(0); // served from valid versioned index
   });
+
+  // ── Chat pover projection (t/4721) ────────────────────────────────────────
+
+  function chatFileWithPover(id: string, pover: unknown) {
+    return JSON.stringify({ id, title: `Chat ${id}`, created_at: '2026-01-01', updated_at: '2026-06-01', mode: 'inform', pover });
+  }
+
+  it('projects a known camp pover and drops unknown or non-camp values', async () => {
+    mem.put(path.join(chatsDir(), 'chat-s.json'), chatFileWithPover('s', 'skeptic'));
+    mem.put(path.join(chatsDir(), 'chat-u.json'), chatFileWithPover('u', 'user'));
+    mem.put(path.join(chatsDir(), 'chat-x.json'), chatFileWithPover('x', '<script>'));
+    mem.put(path.join(chatsDir(), 'chat-n.json'), chatFileWithPover('n', 42));
+
+    const result = await userContext.runWithUser(authedCtx, () => community.listCommunityChats());
+    const byId = new Map(result.map(c => [(c as { id: string }).id, c as { pover?: string }]));
+
+    expect(byId.get('s')?.pover).toBe('skeptic');
+    for (const id of ['u', 'x', 'n']) expect(byId.get(id)).not.toHaveProperty('pover');
+  });
+
+  it('a chat-v2 index (pre-pover) is ignored → fresh rebuild returns pover', async () => {
+    mem.put(path.join(chatsDir(), 'chat-s.json'), chatFileWithPover('s', 'safetyist'));
+    mem.put(indexPath(chatsDir()), JSON.stringify({
+      version: 'chat-v2',
+      entries: [{ id: 's', title: 'Chat s', created_at: '2026-01-01', updated_at: '2026-06-01', mode: 'inform', community_metadata: null }],
+    }));
+
+    mem.resetReads();
+    const result = await userContext.runWithUser(authedCtx, () => community.listCommunityChats());
+
+    expect((result[0] as { pover?: string }).pover).toBe('safetyist');
+    expect(mem.itemReads('chat-')).toBeGreaterThan(0); // stale version skipped
+  });
 });

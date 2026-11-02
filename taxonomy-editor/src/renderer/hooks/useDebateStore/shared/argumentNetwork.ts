@@ -15,6 +15,7 @@ import { POVER_INFO } from '../../../types/debate';
 import { useTaxonomyStore } from '../../useTaxonomyStore';
 import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import { hashString, looksTruncated, parseAIJson } from '@lib/debate/helpers';
+import { formatFactCheckContent } from './factCheckFormat';
 import {
   extractClaimsPrompt,
   classifyClaimsPrompt,
@@ -929,7 +930,7 @@ function recordFactCheckTranscriptEntry(
     addEntry({
       type: 'fact-check',
       speaker: 'system',
-      content: `**Fact Check: ${verdictLabel}**\n\n"${pNode.text}"\n\n${explanation}${webNote}`,
+      content: formatFactCheckContent(verdictLabel, pNode.text, explanation, webNote),
       taxonomy_refs: [],
       metadata: {
         fact_check: {

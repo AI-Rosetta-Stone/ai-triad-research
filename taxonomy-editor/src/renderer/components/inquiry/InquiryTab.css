@@ -202,6 +202,10 @@
 .inquiry-n { font-size: 11px; font-weight: 700; color: var(--text-muted); }
 .inquiry-sg h5 { margin: 0; font-size: 14px; font-weight: 600; }
 .inquiry-sub { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+/* t/4714: the running stage's detail line ("Round 2 of 4 · Skeptic responding"). */
+.inquiry-stage-detail { font-size: 12px; font-style: italic; color: var(--text-secondary, var(--text-muted)); margin-top: 2px; }
+/* t/4714: the throttled screen-reader announcement of the detail line; not shown visually. */
+.inquiry-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .inquiry-stat { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
 .inquiry-sg[data-s="done"] { border-color: var(--color-skp, #0d7680); }
 .inquiry-sg[data-s="live"] { border-color: var(--focus-ring, #1a73e8); background: var(--accent-bg, #e8f0fe); }
@@ -210,7 +214,9 @@
 .inquiry-budget { margin-top: 20px; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 14px 15px; background: var(--bg-secondary); }
 .inquiry-budget-top { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
 .inquiry-meter { height: 7px; border-radius: 99px; background: var(--border-color); overflow: hidden; }
-.inquiry-meter i { display: block; height: 100%; background: var(--focus-ring, #1a73e8); border-radius: 99px; }
+/* t/4714: glides between polls instead of stepping jarringly. */
+.inquiry-meter i { display: block; height: 100%; background: var(--focus-ring, #1a73e8); border-radius: 99px; transition: width 0.6s ease; }
+@media (prefers-reduced-motion: reduce) { .inquiry-meter i { transition: none; } }
 .inquiry-budget small { display: block; margin-top: 8px; font-size: 12px; color: var(--text-muted); }
 .inquiry-poll-warning { margin-top: 14px; font-size: 12.5px; color: var(--text-muted); font-style: italic; }
 

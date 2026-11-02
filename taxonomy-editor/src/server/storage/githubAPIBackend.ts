@@ -892,7 +892,7 @@ export class GitHubAPIBackend implements StorageBackend {
    *  `listDirectoryStrict`, t/3296 A arm). */
   async readFileStrict(filePath: string): Promise<string | null> {
     const repoPath = this.toRepoPath(filePath);
-    return this.readFileFromMainCache(repoPath, this.baseBranch, true, true);
+    return this.readFileFromMainCache(repoPath, this.baseBranch, false, true);
   }
 
   /** t/4584/t/4586: logs the reason behind a null/transient read exactly

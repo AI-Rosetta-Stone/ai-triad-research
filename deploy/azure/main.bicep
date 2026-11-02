@@ -84,6 +84,35 @@ param stagingSharedReadOnly bool = true
 @description('Temporarily size staging like prod (2 vCPU/4Gi, maxReplicas 3, concurrentRequests scale rule) for a load test (t/4203). Revert to false for the next ordinary deploy.')
 param stagingLoadTestSize bool = false
 
+// ── Staging free-pool daily calls cap override (t/4728) ──
+// A PARAMETER, not a hand-applied `--set-env-vars`: the latter is wiped by the next prod Bicep
+// apply (t/4728, p/868#31 — exactly what happened on 2026-10-31), because the deploy re-applies
+// this template's declared value. Declaring it here means an apply KEEPS the override instead of
+// silently reverting it.
+// TEMPORARY, default '5', for the t/4677 AC3/AC4 low-cap staging proof. TODO(t/4732): once that
+// proof closes, change this default back (omit the entry, or set it to '1500' to match
+// freePoolBudget.ts's own code default) in a Bicep PR — never by CLI.
+@description('FREE_POOL_DAILY_CALLS_CAP override for staging only. TEMPORARY for the t/4677 proof — revert via t/4732, in Bicep, not CLI.')
+param freePoolDailyCallsCapStaging string = '5'
+
+// ── Staging blob-container isolation (t/4738 incident) ──
+// PERMANENT (unlike freePoolDailyCallsCapStaging above, this is the intended isolation, not an
+// incident-only value). `server.ts` wires AzureBlobBackend whenever AZURE_STORAGE_ACCOUNT_URL is
+// set, defaulting each container to the prod name (`user-content`/`community`/`brief-exports`)
+// when its env var is unset. Staging shares prod's storage ACCOUNT by design (t/4406 et al.), but
+// nothing ever set these three CONTAINER vars for staging, so staging's chats, debates, community
+// submissions and brief exports were reading from and writing to PROD's containers (t/4738) —
+// `main.bicep` already provisions the three `staging-*` containers below (t/2821 / line ~420), the
+// wiring step was simply never done. A PARAMETER, not a hand-applied `--set-env-vars`: same t/4728
+// lesson — a CLI-set value is wiped by the next apply, which is exactly why this was caught as a
+// live incident instead of a code review.
+@description('AZURE_USER_CONTENT_CONTAINER override for staging only (t/4738). Isolates staging chats/debates from prod.')
+param azureUserContentContainerStaging string = 'staging-user-content'
+@description('AZURE_COMMUNITY_CONTAINER override for staging only (t/4738). Isolates staging community submissions from prod — without this, a staging test item could be approved and published on the public prod site.')
+param azureCommunityContainerStaging string = 'staging-community'
+@description('AZURE_BRIEF_EXPORTS_CONTAINER override for staging only (t/4738). Isolates staging brief exports from prod.')
+param azureBriefExportsContainerStaging string = 'staging-brief-exports'
+
 // ── Resource Tags ──
 var tags = {
   project: 'ai-triad-research'
@@ -618,6 +647,12 @@ var baseEnv = [
   // Azure Blob Storage — user content (chats, debates) and community library.
   // Auth via managed identity (DefaultAzureCredential), no connection string needed.
   { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageAccount.properties.primaryEndpoints.blob }
+  // t/4738: explicit, not relying on server.ts's code default. Staging overrides all three to
+  // its own staging-* containers (see stagingEnvOverrides below) — prod states its own name here
+  // so neither side depends on an implicit fallback matching by coincidence.
+  { name: 'AZURE_USER_CONTENT_CONTAINER', value: 'user-content' }
+  { name: 'AZURE_COMMUNITY_CONTAINER', value: 'community' }
+  { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: 'brief-exports' }
   // t/3165 DURABLE close: the worker-offload flag lives HERE (baseEnv), not a CLI --set-env-vars —
   // a CLI value is wiped by the next full template deploy (the ephemeral-drift trap). It routes the
   // ONNX embedding compute to the off-thread worker (t/3183) so a large novel-text batch can't starve
@@ -712,6 +747,14 @@ var stagingEnvOverrides = [
   // live exposure the SO found (t/4446#5), broader than the already-closed direct-write-to-main
   // path above. Staging gets its own prefix; prod stays on the code default ('api-session/').
   { name: 'SESSION_BRANCH_PREFIX', value: 'staging-api-session/' }
+  // t/4728: staging's TEMPORARY low-cap override for the t/4677 proof. See the
+  // freePoolDailyCallsCapStaging param above (near stagingLoadTestSize) for the revert note.
+  { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
+  // t/4738: staging's blob-container isolation — PERMANENT, see the three params above
+  // (near freePoolDailyCallsCapStaging) for the incident history and rationale.
+  { name: 'AZURE_USER_CONTENT_CONTAINER', value: azureUserContentContainerStaging }
+  { name: 'AZURE_COMMUNITY_CONTAINER', value: azureCommunityContainerStaging }
+  { name: 'AZURE_BRIEF_EXPORTS_CONTAINER', value: azureBriefExportsContainerStaging }
   // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
   // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this
@@ -1863,6 +1906,56 @@ resource paidFallbackOverflow 'Microsoft.Insights/scheduledQueryRules@2023-03-15
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0
+        }
+      ]
+    }
+    actions: {
+      actionGroups: budgetAlertConfigured ? [ restartAlertActionGroup.id ] : []
+    }
+  }
+}
+
+// Free-pool headroom early-warning (t/4485 item 4 / t/4677 AC5). The free-pool budget gate
+// (freePoolBudgetGate.ts) WARNs once per UTC day, per process, the first time either the calls
+// or token usage crosses 80% of its daily cap — before admission is actually refused. This alert
+// is what makes that WARN visible instead of a log line nobody watches.
+//
+// MATCH-TOKEN IS A CONTRACT: the literal "FREE-POOL-HEADROOM pct=80" (freePoolBudgetGate.ts:183)
+// — change that message, change it here too, or the headroom crossing goes unmonitored.
+//
+// Split by ContainerAppName_s (t/4288 precedent, same pattern as alert-aadsts-config-error) so
+// prod and staging page independently — the free-pool pool is shared across both apps, so a
+// staging-only low-cap test crossing (t/4677 AC4) must not look like a prod sev-2.
+resource freePoolHeadroom 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: 'alert-free-pool-headroom'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Free Pool Budget Headroom (80% of daily cap)'
+    description: 'The free-tier Gemini pool crossed 80% of its daily calls or token cap (t/4485). Early warning before admission is refused at 100% — consider the paid fallback or raising the pool. Split by ContainerAppName_s (t/4288) so prod and staging page independently.'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalytics.id ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerAppConsoleLogs_CL
+            | where Log_s contains "FREE-POOL-HEADROOM pct=80"
+            | summarize Warnings = count() by ContainerAppName_s
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          dimensions: [
+            {
+              name: 'ContainerAppName_s'
+              operator: 'Include'
+              values: [ '*' ]
+            }
+          ]
         }
       ]
     }

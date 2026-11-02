@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, type ReactNode } from 'react';
 import './App.css';
 import { api } from '@bridge';
 import { nodePovFromId } from '@lib/debate/nodeIdUtils';
@@ -53,6 +53,7 @@ import { PrecacheToast } from './components/shared/PrecacheToast';
 import { usePrecache } from './hooks/usePrecache';
 import { DiagnosticsDrawer } from './components/shared/DiagnosticsDrawer';
 import { GlobalDetailPaneHost } from './components/shared/GlobalDetailPaneHost';
+import { ToolbarPaneRenderer, PhoneToolClose } from './components/shared/ToolbarPaneRenderer';
 
 // Lazy-loaded tab components — only fetched when their tab is selected
 const SituationsTab = recordingLazy(() => import('./components/debate/SituationsTab').then(m => ({ default: m.SituationsTab })));
@@ -197,6 +198,45 @@ async function bootstrapAfterModelsLoaded(loadAllFn: () => void | Promise<void>)
     opEd: useOpEdStore,
     inquiry: useInquiryStore,
   }, navHistory);
+}
+
+// t/4722: Chat, Conflicts, Cruxes, Debate, Situations and the POV tabs mount their own
+// ToolbarPaneRenderer (list-pane layout, isFullWidthPanel()). Every other tab never did, so a
+// Tools-menu pick there set toolbarPanel and highlighted the menu item but rendered nothing.
+// MainApp's fallback is derived from this single set, instead of a mount per missing tab — the
+// drift that caused the bug in the first place, and the next new tab would repeat it. Exported
+// so the regression test can assert it covers every tab, not just the ones known at the time.
+export const TABS_WITH_OWN_TOOLBAR_PANE = ['situations', 'conflicts', 'cruxes', 'debate', 'chat', 'accelerationist', 'safetyist', 'skeptic'];
+
+export function tabNeedsToolbarFallback(activeTab: string, toolbarPanel: string | null): boolean {
+  return toolbarPanel !== null && !TABS_WITH_OWN_TOOLBAR_PANE.includes(activeTab);
+}
+
+/** The main tab-content body: the t/4722 toolbar-pane fallback, the POV tab shell, or the tab
+ *  itself. Kept out of MainApp so MainApp stays within its complexity budget. */
+function TabBody({ activeTab, toolbarPanel, showPovHeader, children }: {
+  activeTab: string;
+  toolbarPanel: string | null;
+  showPovHeader: boolean;
+  children: ReactNode;
+}) {
+  if (tabNeedsToolbarFallback(activeTab, toolbarPanel)) {
+    return (
+      <div className="list-panel list-panel-full">
+        <PhoneToolClose />
+        <ToolbarPaneRenderer panel={toolbarPanel} />
+      </div>
+    );
+  }
+  if (showPovHeader) {
+    return (
+      <div className="pov-tab-shell">
+        <TabBar />
+        <div className="pov-tab-shell-body">{children}</div>
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 export function App() {
@@ -760,14 +800,9 @@ function MainApp() {
       <div className="app-body">
         <Toolbar />
         <div className="tab-content">
-          {showPovHeader ? (
-            <div className="pov-tab-shell">
-              <TabBar />
-              <div className="pov-tab-shell-body">{tabContent}</div>
-            </div>
-          ) : (
-            tabContent
-          )}
+          <TabBody activeTab={activeTab} toolbarPanel={toolbarPanel} showPovHeader={showPovHeader}>
+            {tabContent}
+          </TabBody>
         </div>
         {/* One app-level ref → DetailPane host for every main tab in this shell (t/1987).
             A ref-link click in PovTab/Situations/Conflicts/Cruxes/Debate sets the global

@@ -22,6 +22,7 @@ import type { InquiryResult } from '../../../../lib/inquiry/index.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
 import { AppliedTagSchema, loadPovTagRegistry } from '../../../../lib/schema/povTags.js';
 import type { OpEdCommunityEntry } from '../../../../lib/oped/types.js';
+import { AI_POVERS } from '../../../../lib/debate/types.js';
 
 // ── Paths ──
 
@@ -63,7 +64,7 @@ export function isAdmin(userId?: string): boolean {
 const COMMUNITY_INDEX_FILE = '_index.json';
 
 // Bump when toEntry shape changes so stale caches are replaced on next list.
-const CHAT_INDEX_VERSION = 'chat-v2'; // v2: added model (t/2779)
+const CHAT_INDEX_VERSION = 'chat-v3'; // v2: added model (t/2779); v3: added pover (t/4721)
 const DEBATE_INDEX_VERSION = 'debate-v2'; // v2: added model + turn_count (t/2362/t/2384)
 const OPED_INDEX_VERSION = 'oped-v3'; // v2: added outlet (t/2993); v3: added tag (t/3991)
 const INQUIRY_INDEX_VERSION = 'inquiry-v1'; // t/3621
@@ -234,6 +235,8 @@ export async function listCommunityChats(): Promise<unknown[]> {
       mode: parsed.mode || '',
       community_metadata: stripOriginalId(parsed.community_metadata || null), // t/856
       ...(typeof parsed.chat_model === 'string' ? { model: parsed.chat_model } : {}),
+      // Read-only projection: only a known AI camp id passes through; anything else is dropped.
+      ...((AI_POVERS as readonly unknown[]).includes(parsed.pover) ? { pover: parsed.pover } : {}),
     }),
   });
   return [...items].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
