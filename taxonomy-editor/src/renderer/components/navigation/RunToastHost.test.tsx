@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { RunToastHost } from './RunToastHost';
 import { registerRun, __resetRunningSignalForTest } from '../../navigation/runningSignal';
-import { postNavNotice } from '../../navigation/navNotice';
+import { postNavNotice, __resetNavNoticeForTest } from '../../navigation/navNotice';
 
 const loadChatMock = vi.fn();
 const loadDebateMock = vi.fn();
@@ -30,6 +30,7 @@ describe('RunToastHost', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     __resetRunningSignalForTest();
+    __resetNavNoticeForTest();
     loadChatMock.mockClear();
     loadDebateMock.mockClear();
     setTaxonomyStateMock.mockClear();
@@ -121,6 +122,30 @@ describe('RunToastHost', () => {
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
 
     act(() => { vi.advanceTimersByTime(8000); });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  // Staging repro (t/4640#64): MainApp mounts the host, a pasted dead /debate/:id fails fast and
+  // posts its notice, then MainApp swaps to the loading screen (host unmounts) and back.
+  it('a notice survives the host unmounting and remounting during boot, for the rest of its window', () => {
+    const { unmount } = render(<RunToastHost />);
+    act(() => { postNavNotice('That debate couldn’t be found. It may have been deleted.'); });
+    unmount();
+
+    act(() => { vi.advanceTimersByTime(3000); });
+    render(<RunToastHost />);
+    expect(screen.getByRole('status')).toHaveTextContent('That debate couldn’t be found.');
+
+    act(() => { vi.advanceTimersByTime(5000); }); // 3s + 5s = its 8s window
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('a dismissed notice does not come back after a remount', () => {
+    const { unmount } = render(<RunToastHost />);
+    act(() => { postNavNotice('That chat couldn’t be found.'); });
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    unmount();
+    render(<RunToastHost />);
     expect(screen.queryByRole('status')).toBeNull();
   });
 });

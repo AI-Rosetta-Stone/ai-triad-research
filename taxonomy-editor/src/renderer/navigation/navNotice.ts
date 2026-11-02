@@ -5,35 +5,54 @@
 // a notice". Routes post the notice here; RunToastHost shows it in the shared toast stack. Kept
 // as a plain pub/sub (like runningSignal) so routes don't depend on React.
 
-type NavNoticeListener = (text: string) => void;
+/** How long a notice stays on screen (RunToastHost's auto-dismiss). */
+export const NAV_NOTICE_TTL_MS = 8000;
+
+export interface NavNotice {
+  id: number;
+  text: string;
+  postedAt: number;
+}
+
+type NavNoticeListener = (notice: NavNotice) => void;
 
 const listeners = new Set<NavNoticeListener>();
 
 /**
- * Notices posted while nobody is listening. A pasted URL restores at boot, while MainApp is still
- * showing its loading screen — RunToastHost hasn't mounted, so a not-found notice posted then
- * would be lost (found on staging, t/4640 web sweep). Held here and delivered on first subscribe.
+ * Notices still inside their display window. Held here, not only in the toast host's state, because
+ * the host doesn't live through boot: MainApp first renders the full UI (host mounted), then swaps
+ * to its loading screen while loadAll runs (host unmounted), then back. A pasted dead /debate/:id
+ * fails fast, so its notice reached the first host and died with it (staging, t/4640#64). Every
+ * subscriber — including a remounted host — gets the notices still active.
  */
-let pending: string[] = [];
+let active: NavNotice[] = [];
+let nextId = 1;
+
+function prune(now: number): void {
+  active = active.filter(n => now - n.postedAt < NAV_NOTICE_TTL_MS);
+}
 
 export function postNavNotice(text: string): void {
-  if (listeners.size === 0) {
-    pending.push(text);
-    return;
-  }
-  listeners.forEach(listener => listener(text));
+  const notice: NavNotice = { id: nextId++, text, postedAt: Date.now() };
+  prune(notice.postedAt);
+  active.push(notice);
+  listeners.forEach(listener => listener(notice));
 }
 
 export function subscribeNavNotice(listener: NavNoticeListener): () => void {
   listeners.add(listener);
-  const held = pending;
-  pending = [];
-  held.forEach(text => listener(text));
+  prune(Date.now());
+  active.forEach(notice => listener(notice));
   return () => { listeners.delete(listener); };
 }
 
-/** Test-only: drop any held notices. */
+/** The user dismissed it, or it timed out — never replay it to a later subscriber. */
+export function dismissNavNotice(id: number): void {
+  active = active.filter(n => n.id !== id);
+}
+
+/** Test-only: forget every notice and listener. */
 export function __resetNavNoticeForTest(): void {
-  pending = [];
+  active = [];
   listeners.clear();
 }
