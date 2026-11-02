@@ -9,8 +9,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { placeOf, type AppState } from '../navigation/placeOf';
 
+// Stateful enough for the routes to read back what they set (activeTab, the open item id).
 const taxonomyState = {
-  setActiveTab: vi.fn(),
+  activeTab: 'rosetta-stone' as string,
+  setActiveTab: vi.fn((tab: string) => { taxonomyState.activeTab = tab; }),
   navigateToNode: vi.fn(),
   navigateToConflict: vi.fn(),
 };
@@ -23,15 +25,27 @@ vi.mock('../hooks/useOpEdStore', () => ({
   useOpEdStore: { getState: () => opEdState },
 }));
 
-const debateState = { activeDebate: null as unknown, closeDebate: vi.fn(), loadDebate: vi.fn() };
+/** Whether the next mocked load finds its item. */
+let loadSucceeds = true;
+
+const debateState = {
+  activeDebate: null as unknown,
+  activeDebateId: null as string | null,
+  closeDebate: vi.fn(),
+  loadDebate: vi.fn(async (id: string) => { if (loadSucceeds) debateState.activeDebateId = id; }),
+};
+const debateSetState = vi.fn((s: Partial<typeof debateState>) => { Object.assign(debateState, s); });
 vi.mock('../hooks/useDebateStore', () => ({
-  useDebateStore: { getState: () => debateState },
+  useDebateStore: { getState: () => debateState, setState: (s: never) => debateSetState(s) },
 }));
 
-const chatState = { loadChat: vi.fn() };
-const chatSetState = vi.fn();
+const chatState = {
+  activeChatId: null as string | null,
+  loadChat: vi.fn(async (id: string) => { if (loadSucceeds) chatState.activeChatId = id; }),
+};
+const chatSetState = vi.fn((s: Partial<typeof chatState>) => { Object.assign(chatState, s); });
 vi.mock('../hooks/useChatStore', () => ({
-  useChatStore: { getState: () => chatState, setState: (s: unknown) => chatSetState(s) },
+  useChatStore: { getState: () => chatState, setState: (s: never) => chatSetState(s) },
 }));
 
 const inquiryState = { openList: vi.fn(), openFromHistory: vi.fn() };
@@ -39,7 +53,13 @@ vi.mock('../hooks/useInquiryStore', () => ({
   useInquiryStore: { getState: () => inquiryState },
 }));
 
+const notices: string[] = [];
+vi.mock('../navigation/navNotice', () => ({ postNavNotice: (text: string) => notices.push(text) }));
+
 const { DEBATE_ROUTE, OPED_ROUTE, findRoute, opedRoutePath } = await import('./appRoutes');
+
+/** Let a restore's async load (and its .then) settle. */
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
 /** Match a full path and run its route's restore(). */
 function restore(path: string): void {
@@ -51,7 +71,51 @@ function restore(path: string): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  loadSucceeds = true;
+  notices.length = 0;
+  taxonomyState.activeTab = 'rosetta-stone';
   debateState.activeDebate = null;
+  debateState.activeDebateId = null;
+  chatState.activeChatId = null;
+});
+
+describe('a deleted or unknown item falls back to its library with a notice (t/4640 AC3)', () => {
+  it('/chat/:id that fails to load posts the not-found notice', async () => {
+    loadSucceeds = false;
+    restore('/chat/gone');
+    await settle();
+    expect(notices).toEqual(['That chat couldn’t be found. It may have been deleted.']);
+  });
+
+  it('/debate/:id that fails to load posts the not-found notice', async () => {
+    loadSucceeds = false;
+    restore('/debate/gone');
+    await settle();
+    expect(notices).toEqual(['That debate couldn’t be found. It may have been deleted.']);
+  });
+
+  it('a successful load posts nothing', async () => {
+    restore('/chat/c-1');
+    restore('/debate/d-1');
+    await settle();
+    expect(notices).toEqual([]);
+  });
+
+  it('no notice once the user has moved to another tool before the load failed', async () => {
+    loadSucceeds = false;
+    restore('/debate/gone');
+    taxonomyState.activeTab = 'chat';
+    await settle();
+    expect(notices).toEqual([]);
+  });
+
+  it('/debate/:id clears the previously open debate first, without closeDebate()', () => {
+    debateState.activeDebate = { id: 'd-old' };
+    debateState.activeDebateId = 'd-old';
+    restore('/debate/d-1');
+    expect(debateSetState).toHaveBeenCalledWith({ activeDebateId: null, activeDebate: null });
+    expect(debateState.closeDebate).not.toHaveBeenCalled();
+  });
 });
 
 describe('DEBATE_ROUTE.match', () => {
