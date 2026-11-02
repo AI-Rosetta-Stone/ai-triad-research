@@ -53,18 +53,123 @@ function toolNameOf(placeKey: string): string {
   return TOOL_NAMES[tool] ?? '';
 }
 
+interface RecentMenuProps {
+  entries: HistoryEntry[];
+  index: number;
+  /** Jump to stack index `i` — one go(delta), never a replay. */
+  onJump: (i: number) => void;
+}
+
+/**
+ * ▾ Recent locations (§ ▾ Recent locations menu): the stack newest first, at most 15 (web: only
+ * entries with a label), the current one marked. Opening focuses the current entry; ↑/↓ and
+ * Home/End move; Esc closes and refocuses ▾; Tab or a click outside closes.
+ */
+function RecentMenu({ entries, index, onJump }: RecentMenuProps) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const recent = entries
+    .map((entry, i) => ({ entry, i }))
+    .filter(({ entry }) => entry.label)
+    .reverse()
+    .slice(0, RECENT_MAX);
+  const disabled = !recent.some(({ i }) => i !== index);
+
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) buttonRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) close(false);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const focus = (n: number) => { e.preventDefault(); items[(n + items.length) % items.length]?.focus(); };
+    switch (e.key) {
+      case 'ArrowDown': focus(at + 1); break;
+      case 'ArrowUp': focus(at - 1); break;
+      case 'Home': focus(0); break;
+      case 'End': focus(items.length - 1); break;
+      case 'Escape': e.preventDefault(); close(true); break;
+      case 'Tab': close(false); break;
+    }
+  };
+
+  const pick = (i: number) => {
+    close(true);
+    if (i !== index) onJump(i);
+  };
+
+  return (
+    <div className="nav-locbar-recent-wrap">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="nav-locbar-btn nav-locbar-recent-btn"
+        onClick={() => setOpen(o => !o)}
+        disabled={disabled}
+        aria-disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Recent locations"
+        title="Recent locations"
+      >
+        <ChevronDown aria-hidden="true" />
+      </button>
+      {open && (
+        <div ref={menuRef} className="nav-locbar-menu" role="menu" aria-label="Recent locations" onKeyDown={handleKeyDown}>
+          {recent.map(({ entry, i }) => {
+            const isCurrent = i === index;
+            const running = entryIsRunning(entry.placeKey);
+            const toolName = toolNameOf(entry.placeKey);
+            const side = running ? 'Running…' : (toolName !== entry.label ? toolName : '');
+            return (
+              <button
+                key={i}
+                type="button"
+                role="menuitem"
+                className={`nav-locbar-menu-item${isCurrent ? ' nav-locbar-menu-current' : ''}`}
+                aria-current={isCurrent ? 'page' : undefined}
+                aria-label={`${entry.label}${isCurrent ? ', you are here' : ''}${running ? ', running' : ''}`}
+                onClick={() => pick(i)}
+              >
+                <span className="nav-locbar-menu-label">{entry.label}</span>
+                {isCurrent && <span className="nav-locbar-menu-here"> · you are here</span>}
+                {side && <span className="nav-locbar-menu-tool">{side}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * The location bar (t/4640; docs/ux/navigation-location-bar.md): ← (→ in Electron) ▾ and the
  * breadcrumb, as the first row of the main content column. Store hooks live here, not in
  * MainApp, so a store change re-renders the bar and not the app shell.
  */
 export function LocationBarHost() {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [, setHistoryVersion] = useState(0);
   const [announcement, setAnnouncement] = useState('');
   const announceNext = useRef(false);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const taxonomyState = useTaxonomyStore();
   const debateState = useDebateStore();
@@ -93,8 +198,6 @@ export function LocationBarHost() {
 
   const entries = navHistory.entries();
   const index = navHistory.index();
-  const backDest = entries[index - 1];
-  const forwardDest = entries[index + 1];
   const canGoBack = navHistory.canGoBack();
   const canGoForward = isElectron && navHistory.canGoForward();
 
@@ -105,64 +208,13 @@ export function LocationBarHost() {
     if (pov && CAMP_CRUMBS[pov]) crumbs.push(CAMP_CRUMBS[pov]);
   }
 
-  // Recent: the stack, newest first, at most 15; web lists only entries with a label.
-  const recent = entries
-    .map((entry, i) => ({ entry, i }))
-    .filter(({ entry }) => entry.label)
-    .reverse()
-    .slice(0, RECENT_MAX);
-  const recentDisabled = !recent.some(({ i }) => i !== index);
-
   const navigate = (action: () => void) => {
     announceNext.current = true;
     action();
   };
 
-  const closeMenu = (refocus: boolean) => {
-    setMenuOpen(false);
-    if (refocus) menuButtonRef.current?.focus();
-  };
-
-  const handleRecent = (i: number) => {
-    closeMenu(true);
-    if (i !== index) navigate(() => navHistory.go(i - index));
-  };
-
-  // Opening the menu focuses the current entry.
-  useEffect(() => {
-    if (!menuOpen) return;
-    menuRef.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
-  }, [menuOpen]);
-
-  // A click outside closes the menu.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (!menuRef.current?.contains(target) && !menuButtonRef.current?.contains(target)) closeMenu(false);
-    };
-    window.addEventListener('mousedown', handler);
-    return () => window.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
-
-  const handleMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
-    const at = items.indexOf(document.activeElement as HTMLButtonElement);
-    const focus = (n: number) => { e.preventDefault(); items[(n + items.length) % items.length]?.focus(); };
-    switch (e.key) {
-      case 'ArrowDown': focus(at + 1); break;
-      case 'ArrowUp': focus(at - 1); break;
-      case 'Home': focus(0); break;
-      case 'End': focus(items.length - 1); break;
-      case 'Escape': e.preventDefault(); closeMenu(true); break;
-      case 'Tab': closeMenu(false); break;
-    }
-  };
-
-  const backName = historyButtonName('Back', canGoBack ? backDest : undefined);
-  const forwardName = historyButtonName('Forward', canGoForward ? forwardDest : undefined);
-  const backKeys = isMac ? '⌘[' : 'Alt+←';
-  const forwardKeys = isMac ? '⌘]' : 'Alt+→';
+  const backName = historyButtonName('Back', canGoBack ? entries[index - 1] : undefined);
+  const forwardName = historyButtonName('Forward', canGoForward ? entries[index + 1] : undefined);
 
   return (
     <div className="nav-locbar location-bar-host">
@@ -175,7 +227,7 @@ export function LocationBarHost() {
           aria-disabled={!canGoBack}
           aria-label={backName}
           aria-keyshortcuts={isMac ? 'Meta+BracketLeft' : 'Alt+ArrowLeft'}
-          title={`${backName} (${backKeys})`}
+          title={`${backName} (${isMac ? '⌘[' : 'Alt+←'})`}
         >
           <ArrowLeft aria-hidden="true" />
         </button>
@@ -188,52 +240,12 @@ export function LocationBarHost() {
             aria-disabled={!canGoForward}
             aria-label={forwardName}
             aria-keyshortcuts={isMac ? 'Meta+BracketRight' : 'Alt+ArrowRight'}
-            title={`${forwardName} (${forwardKeys})`}
+            title={`${forwardName} (${isMac ? '⌘]' : 'Alt+→'})`}
           >
             <ArrowRight aria-hidden="true" />
           </button>
         )}
-        <div className="nav-locbar-recent-wrap">
-          <button
-            ref={menuButtonRef}
-            type="button"
-            className="nav-locbar-btn nav-locbar-recent-btn"
-            onClick={() => setMenuOpen(open => !open)}
-            disabled={recentDisabled}
-            aria-disabled={recentDisabled}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-label="Recent locations"
-            title="Recent locations"
-          >
-            <ChevronDown aria-hidden="true" />
-          </button>
-          {menuOpen && (
-            <div ref={menuRef} className="nav-locbar-menu" role="menu" aria-label="Recent locations" onKeyDown={handleMenuKeyDown}>
-              {recent.map(({ entry, i }) => {
-                const isCurrent = i === index;
-                const running = entryIsRunning(entry.placeKey);
-                const toolName = toolNameOf(entry.placeKey);
-                const side = running ? 'Running…' : (toolName !== entry.label ? toolName : '');
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    role="menuitem"
-                    className={`nav-locbar-menu-item${isCurrent ? ' nav-locbar-menu-current' : ''}`}
-                    aria-current={isCurrent ? 'page' : undefined}
-                    aria-label={`${entry.label}${isCurrent ? ', you are here' : ''}${running ? ', running' : ''}`}
-                    onClick={() => handleRecent(i)}
-                  >
-                    <span className="nav-locbar-menu-label">{entry.label}</span>
-                    {isCurrent && <span className="nav-locbar-menu-here"> · you are here</span>}
-                    {side && <span className="nav-locbar-menu-tool">{side}</span>}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <RecentMenu entries={entries} index={index} onJump={i => navigate(() => navHistory.go(i - index))} />
       </div>
 
       <LocationBar crumbs={crumbs} tool={place.tool} onUp={href => navigate(() => goToPath(href))} />
