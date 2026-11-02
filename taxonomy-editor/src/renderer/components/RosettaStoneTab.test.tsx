@@ -30,6 +30,15 @@ vi.mock('@bridge', () => ({ api: { openExternal: mockOpenExternal } }));
 
 import { RosettaStoneTab } from './RosettaStoneTab';
 
+/** t/4739: the tagline lines and the coda are split across text nodes and <strong> elements,
+ *  so `getByText('…')` can't match them. Match the element of the given selector whose full
+ *  textContent is `text`. */
+function getByFullText(text: string, selector: string): HTMLElement {
+  return screen.getByText((_, el) => !!el && el.matches(selector) && el.textContent === text);
+}
+const TAGLINE_LINE = '.rosetta-tab-tagline > span';
+const CODA = '.rosetta-tab-specimen-coda';
+
 describe('RosettaStoneTab (t/4543)', () => {
   beforeEach(() => {
     mockSetActiveTab.mockClear();
@@ -53,18 +62,18 @@ describe('RosettaStoneTab (t/4543)', () => {
     expect(screen.queryByText('AI Triad Research · Berkman Klein Center')).not.toBeInTheDocument();
     expect(screen.getByText('AI Rosetta Stone')).toBeInTheDocument();
     // t/4739: caps → bold, lowercase.
-    expect(screen.getByText('The goal is not to provide answers.')).toBeInTheDocument();
-    expect(screen.getByText('The goal is to provoke thinking.')).toBeInTheDocument();
-    expect(screen.getByText('The issue isn’t what was said, but why.')).toBeInTheDocument();
+    expect(getByFullText('The goal is not to provide answers.', TAGLINE_LINE)).toBeInTheDocument();
+    expect(getByFullText('The goal is to provoke thinking.', TAGLINE_LINE)).toBeInTheDocument();
+    expect(getByFullText('The issue isn’t what was said, but why.', CODA)).toBeInTheDocument();
   });
 
   it('t/4739: bolds "not"/"provide answers"/"provoke thinking" in the tagline and "what"/"why" in the coda', () => {
     render(<RosettaStoneTab />);
-    const tagline = screen.getByText('The goal is not to provide answers.').closest('.rosetta-tab-tagline');
+    const tagline = getByFullText('The goal is not to provide answers.', TAGLINE_LINE).closest('.rosetta-tab-tagline');
     const taglineStrongs = within(tagline as HTMLElement).getAllByText((_, el) => el?.tagName === 'STRONG').map(el => el.textContent);
     expect(taglineStrongs).toEqual(['not', 'provide answers', 'provoke thinking']);
 
-    const coda = screen.getByText('The issue isn’t what was said, but why.');
+    const coda = getByFullText('The issue isn’t what was said, but why.', CODA);
     const codaStrongs = within(coda).getAllByText((_, el) => el?.tagName === 'STRONG').map(el => el.textContent);
     expect(codaStrongs).toEqual(['what', 'why']);
   });
@@ -80,7 +89,7 @@ describe('RosettaStoneTab (t/4543)', () => {
     render(<RosettaStoneTab />);
     const skeptic = screen.getByText('Skeptic').closest('li');
     const specimen = skeptic!.closest('.rosetta-tab-specimen');
-    const coda = screen.getByText('The issue isn’t what was said, but why.');
+    const coda = getByFullText('The issue isn’t what was said, but why.', CODA);
     expect(specimen).toContainElement(coda);
     const children = Array.from(specimen!.children);
     const voicesList = skeptic!.closest('ul');
