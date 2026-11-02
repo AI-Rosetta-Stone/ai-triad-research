@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { installNavSubscriber, setRestoringFlag, expectReplace, replaceView, type NavStores, type SubscribableStore } from './subscriber';
+import { installNavSubscriber, setRestoringFlag, expectReplace, replaceView, resyncToState, type NavStores, type SubscribableStore } from './subscriber';
 import { MemoryHistory } from './navHistory';
 import { useTaxonomyStore } from '../hooks/useTaxonomyStore';
 import type { TaxonomyStore } from '../hooks/useTaxonomyStore';
@@ -169,14 +169,17 @@ describe('history → state and automatic places (t/4640#40 items 5 and 6)', () 
     taxonomy = mockStore({ activeTab: 'rosetta-stone', selectedNodeId: null } as unknown as TaxonomyStore);
     chat = mockStore({ activeChat: null } as unknown as ChatState);
     restored = [];
+    // Mirrors the real restorePath: apply the sync half under the restoring flag (an item route
+    // clears the open item and loads it async), then register the place it will reach.
     restorePath = (path) => {
       restored.push(path);
       setRestoringFlag(true);
-      const tab = path === '/' ? 'rosetta-stone' : path.split('/')[1];
-      taxonomy.state = { ...taxonomy.state, activeTab: tab } as unknown as TaxonomyStore;
+      const [, tab, itemId] = path.split('/');
+      taxonomy.state = { ...taxonomy.state, activeTab: tab || 'rosetta-stone' } as unknown as TaxonomyStore;
       chat.state = { ...chat.state, activeChat: null } as unknown as ChatState;
       taxonomy.notify();
       setRestoringFlag(false);
+      expectReplace(tab ? `${tab}:${itemId ?? 'none'}` : 'rosetta-stone');
     };
   });
 
@@ -255,6 +258,53 @@ describe('history → state and automatic places (t/4640#40 items 5 and 6)', () 
     expect(history.current()?.placeKey).toBe('chat:c-1');
     expect(history.current()?.label).toBe('First (renamed)');
     expect(history.canGoForward()).toBe(true);
+  });
+
+  it('Electron AC4 walk: a store change while a restored chat loads neither pushes nor drops Forward', () => {
+    installNavSubscriber({ taxonomy, chat }, history, restorePath);
+    setTab('chat');
+    openChat('c-1', 'First');
+    setTab('debate');
+
+    history.back(); // to chat:c-1 — the restore clears the chat and starts loading it
+    chat.notify(); // e.g. chatLoading flips while the load is in flight: placeOf says chat:none
+    taxonomy.notify();
+
+    expect(history.entries().map(e => e.placeKey)).toEqual(['rosetta-stone', 'chat:none', 'chat:c-1', 'debate:none']);
+    expect(history.current()?.placeKey).toBe('chat:c-1');
+    expect(history.peekForward()?.placeKey).toBe('debate:none');
+
+    openChat('c-1', 'First'); // the load lands
+    expect(history.entries()).toHaveLength(4);
+    expect(history.peekForward()?.placeKey).toBe('debate:none');
+  });
+
+  it('a restore that lands synchronously leaves no expectation behind to swallow the next click', () => {
+    installNavSubscriber({ taxonomy, chat }, history, restorePath);
+    setTab('chat');
+    setTab('debate');
+    history.back(); // to /chat — the library is reached inside the restore itself
+
+    openChat('c-7'); // the user's own open, same tool
+    expect(history.entries().map(e => e.placeKey)).toEqual(['rosetta-stone', 'chat:none', 'chat:c-7']);
+  });
+
+  it('resyncToState: a restored item that failed to load becomes the library entry, no new step', () => {
+    installNavSubscriber({ taxonomy, chat }, history, restorePath);
+    setTab('chat');
+    openChat('c-gone');
+    setTab('debate');
+    history.back(); // to chat:c-gone, which will fail to load
+
+    resyncToState();
+
+    expect(history.entries().map(e => e.placeKey)).toEqual(['rosetta-stone', 'chat:none', 'chat:none', 'debate:none']);
+    expect(history.current()).toMatchObject({ path: '/chat', placeKey: 'chat:none' });
+    expect(history.peekForward()?.placeKey).toBe('debate:none');
+
+    openChat('c-8'); // and the next same-tool open is a normal push again
+    expect(history.current()?.placeKey).toBe('chat:c-8');
+    expect(history.entries()).toHaveLength(4);
   });
 
   it('a view query written by replaceView survives later changes in the same place', () => {

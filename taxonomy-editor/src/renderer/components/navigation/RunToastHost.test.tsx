@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { RunToastHost } from './RunToastHost';
 import { registerRun, __resetRunningSignalForTest } from '../../navigation/runningSignal';
+import { postNavNotice } from '../../navigation/navNotice';
 
 const loadChatMock = vi.fn();
 const loadDebateMock = vi.fn();
@@ -106,6 +107,20 @@ describe('RunToastHost', () => {
     act(() => { finish('done'); });
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  // t/4640 AC3: a navigation notice (an item that wasn't found) uses the same stack.
+  it('shows a navigation notice as a status toast with no "Open" action, auto-dismissed', () => {
+    render(<RunToastHost />);
+    act(() => { postNavNotice('That debate couldn’t be found. It may have been deleted.'); });
+
+    const toast = screen.getByRole('status');
+    expect(toast).toHaveTextContent('That debate couldn’t be found. It may have been deleted.');
+    expect(screen.queryByRole('button', { name: 'Open' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+
+    act(() => { vi.advanceTimersByTime(8000); });
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
