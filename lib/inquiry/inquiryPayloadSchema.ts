@@ -21,9 +21,10 @@ export const HttpUrlSchema = z.string().refine(
 // Desktop Ask upload payload schema — single-source contract for server, IPC, and desktop client.
 // InquiryResultSchema.strict() is the trust boundary (t/4743): schema must validate the result,
 // not assume it was validated upstream.
+// `note` defaults to empty string (user can skip adding a note at upload time).
 export const inquiryPayloadSchema = z.object({
   result: InquiryResultSchema.strict(),
-  note: z.string().max(5000),
+  note: z.string().max(5000).default(''),
 }).strict();
 
 export type InquiryPayload = z.infer<typeof inquiryPayloadSchema>;
