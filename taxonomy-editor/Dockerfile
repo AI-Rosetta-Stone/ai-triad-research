@@ -157,7 +157,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prod 
 # undici 8.x, which trips the undici major-version invariant if the runtime moves alone).
 # onnxruntime-node and node-pty verified to build and load under Node 26 with real build
 # output before this landed (t/1990#10).
-FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-10-28@sha256:aea2c6351135e37af25f98d96ba4ed7caf4646339b850979eac919fe63bbadc9 AS runtime
+FROM ghcr.io/ai-rosetta-stone/ai-triad-base:2026-11-01@sha256:b7232d9f48ac773c716f34b1e473abcac2b7f628487ab119962015409608e6da AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/AI-Rosetta-Stone/ai-triad-research"
 LABEL org.opencontainers.image.description="AI Triad Taxonomy Editor"
