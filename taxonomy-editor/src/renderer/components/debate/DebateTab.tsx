@@ -40,6 +40,7 @@ import type { SessionRowData } from './debateSessionTypes';
 import { LibraryListPage } from '../shared/LibraryListPage';
 import type { LibraryEditModeAction, LibraryRowEditAction } from '../shared/LibraryListPage.types';
 import { buildDebateLibraryConfig, debateSafeTitle } from './debateLibraryConfig';
+import { DebateInPlaceHint } from './DebateInPlaceHint';
 import './DebateTab.css';
 
 // Prop-type aliases derived from the hooks/stores so the extracted presentational
@@ -334,42 +335,6 @@ export function DebateTab() {
 
   // ── Table row handlers (t/2305) ──────────────────────────────────────────────
 
-  // Condition 3 (t/2305 web path): openDebateWindow already has a working web-bridge
-  // impl (openAppWindow(`debate-window?id=…`)) — no stub to fix, confirmed in web-bridge.ts.
-  const handleRowOpen = useCallback((id: string) => {
-    api.openDebateWindow(id).then((result) => {
-      if (result && result.atCap) {
-        setQuotaError('Close a debate window — max 5 open');
-      }
-    }).catch((err: Error) => {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'debate-tab',
-        level: 'warn',
-        message: 'Failed to open debate popout window',
-        error: { name: err.name ?? 'Error', message: String(err), stack: err.stack },
-      });
-    });
-  }, []);
-
-  // Community debates must propagate source=community so the popout's runLoad routes
-  // to loadCommunityDebateSession instead of the personal endpoint (t/2399).
-  const handleCommunityRowOpen = useCallback((id: string) => {
-    api.openDebateWindow(id, 'community').then((result) => {
-      if (result && result.atCap) {
-        setQuotaError('Close a debate window — max 5 open');
-      }
-    }).catch((err: Error) => {
-      getGlobalRecorder()?.record({
-        type: 'system.error',
-        component: 'debate-tab',
-        level: 'warn',
-        message: 'Failed to open community debate popout window',
-        error: { name: err.name ?? 'Error', message: String(err), stack: err.stack },
-      });
-    });
-  }, []);
-
   // Per-row export — loads full session on demand so the main process has transcript
   // data for markdown/pdf formatters (summary alone is insufficient for rich formats).
   const handleRowExport = useCallback(async (session: SessionRowData, format: string) => {
@@ -426,28 +391,23 @@ export function DebateTab() {
 
   const rowBrief = useRowBriefExport(isElectronMode());
 
-  // Row-open — branches on phone vs desktop inside the handler DebateTab owns (t/3702#5 gap 2
-  // ruling: no shared per-device contract needed, this is page-side logic behind one callback).
+  // t/4691: row click opens in place (a t/4640 place, /debate/:id via placeOf()'s existing
+  // `debate` resolver reading `activeDebate`) instead of a popout window — ⧉/Ctrl-click still go
+  // through the shell's openPlaceInNewWindow via debateLibraryConfig's itemPlace (#4319),
+  // unaffected by this. Phone additionally pushes its own nav-stack entry (pre-existing, unrelated
+  // to t/4640 — Debate's phone layer uses useMobileNav, not the shell's history).
   const handleOpenMy = useCallback((id: string) => {
-    if (isPhone) {
-      if (id !== activeDebateId) void loadDebate(id);
-      setLastOpenedVariant('my');
-      nav.push({ view: 'debate', id });
-      return;
-    }
-    handleRowOpen(id);
-  }, [isPhone, activeDebateId, loadDebate, nav, handleRowOpen]);
+    if (id !== activeDebateId) void loadDebate(id);
+    setLastOpenedVariant('my');
+    if (isPhone) nav.push({ view: 'debate', id });
+  }, [isPhone, activeDebateId, loadDebate, nav]);
 
   const handleOpenCommunity = useCallback((id: string) => {
-    if (isPhone) {
-      const cd = communityDebates.find(c => c.id === id) ?? null;
-      setSelectedCommunityDebate(cd);
-      setLastOpenedVariant('community');
-      if (cd) nav.push({ view: 'detail', id });
-      return;
-    }
-    handleCommunityRowOpen(id);
-  }, [isPhone, communityDebates, nav, handleCommunityRowOpen]);
+    const cd = communityDebates.find(c => c.id === id) ?? null;
+    setSelectedCommunityDebate(cd);
+    setLastOpenedVariant('community');
+    if (isPhone && cd) nav.push({ view: 'detail', id });
+  }, [isPhone, communityDebates, nav]);
 
   const handleCopyCommunity = useCallback(async (cd: CommunityDebate): Promise<void> => {
     setCopyingId(cd.id);
@@ -559,18 +519,20 @@ export function DebateTab() {
           <span className="pane-collapsed-label">Debates</span>
         </div>
       ) : (
-        <DebateLibraryPanel
-          width={width}
-          fullWidth={isTableMode}
-          setListCollapsed={setListCollapsed}
-          config={libraryConfig}
-          myRows={orderedSessions}
-          myLoading={sessionsLoading}
-          communityRows={communityDebates}
-          communityLoading={communityLoading}
-          onOpenMy={handleOpenMy}
-          onOpenCommunity={handleOpenCommunity}
-          intro={<DebateGettingStarted hasNoDebates={orderedSessions.length === 0} onPickStarter={handlePickDebateStarter} />}
+        <DebateTableMode
+          isTableMode={isTableMode}
+          activeDebate={activeDebate}
+          selectedCommunityDebate={selectedCommunityDebate}
+          lastOpenedVariant={lastOpenedVariant}
+          handleExport={handleExport}
+          exportStatus={exportStatus}
+          libraryPanelProps={{
+            width, fullWidth: isTableMode, setListCollapsed, config: libraryConfig,
+            myRows: orderedSessions, myLoading: sessionsLoading,
+            communityRows: communityDebates, communityLoading: communityLoading,
+            onOpenMy: handleOpenMy, onOpenCommunity: handleOpenCommunity,
+            intro: <DebateGettingStarted hasNoDebates={orderedSessions.length === 0} onPickStarter={handlePickDebateStarter} />,
+          }}
         />
       )}
 
@@ -600,8 +562,9 @@ export function DebateTab() {
             setPendingExportFormat(null);
             setPendingExportSession(null);
             if (rowSession) {
-              // Table row export — load full session then export.
-              // (activeDebate is not set in table mode; Condition 2)
+              // Table row export — load full session then export (Condition 2). Keyed off
+              // pendingExportSession, set unconditionally by handleRowExport/handleRowCommunityExport
+              // regardless of mode — not off activeDebate, which t/4691 can now also set in table mode.
               resolveExportLoader(rowSession, api.loadDebateSession, api.loadCommunityDebateSession).then(full => {
                 void runExport(fmt, opts, full);
               }).catch((err: Error) => {
@@ -688,6 +651,71 @@ function NewDebateDialogHost({ prefill, onClose, onAtCap }: {
   return <NewDebateDialog onClose={onClose} onAtCap={onAtCap} initialTopic={prefill?.topic} initialPovers={prefill?.povers} />;
 }
 
+// t/4691: the left pane's own branching (toolbar-panel/collapsed handled by the caller; this
+// covers table mode's library-vs-in-place-detail choice, plus the phone library fallback),
+// pulled out of DebateTab so DebateTab's own complexity doesn't absorb it (local/complexity-
+// budget) — same reasoning as NewDebateDialogHost above, mirrors Chat's ChatTableMode (t/4690).
+function DebateTableMode({
+  isTableMode, activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus, libraryPanelProps,
+}: {
+  isTableMode: boolean;
+  activeDebate: DebateSession | null;
+  selectedCommunityDebate: CommunityDebate | null;
+  lastOpenedVariant: 'my' | 'community';
+  handleExport: (format?: string) => void;
+  exportStatus: string | null;
+  libraryPanelProps: DebateLibraryPanelProps;
+}) {
+  return isTableMode && (activeDebate || selectedCommunityDebate) ? (
+    <DebateTableDetail
+      activeDebate={activeDebate}
+      selectedCommunityDebate={selectedCommunityDebate}
+      lastOpenedVariant={lastOpenedVariant}
+      handleExport={handleExport}
+      exportStatus={exportStatus}
+    />
+  ) : (
+    <DebateLibraryPanel {...libraryPanelProps} />
+  );
+}
+
+// t/4691: table mode's in-place detail — the desktop detail content (CommunityDebateDetail /
+// DebateDetailSummary, same components DebateDetailPane's own non-phone branch renders) shown
+// full-width in the library's slot once a row opens an item, plus the first-open hint above it.
+function DebateTableDetail({
+  activeDebate, selectedCommunityDebate, lastOpenedVariant, handleExport, exportStatus,
+}: {
+  activeDebate: DebateSession | null;
+  selectedCommunityDebate: CommunityDebate | null;
+  lastOpenedVariant: 'my' | 'community';
+  handleExport: (format?: string) => void;
+  exportStatus: string | null;
+}) {
+  return (
+    <div className="debate-tab-table-detail">
+      <DebateInPlaceHint />
+      {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
+        <CommunityDebateDetail debate={selectedCommunityDebate} />
+      ) : activeDebate ? (
+        <DebateDetailSummary
+          debate={activeDebate}
+          onOpenWindow={() => api.openDebateWindow(activeDebate.id).catch((err) => {
+            getGlobalRecorder()?.record({
+              type: 'system.error',
+              component: 'debate-tab',
+              level: 'warn',
+              message: 'Failed to open debate popout window — debate stays inline',
+              error: { name: (err as Error).name ?? 'Error', message: String(err), stack: (err as Error).stack },
+            });
+          })}
+          onExport={handleExport}
+          exportStatus={exportStatus}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function DebateLibraryPanel(props: DebateLibraryPanelProps) {
   const {
     width, fullWidth, setListCollapsed, config, myRows, myLoading, communityRows, communityLoading,
@@ -762,20 +790,13 @@ function DebateRightPane(props: DebateRightPaneProps) {
 function DebateDetailPane(props: DebateRightPaneProps) {
   const {
     onMouseDown, onTouchStart, isPhone, activeDebate, selectedCommunityDebate,
-    lastOpenedVariant, nav, handleExport, exportStatus, handleNewDebate,
+    lastOpenedVariant, handleExport, exportStatus, handleNewDebate,
   } = props;
   const debateAuth = useAuthStatus();
   return (
     <>
       <div className="resize-handle" onMouseDown={onMouseDown} onTouchStart={onTouchStart} />
       <div className="detail-panel">
-        {isPhone && (activeDebate || selectedCommunityDebate) && (
-          <div className="phone-detail-header">
-            <button className="phone-detail-back" onClick={() => nav.pop()}>
-              &larr; Debates
-            </button>
-          </div>
-        )}
         {lastOpenedVariant === 'community' && selectedCommunityDebate ? (
           <CommunityDebateDetail debate={selectedCommunityDebate} />
         ) : activeDebate ? (
