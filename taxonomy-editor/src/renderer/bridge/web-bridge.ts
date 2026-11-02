@@ -4,6 +4,20 @@
 /**
  * Web bridge — implements AppAPI via REST and WebSocket calls to the server.
  * Used when the app runs in a browser served by the container.
+ *
+ * All renderer HTTP calls must route through this bridge — never a bare `fetch()`. It
+ * centralizes timeout, retry, error normalization, and 429/503 handling (t/4763, moved from
+ * taxonomy-editor/AGENTS.md).
+ *
+ * Approved bare-fetch exceptions (each documents why in its own source):
+ * - `analyticsEmitter.ts` — fire-and-forget telemetry via `sendBeacon`
+ * - `flightRecorderInit.ts` — must work when the bridge is broken
+ * - `trace.ts` — low-level performance tracing
+ * - `dumpToast.ts` — error dump upload
+ * - `healthProbe.ts` — lightweight latency probe, must bypass retry/circuit-breaker
+ * - `components/PublicPovView.tsx` — public `/share/pov/:id` read-only view; the
+ *   session-recovery helpers would mint an anonymous session, violating the no-session
+ *   invariant (t/1790, TL t/1787#2)
  */
 import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult, RefreshModelsResponse } from './types';
 import { pullDataUpdatesRest } from './dataUpdatesPull';
