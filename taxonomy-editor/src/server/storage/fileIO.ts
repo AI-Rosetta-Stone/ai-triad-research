@@ -524,12 +524,15 @@ export async function readLineageEnrichments(): Promise<Record<string, unknown>>
 
 // ── Policy registry ──
 
-// t/4584: same degraded-read signal as entitiesReadDegradedReason, shared by
-// readOrganizations/readOrganizationEdges since both feed one route cluster
-// (organizations.ts's load()) and a caller cares about either one failing.
+// t/4584, t/4588: track each read's degraded state separately (not a shared flag)
+// so a later success doesn't clear an earlier failure in the same load() batch.
+// t/4588 fix: AND-gate the "clean" signal — if either read failed, cache is poisoned.
 let organizationsReadDegradedReason: string | null = null;
+let organizationEdgesReadDegradedReason: string | null = null;
 export function getOrganizationsReadStatus(): { degraded: boolean; reason: string | null } {
-  return { degraded: organizationsReadDegradedReason !== null, reason: organizationsReadDegradedReason };
+  const degraded = organizationsReadDegradedReason !== null || organizationEdgesReadDegradedReason !== null;
+  const reason = organizationsReadDegradedReason ?? organizationEdgesReadDegradedReason;
+  return { degraded, reason };
 }
 
 export async function readOrganizations(): Promise<unknown | null> {
