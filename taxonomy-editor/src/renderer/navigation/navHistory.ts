@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Jeffrey Snover. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root.
 
+import { getGlobalRecorder } from '@lib/flight-recorder/index';
 import type { NavHistory, HistoryEntry } from './types';
 
 type NavHistoryListener = (entry: HistoryEntry) => void;
@@ -138,10 +139,17 @@ export class WebHistory implements NavHistory {
     return () => this.listeners.delete(listener);
   }
 
+  // t/4640#28: a failed sessionStorage read/write degrades the Recent menu to the current entry
+  // only — each catch records a WARN so the degradation is visible, never silent.
   private getStack(): HistoryEntry[] {
     try {
       return JSON.parse(sessionStorage.getItem(WebHistory.STACK_KEY) ?? '[]') as HistoryEntry[];
-    } catch {
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: reading the history mirror failed — Recent menu falls back to the current entry',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
       return [];
     }
   }
@@ -149,15 +157,24 @@ export class WebHistory implements NavHistory {
   private saveStack(stack: HistoryEntry[]): void {
     try {
       sessionStorage.setItem(WebHistory.STACK_KEY, JSON.stringify(stack));
-    } catch {
-      /* telemetry — silent by design */
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: writing the history mirror failed — Recent menu may be incomplete',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
     }
   }
 
   private getIndex(): number {
     try {
       return parseInt(sessionStorage.getItem(WebHistory.INDEX_KEY) ?? '0', 10) || 0;
-    } catch {
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: reading the history index failed — using 0',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
       return 0;
     }
   }
@@ -165,8 +182,12 @@ export class WebHistory implements NavHistory {
   private saveIndex(idx: number): void {
     try {
       sessionStorage.setItem(WebHistory.INDEX_KEY, String(idx));
-    } catch {
-      /* telemetry — silent by design */
+    } catch (err) {
+      getGlobalRecorder()?.record({
+        type: 'system.error', component: 'navigation', level: 'warn',
+        message: 'WebHistory: writing the history index failed — Recent menu may be off by one',
+        error: { name: (err as Error)?.name ?? 'Error', message: String(err), stack: (err as Error)?.stack },
+      });
     }
   }
 }
