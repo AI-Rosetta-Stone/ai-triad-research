@@ -78,6 +78,11 @@ export function isElsewhere(tool: RunningToolId, itemId: string): boolean {
   return navHistory.current()?.placeKey !== key(tool, itemId);
 }
 
+/** For the Recent menu's "Running…" row annotation (t/4689). */
+export function isRunning(tool: RunningToolId, itemId: string): boolean {
+  return running.has(key(tool, itemId));
+}
+
 export function runningCountByTool(tool: RunningToolId): number {
   let count = 0;
   const prefix = `${tool}:`;

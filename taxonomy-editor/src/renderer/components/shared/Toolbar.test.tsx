@@ -6,7 +6,7 @@
 // a successful render() call here proves the fix holds.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // ── Store mocks ──────────────────────────────────────────────────────────────
@@ -224,5 +224,46 @@ describe('Toolbar — Rosetta Stone topmost rail button (t/4543, PI decision t/4
     render(<Toolbar />);
     await userEvent.click(screen.getByRole('button', { name: 'Rosetta Stone' }));
     expect(mockTaxonomyStore.setActiveTab).toHaveBeenCalledWith('rosetta-stone');
+  });
+});
+
+// t/4689: the rail running-indicator dot on Chat/Debate. Exercised against the real
+// runningSignal module (not mocked) — same pattern as runningSignal.test.ts — since the
+// behavior under test IS the subscription wiring, not a stub of it.
+describe('Toolbar — running-indicator dot (t/4689)', () => {
+  beforeEach(async () => {
+    const { __resetRunningSignalForTest } = await import('../../navigation/runningSignal');
+    __resetRunningSignalForTest();
+  });
+
+  it('shows no dot and the plain aria-label when nothing is running', () => {
+    render(<Toolbar />);
+    const chatBtn = screen.getByRole('button', { name: 'Chat' });
+    expect(chatBtn.querySelector('.toolbar-nav-running-dot')).toBeNull();
+  });
+
+  it('shows the dot and an augmented aria-label on Chat while a chat run is registered', async () => {
+    const { registerRun } = await import('../../navigation/runningSignal');
+    registerRun('chat', 'chat-1', 'My chat');
+    render(<Toolbar />);
+    expect(screen.getByRole('button', { name: 'Chat — running' })).toBeInTheDocument();
+  });
+
+  it('shows the dot on Debate independently of Chat', async () => {
+    const { registerRun } = await import('../../navigation/runningSignal');
+    registerRun('debate', 'debate-1', 'My debate');
+    render(<Toolbar />);
+    expect(screen.getByRole('button', { name: 'Debate — running' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument(); // unaffected
+  });
+
+  it('clears the dot once the run finishes', async () => {
+    const { registerRun } = await import('../../navigation/runningSignal');
+    const finish = registerRun('chat', 'chat-1', 'My chat');
+    render(<Toolbar />);
+    expect(screen.getByRole('button', { name: 'Chat — running' })).toBeInTheDocument();
+
+    act(() => { finish('done'); });
+    expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument();
   });
 });
