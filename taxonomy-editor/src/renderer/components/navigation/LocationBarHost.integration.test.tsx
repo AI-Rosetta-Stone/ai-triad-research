@@ -55,9 +55,9 @@ describe('LocationBarHost integration — real MemoryHistory + routes + installN
 
     expect(useTaxonomyStore.getState().selectedNodeId).toBeNull();
     expect(navHistory.entries()).toHaveLength(entriesBefore + 1);
-    expect(navHistory.current()).toMatchObject({ path: '/taxonomy/saf', placeKey: 'taxonomy:none', label: 'Safetyist' });
+    expect(navHistory.current()).toMatchObject({ path: '/taxonomy/saf', placeKey: 'taxonomy:none', label: 'Taxonomy: Safetyist' });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Back to Keep humans in the loop' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Back to Taxonomy: Keep humans in the loop' }));
     act(() => {}); // flush the restore's store updates into the bar
 
     expect(useTaxonomyStore.getState().selectedNodeId).toBe('saf-desires-001');

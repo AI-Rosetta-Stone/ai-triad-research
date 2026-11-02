@@ -132,7 +132,12 @@ function RecentMenu({ entries, index, onJump }: RecentMenuProps) {
             const isCurrent = i === index;
             const running = entryIsRunning(entry.placeKey);
             const toolName = toolNameOf(entry.placeKey);
-            const side = running ? 'Running…' : (toolName !== entry.label ? toolName : '');
+            // The label carries a "Tool: " prefix for Back/Forward names; the row shows the tool in
+            // its own right-hand column instead, so drop the prefix from the row text.
+            const rowText = toolName && entry.label.startsWith(`${toolName}: `)
+              ? entry.label.slice(toolName.length + 2)
+              : entry.label;
+            const side = running ? 'Running…' : (toolName !== rowText ? toolName : '');
             return (
               <button
                 key={i}
@@ -143,7 +148,7 @@ function RecentMenu({ entries, index, onJump }: RecentMenuProps) {
                 aria-label={`${entry.label}${isCurrent ? ', you are here' : ''}${running ? ', running' : ''}`}
                 onClick={() => pick(i)}
               >
-                <span className="nav-locbar-menu-label">{entry.label}</span>
+                <span className="nav-locbar-menu-label">{rowText}</span>
                 {isCurrent && <span className="nav-locbar-menu-here"> · you are here</span>}
                 {side && <span className="nav-locbar-menu-tool">{side}</span>}
               </button>

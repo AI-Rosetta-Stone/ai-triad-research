@@ -84,7 +84,7 @@ describe('installNavSubscriber blockers', () => {
     chat.notify();
 
     expect(history.current()?.placeKey).toBe('chat:conv-9');
-    expect(history.current()?.label).toBe('Opened');
+    expect(history.current()?.label).toBe('Chat: Opened');
     expect(history.canGoBack()).toBe(true);
   });
 
@@ -256,7 +256,7 @@ describe('history → state and automatic places (t/4640#40 items 5 and 6)', () 
 
     expect(history.entries()).toHaveLength(4);
     expect(history.current()?.placeKey).toBe('chat:c-1');
-    expect(history.current()?.label).toBe('First (renamed)');
+    expect(history.current()?.label).toBe('Chat: First (renamed)');
     expect(history.canGoForward()).toBe(true);
   });
 
