@@ -161,7 +161,11 @@ export function NodeDetail({ pov, node, readOnly, onPin, onSimilarSearch, onRela
   const authInfo = useAuthStatus();
   const isAdmin = useIsAdmin();
   const setNodeDetailMode = usePreferencesStore(state => state.setNodeDetailMode);
-  const nodeDetailMode = usePreferencesStore(state => state.nodeDetailModes[node.id] ?? 'simple');
+  // t/4736: through the getter, not a reimplemented fallback — the getter is what falls back to
+  // the global viewMode default once there's no per-node override (t/4574's reason for keeping
+  // NodeDetail off a *direct* global read still holds: this is per-node state via one function,
+  // not NodeDetail reaching into preferencesStore.viewMode itself).
+  const nodeDetailMode = usePreferencesStore(state => state.getNodeDetailMode(node.id));
   const [descMode, setDescMode] = useDescriptionMode('formal'); // t/4574 spec §2.4: Advanced defaults to Formal
   const [showDelete, setShowDelete] = useState(false);
   const [isEditing, setIsEditing] = useState(false); // t/4641: description edit state, lifted from DescriptionSection
