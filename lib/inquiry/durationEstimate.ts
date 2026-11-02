@@ -22,19 +22,22 @@ interface DurationTable {
 }
 
 // TODO(t/4751): Replace with actual Azure p50/p90 measurements once available.
-// Conservative fallback: assumes worst-case overhead.
+// PLACEHOLDER VALUES (t/4751, t/4753): conservative estimates pending Azure measurement.
+// These are intentionally HIGH to avoid showing the PI incorrect estimates (useInquiryStore notes ~45min for deep).
+// t/4753 will make runs longer. Don't ship to users until real values replace these.
 const FIDELITY_DURATIONS: DurationTable = {
   quick: {
     // Fast models (e.g., gemini-3.5-flash-lite, claude-haiku-4-5)
-    default: { lowMin: 1, highMin: 3 },
+    default: { lowMin: 2, highMin: 8 },
   },
   standard: {
     // Mid-tier models (e.g., gemini-3.5-pro, claude-sonnet-5)
-    default: { lowMin: 3, highMin: 8 },
+    default: { lowMin: 8, highMin: 25 },
   },
   deep: {
     // Reasoning models (e.g., gemini-2.0-pro-exp, claude-opus-5.5)
-    default: { lowMin: 5, highMin: 15 },
+    // Placeholder: ~45 min observed in useInquiryStore; set conservative range
+    default: { lowMin: 30, highMin: 60 },
   },
 };
 
