@@ -1,0 +1,125 @@
+/* LocationBarHost styling (t/4640 AC8 Phase 3) */
+
+.location-bar-host {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.location-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+}
+
+.location-bar-controls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.location-bar-btn {
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.location-bar-btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.location-bar-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.location-bar-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.location-bar-menu-wrap {
+  position: relative;
+  margin-left: auto;
+}
+
+.location-bar-menu-btn {
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 0.15s, color 0.15s;
+  font-size: 0.875rem;
+}
+
+.location-bar-menu-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.location-bar-menu-btn.location-bar-menu-active {
+  background-color: var(--bg-selected);
+  color: var(--text-primary);
+}
+
+.location-bar-menu-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.location-bar-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  min-width: 150px;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.location-bar-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.15s;
+}
+
+.location-bar-menu-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.location-bar-menu-item:first-child {
+  border-radius: 2px 2px 0 0;
+}
+
+.location-bar-menu-item:last-child {
+  border-radius: 0 0 2px 2px;
+}
+
+.location-bar-menu-empty {
+  padding: 0.5rem 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  text-align: center;
+}

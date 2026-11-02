@@ -56,6 +56,12 @@ export class WebHistory implements NavHistory {
     }
   }
 
+  go(delta: number): void {
+    if (delta !== 0) {
+      window.history.go(delta);
+    }
+  }
+
   canGoBack(): boolean {
     const state = window.history.state as { v?: number; idx?: number } | null;
     return state?.v === 1 && (state.idx ?? 0) > 0;
@@ -155,6 +161,17 @@ export class MemoryHistory implements NavHistory {
   forward(): void {
     if (this.canGoForward()) {
       this.currentIndex++;
+      const entry = this.entries[this.currentIndex];
+      if (entry) {
+        this.listeners.forEach(l => l(entry));
+      }
+    }
+  }
+
+  go(delta: number): void {
+    const newIndex = this.currentIndex + delta;
+    if (newIndex >= 0 && newIndex < this.entries.length) {
+      this.currentIndex = newIndex;
       const entry = this.entries[this.currentIndex];
       if (entry) {
         this.listeners.forEach(l => l(entry));

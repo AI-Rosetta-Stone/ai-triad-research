@@ -14,6 +14,7 @@ export interface NavHistory {
   replace(entry: Omit<HistoryEntry, 'timestamp'>): void;
   back(): void;
   forward(): void;
+  go(delta: number): void;
   canGoBack(): boolean;
   canGoForward(): boolean;
   current(): HistoryEntry | null;
