@@ -583,6 +583,11 @@ function DebatePhaseHeader({ activeDebate, isDebatePhase, isOpeningPhase }: {
   );
 }
 
+/** Transcript entry types with no reading-view card (t/4749: adds 'system' to the pre-existing 'clarification' carve-out). */
+function isHiddenTranscriptType(type: string): boolean {
+  return type === 'clarification' || type === 'system';
+}
+
 function isOpeningStart(type: string, prevType: string | null): boolean {
   return type === 'opening' && prevType !== 'opening';
 }
@@ -599,7 +604,7 @@ function isSynthesisStart(type: string, prevType: string | null): boolean {
 function computeTranscriptHairline(entry: ActiveTranscriptEntry, idx: number, transcript: ActiveTranscriptEntry[]): React.ReactNode {
   let prevVisibleIdx = -1;
   for (let i = idx - 1; i >= 0; i--) {
-    if (transcript[i].type !== 'clarification') { prevVisibleIdx = i; break; }
+    if (!isHiddenTranscriptType(transcript[i].type)) { prevVisibleIdx = i; break; }
   }
   const prevType: string | null = prevVisibleIdx >= 0 ? transcript[prevVisibleIdx].type : null;
   const type = entry.type as string;
@@ -637,9 +642,11 @@ function TranscriptEntryRow({
   // Matches ClaimExtractionTrace.round (transcript index + 1) so cross-panel
   // references line up (e.g. Extraction Timeline "S12" == this card's "S12").
   const statementId = `S${idx + 1}`;
-  // Skip the clarification transcript card — the interactive ClarificationActions panel
-  // below the transcript already shows the questions as clickable pills.
-  if (entry.type === 'clarification') return null;
+  // Skip the clarification transcript card (the interactive ClarificationActions panel
+  // below the transcript already shows the questions as clickable pills) and system
+  // housekeeping turns (phase transitions, adaptive termination notes, provider-level
+  // retry bookkeeping — not meaningful to someone reading the debate; t/4749).
+  if (isHiddenTranscriptType(entry.type)) return null;
 
   const hairline = computeTranscriptHairline(entry, idx, activeDebate.transcript);
 

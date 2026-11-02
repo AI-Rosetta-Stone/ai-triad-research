@@ -755,6 +755,18 @@ describe('transcript rendering', () => {
     expect(screen.queryByTestId('statement-e4')).toBeNull();
   });
 
+  it('skips system-type entries (housekeeping/phase-transition turns) — renders no card and no content (t/4749)', () => {
+    mockStore.activeDebate = makeDebate({
+      phase: 'debate',
+      transcript: [
+        { id: 'e5', type: 'system', content: '[Phase transition] confrontation → argumentation', speaker: 'system' },
+      ],
+    });
+    render(<DebateWorkspace />);
+    expect(screen.queryByTestId('statement-e5')).toBeNull();
+    expect(screen.queryByText('[Phase transition] confrontation → argumentation')).toBeNull();
+  });
+
   it('shows generating indicator with speaker label and "thinking..." when debateGenerating is set', () => {
     mockStore.activeDebate = makeDebate();
     mockStore.debateGenerating = 'accelerationist';
