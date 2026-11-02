@@ -2,8 +2,8 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
- * Web bridge — implements AppAPI via REST and WebSocket calls to the server.
- * Used when the app runs in a browser served by the container.
+ * Web bridge — implements AppAPI via REST and WebSocket calls to the server when run in a browser served by the container. All renderer HTTP calls must route through this bridge — never a bare `fetch()` — except `analyticsEmitter.ts` (sendBeacon telemetry), `flightRecorderInit.ts` (must work when the bridge is broken), `trace.ts` (low-level perf tracing), `dumpToast.ts` (error dump upload), `healthProbe.ts` (bypasses retry/circuit-breaker), and `components/PublicPovView.tsx` (public read-only view; session-recovery would mint an anonymous session, violating the no-session invariant, t/1790, TL t/1787#2).
+ * Centralizes timeout, retry, error normalization, and 429/503 handling (t/4763, moved from taxonomy-editor/AGENTS.md).
  */
 import type { AppAPI, SourceDocumentResolution, DebateDelta, UserPreferences, BriefExportJobView, BriefExportRecord, StartInquiryRequest, InquiryStatusResponse, InquiryResultSummary, InquiryResult, RefreshModelsResponse } from './types';
 import { pullDataUpdatesRest } from './dataUpdatesPull';

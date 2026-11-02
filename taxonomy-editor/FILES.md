@@ -44,8 +44,23 @@ taxonomy-editor/
 │   └── data/          # Static data
 ```
 
-The child-role roster and routing note (which child owns what) live in `AGENTS.md`
-alongside the routing behavior.
+## Child Roles
+
+Moved from `AGENTS.md` (t/4763, a token-reduction pass). This roster is descriptive, not a
+routing gate — `resolve_owner` is authoritative. Child roles own their subdirectories (see the
+directory map above) — route work to them:
+
+- **ElectronMain** — main process (IPC, file I/O, model discovery, embeddings)
+- **ServerAPI** — Express backend, API endpoints, session branches, GitHub API, storage
+- **Analysis** — dashboards, analysis panels, lineage, grounding, convergence signals
+- **EdgeBrowser** — edge browsing, search, edge detail views
+- **DebateUI** — debate tab, popout window, source viewer, situations, cruxes
+- **DebateWorkspace** — debate UI components + debate state store
+- **DebateDiagnostics** — diagnostics panels, windows, chat
+- **Sync** — git sync, save bar, diff views, PR submission
+- **Conflict** — conflict detection, resolution, conflict forms
+- **Settings** — API key management, admin panels, feature flags, runtime config, first-run
+- **Chat** — POVer Chat modes, comment system, prompt inspection/diff views
 
 ## Features You Own
 
