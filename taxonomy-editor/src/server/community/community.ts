@@ -46,74 +46,71 @@ export function isAdmin(userId?: string): boolean {
 
 // ── Desktop Ask validation (t/4612, t/4744) ──
 
-/** Recursively walk all nodeIds in result (B3: generic walk ensures coverage) */
-export function collectAllNodeIds(obj: any, visited = new Set<any>()): string[] {
-  const nodeIds = new Set<string>();
-  const queue = [obj];
+// A node ref is any object carrying a string `nodeId`. Every nodeId site in lib/inquiry/schema.ts
+// (NodeRefSchema, SituationRefSchema) is an array element, so pruning removes array entries.
+function isNodeRef(v: unknown): v is { nodeId: string } {
+  return typeof v === 'object' && v !== null && typeof (v as { nodeId?: unknown }).nodeId === 'string';
+}
 
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (current === null || current === undefined || visited.has(current)) continue;
-    visited.add(current);
+/**
+ * Every nodeId anywhere in `value` (B3). Generic rather than per-path, so a nodeId site added to
+ * the schema later is still seen. Iterative, not recursive: the payload is client-supplied and its
+ * passthrough objects (e.g. `grounding`) can nest arbitrarily, which would overflow a recursive walk.
+ */
+export function collectAllNodeIds(value: unknown): string[] {
+  const ids = new Set<string>();
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const v = stack.pop();
+    if (typeof v !== 'object' || v === null) continue;
+    if (isNodeRef(v)) ids.add(v.nodeId);
+    for (const child of Array.isArray(v) ? v : Object.values(v)) stack.push(child);
+  }
+  return [...ids];
+}
 
-    if (typeof current === 'object') {
-      // If this object has a nodeId field, collect it
-      if (current.nodeId && typeof current.nodeId === 'string') {
-        nodeIds.add(current.nodeId);
+export type NodeRefPruneResult =
+  | { ok: true; result: InquiryResult; droppedRefs: string[] }
+  /** Every ref was unknown (route maps to 400), or an unknown ref sat outside an array and so
+   *  could not be removed (fail closed rather than store it). */
+  | { ok: false; reason: 'all_refs_unknown' | 'unprunable_ref'; droppedRefs: string[] };
+
+/**
+ * Remove every node ref whose nodeId isn't in `known` from a client-supplied result (B2, F1 D3).
+ * Works on a copy; the input is untouched. Entries that merely contain refs (camp verdicts,
+ * convergences) are kept with their `nodes` filtered: their text isn't a taxonomy claim.
+ */
+export function pruneUnknownNodeRefs(result: InquiryResult, known: ReadonlySet<string>): NodeRefPruneResult {
+  const allIds = collectAllNodeIds(result);
+  const droppedRefs = allIds.filter(id => !known.has(id));
+  if (allIds.length > 0 && droppedRefs.length === allIds.length) {
+    return { ok: false, reason: 'all_refs_unknown', droppedRefs };
+  }
+  if (droppedRefs.length === 0) return { ok: true, result: structuredClone(result), droppedRefs };
+
+  // One WARN per payload, not per ref: a hostile payload can carry thousands of refs.
+  log.server.warn({ count: droppedRefs.length, sample: droppedRefs.slice(0, 20) },
+    'Desktop Ask: pruning unknown nodeIds (F1 D3)');
+
+  const pruned = structuredClone(result);
+  const stack: unknown[] = [pruned];
+  while (stack.length > 0) {
+    const v = stack.pop();
+    if (typeof v !== 'object' || v === null) continue;
+    if (Array.isArray(v)) {
+      for (let i = v.length - 1; i >= 0; i--) {
+        const item: unknown = v[i];
+        if (isNodeRef(item) && !known.has(item.nodeId)) v.splice(i, 1);
       }
-      // Queue all properties for traversal
-      Object.values(current).forEach(val => {
-        if (typeof val === 'object' && val !== null) queue.push(val);
-      });
-    } else if (Array.isArray(current)) {
-      current.forEach(item => {
-        if (typeof item === 'object' && item !== null) queue.push(item);
-      });
     }
+    for (const child of Array.isArray(v) ? v : Object.values(v)) stack.push(child);
   }
 
-  return Array.from(nodeIds);
-}
-
-/** Collect nodeIds from exact paths (B2: per-site validation for regression test) */
-export function collectNodeIdsPerSite(result: InquiryResult): Record<string, string[]> {
-  return {
-    situationNodes: result.grounding.situationNodes?.map(ref => ref.nodeId) ?? [],
-    nodesByCamp: Object.entries(result.grounding.nodesByCamp || {})
-      .flatMap(([, refs]) => refs?.map(ref => ref.nodeId) ?? []),
-    campVerdictNodes: result.campVerdicts?.flatMap(v => v.nodes?.map(n => n.nodeId) ?? []) ?? [],
-    convergenceNodes: result.convergences?.flatMap(c => c.nodes?.map(n => n.nodeId) ?? []) ?? [],
-  };
-}
-
-/** Validate and prune unknown refs from result per B2 */
-export function pruneUnknownNodeRefs(
-  result: InquiryResult,
-  taxonomy: Map<string, boolean>,
-): { result: InquiryResult; droppedRefs: string[] } {
-  const allNodeIds = collectAllNodeIds(result);
-  const droppedRefs: string[] = [];
-
-  allNodeIds.forEach(nodeId => {
-    if (!taxonomy.has(nodeId)) {
-      droppedRefs.push(nodeId);
-      log.server.warn({ nodeId }, 'Desktop Ask: pruning unknown nodeId (F1 D3)');
-    }
-  });
-
-  // If all refs unknown, reject upstream
-  if (droppedRefs.length === allNodeIds.length && allNodeIds.length > 0) {
-    throw Object.assign(new Error('All node references unknown'), { statusCode: 400, droppedRefs });
+  // Defence in depth: an unknown ref that wasn't an array element survived. Don't store it.
+  if (collectAllNodeIds(pruned).some(id => !known.has(id))) {
+    return { ok: false, reason: 'unprunable_ref', droppedRefs };
   }
-
-  // Prune refs from convergences (B2: test per site)
-  const pruned = JSON.parse(JSON.stringify(result)) as InquiryResult;
-  pruned.convergences = (pruned.convergences ?? []).filter(conv => {
-    conv.nodes = conv.nodes?.filter(n => taxonomy.has(n.nodeId)) ?? [];
-    return conv.nodes.length > 0; // Keep convergence if it has remaining nodes
-  });
-
-  return { result: pruned, droppedRefs };
+  return { ok: true, result: pruned, droppedRefs };
 }
 
 // ── Listing index (t/726) ──
@@ -1013,4 +1010,3 @@ export async function removeCommunityItem(
 
   log.server.info({ id, type, removedBy }, 'Community item removed');
 }
-
