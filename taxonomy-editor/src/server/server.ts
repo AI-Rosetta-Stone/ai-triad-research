@@ -266,10 +266,10 @@ if (STORAGE_MODE === 'github-api') {
   // Taxonomy/conflicts/calibration stay on the GitHub backend.
   const blobAccountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
   if (blobAccountUrl) {
-    const { AzureBlobBackend } = await import('./storage/azureBlobBackend.js');
+    const [{ AzureBlobBackend }, { userContentContainer }] = await Promise.all([import('./storage/azureBlobBackend.js'), import('./storage/userContentContainer.js')]);
     fileIO.setUserContentBackend(new AzureBlobBackend({
       accountUrl: blobAccountUrl,
-      userContentContainer: process.env.AZURE_USER_CONTENT_CONTAINER || 'user-content',
+      userContentContainer: userContentContainer(), // t/4733: single env-resolved source, staging isolation
       communityContainer: process.env.AZURE_COMMUNITY_CONTAINER || 'community',
     }));
     const briefExportsContainer = process.env.AZURE_BRIEF_EXPORTS_CONTAINER || 'brief-exports';

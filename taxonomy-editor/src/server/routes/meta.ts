@@ -23,8 +23,21 @@ import * as proxyTiers from '../ai/proxyTiers.js';
 import { getEmbeddingsCacheStatus, getEmbeddingsResolution } from '../ai/aiBackends.js';
 import * as community from '../community/community.js';
 import * as fileIO from '../storage/fileIO.js';
-import { getFreePoolBudget } from '../storage/freePoolBudget.js';
+import { getFreePoolBudget, getFreePoolBudgetConfig } from '../storage/freePoolBudget.js';
 import { isFreePoolBudgetEnforced } from '../featureFlags.js';
+
+/** `/health`'s free-pool block (t/4677, t/4733): wiring and enforcement, plus the container and
+ *  daily cap this process actually uses, so a staging/prod store share or a wrong cap is visible
+ *  by curl. `container`/`callsCap` are null while the store is unwired. */
+export function freePoolBudgetHealth(): { wired: boolean; enforced: boolean; container: string | null; callsCap: number | null } {
+  const cfg = getFreePoolBudgetConfig();
+  return {
+    wired: getFreePoolBudget() !== null,
+    enforced: isFreePoolBudgetEnforced(),
+    container: cfg?.container ?? null,
+    callsCap: cfg?.callsCap ?? null,
+  };
+}
 import { log } from '../logger.js';
 import { LLMS_TXT } from '../llmsTxt.js';
 import { getLastEventLoopSample } from '../eventLoopMonitor.js';
@@ -199,13 +212,12 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
     const entityRegistryDegraded = fileIO.getEntityRegistryStatus().degraded;
     const organizationsRegistryDegraded = fileIO.getOrganizationsReadStatus().degraded;
     if (!community.isAdmin()) {
-      const freePoolBudgetObj = getFreePoolBudget();
       json(res, {
         status: 'ok', buildSha: process.env.BUILD_SHA ?? null,
         ai: { geminiKeyConfigured: geminiReady, freeTierKeyPoolSize: freeKeyPoolSize },
         eventLoopLagMs: getLastEventLoopSample()?.maxMs ?? null, identityAllowlistUnreachable, nodeSourceIndexComplete,
         githubRateLimitRemaining, githubRateLimitResetsAt, githubCircuitOpen, entityRegistryDegraded, organizationsRegistryDegraded,
-        freePoolBudget: { wired: freePoolBudgetObj !== null, enforced: isFreePoolBudgetEnforced() },
+        freePoolBudget: freePoolBudgetHealth(),
       });
       return;
     }
@@ -236,8 +248,7 @@ export function registerMetaRoutes(r: Router, ctx: ServerCtx): void {
       freeTierLimits: freeKeyPoolSize > 0 ? { requestsPerMinute: proxyTiers.scaledFreeTierRpm(freeKeyPoolSize), tokensPerDay: getConfig().tiers.free.tokensPerDay } : null,
     };
 
-    const freePoolBudgetObj = getFreePoolBudget();
-    base.freePoolBudget = { wired: freePoolBudgetObj !== null, enforced: isFreePoolBudgetEnforced() };
+    base.freePoolBudget = freePoolBudgetHealth();
 
     // t/3086: embeddings cache probe result — surfaces t/3085 condition in /health without FR access.
     const embeddingsStatus = getEmbeddingsCacheStatus();

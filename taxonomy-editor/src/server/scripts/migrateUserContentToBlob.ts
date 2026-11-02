@@ -25,6 +25,7 @@
 import crypto from 'crypto';
 import { pathToFileURL } from 'url';
 import type { StorageBackend } from '../storage/storageBackend.js';
+import { userContentContainer } from '../storage/userContentContainer.js';
 import { getGlobalRecorder } from '../../../../lib/flight-recorder/index.js';
 
 export interface MigrationSummary {
@@ -196,7 +197,7 @@ async function main(): Promise<void> {
 
   const dest = new AzureBlobBackend({
     accountUrl,
-    userContentContainer: process.env.AZURE_USER_CONTENT_CONTAINER || 'user-content',
+    userContentContainer: userContentContainer(), // t/4733: single env-resolved source
     communityContainer: process.env.AZURE_COMMUNITY_CONTAINER || 'community',
   });
 
