@@ -84,6 +84,17 @@ param stagingSharedReadOnly bool = true
 @description('Temporarily size staging like prod (2 vCPU/4Gi, maxReplicas 3, concurrentRequests scale rule) for a load test (t/4203). Revert to false for the next ordinary deploy.')
 param stagingLoadTestSize bool = false
 
+// ── Staging free-pool daily calls cap override (t/4728) ──
+// A PARAMETER, not a hand-applied `--set-env-vars`: the latter is wiped by the next prod Bicep
+// apply (t/4728, p/868#31 — exactly what happened on 2026-10-31), because the deploy re-applies
+// this template's declared value. Declaring it here means an apply KEEPS the override instead of
+// silently reverting it.
+// TEMPORARY, default '5', for the t/4677 AC3/AC4 low-cap staging proof. TODO(t/4732): once that
+// proof closes, change this default back (omit the entry, or set it to '1500' to match
+// freePoolBudget.ts's own code default) in a Bicep PR — never by CLI.
+@description('FREE_POOL_DAILY_CALLS_CAP override for staging only. TEMPORARY for the t/4677 proof — revert via t/4732, in Bicep, not CLI.')
+param freePoolDailyCallsCapStaging string = '5'
+
 // ── Resource Tags ──
 var tags = {
   project: 'ai-triad-research'
@@ -712,6 +723,9 @@ var stagingEnvOverrides = [
   // live exposure the SO found (t/4446#5), broader than the already-closed direct-write-to-main
   // path above. Staging gets its own prefix; prod stays on the code default ('api-session/').
   { name: 'SESSION_BRANCH_PREFIX', value: 'staging-api-session/' }
+  // t/4728: staging's TEMPORARY low-cap override for the t/4677 proof. See the
+  // freePoolDailyCallsCapStaging param above (near stagingLoadTestSize) for the revert note.
+  { name: 'FREE_POOL_DAILY_CALLS_CAP', value: freePoolDailyCallsCapStaging }
   // t/4406: staging's OWN origin. Inheriting baseEnv's (prod's) value made staging send prod's host
   // as its CORS access-control-allow-origin and treat prod's origin as allowed. Hygiene only: it did
   // NOT block same-origin staging requests (the guard passes Origin host == Host before reading this
