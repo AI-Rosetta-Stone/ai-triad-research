@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import crypto from 'crypto';
+import { z } from 'zod';
 import { resolveDataPath } from '../config.js';
 import { getUserContentBackend, assertSafeId } from '../storage/fileIO.js';
 import type { StorageBackend } from '../storage/storageBackend.js';
@@ -17,7 +18,7 @@ import { writePublicCommunityOpEd, type CommunityOpEdItem } from '../storage/com
 import {
   loadInquiryResult, listInquiryResults, saveInquiryResult, type InquiryResultSummary,
 } from '../storage/inquiryResultStore.js';
-import { deriveTruncation } from '../../../../lib/inquiry/index.js';
+import { deriveTruncation, InquiryResultSchema } from '../../../../lib/inquiry/index.js';
 import type { InquiryResult } from '../../../../lib/inquiry/index.js';
 import { CLASSIFICATION, dispositionFor, type Surface } from '../../../../lib/inquiry/fieldClassification.js';
 import { AppliedTagSchema, loadPovTagRegistry } from '../../../../lib/schema/povTags.js';
@@ -42,6 +43,59 @@ export function getAdminUsers(): string[] {
 export function isAdmin(userId?: string): boolean {
   const uid = userId ?? getStorageUserId();
   return uid !== '_local' && getAdminUsers().includes(uid);
+}
+
+// ── Desktop Ask validation (t/4612, t/4744) ──
+
+/** Collect all nodeIds from an InquiryResult per exact paths from t/4744#4 */
+export function collectNodeIds(result: InquiryResult): string[] {
+  const nodeIds = new Set<string>();
+
+  // grounding.situationNodes[].nodeId (SituationRefSchema, schema.ts:151)
+  if (result.grounding.situationNodes) {
+    result.grounding.situationNodes.forEach(ref => nodeIds.add(ref.nodeId));
+  }
+
+  // grounding.nodesByCamp[camp][].nodeId (NodeRefSchema, schema.ts:155)
+  Object.values(result.grounding.nodesByCamp || {}).forEach(refs => {
+    refs?.forEach(ref => nodeIds.add(ref.nodeId));
+  });
+
+  // campVerdicts[].nodes[].nodeId (CampVerdictSchema, schema.ts:234–238)
+  result.campVerdicts?.forEach(verdict => {
+    verdict.nodes?.forEach(ref => nodeIds.add(ref.nodeId));
+  });
+
+  // convergences[].nodes[].nodeId (ConvergenceSchema, schema.ts:178–180)
+  result.convergences?.forEach(conv => {
+    conv.nodes?.forEach(ref => nodeIds.add(ref.nodeId));
+  });
+
+  return Array.from(nodeIds);
+}
+
+/** Validate payload per t/4612#24 F1-F8 and t/4744#4 exact corrections */
+export async function validateDesktopAskPayload(
+  result: InquiryResult,
+  taxonomy: Map<string, boolean>, // nodeId → exists
+): Promise<{ valid: boolean; droppedRefs: string[]; error?: string }> {
+  const nodeIds = collectNodeIds(result);
+  const droppedRefs: string[] = [];
+
+  // Validate all nodeIds exist in taxonomy
+  for (const nodeId of nodeIds) {
+    if (!taxonomy.has(nodeId)) {
+      droppedRefs.push(nodeId);
+      log.server.warn({ nodeId }, 'Desktop Ask: unknown node ref (dropped)');
+    }
+  }
+
+  // Reject if all refs unknown
+  if (droppedRefs.length === nodeIds.length && nodeIds.length > 0) {
+    return { valid: false, droppedRefs, error: 'All node references unknown' };
+  }
+
+  return { valid: true, droppedRefs };
 }
 
 // ── Listing index (t/726) ──
