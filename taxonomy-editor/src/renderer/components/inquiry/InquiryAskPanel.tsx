@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useInquiryStore } from '../../hooks/useInquiryStore';
 import { MODELS_BY_BACKEND } from '../../hooks/useTaxonomyStore/slices/settingsSlice';
-import type { Fidelity } from '@lib/inquiry';
+import { estimateInquiryDuration, type Fidelity } from '@lib/inquiry';
 import { FIDELITY_LABELS, FIDELITY_DESCRIPTIONS } from './inquiryDisplay';
 import { InquiryTagPicker, inquiryTagBlocked } from './InquiryTagPicker';
 import {
@@ -15,6 +15,13 @@ import { useFocusTrap } from '../debate/NewDebateDialog.hooks';
 import './InquiryTab.css';
 
 const FIDELITIES: Fidelity[] = ['quick', 'standard', 'deep'];
+
+// t/4751: estimateInquiryDuration's table is still PLACEHOLDER data (TL condition, p/875#4/#10)
+// — Azure's measured p50/p90 (t/4751 step 1) haven't replaced it yet, and the placeholders read
+// low next to t/4753's longer runs. Don't surface it to users until that data lands; flip this
+// once lib/inquiry/durationEstimate.ts's table cites a real Azure measurement instead of
+// "PLACEHOLDER" in its header comment.
+export const SHOW_DURATION_ESTIMATE = false;
 
 /** Flattened, alphabetically-grouped model list for the two pickers — sourced from
  *  ai-models.json's picker entries (deriveModelsByBackend), never a hardcoded model list. */
@@ -141,6 +148,10 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
   }, [submitting, onClose]);
 
   const resolved = resolvedModels();
+  // t/4751: AC1 — updates whenever fidelity or the debater model changes (resolvedModels() reads
+  // both). Rendering is gated by SHOW_DURATION_ESTIMATE until Azure's real numbers replace the
+  // helper's placeholder table.
+  const durationEstimate = estimateInquiryDuration({ fidelity, debaterModel: resolved.debaters });
   // t/4246: a tag whose scope is too small blocks the run here, as it does in chat setup.
   const tagBlocked = inquiryTagBlocked(tagSelection);
   const canSubmit = question.trim().length > 0 && !submitting && !tagBlocked;
@@ -247,7 +258,12 @@ export function InquiryAskPanel({ onClose, onStarted }: InquiryAskPanelProps) {
         </div>
 
         <div className="new-question-actions">
-          <span className="inquiry-costnote">Budget: <b>{resolved.callBudget}</b> API calls</span>
+          <span className="inquiry-costnote">
+            Budget: <b>{resolved.callBudget}</b> API calls
+            {SHOW_DURATION_ESTIMATE && (
+              <> &middot; Est. time: <b>~{durationEstimate.lowMin}&ndash;{durationEstimate.highMin} min</b></>
+            )}
+          </span>
           <div className="new-question-actions-right">
             <button className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
             <button
