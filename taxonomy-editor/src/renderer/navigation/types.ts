@@ -20,6 +20,8 @@ export interface NavHistory {
   current(): HistoryEntry | null;
   peekBack(): HistoryEntry | null;
   peekForward(): HistoryEntry | null;
+  entries(): HistoryEntry[];
+  index(): number;
   subscribe(listener: (entry: HistoryEntry) => void): () => void;
 }
 

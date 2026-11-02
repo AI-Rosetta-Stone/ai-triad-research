@@ -24,7 +24,7 @@ import './LocationBarHost.css';
  */
 export function LocationBarHost() {
   const [recentMenu, setRecentMenu] = useState(false);
-  const [recentEntries, setRecentEntries] = useState<Array<{ label: string; delta: number }>>([]);
+  const [recentEntries, setRecentEntries] = useState<Array<{ label: string; delta: number; index: number }>>([]);
   const recentRef = useRef<HTMLDivElement>(null);
 
   // All store hooks here (not in MainApp) to avoid app-wide re-renders
@@ -44,29 +44,39 @@ export function LocationBarHost() {
     activeTab: taxonomyState.activeTab,
   });
 
-  // Update recent menu entries based on history stack
-  useEffect(() => {
-    const entries: Array<{ label: string; delta: number }> = [];
-    if (navHistory.canGoBack()) {
-      entries.push({ label: 'Back', delta: -1 });
+  // Update recent menu with actual history entries
+  const updateRecentEntries = () => {
+    const allEntries = navHistory.entries();
+    const currentIndex = navHistory.index();
+    const entries: Array<{ label: string; delta: number; index: number }> = [];
+
+    // Show past entries (back navigation)
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      const entry = allEntries[i];
+      if (entry) {
+        entries.push({ label: `← ${entry.label}`, delta: i - currentIndex, index: i });
+      }
     }
-    if (navHistory.canGoForward()) {
-      entries.push({ label: 'Forward', delta: 1 });
+
+    // Show future entries (forward navigation)
+    for (let i = currentIndex + 1; i < allEntries.length; i++) {
+      const entry = allEntries[i];
+      if (entry) {
+        entries.push({ label: `${entry.label} →`, delta: i - currentIndex, index: i });
+      }
     }
+
     setRecentEntries(entries);
+  };
+
+  useEffect(() => {
+    updateRecentEntries();
   }, []);
 
   // Subscribe to history changes to update recent menu
   useEffect(() => {
     const unsub = navHistory.subscribe(() => {
-      const entries: Array<{ label: string; delta: number }> = [];
-      if (navHistory.canGoBack()) {
-        entries.push({ label: 'Back', delta: -1 });
-      }
-      if (navHistory.canGoForward()) {
-        entries.push({ label: 'Forward', delta: 1 });
-      }
-      setRecentEntries(entries);
+      updateRecentEntries();
     });
     return unsub;
   }, []);
@@ -101,10 +111,10 @@ export function LocationBarHost() {
       await chatState.loadChat(itemId);
     } else if (tool === 'opeds' && itemId) {
       useTaxonomyStore.setState({ activeTab: 'opeds' });
-      useOpEdStore.setState({ selectedSetId: itemId });
+      opEdState.selectSet(itemId);
     } else if (tool === 'inquiry' && itemId) {
       useTaxonomyStore.setState({ activeTab: 'inquiry' });
-      useInquiryStore.setState({ jobId: itemId });
+      await inquiryState.openFromHistory(itemId);
     }
   };
 

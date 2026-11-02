@@ -98,6 +98,17 @@ export class WebHistory implements NavHistory {
     return null;
   }
 
+  entries(): HistoryEntry[] {
+    // Web history doesn't expose the full stack; return current only
+    const current = this.current();
+    return current ? [current] : [];
+  }
+
+  index(): number {
+    // Web history doesn't expose index; return 0 for current
+    return 0;
+  }
+
   subscribe(listener: NavHistoryListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -120,17 +131,17 @@ export class WebHistory implements NavHistory {
  * Stores history in renderer memory; no main-process involvement.
  */
 export class MemoryHistory implements NavHistory {
-  private entries: HistoryEntry[] = [];
+  private stack: HistoryEntry[] = [];
   private currentIndex = -1;
   private listeners = new Set<NavHistoryListener>();
 
   push(entry: Omit<HistoryEntry, 'timestamp'>): void {
     // Discard forward history when pushing from a non-head position
-    this.entries = this.entries.slice(0, this.currentIndex + 1);
+    this.stack = this.stack.slice(0, this.currentIndex + 1);
 
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    this.entries.push(withTimestamp);
-    this.currentIndex = this.entries.length - 1;
+    this.stack.push(withTimestamp);
+    this.currentIndex = this.stack.length - 1;
 
     this.listeners.forEach(l => l(withTimestamp));
   }
@@ -143,7 +154,7 @@ export class MemoryHistory implements NavHistory {
     }
 
     const withTimestamp: HistoryEntry = { ...entry, timestamp: Date.now() };
-    this.entries[this.currentIndex] = withTimestamp;
+    this.stack[this.currentIndex] = withTimestamp;
 
     this.listeners.forEach(l => l(withTimestamp));
   }
@@ -151,7 +162,7 @@ export class MemoryHistory implements NavHistory {
   back(): void {
     if (this.canGoBack()) {
       this.currentIndex--;
-      const entry = this.entries[this.currentIndex];
+      const entry = this.stack[this.currentIndex];
       if (entry) {
         this.listeners.forEach(l => l(entry));
       }
@@ -161,7 +172,7 @@ export class MemoryHistory implements NavHistory {
   forward(): void {
     if (this.canGoForward()) {
       this.currentIndex++;
-      const entry = this.entries[this.currentIndex];
+      const entry = this.stack[this.currentIndex];
       if (entry) {
         this.listeners.forEach(l => l(entry));
       }
@@ -170,9 +181,9 @@ export class MemoryHistory implements NavHistory {
 
   go(delta: number): void {
     const newIndex = this.currentIndex + delta;
-    if (newIndex >= 0 && newIndex < this.entries.length) {
+    if (newIndex >= 0 && newIndex < this.stack.length) {
       this.currentIndex = newIndex;
-      const entry = this.entries[this.currentIndex];
+      const entry = this.stack[this.currentIndex];
       if (entry) {
         this.listeners.forEach(l => l(entry));
       }
@@ -184,25 +195,33 @@ export class MemoryHistory implements NavHistory {
   }
 
   canGoForward(): boolean {
-    return this.currentIndex < this.entries.length - 1;
+    return this.currentIndex < this.stack.length - 1;
   }
 
   current(): HistoryEntry | null {
-    return this.currentIndex >= 0 ? this.entries[this.currentIndex] ?? null : null;
+    return this.currentIndex >= 0 ? this.stack[this.currentIndex] ?? null : null;
   }
 
   peekBack(): HistoryEntry | null {
     if (this.currentIndex > 0) {
-      return this.entries[this.currentIndex - 1] ?? null;
+      return this.stack[this.currentIndex - 1] ?? null;
     }
     return null;
   }
 
   peekForward(): HistoryEntry | null {
-    if (this.currentIndex < this.entries.length - 1) {
-      return this.entries[this.currentIndex + 1] ?? null;
+    if (this.currentIndex < this.stack.length - 1) {
+      return this.stack[this.currentIndex + 1] ?? null;
     }
     return null;
+  }
+
+  entries(): HistoryEntry[] {
+    return [...this.stack];
+  }
+
+  index(): number {
+    return this.currentIndex;
   }
 
   subscribe(listener: NavHistoryListener): () => void {
