@@ -5061,6 +5061,7 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 
 **Instances:**
 - 2026-10-12 — DevOps Lead (p/26#155): copied `merge-guard-predicate.mjs` to scratchpad; `import` failed `ERR_MODULE_NOT_FOUND gate-telemetry.mjs`. Resolved by `git worktree add --detach <sha>` and probing the module in place.
+- 2026-11-03 — Tech Lead (p/335#277): extracted `dependabot-enqueue-sweep.mjs` alone into a temp dir for a read-only live-fire run; failed `ERR_MODULE_NOT_FOUND` for its sibling `./enqueue-pr.mjs`. Resolved by extracting the sibling from the same branch alongside it, then rerunning. New prevention: grep a module's relative imports before isolating it, as a faster check than discovering missing siblings one at a time.
 
 **Root Cause:** ES modules resolve sibling imports relative to the file's location on disk. A lone copy in the scratchpad has no siblings — all relative imports fail at runtime. The file works only when loaded from a directory that contains its full dependency graph.
 
@@ -5068,8 +5069,9 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 1. **To probe or test a PR module, check out the PR head in a detached worktree:** `git worktree add --detach <path> <sha>`. The full module graph is present and relative imports resolve correctly.
 2. **Do not copy individual files to the scratchpad for import/require testing.** Copying is safe for static analysis (reading, grepping) but not for execution.
 3. **`ERR_MODULE_NOT_FOUND` on a sibling module** (not a package) is a diagnostic signal that the file was loaded outside its source tree.
+4. **Before isolating an ESM module for a dry run, grep its relative imports first** (`grep -n "^import.*from ['\"]\./" <file>`) — extract every sibling it names alongside it, rather than discovering missing ones one `ERR_MODULE_NOT_FOUND` at a time.
 
-**Status:** Active — 1 instance (DevOps Lead p/26#155).
+**Status:** Active — 2 instances (DevOps Lead p/26#155; Tech Lead p/335#277).
 
 **Applies To:** All agents probing or testing ES modules from PRs or branches.
 
@@ -8581,3 +8583,39 @@ Secondary failure: `git rev-parse --show-toplevel` inside a worktree returns the
 **Status:** Active — 1 instance (Tech Lead p/335#273, affecting Chat p/513). Anchor ticket t/4815; prevention (t/4816) and observability (t/4817) follow-ups filed, both with DevOps Lead.
 
 **Applies To:** All agents working in worktrees who are tempted to junction `node_modules` for speed; never junction a worktree's `node_modules` to the shared checkout's — install fresh inside the worktree instead.
+
+## #421 [Process] A Test Built on a Hand-Written Fixture Can Pass Against a Shape Production Never Actually Returns — Only a Live-API Run Catches It
+
+**Pattern:** A selector/parser is tested against a hand-written fixture meant to represent the real API's response shape. The test passes, but the fixture's shape diverges from what the production API actually returns (e.g. a literal string the fixture hardcodes as `dependabot[bot]` when the real field is named or formatted differently, or a fixture using `typename` when the real GraphQL response uses `__typename`). The selector works perfectly against the fixture and fails against reality — a test that provides false confidence precisely because it was authored independently of the real response shape rather than derived from it.
+
+**Instances:**
+- 2026-11-03 — Tech Lead (t/4779): twice in the same ticket, a selector passed tests built on a hand-written fixture in a shape production never returns — first a literal-string mismatch (`dependabot[bot]`), then a field-name mismatch (`typename` vs the real `__typename`). Only a run against the live API caught both; the hand-written fixtures gave no signal either time.
+
+**Root Cause:** A hand-written fixture encodes the test author's assumption about the API's shape, not a captured sample of the API's actual shape. When those two diverge — a renamed field, a double-underscore GraphQL convention, a slightly different literal — the test still passes, because it's only checking internal consistency between the fixture and the selector, not consistency between the selector and reality. The fixture and the selector can agree with each other while both disagree with production.
+
+**Prevention:**
+1. **Prefer fixtures captured from a real API response over hand-written ones**, especially for GraphQL responses where field-naming conventions (`__typename`, nested `nodes`/`edges`) are easy to get subtly wrong by hand.
+2. **When a hand-written fixture is unavoidable, run the selector against the live API at least once before trusting the fixture-based test suite** — this is the only way to catch a fixture/reality shape mismatch, since the fixture-based tests are structurally blind to it.
+3. **If this recurs on the same selector/parser after a fixture update, treat it as a signal the fixture-authoring process itself needs a captured-sample step**, not just another one-off fix.
+
+**Status:** Active — 1 instance, 2 recurrences within it (Tech Lead, t/4779).
+
+**Applies To:** All agents writing or reviewing tests for API-response selectors/parsers backed by hand-written fixtures; verify against a live run at least once, especially for GraphQL shapes.
+
+## #422 [Build] A Script Parsed `gh api`'s Output Without Checking Its Exit Code First — A Transient 5xx Produced Empty Output That Crashed the Parser
+
+**Pattern:** A script calls `gh api graphql` and immediately parses its stdout (e.g. `.data.nodes.map(...)`), without checking `gh`'s exit code first. When GitHub's API returns a transient 5xx (observed: 503), `gh` exits non-zero and produces empty or error-shaped output — but the script, having never checked the exit code, proceeds to parse that empty output as if it were a normal successful response, crashing with a generic type error (`nodes.map is not a function`) that obscures the real cause (an API outage, not a script bug).
+
+**Instances:**
+- 2026-11-03 — Tech Lead (p/335#279): `gh api graphql` returned HTTP 503 (a transient GitHub-side outage); the script crashed with `nodes.map is not a function` because it parsed the empty output without having checked `gh`'s exit code. Resolved by retrying the fetch and checking `$?` before parsing — the retry succeeded.
+
+**Root Cause:** The script treated `gh api`'s stdout as unconditionally parseable, skipping the exit-code check that would have distinguished "API call succeeded, here's the data" from "API call failed, this output is not data." A transient outage on GitHub's side is indistinguishable from a real script bug once the exit code is ignored — both manifest as a downstream parse/type error far from the actual cause.
+
+**Prevention:**
+1. **Always gate on `gh api`'s exit code before parsing its output** — check `$?` (or the equivalent in the script's language) immediately after the call, and treat a non-zero exit as "no valid data," not as "empty data to parse."
+2. **A generic downstream error like `X.map is not a function` on parsed API output is a signal to check the upstream exit code first**, not to assume the API's response shape itself is wrong.
+3. **For transient 5xx errors specifically, a simple retry is often sufficient** — don't over-engineer a fix before confirming whether the failure is even reproducible.
+
+**Status:** Active — 1 instance (Tech Lead p/335#279). Confirmed transient (GitHub-side outage), not a reproducible bug.
+
+**Applies To:** All agents writing scripts that call `gh api` and parse its output; check the exit code before parsing, every time.
