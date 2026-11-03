@@ -107,6 +107,11 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
     'public-share': I('MUST include with the tag: Scope (one wing only) and Prioritize (every node, tagged first) make very different claims about the same camp.'),
     community: I(TAG_SCOPE_COMMUNITY), export: I(EXPORT_FULL),
   },
+  'request.temperature': {
+    'public-share': I('The temperature setting is part of the run configuration that defines the answer; needed to contextualize the answer\'s character.'),
+    community: I('Run configuration; comparable run metadata.'),
+    export: I(EXPORT_FULL),
+  },
 
   // ── campVerdicts ──
   'campVerdicts.camp': { 'public-share': I(PUBLIC_CORE), community: I(COMMUNITY_CORE), export: I(EXPORT_FULL) },
@@ -191,6 +196,11 @@ export const CLASSIFICATION: Record<FieldPath, Record<Surface, Disposition>> = {
   'derivation.costUsd': {
     'public-share': X('Cost internal — operationally sensitive.'),
     community: X('Internal financial/operational data; a community reader needn\'t see exact USD spend, and no existing community type exposes cost. Deliberate exclude, NOT inherited from public-share (Server Community t/3651#7).'),
+    export: I(EXPORT_FULL),
+  },
+  'derivation.temperature': {
+    'public-share': I('What actually ran (vs request.temperature, the ask), the way derivation.fidelity pairs with request.fidelity.'),
+    community: I('Run configuration; comparable run metadata.'),
     export: I(EXPORT_FULL),
   },
   'derivation.tag.pov': { 'public-share': I('What actually ran (vs request.tagSelection, the ask), the way derivation.fidelity pairs with request.fidelity.'), community: I(TAG_SCOPE_COMMUNITY), export: I(EXPORT_FULL) },

@@ -68,6 +68,8 @@ const requestFields = {
   situationId: z.string().optional(),
   /** Optional explicit model override (t/3574#3); when absent, fidelity's tier default applies. */
   models: ModelOverrideSchema.optional(),
+  /** Optional temperature override for debater calls only (0–2, t/4771). Absent: fidelity tier default. */
+  temperature: z.number().min(0).max(2).optional(),
 };
 
 export const InquiryRequestSchema = z
@@ -214,6 +216,9 @@ export const ResolvedDerivationSchema = z.object({
    *  of a camp from one run to the next. The counts make two runs comparable and tell a narrow scope from
    *  a coverage gap. Absent: the run was untagged. */
   tag: AppliedTagSchema.optional(),
+  /** Temperature actually passed to debater calls (0–2, t/4771). Includes default if request was absent.
+   *  Provenance field: records the resolved fact, like models and fidelity. */
+  temperature: z.number().min(0).max(2).optional(),
 });
 export type ResolvedDerivation = z.infer<typeof ResolvedDerivationSchema>;
 

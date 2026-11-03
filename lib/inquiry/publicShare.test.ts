@@ -82,6 +82,17 @@ describe('toPublicInquiryShare (t/3648 part 2)', () => {
     expect(s.singleRunCaveat).toContain('One run');
   });
 
+  it('carries temperature (the ask and what ran) when set, and omits it when absent (t/4771)', () => {
+    const r = makeFullResult();
+    const s = toPublicInquiryShare({ ...r, request: { ...r.request, temperature: 1.2 }, derivation: { ...r.derivation, temperature: 0.7 } });
+    expect(s.request.temperature).toBe(1.2);
+    expect(s.derivation.temperature).toBe(0.7);
+    expect(PublicInquiryShareSchema.safeParse(s).success).toBe(true);
+    const absent = toPublicInquiryShare(makeFullResult());
+    expect('temperature' in absent.request).toBe(false);
+    expect('temperature' in absent.derivation).toBe(false);
+  });
+
   it('sanitizes evidence sources — drops paths/internal refs with a WARN, keeps URLs/DOIs/titles', () => {
     const record = vi.fn<(e: RecordInput) => void>();
     setGlobalRecorder({ record } as unknown as FlightRecorder);
