@@ -10,15 +10,23 @@ import userEvent from '@testing-library/user-event';
 
 const gate = vi.hoisted(() => ({ blocked: undefined as string | undefined }));
 const store = vi.hoisted(() => ({
-  question: 'Is AI hype outrunning evidence?', fidelity: 'quick' as 'quick' | 'standard' | 'deep', debaterModel: undefined, evaluatorModel: undefined, error: null,
+  question: 'Is AI hype outrunning evidence?', debaterModel: undefined as string | undefined, error: null as string | null,
   jobId: null as string | null, status: null as string | null,
-  tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' },
+  tagSelection: { pov: 'skeptic', tag: 'critical', mode: 'scope' } as { pov: string; tag: string; mode: string } | undefined,
   setQuestion: () => {}, setFidelity: vi.fn(), setDebaterModel: () => {}, setEvaluatorModel: () => {}, setTagSelection: () => {},
   resolvedModels: () => ({ debaters: 'd', evaluator: 'e', callBudget: 10 }), startInquiry: async () => {}, openList: () => {},
 }));
 const useInquiryStoreMock = Object.assign(() => store, { getState: () => store });
 vi.mock('../../hooks/useInquiryStore', () => ({ useInquiryStore: useInquiryStoreMock, DEFAULT_FIDELITY: 'standard' }));
-vi.mock('../../hooks/useTaxonomyStore/slices/settingsSlice', () => ({ MODELS_BY_BACKEND: {} }));
+vi.mock('../../hooks/useTaxonomyStore/slices/settingsSlice', () => ({
+  MODELS_BY_BACKEND: {},
+  backendForModelWithFallback: () => 'claude',
+}));
+// t/4770: ModelPicker gets its own test file — stub it here so this file stays focused on the
+// dialog shell, and so it doesn't drag in @bridge (api.refreshAIModels) just to render.
+vi.mock('../shared/ModelPicker', () => ({
+  ModelPicker: ({ model }: { model: string }) => <div>model-picker:{model}</div>,
+}));
 vi.mock('./InquiryTagPicker', () => ({
   InquiryTagPicker: () => <div>tag-picker</div>,
   inquiryTagBlocked: () => gate.blocked,
@@ -90,9 +98,10 @@ describe('InquiryAskPanel dialog shell (t/4666 phase 1)', () => {
     expect(dialog).toHaveAccessibleName('New question');
   });
 
-  it('shows the budget and Cancel/Ask in the footer', () => {
+  // t/4770: the "Budget: N API calls" text is removed from the dialog entirely.
+  it('shows no budget text, and Cancel/Ask in the footer', () => {
     renderDialog();
-    expect(screen.getByText(/Budget:/)).toBeInTheDocument();
+    expect(screen.queryByText(/Budget:/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ask' })).toBeInTheDocument();
   });
@@ -180,9 +189,8 @@ describe('InquiryAskPanel Options disclosure (t/4667 phase 2)', () => {
     expect(optionsBody()).toHaveAttribute('hidden');
   });
 
-  it('the toggle shows a summary of the current fidelity, model and tag', () => {
+  it('the toggle shows a summary of the current model and tag', () => {
     renderDialog();
-    expect(optionsToggle()).toHaveTextContent('Quick');
     expect(optionsToggle()).toHaveTextContent('d'); // mocked resolvedModels().debaters
     expect(optionsToggle()).toHaveTextContent('Critical');
   });
@@ -198,14 +206,10 @@ describe('InquiryAskPanel Options disclosure (t/4667 phase 2)', () => {
   });
 
   it('shows the change badge when the tag is set (a non-default), not when everything is default', () => {
-    // p/29#186 fix 1: the store's default fidelity is Standard, not Quick — use the real default
-    // here so this test actually exercises "everything is default", not a false positive.
     store.tagSelection = undefined;
-    store.fidelity = 'standard';
     renderDialog();
     expect(screen.queryByLabelText(/setting.*changed/)).not.toBeInTheDocument();
     store.tagSelection = { pov: 'skeptic', tag: 'critical', mode: 'scope' };
-    store.fidelity = 'quick';
   });
 
   it('a blocked tag auto-expands Options and shows the reason on the toggle', () => {
@@ -225,13 +229,19 @@ describe('InquiryAskPanel Options disclosure (t/4667 phase 2)', () => {
     expect(screen.getByRole('button', { name: 'Ask' })).toHaveAttribute('aria-describedby', 'inquiry-options-tag-reason');
   });
 
-  it('arrow keys move the fidelity selection and roving tabIndex follows it', async () => {
+  // t/4770: no fidelity choice left — every question runs at Quick, set on the store on mount.
+  it('sets fidelity to quick on mount, with no fidelity UI to change it', () => {
     renderDialog();
-    await userEvent.click(optionsToggle());
-    const quick = screen.getByRole('radio', { name: /Quick/ });
-    expect(quick).toHaveAttribute('tabindex', '0');
-    quick.focus();
-    fireEvent.keyDown(quick, { key: 'ArrowRight' });
-    expect(store.setFidelity).toHaveBeenCalledWith('standard');
+    expect(store.setFidelity).toHaveBeenCalledWith('quick');
+    expect(screen.queryByRole('radiogroup', { name: /Fidelity/ })).not.toBeInTheDocument();
+  });
+
+  // t/4770: Debaters/Evaluator replaced by the single shared ModelPicker (its own test file
+  // covers the picker's internals — this just confirms the dialog renders it).
+  it('renders the shared ModelPicker instead of separate Debaters/Evaluator selects', () => {
+    renderDialog();
+    expect(screen.getByText('model-picker:d')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Debater model')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Evaluator model')).not.toBeInTheDocument();
   });
 });

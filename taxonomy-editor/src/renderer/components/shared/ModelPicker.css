@@ -1,0 +1,60 @@
+/* Copyright (c) 2026 Jeffrey Snover. All rights reserved.
+   Licensed under the MIT License. See LICENSE file in the project root. */
+
+/* t/4770: styles for the extracted ModelPicker (family/refresh/model/temperature), adapted from
+   NewOpEdDialog.css's .oped-model-row/.oped-select/.oped-refresh-btn block. */
+
+.model-picker { display: flex; flex-direction: column; gap: 0.6rem; }
+
+.model-picker-field { display: flex; flex-direction: column; flex: 1; }
+
+.model-picker-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+
+.model-picker-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  color: var(--text-primary);
+}
+
+.model-picker-select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 0.875rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary, transparent);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.model-picker-select:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
+  border-color: var(--focus-ring);
+}
+
+.model-picker-refresh-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.6rem;
+  white-space: nowrap;
+}
+.model-picker-refresh-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.model-picker-refresh-btn:disabled { opacity: 0.6; cursor: default; }
+
+.model-picker-temp { width: 100%; }
+
+.model-picker-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0.3rem 0 0;
+  line-height: 1.4;
+}

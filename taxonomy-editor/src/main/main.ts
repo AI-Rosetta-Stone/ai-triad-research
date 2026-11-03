@@ -233,7 +233,7 @@ function createWindow(): void {
       buttons: ['Stay', 'Leave'],
       defaultId: 0,
       cancelId: 0,
-      title: 'Leave this page?',
+      title: 'Close Rosetta Stone?', // t/4761: "Leave this page?" read like a browser, not a desktop window
       message: 'You have unsaved work or a running debate. Leave anyway?',
     });
     if (choice === 1) event.preventDefault(); // Leave: override the renderer's cancel.

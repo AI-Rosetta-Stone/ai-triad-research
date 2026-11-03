@@ -4,11 +4,8 @@
 // t/4667: pure summary-text helpers for the Options disclosure toggle (`InquiryAskPanel.tsx`),
 // extracted so the dialog component's own complexity doesn't absorb this (local/complexity-budget).
 
-import type { Fidelity } from '@lib/inquiry';
 import type { TagSelection } from '@lib/schema/povTags';
-import { FIDELITY_LABELS } from './inquiryDisplay';
 import { tagSummaryLabel } from './InquiryTagPicker';
-import { DEFAULT_FIDELITY } from '../../hooks/useInquiryStore';
 
 const TRUNCATE_AT = 32;
 
@@ -38,19 +35,13 @@ export function tagSummarySegment(tagSelection: TagSelection | undefined, blocke
   return tagSelection.mode === 'prioritize' ? `${label} (prioritize)` : label;
 }
 
-export function fidelitySummarySegment(fidelity: Fidelity): string {
-  return FIDELITY_LABELS[fidelity];
-}
-
-/** Count of settings that differ from their defaults (fidelity DEFAULT_FIDELITY, no model
- *  overrides, no tag) — drives the change badge, mirroring New Debate's `diffCount`. */
-export function optionsChangeCount(
-  fidelity: Fidelity, debaterModel: string | undefined, evaluatorModel: string | undefined, tagSelection: TagSelection | undefined,
-): number {
+/** Count of settings that differ from their defaults (no model override, no tag) — drives the
+ *  change badge, mirroring New Debate's `diffCount`. t/4770: fidelity is hardwired to Quick and
+ *  Debaters/Evaluator collapsed into one model, so this no longer reads fidelity and takes a
+ *  single `model` override instead of two. */
+export function optionsChangeCount(model: string | undefined, tagSelection: TagSelection | undefined): number {
   let n = 0;
-  if (fidelity !== DEFAULT_FIDELITY) n++;
-  if (debaterModel) n++;
-  if (evaluatorModel) n++;
+  if (model) n++;
   if (tagSelection) n++;
   return n;
 }
