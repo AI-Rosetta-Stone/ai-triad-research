@@ -40,7 +40,7 @@ Orca config (`.orca.yaml`, nested `AGENTS.md`, `.orca/`) lives in a **separate o
 - **Land code through a PR to `main`**, via the merge queue. The required contexts are `ci-gate`, `CodeQL Analysis`, `joint-gv-guard` and `consult-hold-guard`, with `enforce_admins` on.
 - **Enqueue only pinned, with `node operations/devops/enqueue-pr.mjs <owner>/<repo> <N>`** (t/4740), after confirming the base is `main`, checks are green on the exact head and no hold is open. Never a bare manual merge.
 - **Never push to a queued PR.** Disarm and dequeue first, or use a separate PR.
-- **Arm:** T0 at PR creation; T1 only after the reviewer's `Approved (<role>):` on the current head. Never arm `consult-hold`, `joint-gv`, draft or non-`main`-base PRs.
+- **Arm:** T0 at PR creation; T1 only after the reviewer's `Approved (<role>):` on the current head; **user-facing UI changes only after `Approved (Design):`** (`docs/review-routing.md` § Design Gate). Never arm `consult-hold`, `joint-gv`, draft or non-`main`-base PRs.
 - **Batch** sequential same-feature work into one PR (unless >~400 lines or mixed concerns). **Epic** child PRs target `epic/<name>`, never `main`.
 
 ### Claim Before Implement
