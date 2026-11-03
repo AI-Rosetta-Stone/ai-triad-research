@@ -11,7 +11,8 @@ const green = [
   { name: 'CodeQL Analysis', status: 'COMPLETED', conclusion: 'SUCCESS' },
 ];
 const pr = (over = {}) => ({
-  number: 1, headRefOid: 'abc', isDraft: false, isInMergeQueue: false,
+  number: 1, headRefOid: 'abc', isDraft: false, isInMergeQueue: false, isCrossRepository: false,
+  author: { typename: 'Bot', login: 'dependabot' },
   mergeStateStatus: 'BLOCKED', autoMergeRequest: { enabledAt: 't' }, contexts: green, ...over,
 });
 
@@ -51,16 +52,46 @@ test('selectSweepCandidates: armed, green, unqueued PR is enqueued at its head',
 
 test('selectSweepCandidates: skips each disqualifying state with a reason', () => {
   const { enqueue, skip } = selectSweepCandidates([
-    pr({ number: 2, isInMergeQueue: true }),
-    pr({ number: 3, isDraft: true }),
-    pr({ number: 4, autoMergeRequest: null }),
-    pr({ number: 5, mergeStateStatus: 'DIRTY' }),
-    pr({ number: 6, contexts: [green[0]] }),
-    pr({ number: 7, contexts: [{ name: 'ci-gate', status: 'COMPLETED', conclusion: 'FAILURE' }, green[1]] }),
+    pr({ number: 2, isCrossRepository: true }),
+    pr({ number: 3, author: { typename: 'Bot', login: 'dependabot-helper' } }),
+    pr({ number: 4, author: { typename: 'User', login: 'dependabot' } }),
+    pr({ number: 5, isInMergeQueue: true }),
+    pr({ number: 6, isDraft: true }),
+    pr({ number: 7, autoMergeRequest: null }),
+    pr({ number: 8, mergeStateStatus: 'DIRTY' }),
+    pr({ number: 9, contexts: [green[0]] }),
+    pr({ number: 10, contexts: [{ name: 'ci-gate', status: 'COMPLETED', conclusion: 'FAILURE' }, green[1]] }),
   ]);
   assert.deepEqual(enqueue, []);
-  assert.deepEqual(skip.map((s) => s.number), [2, 3, 4, 5, 6, 7]);
-  assert.match(skip.find((s) => s.number === 4).reason, /minor\/patch policy/);
-  assert.match(skip.find((s) => s.number === 6).reason, /CodeQL Analysis is missing/);
-  assert.match(skip.find((s) => s.number === 7).reason, /ci-gate is failed/);
+  assert.deepEqual(skip.map((s) => s.number), [2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.match(skip.find((s) => s.number === 2).reason, /fork PR/);
+  assert.match(skip.find((s) => s.number === 3).reason, /author is not Bot\/dependabot/);
+  assert.match(skip.find((s) => s.number === 4).reason, /author is not Bot\/dependabot/);
+  assert.match(skip.find((s) => s.number === 7).reason, /minor\/patch policy/);
+  assert.match(skip.find((s) => s.number === 9).reason, /CodeQL Analysis is missing/);
+  assert.match(skip.find((s) => s.number === 10).reason, /ci-gate is failed/);
+});
+
+test('selectSweepCandidates: fork PR is never enqueued, even if otherwise fully green and armed', () => {
+  const { enqueue, skip } = selectSweepCandidates([pr({ number: 1, isCrossRepository: true })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /fork PR/);
+});
+
+test('selectSweepCandidates: unknown (missing) isCrossRepository fails closed as a fork', () => {
+  const { enqueue, skip } = selectSweepCandidates([pr({ number: 1, isCrossRepository: undefined })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /fork PR/);
+});
+
+test('selectSweepCandidates: lookalike author (not exactly Bot/dependabot) is never enqueued', () => {
+  const { enqueue, skip } = selectSweepCandidates([pr({ number: 1, author: { typename: 'Bot', login: 'dependabot-helper' } })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /author is not Bot\/dependabot/);
+});
+
+test('selectSweepCandidates: wrong typename (not Bot) is never enqueued', () => {
+  const { enqueue, skip } = selectSweepCandidates([pr({ number: 1, author: { typename: 'User', login: 'dependabot' } })]);
+  assert.deepEqual(enqueue, []);
+  assert.match(skip[0].reason, /author is not Bot\/dependabot/);
 });
