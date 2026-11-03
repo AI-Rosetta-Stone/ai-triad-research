@@ -725,12 +725,23 @@ function Finalize-Summary {
         Write-Host "  │  ⚠ $Warn" -ForegroundColor Yellow
     }
 
-    # -- Enrichment passes, in the pinned order (t/2288, t/2739, t/2357, t/2286) --
+    # -- Enrichment passes, in the pinned order (t/2288, t/2739, t/2357, t/2286, t/4742) --
     # Each lives in FinalizeSummarySteps.ps1 (t/4136 B2) with its own skip guard.
     Invoke-SummaryRetrievalConfidencePass -SummaryObject $SummaryObject
     Invoke-SummaryPolarityGate -SummaryObject $SummaryObject -EnablePolarityGate $EnablePolarityGate
     Invoke-SummaryMechanism5Pass -SummaryObject $SummaryObject
     Invoke-SummaryExcludesVetoPass -SummaryObject $SummaryObject
+    # Camp-bridge mechanical post-check (t/4742, CL spec t/4600#6) -- runs last so every point that
+    # reaches it has already run the gauntlet of the earlier passes; drops, not flags, so TotalPoints
+    # below reflects what actually persists.
+    # Get-SummaryField, not $Doc.PovTags: some callers' $Doc hashtable fixtures carry no 'PovTags'
+    # key at all, and dot-access on an absent hashtable key throws under StrictMode (t/4742).
+    $DocPovTags = Get-SummaryField $Doc 'PovTags'
+    $CampBridgeDropped = Invoke-SummaryCampBridgeFilter -SummaryObject $SummaryObject -ThisDocId $ThisDocId -PovTags $DocPovTags
+    if ($CampBridgeDropped -gt 0) {
+        $TotalPoints -= $CampBridgeDropped
+        Write-Host "  │  camp-bridge: $CampBridgeDropped key_point(s) dropped" -ForegroundColor DarkYellow
+    }
 
     $SoProps = $SummaryObject.PSObject.Properties
     if ($SoProps['factual_claims'] -and $null -ne $SummaryObject.factual_claims) { $FactualClaims = $SummaryObject.factual_claims } else { $FactualClaims = @() }
@@ -752,7 +763,8 @@ function Finalize-Summary {
     # -- Write summaries/<doc-id>.json ----------------------------------------
     $ModelInfo = New-SummaryModelInfo -Model $Model -Temperature $Temperature -TaxonomyJson $TaxonomyJson `
         -ChunkCount $ChunkCount -FireStats $FireStats -MaxTokens $MaxTokens `
-        -JsonRepaired $JsonRepaired -Truncated $Truncated -OutputTokens $OutputTokens
+        -JsonRepaired $JsonRepaired -Truncated $Truncated -OutputTokens $OutputTokens `
+        -CampBridgeDropped $CampBridgeDropped
 
     # -- Build context-rot metrics from stages collected during processing ----
     $ContextRotStages = @($script:ContextRotStages)

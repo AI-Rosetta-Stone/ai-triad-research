@@ -330,6 +330,108 @@ function Invoke-SummaryExcludesVetoPass {
     }
 }
 
+# t/4742 (CL spec t/4600#6): mechanical post-check for the camp-bridge construction. Two rounds of
+# prompt-wording bans (the single original phrase, then the named-surface-forms rewrite) did not move
+# the measured off-tag stretched+unsupported share (t/4600#5) -- the model keeps writing a point as a
+# claim ABOUT a camp's relationship to the content ("This aligns with the safetyist goal of...")
+# instead of quoting what the document itself asserts. Code filters the output now, rather than asking
+# the model to behave a third time.
+$script:CampBridgePatterns = @(
+    # 1. "from a(n) <camp>('s) perspective/lens/standpoint/view"
+    "from an?\s+(accelerationists?|safetyists?|skeptics?)('s)?\s+(perspective|lens|standpoint|view)"
+    # 2. "<camp>('s) would support/endorse/reject/interpret/view/argue/counter/see"
+    "(accelerationists?|safetyists?|skeptics?)('s)?\s+would\s+(support|endorse|reject|interpret|view|argue|counter|see)"
+    # 3. "<verb> (with) (the/a/broader) <camp>" -- "aligns with the X goal", "opposes the X reliance"
+    #    (the backward/critique-framed case), "reinforces X positions"
+    "(align(s|ing)?|support(s|ing)?|reflect(s|ing)?|reinforc(es|ing)?|underscor(es|ing)?|resonat(es|ing)?|match(es|ing)?|fit(s|ting)?|consistent|oppos(es|ing)?|contradict(s|ing)?|undermin(es|ing)?)\s*(with)?\s*(the|a|broader)?\s*(accelerationists?|safetyists?|skeptics?)"
+    # 4. "this is/seems relevant to <camp> because"
+    "this (is|seems) relevant to (accelerationists?|safetyists?|skeptics?)\s+because"
+    # 5. "<camp> believe/counter/argue/contend/hold/maintain/claim/would"
+    "(accelerationists?|safetyists?|skeptics?)\s+(believe|counter|argue|contend|hold|maintain|claim|would)"
+    # 6. "does not engage with/propose/discuss/address <camp>" -- the degenerate non-point
+    "does not (engage with|propose|discuss|address)\s+(accelerationists?|safetyists?|skeptics?)"
+)
+
+function Test-CampBridgeConstruction {
+    <#
+    .SYNOPSIS
+        The matched substring if $Text names a camp as the subject of its own relationship to the
+        content (t/4600#6), else $null.
+    .DESCRIPTION
+        Calibrated against CL's 90-item blind-labelled corpus (t/4600#6, analyses/t4603-camp-bridge):
+        81% of off-tag bad (stretched+unsupported) items caught, 0% false positives on off-tag genuine
+        items, vs. 6 of 30 on-tag items it would catch if applied there too (including 1 genuine) --
+        which is why the caller scopes this to untagged camps only, never on-tag.
+    #>
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
+    foreach ($Pattern in $script:CampBridgePatterns) {
+        $Match = [regex]::Match($Text, $Pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($Match.Success) { return $Match.Value }
+    }
+    return $null
+}
+
+function Invoke-SummaryCampBridgeFilter {
+    <#
+    .SYNOPSIS
+        Drops untagged-camp key_points that bridge content to a camp by name, instead of quoting what
+        the document itself asserts (t/4742, CL spec t/4600#6).
+    .DESCRIPTION
+        Scoped to camps NOT in the document's pov_tags. When pov_tags is empty, every camp counts as
+        tagged -- same convention Test-SummaryDensity's shortfall check already uses -- so nothing is
+        ever filtered for a document with no pov_tags at all.
+
+        On a match the key_point is dropped before persistence, not flagged-and-kept: the whole point
+        of this check is what reaches the debater prompt (t/4600#6), and a flag that still gets
+        rendered doesn't reduce that exposure.
+    .OUTPUTS
+        Int: the number of key_points dropped, folded into model_info.camp_bridge_dropped (t/4479
+        observability pattern).
+    #>
+    param([object]$SummaryObject, [string]$ThisDocId, [string[]]$PovTags = @())
+
+    $Camps = $script:AITriadPovCamps
+    $TaggedCamps = if ($PovTags -and @($PovTags).Count -gt 0) { @($PovTags | Where-Object { $Camps -contains $_ }) } else { @($Camps) }
+    $UntaggedCamps = @($Camps | Where-Object { $TaggedCamps -notcontains $_ })
+    if ($UntaggedCamps.Count -eq 0) { return 0 }
+
+    $PovSums = Get-SummaryField $SummaryObject 'pov_summaries'
+    if ($null -eq $PovSums) { return 0 }
+
+    $Dropped = 0
+    foreach ($Camp in $UntaggedCamps) {
+        $CampData = Get-SummaryField $PovSums $Camp
+        if (-not $CampData -or -not (Test-SummaryField $CampData 'key_points')) { continue }
+        # Assign first, THEN @()-wrap the variable -- @(Get-SummaryField ...) directly wraps the
+        # function's single protected-array pipeline output in a second array (nests one level,
+        # t/4742 postmortem). Assigning first lets a single pipeline object unroll onto $KpList
+        # transparently, so the later @() is a true no-op, matching Repair-SummaryCampKeyPoints.
+        $KpList = Get-SummaryField $CampData 'key_points'
+        if ($null -eq $KpList) { continue }
+        $KpList = @($KpList)
+        if ($KpList.Count -eq 0) { continue }
+
+        $Kept = [System.Collections.Generic.List[object]]::new()
+        $DroppedHere = 0
+        foreach ($kp in $KpList) {
+            $PointText = Get-SummaryField $kp 'point'
+            $BridgeMatch = Test-CampBridgeConstruction -Text ([string]$PointText)
+            if ($BridgeMatch) {
+                $DroppedHere++
+                Write-Warning "Finalize-Summary: dropped camp-bridge key_point (doc=$ThisDocId, camp=$Camp): '$BridgeMatch'"
+                continue
+            }
+            $Kept.Add($kp)
+        }
+        if ($DroppedHere -le 0) { continue }
+        $Dropped += $DroppedHere
+        if ($CampData -is [System.Collections.IDictionary]) { $CampData['key_points'] = $Kept.ToArray() }
+        else { $CampData.key_points = $Kept.ToArray() }
+    }
+    return $Dropped
+}
+
 function Resolve-SummaryUnmappedConcepts {
     <#
     .SYNOPSIS
@@ -420,16 +522,16 @@ function New-SummaryModelInfo {
         (confidence_threshold). Both used to be hard-coded (32768 and 0.7, t/4079). Either one is
         recorded as null when the caller does not know it, rather than as a made-up number.
 
-        json_repaired/finish_reason/output_tokens/density_retries (t/4479) are forensic/additive --
-        nothing branches on them. THE EXEMPTION LAPSES the moment a consumer branches on one of
-        them. Recorded as the caller reports (aggregated across chunks for chunked runs), or null/0
-        when the caller does not know -- never guessed. density_retries is always 0: the single-shot
-        density retry was removed (t/4473/t/4519) and chunked never had one; the field exists so a
-        retry mechanism reintroduced later has somewhere to report to.
+        json_repaired/finish_reason/output_tokens/density_retries/camp_bridge_dropped (t/4479, t/4742)
+        are forensic/additive -- nothing branches on them. THE EXEMPTION LAPSES the moment a consumer
+        branches on one of them. Recorded as the caller reports (aggregated across chunks for chunked
+        runs), or null/0 when the caller does not know -- never guessed. density_retries is always 0:
+        the single-shot density retry was removed (t/4473/t/4519) and chunked never had one; the field
+        exists so a retry mechanism reintroduced later has somewhere to report to.
     #>
     param([string]$Model, [double]$Temperature, [string]$TaxonomyJson, [int]$ChunkCount, [object]$FireStats,
           [object]$MaxTokens = $null, [object]$JsonRepaired = $false, [object]$Truncated = $null,
-          [object]$OutputTokens = $null)
+          [object]$OutputTokens = $null, [int]$CampBridgeDropped = 0)
     $Multiline = [System.Text.RegularExpressions.RegexOptions]::Multiline
     $IsRagFiltered = $TaxonomyJson -match '^\s*=== RELEVANT TAXONOMY NODES'
     $IsCompact = $TaxonomyJson -match '^\s*=== COMPACT TAXONOMY'
@@ -463,6 +565,7 @@ function New-SummaryModelInfo {
         finish_reason     = $FinishReason
         output_tokens     = $OutputTokens
         density_retries   = 0
+        camp_bridge_dropped = $CampBridgeDropped
     }
 
     if ($UsedFire) {

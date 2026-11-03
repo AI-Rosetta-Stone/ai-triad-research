@@ -62,6 +62,7 @@
       "    \"finish_reason\": null,",
       "    \"output_tokens\": null,",
       "    \"density_retries\": 0,",
+      "    \"camp_bridge_dropped\": 0,",
       "    \"chunked\": true,",
       "    \"chunk_count\": 3",
       "  },",
