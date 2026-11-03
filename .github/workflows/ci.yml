@@ -2787,13 +2787,14 @@ jobs:
         continue-on-error: true
         run: node --test operations/devops/precommit-hint-guard-parity.test.mjs
 
-      - name: Scheduled-workflow health verdict + list lint (WARN-FIRST — t/4058)
+      - name: Scheduled-workflow health verdict + list lint (BLOCKING — t/4780, promoted from t/4058)
         # Pure verdict for main-ci-monitor's scheduled-workflow check, plus the LINT that every workflow
         # with `schedule:` is in operations/devops/scheduled-workflows.json (an unlisted one would be
-        # silently unmonitored — the class behind 4 workflows failing unnoticed for up to 6 weeks).
+        # silently unmonitored — the class behind 4 workflows failing unnoticed for up to 6 weeks, and
+        # the exact gap enqueue-sweep.yml fell into, t/4779).
         # The suite carries a population floor (>=15 scheduled workflows) so a broken detector cannot
-        # pass it vacuously. WARN-FIRST: flip by removing continue-on-error (SO + TL GV).
-        continue-on-error: true
+        # pass it vacuously. Promoted to blocking (SO cleared e/413#2, TL GV t/4780) after the warn-only
+        # period from t/4058 and fixing the detector's on:-mapping-parsing gap (t/4780 C2, #4408).
         run: node --test operations/devops/scheduled-workflow-health.test.mjs
 
       - name: Flake-heal tripwire unit suites (WARN-FIRST — t/4085)
