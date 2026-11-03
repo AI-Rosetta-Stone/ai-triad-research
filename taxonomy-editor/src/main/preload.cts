@@ -506,6 +506,12 @@ function buildElectronApi() {
     ipcRenderer.send('focus-node-in-main', nodeId);
   },
 
+  // t/4775/t/4761: pushed whenever the renderer's computed unload reason changes — main just
+  // stores the latest value, read by the will-prevent-unload close-confirm dialog.
+  setUnloadReason: (reason: 'edits' | 'debate' | 'both' | null): void => {
+    ipcRenderer.send('set-unload-reason', reason);
+  },
+
   growWindow: (deltaWidth: number): Promise<void> =>
     ipcRenderer.invoke('grow-window', deltaWidth),
 
