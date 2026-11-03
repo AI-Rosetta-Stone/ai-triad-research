@@ -2636,6 +2636,22 @@ jobs:
         shell: pwsh
         run: ./operations/devops/Test-CitationLinkIntegrityFixtureCI.ps1
 
+  # ── Container-var prod/staging isolation (t/4794#9 item 2) ─────────────────────────────────
+  # NOT YET in ci-gate's needs: list (t/4794 incident). This check correctly fails right now --
+  # AZURE_ANALYTICS_CONTAINER has no stagingEnvOverrides entry at all (Azure's fix, t/4794#9 item
+  # 1, hasn't landed yet). Adding it to ci-gate's needs before that lands would red every PR's CI
+  # on an unrelated, already-known incident. Add it to ci-gate's needs in the SAME PR that lands
+  # item 1, or immediately after, once this job itself reports green on main.
+  container-var-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v6
+
+      - name: Container var prod/staging isolation (BLOCKING once wired into ci-gate, t/4794)
+        shell: pwsh
+        run: ./operations/devops/Test-ContainerVarIsolation.ps1
+
   agents-md-budget:
     needs: [changes]
     if: always() && !cancelled()
