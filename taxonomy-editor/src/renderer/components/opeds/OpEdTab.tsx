@@ -26,6 +26,7 @@ import { NewOpEdDialog } from './NewOpEdDialog';
 import { OpEdGettingStarted } from './OpEdGettingStarted';
 import { opedRoutePath } from '../../routing/appRoutes';
 import { replaceCurrentView } from '../../navigation';
+import './opedShareProvider'; // t/4786: side-effect registration for the location-bar ⧉ button
 import './OpEdTab.css';
 
 // LibraryListPage requires `{ id: string }`; OpEdSetSummary's own key is `set_id`. Adapter, not

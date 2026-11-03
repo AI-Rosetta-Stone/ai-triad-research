@@ -64,7 +64,9 @@ describe('LocationBarHost integration — real MemoryHistory + routes + installN
     expect(navHistory.current()?.placeKey).toBe('taxonomy:saf-desires-001');
     const crumbs = within(screen.getByRole('navigation', { name: 'Breadcrumb' }));
     expect(crumbs.getByText('Keep humans in the loop')).toBeInTheDocument();
-    // § Announcements: the live region names the place after Back.
-    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent('Keep humans in the loop');
+    // § Announcements: the live region names the place after Back. Scoped to .nav-locbar-live
+    // (t/4786: the node is a POV node, so LocationBarShareButton also renders its own
+    // aria-live region for copy feedback — a generic [aria-live] query would hit either one).
+    expect(document.querySelector('.nav-locbar-live')).toHaveTextContent('Keep humans in the loop');
   });
 });
